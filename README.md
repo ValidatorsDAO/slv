@@ -84,7 +84,7 @@ This command will prompt you to provide necessary information to deploy.
 New slv Deployment is always use `unstaked-keypair.json` for the identity key.
 This is the best practice to avoid double voting, and etc.
 
-So Please make sure to set the aurhorized identity key with `slv v set:identity`
+So Please make sure to set the authorized identity key with `slv v set:identity`
 after the deployment.
 
 ### Input Server's Default Username
