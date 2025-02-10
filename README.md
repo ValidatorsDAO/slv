@@ -21,7 +21,7 @@
 ## The Toolkit for Solana Devs
 
 SLV is a toolkit for Solana developers. It provides a set of tools to help
-developers build, test, and deploy Solana Validatros and Solana-based
+developers build, test, and deploy Solana Validators and Solana-based
 applications.
 
 In the newly revamped slv, you can complete all configurations from a remote
@@ -184,7 +184,7 @@ Please input your authority public key. This key is used to withdraw rewards
 from the vote account.
 
 ```bash
-? Please Enter Your Vote Account's Authrority Key › <your-authority-pubkey>
+? Please Enter Your Vote Account's Authority Key › <your-authority-pubkey>
 ✔︎ Validator testnet config saved to ~/.slv/inventory.testnet.validators.yml
 
 Now you can deploy with:
@@ -223,7 +223,7 @@ catch up with the Solana network.
 Next, You need to change the identity key from the unstaked key to the
 authorized identity key.
 
-### If your firedancer deployment freezes during firedancer compile,
+### If your firedancer deployment freezes during firedancer compile
 
 If your Firedancer deployment stops responding during the compile process, it
 may be due to a network issue. To resolve this, please try setting it up again
@@ -263,7 +263,7 @@ Then, the identity key will be changed to the authorized identity key. This
 command will stop firedancer, change the identity key, and restart the
 firedancer.
 
-※ Nodowntime Migration is not available with Firedancer yet. We will updated as
+※ No downtime Migration is not available with Firedancer yet. We will updated as
 soon as it's available.
 
 ### Restart Firedancer
@@ -313,7 +313,7 @@ Commands:
   restart           - Restart validator                                                
   setup:firedancer  - Setup Firedancer Validator                                       
   update:version    - Update Validator Version                                         
-  apply             - Apply Ansiible Playbook                                          
+  apply             - Apply Ansible Playbook                                          
   codebot           - CodeBot Validator Config
 ```
 

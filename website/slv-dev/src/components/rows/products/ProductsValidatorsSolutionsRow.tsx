@@ -7,7 +7,7 @@ import { mainShardGradation } from '@/lib/decoration'
 import { faDiscord } from '@fortawesome/free-brands-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import Image from 'next/image'
-import { ValidatrosSolutionsProductImg } from '@/assets/img'
+import { ValidatorsSolutionsProductImg } from '@/assets/img'
 
 export default function ProductsValidatorsSolutionsRow() {
   const t = useTranslations()
@@ -23,7 +23,7 @@ export default function ProductsValidatorsSolutionsRow() {
             className="hover:opacity-80"
           >
             <Image
-              src={ValidatrosSolutionsProductImg}
+              src={ValidatorsSolutionsProductImg}
               alt="Validators Solutions"
               className="w-full rounded-lg shadow-lg"
               unoptimized

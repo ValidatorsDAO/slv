@@ -97,7 +97,7 @@ import LiquidityPoolOrca from '@/assets/img/page/defi/LiquidityPoolOrca.png'
 
 import ElsolProductImg from '@/assets/img/products/elSOL.jpg'
 import SolvProductImg from '@/assets/img/products/solv.jpg'
-import ValidatrosSolutionsProductImg from '@/assets/img/products/ValidatorsSolutions.jpg'
+import ValidatorsSolutionsProductImg from '@/assets/img/products/ValidatorsSolutions.jpg'
 import ERPCProductImg from '@/assets/img/products/ERPC.jpg'
 import SkeetProductImg from '@/assets/img/products/Skeet.jpg'
 import BuidlersCollectiveImg from '@/assets/img/products/BuidlersCollective.jpg'
@@ -306,7 +306,7 @@ export {
   TokenSwapSanctum,
   ValidatorsDAOLogoHorizontal,
   ValidatorsDAOLogoInvertHorizontal,
-  ValidatrosSolutionsProductImg,
+  ValidatorsSolutionsProductImg,
   VLDAirdropImg,
   VLDAngledLeft,
   VLDAngledRight,

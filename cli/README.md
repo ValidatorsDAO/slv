@@ -3,7 +3,7 @@
 https://storage.slv.dev/SLVogp.jpg
 
 slv is a toolkit for Solana developers. It provides a set of tools to help
-developers build, test, and deploy Solana Validatros and Solana-based
+developers build, test, and deploy Solana Validators and Solana-based
 applications.
 
 ## Installation

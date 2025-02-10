@@ -27,7 +27,7 @@ This command will prompt you to provide necessary information to deploy.
 New SLV Deployment is always use `unstaked-keypair.json` for the identity key.
 This is the best practice to avoid double voting, and etc.
 
-So Please make sure to set the aurhorized identity key with `slv v set:identity`
+So Please make sure to set the authorized identity key with `slv v set:identity`
 after the deployment.
 
 ### Input Server's Default Username
@@ -129,7 +129,7 @@ Please input your authority public key. This key is used to withdraw rewards
 from the vote account.
 
 ```bash
-? Please Enter Your Vote Account's Authrority Key › <your-authority-pubkey>
+? Please Enter Your Vote Account's Authority Key › <your-authority-pubkey>
 ✔︎ Validator testnet config saved to ~/.slv/inventory.testnet.validators.yml
 
 Now you can deploy with:
@@ -182,7 +182,7 @@ Then, the identity key will be changed to the authorized identity key. This
 command will stop firedancer, change the identity key, and restart the
 firedancer.
 
-※ Nodowntime Migration is not available with Firedancer yet. We will updated as
+※ No downtime Migration is not available with Firedancer yet. We will updated as
 soon as it's available.
 
 ### Restart Firedancer

@@ -54,7 +54,7 @@ const genVoteKey = async (identityAccount: string): Promise<{
 
   const authKey = await prompt([{
     name: 'authKey',
-    message: "Please Enter Your Vote Account's Authrority Key",
+    message: "Please Enter Your Vote Account's Authority Key",
     type: Input,
   }])
   const authAccount = authKey.authKey as string

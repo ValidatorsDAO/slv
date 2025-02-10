@@ -120,12 +120,12 @@ slv v init
 
 投票アカウントキーを `~/.slv/keys/<your-vote-account>.json` に配置してください。
 
-### 投票アカウントの Authrority キーを入力
+### 投票アカウントの Authority キーを入力
 
-投票アカウントから報酬を引き出すために使用する Aurhority の PublicKey を入力してください。
+投票アカウントから報酬を引き出すために使用する Authority の PublicKey を入力してください。
 
 ```bash
-? Please Enter Your Vote Account's Authrority Key › <your-authority-pubkey>
+? Please Enter Your Vote Account's Authority Key › <your-authority-pubkey>
 ✔︎ Validator testnet config saved to ~/.slv/inventory.testnet.validators.yml
 
 Now you can deploy with:

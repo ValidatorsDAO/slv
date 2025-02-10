@@ -32,9 +32,9 @@ export const MIRAISE_LINK = 'https://miraise.vc/'
 
 export const SOLANA_VALIDATOR_LINK =
   'https://docs.solanalabs.com/operations/requirements'
-export const JITO_VAILDATOR_LINK = 'https://www.jito.wtf/validators/'
-export const AGAVE_VAILDATOR_LINK = 'https://www.anza.xyz/'
-export const FIREDANCER_VAILDATOR_LINK = 'https://jumpcrypto.com/firedancer/'
+export const JITO_VALIDATOR_LINK = 'https://www.jito.wtf/validators/'
+export const AGAVE_VALIDATOR_LINK = 'https://www.anza.xyz/'
+export const FIREDANCER_VALIDATOR_LINK = 'https://jumpcrypto.com/firedancer/'
 
 export const BUIDLERS_COLLECTIVE_WEB_LINK = 'https://buidlers.epics.dev/'
 export const EPICS_DAO_WEB_LINK = 'https://epics.dev/'
