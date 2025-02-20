@@ -39,7 +39,7 @@ Download WSL2 For Windows 10
 ### Libraries
 
 - Python3 [Install](https://www.python.org/downloads/)
-- Ansible [Install](https://docs.ansible.com/ansible/latest/installation_guide/index.html/)
+- Ansible [Install](https://docs.ansible.com/ansible/latest/installation_guide/index.html)
 
 ## Installation
 
