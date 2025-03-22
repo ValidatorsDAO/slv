@@ -79,30 +79,56 @@
           loop_control:
             label: '{{ item }}'
 
-        - name: Mount /mnt/ledger
-          mount:
-            path: /mnt/ledger
-            src: '/dev/{{ unmounted_disks_output.stdout_lines[0] }}'
-            fstype: ext4
-            state: mounted
-            opts: defaults,noatime
-          when: unmounted_disks_output.stdout_lines | length >= 1
+        - name: Get disk size and UUID
+          shell: |
+            size=$(lsblk -b -nr -o SIZE /dev/{{ item }} | awk '{print int($1 / 1000000000)}')
+            uuid=$(blkid -s UUID -o value /dev/{{ item }})
+            echo "{{ item }} $size $uuid"
+          register: disk_info_raw
+          loop: '{{ unmounted_disks_output.stdout_lines }}'
+          changed_when: false
 
-        - name: Mount /mnt/accounts
-          mount:
-            path: /mnt/accounts
-            src: '/dev/{{ unmounted_disks_output.stdout_lines[1] }}'
-            fstype: ext4
-            state: mounted
-            opts: defaults,noatime
-          when: unmounted_disks_output.stdout_lines | length >= 2
+        - name: Parse disk info into structured list
+          set_fact:
+            eligible_disks: >-
+              {{
+                disk_info_raw.results
+                | map(attribute='stdout')
+                | map('regex_search', '^(\S+) (\d+) (\S+)$')
+                | map('list')
+                | map('combine', [{'name': 0, 'size_gb': 1 | int, 'uuid': 2}])
+                | list
+              }}
 
-        - name: Mount /mnt/snapshot
+        - name: Assign disks to mount points based on size
+          set_fact:
+            mount_map: >-
+              {{
+                dict([
+                  ['/mnt/ledger', eligible_disks | selectattr('size_gb', '>=', 800) | list | first],
+                  ['/mnt/accounts', eligible_disks | selectattr('size_gb', '>=', 800) | list | nth(1)],
+                  ['/mnt/snapshot', eligible_disks
+                                     | rejectattr('uuid', 'equalto', (mount_map["/mnt/ledger"].uuid if mount_map["/mnt/ledger"] is defined else ""))
+                                     | rejectattr('uuid', 'equalto', (mount_map["/mnt/accounts"].uuid if mount_map["/mnt/accounts"] is defined else ""))
+                                     | selectattr('size_gb', '>=', 400)
+                                     | list | first]
+                ] | select('defined') | map('items') | list | flatten(1))
+              }}
+
+        - name: Mount selected disks using UUIDs
           mount:
-            path: /mnt/snapshot
-            src: '/dev/{{ unmounted_disks_output.stdout_lines[2] }}'
+            path: '{{ item.key }}'
+            src: 'UUID={{ item.value.uuid }}'
             fstype: ext4
             state: mounted
             opts: defaults,noatime
-          when: unmounted_disks_output.stdout_lines | length >= 3
+          loop: '{{ mount_map | dict2items }}'
+
+        - name: Add UUID-based entries to /etc/fstab
+          lineinfile:
+            path: /etc/fstab
+            line: 'UUID={{ item.value.uuid }} {{ item.key }} ext4 defaults,noatime 0 0'
+            regexp: '^UUID={{ item.value.uuid }}\s+{{ item.key }}\s+'
+            state: present
+          loop: '{{ mount_map | dict2items }}'
       when: unmounted_disks_output.stdout_lines | length > 0
