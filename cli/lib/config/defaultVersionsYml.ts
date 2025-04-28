@@ -6,6 +6,7 @@ import {
   VERSION_JITO_MAINNET,
   VERSION_JITO_TESTNET,
   VERSION_JUPITER_API,
+  VERSION_RPC_SOLANA_JITO,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
 } from '@cmn/constants/version.ts'
@@ -29,8 +30,8 @@ const defaultVersionsYml = (): string => {
     },
     mainnet_rpcs: {
       solana_cli: 'agave',
-      version_agave: VERSION_SOLANA_MAINNET,
-      version_jito: VERSION_JITO_MAINNET,
+      version_agave: VERSION_RPC_SOLANA_JITO,
+      version_jito: VERSION_RPC_SOLANA_JITO,
       version_firedancer: VERSION_FIREDANCER_MAINNET,
       geyser_version: VERSION_GEYSER_YELLOWSTONE,
       x_token: '',
