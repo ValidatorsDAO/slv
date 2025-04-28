@@ -1,0 +1,32 @@
+---
+- name: Deploy start-validator script dynamically
+  hosts: all
+  become: true
+  vars_files:
+    - ~/.slv/versions.yml
+  tasks:
+    - name: Ensure /home/solv exists
+      file:
+        path: /home/solv
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    - name: Generate start-validator.sh from template
+      template:
+        src: ~/.slv/mainnet-rpc/start-mainnet-rpc.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
+        port_rpc: "{{ mainnet_rpcs.port_rpc }}"
+        limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
+
+    # Make sure if solv user has permission for /mnt directory
+    - name: Ensure /mnt directory belongs to solv
+      shell: chown -R solv:solv /mnt
+      become: true
+      become_user: root
