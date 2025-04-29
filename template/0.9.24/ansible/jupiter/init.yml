@@ -1,0 +1,4 @@
+---
+- import_playbook: ../cmn/optimize_system.yml
+- import_playbook: setup_ufw_jupiter_api.yml
+- import_playbook: setup_jupiter_api.yml

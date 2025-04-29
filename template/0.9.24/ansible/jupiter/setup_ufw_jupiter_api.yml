@@ -1,0 +1,46 @@
+---
+- name: Migrate from nftables back to UFW
+  hosts: all
+  become: yes
+  vars_files:
+    - ~/.slv/versions.yml
+  tasks:
+    - name: Ensure UFW is installed
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+
+    - name: Enable UFW and set default policies
+      ufw:
+        state: enabled
+        direction: incoming
+        policy: deny
+
+    - name: Allow SSH only from allowed_ssh_ips
+      ufw:
+        rule: allow
+        port: 22
+        proto: tcp
+        src: "{{ item }}"
+      loop: "{{ jupiter.allowed_ssh_ips }}"
+      when: jupiter.allowed_ssh_ips is defined
+
+    - name: Allow SSH from all IPs
+      ufw:
+        rule: allow
+        port: 22
+        proto: tcp
+      when: jupiter.allowed_ssh_ips is not defined
+
+    - name: Allow Jupiter API port TCP
+      ufw:
+        rule: allow
+        port: '{{ hostvars[inventory_hostname].port }}'
+        proto: tcp
+        from_ip: '{{ item }}'
+      loop: "{{ jupiter.allowed_ips }}"
+      when: jupiter.allowed_ips is defined
+
+    - name: Reload UFW to apply all rules
+      command: ufw reload

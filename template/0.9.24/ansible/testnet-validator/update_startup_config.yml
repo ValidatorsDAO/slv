@@ -1,0 +1,38 @@
+---
+- name: Update Startup Validator Config
+  hosts: all
+  become: true
+  tasks:
+    - name: Set validator type fact for each host
+      set_fact:
+        validator_type: "{{ validator_type | default('agave') }}"
+
+    - name: Updatge start-validator.sh from template
+      template:
+        src: ~/.slv/testnet-validator/start-validator.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+      when: validator_type == 'agave'
+
+    - name: Update firedancer-config.toml from template
+      template:
+        src: ~/.slv/testnet-validator/firedancer-config.toml.j2
+        dest: /home/solv/firedancer-config.toml
+        owner: solv
+        group: solv
+        mode: "0644"
+      vars:
+        block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
+        vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
+        commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
+      when: validator_type == 'firedancer'
+
+    # Make sure if solv user has permission for /mnt directory
+    - name: Ensure /mnt directory belongs to solv
+      shell: chown -R solv:solv /mnt
+      become: true
+      become_user: root

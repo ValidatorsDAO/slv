@@ -1,0 +1,10 @@
+---
+- name: Set Authoried Key to Identity
+  hosts: all
+  become: true
+  become_user: solv
+  tasks:
+    - name: Change Symbolic Link to Authoried Identity
+      shell: ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json
+      become: true
+      become_user: solv
