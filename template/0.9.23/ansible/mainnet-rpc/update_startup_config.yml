@@ -5,17 +5,22 @@
   vars_files:
     - ~/.slv/versions.yml
   tasks:
-    - name: Ensure /home/solv exists
-      file:
-        path: /home/solv
-        state: directory
-        owner: solv
-        group: solv
-        mode: "0755"
+    - name: Set RPC type fact for each host
+      set_fact:
+        rpc_type: "{{ rpc_type | default('Geyser gRPC') }}"
+    
+    - name: Debug RPC type. Stop if not set
+      debug:
+        msg: "RPC type is {{ rpc_type }}"
 
-    - name: Generate start-validator.sh from template
+    - name: Fail if RPC type is not set
+      fail:
+        msg: "RPC type is not set. Please set it in the inventory."
+      when: rpc_type is not defined
+
+    - name: Generate start-validator.sh from template for Geyser gRPC
       template:
-        src: ~/.slv/mainnet-rpc/start-mainnet-rpc.sh.j2
+        src: ~/.slv/mainnet-rpc/start-mainnet-rpc-grpc.sh.j2
         dest: /home/solv/start-validator.sh
         mode: "0755"
         owner: solv
@@ -24,6 +29,33 @@
         shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
         port_rpc: "{{ mainnet_rpcs.port_rpc }}"
         limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
+      when: rpc_type == 'Geyser gRPC'
+
+    - name: Generate start-validator.sh from template for Index RPC
+      template:
+        src: ~/.slv/mainnet-rpc/start-mainnet-rpc-index.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
+        port_rpc: "{{ mainnet_rpcs.port_rpc }}"
+        limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
+      when: rpc_type == 'Index RPC'
+
+    - name: Generate start-validator.sh from template for SendTx RPC
+      template:
+        src: ~/.slv/mainnet-rpc/start-mainnet-rpc-sendtx.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
+        port_rpc: "{{ mainnet_rpcs.port_rpc }}"
+        limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
+      when: rpc_type == 'SendTx RPC'
 
     # Make sure if solv user has permission for /mnt directory
     - name: Ensure /mnt directory belongs to solv

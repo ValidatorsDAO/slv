@@ -14,13 +14,13 @@ import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import { app } from '/src/validator/api/index.ts'
 
 export const validatorCmd = new Command()
-  .description('Manage Solana Validator Nodes')
+  .description('🛠️ Manage Solana Validator Nodes 🛠️')
   .action(() => {
     validatorCmd.showHelp()
   })
 
 validatorCmd.command('init')
-  .description('🚀 Initialize a new validator')
+  .description('🚀 Initialize a new validator configuration')
   .action(async () => {
     await init()
   })
@@ -372,7 +372,7 @@ validatorCmd.command('switch')
       const fromValidator = await prompt([
         {
           name: 'from',
-          message: 'From Validator Identity',
+          message: 'From Validator Name',
           type: Input,
         },
       ])
@@ -382,7 +382,7 @@ validatorCmd.command('switch')
       const toValidator = await prompt([
         {
           name: 'to',
-          message: 'To Validator Identity',
+          message: 'To Validator Name',
           type: Input,
         },
       ])

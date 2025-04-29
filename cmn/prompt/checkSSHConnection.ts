@@ -13,7 +13,7 @@ export const checkSSHConnection = async () => {
     name: 'username',
     message: "What's the user for the server?",
     type: Input,
-    default: 'ubuntu',
+    default: 'root',
     suggestions: ['ubuntu', 'root'],
   }, {
     name: 'ip',

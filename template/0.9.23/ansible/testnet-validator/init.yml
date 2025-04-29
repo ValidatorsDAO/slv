@@ -28,6 +28,8 @@
 - import_playbook: ../cmn/install_package.yml
   when: validator_type in ['agave', 'firedancer']
 
+- import_playbook: ../cmn/setup_node_exporter.yml
+
 - import_playbook: ../cmn/setup_ufw.yml
   when: validator_type in ['firedancer']
 

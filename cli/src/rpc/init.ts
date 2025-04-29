@@ -40,6 +40,7 @@ const init = async () => {
       `cp -r ${configRoot}/template/${denoJson.version}/jinja/mainnet-validator ${configRoot}`,
     )
   }
+  const currentVersion = await genOrReadVersions()
   const hasBareMetal = await prompt([{
     name: 'bareMetal',
     message: '🛡️ Do you have a Solana Node Compatabile Server?',
@@ -50,7 +51,7 @@ const init = async () => {
   if (hasBareMetal.bareMetal === 'no') {
     console.log(
       colors.red(
-        '⚠️ You need a Solana Node Compatabile High Performance Server to Run a Validator',
+        '⚠️ You need a Solana Node Compatabile High Performance Server to Run a RPC Node',
       ),
     )
     console.log(colors.green('🟢 You can get one from the following list:'))
@@ -69,7 +70,7 @@ const init = async () => {
   const rpcTypes = await prompt([
     {
       name: 'validatorType',
-      message: 'Select Validator Type',
+      message: 'Select Solana CLI',
       type: Select,
       options: ['jito'],
       default: 'jito',
@@ -84,7 +85,7 @@ const init = async () => {
       name: 'port_rpc',
       message: 'Select Solana RPC port',
       type: Number,
-      default: 8899,
+      default: currentVersion.mainnet_rpcs.port_rpc,
     },
     {
       name: 'rpc_type',
@@ -92,7 +93,7 @@ const init = async () => {
       type: Select,
       options: RPC_TYPE,
       after: async ({ rpc_type }, next) => {
-        if (rpc_type === 'geyser-yellowstone') {
+        if (rpc_type === 'Geyser gRPC') {
           await next()
         }
       },
@@ -101,13 +102,13 @@ const init = async () => {
       name: 'port_grpc',
       message: 'Select Solana gRPC port',
       type: Number,
-      default: 10000,
+      default: currentVersion.mainnet_rpcs.port_grpc,
     },
     {
       name: 'x_token',
       message: 'Please enter your x_token',
       type: Input,
-      default: 'xToken',
+      default: currentVersion.mainnet_rpcs.x_token,
     },
   ])
 
@@ -120,7 +121,7 @@ const init = async () => {
     rpc_type: rpcTypes.rpc_type as RpcType,
     region: rpcTypes.blockEngineRegion!,
     snapshot_url: '',
-    limit_ledger_size: 200000000,
+    limit_ledger_size: 100000000,
     shredstream_address: SHREDSTREAM_ADDRESS[
       rpcTypes.blockEngineRegion as keyof typeof SHREDSTREAM_ADDRESS
     ],

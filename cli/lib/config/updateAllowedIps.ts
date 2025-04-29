@@ -10,8 +10,8 @@ import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
  */
 export type VersionSection =
   | 'mainnet_validators'
+  | 'testnet_validators'
   | 'mainnet_rpcs'
-  | 'jupiter'
 
 /**
  * Updates the allowed IPs in versions.yml

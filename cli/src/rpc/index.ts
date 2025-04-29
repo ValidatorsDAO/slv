@@ -11,22 +11,25 @@ import { runAnsilbe } from '/lib/runAnsible.ts'
 
 // rpc Command
 export const rpcCmd = new Command()
-  .description('Manage Solana RPC Nodes')
+  .description('🛠️ Manage Solana RPC Nodes 🛠️')
   .action(() => {
     rpcCmd.showHelp()
   })
 
 rpcCmd.command('init')
-  .description('Initialize a new RPC node configuration')
+  .description('🚀 Initialize a new RPC node configuration')
   .action(async () => {
     await init()
   })
 
 rpcCmd.command('deploy')
-  .description('Deploy a new RPC node')
+  .description('📦 Deploy RPC Nodes')
   .option(
     '-n, --network <network>',
     'Network to deploy RPC node on (mainnet/testnet)',
+    {
+      default: 'mainnet',
+    }
   )
   .option('-p, --pubkey <pubkey>', 'Deploy RPC node for a specific pubkey')
   .action(async (options) => {
@@ -42,32 +45,22 @@ rpcCmd.command('deploy')
     }
   })
 
-rpcCmd.command('restart')
-  .description('Restart RPC Node')
-  .option('-n, --network <network>', 'Network to deploy validators', {
+rpcCmd.command('list')
+  .description('📋 List RPC Nodes')
+  .option('-n, --network <network:string>', 'Network type (mainnet/testnet)', {
     default: 'mainnet',
   })
-  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .option('-i, --identity <identity:string>', 'Filter by identity key')
   .action(async (options) => {
-    const inventoryType: InventoryType = 'mainnet_rpcs'
-    const templateRoot = getTemplatePath()
-
-    const playbook = `${templateRoot}/ansible/mainnet-rpc/restart_node.yml`
-    const result = options.pubkey
-      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
-      : await runAnsilbe(playbook, inventoryType)
-    if (result) {
-      console.log(colors.white('✅ Successfully Restarted Validator'))
-      return
-    }
+    await listRPCs(options.network as 'mainnet' | 'testnet', options.identity)
   })
 
 rpcCmd.command('update:version')
-  .description('Update RPC Version')
+  .description('⬆️ Update RPC Version')
   .option('-c, --config-only', 'Update only the config file', {
     default: false,
   })
-  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .option('-n, --network <network>', 'Network to deploy validators', {
     default: 'mainnet',
   })
@@ -89,8 +82,8 @@ rpcCmd.command('update:version')
   })
 
 rpcCmd.command('update:script')
-  .description('Update Validator Startup Config')
-  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .description('⚙️ Update RPC Startup Config')
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .option('-n, --network <network>', 'Network to deploy validators', {
     default: 'mainnet',
   })
@@ -106,18 +99,115 @@ rpcCmd.command('update:script')
     await runAnsilbe(playbook, inventoryType, options.pubkey)
   })
 
-rpcCmd.command('update:allowed-ips')
-  .description('Update allowed IPs for mainnet RPC nodes')
-  .action(async () => {
-    await updateAllowedIps('mainnet_rpcs')
-  })
 
-rpcCmd.command('list')
-  .description('List all RPC nodes')
-  .option('-n, --network <network:string>', 'Network type (mainnet/testnet)', {
+  rpcCmd.command('start')
+  .description('🟢 Start RPC')
+  .option('-n, --network <network>', 'Solana Network', {
     default: 'mainnet',
   })
-  .option('-i, --identity <identity:string>', 'Filter by identity key')
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .action(async (options) => {
-    await listRPCs(options.network as 'mainnet' | 'testnet', options.identity)
+    // const network = options.network
+    const inventoryType: InventoryType = 'mainnet_rpcs'
+    const networkPath = 'mainnet-rpc'
+    const templateRoot = getTemplatePath()
+    const playbook = `${templateRoot}/ansible/${networkPath}/start_node.yml`
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Started RPC'))
+      return
+    }
+  })
+
+rpcCmd.command('stop')
+  .description('🔴 Stop RPC')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'mainnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
+  .action(async (options) => {
+    const inventoryType: InventoryType = 'mainnet_rpcs'
+    const networkPath = 'mainnet-rpc'
+    const templateRoot = getTemplatePath()
+    const playbook = `${templateRoot}/ansible/${networkPath}/stop_node.yml`
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Stopped RPC'))
+      return
+    }
+  })
+
+rpcCmd.command('restart')
+  .description('♻️ Restart RPC')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'mainnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
+  .action(async (options) => {
+    const inventoryType: InventoryType = 'mainnet_rpcs'
+    const networkPath = 'mainnet-rpc'
+    const templateRoot = getTemplatePath()
+    if (options.network === 'mainnet') {
+      const playbook =
+        `${templateRoot}/ansible/${networkPath}/restart_node.yml`
+      const result = options.pubkey
+        ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+        : await runAnsilbe(playbook, inventoryType)
+      if (result) {
+        console.log(colors.white('✅ Successfully Restarted RPC'))
+        return
+      }
+    }
+  })
+
+rpcCmd.command('cleanup')
+  .description(
+    '🧹 Cleanup RPC - Remove Ledger/Snapshot Unnecessary Files',
+  )
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'mainnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
+  .action(async (options) => {
+    const inventoryType: InventoryType = 'mainnet_rpcs'
+    const templateRoot = getTemplatePath()
+    const playbook = `${templateRoot}/ansible/cmn/rm_ledger.yml`
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Cleaned Up RPC'))
+      return
+    }
+  })
+
+rpcCmd.command('get:snapshot')
+  .description('⚡️ Download Snapshot with aria2c ⚡️')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'mainnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
+  .action(async (options) => {
+    const inventoryType: InventoryType = 'mainnet_rpcs'
+    const networkPath = 'mainnet-rpc'
+    const templateRoot = getTemplatePath()
+    const playbook = `${templateRoot}/ansible/${networkPath}/wget_snapshot.yml`
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Downloaded Snapshot'))
+      return
+    }
+  })
+
+
+rpcCmd.command('update:allowed-ips')
+  .description('🛡️ Update allowed IPs for mainnet RPC nodes')
+  .action(async () => {
+    await updateAllowedIps('mainnet_rpcs')
   })

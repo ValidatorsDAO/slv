@@ -1,7 +1,7 @@
 export type KeyDirType = 'rpc' | 'validator' | 'relayer' | 'shreadstream'
 
 export type NetworkType = 'mainnet' | 'testnet'
-export type RpcType = 'minimal' | 'geyser-yellowstone'
+export type RpcType = 'Geyser gRPC' | 'Index RPC' | 'SendTx RPC'
 export type ValidatorTestnetType = 'firedancer' | 'agave'
 export type ValidatorMainnetType = 'jito' | 'firedancer'
 export type InventoryType = 'testnet_validators' | 'mainnet_validators' | 'mainnet_rpcs'
@@ -37,21 +37,15 @@ export interface RpcData {
   hosts: Record<string, RpcConfig>
 }
 
-export interface JupiterData {
-  hosts: Record<string, JupiterConfig>
-}
-
 export type Inventory = Record<'testnet_validators', TestnetData>
 export type InventoryMainnet = Record<'mainnet_validators', MainnetData>
 export type InventoryRelayer = Record<'relayer', RelayerData>
 export type InventoryRPC = Record<'mainnet_rpcs', RpcData>
-export type InventoryJupiter = Record<'jupiter', JupiterData>
 
 export interface CmnType {
   mainnet_validators: CmnMainnetValidatorType
   testnet_validators: CmnTestnetValidatorType
   mainnet_rpcs: CmnMainnetRpcType
-  jupiter: CmnJupiterType
 }
 
 export interface CmnTestnetValidatorType {
@@ -60,6 +54,7 @@ export interface CmnTestnetValidatorType {
   version_jito: string
   version_agave: string
   allowed_ssh_ips: string[]
+  allowed_ips: string[]
 }
 
 export interface CmnMainnetValidatorType {
@@ -101,17 +96,6 @@ export interface RpcConfig {
   snapshot_url: string
   limit_ledger_size: number
   shredstream_address: string
-}
-
-export interface JupiterConfig {
-  ansible_host: string
-  ansible_user: string
-  ansible_ssh_private_key_file: string
-  name: string
-  rpc_url: string
-  grpc_url: string
-  x_token: string
-  port: number
 }
 
 export interface ValidatorMainnetConfig {

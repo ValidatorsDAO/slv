@@ -9,7 +9,7 @@ import type { RpcConfig, RpcType } from '@cmn/types/config.ts'
 const addMainnetRPCInventory = async (
   identityAccount: string,
   sshConnection: SSHConnection,
-  rpcType: RpcType = 'minimal',
+  rpcType: RpcType = 'Geyser gRPC',
   region: string = 'amsterdam',
   snapshotUrl: string = '',
 ) => {
@@ -56,7 +56,7 @@ const addMainnetRPCInventory = async (
       region: region,
       rpc_type: rpcType,
       snapshot_url: snapshotUrl,
-      limit_ledger_size: 200000000,
+      limit_ledger_size: 100000000,
       shredstream_address: '',
     } as RpcConfig
 

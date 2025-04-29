@@ -12,7 +12,6 @@ export type VersionSection =
   | 'mainnet_validators'
   | 'testnet_validators'
   | 'mainnet_rpcs'
-  | 'jupiter'
 
 /**
  * Updates the allowed SSH IPs in versions.yml

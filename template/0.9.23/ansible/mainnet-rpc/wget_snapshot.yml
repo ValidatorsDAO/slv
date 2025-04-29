@@ -12,3 +12,5 @@
       args:
         chdir: /mnt/snapshot
         executable: /bin/bash
+      async: 3600
+      poll: 10

@@ -1,7 +1,0 @@
----
-- import_playbook: ../cmn/optimize_system.yml
-- import_playbook: copy_keys.yml
-- import_playbook: ../cmn/install_package.yml
-- import_playbook: setup_ufw.yml
-- import_playbook: install_rust.yml
-- import_playbook: setup_relayer.yml

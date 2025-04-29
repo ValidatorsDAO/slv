@@ -92,6 +92,11 @@ install_slv() {
 
 # Install the gRPC test binary
 install_grpc_test() {
+  # Check if the gRPC test binary is already installed
+  if [ -f "$HOME/.slv/bin/grpc_test" ]; then
+    echo "gRPC test binary already installed!"
+    return
+  fi
   # Download the appropriate gRPC test binary based on the platform
   echo "Downloading gRPC test binary for $osfamily..."
   mkdir -p "$HOME/.slv/bin"
@@ -134,7 +139,7 @@ main() {
   install_grpc_test
   
   # Clean up
-  echo "Cleaning up..."
+  echo "✨ Cleaning up..."
   rm -rf "$TEMP_DIR"
   rm -f "$HOME/.slv/template.tar.gz"
   
@@ -145,7 +150,7 @@ main() {
   fi
   
   # Optional: Test the installed 'slv'
-  echo "Testing slv installation..."
+  echo "Testing slv installation... 🔨"
   slv -P || true
   
   echo "You can now use 'slv check grpc' to run gRPC latency tests:"

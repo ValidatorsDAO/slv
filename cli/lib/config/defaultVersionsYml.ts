@@ -5,7 +5,6 @@ import {
   VERSION_GEYSER_YELLOWSTONE,
   VERSION_JITO_MAINNET,
   VERSION_JITO_TESTNET,
-  VERSION_JUPITER_API,
   VERSION_RPC_SOLANA_JITO,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
@@ -27,6 +26,7 @@ const defaultVersionsYml = (): string => {
       version_jito: VERSION_JITO_TESTNET,
       version_firedancer: VERSION_FIREDANCER_TESTNET,
       allowed_ssh_ips: [],
+      allowed_ips: [],
     },
     mainnet_rpcs: {
       solana_cli: 'agave',
@@ -37,11 +37,6 @@ const defaultVersionsYml = (): string => {
       x_token: '',
       port_rpc: 8899,
       port_grpc: 10000,
-      allowed_ssh_ips: [],
-      allowed_ips: [],
-    },
-    jupiter: {
-      api_version: VERSION_JUPITER_API,
       allowed_ssh_ips: [],
       allowed_ips: [],
     },
@@ -61,6 +56,7 @@ testnet_validators:
   version_jito: ${defaultVersions.testnet_validators.version_jito}
   version_firedancer: ${defaultVersions.testnet_validators.version_firedancer}
   allowed_ssh_ips: null
+  allowed_ips: null
 
 mainnet_rpcs:
   solana_cli: ${defaultVersions.mainnet_rpcs.solana_cli}
@@ -71,11 +67,6 @@ mainnet_rpcs:
   x_token: ""
   port_rpc: ${defaultVersions.mainnet_rpcs.port_rpc}
   port_grpc: ${defaultVersions.mainnet_rpcs.port_grpc}
-  allowed_ssh_ips: null
-  allowed_ips: null
-
-jupiter:
-  api_version: ${defaultVersions.jupiter.api_version}
   allowed_ssh_ips: null
   allowed_ips: null
 `

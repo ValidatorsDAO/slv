@@ -29,6 +29,8 @@
 - import_playbook: ../cmn/install_package.yml
   when: validator_type in ['jito', 'firedancer']
 
+- import_playbook: ../cmn/setup_node_exporter.yml
+
 - import_playbook: ../cmn/update_ubuntu.yml
   when: validator_type in ['jito', 'firedancer']
 

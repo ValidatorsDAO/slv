@@ -12,11 +12,6 @@
     ".husky/check-solana-keys.ts"
   ],
   "deno.config": "./deno.json",
-  "[typescript]": {
-    "deno.config": {
-      "./cli/**/*": "./cli/deno.jsonc"
-    }
-  },
   "deno.suggest.imports.hosts": {
     "https://deno.land": true
   },

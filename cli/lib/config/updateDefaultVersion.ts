@@ -3,6 +3,7 @@ import {
   VERSION_FIREDANCER_TESTNET,
   VERSION_GEYSER_YELLOWSTONE,
   VERSION_JITO_MAINNET,
+  VERSION_RPC_SOLANA_JITO,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
 } from '@cmn/constants/version.ts'
@@ -71,8 +72,8 @@ export const updateDefaultVersion = async () => {
   currentVersion.testnet_validators.version_agave = VERSION_SOLANA_TESTNET
   currentVersion.testnet_validators.version_firedancer =
     VERSION_FIREDANCER_TESTNET
-  currentVersion.mainnet_rpcs.version_agave = VERSION_SOLANA_MAINNET
-  currentVersion.mainnet_rpcs.version_jito = VERSION_JITO_MAINNET
+  currentVersion.mainnet_rpcs.version_agave = VERSION_RPC_SOLANA_JITO
+  currentVersion.mainnet_rpcs.version_jito = VERSION_RPC_SOLANA_JITO
   currentVersion.mainnet_rpcs.version_firedancer = VERSION_FIREDANCER_MAINNET
   currentVersion.mainnet_rpcs.geyser_version = VERSION_GEYSER_YELLOWSTONE
 

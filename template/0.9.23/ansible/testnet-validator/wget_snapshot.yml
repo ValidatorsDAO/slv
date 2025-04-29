@@ -11,9 +11,8 @@
       args:
         chdir: /mnt/snapshot
         executable: /bin/bash
-      async: 900 # wait for 15 minutes
-      poll: 15 # check every 15 seconds
       register: snapshot_result
       until: snapshot_result.rc == 0
       retries: 3
-      delay: 10
+      async: 3600
+      poll: 10
