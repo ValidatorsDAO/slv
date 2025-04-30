@@ -65,8 +65,8 @@ rpcCmd.command('update:version')
     default: 'mainnet',
   })
   .action(async (options) => {
-    await updateDefaultVersion()
     if (options.configOnly) {
+      await updateDefaultVersion()
       return
     }
     const inventoryType: InventoryType = 'mainnet_rpcs'
@@ -92,6 +92,24 @@ rpcCmd.command('update:script')
     const templateRoot = getTemplatePath()
     const playbook =
       `${templateRoot}/ansible/mainnet-rpc/update_startup_config.yml`
+    if (options.pubkey) {
+      await runAnsilbe(playbook, inventoryType, options.pubkey)
+      return
+    }
+    await runAnsilbe(playbook, inventoryType, options.pubkey)
+  })
+
+  rpcCmd.command('update:geyser')
+  .description('⚡️ Update Geyser Version')
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
+  .option('-n, --network <network>', 'Network to deploy validators', {
+    default: 'mainnet',
+  })
+  .action(async (options) => {
+    const inventoryType = 'mainnet_rpcs'
+    const templateRoot = getTemplatePath()
+    const playbook =
+      `${templateRoot}/ansible/mainnet-rpc/geyser_build.yml`
     if (options.pubkey) {
       await runAnsilbe(playbook, inventoryType, options.pubkey)
       return
@@ -186,7 +204,7 @@ rpcCmd.command('cleanup')
   })
 
 rpcCmd.command('get:snapshot')
-  .description('⚡️ Download Snapshot with aria2c ⚡️')
+  .description('🔥 Download Snapshot with aria2c')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'mainnet',
   })

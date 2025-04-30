@@ -30,9 +30,3 @@
         vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
         commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
       when: validator_type == 'firedancer'
-
-    # Make sure if solv user has permission for /mnt directory
-    - name: Ensure /mnt directory belongs to solv
-      shell: chown -R solv:solv /mnt
-      become: true
-      become_user: root

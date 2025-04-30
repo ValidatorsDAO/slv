@@ -56,9 +56,3 @@
         port_rpc: "{{ mainnet_rpcs.port_rpc }}"
         limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
       when: rpc_type == 'SendTx RPC'
-
-    # Make sure if solv user has permission for /mnt directory
-    - name: Ensure /mnt directory belongs to solv
-      shell: chown -R solv:solv /mnt
-      become: true
-      become_user: root
