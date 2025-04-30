@@ -1,16 +1,19 @@
-import { Hono } from '@hono/hono'
-import { getInventoryPath } from '@cmn/constants/path.ts'
-import { parse } from '@std/yaml'
-import type { InventoryTestnetValidatorType } from '@cmn/types/config.ts'
-import { VERSIONS_PATH } from '@cmn/constants/path.ts'
-import type { CmnType } from '@cmn/types/config.ts'
-import { inventoryRouter } from '/src/validator/api/route/inventory/index.ts'
+import { OpenAPIHono } from '@hono/zod-openapi'
+import { swaggerUI } from '@hono/swagger-ui'
+import { inventoryRouter } from '/src/server/api/route/inventory/index.ts'
 
 export type CustomContext = {}
 
-const app = new Hono<{
+export type Env = {
+  NODE_ENV: string
+}
+
+
+export const app = new OpenAPIHono<{
   Variables: CustomContext
+  Bindings: Env
 }>()
+
 
 app.use('*', async (c, next) => {
   try {
@@ -28,6 +31,21 @@ app.use('*', async (c, next) => {
   }
 })
 
+// Return ok for /favicon.ico
+app.get('/favicon.ico', (c) => {
+  return c.json({ message: 'favicon' })
+})
+app.doc('/doc', {
+  openapi: '3.1.0',
+  info: {
+    version: '1.0.0',
+    title: 'SLV API',
+    description: 'SLV API Documentation',
+  },
+})
+
+app.get('/ui', swaggerUI({ url: '/doc' }))
+
 app.route('/inventory', inventoryRouter)
 
-export { app }
+export default app

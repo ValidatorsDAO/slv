@@ -1,4 +1,4 @@
-import { Hono } from '@hono/hono'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { getInventoryPath } from '@cmn/constants/path.ts'
 import { parse } from '@std/yaml'
 import type {
@@ -9,13 +9,18 @@ import type {
 } from '@cmn/types/config.ts'
 import { API_KEY_YML_PATH, VERSIONS_PATH } from '@cmn/constants/path.ts'
 import type { CmnType } from '@cmn/types/config.ts'
-import type { CustomContext } from '/src/validator/api/index.ts'
+import type { CustomContext } from '/src/server/api/index.ts'
+import { getTestnetValidatorRouter } from '/src/server/api/route/inventory/getTestnetValidatorRouter.ts'
+import { getVersionsRouter } from '/src/server/api/route/inventory/getVersionsRouter.ts'
+import { getMainnetRPCRouter } from '/src/server/api/route/inventory/getMainnetRPCRouter.ts'
+import { getMainnetValidatorRouter } from '/src/server/api/route/inventory/getMainnetValidatorRouter.ts'
+import { getAPIKeyRouter } from '/src/server/api/route/inventory/getAPIKeyRouter.ts'
 
-const inventoryRouter = new Hono<{
+const inventoryRouter = new OpenAPIHono<{
   Variables: CustomContext
 }>()
 
-inventoryRouter.get('/versions', async (c) => {
+inventoryRouter.openapi(getVersionsRouter, async (c) => {
   try {
     const versionData = await Deno.readTextFile(VERSIONS_PATH)
     const versions = parse(versionData) as CmnType
@@ -32,7 +37,7 @@ inventoryRouter.get('/versions', async (c) => {
   }
 })
 
-inventoryRouter.get('/testnet-validators', async (c) => {
+inventoryRouter.openapi(getTestnetValidatorRouter, async (c) => {
   const inventoryTestnetValidatorPath = getInventoryPath('testnet_validators')
   const inventoryYml = await Deno.readTextFile(inventoryTestnetValidatorPath)
   const inventory = parse(inventoryYml) as InventoryTestnetValidatorType
@@ -43,7 +48,7 @@ inventoryRouter.get('/testnet-validators', async (c) => {
   })
 })
 
-inventoryRouter.get('/mainnet-validators', async (c) => {
+inventoryRouter.openapi(getMainnetValidatorRouter, async (c) => {
   const inventoryMainnetValidatorPath = getInventoryPath('mainnet_validators')
   const inventoryYml = await Deno.readTextFile(inventoryMainnetValidatorPath)
   const inventory = parse(inventoryYml) as InventoryMainnet
@@ -54,7 +59,7 @@ inventoryRouter.get('/mainnet-validators', async (c) => {
   })
 })
 
-inventoryRouter.get('/mainnet-rpcs', async (c) => {
+inventoryRouter.openapi(getMainnetRPCRouter, async (c) => {
   const inventoryMainnetRPCPath = getInventoryPath('mainnet_rpcs')
   const inventoryYml = await Deno.readTextFile(inventoryMainnetRPCPath)
   const inventory = parse(inventoryYml) as InventoryRPC
@@ -65,7 +70,7 @@ inventoryRouter.get('/mainnet-rpcs', async (c) => {
   })
 })
 
-inventoryRouter.get('/api-key', async (c) => {
+inventoryRouter.openapi(getAPIKeyRouter, async (c) => {
   const apiKeyYml = await Deno.readTextFile(API_KEY_YML_PATH)
   const apiKey = parse(apiKeyYml) as {
     slv: {
