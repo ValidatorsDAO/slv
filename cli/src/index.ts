@@ -12,6 +12,7 @@ import { checkCmd } from '@/check/index.ts'
 import { installClientMessage, slvAA } from '/lib/slvAA.ts'
 import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
+import { serverCmd } from '/src/server/index.ts'
 
 const program = new Command()
   .name('slv')
@@ -51,7 +52,6 @@ program
 
 program
   .command('swap', swapCmd)
-  .alias('s')
 
 program
   .command('metal', metalCmd)
@@ -65,5 +65,10 @@ program
 
 program
   .command('check', checkCmd)
+
+program
+  .command('server', serverCmd)
+  .alias('s')
+  .description('🔮 Open SLV UI')
 
 await program.parse(Deno.args)

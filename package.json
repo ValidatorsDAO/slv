@@ -6,6 +6,10 @@
     "prepare": "husky",
     "web-ssg:dev": "pnpm -F slv-frontend-template-web-ssg -F slv-cf-workers-template-contact-email run dev"
   },
+  "dependencies": {
+    "@hono/swagger-ui": "^0.5.1",
+    "@hono/zod-openapi": "^0.19.6"
+  },
   "devDependencies": {
     "husky": "9.0.11",
     "prettier": "3.2.5",

@@ -11,7 +11,6 @@ import { switchValidator } from '/src/validator/switch/switchValidator.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
 import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
-import { app } from '/src/validator/api/index.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -420,11 +419,4 @@ validatorCmd.command('switch')
       console.log(colors.white('✅ Successfully Switched Validator Identity'))
       return
     }
-  })
-
-validatorCmd.command('run:api')
-  .description('🚀 Run Validator API')
-  .action(() => {
-    const port = Number(Deno.env.get('PORT')) || 2010
-    Deno.serve({ port }, app.fetch)
   })
