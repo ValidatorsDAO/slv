@@ -1,6 +1,7 @@
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { swaggerUI } from '@hono/swagger-ui'
 import { inventoryRouter } from '/src/server/api/route/inventory/index.ts'
+import { ansibleRouter } from '/src/server/api/route/ansible/index.ts'
 
 export type CustomContext = {}
 
@@ -47,5 +48,6 @@ app.doc('/doc', {
 app.get('/ui', swaggerUI({ url: '/doc' }))
 
 app.route('/inventory', inventoryRouter)
+app.route('/ansible', ansibleRouter)
 
 export default app
