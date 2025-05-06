@@ -1,7 +1,7 @@
 'use client'
 
 import LogoHorizontalLink from '@/components/common/LogoHorizontalLink'
-import { DiscordIconLink } from '@/components/common/icons'
+import { DiscordIconLink, GitHubLink } from '@/components/common/icons'
 import DefaultModalNav from './DefaultModalNav'
 import { defaultHeaderNav } from './defaultNavs'
 import { Link, usePathname } from '@/i18n/routing'
@@ -48,6 +48,7 @@ export default function DefaultHeader() {
             <div className="hidden items-center gap-4 lg:flex lg:flex-row">
               <LanguageToggle />
               <DiscordIconLink />
+              <GitHubLink />
             </div>
           </div>
         </div>
