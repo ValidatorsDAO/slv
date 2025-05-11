@@ -34,6 +34,10 @@
         "quickstart": "クイックスタート",
         "test": "gRPC レイテンシーテスト"
       },
+      "shredstream": {
+        "title": "Shredstream",
+        "test": "接続テスト"
+      },
       "app": {
         "title": "App",
         "solana-dapp": "Solana dApp",
