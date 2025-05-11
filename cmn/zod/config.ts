@@ -5,6 +5,7 @@ extendZodWithOpenApi(z)
 export const KeyDirTypeSchema = z.enum(['rpc', 'validator', 'relayer', 'shreadstream'])
 export const NetworkTypeSchema = z.enum(['mainnet', 'testnet'])
 export const RpcTypeSchema = z.enum(['Geyser gRPC', 'Index RPC', 'SendTx RPC'])
+export const RpcTypeArray = RpcTypeSchema.options
 export const ValidatorTestnetTypeSchema = z.enum(['firedancer', 'agave'])
 export const ValidatorMainnetTypeSchema = z.enum(['jito', 'firedancer'])
 export const InventoryTypeSchema = z.enum(['testnet_validators', 'mainnet_validators', 'mainnet_rpcs'])
