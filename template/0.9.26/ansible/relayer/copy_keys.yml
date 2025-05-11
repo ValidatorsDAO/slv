@@ -1,0 +1,14 @@
+---
+- name: Copy Relayer Key File
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Copy Relayer Key File
+      become: yes
+      become_user: root
+      copy:
+        src: "~/.slv/keys/{{ hostvars[inventory_hostname].relayer_account }}.json"
+        dest: "/home/solv/relayer-keypair.json"
+        owner: solv
+        group: solv
+        mode: "0600"
