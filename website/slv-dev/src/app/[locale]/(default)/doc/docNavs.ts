@@ -79,6 +79,15 @@ export const docMenuData: Section[] = [
         ]
       },
       {
+        title: 'doc.nav.shredstream.title',
+        subItems: [
+          {
+            title: 'doc.nav.shredstream.test',
+            route: '/doc/shredstream/test'
+          }
+        ]
+      },
+      {
         title: 'doc.nav.app.title',
         subItems: [
           {

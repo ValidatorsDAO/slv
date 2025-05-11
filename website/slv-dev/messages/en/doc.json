@@ -34,6 +34,10 @@
         "quickstart": "Quickstart",
         "test": "gRPC Latency Test"
       },
+      "shredstream": {
+        "title": "Shredstream",
+        "test": "Connectivity Test"
+      },
       "app": {
         "title": "App",
         "solana-dapp": "Solana dApp",
