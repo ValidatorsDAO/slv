@@ -1,0 +1,78 @@
+---
+- name: Setup Jito Relayer
+  hosts: all
+  become: yes
+  tasks:
+    # 1. OpenSSL鍵ペアの生成
+    - name: Generate private key with OpenSSL
+      shell: openssl genrsa -out /home/solv/private.pem
+      args:
+        creates: /home/solv/private.pem
+
+    - name: Set ownership for private.pem
+      file:
+        path: /home/solv/private.pem
+        owner: solv
+        group: solv
+
+    - name: Generate public key with OpenSSL
+      shell: openssl rsa -in /home/solv/private.pem -pubout -out /home/solv/public.pem
+      args:
+        creates: /home/solv/public.pem
+
+    - name: Set ownership for public.pem
+      file:
+        path: /home/solv/public.pem
+        owner: solv
+        group: solv
+
+    # 3. Gitリポジトリのクローン
+    - name: Clone Jito Relayer repository
+      git:
+        repo: https://github.com/jito-foundation/jito-relayer.git
+        dest: /home/solv/jito-relayer
+        update: yes
+
+    # 4. jito-relayer ディレクトリの所有者設定
+    - name: Ensure correct ownership of jito-relayer directory
+      file:
+        path: /home/solv/jito-relayer
+        state: directory
+        owner: solv
+        group: solv
+        recurse: yes
+
+    # 5. サブモジュールの初期化と更新
+    - name: Update git submodules
+      command: git submodule update --init --recursive
+      args:
+        chdir: /home/solv/jito-relayer
+
+    # 6. Cargoでビルド
+    - name: Build Jito Relayer with Cargo
+      shell: |
+        source ~/.profile && cargo build --release
+      args:
+        chdir: /home/solv/jito-relayer
+        executable: /bin/bash
+      become: false
+      become_user: solv
+
+    - name: Create relayer service file from template
+      template:
+        src: ~/.slv/mainnet-validator/relayer.service.j2
+        dest: /etc/systemd/system/relayer.service
+        owner: root
+        group: root
+        mode: "0644"
+      vars:
+        block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
+        region: "{{ hostvars[inventory_hostname].region }}"
+        allowed_validators: "{{ hostvars[inventory_hostname].identity_account }}"
+
+    # 8. Relayerサービスの有効化と開始
+    - name: Enable relayer service
+      systemd:
+        name: relayer
+        enabled: yes
+        state: started
