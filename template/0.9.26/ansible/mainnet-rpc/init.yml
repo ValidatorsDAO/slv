@@ -26,7 +26,6 @@
 - import_playbook: install_rust.yml
 - import_playbook: install_jito.yml
 - import_playbook: setup_ufw.yml
-- import_playbook: fail2ban_solana_rate_limit.yml
 - import_playbook: ../cmn/mount_disks.yml
 - import_playbook: ../cmn/optimize_system.yml
 - import_playbook: ../cmn/setup_norestart.yml

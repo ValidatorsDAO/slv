@@ -35,22 +35,6 @@
         staked_rpc_amount: "{{ hostvars[inventory_hostname].staked_rpc_amount }}"
       ignore_errors: yes
 
-    - name: Check if line already exists
-      shell: |
-        grep -F "$(printf %s '{{ add_line }}')" "{{ target_file }}" && echo "FOUND" || echo "NOT_FOUND"
-      register: grep_result
-
-    - name: Debug grep_result
-      debug:
-        var: grep_result.stdout_lines
-
-    - name: Insert line 3 lines after search_key if not exists
-      shell: |
-        line_num=$(grep -n '{{ search_key }}' '{{ target_file }}' | head -n1 | cut -d':' -f1)
-        insert_line=$((line_num + 3))
-        sed -i "${insert_line}i $(printf %s '{{ add_line }}')" "{{ target_file }}"
-      when: "'FOUND' not in grep_result.stdout_lines"
-
     - name: Run deps.sh script with yes (async/poll)
       shell: |
         yes y | ./deps.sh

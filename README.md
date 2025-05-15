@@ -83,11 +83,11 @@ slv validator deploy
 ```bash
 slv v --help
 Usage:   slv validator
-Version: 0.9.10  
+Version: 0.9.26       
 
 Description:
 
-  Manage Solana Validator Nodes
+  🛠️ Manage Solana Validator Nodes 🛠️
 
 Options:
 
@@ -95,7 +95,7 @@ Options:
 
 Commands:
 
-  init                - 🚀 Initialize a new validator                                  
+  init                - 🚀 Initialize a new validator configuration                    
   deploy              - 📦 Deploy Validators                                           
   list                - 📋 List validators                                             
   set:identity        - 🪪  Set Validator Identity                                     
@@ -109,8 +109,7 @@ Commands:
   cleanup             - 🧹 Cleanup Validator - Remove Ledger/Snapshot Unnecessary Files
   get:snapshot        - ⚡️ Download Snapshot with aria2c ⚡️                            
   update:allowed-ips  - 🛡️  Update allowed IPs for mainnet validator nodes              
-  switch              - 🔁 Switch Validator Identity - No DownTime Migration           
-  run:api             - 🚀 Run Validator API         
+  switch              - 🔁 Switch Validator Identity - No DownTime Migration
 ```
 
 ### New Features - Snapshots Download with aria2

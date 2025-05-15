@@ -75,7 +75,7 @@ validatorCmd.command('set:identity')
       : 'testnet-validator'
     const templateRoot = getTemplatePath()
     const playbook =
-      `${templateRoot}/ansible/${networkPath}/set_identity_to_active.yml`
+      `${templateRoot}/ansible/${networkPath}/set_identity_key.yml`
     const result = await runAnsilbe(playbook, inventoryType, options.pubkey)
     if (result) {
       console.log(colors.white('✅ Successfully Set Validator Identity'))
