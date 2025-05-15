@@ -6,11 +6,6 @@
   hosts: build_servers
   become: true
   tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-
     - name: Install required packages
       apt:
         name:
@@ -21,37 +16,3 @@
           - python3
           - python3-pip
         state: present
-
-    - name: Install Deno
-      shell: curl -fsSL https://deno.land/install.sh | sh
-      args:
-        creates: /root/.deno/bin/deno
-      become_user: root
-
-    - name: Add Deno to PATH
-      lineinfile:
-        path: /root/.bashrc
-        line: 'export DENO_INSTALL="/root/.deno" && export PATH="$DENO_INSTALL/bin:$PATH"'
-        state: present
-      become_user: root
-
-    - name: Create build directory
-      file:
-        path: /opt/slv-build
-        state: directory
-        mode: '0755'
-        owner: root
-        group: root
-
-    - name: Install Rust
-      shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      args:
-        creates: /root/.cargo/bin/rustc
-      become_user: root
-
-    - name: Add Rust to PATH
-      lineinfile:
-        path: /root/.bashrc
-        line: 'source "$HOME/.cargo/env"'
-        state: present
-      become_user: root
