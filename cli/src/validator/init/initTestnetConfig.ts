@@ -15,7 +15,6 @@ import denoJson from '/deno.json' with { type: 'json' }
 import { updateInventory } from '/lib/updateInventory.ts'
 import { Input, prompt, Select } from '@cliffy/prompt'
 import { testnetValidatorConfigDir } from '@cmn/constants/path.ts'
-import { updateAllowedSshIps } from '/lib/config/updateAllowedSshIps.ts'
 
 const initTestnetConfig = async (sshConnection: SSHConnection) => {
   try {
@@ -90,7 +89,6 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
     authority_account: authAccount,
     validator_type: validatorType as ValidatorTestnetType,
   }
-  await updateAllowedSshIps('testnet_validators')
   await updateInventory(name, configTestnet)
   // Create solv User on Ubuntu Server
   await genSolvUser(name, inventoryType)
