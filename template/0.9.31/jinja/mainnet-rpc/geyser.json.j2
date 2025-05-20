@@ -1,0 +1,30 @@
+{
+  "libpath": "/home/solv/yellowstone-grpc/target/release/libyellowstone_grpc_geyser.so",
+  "log": {
+    "level": "info"
+  },
+  "grpc": {
+    "address": "0.0.0.0:10000",
+    "compression": {
+      "accept": [
+        "gzip"
+      ],
+      "send": [
+        "gzip"
+      ]
+    },
+    "max_decoding_message_size": "4_194_304",
+    "snapshot_plugin_channel_capacity": null,
+    "snapshot_client_channel_capacity": "50_000_000",
+    "channel_capacity": "100_000",
+    "unary_concurrency_limit": 200,
+    "unary_disabled": false,
+    "x_token": "{{ x_token }}",
+    "filter_name_size_limit": 128,
+    "filter_names_size_limit": 4096,
+    "filter_names_cleanup_interval": "1s"
+  },
+  "prometheus": {
+    "address": "0.0.0.0:8999"
+  }
+}
