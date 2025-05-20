@@ -112,6 +112,31 @@ slv v init
 
 暗号化されたパスワードは `~/.slv/config.pwd.yml` に保存されます。
 
+
+### Vote アカウントの作成
+
+ノードをバリデータとして稼働させる場合は、Vote アカウントを作成する必要があります。
+
+```bash
+slv v gen:vote-account
+```
+
+Vote アカウントの作成には、以下の情報が必要です。
+- **Identity**: バリデーターの Identity アカウント
+- **Vote**: バリデーターの Vote アカウント
+- **Authority**: Vote アカウントの権限を持つアカウント
+- **Commission**: バリデーターの手数料率（0 ~ 100%）
+
+上記コマンドで対話式に入力することもできますが、コマンドライン引数で指定することも可能です。
+
+```bash
+slv v gen:vote-account --pubkey <identity> --vote-account <vote> --auth-account <authority> --commission <commission>
+```
+
+Vote アカウントにはバリデータの手数料率が含まれています。
+手数料率は 0 ~ 100% の範囲で指定できます。
+
+
 ### Solana ノードのデプロイ
 
 - メインネットバリデーターをデプロイする方はこちら: [メインネットバリデーターのデプロイ](/ja/doc/mainnet-validator/quickstart)

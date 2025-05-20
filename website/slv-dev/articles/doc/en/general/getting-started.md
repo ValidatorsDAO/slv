@@ -111,6 +111,35 @@ It should be at least 8 characters and include numbers, uppercase and lowercase 
 
 The encrypted password is saved to `~/.slv/config.pwd.yml`.
 
+
+### Creating a Vote Account
+
+To run a node as a validator, you must create a Vote account.
+
+```bash
+slv v gen:vote-account
+```
+
+To create a Vote account, the following information is required:
+
+- **Identity**: The validator's identity account
+
+- **Vote**:  The validator's vote account
+
+- **Authority**: The account that holds authority over the vote account
+
+- **Commission**: The validator's commission rate (0 ~ 100%)
+
+You can enter this information interactively using the command above, or you can specify it directly through command-line arguments:
+
+```bash
+slv v gen:vote-account --pubkey <identity> --vote-account <vote> --auth-account <authority> --commission <commission>
+```
+
+The Vote account includes the validator's commission rate.
+The commission rate can be specified within the range of 0 to 100%.
+
+
 ### Deploy a Solana node
 
 - To deploy a mainnet validator: [Deploy a Mainnet Validator](/en/doc/mainnet-validator/quickstart)
