@@ -70,6 +70,10 @@ const genVoteKey = async (identityAccount: string): Promise<{
       const msg = `Failed to airdrop to identity account: ${identityAccount}
 Add Some SOL to Your Identity Account: ${identityAccount}
 
+And Then, Create a Vote Account with the command:
+
+${colors.white('$ slv v gen:vote-account')}
+
 If you don't have SOL, ask for it in the Validators DAO's Discord Channel: https://discord.gg/VX38HynP7Y`
       console.log(colors.yellow(msg))
       return { voteAccount, authAccount }

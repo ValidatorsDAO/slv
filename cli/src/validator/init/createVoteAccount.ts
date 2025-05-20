@@ -6,10 +6,11 @@ const createVoteAccount = async (
   identityAccount: string,
   voteAccount: string,
   authorityAccount: string,
+  commissionRate: number = DEFAULT_COMMISSION_RATE,
   rpcUrl: string = 'https://api.testnet.solana.com',
 ) => {
   const cmd =
-    `solana create-vote-account ~/.slv/keys/${voteAccount}.json ~/.slv/keys/${identityAccount}.json ${authorityAccount} --commission ${DEFAULT_COMMISSION_RATE} --url ${rpcUrl}`
+    `solana create-vote-account ~/.slv/keys/${voteAccount}.json ~/.slv/keys/${identityAccount}.json ${authorityAccount} --commission ${commissionRate} --url ${rpcUrl}`
   const result = await spawnSync(cmd)
   if (!result.success) {
     console.error(colors.red('❌ Failed to create vote account'))

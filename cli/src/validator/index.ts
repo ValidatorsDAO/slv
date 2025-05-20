@@ -11,6 +11,7 @@ import { switchValidator } from '/src/validator/switch/switchValidator.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
 import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
+import {createVoteAccount} from '/src/validator/init/createVoteAccount.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -332,6 +333,70 @@ validatorCmd.command('get:snapshot')
       return
     }
   })
+
+validatorCmd.command('gen:vote-account')
+  .description('🗳️  Generate Vote Account')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'testnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .option('-v, --vote-account <voteAccount>', 'Vote Account')
+  .option('-a, --auth-account <authAccount>', 'Vote Account Authority')
+  .option('-c, --commission <commission>', 'Vote Account Commission')
+  .action(async (options) => { 
+    const network = options.network === 'mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.testnet.solana.com'
+    let identityAccount = options.pubkey
+    let authAccount = options.authAccount
+    let voteAccount = options.voteAccount
+    let commission = options.commission
+    if (!identityAccount) {
+      const identity = await prompt([
+        {
+          name: 'identityAccount',
+          message: 'Enter Identity Account',
+          type: Input,
+        },
+      ])
+      identityAccount = identity.identityAccount
+    }
+    if (!authAccount) {
+      const auth = await prompt([
+        {
+          name: 'authAccount',
+          message: 'Enter Vote Account Authority',
+          type: Input,
+        },
+      ])
+      authAccount = auth.authAccount
+    }
+    if (!voteAccount) {
+      const vote = await prompt([
+        {
+          name: 'voteAccount',
+          message: 'Enter Vote Account',
+          type: Input,
+        },
+      ])
+      voteAccount = vote.voteAccount
+    }
+    if (!commission) {
+      const commissionPrompt = await prompt([
+        {
+          name: 'commission',
+          message: 'Enter Vote Account Commission',
+          type: Input,
+          default: '0',
+        },
+      ])
+      commission = commissionPrompt.commission
+    }
+    if (!identityAccount || !authAccount || !voteAccount || !commission) {
+      console.log(colors.red('❌ Identity, Authority and Vote Accounts are required'))
+      return
+    }
+    await createVoteAccount(identityAccount, voteAccount, authAccount, Number(commission), network)
+  }
+  )
 
 validatorCmd.command('update:allowed-ips')
   .description('🛡️  Update allowed IPs for mainnet validator nodes')

@@ -3,6 +3,9 @@
   hosts: all
   become: true
   become_user: solv
+  vars:
+    key_name: "{{ hostvars[inventory_hostname].identity_account }}.json"
+    local_key_path: "~/.slv/keys/{{ key_name }}"
   tasks:
     - name: Set validator type fact for each host
       set_fact:
