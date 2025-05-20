@@ -182,3 +182,7 @@
     cursor: pointer;
   }
 }
+
+:target {
+  scroll-margin-top: 128px;
+}
