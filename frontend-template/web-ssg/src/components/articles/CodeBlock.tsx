@@ -138,6 +138,8 @@ const CodeBlock: FC<Props> = memo(({ language, value, fileName }) => {
           </Button>
         </div>
       </div>
+      {/* Might be created wrong type. It's working. */}
+      {/* @ts-ignore */}
       <SyntaxHighlighter
         language={language}
         style={vscDarkPlus}

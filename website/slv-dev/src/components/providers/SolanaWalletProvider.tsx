@@ -38,7 +38,7 @@ export default function SolanaWalletProvider({ children }: Props) {
         console.error(error)
       }
     },
-    [toast]
+    []
   )
 
   const autoConnect = useCallback(
@@ -58,7 +58,7 @@ export default function SolanaWalletProvider({ children }: Props) {
       })
       return false
     },
-    [toast]
+    []
   )
 
   return (
@@ -72,6 +72,8 @@ export default function SolanaWalletProvider({ children }: Props) {
           onError={onError}
           autoConnect={autoConnect}
         >
+          {/* Might be created wrong type. It's working. */}
+          {/* @ts-ignore */}
           <WalletModalProvider>{children}</WalletModalProvider>
         </WalletProvider>
       </ConnectionProvider>

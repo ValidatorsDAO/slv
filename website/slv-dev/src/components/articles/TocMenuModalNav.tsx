@@ -42,8 +42,8 @@ export default function TocMenuModalNav({ articleContent }: Props) {
           </Button>
         </SheetTrigger>
         <SheetContent side="top" className="flex h-screen flex-col p-5">
-          <SheetTitle>
-            <VisuallyHidden>{t('common.navigationMenu')}</VisuallyHidden>
+          <SheetTitle className="sr-only">
+            {t('common.navigationMenu')}
           </SheetTitle>
           <nav className="grid gap-2 text-lg font-medium">
             <div className="mb-6 flex flex-row items-start">
