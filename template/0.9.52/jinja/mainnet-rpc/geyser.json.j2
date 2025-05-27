@@ -13,10 +13,10 @@
       "accept": ["gzip", "zstd"],
       "send": ["gzip", "zstd"]
     },
-    "server_http2_keepalive_timeout": "5s",
-    "max_decoding_message_size": "1_000_000",
-    "channel_capacity": "250_000",
-    "unary_concurrency_limit": 100,
+    "server_http2_keepalive_timeout": "10s",
+    "max_decoding_message_size": "4_000_000",
+    "channel_capacity": "1_000_000",
+    "unary_concurrency_limit": 200,
     "unary_disabled": false,
     "x_token": "{{ x_token }}",
     "replay_stored_slots": 0,
@@ -25,29 +25,29 @@
     "filter_names_cleanup_interval": "1s",
     "filter_limits": {
       "accounts": {
-        "max": 3,
+        "max": 20,
         "any": true,
-        "account_max": 10,
+        "account_max": 30,
         "account_reject": ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"],
-        "owner_max": 10,
+        "owner_max": 30,
         "owner_reject": ["11111111111111111111111111111111"],
-        "data_slice_max": 2
+        "data_slice_max": 20
       },
       "slots": {
-        "max": 3
+        "max": 20
       },
       "transactions": {
-        "max": 3,
+        "max": 20,
         "any": true,
-        "account_include_max": 20,
+        "account_include_max": 30,
         "account_include_reject": [
           "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         ],
-        "account_exclude_max": 10,
-        "account_required_max": 10
+        "account_exclude_max": 20,
+        "account_required_max": 20
       },
       "transactions_status": {
-        "max": 3,
+        "max": 20,
         "any": true,
         "account_include_max": 20,
         "account_include_reject": [
@@ -57,21 +57,21 @@
         "account_required_max": 10
       },
       "blocks": {
-        "max": 3,
-        "account_include_max": 10,
+        "max": 20,
+        "account_include_max": 30,
         "account_include_any": true,
         "account_include_reject": [
           "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         ],
         "include_transactions": true,
-        "include_accounts": false,
-        "include_entries": false
+        "include_accounts": true,
+        "include_entries": true
       },
       "blocks_meta": {
-        "max": 3
+        "max": 20
       },
       "entries": {
-        "max": 3
+        "max": 20
       }
     }
   },
