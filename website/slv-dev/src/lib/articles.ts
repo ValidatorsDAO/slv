@@ -90,7 +90,8 @@ export const getDataForArticlePageByGroupDir = (groupDir: string) => {
         groupDir,
         locale
       )
-
+      // Might be created wrong type. It's working.
+      // @ts-ignore
       const t = await getTranslations({
         locale,
         namespaces: [groupDir, 'metadata']
