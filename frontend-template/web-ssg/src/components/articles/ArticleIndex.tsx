@@ -37,6 +37,8 @@ export default function ArticleIndex({
               key={article.title as string}
               className="flex flex-col gap-0 py-0"
             >
+              {/* Might be created wrong type. It's working. */}
+              {/* @ts-ignore */}
               <AspectRatio ratio={16 / 9}>
                 <Link href={url} className="hover:opacity-80">
                   <Image

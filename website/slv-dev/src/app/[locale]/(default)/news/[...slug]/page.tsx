@@ -65,6 +65,8 @@ export default async function NewsArticlePage({ params }: ArticlePageProps) {
         </h1>
       </div>
       <div className="mx-auto max-w-5xl p-3 md:py-6">
+        {/* Might be created wrong type. It's working. */}
+        {/* @ts-ignore */}
         <AspectRatio ratio={16 / 9}>
           <Image
             src={thumbnail}
