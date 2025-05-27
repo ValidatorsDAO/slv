@@ -43,14 +43,14 @@ const getStatus = async (apiKey: string) => {
       headers: myHeaders,
     }
     const response = await fetch(
-      METAL_API_URL + '/metal/status',
+      METAL_API_URL + '/baremetal/status',
       requestOptions,
     )
     const result = await response.json() as SubscriptionResponse
     return result
   } catch (error) {
     console.error(error)
-    throw new Error('Failed to get metals')
+    throw new Error('Failed to get status')
   }
 }
 

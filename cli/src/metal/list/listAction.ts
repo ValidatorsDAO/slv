@@ -1,17 +1,16 @@
 import { prompt, Select } from '@cliffy/prompt'
-import { getMetalsWithPaymentLink } from '/src/metal/getMetalsWithPaymentLink.ts'
 import { getMetals, type MetalType } from '/src/metal/getMetals.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { Row, Table } from '@cliffy/table'
+import { extractSpecValue } from '/lib/extractSpecValue.ts'
 
-const listAction = async (defaultMetalType?: string) => {
-  const app = '📦 APP - For Trade Bot, DApp and More!'
+const listAction = async (defaultMetalType?: MetalType) => {
+  const app = '📦 APP - For Trade Bot,Testnet Validator, DApp and More!'
   const rpc = '⚡️ RPC - For Solana RPC Node'
   const mainnet = '💰 For Solana Mainnet Validator'
-  const testnet = '🧪 For Solana Testnet Validator'
-  let metalType = ''
+  let metalType: MetalType = 'APP'
   if (defaultMetalType) {
     metalType = defaultMetalType
   } else {
@@ -21,69 +20,35 @@ const listAction = async (defaultMetalType?: string) => {
         message: '🛡️ Select SLV BareMetal Type',
         type: Select,
         options: [
-          testnet,
-          mainnet,
-          rpc,
           app,
+          rpc,
+          mainnet,
         ],
-        default: 'validator',
+        default: 'APP',
       },
     ])
 
     switch (bareMetalType) {
       case app:
-        metalType = 'app'
+        metalType = 'APP'
         break
       case rpc:
-        metalType = 'rpc'
+        metalType = 'RPC'
         break
       case mainnet:
-        metalType = 'mainnet'
-        break
-      case testnet:
-        metalType = 'testnet'
+        metalType = 'MV'
         break
       default:
-        metalType = 'testnet'
+        metalType = 'APP'
         break
     }
   }
 
   const apiKey = await getApiKeyFromYml()
   console.log(colors.yellow('🔍 Searching for SLV BareMetals...'))
-  const metals = await getMetalsWithPaymentLink(apiKey, metalType as MetalType)
+  const metals = await getMetals(apiKey, metalType)
   if (!metals.success) {
-    // @ts-ignore: First Time Payment Link
-    const paymentLink = metals.link
-    const metalsWithoutLink = await getMetals(
-      apiKey,
-      metalType as MetalType,
-    )
-    if (!metalsWithoutLink.success) {
-      console.log(colors.red('Failed to get Metals'))
-      return false
-    }
-    const metalProducts = metalsWithoutLink.message
-    const options = metalProducts.map((product) => {
-      return {
-        name: colors.white(product.name + ' - ' + product.price + ' €/month'),
-        value: '',
-      }
-    })
-    await prompt([
-      {
-        name: 'paymentLink',
-        message: '🛡️ Select SLV BareMetal Type',
-        type: Select,
-        options,
-      },
-    ])
-    const text = `🔗 Secure Your Authorization to Unlock Full Features  
-
-👉 ${paymentLink}
-
-※ This is a one-time €1 payment to unlock full features.`
-    console.log(colors.white(text))
+    console.log(colors.yellow('Please try again later...'))
     return false
   }
   const metalProducts = metals.message
@@ -94,21 +59,22 @@ const listAction = async (defaultMetalType?: string) => {
     return false
   }
   const options = metalProducts.map((product) => {
+    const regions = extractSpecValue(product.description, 'Region') || 'None'
     return {
-      name: colors.white(product.name + ' - ' + product.price + ' €/month'),
-      value: product.productId,
+      name: colors.white(product.product + '- 🌏' + regions + ' - ' + product.price.toLocaleString('en-US') + ' €/month'),
+      value: product.product,
     }
   })
-  const { productId } = await prompt([
+  const { productName } = await prompt([
     {
-      name: 'productId',
+      name: 'productName',
       message: '🛡️ Select a SLV BareMetal to Purchase',
       type: Select,
       options,
     },
   ])
   const productInfo = metalProducts.find((product) =>
-    product.productId === productId
+    product.product === productName
   )
   if (!productInfo) {
     console.log(colors.red('Failed to get product info'))
@@ -117,16 +83,21 @@ const listAction = async (defaultMetalType?: string) => {
   const { paymentLink } = productInfo
   // Show Product Details with Figure
   const table = new Table()
+  const regions = extractSpecValue(productInfo.description, 'Region') || 'None'
+  const cpu = extractSpecValue(productInfo.description, 'CPU') || 'None'
+  const ram = extractSpecValue(productInfo.description, 'RAM') || 'None'
+  const disk = extractSpecValue(productInfo.description, 'Disk') || 'None'
+  const nics = extractSpecValue(productInfo.description, 'NIC') || 'None'
   table.body([
-    new Row(colors.blue('Product Name'), colors.white(productInfo.name))
+    new Row(colors.blue('Product Name'), colors.white(productInfo.product))
       .border(true),
-    new Row(colors.blue('Region'), colors.white(productInfo.region)).border(
+    new Row(colors.blue('Available Region'), colors.white(regions)).border(
       true,
     ),
-    new Row(colors.blue('CPU'), colors.white(productInfo.cpu)).border(true),
-    new Row(colors.blue('RAM'), colors.white(productInfo.ram)).border(true),
-    new Row(colors.blue('Disk'), colors.white(productInfo.disk)).border(true),
-    new Row(colors.blue('Network'), colors.white(productInfo.nics)).border(
+    new Row(colors.blue('CPU'), colors.white(cpu)).border(true),
+    new Row(colors.blue('RAM'), colors.white(ram)).border(true),
+    new Row(colors.blue('Disk'), colors.white(disk)).border(true),
+    new Row(colors.blue('Network'), colors.white(nics)).border(
       true,
     ),
     new Row(

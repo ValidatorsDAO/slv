@@ -1,41 +1,12 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
+import type { z } from '@hono/zod-openapi'
+import type { ListProductRes } from '@cmn/types/metal.ts'
 
-export type MetalType =
-  | 'mainnet'
-  | 'testnet'
-  | 'rpc'
-  | 'app'
-  | 'dedicated'
-  | 'baremetal'
-  | 'all'
-
-export type Product = {
-  productId: string
-  paymentLink: string
-  name: string
-  price: string // 数値にするなら number でもOK
-  description: string
-  cpu: string
-  ram: string
-  disk: string
-  nics: string
-  region: string
-  status: string
-  tags: string
-  isMainnet: string // boolean にするなら変換処理が必要
-  isTestnet: string
-  isRPC: string
-  isDedicated?: string // 最後のデータには無いので optional にしています
-}
-
-export type ProductResponse = {
-  success: boolean
-  message: Product[]
-}
+export type MetalType = 'APP' | 'RPC' | 'MV'
 
 const getMetals = async (
   apiKey: string,
-  metalType: MetalType,
+  metalType: MetalType = 'APP',
 ) => {
   try {
     const myHeaders = new Headers()
@@ -50,11 +21,12 @@ const getMetals = async (
       headers: myHeaders,
     }
     const response = await fetch(
-      METAL_API_URL + '/metal/list-baremetals?metalType=' +
-        metalType,
+      `${METAL_API_URL}/baremetal/list/${metalType}`,
       requestOptions,
     )
-    const result = await response.json() as ProductResponse
+    console.log(`Fetching metals from: ${METAL_API_URL}/baremetal/list/${metalType}`)
+    console.log(`Response status: ${response}`)
+    const result = await response.json() as z.infer<typeof ListProductRes>
     return result
   } catch (error) {
     console.error(error)
