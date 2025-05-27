@@ -24,8 +24,6 @@ const getMetals = async (
       `${METAL_API_URL}/baremetal/list/${metalType}`,
       requestOptions,
     )
-    console.log(`Fetching metals from: ${METAL_API_URL}/baremetal/list/${metalType}`)
-    console.log(`Response status: ${response}`)
     const result = await response.json() as z.infer<typeof ListProductRes>
     return result
   } catch (error) {
