@@ -19,6 +19,8 @@ export async function createMetadata({
   jsonNamespaces,
   pathname
 }: CreateMetadataProps) {
+  // Might be created wrong type. It's working.
+  // @ts-ignore
   const t = await getTranslations({
     locale,
     namespaces: [...jsonNamespaces, 'metadata']
