@@ -1,0 +1,4 @@
+---
+- import_playbook: install_agave.yml
+- import_playbook: setup_solv_service.yml
+- import_playbook: deploy_start_validator_sh.yml
