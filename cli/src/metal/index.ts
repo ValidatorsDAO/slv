@@ -9,16 +9,24 @@ const text = `🚀 SLV BareMetal: High-Performance Servers Built for Solana Node
 
 📖 Steps After Payment Completion
 
-1. Registering Your SSH Public Key  
-   Once your payment is complete, you’ll be able to register your SSH public key with the following command:
+1. Once your payment is complete, you’ll be able to view your Bare Metal resources by running the following command:
    $ slv metal status
 
 2. Displaying Login Information  
-   After registering your key, login information will appear within a few minutes to an hour.
+   Once the status becomes "on", you can view your login details by running:
+   $ slv metal status
+   And select the Bare Metal resource you want to access.
 
 3. If Login Information Doesn’t Appear  
    If the login details don’t show up after some time, please reach out via a support ticket on Discord.
    ValidatorsDAO Discord: ${DISCORD_LINK}
+
+= BareMetal Status =
+⚙️ provisioning - In progress
+🟢 on - Available
+🔴 off - Unavailable
+🛠️ maintenance - Under maintenance
+⏸️ suspended - Suspended
 `
 
 export const metalCmd = new Command()
@@ -39,8 +47,18 @@ export const metalCmd = new Command()
     await statusAction()
     return
   })
-  .command('cancel', 'Cancel - 🔄 Cancel Subscription')
+  .command('rebuild', 'Rebuild - 🏭 Rebuild OS')
+  .action(() => {
+    console.log(colors.yellow('coming soon...'))
+    return
+  })
+  .command('cancel', 'Cancel - 🙅‍♀️ Cancel Subscription')
   .action(async () => {
     await cancelAction()
+    return
+  })
+  .command('support', 'Support - 💬 Contact Support via Discord')
+  .action(() => {
+    console.log('coming soon...')
     return
   })

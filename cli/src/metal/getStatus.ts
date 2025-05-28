@@ -1,4 +1,6 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
+import type { z } from '@hono/zod-openapi'
+import type { BareMetalStatusRes } from '@cmn/types/metal.ts'
 
 export type Subscription = {
   subscriptionID: string
@@ -46,7 +48,7 @@ const getStatus = async (apiKey: string) => {
       METAL_API_URL + '/baremetal/status',
       requestOptions,
     )
-    const result = await response.json() as SubscriptionResponse
+    const result = await response.json() as z.infer<typeof BareMetalStatusRes>
     return result
   } catch (error) {
     console.error(error)
