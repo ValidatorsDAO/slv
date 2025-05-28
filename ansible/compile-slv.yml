@@ -40,6 +40,19 @@
         owner: root
         group: root
 
+    - name: Install Deno
+      shell: curl -fsSL https://deno.land/install.sh | sh
+      args:
+      creates: /root/.deno/bin/deno
+      become_user: root
+
+    - name: Add Deno to PATH
+      lineinfile:
+        path: /root/.bashrc
+        line: 'export DENO_INSTALL="/root/.deno" && export PATH="$DENO_INSTALL/bin:$PATH"'
+        state: present
+      become_user: root
+
     - name: Clone repository
       git:
         repo: https://github.com/ValidatorsDAO/slv.git
