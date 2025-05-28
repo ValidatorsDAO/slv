@@ -1,4 +1,0 @@
-packages:
-  - 'website/*'
-  - 'frontend-template/*'
-  - 'cf-workers-template/*'

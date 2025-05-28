@@ -2,22 +2,20 @@
   "deno.enable": true,
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "denoland.vscode-deno",
-  "deno.disablePaths": ["./website"],
-  "deno.enablePaths": [
-    "./cli",
-    "./cmn",
-    "./scripts",
-    "test-r2-upload.ts",
-    ".husky/check-solana-keys-deno.ts",
-    ".husky/check-solana-keys.ts"
+  "deno.lint": true,
+  "json.schemas": [
+    {
+      "fileMatch": ["/deno.json"],
+      "url": "https://deno.land/x/deno/cli/schemas/config-file.v1.json"
+    }
   ],
-  "deno.config": "./deno.json",
-  "deno.suggest.imports.hosts": {
-    "https://deno.land": true
-  },
-  "deno.importMap": "./deno.json",
-  "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true,
-  "javascript.preferences.importModuleSpecifier": "non-relative",
-  "typescript.preferences.importModuleSpecifier": "non-relative",
+  "deno.enablePaths": ["."],
+  // "[typescript]": {
+  //   "editor.defaultFormatter": "denoland.vscode-deno",
+  //   "editor.formatOnSave": true
+  // },
+  // "[javascript]": {
+  //   "editor.defaultFormatter": "denoland.vscode-deno",
+  //   "editor.formatOnSave": true
+  // }
 }

@@ -1,8 +1,0 @@
-{
-  "compilerOptions": {
-    "paths": {
-    }
-  },
-  "include": [],
-  "exclude": ["node_modules", "dist", "cli", "cmn", "sh", "template", "website", "frontend-template","cf-workers-template"]
-}
