@@ -18,6 +18,10 @@
     cloudflare_zone_id: '{{ cloudflare_zone_id }}'
     build_dir: /opt/slv-build
     artifacts_dir: /opt/slv-artifacts
+    deno_env:
+      HOME: "/root"
+      DENO_INSTALL: "/root/.deno"
+      PATH: "/root/.deno/bin:/usr/bin:/bin"
   tasks:
     - name: Create artifacts directory
       file:
@@ -102,20 +106,16 @@
         mode: '0755'
 
     - name: Build for Linux
-      shell: deno task build:linux
+      shell: deno install --allow-scripts=npm:protobufjs@7.4.0 && deno i && deno task build:linux
       args:
         chdir: '{{ build_dir }}'
-      environment:
-        DENO_INSTALL: "/root/.deno"
-        PATH: "/root/.deno/bin:/usr/bin:/bin"
+      environment: "{{ deno_env }}"
 
     - name: Build for Mac
-      shell: |
-        export DENO_INSTALL="/root/.deno"
-        export PATH="$DENO_INSTALL/bin:$PATH"
-        cd {{ build_dir }} && deno task build:mac
+      shell: deno task build:mac
       args:
-        executable: /bin/bash
+        chdir: '{{ build_dir }}'
+      environment: "{{ deno_env }}"
 
     - name: Copy Linux artifacts
       copy:
