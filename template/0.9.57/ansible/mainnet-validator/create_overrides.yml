@@ -1,0 +1,16 @@
+---
+- name: Create overrides.yml for staked map
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Generate overrides.yml from template
+      template:
+        src: ~/.slv/mainnet-validator/overrides.yml.j2
+        dest: /home/solv/overrides.yml
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        staked_rpc_identity_account: "{{ hostvars[inventory_hostname].staked_rpc_identity_account }}"
+        staked_rpc_amount: "{{ hostvars[inventory_hostname].staked_rpc_amount }}"

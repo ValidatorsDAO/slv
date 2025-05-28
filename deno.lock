@@ -1,10 +1,36 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@elsoul/child-process@1.2.0": "1.2.0",
+    "jsr:@std/assert@0.224": "0.224.0",
+    "jsr:@std/fs@0.224.0": "0.224.0",
+    "jsr:@std/path@0.224": "0.224.0",
+    "jsr:@std/path@0.224.0": "0.224.0",
     "npm:@hono/swagger-ui@0.5.1": "0.5.1_hono@4.7.10",
     "npm:@hono/zod-openapi@0.19.6": "0.19.6_hono@4.7.10_zod@3.25.32",
     "npm:@triton-one/yellowstone-grpc@1.3.0": "1.3.0",
     "npm:bs58@6.0.0": "6.0.0"
+  },
+  "jsr": {
+    "@elsoul/child-process@1.2.0": {
+      "integrity": "8148246ce496c17dbb007613d0e7addcdc71492ce6f7141872f5d7606de23389"
+    },
+    "@std/assert@0.224.0": {
+      "integrity": "8643233ec7aec38a940a8264a6e3eed9bfa44e7a71cc6b3c8874213ff401967f"
+    },
+    "@std/fs@0.224.0": {
+      "integrity": "52a5ec89731ac0ca8f971079339286f88c571a4d61686acf75833f03a89d8e69",
+      "dependencies": [
+        "jsr:@std/assert",
+        "jsr:@std/path@0.224"
+      ]
+    },
+    "@std/path@0.224.0": {
+      "integrity": "55bca6361e5a6d158b9380e82d4981d82d338ec587de02951e2b7c3a24910ee6",
+      "dependencies": [
+        "jsr:@std/assert"
+      ]
+    }
   },
   "npm": {
     "@asteasolutions/zod-to-openapi@7.3.2_zod@3.25.32": {
@@ -235,6 +261,11 @@
     "zod@3.25.32": {
       "integrity": "sha512-OSm2xTIRfW8CV5/QKgngwmQW/8aPfGdaQFlrGoErlgg/Epm7cjb6K6VEyExfe65a3VybUOnu381edLb0dfJl0g=="
     }
+  },
+  "remote": {
+    "https://deno.land/std@0.224.0/assert/assert_exists.ts": "43420cf7f956748ae6ed1230646567b3593cb7a36c5a5327269279c870c5ddfd",
+    "https://deno.land/std@0.224.0/assert/assertion_error.ts": "ba8752bd27ebc51f723702fac2f54d3e94447598f54264a6653d6413738a8917",
+    "https://deno.land/std@0.224.0/flags/mod.ts": "88553267f34519c8982212185339efdb2d2e62c159ec558f47eb50c8952a6be3"
   },
   "workspace": {
     "dependencies": [
