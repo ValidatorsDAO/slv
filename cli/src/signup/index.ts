@@ -3,7 +3,7 @@ import { colors } from '@cliffy/colors'
 
 // Discord login URL - replace with the actual URL if needed
 const DISCORD_LOGIN_URL =
-  'https://discord.com/oauth2/authorize?client_id=1283876217006718976&response_type=code&redirect_uri=https%3A%2F%2Fverify.erpc.global%2Fv1%2Fdiscord%2Flogin&scope=identify+email'
+  'https://discord.com/oauth2/authorize?client_id=1283876217006718976&response_type=code&redirect_uri=https%3A%2F%2Fuser-api.erpc.global%2Fv2%2Fdiscord%2Flogin&scope=identify+email'
 
 export const signupCmd = new Command()
   .description('Signup to SLV using Discord')
