@@ -3,6 +3,8 @@
   "specifiers": {
     "jsr:@elsoul/child-process@1.2.0": "1.2.0",
     "jsr:@std/assert@0.224": "0.224.0",
+    "jsr:@std/fs@0.224.0": "0.224.0",
+    "jsr:@std/path@0.224": "0.224.0",
     "jsr:@std/path@0.224.0": "0.224.0",
     "jsr:@std/yaml@1.0.5": "1.0.5",
     "npm:@hono/swagger-ui@0.5.1": "0.5.1_hono@4.7.10",
@@ -16,6 +18,13 @@
     },
     "@std/assert@0.224.0": {
       "integrity": "8643233ec7aec38a940a8264a6e3eed9bfa44e7a71cc6b3c8874213ff401967f"
+    },
+    "@std/fs@0.224.0": {
+      "integrity": "52a5ec89731ac0ca8f971079339286f88c571a4d61686acf75833f03a89d8e69",
+      "dependencies": [
+        "jsr:@std/assert",
+        "jsr:@std/path@0.224"
+      ]
     },
     "@std/path@0.224.0": {
       "integrity": "55bca6361e5a6d158b9380e82d4981d82d338ec587de02951e2b7c3a24910ee6",
@@ -382,6 +391,9 @@
     "https://deno.land/std@0.221.0/path/windows/to_namespaced_path.ts": "4ffa4fb6fae321448d5fe810b3ca741d84df4d7897e61ee29be961a6aac89a4c",
     "https://deno.land/std@0.221.0/text/closest_string.ts": "8a91ee8b6d69ff96addcb7c251dad53b476ac8be9c756a0ef786abe9e13a93a5",
     "https://deno.land/std@0.221.0/text/levenshtein_distance.ts": "24be5cc88326bbba83ca7c1ea89259af0050cffda2817ff3a6d240ad6495eae2",
+    "https://deno.land/std@0.224.0/assert/assert_exists.ts": "43420cf7f956748ae6ed1230646567b3593cb7a36c5a5327269279c870c5ddfd",
+    "https://deno.land/std@0.224.0/assert/assertion_error.ts": "ba8752bd27ebc51f723702fac2f54d3e94447598f54264a6653d6413738a8917",
+    "https://deno.land/std@0.224.0/flags/mod.ts": "88553267f34519c8982212185339efdb2d2e62c159ec558f47eb50c8952a6be3",
     "https://deno.land/x/cliffy@v1.0.0-rc.4/ansi/ansi_escapes.ts": "193b3c3a4e520274bd8322ca4cab1c3ce38070bed1898cb2ade12a585dddd7c9",
     "https://deno.land/x/cliffy@v1.0.0-rc.4/ansi/chain.ts": "eca61b1b64cad7b9799490c12c7aa5538d0f63ac65a73ddb6acac8b35f0a5323",
     "https://deno.land/x/cliffy@v1.0.0-rc.4/ansi/colors.ts": "21c6702197d0871c700279d22fc54e4b15152be4ece1f433d6714595b018d265",
