@@ -71,13 +71,24 @@
         regexp: "export const VERSION = '[^']*'"
         replace: "export const VERSION = '{{ version }}'"
 
+    - name: Confirm Deno version used
+      shell: deno --version
+      environment:
+        PATH: "/root/.deno/bin:/usr/bin:/bin"
+      register: deno_version
+
+    - name: Show Deno version
+      debug:
+        msg: '{{ deno_version.stdout_lines }}'
+
+
     - name: Run version update script
-      shell: |
-        export DENO_INSTALL="/root/.deno"
-        export PATH="$DENO_INSTALL/bin:$PATH"
-        cd {{ build_dir }} && deno run -A scripts/update-version.ts
+      shell: deno run -A scripts/update-version.ts
       args:
-        executable: /bin/bash
+        chdir: '{{ build_dir }}'
+      environment:
+        DENO_INSTALL: "/root/.deno"
+        PATH: "/root/.deno/bin:/usr/bin:/bin"
 
     - name: Create dist directory
       file:
@@ -86,12 +97,12 @@
         mode: '0755'
 
     - name: Build for Linux
-      shell: |
-        export DENO_INSTALL="/root/.deno"
-        export PATH="$DENO_INSTALL/bin:$PATH"
-        cd {{ build_dir }} && deno task build:linux
+      shell: deno task build:linux
       args:
-        executable: /bin/bash
+        chdir: '{{ build_dir }}'
+      environment:
+        DENO_INSTALL: "/root/.deno"
+        PATH: "/root/.deno/bin:/usr/bin:/bin"
 
     - name: Build for Mac
       shell: |
