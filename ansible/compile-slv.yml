@@ -40,7 +40,12 @@
         owner: root
         group: root
 
-    - name: Install specific version of Deno
+    - name: Remove existing Deno installation
+      file:
+        path: /root/.deno
+        state: absent
+
+    - name: Install specific version of Deno (v2.3.3)
       shell: curl -fsSL https://deno.land/install.sh | sh -s v2.3.3
       args:
         creates: /root/.deno/bin/deno
