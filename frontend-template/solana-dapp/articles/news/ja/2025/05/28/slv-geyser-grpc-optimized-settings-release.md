@@ -2,7 +2,7 @@
 id: slv-geyser-grpc-optimized-settings-release
 title: SLV、Solana Geyser gRPCにおけるパフォーマンス最適化リリース
 category: プレスリリース
-thumbnail: /news/2025/05/28/SLVGeyserGRPCoptimizedSettingsJA.jpg
+thumbnail: /news/2025/05/28/SLVgeyserGRPCoptimizedSettingsJA.jpg
 ---
 
 ELSOUL LABO B.V.（本社：オランダ・アムステルダム、代表取締役CEO：川崎文武）とSolanaネットワークの分散化・セキュリティ強化を推進するValidators DAOは、オープンソースのSolanaバリデータツール「SLV」において、**Solana Geyser gRPCストリームの人気ユースケース向けにパフォーマンスと高負荷耐性を最適化した設定を公開しました。**
