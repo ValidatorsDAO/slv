@@ -40,18 +40,21 @@
         owner: root
         group: root
 
-    - name: Install Deno
-      shell: curl -fsSL https://deno.land/install.sh | sh
+    - name: Install specific version of Deno
+      shell: curl -fsSL https://deno.land/install.sh | sh -s v2.3.3
       args:
-      creates: /root/.deno/bin/deno
+        creates: /root/.deno/bin/deno
       become_user: root
 
-    - name: Add Deno to PATH
-      lineinfile:
-        path: /root/.bashrc
-        line: 'export DENO_INSTALL="/root/.deno" && export PATH="$DENO_INSTALL/bin:$PATH"'
-        state: present
-      become_user: root
+    - name: Set Deno PATH globally
+      copy:
+        dest: /etc/profile.d/deno.sh
+        content: |
+          export DENO_INSTALL="/root/.deno"
+          export PATH="$DENO_INSTALL/bin:$PATH"
+        owner: root
+        group: root
+        mode: '0755'
 
     - name: Clone repository
       git:
