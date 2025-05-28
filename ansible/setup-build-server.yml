@@ -22,12 +22,6 @@
           - python3-pip
         state: present
 
-    - name: Install AWS CLI using pip
-      pip:
-        name: awscli
-        executable: pip3
-        state: present
-
     - name: Install Deno
       shell: curl -fsSL https://deno.land/install.sh | sh
       args:
