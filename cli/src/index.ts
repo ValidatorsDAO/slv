@@ -13,6 +13,7 @@ import { installClientMessage, slvAA } from '/lib/slvAA.ts'
 import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
 import { serverCmd } from '/src/server/index.ts'
+import { getCmd } from '/src/get/index.ts'
 
 const program = new Command()
   .name('slv')
@@ -65,6 +66,9 @@ program
 
 program
   .command('check', checkCmd)
+
+program
+  .command('get', getCmd)
 
 program
   .command('server', serverCmd)
