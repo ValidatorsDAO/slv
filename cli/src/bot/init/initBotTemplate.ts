@@ -137,7 +137,7 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       // Download the template archive
       console.log(colors.blue('📥 Downloading template archive...'))
       const downloadResult = await exec(
-        `wget -q --show-progress "${downloadUrl}" -O "${tempFile}"`,
+        `curl -# -sSL "${downloadUrl}" -o "${tempFile}"`,
       )
 
       if (!downloadResult.success) {
