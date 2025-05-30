@@ -117,7 +117,7 @@ checkCmd.command('shreds')
       const shredsTestPath = join(userBinDir, 'shreds_test')
 
       // Execute the gRPC test binary with the provided token and endpoint
-      const command = `env ENDPOINT=${endpoint} ${shredsTestPath}`
+      const command = `${shredsTestPath} ${endpoint}`
 
       await spawnSync(command)
     } catch (error: unknown) {
