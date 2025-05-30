@@ -6,6 +6,8 @@ VERSION="0.9.70"
 BASE_URL="https://storage.slv.dev/slv"
 GRPC_TEST_URL_LINUX="https://storage.elsoul.nl/grpc_test"
 GRPC_TEST_URL_MAC="https://storage.elsoul.nl/grpc_test_mac"
+SHREDS_TEST_URL_LINUX="https://storage.elsoul.nl/bin/latest/deshred"
+SHREDS_TEST_URL_MAC="https://storage.elsoul.nl/bin/latest/deshred_mac"
 
 # Detect the platform (Linux/macOS/Windows) based on 'uname'
 detect_platform() {
@@ -115,6 +117,31 @@ install_grpc_test() {
   echo "gRPC test binary installed in $HOME/.slv/bin/grpc_test"
 }
 
+# Install the shreds test binary
+install_shreds_test() {
+  # Check if the shreds test binary is already installed
+  if [ -f "$HOME/.slv/bin/shreds_test" ]; then
+    echo "Shreds test binary already installed!"
+    return
+  fi
+  # Download the appropriate shreds test binary based on the platform
+  echo "Downloading shreds test binary for $osfamily..."
+  mkdir -p "$HOME/.slv/bin"
+  
+  if [ "$osfamily" = "darwin" ]; then
+    curl -fSL --progress-bar "$SHREDS_TEST_URL_MAC" -o "$HOME/.slv/bin/shreds_test"
+  elif [ "$osfamily" = "linux" ]; then
+    curl -fSL --progress-bar "$SHREDS_TEST_URL_LINUX" -o "$HOME/.slv/bin/shreds_test"
+  else
+    echo "Warning: Shreds test binary is not available for $osfamily."
+    return
+  fi
+  
+  chmod +x "$HOME/.slv/bin/shreds_test"
+  
+  echo "Shreds test binary installed in $HOME/.slv/bin/shreds_test"
+}
+
 # Main installation process
 main() {
   echo "Detecting platform..."
@@ -137,6 +164,9 @@ main() {
   
   # Install gRPC test binary and wrapper
   install_grpc_test
+  
+  # Install shreds test binary
+  install_shreds_test
   
   # Clean up
   echo "✨ Cleaning up..."
