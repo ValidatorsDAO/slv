@@ -33,11 +33,3 @@
         rule: allow
         port: "8000:8020"
         proto: udp
-
-    - name: Allow all ports (TCP & UDP) from Known IPs
-      ufw:
-        rule: allow
-        proto: any
-        from_ip: "{{ item }}"
-      loop: "{{ testnet_validators.allowed_ips }}"
-      when: testnet_validators.allowed_ips is defined

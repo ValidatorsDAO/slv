@@ -170,11 +170,6 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       await exec(`cd ${appDir} && git init`)
       try {
         await exec(`code ${appDir}`)
-        if (isRust) {
-          await exec(`cargo build`)
-        } else {
-          await exec(`pnpm install`)
-        }
       } catch (_error) {
         // Ignore error if code command fails
       }
