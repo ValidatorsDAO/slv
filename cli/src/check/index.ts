@@ -96,3 +96,34 @@ checkCmd.command('grpc')
       console.error(colors.red('Error executing gRPC test:'), errorMessage)
     }
   })
+
+checkCmd.command('shreds')
+  .description('Check Shreds endpoint')
+  .option('--endpoint <endpoint:string>', 'Shreds endpoint URL')
+  .action(async (options) => {
+    let endpoint = options.endpoint
+
+    // If no endpoint is provided, prompt for it
+    if (!endpoint) {
+      endpoint = await Input.prompt({
+        message: 'Enter Shreds endpoint URL:',
+      })
+    }
+
+    console.log(colors.blue(`Checking Shreds endpoint: ${endpoint}`))
+
+    try {
+      // Path to the Shreds test binary
+      const shredsTestPath = join(userBinDir, 'shreds_test')
+
+      // Execute the gRPC test binary with the provided token and endpoint
+      const command = `env ENDPOINT=${endpoint} ${shredsTestPath}`
+
+      await spawnSync(command)
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error)
+      console.error(colors.red('Error executing Shreds test:'), errorMessage)
+    }
+  })

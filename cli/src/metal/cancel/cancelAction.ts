@@ -16,7 +16,7 @@ const cancelAction = async () => {
         style: 'currency',
         currency: 'EUR',
       }).format(product.price / 100).replaceAll('.00', '')
-      const subsctiptionId = product.subscriptionID
+      const subsctiptionId = ''
       return {
         name: colors.white(
           product.productName + ' - ' + formattedPrice + ' €/month',
