@@ -3,7 +3,12 @@ import { initBotTemplate } from '/src/bot/init/initBotTemplate.ts'
 
 // bot Command
 export const botCmd = new Command()
-  .description('Manage Solana gRPC Geyser Client')
+  .description(`🌪️ Initialize Solana Stream Client Template 🌪️ 
+
+Available Bot Templates:
+- 🐦 Shreds Stream Client for Rust
+- 🐍 Geyser Stream Client for Typescript
+`)
   .action(() => {
     botCmd.showHelp()
   })

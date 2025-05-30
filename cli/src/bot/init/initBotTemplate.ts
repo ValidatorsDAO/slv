@@ -165,8 +165,35 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       )
       // Remove the temporary file after extraction
       await Deno.remove(tempFile)
+      const isRust = templateType.includes('rust')
+      console.log(colors.blue('🔧 Initializing git repository...'))
+      await exec(`cd ${appDir} && git init`)
+      try {
+        await exec(`code ${appDir}`)
+        if (isRust) {
+          await exec(`cargo build`)
+        } else {
+          await exec(`pnpm install`)
+        }
+      } catch (_error) {
+        // Ignore error if code command fails
+      }
 
-      // Check the archive structure
+      console.log(
+        colors.green(
+          `✅ Successfully created Solana trade bot application at ${appDir}`,
+        ),
+      )
+
+      const msg = isRust
+        ? `$ cargo build\n$ cargo run`
+        : `$ pnpm install\n$ pnpm dev`
+      console.log(colors.white(`
+To get started with your new application, run the following commands:
+  
+$ cd ${appName}
+${msg}
+  `))
     } catch (error) {
       console.error(
         colors.red('❌ Failed to download or extract template:'),
