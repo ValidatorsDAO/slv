@@ -45,6 +45,9 @@
 - import_playbook: setup_firedancer.yml
   when: validator_type == 'firedancer'
 
+- import_playbook: ../cmn/disable_swap.yml
+  when: validator_type in ['agave', 'firedancer']
+
 - import_playbook: ../cmn/mount_disks.yml
   when: validator_type in ['agave', 'firedancer']
 

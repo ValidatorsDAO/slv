@@ -49,6 +49,9 @@
 - import_playbook: setup_ufw.yml
   when: validator_type in ['jito']
 
+- import_playbook: ../cmn/disable_swap.yml
+  when: validator_type in ['jito', 'firedancer']
+
 - import_playbook: ../cmn/mount_disks.yml
   when: validator_type in ['jito', 'firedancer']
 

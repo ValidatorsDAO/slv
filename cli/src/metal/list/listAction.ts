@@ -61,7 +61,10 @@ const listAction = async (defaultMetalType?: MetalType) => {
   const options = metalProducts.map((product) => {
     const regions = extractSpecValue(product.description, 'Region') || 'None'
     return {
-      name: colors.white(product.product + '- 🌏' + regions + ' - ' + product.price.toLocaleString('en-US') + ' €/month'),
+      name: colors.white(
+        product.product + '- 🌏' + regions + ' - ' +
+          product.price.toLocaleString('en-US') + ' €/month',
+      ),
       value: product.product,
     }
   })

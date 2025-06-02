@@ -31,7 +31,8 @@ const init = async () => {
     )
     console.log(colors.green('🟢 You can get one from the following list:'))
     const network = validator.network
-    await listAction(network)
+    const networkType = network === 'testnet' ? 'APP' : 'MV'
+    await listAction(networkType)
     return
   }
   const ubuntu = await checkSSHConnection()

@@ -55,7 +55,7 @@ const init = async () => {
       ),
     )
     console.log(colors.green('🟢 You can get one from the following list:'))
-    await listAction('rpc')
+    await listAction('RPC')
     return
   }
   const result = await checkSSHConnection()
