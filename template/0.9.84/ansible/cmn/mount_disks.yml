@@ -1,0 +1,70 @@
+- name: Mount and configure disks with NVMe prioritization
+  hosts: all
+  become: true
+  vars:
+    mount_targets:
+      - { name: ledger,    path: /mnt/ledger }
+      - { name: accounts,  path: /mnt/accounts }
+      - { name: snapshot,  path: /mnt/snapshot }
+      - { name: OS,        path: /mnt }
+  tasks:
+    - name: Set mount_dirs based on mount_targets
+      set_fact:
+        mount_dirs: "{{ mount_targets | map(attribute='path') | list }}"
+
+    - name: Ensure /mnt and subdirectories exist with correct ownership
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      loop: "{{ mount_dirs }}"
+
+    - name: Find unmounted NVMe disks >=800GB, sort by size desc, return as list
+      shell: |
+        lsblk -nr -o NAME,TYPE,SIZE,MOUNTPOINT | awk '
+          $2 == "disk" && 
+          $1 ~ /^nvme/ &&
+          (($3 ~ /G$/ && substr($3, 1, length($3)-1) + 0 >= 800) ||
+          ($3 ~ /T$/ && substr($3, 1, length($3)-1) + 0 >= 0.8)) &&
+          ($4 == "" || $4 ~ /^[[:space:]]*$/) &&
+          system("lsblk -nr -o TYPE /dev/" $1 " | grep -q part") != 0 {
+            print $1, $3
+          }' | sort -k2,2hr -k1,1 | awk '{print $1}'
+      register: unmounted_disks_output
+      args:
+        chdir: /home/solv
+
+    - name: Set sorted unmounted disk list as array
+      set_fact:
+        unmounted_disks: "{{ unmounted_disks_output.stdout_lines }}"
+
+    - name: Debug unmounted disks
+      debug:
+        var: unmounted_disks
+
+    - name: Skip if no unmounted disks found
+      debug:
+        msg: "No unmounted disks found, skipping disk formatting and mounting tasks."
+      when: unmounted_disks | length == 0
+
+    - name: Mount and format disks dynamically according to priority
+      block:
+        - name: "Format and mount disk as per priority"
+          block:
+            - name: Format disk to ext4 if not already formatted
+              filesystem:
+                fstype: ext4
+                dev: "/dev/{{ unmounted_disks[item.0] }}"
+            - name: Mount disk to path
+              mount:
+                path: "{{ item.1.path }}"
+                src: "/dev/{{ unmounted_disks[item.0] }}"
+                fstype: ext4
+                state: mounted
+                opts: defaults,noatime
+          loop: "{{ range(0, [unmounted_disks|length, mount_targets|length]|min) | list | zip(mount_targets) }}"
+          loop_control:
+            label: "{{ item.1.name }} => {{ unmounted_disks[item.0] }}"
+      when: unmounted_disks | length > 0
