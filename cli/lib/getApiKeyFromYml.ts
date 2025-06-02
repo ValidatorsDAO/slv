@@ -3,7 +3,7 @@ import { defaultApiKeyYml } from '/lib/config/defaultApiKeyYml.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { colors } from '@cliffy/colors'
 
-const getApiKeyFromYml = async () => {
+const getApiKeyFromYml = async (ignoreError = false) => {
   const home = Deno.env.get('HOME')
   if (!home) {
     console.log(colors.red('⚠️ HOME environment variable not found'))
@@ -24,13 +24,20 @@ const getApiKeyFromYml = async () => {
   ) as { slv: { api_key: string } }
   const apiKey = inventoryData.slv.api_key
   if (!apiKey || !isValidApiKey(apiKey)) {
-    const text = `API key not found in ${inventoryPath}
-⚠️ Please Add Your API key with the following command:
+    if (ignoreError) {
+      return ''
+    }
+    console.log(colors.yellow(`⚠️ API key not found in ${inventoryPath}`))
+    const text = `
+🚀 Get started with one of the commands below:
 
-$ slv login
+$ slv signup # For new users
+$ slv login  # If you already have an API key
 
-👉 You can get Free API Key from ValidatorsDAO Discord Channel
-🔗 ValidatorsDAO Discord: ${DISCORD_LINK}`
+A Discord login URL will appear in your terminal.
+Just open it in your browser and log in, your API key will be visible in the discord dashboard.
+
+👉 Grab your free API key here: ${DISCORD_LINK}`
     console.log(colors.white(text))
     Deno.exit(1)
   }

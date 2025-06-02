@@ -1,10 +1,12 @@
 import { prompt, Select } from '@cliffy/prompt'
 import { getMetals, type MetalType } from '/src/metal/getMetals.ts'
+import { getMetalsPublic } from '/src/metal/getMetalsPublic.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { Row, Table } from '@cliffy/table'
 import { extractSpecValue } from '/lib/extractSpecValue.ts'
+import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 
 const listAction = async (defaultMetalType?: MetalType) => {
   const app = '📦 APP - For Trade Bot,Testnet Validator, DApp and More!'
@@ -44,13 +46,18 @@ const listAction = async (defaultMetalType?: MetalType) => {
     }
   }
 
-  const apiKey = await getApiKeyFromYml()
-  console.log(colors.yellow('🔍 Searching for SLV BareMetals...'))
-  const metals = await getMetals(apiKey, metalType)
+  const apiKey = await getApiKeyFromYml(true)
+  const searching = colors.cyan('🔍 Searching for SLV BareMetals...')
+  const spinner = new Kia(searching)
+  spinner.start()
+  const metals = apiKey
+    ? await getMetals(apiKey, metalType)
+    : await getMetalsPublic(metalType)
   if (!metals.success) {
     console.log(colors.yellow('Please try again later...'))
     return false
   }
+  spinner.succeed(`Found BareMetals`)
   const metalProducts = metals.message
   if (metalProducts.length === 0) {
     console.log(
@@ -111,15 +118,17 @@ const listAction = async (defaultMetalType?: MetalType) => {
   ])
   table.render()
   console.log('')
-
-  const text = `🔗 Payment Link: 
+  const paymentLinkText = apiKey
+    ? `🔗 Payment Link:`
+    : `You can get payment links after $ slv login\n\n📝 SignUp Link:`
+  const text = `${paymentLinkText}
 ${paymentLink}
 
-After completing the payment, you will be able to register your SSH public key with the following command:
+After completing the payment, you will be able to see your node status with the following command:
 
 $ slv metal status
 
-Login information will appear within a few minutes to an hour after registering your key.
+Login information will appear within a few minutes to an hour after provisioning the node.
 
 If the login details don’t show up after some time, please reach out via a support ticket on Discord.
 

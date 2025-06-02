@@ -8,6 +8,7 @@ import { cloudCmd } from '@/cloud/index.ts'
 import { swapCmd } from '@/swap/index.ts'
 import { metalCmd } from '@/metal/index.ts'
 import { loginCmd } from '@/login/index.ts'
+import { logoutCmd } from '@/login/logout.ts'
 import { checkCmd } from '@/check/index.ts'
 import { installClientMessage, slvAA } from '/lib/slvAA.ts'
 import { upgrade } from '@/upgrade.ts'
@@ -63,6 +64,9 @@ program
 
 program
   .command('login', loginCmd)
+
+program
+  .command('logout', logoutCmd)
 
 program
   .command('check', checkCmd)

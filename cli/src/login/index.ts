@@ -10,8 +10,11 @@ export const loginCmd = new Command()
     console.log(colors.bold.blue(loginTxt))
     console.log(
       colors.white(
-        `👉 You can get Free API Key from ValidatorsDAO Discord Channel
-🔗 ValidatorsDAO Discord: ${DISCORD_LINK}\n`,
+        `If you don't have one:
+        
+$ slv signup
+
+`,
       ),
     )
     const { apiKey } = await prompt([{
