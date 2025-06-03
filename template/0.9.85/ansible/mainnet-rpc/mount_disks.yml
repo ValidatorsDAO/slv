@@ -1,0 +1,108 @@
+---
+- name: Mount and configure disks with NVMe prioritization
+  hosts: all
+  become: true
+  vars:
+    mount_dirs:
+      - /mnt
+      - /mnt/ledger
+      - /mnt/accounts
+      - /mnt/snapshot
+  tasks:
+    - name: Ensure swap is disabled
+      block:
+        - name: Check for active swap
+          shell: swapon --show --noheadings --output NAME | awk '{print $1}'
+          register: active_swap
+          changed_when: false
+
+        - name: Debug active swap devices
+          debug:
+            var: active_swap.stdout_lines
+
+        - name: Disable active swap devices
+          command: swapoff {{ item }}
+          loop: '{{ active_swap.stdout_lines }}'
+          when: active_swap.stdout_lines | length > 0
+
+        - name: Remove swap entries from /etc/fstab
+          replace:
+            path: /etc/fstab
+            regexp: '.*swap.*'
+            replace: ''
+          when: active_swap.stdout_lines | length > 0
+
+    - name: Ensure /mnt and subdirectories exist with correct ownership
+      file:
+        path: '{{ item }}'
+        state: directory
+        owner: solv
+        group: solv
+        mode: '0755'
+      loop: '{{ mount_dirs }}'
+
+    - name: Upload shell script to find unmounted disks
+      template:
+        src: templates/find_unmounted_disks.sh
+        dest: /home/solv/find_unmounted_disks.sh
+        mode: '0755'
+        owner: solv
+        group: solv
+
+    - name: Execute shell script to find unmounted disks
+      shell: ./find_unmounted_disks.sh
+      register: unmounted_disks_output
+      args:
+        chdir: /home/solv
+
+    - name: Debug unmounted disks
+      debug:
+        var: unmounted_disks_output.stdout_lines
+
+    - name: Remove the find_unmounted_disks.sh script
+      file:
+        path: /home/solv/find_unmounted_disks.sh
+        state: absent
+
+    - name: Skip if no unmounted disks found
+      debug:
+        msg: 'No unmounted disks found, skipping disk formatting and mounting tasks.'
+      when: unmounted_disks_output.stdout_lines | length == 0
+
+    - name: Mount and format disks dynamically
+      block:
+        - name: Format disk to ext4 if not already formatted
+          filesystem:
+            fstype: ext4
+            dev: '/dev/{{ item }}'
+          loop: '{{ unmounted_disks_output.stdout_lines }}'
+          loop_control:
+            label: '{{ item }}'
+
+        - name: Mount /mnt/ledger
+          mount:
+            path: /mnt/ledger
+            src: '/dev/{{ unmounted_disks_output.stdout_lines[0] }}'
+            fstype: ext4
+            state: mounted
+            opts: defaults,noatime
+          when: unmounted_disks_output.stdout_lines | length >= 1
+
+        - name: Mount /mnt/accounts
+          mount:
+            path: /mnt/accounts
+            src: '/dev/{{ unmounted_disks_output.stdout_lines[1] }}'
+            fstype: ext4
+            state: mounted
+            opts: defaults,noatime
+          when: unmounted_disks_output.stdout_lines | length >= 2
+
+        - name: Mount /mnt/snapshot
+          mount:
+            path: /mnt/snapshot
+            src: '/dev/{{ unmounted_disks_output.stdout_lines[2] }}'
+            fstype: ext4
+            state: mounted
+            opts: defaults,noatime
+          when: unmounted_disks_output.stdout_lines | length >= 3
+      when: unmounted_disks_output.stdout_lines | length > 0
