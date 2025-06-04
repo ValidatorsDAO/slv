@@ -3,10 +3,10 @@
   become: true
   vars:
     mount_targets:
-      - { name: ledger,    path: /mnt/ledger }
-      - { name: accounts,  path: /mnt/accounts }
-      - { name: snapshot,  path: /mnt/snapshot }
-      - { name: OS,        path: /mnt }
+      - { name: ledger, path: /mnt/ledger }
+      - { name: accounts, path: /mnt/accounts }
+      - { name: snapshot, path: /mnt/snapshot }
+      - { name: OS, path: /mnt }
   tasks:
     - name: Set mount_dirs based on mount_targets
       set_fact:
@@ -50,21 +50,12 @@
       when: unmounted_disks | length == 0
 
     - name: Mount and format disks dynamically according to priority
-      block:
-        - name: "Format and mount disk as per priority"
-          block:
-            - name: Format disk to ext4 if not already formatted
-              filesystem:
-                fstype: ext4
-                dev: "/dev/{{ unmounted_disks[item.0] }}"
-            - name: Mount disk to path
-              mount:
-                path: "{{ item.1.path }}"
-                src: "/dev/{{ unmounted_disks[item.0] }}"
-                fstype: ext4
-                state: mounted
-                opts: defaults,noatime
-          loop: "{{ range(0, [unmounted_disks|length, mount_targets|length]|min) | list | zip(mount_targets) }}"
-          loop_control:
-            label: "{{ item.1.name }} => {{ unmounted_disks[item.0] }}"
+      include_tasks: tasks/format_and_mount.yml
+      loop: "{{ range(0, [unmounted_disks | length, mount_targets | length] | min) | list }}"
+      loop_control:
+        loop_var: idx
+        label: "{{ mount_targets[idx].name }} => /dev/{{ unmounted_disks[idx] }}"
+      vars:
+        disk_name: "{{ unmounted_disks[idx] }}"
+        mount_path: "{{ mount_targets[idx].path }}"
       when: unmounted_disks | length > 0
