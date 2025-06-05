@@ -392,6 +392,9 @@ validatorCmd.command('gen:vote-account')
       )
       return
     }
+    console.log(
+      `✨ Creating Vote Account with Identity: ${identityAccount}, Authority: ${authAccount}, Vote Account: ${voteAccount}, Commission: ${commission}%`,
+    )
     await createVoteAccount(
       identityAccount,
       voteAccount,

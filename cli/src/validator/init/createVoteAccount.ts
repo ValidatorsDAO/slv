@@ -9,8 +9,9 @@ const createVoteAccount = async (
   commissionRate: number = DEFAULT_COMMISSION_RATE,
   rpcUrl: string = 'https://api.testnet.solana.com',
 ) => {
+  const home = Deno.env.get('HOME') || ''
   const cmd =
-    `solana create-vote-account ~/.slv/keys/${voteAccount}.json ~/.slv/keys/${identityAccount}.json ${authorityAccount} --commission ${commissionRate} --url ${rpcUrl}`
+    `solana create-vote-account ${home}/.slv/keys/${voteAccount}.json ${home}/.slv/keys/${identityAccount}.json ${authorityAccount} --commission ${commissionRate} --url ${rpcUrl}`
   const result = await spawnSync(cmd)
   if (!result.success) {
     console.error(colors.red('❌ Failed to create vote account'))
