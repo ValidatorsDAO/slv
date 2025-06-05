@@ -11,7 +11,7 @@ import { switchValidator } from '/src/validator/switch/switchValidator.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
 import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
-import {createVoteAccount} from '/src/validator/init/createVoteAccount.ts'
+import { createVoteAccount } from '/src/validator/init/createVoteAccount.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -250,11 +250,6 @@ validatorCmd.command('restart')
     default: 'testnet',
   })
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
-  .option(
-    '-r, --rm',
-    'Remove Snapshot/Ledger Dirs and DL Snapshot with Snapshot Finder before Starting',
-    { default: false },
-  )
   .action(async (options) => {
     const inventoryType: InventoryType = options.network === 'mainnet'
       ? 'mainnet_validators'
@@ -271,9 +266,8 @@ validatorCmd.command('restart')
         return
       }
     } else {
-      const playbook = options.rm
-        ? `${templateRoot}/ansible/testnet-validator/restart_firedancer_with_rm_ledger.yml`
-        : `${templateRoot}/ansible/testnet-validator/restart_firedancer.yml`
+      const playbook =
+        `${templateRoot}/ansible/testnet-validator/restart_node.yml`
 
       const result = options.pubkey
         ? await runAnsilbe(playbook, inventoryType, options.pubkey)
@@ -343,8 +337,10 @@ validatorCmd.command('gen:vote-account')
   .option('-v, --vote-account <voteAccount>', 'Vote Account')
   .option('-a, --auth-account <authAccount>', 'Vote Account Authority')
   .option('-c, --commission <commission>', 'Vote Account Commission')
-  .action(async (options) => { 
-    const network = options.network === 'mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.testnet.solana.com'
+  .action(async (options) => {
+    const network = options.network === 'mainnet'
+      ? 'https://api.mainnet-beta.solana.com'
+      : 'https://api.testnet.solana.com'
     let identityAccount = options.pubkey
     let authAccount = options.authAccount
     let voteAccount = options.voteAccount
@@ -391,12 +387,19 @@ validatorCmd.command('gen:vote-account')
       commission = commissionPrompt.commission
     }
     if (!identityAccount || !authAccount || !voteAccount || !commission) {
-      console.log(colors.red('❌ Identity, Authority and Vote Accounts are required'))
+      console.log(
+        colors.red('❌ Identity, Authority and Vote Accounts are required'),
+      )
       return
     }
-    await createVoteAccount(identityAccount, voteAccount, authAccount, Number(commission), network)
-  }
-  )
+    await createVoteAccount(
+      identityAccount,
+      voteAccount,
+      authAccount,
+      Number(commission),
+      network,
+    )
+  })
 
 validatorCmd.command('update:allowed-ips')
   .description('🛡️  Update allowed IPs for mainnet validator nodes')
