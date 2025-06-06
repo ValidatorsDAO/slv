@@ -2,6 +2,9 @@
 - name: Deploy start-validator script dynamically
   hosts: all
   become: true
+  vars:
+    geyser_config_template: "~/.slv/mainnet-rpc/geyser.json.j2"
+    geyser_config_path: "/home/solv/geyser.json"
   vars_files:
     - ~/.slv/versions.yml
   tasks:
@@ -43,6 +46,17 @@
         port_rpc: "{{ mainnet_rpcs.port_rpc }}"
         limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
       when: rpc_type == 'Index RPC'
+
+    - name: Copy the geyser.json configuration file
+      template:
+        src: "{{ geyser_config_template }}"
+        dest: "{{ geyser_config_path }}"
+        owner: solv
+        group: solv
+        mode: "0644"
+      vars:
+        x_token: "{{ mainnet_rpcs.x_token }}"
+      when: rpc_type in ['Geyser gRPC']
 
     - name: Generate start-validator.sh from template for SendTx RPC
       template:

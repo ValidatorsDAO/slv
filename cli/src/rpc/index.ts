@@ -29,7 +29,7 @@ rpcCmd.command('deploy')
     'Network to deploy RPC node on (mainnet/testnet)',
     {
       default: 'mainnet',
-    }
+    },
   )
   .option('-p, --pubkey <pubkey>', 'Deploy RPC node for a specific pubkey')
   .action(async (options) => {
@@ -99,7 +99,7 @@ rpcCmd.command('update:script')
     await runAnsilbe(playbook, inventoryType, options.pubkey)
   })
 
-  rpcCmd.command('update:geyser')
+rpcCmd.command('update:geyser')
   .description('⚡️ Update Geyser Version')
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .option('-n, --network <network>', 'Network to deploy validators', {
@@ -108,8 +108,7 @@ rpcCmd.command('update:script')
   .action(async (options) => {
     const inventoryType = 'mainnet_rpcs'
     const templateRoot = getTemplatePath()
-    const playbook =
-      `${templateRoot}/ansible/mainnet-rpc/geyser_build.yml`
+    const playbook = `${templateRoot}/ansible/mainnet-rpc/update_geyser.yml`
     if (options.pubkey) {
       await runAnsilbe(playbook, inventoryType, options.pubkey)
       return
@@ -117,8 +116,7 @@ rpcCmd.command('update:script')
     await runAnsilbe(playbook, inventoryType, options.pubkey)
   })
 
-
-  rpcCmd.command('start')
+rpcCmd.command('start')
   .description('🟢 Start RPC')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'mainnet',
@@ -170,8 +168,7 @@ rpcCmd.command('restart')
     const networkPath = 'mainnet-rpc'
     const templateRoot = getTemplatePath()
     if (options.network === 'mainnet') {
-      const playbook =
-        `${templateRoot}/ansible/${networkPath}/restart_node.yml`
+      const playbook = `${templateRoot}/ansible/${networkPath}/restart_node.yml`
       const result = options.pubkey
         ? await runAnsilbe(playbook, inventoryType, options.pubkey)
         : await runAnsilbe(playbook, inventoryType)
@@ -222,7 +219,6 @@ rpcCmd.command('get:snapshot')
       return
     }
   })
-
 
 rpcCmd.command('update:allowed-ips')
   .description('🛡️ Update allowed IPs for mainnet RPC nodes')

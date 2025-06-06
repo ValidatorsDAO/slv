@@ -127,3 +127,18 @@ checkCmd.command('shreds')
       console.error(colors.red('Error executing Shreds test:'), errorMessage)
     }
   })
+
+checkCmd.command('ip')
+  .description('IP - 📡 Get Local')
+  .action(async () => {
+    try {
+      const cmd = `curl ipinfo.io/ip`
+      const ip = await exec(cmd)
+      console.log(colors.white(`${ip.message.trim()}`))
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error)
+      console.error(colors.red('Error fetching IP address:'), errorMessage)
+    }
+  })
