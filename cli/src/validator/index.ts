@@ -118,7 +118,9 @@ validatorCmd.command('setup:firedancer')
   })
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .action(async (options) => {
-    const inventoryType: InventoryType = 'testnet_validators'
+    const inventoryType: InventoryType = options.network === 'mainnet'
+      ? 'mainnet_validators'
+      : 'testnet_validators'
     const templateRoot = getTemplatePath()
     const networkPath = options.network === 'mainnet'
       ? 'mainnet-validator'
