@@ -1,0 +1,65 @@
+---
+- name: Install Rust and Cargo
+  hosts: all
+  become: true
+  vars:
+    rust_url: 'https://sh.rustup.rs'
+  tasks:
+    - name: Ensure Rust installer is downloaded
+      get_url:
+        url: '{{ rust_url }}'
+        dest: /tmp/rustup-install.sh
+        mode: 0755
+
+    - name: Ensure solv owns home directory and profile
+      file:
+        path: /home/solv/.profile
+        state: file
+        owner: solv
+        group: solv
+        mode: '0644'
+
+    - name: Install Rust
+      shell: |
+        sudo -u solv /tmp/rustup-install.sh -y
+      args:
+        chdir: /home/solv/
+      register: install_output
+
+    - name: Debug Rust installation output
+      debug:
+        var: install_output
+
+    - name: Add Cargo bin directory to PATH manually
+      shell: |
+        echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> /home/solv/.bashrc
+      args:
+        executable: /bin/bash
+
+    - name: Source .bashrc to ensure PATH is updated
+      shell: |
+        sudo -i -u solv bash -c "source ~/.bashrc"
+      args:
+        executable: /bin/bash
+
+    - name: Install rustfmt component
+      shell: |
+        sudo -i -u solv bash -c "rustup component add rustfmt"
+      environment:
+        PATH: /bin:/usr/bin:/usr/local/bin:/home/solv/.cargo/bin
+      register: rustup_output
+
+    - name: Debug rustfmt installation output
+      debug:
+        var: rustup_output
+
+    - name: Verify Rust installation
+      shell: |
+        sudo -i -u solv bash -c "cargo --version"
+      environment:
+        PATH: /bin:/usr/bin:/usr/local/bin:/home/solv/.cargo/bin
+      register: cargo_version
+
+    - name: Debug Rust version
+      debug:
+        var: cargo_version
