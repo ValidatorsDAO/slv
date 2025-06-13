@@ -1,0 +1,14 @@
+---
+- name: Add alias to solv's .profile
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure alias line is present in solv's .profile
+      lineinfile:
+        path: /home/solv/.profile
+        line: "alias solv='agave-validator -l /mnt/ledger/'"
+        create: yes
+        state: present
+        owner: solv
+        group: solv
+        mode: "0644"
