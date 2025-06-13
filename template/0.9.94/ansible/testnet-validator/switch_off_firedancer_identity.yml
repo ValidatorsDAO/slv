@@ -21,7 +21,7 @@
 
     - name: Make sure the ~/.slv/tower directory exists
       shell: mkdir -p ~/.slv/tower
-      ignore_errors: yes
+      failed_when: false
 
     - name: Download Tower File - Make Sure it overwrites the existing file if it exists at the destination
       ansible.builtin.fetch:

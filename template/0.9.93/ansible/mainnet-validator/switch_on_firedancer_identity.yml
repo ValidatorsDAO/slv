@@ -21,4 +21,4 @@
       shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/mainnet-validator-keypair.json
       args:
         executable: /bin/bash
-      ignore_errors: yes
+      failed_when: false

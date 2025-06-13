@@ -49,12 +49,12 @@
         executable: /bin/bash
       register: add_voter_result
       timeout: 20
-      ignore_errors: yes
+      failed_when: false
       when: validator_type == 'jito'
 
     - name: Add Authorized Voter
       shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/mainnet-validator-keypair.json
       args:
         executable: /bin/bash
-      ignore_errors: yes
+      failed_when: false
       when: validator_type == 'firedancer'

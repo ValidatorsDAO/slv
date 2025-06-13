@@ -13,7 +13,7 @@
         name: fail2ban
         state: present
       tags: setup_lib
-      ignore_errors: yes
+      failed_when: false
 
     - name: Ensure fail2ban is started and enabled
       service:
@@ -21,7 +21,7 @@
         state: started
         enabled: yes
       tags: setup_lib
-      ignore_errors: yes
+      failed_when: false
 
     - name: Install development tools and libraries
       apt:
@@ -43,4 +43,4 @@
           - aria2
         state: present
       tags: setup_lib
-      ignore_errors: yes
+      failed_when: false

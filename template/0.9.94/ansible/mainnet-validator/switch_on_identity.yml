@@ -41,7 +41,7 @@
         executable: /bin/bash
       register: add_voter_result
       timeout: 20
-      ignore_errors: yes
+      failed_when: false
 
     - name: Show set-identity output
       debug:

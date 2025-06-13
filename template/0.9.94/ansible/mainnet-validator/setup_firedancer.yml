@@ -15,8 +15,6 @@
         update: yes
         force: yes
         version: v{{ mainnet_validators.version_firedancer }}
-        retries: 3
-        delay: 10
 
     - name: Initialize git submodules
       command: git submodule update --init --recursive

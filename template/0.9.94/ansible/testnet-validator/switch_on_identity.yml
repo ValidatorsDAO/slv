@@ -38,4 +38,4 @@
       args:
         stdin: "{{ key_file.content | b64decode }}"
         executable: /bin/bash
-      ignore_errors: yes
+      failed_when: false

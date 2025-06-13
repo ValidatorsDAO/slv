@@ -8,14 +8,14 @@
         echo "109" | tee /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
       args:
         executable: /bin/bash
-      ignore_errors: yes
+      failed_when: false
 
     - name: Configure 1GB hugepages
       shell: |
         echo "29" | tee /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages
       args:
         executable: /bin/bash
-      ignore_errors: yes
+      failed_when: false
 
     - name: Create /mnt/.huge directory
       file:
@@ -27,7 +27,7 @@
       shell: mount -t hugetlbfs none /mnt/.huge -o pagesize=2097152,min_size=228589568
       args:
         executable: /bin/bash
-      ignore_errors: yes
+      failed_when: false
 
     - name: Create /mnt/.gigantic directory
       file:
@@ -39,4 +39,4 @@
       shell: mount -t hugetlbfs none /mnt/.gigantic -o pagesize=1073741824,min_size=31138512896
       args:
         executable: /bin/bash
-      ignore_errors: yes
+      failed_when: false

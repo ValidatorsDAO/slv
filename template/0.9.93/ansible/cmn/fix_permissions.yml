@@ -16,7 +16,7 @@
         - /bin/curl
         - /bin/wget
         - /usr/bin/gcc
-      ignore_errors: yes
+      failed_when: false
 
     - name: Fix permissions for directories
       file:
@@ -27,4 +27,4 @@
         - /usr/bin
         - /bin
         - /usr/local/bin
-      ignore_errors: yes
+      failed_when: false
