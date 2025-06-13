@@ -8,6 +8,8 @@
     - name: Start Firedancer
       shell: . ~/.profile && sudo systemctl start firedancer
       register: command_output
+      retries: 3
+      delay: 10
 
     - name: Display Command output
       debug:
