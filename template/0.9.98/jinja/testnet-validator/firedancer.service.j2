@@ -1,0 +1,21 @@
+[Unit]
+Description=Firedancer
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=root
+LimitNOFILE=1000000
+LogRateLimitIntervalSec=0
+
+ExecStartPre=chown -R solv:solv /mnt
+ExecStartPre=chmod -R 700 /mnt
+ExecStartPre=sudo /home/solv/firedancer/build/native/gcc/bin/fdctl configure init all --config /home/solv/firedancer-config.toml
+ExecStart=sudo /home/solv/firedancer/build/native/gcc/bin/fdctl run --config /home/solv/firedancer-config.toml
+TimeoutSec=infinity
+
+[Install]
+WantedBy=multi-user.target

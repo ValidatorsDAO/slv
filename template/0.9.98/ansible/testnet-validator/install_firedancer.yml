@@ -1,0 +1,69 @@
+---
+- name: Setup Firedancer
+  hosts: all
+  become: true
+  become_user: solv
+  vars_files:
+    - ~/.slv/versions.yml
+  tasks:
+    - name: Clone Firedancer repository
+      git:
+        repo: https://github.com/firedancer-io/firedancer.git
+        dest: /home/solv/firedancer
+        update: yes
+        force: yes
+        version: v{{ testnet_validators.version_firedancer }}
+
+    - name: Initialize git submodules
+      command: git submodule update --init --recursive
+      args:
+        chdir: /home/solv/firedancer
+
+    - name: Run deps.sh script with yes (async/poll)
+      shell: |
+        sudo apt update -y
+        yes y | ./deps.sh
+      args:
+        chdir: /home/solv/firedancer
+      async: 300 # wait for 5 minutes
+      poll: 15 # check every 15 seconds
+      register: deps_result
+      until: deps_result.rc == 0
+      retries: 3
+      delay: 10
+
+    - name: Build Firedancer with make
+      shell: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        . $HOME/.cargo/env
+        make -j fdctl solana
+      args:
+        chdir: /home/solv/firedancer
+        executable: /bin/bash
+      register: build_result
+      until: build_result.rc == 0
+      retries: 3
+      delay: 10
+
+    - name: Create symbolic link for fdctl
+      shell: sudo ln -s /home/solv/firedancer/build/native/gcc/bin/fdctl /usr/local/bin/fdctl
+      args:
+        creates: /usr/local/bin/fdctl
+
+    - name: Create config.toml
+      template:
+        src: ~/.slv/testnet-validator/firedancer-config.toml.j2
+        dest: /home/solv/firedancer/firedancer-config.toml
+        owner: solv
+        group: solv
+        mode: '0644'
+
+    - name: Generate start-firedancer.sh from template
+      template:
+        src: ~/.slv/testnet-validator/start-firedancer.sh.j2
+        dest: /home/solv/start-firedancer.sh
+        mode: '0755'
+        owner: solv
+        group: solv
+      vars:
+        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
