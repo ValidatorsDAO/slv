@@ -17,6 +17,7 @@
       when: validator_type is not defined
 
 # 共通処理
+- import_playbook: ../cmn/fix_permissions.yml
 - import_playbook: copy_restart_sh.yml
   when: validator_type in ['jito', 'firedancer']
 
