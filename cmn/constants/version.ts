@@ -5,7 +5,7 @@
 export const VERSION = '0.9.99'
 
 // Component versions
-export const VERSION_SOLANA_TESTNET = '2.3.0'
+export const VERSION_SOLANA_TESTNET = '2.3.1'
 export const VERSION_SOLANA_MAINNET = '2.2.16'
 export const VERSION_JITO_TESTNET = '2.3.0'
 export const VERSION_JITO_MAINNET = '2.2.16'
