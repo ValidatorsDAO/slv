@@ -12,6 +12,9 @@ import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
 import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import { createVoteAccount } from '/src/validator/init/createVoteAccount.ts'
+import { exec } from '@elsoul/child-process'
+import { configRoot } from '@cmn/constants/path.ts'
+import denoJson from '/deno.json' with { type: 'json' }
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -194,6 +197,24 @@ validatorCmd.command('update:script')
       return
     }
     await runAnsilbe(playbook, inventoryType, options.pubkey)
+  })
+
+validatorCmd.command('update:jinja')
+  .description('🧩 Update Jinja Template')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'testnet',
+  })
+  .action(async (options) => {
+    const network = options.network as NetworkType
+    const networkPath = network === 'mainnet'
+      ? 'mainnet-validator'
+      : 'testnet-validator'
+    await exec(
+      `cp -r ${configRoot}/template/${denoJson.version}/jinja/${networkPath} ${configRoot}`,
+    )
+    console.log(
+      colors.white(`✅ Successfully Updated Jinja Template for ${network}`),
+    )
   })
 
 validatorCmd.command('start')
