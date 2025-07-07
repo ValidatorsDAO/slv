@@ -1,7 +1,7 @@
 {
   "libpath": "/home/solv/yellowstone-grpc/target/release/libyellowstone_grpc_geyser.so",
   "log": {
-    "level": "info"
+    "level": "error"
   },
   "tokio": {
     "worker_threads": 32,
@@ -14,15 +14,14 @@
       "send": ["gzip", "zstd"]
     },
     "server_http2_keepalive_timeout": "10s",
-    "max_decoding_message_size": "4_000_000",
-    "channel_capacity": "1_000_000",
-    "unary_concurrency_limit": 200,
-    "unary_disabled": false,
+    "max_decoding_message_size": "8_000_000",
+    "channel_capacity": "4_000_000",
+    "unary_disabled": true,
     "x_token": "{{ x_token }}",
     "replay_stored_slots": 0,
     "filter_name_size_limit": 128,
     "filter_names_size_limit": 4096,
-    "filter_names_cleanup_interval": "1s",
+    "filter_names_cleanup_interval": "10s",
     "filter_limits": {
       "accounts": {
         "max": 20,

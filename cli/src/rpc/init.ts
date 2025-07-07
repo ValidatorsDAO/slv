@@ -121,7 +121,7 @@ const init = async () => {
     rpc_type: rpcTypes.rpc_type as RpcType,
     region: rpcTypes.blockEngineRegion!,
     snapshot_url: '',
-    limit_ledger_size: 100000000,
+    limit_ledger_size: 50000000,
     shredstream_address: SHREDSTREAM_ADDRESS[
       rpcTypes.blockEngineRegion as keyof typeof SHREDSTREAM_ADDRESS
     ],
