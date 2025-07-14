@@ -31,3 +31,10 @@ exec agave-validator \
 --wal-recovery-mode skip_any_corrupted_record \
 --use-snapshot-archives-at-startup when-newest \
 --limit-ledger-size {{ limit_ledger_size }} \
+--rpc-pubsub-notification-threads 8 \
+--rpc-pubsub-worker-threads 8 \
+--rpc-send-leader-count 16 \
+--rpc-send-retry-ms 16 \
+--rpc-threads 32 \
+--tpu-coalesce-ms 1 \
+--tpu-connection-pool-size 32 \
