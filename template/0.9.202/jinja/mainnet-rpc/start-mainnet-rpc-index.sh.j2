@@ -20,7 +20,6 @@ exec agave-validator \
 --full-rpc-api \
 --no-voting \
 --private-rpc \
---enable-cpi-and-log-storage \
 --no-skip-initial-accounts-db-clean \
 --dynamic-port-range 8000-8020 \
 --rpc-bind-address 0.0.0.0 \
@@ -29,9 +28,16 @@ exec agave-validator \
 --account-index program-id spl-token-mint spl-token-owner \
 --enable-rpc-transaction-history \
 --shred-receiver-address {{ shredstream_address }} \
---rpc-pubsub-enable-block-subscription \
---rpc-pubsub-enable-vote-subscription \
 --no-wait-for-vote-to-start-leader \
 --wal-recovery-mode skip_any_corrupted_record \
 --use-snapshot-archives-at-startup when-newest \
 --limit-ledger-size {{ limit_ledger_size }} \
+--rpc-max-multiple-accounts 128 \
+--rpc-pubsub-notification-threads 8 \
+--rpc-pubsub-worker-threads 8 \
+--rpc-send-leader-count 16 \
+--rpc-send-retry-ms 16 \
+--rpc-threads 32 \
+--tpu-coalesce-ms 1 \
+--enable-extended-tx-metadata-storage \
+--tpu-connection-pool-size 32 \
