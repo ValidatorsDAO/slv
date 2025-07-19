@@ -56,7 +56,7 @@ const addMainnetRPCInventory = async (
       region: region,
       rpc_type: rpcType,
       snapshot_url: snapshotUrl,
-      limit_ledger_size: 50000000,
+      limit_ledger_size: 200000000,
       shredstream_address: '',
     } as RpcConfig
 
