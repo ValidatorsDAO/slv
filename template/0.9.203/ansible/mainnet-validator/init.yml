@@ -85,7 +85,6 @@
 
 - import_playbook: wget_snapshot.yml
   when: validator_type in ['jito', 'firedancer']
-  failed_when: false
 
 - import_playbook: start-solv-service.yml
   when: validator_type == 'jito'
