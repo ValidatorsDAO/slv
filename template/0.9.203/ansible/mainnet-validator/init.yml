@@ -42,7 +42,10 @@
   when: validator_type == 'jito'
 
 - import_playbook: install_jito.yml
-  when: validator_type in ['jito', 'firedancer']
+  when: validator_type == 'jito'
+
+- import_playbook: install_agave.yml
+  when: validator_type == 'firedancer'
 
 - import_playbook: setup_fb_ufw.yml
   when: validator_type in ['firedancer']
