@@ -15,7 +15,7 @@
     "build:mac": "deno compile -A --target x86_64-apple-darwin --no-check --output dist/slv-x86_64-apple-darwin-exe cli/src/index.ts && tar -czvf dist/slv-x86_64-apple-darwin-exe.tar.gz dist/slv-x86_64-apple-darwin-exe",
     "upload:script": "deno run -A cli/uploadScript.ts",
     "upload:exe": "deno run -A cli/uploadExe.ts",
-    "upload:template": "tar -czf dist/template.tar.gz ./template/0.9.300 && deno run -A cli/uploadTemplate.ts",
+    "upload:template": "tar -czf dist/template.tar.gz ./template/0.9.301 && deno run -A cli/uploadTemplate.ts",
     "purge:cache": "deno run -A cmn/lib/purgeR2Cache.ts",
     "slv-dev": "npm run --prefix website/slv-dev"
   },
