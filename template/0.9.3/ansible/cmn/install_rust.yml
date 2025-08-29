@@ -1,0 +1,70 @@
+---
+- name: Install Rust 1.84.1 and Cargo
+  hosts: all
+  become: true
+  vars:
+    rust_url: "https://sh.rustup.rs"
+    rust_version: "1.84.1"
+  tasks:
+    - name: Ensure Rust installer is downloaded
+      get_url:
+        url: "{{ rust_url }}"
+        dest: /tmp/rustup-install.sh
+        mode: 0755
+
+    - name: Install Rust
+      shell: |
+        sudo -u solv /tmp/rustup-install.sh -y --default-toolchain {{ rust_version }}
+      args:
+        chdir: /home/solv/
+      register: install_output
+
+    - name: Ensure Rust 1.84.1 is installed
+      shell: |
+        sudo -i -u solv bash -c "rustup install {{ rust_version }}"
+      args:
+        executable: /bin/bash
+
+    - name: Set Rust 1.84.1 as default
+      shell: |
+        sudo -i -u solv bash -c "rustup default {{ rust_version }}"
+      args:
+        executable: /bin/bash
+
+    - name: Add Cargo bin directory to PATH manually
+      shell: |
+        echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> /home/solv/.bashrc
+        echo 'export RUSTUP_TOOLCHAIN={{ rust_version }}' >> /home/solv/.bashrc
+      args:
+        executable: /bin/bash
+
+    - name: Source .bashrc to ensure PATH is updated
+      shell: |
+        sudo -i -u solv bash -c "source ~/.bashrc"
+      args:
+        executable: /bin/bash
+
+    - name: Install cargo component explicitly
+      shell: |
+        sudo -i -u solv bash -c "rustup component add cargo --toolchain {{ rust_version }}"
+      environment:
+        PATH: /bin:/usr/bin:/usr/local/bin:/home/solv/.cargo/bin
+      register: cargo_install_output
+
+    - name: Install rustfmt component
+      shell: |
+        sudo -i -u solv bash -c "rustup component add rustfmt --toolchain {{ rust_version }}"
+      environment:
+        PATH: /bin:/usr/bin:/usr/local/bin:/home/solv/.cargo/bin
+      register: rustfmt_output
+
+    - name: Verify Rust installation
+      shell: |
+        sudo -i -u solv bash -c "cargo +{{ rust_version }} --version"
+      environment:
+        PATH: /bin:/usr/bin:/usr/local/bin:/home/solv/.cargo/bin
+      register: cargo_version
+
+    - name: Debug Rust version
+      debug:
+        var: cargo_version.stdout
