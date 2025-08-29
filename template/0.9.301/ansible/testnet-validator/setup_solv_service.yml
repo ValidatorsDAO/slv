@@ -12,14 +12,15 @@
         group: root
         mode: '0755'
 
-    - name: Deploy solv.service systemd unit file
+    - name: Deploy Agave3 systemd service file
       template:
-        src: ~/.slv/testnet-validator/solv.service.j2
+        src: ~/.slv/testnet-validator/solv-agave3.service.j2
         dest: /etc/systemd/system/solv.service
         owner: root
         group: root
         mode: '0644'
-
+      register: service_updated
+      
     - name: Ensure /mnt directory has correct permissions
       file:
         path: '/mnt'

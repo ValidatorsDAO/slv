@@ -69,6 +69,15 @@
         state: present
         create: yes
 
+    - name: Deploy Agave3 systemd service file
+      template:
+        src: ~/.slv/testnet-validator/solv-agave3.service.j2
+        dest: /etc/systemd/system/solv.service
+        owner: root
+        group: root
+        mode: '0644'
+      register: service_updated
+
     - name: Verify Agave installation
       become: no
       shell: |
