@@ -22,14 +22,14 @@
         port: 22
         proto: tcp
 
-    - name: Allow ports 8000-8020 TCP
+    - name: Allow ports 8000-8025 TCP
       ufw:
         rule: allow
-        port: "8000:8020"
+        port: "8000:8025"
         proto: tcp
 
-    - name: Allow ports 8000-8020 UDP
+    - name: Allow ports 8000-8025 UDP
       ufw:
         rule: allow
-        port: "8000:8020"
+        port: "8000:8025"
         proto: udp
