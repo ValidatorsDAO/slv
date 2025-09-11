@@ -1,9 +1,0 @@
----
-- name: Start solv.service
-  hosts: all
-  become: true
-  tasks:
-    - name: Start solv.service
-      systemd:
-        name: solv.service
-        state: started
