@@ -12,3 +12,7 @@
     - name: Display Command output
       debug:
         msg: '{{ inventory_hostname }} ({{ hostvars[inventory_hostname].name }}): Stop Firedancer: {{ command_output.stdout }}'
+
+    - name: Remove Firedancer workspace files
+      shell: sudo rm -f /mnt/.gigantic/*.wksp
+      register: command_output_rm

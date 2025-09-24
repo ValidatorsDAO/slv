@@ -178,6 +178,8 @@ main() {
   if [ "$platform" = "x86_64-pc-windows-msvc" ]; then
     echo "Windows users, add $INSTALL_DIR to your PATH manually."
   fi
+
+  slv v update:version -c
   
   # Optional: Test the installed 'slv'
   echo "Testing slv installation... 🔨"
