@@ -21,7 +21,7 @@ const getMetals = async (
       headers: myHeaders,
     }
     const response = await fetch(
-      `${METAL_API_URL}/baremetal/list/${metalType}`,
+      `${METAL_API_URL}/baremetal/server/list/${metalType}`,
       requestOptions,
     )
     const result = await response.json() as z.infer<typeof ListProductRes>

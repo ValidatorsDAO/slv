@@ -49,6 +49,8 @@ export const ListProductRes = z.object({
   message: z.array(PaymentLink),
 })
 
+export type ListProductResType = z.infer<typeof ListProductRes>
+
 
 export const BareMetalStatus = z.object({
   productName: z.string().openapi({

@@ -8,10 +8,20 @@ import { Row, Table } from '@cliffy/table'
 import { extractSpecValue } from '/lib/extractSpecValue.ts'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 
+const AVAILAVLE_REGIONS = [
+  'Amsterdam',
+  'Frankfurt',
+  'London',
+  'NY',
+  'Chicago',
+  'Singapore',
+  'Tokyo',
+]
+
 const listAction = async (defaultMetalType?: MetalType) => {
   const app = '📦 APP - For Trade Bot,Testnet Validator, DApp and More!'
-  const rpc = '⚡️ RPC - For Solana RPC Node'
-  const mainnet = '💰 For Solana Mainnet Validator'
+  const mv = '🚀 MV - For Solana Mainnet Validator'
+  const rpc = '🛡️⚡️ RPC - For Solana RPC Node'
   let metalType: MetalType = 'APP'
   if (defaultMetalType) {
     metalType = defaultMetalType
@@ -23,8 +33,8 @@ const listAction = async (defaultMetalType?: MetalType) => {
         type: Select,
         options: [
           app,
+          mv,
           rpc,
-          mainnet,
         ],
         default: 'APP',
       },
@@ -37,7 +47,7 @@ const listAction = async (defaultMetalType?: MetalType) => {
       case rpc:
         metalType = 'RPC'
         break
-      case mainnet:
+      case mv:
         metalType = 'MV'
         break
       default:
@@ -66,10 +76,9 @@ const listAction = async (defaultMetalType?: MetalType) => {
     return false
   }
   const options = metalProducts.map((product) => {
-    const regions = extractSpecValue(product.description, 'Region') || 'None'
     return {
       name: colors.white(
-        product.product + '- 🌏' + regions + ' - ' +
+        product.product + ' - ' +
           product.price.toLocaleString('en-US') + ' €/month',
       ),
       value: product.product,
@@ -93,7 +102,7 @@ const listAction = async (defaultMetalType?: MetalType) => {
   const { paymentLink } = productInfo
   // Show Product Details with Figure
   const table = new Table()
-  const regions = extractSpecValue(productInfo.description, 'Region') || 'None'
+  const regions = AVAILAVLE_REGIONS.join(', ')
   const cpu = extractSpecValue(productInfo.description, 'CPU') || 'None'
   const ram = extractSpecValue(productInfo.description, 'RAM') || 'None'
   const disk = extractSpecValue(productInfo.description, 'Disk') || 'None'

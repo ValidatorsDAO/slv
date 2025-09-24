@@ -1,6 +1,5 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
-import type { z } from '@hono/zod-openapi'
-import type { ListProductRes } from '@cmn/types/metal.ts'
+import type { ListProductResType } from '@cmn/types/metal.ts'
 
 export type MetalType = 'APP' | 'RPC' | 'MV'
 
@@ -19,7 +18,7 @@ const getMetalsPublic = async (
       `${METAL_API_URL}/baremetal/list/public/${metalType}`,
       requestOptions,
     )
-    const result = await response.json() as z.infer<typeof ListProductRes>
+    const result = await response.json() as ListProductResType
     return result
   } catch (error) {
     console.error(error)
