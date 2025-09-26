@@ -6,6 +6,8 @@ export type ValidatorTestnetType = 'firedancer' | 'agave'
 export type ValidatorMainnetType = 'jito' | 'firedancer'
 export type InventoryType = 'testnet_validators' | 'mainnet_validators' | 'mainnet_rpcs'
 
+export type SolanaNodeType = 'agave' | 'jito' | 'firedancer-agave' | 'firedancer-jito'
+
 export interface ValidatorTestnetConfig {
   ansible_user: string
   ansible_host: string
@@ -14,7 +16,7 @@ export interface ValidatorTestnetConfig {
   identity_account: string
   vote_account: string
   authority_account: string
-  validator_type: ValidatorTestnetType
+  validator_type: SolanaNodeType
 }
 
 export type InventoryTestnetValidatorType = {
@@ -128,18 +130,4 @@ export interface RelayerConfig {
   block_engine_region: string
   rpc_urls: string
   rpc_ws_urls: string
-}
-
-
-export interface ValidatorTestnetConfig {
-  name: string
-  ansible_user: string
-  ansible_host: string
-  ansible_ssh_private_key_file: string
-  identity_account: string
-  vote_account: string
-  authority_account: string
-  username: string
-  ip: string
-  validator_type: ValidatorTestnetType
 }

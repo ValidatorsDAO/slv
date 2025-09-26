@@ -9,7 +9,7 @@
   tasks:
     - name: Set validator type fact for each host
       set_fact:
-        validator_type: "{{ validator_type | default('firedancer') }}"
+        validator_type: "{{ validator_type | default('firedancer-jito') }}"
 
     - name: Debug validator type. Stop if not set
       debug:
@@ -39,7 +39,7 @@
         executable: /bin/bash
       register: set_identity_result
       timeout: 20
-      when: validator_type == 'agave'
+      when: validator_type in ['agave', 'jito']
 
     - name: Set Identity to Active Validator Key
       shell: |
@@ -47,7 +47,7 @@
         sudo fdctl set-identity --config /home/solv/firedancer-config.toml /home/solv/testnet-validator-keypair.json
       args:
         executable: /bin/bash
-      when: validator_type == 'firedancer'
+      when: validator_type in ['firedancer-jito', 'firedancer-agave']
 
     - name: Add Authorized Voter via stdin
       shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add
@@ -55,11 +55,11 @@
         stdin: "{{ key_file.content | b64decode }}"
         executable: /bin/bash
       failed_when: false
-      when: validator_type == 'agave'
+      when: validator_type in ['agave', 'jito']
 
     - name: Add Authorized Voter
       shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/testnet-validator-keypair.json
       args:
         executable: /bin/bash
       failed_when: false
-      when: validator_type == 'firedancer'
+      when: validator_type in ['firedancer-jito', 'firedancer-agave']

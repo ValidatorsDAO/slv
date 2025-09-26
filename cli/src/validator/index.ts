@@ -10,11 +10,12 @@ import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
 import { switchValidator } from '/src/validator/switch/switchValidator.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
-import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
+// import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import { createVoteAccount } from '/src/validator/init/createVoteAccount.ts'
 import { exec } from '@elsoul/child-process'
 import { configRoot } from '@cmn/constants/path.ts'
 import denoJson from '/deno.json' with { type: 'json' }
+import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -149,6 +150,7 @@ validatorCmd.command('update:version')
   })
   .action(async (options) => {
     if (options.configOnly) {
+      await transformValidatorTypeFile()
       await updateDefaultVersion()
       return
     }
@@ -167,7 +169,7 @@ validatorCmd.command('update:version')
       return
     } else {
       const playbook =
-        `${templateRoot}/ansible/testnet-validator/install_agave.yml`
+        `${templateRoot}/ansible/testnet-validator/install_solana.yml`
       if (options.pubkey) {
         await runAnsilbe(playbook, inventoryType, options.pubkey)
         return
@@ -427,11 +429,11 @@ validatorCmd.command('gen:vote-account')
     )
   })
 
-validatorCmd.command('update:allowed-ips')
-  .description('🛡️  Update allowed IPs for mainnet validator nodes')
-  .action(async () => {
-    await updateAllowedIps('mainnet_validators')
-  })
+// validatorCmd.command('update:allowed-ips')
+//   .description('🛡️  Update allowed IPs for mainnet validator nodes')
+//   .action(async () => {
+//     await updateAllowedIps('mainnet_validators')
+//   })
 
 validatorCmd.command('switch')
   .description('🔁 Switch Validator Identity - No DownTime Migration')

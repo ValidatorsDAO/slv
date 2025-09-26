@@ -26,7 +26,7 @@ exec agave-validator \
 --block-engine-url https://{{ block_engine_region }}.mainnet.block-engine.jito.wtf \
 --shred-receiver-address {{ shredstream_address }} \
 --dynamic-port-range 8000-8020 \
---rpc-port {{ port_rpc }} \
+--rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
 --use-snapshot-archives-at-startup when-newest \
 --limit-ledger-size {{ limit_ledger_size }} \

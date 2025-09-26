@@ -5,7 +5,7 @@
   tasks:
     - name: Set validator type fact for each host
       set_fact:
-        validator_type: "{{ validator_type | default('firedancer') }}"
+        validator_type: "{{ validator_type | default('firedancer-jito') }}"
 
     - name: Debug validator type. Stop if not set
       debug:
@@ -18,10 +18,10 @@
 
 
 - import_playbook: ../cmn/restart_solv.yml
-  when: validator_type == 'agave'
+  when: validator_type in ['agave', 'jito']
 
 - import_playbook: stop_firedancer.yml
-  when: validator_type == 'firedancer'
+  when: validator_type in ['firedancer-jito', 'firedancer-agave']
 
 - import_playbook: start_firedancer.yml
-  when: validator_type == 'firedancer'
+  when: validator_type in ['firedancer-jito', 'firedancer-agave']

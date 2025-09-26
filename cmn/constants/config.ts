@@ -3,6 +3,13 @@ export const compileTargets = [
   'x86_64-unknown-linux-gnu',
 ]
 
+export const SolanaNodeTypes = [
+  'agave',
+  'jito',
+  'firedancer-agave',
+  'firedancer-jito',
+]
+
 export const getOSTarget = () => {
   const os = Deno.build.os
   if (os === 'darwin') {

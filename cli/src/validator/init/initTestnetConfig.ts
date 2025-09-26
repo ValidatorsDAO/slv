@@ -2,8 +2,8 @@ import { genVoteKey } from '/src/validator/init/genVoteKey.ts'
 import { genIdentityKey } from '/src/validator/init/genIdentityKey.ts'
 import type {
   InventoryType,
+  SolanaNodeType,
   ValidatorTestnetConfig,
-  ValidatorTestnetType,
 } from '@cmn/types/config.ts'
 import type { SSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { configRoot, getInventoryPath } from '@cmn/constants/path.ts'
@@ -15,6 +15,7 @@ import denoJson from '/deno.json' with { type: 'json' }
 import { updateInventory } from '/lib/updateInventory.ts'
 import { Input, prompt, Select } from '@cliffy/prompt'
 import { testnetValidatorConfigDir } from '@cmn/constants/path.ts'
+import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 
 const initTestnetConfig = async (sshConnection: SSHConnection) => {
   try {
@@ -32,7 +33,7 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
       name: 'validatorType',
       message: 'Select Validator Type',
       type: Select,
-      options: ['agave', 'firedancer'],
+      options: SolanaNodeTypes,
       default: 'agave',
     },
   ])
@@ -87,7 +88,7 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
     identity_account: identityAccount,
     vote_account: voteAccount,
     authority_account: authAccount,
-    validator_type: validatorType as ValidatorTestnetType,
+    validator_type: validatorType as SolanaNodeType,
   }
   await updateInventory(name, configTestnet)
   // Create solv User on Ubuntu Server
