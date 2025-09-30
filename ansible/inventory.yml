@@ -6,4 +6,5 @@ build_servers:
     build1:
       ansible_host: <BUILD_SERVER_IP>
       ansible_user: solv
+      ansible_port: 2222
       ansible_ssh_private_key_file: ~/.ssh/id_rsa
