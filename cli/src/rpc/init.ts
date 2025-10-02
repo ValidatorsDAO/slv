@@ -5,11 +5,12 @@ import type { CmnType, RpcConfig, RpcType } from '@cmn/types/config.ts'
 import { genPasswordYml } from '/lib/genPasswordYml.ts'
 import { genIdentityKey } from '/src/validator/init/genIdentityKey.ts'
 import { checkSSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
-import { getInventoryPath, MainnetRPCConfigDir } from '@cmn/constants/path.ts'
+import { getInventoryPath } from '@cmn/constants/path.ts'
 import type { CmnMainnetRpcType } from '@cmn/types/config.ts'
 import {
   JITO_BLOCK_ENGINE_REGIONS,
   SHREDSTREAM_ADDRESS,
+  SolanaNodeTypes,
 } from '@cmn/constants/config.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { updateVersionsYml } from '/lib/config/updateVersionsYml.ts'
@@ -19,27 +20,31 @@ import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
 import { addMainnetRPCInventory } from '/lib/addMainnetRPCInventory.ts'
 import { updateMainnetRPCInventory } from '/lib/updateMainnetRPCInventory.ts'
 import { listAction } from '/src/metal/list/listAction.ts'
-import { exec } from '@elsoul/child-process'
 import { configRoot } from '@cmn/constants/path.ts'
 import denoJson from '/deno.json' with { type: 'json' }
+import { copy } from '@std/fs'
+import { join } from '@std/path'
+
+async function copyTemplateDirs() {
+  const templateBase = join(configRoot, 'template', denoJson.version, 'jinja')
+  const pairs = [
+    ['mainnet-rpc', 'mainnet-rpc'],
+    ['mainnet-validator', 'mainnet-validator'],
+  ] as const
+
+  await Promise.all(
+    pairs.map(([srcName, destName]) =>
+      copy(
+        join(templateBase, srcName),
+        join(configRoot, destName),
+        { overwrite: true }, // 上書き許可（元コードのcp -r相当の期待値）
+      )
+    ),
+  )
+}
 
 const init = async () => {
-  try {
-    await Deno.stat(MainnetRPCConfigDir)
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/mainnet-rpc ${configRoot}`,
-    )
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/mainnet-validator ${configRoot}`,
-    )
-  } catch (_error) {
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/mainnet-rpc ${configRoot}`,
-    )
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/mainnet-validator ${configRoot}`,
-    )
-  }
+  await copyTemplateDirs()
   const currentVersion = await genOrReadVersions()
   const hasBareMetal = await prompt([{
     name: 'bareMetal',
@@ -72,20 +77,8 @@ const init = async () => {
       name: 'validatorType',
       message: 'Select Solana CLI',
       type: Select,
-      options: ['jito'],
+      options: SolanaNodeTypes,
       default: 'jito',
-    },
-    {
-      name: 'blockEngineRegion',
-      message: '🌐 Select Block Engine Region',
-      type: Select,
-      options: JITO_BLOCK_ENGINE_REGIONS,
-    },
-    {
-      name: 'port_rpc',
-      message: 'Select Solana RPC port',
-      type: Number,
-      default: currentVersion.mainnet_rpcs.port_rpc,
     },
     {
       name: 'rpc_type',
@@ -97,18 +90,6 @@ const init = async () => {
           await next()
         }
       },
-    },
-    {
-      name: 'port_grpc',
-      message: 'Select Solana gRPC port',
-      type: Number,
-      default: currentVersion.mainnet_rpcs.port_grpc,
-    },
-    {
-      name: 'x_token',
-      message: 'Please enter your x_token',
-      type: Input,
-      default: currentVersion.mainnet_rpcs.x_token,
     },
   ])
 

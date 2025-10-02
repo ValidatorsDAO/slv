@@ -1,7 +1,7 @@
 export type KeyDirType = 'rpc' | 'validator' | 'relayer' | 'shreadstream'
 
 export type NetworkType = 'mainnet' | 'testnet'
-export type RpcType = 'Geyser gRPC' | 'Index RPC' | 'SendTx RPC'
+export type RpcType = 'Geyser gRPC' | 'Index RPC' | 'SendTx RPC' | 'Index RPC + gRPC'
 export type ValidatorTestnetType = 'firedancer' | 'agave'
 export type ValidatorMainnetType = 'jito' | 'firedancer'
 export type InventoryType = 'testnet_validators' | 'mainnet_validators' | 'mainnet_rpcs'
