@@ -1,0 +1,25 @@
+---
+- name: Set Unstaked Key to Identity
+  hosts: all
+  become: true
+  become_user: solv
+  tasks:
+    - name: Set validator type fact for each host
+      set_fact:
+        validator_type: "{{ validator_type | default('firedancer-jito') }}"
+
+    - name: Set Identity to Unstaked Key
+      shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity /home/solv/unstaked-identity.json
+      register: command_output
+      timeout: 20
+      args:
+        executable: /bin/bash
+      when: validator_type in ['agave', 'jito']
+
+    - name: Set Identity to Unstaked Key
+      shell: |
+        . ~/.profile
+        sudo fdctl set-identity --config /home/solv/firedancer-config.toml /home/solv/unstaked-identity.json
+      args:
+        executable: /bin/bash
+      when: validator_type in ['firedancer-jito', 'firedancer-agave']
