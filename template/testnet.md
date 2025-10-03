@@ -1,74 +1,59 @@
-# 🚀 Release: Solana Testnet Validator — Maintenance/Upgrade Notes
+# Solana Testnet Update — Rollback & Restart
 
-This release focuses on keeping your  testnet validators up-to-date with the latest `slv` tooling and `agave-validator` setup. Follow the steps below to upgrade safely and apply changes.
+**Summary**  
+This release coordinates a testnet rollback and restart. The commands below perform the same operations as the official runbook.
 
----
-
-## ✅ Highlights
-- Upgrade `slv` to the latest version  
-- Update validator version config  
-- Refresh/update `agave-validator`
-- Clean restart sequence for applying changes  
-- Guidance for identity switch (no-downtime) or hot-spare assignment  
+**Reference (official runbook):**  
+https://github.com/anza-xyz/agave/wiki/2025-10-01-Testnet-rollback-and-restart
 
 ---
 
-## 🧰 Upgrade Steps
+## Actions Required
 
-For Agave Testnet Validator
+### 1) Perform the automated update steps
 
-### 1) Upgrade `slv`
+Copy and paste each command as shown:
+
 ```
 slv upgrade
 ```
 
-### 2) Update version config
 ```
-slv v update:version -c
-┌─ Mainnet Validators ───────────────────────┐
-  Agave: 2.3.8 = 2.3.8
-  Jito: 2.3.8 = 2.3.8
-  Firedancer: 0.708.20306 → 0.709.30000
-
-┌─ Testnet Validators ───────────────────────┐
-  Agave: 3.0.0 → 3.0.1
-  Firedancer: 0.708.20306 = 0.708.20306
-
-┌─ Mainnet RPCs ────────────────────────────┐
-  Agave: 2.3.8 = 2.3.8
-  Jito: 2.3.8 = 2.3.8
-  Firedancer: 0.708.20306 → 0.709.30000
-  Geyser: v9.0.0+solana.2.3.8 = v9.0.0+solana.2.3.8
+slv v update:script
 ```
 
-### 3) Update/Setup `agave-validator`
 ```
-slv v update:version -n testnet
+slv v update:version
 ```
-
-For Frankendancer Testnet Validator
-```
-slv setup:firedancer -n testnet
-```
-
-### 4) Restart Validator to apply changes
-```
-slv v stop  -n testnet
-slv v start  -n testnet
-```
-### 5) Identity Switch
-
-After ledger catch-up is complete, switch identity using one of the following commands:
-
-```
-slv v set:identity -n testnet
-```
-
-> ℹ️ Ensure your identity address, vote address must be correctly set in your `~/.slv/inventory.testnet.validators.yml` file before running these commands.
 
 ---
 
-## 📝 Notes
-- After restart, verify health (slots, leader schedule, and network connectivity) and monitor logs.  
+### 2) If you are running Firedancer
+
+Setup 
+
+```
+slv v setup:firedancer
+```
+
+### 3) Restart Node
+
+```
+slv v stop
+slv v cleanup
+slv v start
+```
 
 ---
+
+### 4) After the ledger finishes loading
+
+Set your validator identity:
+
+```
+slv v set:identity
+```
+
+---
+
+**That’s it.**
