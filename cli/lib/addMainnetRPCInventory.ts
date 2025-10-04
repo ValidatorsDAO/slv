@@ -4,7 +4,16 @@ import { genOrReadMainnetRPCInventory } from '/lib/genOrReadMainnetRPCInventory.
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { colors } from '@cliffy/colors'
 import { getInventoryPath } from '@cmn/constants/path.ts'
-import type { RpcConfig, RpcType } from '@cmn/types/config.ts'
+import type {
+  InventoryDevnetRPC,
+  InventoryRPC,
+  InventoryTestnetRPC,
+  InventoryType,
+  NetworkType,
+  RpcConfig,
+  RpcType,
+} from '@cmn/types/config.ts'
+import { genOrGetRPCInventory } from '/lib/genOrGetRPCInventory.ts'
 
 const addMainnetRPCInventory = async (
   identityAccount: string,
@@ -12,16 +21,29 @@ const addMainnetRPCInventory = async (
   rpcType: RpcType = 'Geyser gRPC',
   region: string = 'amsterdam',
   snapshotUrl: string = '',
+  network: NetworkType = 'mainnet',
 ) => {
   try {
-    const inventoryType = 'mainnet_rpcs'
-    const inventory = await genOrReadMainnetRPCInventory()
+    const inventoryType = `${network}_rpcs` as InventoryType
+    const inventory = await genOrGetRPCInventory(network)
 
-    if (!inventory[inventoryType].hosts) {
-      inventory[inventoryType].hosts = {}
+    // Type guard to handle different inventory types
+    let rpcData: any
+    if (network === 'mainnet' && 'mainnet_rpcs' in inventory) {
+      rpcData = (inventory as InventoryRPC).mainnet_rpcs
+    } else if (network === 'devnet' && 'devnet_rpcs' in inventory) {
+      rpcData = (inventory as InventoryDevnetRPC).devnet_rpcs
+    } else if (network === 'testnet' && 'testnet_rpcs' in inventory) {
+      rpcData = (inventory as InventoryTestnetRPC).testnet_rpcs
+    } else {
+      throw new Error(`Invalid network type: ${network}`)
     }
 
-    const findIdentity = Object.keys(inventory[inventoryType].hosts).find(
+    if (!rpcData.hosts) {
+      rpcData.hosts = {}
+    }
+
+    const findIdentity = Object.keys(rpcData.hosts).find(
       (key) => String(key) === identityAccount,
     )
 
@@ -35,8 +57,8 @@ const addMainnetRPCInventory = async (
     }
 
     const checkIdentityKey = Object.values(
-      inventory[inventoryType].hosts,
-    ).find((key) => key.identity_account === identityAccount)
+      rpcData.hosts,
+    ).find((key: any) => key.identity_account === identityAccount)
 
     if (checkIdentityKey) {
       console.log(colors.yellow(`⚠️ Identity account already exists`))
@@ -47,7 +69,7 @@ const addMainnetRPCInventory = async (
     await genOrReadVersions()
 
     // Add the new host
-    inventory[inventoryType].hosts[identityAccount] = {
+    rpcData.hosts[identityAccount] = {
       name: identityAccount,
       ansible_host: sshConnection.ip,
       ansible_user: sshConnection.username,
@@ -63,8 +85,13 @@ const addMainnetRPCInventory = async (
     const inventoryPath = getInventoryPath(inventoryType)
     await Deno.writeTextFile(inventoryPath, stringify(inventory))
     console.log(`✔ Inventory updated to ${inventoryPath}`)
-    const newInventory = await genOrReadMainnetRPCInventory()
-    return newInventory
+
+    // Return the appropriate inventory based on network
+    if (network === 'mainnet') {
+      return await genOrReadMainnetRPCInventory()
+    } else {
+      return await genOrGetRPCInventory(network)
+    }
   } catch (error) {
     throw new Error(`❌ Error adding inventory: ${error}`)
   }

@@ -5,9 +5,11 @@ import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import { listRPCs } from '@/rpc/listRPCs.ts'
 import { deployRPCMainnet } from '/src/rpc/deploy/deployRPCMainnet.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
-import type { InventoryType } from '@cmn/types/config.ts'
+import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import { runAnsilbe } from '/lib/runAnsible.ts'
+import { deployRPCTestnet } from '/src/rpc/deploy/deployRPCTestnet.ts'
+import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
 
 // rpc Command
 export const rpcCmd = new Command()
@@ -26,7 +28,7 @@ rpcCmd.command('deploy')
   .description('📦 Deploy RPC Nodes')
   .option(
     '-n, --network <network>',
-    'Network to deploy RPC node on (mainnet/testnet)',
+    'Network to deploy RPC node on (mainnet/devnet/testnet)',
     {
       default: 'mainnet',
     },
@@ -34,25 +36,37 @@ rpcCmd.command('deploy')
   .option('-p, --pubkey <pubkey>', 'Deploy RPC node for a specific pubkey')
   .action(async (options) => {
     const network = options.network || 'mainnet'
-    if (network === 'testnet') {
-      console.log(
-        colors.yellow(
-          '⚠️ Testnet RPC deployment is not supported yet\nPlease ask for help in the #slv-chat channel',
-        ),
-      )
-    } else {
-      await deployRPCMainnet(options.pubkey)
+    switch (network) {
+      case 'mainnet':
+        await deployRPCMainnet(options.pubkey)
+        break
+      case 'devnet':
+        await deployRPCDevnet(options.pubkey)
+        break
+      case 'testnet':
+        await deployRPCTestnet(options.pubkey)
+        break
+      default:
+        console.log(
+          colors.red('❌ Invalid network. Use mainnet, devnet, or testnet.'),
+        )
+        return
     }
+    return
   })
 
 rpcCmd.command('list')
   .description('📋 List RPC Nodes')
-  .option('-n, --network <network:string>', 'Network type (mainnet/testnet)', {
-    default: 'mainnet',
-  })
+  .option(
+    '-n, --network <network:string>',
+    'Network type (mainnet/devnet/testnet)',
+    {
+      default: 'mainnet',
+    },
+  )
   .option('-i, --identity <identity:string>', 'Filter by identity key')
   .action(async (options) => {
-    await listRPCs(options.network as 'mainnet' | 'testnet', options.identity)
+    await listRPCs(options.network as NetworkType, options.identity)
   })
 
 rpcCmd.command('update:version')
@@ -69,10 +83,11 @@ rpcCmd.command('update:version')
       await updateDefaultVersion()
       return
     }
-    const inventoryType: InventoryType = 'mainnet_rpcs'
+    const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
 
-    const playbook = `${templateRoot}/ansible/mainnet-rpc/install_jito.yml`
+    const playbook =
+      `${templateRoot}/ansible/${options.network}-rpc/install_jito.yml`
     if (options.pubkey) {
       await runAnsilbe(playbook, inventoryType, options.pubkey)
       return
@@ -88,10 +103,10 @@ rpcCmd.command('update:script')
     default: 'mainnet',
   })
   .action(async (options) => {
-    const inventoryType = 'mainnet_rpcs'
+    const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
     const playbook =
-      `${templateRoot}/ansible/mainnet-rpc/update_startup_config.yml`
+      `${templateRoot}/ansible/${options.network}-rpc/update_startup_config.yml`
     if (options.pubkey) {
       await runAnsilbe(playbook, inventoryType, options.pubkey)
       return
@@ -106,9 +121,10 @@ rpcCmd.command('update:geyser')
     default: 'mainnet',
   })
   .action(async (options) => {
-    const inventoryType = 'mainnet_rpcs'
+    const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
-    const playbook = `${templateRoot}/ansible/mainnet-rpc/update_geyser.yml`
+    const playbook =
+      `${templateRoot}/ansible/${options.network}-rpc/update_geyser.yml`
     if (options.pubkey) {
       await runAnsilbe(playbook, inventoryType, options.pubkey)
       return
@@ -123,9 +139,8 @@ rpcCmd.command('start')
   })
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .action(async (options) => {
-    // const network = options.network
-    const inventoryType: InventoryType = 'mainnet_rpcs'
-    const networkPath = 'mainnet-rpc'
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    const networkPath = options.network + '-rpc'
     const templateRoot = getTemplatePath()
     const playbook = `${templateRoot}/ansible/${networkPath}/start_node.yml`
     const result = options.pubkey
@@ -144,8 +159,8 @@ rpcCmd.command('stop')
   })
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .action(async (options) => {
-    const inventoryType: InventoryType = 'mainnet_rpcs'
-    const networkPath = 'mainnet-rpc'
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    const networkPath = options.network + '-rpc'
     const templateRoot = getTemplatePath()
     const playbook = `${templateRoot}/ansible/${networkPath}/stop_node.yml`
     const result = options.pubkey
@@ -164,18 +179,16 @@ rpcCmd.command('restart')
   })
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .action(async (options) => {
-    const inventoryType: InventoryType = 'mainnet_rpcs'
-    const networkPath = 'mainnet-rpc'
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    const networkPath = options.network + '-rpc'
     const templateRoot = getTemplatePath()
-    if (options.network === 'mainnet') {
-      const playbook = `${templateRoot}/ansible/${networkPath}/restart_node.yml`
-      const result = options.pubkey
-        ? await runAnsilbe(playbook, inventoryType, options.pubkey)
-        : await runAnsilbe(playbook, inventoryType)
-      if (result) {
-        console.log(colors.white('✅ Successfully Restarted RPC'))
-        return
-      }
+    const playbook = `${templateRoot}/ansible/${networkPath}/restart_node.yml`
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Restarted RPC'))
+      return
     }
   })
 
@@ -188,7 +201,7 @@ rpcCmd.command('cleanup')
   })
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .action(async (options) => {
-    const inventoryType: InventoryType = 'mainnet_rpcs'
+    const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
     const playbook = `${templateRoot}/ansible/cmn/rm_ledger.yml`
     const result = options.pubkey
@@ -207,8 +220,8 @@ rpcCmd.command('get:snapshot')
   })
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .action(async (options) => {
-    const inventoryType: InventoryType = 'mainnet_rpcs'
-    const networkPath = 'mainnet-rpc'
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    const networkPath = options.network + '-rpc'
     const templateRoot = getTemplatePath()
     const playbook = `${templateRoot}/ansible/${networkPath}/wget_snapshot.yml`
     const result = options.pubkey
@@ -221,7 +234,11 @@ rpcCmd.command('get:snapshot')
   })
 
 rpcCmd.command('update:allowed-ips')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'mainnet',
+  })
   .description('🛡️ Update allowed IPs for mainnet RPC nodes')
-  .action(async () => {
-    await updateAllowedIps('mainnet_rpcs')
+  .action(async (options) => {
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    await updateAllowedIps(inventoryType)
   })

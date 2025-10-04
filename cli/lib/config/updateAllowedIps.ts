@@ -12,6 +12,8 @@ export type VersionSection =
   | 'mainnet_validators'
   | 'testnet_validators'
   | 'mainnet_rpcs'
+  | 'devnet_rpcs'
+  | 'testnet_rpcs'
 
 /**
  * Updates the allowed IPs in versions.yml
