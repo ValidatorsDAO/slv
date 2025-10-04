@@ -1,0 +1,19 @@
+[Unit]
+Description=Solana Validator
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+LimitNOFILE=1000000
+LogRateLimitIntervalSec=0
+User=solv
+Environment=PATH=/home/solv/agave/bin
+WorkingDirectory=/home/solv
+Environment=SOLANA_METRICS_CONFIG=host=https://metrics.solana.com:8086,db=devnet,u=scratch_writer,p=topsecret
+ExecStart=/home/solv/start-validator.sh
+
+[Install]
+WantedBy=multi-user.target
