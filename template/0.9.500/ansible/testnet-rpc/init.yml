@@ -7,6 +7,10 @@
       set_fact:
         validator_type: "{{ validator_type | default('firedancer-jito') }}"
 
+    - name: Set rpc type fact for each host
+      set_fact:
+        rpc_type: "{{ rpc_type | default('Geyser gRPC') }}"
+
     - name: Debug validator type. Stop if not set
       debug:
         msg: "Validator type is {{ validator_type }}"
@@ -17,9 +21,9 @@
       when: validator_type is not defined
 
 - import_playbook: ../cmn/fix_permissions.yml
-- import_playbook: copy_restart_sh.yml
-- import_playbook: copy_keys.yml
-- import_playbook: add_solv.yml
+- import_playbook: ../cmn/copy_restart_sh.yml
+- import_playbook: ../cmn/copy_rpc_keys.yml
+- import_playbook: ../cmn/add_solv.yml
 - import_playbook: ../cmn/update_ubuntu.yml
 - import_playbook: ../cmn/install_package.yml
 - import_playbook: ../cmn/setup_node_exporter.yml
@@ -38,20 +42,14 @@
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 
-- import_playbook: setup_firedancer_jito.yml
-  when: validator_type in ['firedancer-jito']
-
-- import_playbook: setup_firedancer_agave.yml
-  when: validator_type in ['firedancer-agave']
+- import_playbook: setup_firedancer.yml
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']
 
 - import_playbook: setup_solv_service_init.yml
   when: validator_type in ['agave', 'jito']
 
-- import_playbook: create-start-validator-sh-agave.yml
-  when: validator_type in ['agave']
-
-- import_playbook: create-start-validator-sh-jito.yml
-  when: validator_type in ['jito']
+- import_playbook: create-start-validator-sh.yml
+  when: validator_type in ['agave', 'jito']
 
 - import_playbook: geyser_build.yml
   when:
@@ -60,8 +58,8 @@
 
 - import_playbook: wget_snapshot.yml
 
-- import_playbook: start_solv.yml
+- import_playbook: ../cmn/start_solv.yml
   when: validator_type in ['agave', 'jito']
 
-- import_playbook: start_firedancer.yml
+- import_playbook: ../cmn/start_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']

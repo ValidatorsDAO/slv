@@ -5,7 +5,7 @@
   vars_files:
     - ~/.slv/versions.yml
   vars:
-    agave_version: v3.0.0
+    agave_version: v{{ devnet_validators.version_agave }}
     agave_repo: https://github.com/anza-xyz/agave.git
     agave_install_dir: '/home/solv/agave'
     agave_bin_dir: '{{ agave_install_dir }}/bin'
@@ -71,19 +71,12 @@
 
     - name: Deploy Agave3 systemd service file
       template:
-        src: ~/.slv/testnet-validator/solv-agave3.service.j2
+        src: ~/.slv/devnet-rpc/solv-agave3.service.j2
         dest: /etc/systemd/system/solv.service
         owner: root
         group: root
         mode: '0644'
       register: service_updated
-
-    - name: Reload systemd daemon and restart service if updated
-      systemd:
-        name: solv
-        state: restarted
-        daemon_reload: yes
-      when: service_updated.changed
 
     - name: Verify Agave installation
       become: no

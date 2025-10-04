@@ -9,7 +9,7 @@
 
     - name: Updatge start-validator.sh from template for Agave
       template:
-        src: ~/.slv/mainnet-rpc/start-validator.sh.j2
+        src: ~/.slv/devnet-rpc/start-validator.sh.j2
         dest: /home/solv/start-validator.sh
         mode: "0755"
         owner: solv
@@ -20,7 +20,7 @@
 
     - name: Update firedancer-config.toml from template
       template:
-        src: ~/.slv/mainnet-rpc/firedancer-config.toml.j2
+        src: ~/.slv/devnet-rpc/firedancer-config.toml.j2
         dest: /home/solv/firedancer-config.toml
         owner: solv
         group: solv
