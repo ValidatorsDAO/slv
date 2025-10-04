@@ -3,6 +3,7 @@ import {
   VERSION_FIREDANCER_TESTNET,
   VERSION_GEYSER_YELLOWSTONE,
   VERSION_JITO_MAINNET,
+  VERSION_JITO_TESTNET,
   VERSION_RPC_SOLANA_JITO,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
@@ -55,6 +56,7 @@ export const updateDefaultVersion = async () => {
     testnet_validators: {
       version_agave: currentVersion.testnet_validators.version_agave,
       version_firedancer: currentVersion.testnet_validators.version_firedancer,
+      version_jito: currentVersion.testnet_validators.version_jito,
     },
     mainnet_rpcs: {
       version_agave: currentVersion.mainnet_rpcs.version_agave,
@@ -72,6 +74,7 @@ export const updateDefaultVersion = async () => {
   currentVersion.testnet_validators.version_agave = VERSION_SOLANA_TESTNET
   currentVersion.testnet_validators.version_firedancer =
     VERSION_FIREDANCER_TESTNET
+  currentVersion.testnet_validators.version_jito = VERSION_JITO_TESTNET
   currentVersion.mainnet_rpcs.version_agave = VERSION_RPC_SOLANA_JITO
   currentVersion.mainnet_rpcs.version_jito = VERSION_RPC_SOLANA_JITO
   currentVersion.mainnet_rpcs.version_firedancer = VERSION_FIREDANCER_MAINNET
@@ -106,6 +109,11 @@ export const updateDefaultVersion = async () => {
     'Agave',
     oldVersions.testnet_validators.version_agave,
     currentVersion.testnet_validators.version_agave,
+  )
+  displayVersionChange(
+    'Jito',
+    oldVersions.testnet_validators.version_jito,
+    currentVersion.testnet_validators.version_jito,
   )
   displayVersionChange(
     'Firedancer',

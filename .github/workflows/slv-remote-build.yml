@@ -36,7 +36,7 @@ jobs:
     if: success() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
-      contents: write # This is needed for creating releases
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -61,20 +61,22 @@ jobs:
           fi
 
       - name: Create artifacts directory
-        run: mkdir -p artifacts
+        run: mkdir -p artifacts dist renamed_files
 
-      - name: Set up SSH key
+      - name: Set up SSH key and known_hosts (tunnel-aware)
+        shell: bash
         run: |
+          set -e
           mkdir -p ~/.ssh
-          echo "${{ secrets.BUILD_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf '%s\n' "${{ secrets.BUILD_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p 2222 -H ${{ secrets.BUILD_SERVER_IP }} >> ~/.ssh/known_hosts
+          touch ~/.ssh/known_hosts
 
-      - name: Update inventory file
+      - name: Update inventory file (IP only; port is already 2222)
         run: |
           sed -i "s/<BUILD_SERVER_IP>/${{ secrets.BUILD_SERVER_IP }}/g" ansible/inventory.yml
 
-      - name: Setup build server
+      - name: Setup build server (packages, dirs)
         run: |
           ansible-playbook -i ansible/inventory.yml ansible/setup-build-server.yml
 
@@ -102,7 +104,6 @@ jobs:
 
       - name: Rename files to match download script expectations
         run: |
-          mkdir -p renamed_files
           if [ -f "dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ]; then
             cp dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz renamed_files/x86_64-unknown-linux-gnu-exe.tar.gz
             echo "Renamed Linux executable for GitHub release"
