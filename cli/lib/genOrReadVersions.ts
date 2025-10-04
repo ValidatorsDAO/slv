@@ -1,4 +1,4 @@
-import { parse } from 'https://deno.land/std@0.202.0/yaml/parse.ts'
+import { parse } from '@std/yaml'
 import type { CmnType } from '@cmn/types/config.ts'
 import { defaultVersionsYml } from '/lib/config/defaultVersionsYml.ts'
 import { configRoot } from '@cmn/constants/path.ts'
@@ -6,6 +6,7 @@ import { join } from '@std/path'
 
 const genOrReadVersions = async (): Promise<CmnType> => {
   const versionsPath = join(configRoot, 'versions.yml')
+  await Deno.remove(versionsPath, { recursive: false })
   try {
     await Deno.stat(versionsPath)
   } catch (_error) {

@@ -61,7 +61,7 @@
         PATH: "/home/solv/.cargo/bin:{{ ansible_env.PATH }}"
       register: build_result
 
-    - name: Add Agave to PATH in .bashrc
+    - name: Add Agave to PATH in .profile
       become: no
       lineinfile:
         path: '/home/solv/.profile'
