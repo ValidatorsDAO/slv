@@ -1,15 +1,19 @@
 import {
+  VERSION_FIREDANCER_DEVNET,
   VERSION_FIREDANCER_MAINNET,
   VERSION_FIREDANCER_TESTNET,
-  VERSION_GEYSER_YELLOWSTONE,
+  VERSION_GEYSER_YELLOWSTONE_DEVNET,
+  VERSION_GEYSER_YELLOWSTONE_MAINNET,
+  VERSION_GEYSER_YELLOWSTONE_TESTNNET,
+  VERSION_JITO_DEVNET,
   VERSION_JITO_MAINNET,
   VERSION_JITO_TESTNET,
-  VERSION_RPC_SOLANA_JITO,
+  VERSION_SOLANA_DEVNET,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
 } from '@cmn/constants/version.ts'
 import { VERSIONS_PATH } from '@cmn/constants/path.ts'
-import { stringify } from 'https://deno.land/std@0.202.0/yaml/stringify.ts'
+import { stringify } from '@std/yaml'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { colors } from '@cliffy/colors'
 
@@ -64,6 +68,18 @@ export const updateDefaultVersion = async () => {
       version_firedancer: currentVersion.mainnet_rpcs.version_firedancer,
       geyser_version: currentVersion.mainnet_rpcs.geyser_version,
     },
+    devnet_rpcs: {
+      version_agave: currentVersion.devnet_rpcs.version_agave,
+      version_jito: currentVersion.devnet_rpcs.version_jito,
+      version_firedancer: currentVersion.devnet_rpcs.version_firedancer,
+      geyser_version: currentVersion.devnet_rpcs.geyser_version,
+    },
+    testnet_rpcs: {
+      version_agave: currentVersion.testnet_rpcs.version_agave,
+      version_jito: currentVersion.testnet_rpcs.version_jito,
+      version_firedancer: currentVersion.testnet_rpcs.version_firedancer,
+      geyser_version: currentVersion.testnet_rpcs.geyser_version,
+    },
   }
 
   // Update to new versions
@@ -75,10 +91,20 @@ export const updateDefaultVersion = async () => {
   currentVersion.testnet_validators.version_firedancer =
     VERSION_FIREDANCER_TESTNET
   currentVersion.testnet_validators.version_jito = VERSION_JITO_TESTNET
-  currentVersion.mainnet_rpcs.version_agave = VERSION_RPC_SOLANA_JITO
-  currentVersion.mainnet_rpcs.version_jito = VERSION_RPC_SOLANA_JITO
+  currentVersion.mainnet_rpcs.version_agave = VERSION_SOLANA_MAINNET
+  currentVersion.mainnet_rpcs.version_jito = VERSION_JITO_MAINNET
   currentVersion.mainnet_rpcs.version_firedancer = VERSION_FIREDANCER_MAINNET
-  currentVersion.mainnet_rpcs.geyser_version = VERSION_GEYSER_YELLOWSTONE
+  currentVersion.mainnet_rpcs.geyser_version =
+    VERSION_GEYSER_YELLOWSTONE_MAINNET
+  currentVersion.devnet_rpcs.version_agave = VERSION_SOLANA_DEVNET
+  currentVersion.devnet_rpcs.version_jito = VERSION_JITO_DEVNET
+  currentVersion.devnet_rpcs.version_firedancer = VERSION_FIREDANCER_DEVNET
+  currentVersion.devnet_rpcs.geyser_version = VERSION_GEYSER_YELLOWSTONE_DEVNET
+  currentVersion.testnet_rpcs.version_agave = VERSION_SOLANA_TESTNET
+  currentVersion.testnet_rpcs.version_jito = VERSION_JITO_TESTNET
+  currentVersion.testnet_rpcs.version_firedancer = VERSION_FIREDANCER_TESTNET
+  currentVersion.testnet_rpcs.geyser_version =
+    VERSION_GEYSER_YELLOWSTONE_TESTNNET
 
   // Display versions with changes highlighted
   console.log('')

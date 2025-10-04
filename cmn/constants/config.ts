@@ -3,6 +3,8 @@ export const compileTargets = [
   'x86_64-unknown-linux-gnu',
 ]
 
+export const NETWORK = ['mainnet', 'testnet', 'devnet'] as const
+
 export const SolanaNodeTypes = [
   'agave',
   'jito',

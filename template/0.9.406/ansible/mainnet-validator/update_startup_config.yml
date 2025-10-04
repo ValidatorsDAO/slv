@@ -5,27 +5,22 @@
   tasks:
     - name: Set validator type fact for each host
       set_fact:
-        validator_type: "{{ validator_type | default('jito') }}"
+        validator_type: "{{ validator_type | default('firedancer-jito') }}"
 
-    - name: Updatge start-validator.sh from template
+    - name: Updatge start-validator.sh from template for Agave
       template:
-        src: ~/.slv/mainnet-validator/start-mainnet-validator.sh.j2
+        src: ~/.slv/mainnet-rpc/start-validator.sh.j2
         dest: /home/solv/start-validator.sh
         mode: "0755"
         owner: solv
         group: solv
       vars:
-        vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
-        relayer_url: "{{ hostvars[inventory_hostname].relayer_url }}"
-        block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
-        shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
-        port_rpc: "{{ hostvars[inventory_hostname].port_rpc }}"
-        limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
-      when: validator_type == 'jito'
+        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+      when: validator_type in ['agave', 'jito']
 
     - name: Update firedancer-config.toml from template
       template:
-        src: ~/.slv/mainnet-validator/firedancer-config.toml.j2
+        src: ~/.slv/mainnet-rpc/firedancer-config.toml.j2
         dest: /home/solv/firedancer-config.toml
         owner: solv
         group: solv
@@ -34,4 +29,4 @@
         block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
         vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
         commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
-      when: validator_type == 'firedancer'
+      when: validator_type in ['firedancer-jito', 'firedancer-agave']
