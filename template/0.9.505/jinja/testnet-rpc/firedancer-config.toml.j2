@@ -1,7 +1,7 @@
 name = "solv"
 user = "solv"
 scratch_directory = "/home/{user}"
-dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
+dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
 [log]
     path = "/home/solv/solana-validator.log"
@@ -16,29 +16,32 @@ dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
     # Geyser gRPC configuration
     full_api = true
     private = false
-    transaction_history =  {{ (transaction_history | default(true) | to_json ) }}
+    transaction_history = {{ transaction_history | default(true) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
     {% elif rpc_type == 'SendTx RPC' %}
     # SendTx RPC configuration (minimal for transaction sending)
     full_api = true
     private = false
-    transaction_history = {{ transaction_history | default(false) | string | lower }}
-    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | string | lower }}
-    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(false) | string | lower }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(false) | string | lower }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
+    transaction_history = {{ transaction_history | default(false) | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(false) | to_json }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(false) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
     {% elif rpc_type == 'Index RPC' %}
-    # Index RPC configuration (full indexing)
+    # Full indexing for Index RPC
     full_api = true
     private = false
     transaction_history = {{ transaction_history | default(true) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
     {% elif rpc_type == 'Index RPC + gRPC' %}
     # Index RPC + gRPC configuration (full features)
     full_api = true
@@ -46,17 +49,18 @@ dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
     transaction_history = {{ transaction_history | default(true) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
     {% else %}
     # Default configuration
-    full_api = {{ full_api | default(false) | string | lower }}
+    full_api = {{ full_api | default(false) | to_json }}
     private = false
-    transaction_history = {{ transaction_history | default(false) | string | lower }}
-    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | string | lower }}
+    transaction_history = {{ transaction_history | default(false) | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
     {% endif %}
 
 [reporting]
@@ -79,17 +83,17 @@ dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
     # Full indexing for Index RPC
     limit_size = {{ limit_ledger_size | default(200_000_000) }}
     account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
-    account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
+    account_index_exclude_keys = {{ account_index_exclude_keys | default('[]') }}
     {% elif rpc_type == 'Index RPC + gRPC' %}
     # Full indexing for Index RPC + gRPC
     limit_size = {{ limit_ledger_size | default(200_000_000) }}
     account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
-    account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
+    account_index_exclude_keys = {{ account_index_exclude_keys | default('[]') }}
     {% else %}
     # Default configuration
     limit_size = {{ limit_ledger_size | default(100_000_000) }}
-    account_indexes = {{ account_indexes | default("[]") }}
-    account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
+    account_indexes = {{ account_indexes | default('[]') }}
+    account_index_exclude_keys = {{ account_index_exclude_keys | default('[]') }}
     {% endif %}
     snapshot_archive_format = "zstd"
     require_tower = false
@@ -143,10 +147,9 @@ dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
 # Jito Firedancer Configuration
 [tiles.bundle]
     enabled = true
-    url = "{{ block_engine_url | default("https://ny.testnet.block-engine.jito.wtf", true) }}"
+    url = "{{ block_engine_url | default('https://ny.testnet.block-engine.jito.wtf', true) }}"
     tip_distribution_program_addr = "F2Zu7QZiTYUhPd7u9ukRVwxh7B71oA3NMJcHuCHc29P2"
     tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
     tip_distribution_authority = "GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib"
     commission_bps = {{ commission_bps | default(1000, true) }}
 {% endif %}
-
