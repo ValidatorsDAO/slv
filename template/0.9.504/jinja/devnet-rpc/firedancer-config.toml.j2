@@ -16,47 +16,47 @@ dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
     # Geyser gRPC configuration
     full_api = true
     private = false
-    transaction_history = {{ transaction_history | default(true) | string | lower }}
-    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | string | lower }}
-    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | string | lower }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | string | lower }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | | default(false) | string | lower }}
+    transaction_history = {{ transaction_history | default(true) | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
+    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
     {% elif rpc_type == 'SendTx RPC' %}
     # SendTx RPC configuration (minimal for transaction sending)
     full_api = true
     private = false
-    transaction_history = {{ transaction_history | | default(false) | string | lower }}
-    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | | default(false) | string | lower }}
-    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | | default(false) | string | lower }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | | default(false) | string | lower }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | | default(false) | string | lower }}
+    transaction_history = {{ transaction_history | default(false) | string | lower }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | string | lower }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(false) | string | lower }}
+    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(false) | string | lower }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
     {% elif rpc_type == 'Index RPC' %}
     # Index RPC configuration (full indexing)
     full_api = true
     private = false
-    transaction_history = {{ transaction_history | default(true) | string | lower }}
-    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | string | lower }}
-    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | string | lower }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | string | lower }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | | default(false) | string | lower }}
+    transaction_history = {{ transaction_history | default(true) | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
+    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
     {% elif rpc_type == 'Index RPC + gRPC' %}
     # Index RPC + gRPC configuration (full features)
     full_api = true
     private = false
-    transaction_history = {{ transaction_history | default(true) | string | lower }}
-    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | string | lower }}
-    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | string | lower }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | string | lower }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | | default(false) | string | lower }}
+    transaction_history = {{ transaction_history | default(true) | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
+    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
     {% else %}
     # Default configuration
-    full_api = {{ full_api | | default(false) | string | lower }}
+    full_api = {{ full_api | default(false) | string | lower }}
     private = false
-    transaction_history = {{ transaction_history | | default(false) | string | lower }}
-    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | | default(false) | string | lower }}
-    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | string | lower }}
-    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | string | lower }}
-    bigtable_ledger_storage = {{ bigtable_ledger_storage | | default(false) | string | lower }}
+    transaction_history = {{ transaction_history | default(false) | string | lower }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | string | lower }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
+    pubsub_enable_vote_subscription = {{ pubsub_enable_vote_subscription | default(true) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | string | lower }}
     {% endif %}
 
 [reporting]
