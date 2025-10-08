@@ -1,6 +1,6 @@
 {
   "name": "@slv/cli",
-  "version": "0.9.505",
+  "version": "0.9.506",
   "exports": "./dist/exe",
   "publish": {
     "include": [
