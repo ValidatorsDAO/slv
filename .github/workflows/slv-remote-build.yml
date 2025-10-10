@@ -63,10 +63,6 @@ jobs:
       - name: Create artifacts directory
         run: mkdir -p artifacts dist renamed_files
 
-      - name: Setup build server (packages, dirs)
-        run: |
-          ansible-playbook -i localhost, -u solv ansible/setup-build-server.yml
-
       - name: Compile SLV on remote server
         run: |
           ansible-playbook -i localhost, -u solv ansible/compile-slv.yml \

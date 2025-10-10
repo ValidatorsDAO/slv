@@ -3,7 +3,7 @@
 # This playbook clones the repository, compiles the code, and uploads the artifacts
 
 - name: Compile SLV
-  hosts: build_servers
+  hosts: all
   become: true
   vars:
     version: '{{ version }}'
@@ -23,6 +23,17 @@
       DENO_INSTALL: "/root/.deno"
       PATH: "/root/.deno/bin:/usr/bin:/bin"
   tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - build-essential
+          - curl
+          - unzip
+          - git
+          - python3
+          - python3-pip
+        state: present
+
     - name: Create artifacts directory
       file:
         path: '{{ artifacts_dir }}'
