@@ -7,8 +7,8 @@
     "jsr:@std/path@0.224": "0.224.0",
     "jsr:@std/path@0.224.0": "0.224.0",
     "jsr:@std/yaml@1.0.5": "1.0.5",
-    "npm:@hono/swagger-ui@0.5.1": "0.5.1_hono@4.7.10",
-    "npm:@hono/zod-openapi@0.19.6": "0.19.6_hono@4.7.10_zod@3.25.32",
+    "npm:@hono/swagger-ui@0.5.1": "0.5.1_hono@4.9.10",
+    "npm:@hono/zod-openapi@0.19.6": "0.19.6_hono@4.9.10_zod@3.25.76",
     "npm:bs58@6.0.0": "6.0.0"
   },
   "jsr": {
@@ -36,20 +36,20 @@
     }
   },
   "npm": {
-    "@asteasolutions/zod-to-openapi@7.3.2_zod@3.25.32": {
-      "integrity": "sha512-Wvl+jHwSgYrRc3tQLMG7Qxq6wn0WjDk8E9ZA0lAyW73FqK18XPHVIKpk0lA6L0S+zmzzNKTndeV2v/Or0LyfHQ==",
+    "@asteasolutions/zod-to-openapi@7.3.4_zod@3.25.76": {
+      "integrity": "sha512-/2rThQ5zPi9OzVwes6U7lK1+Yvug0iXu25olp7S0XsYmOqnyMfxH7gdSQjn/+DSOHRg7wnotwGJSyL+fBKdnEA==",
       "dependencies": [
         "openapi3-ts",
         "zod"
       ]
     },
-    "@hono/swagger-ui@0.5.1_hono@4.7.10": {
+    "@hono/swagger-ui@0.5.1_hono@4.9.10": {
       "integrity": "sha512-XpUCfszLJ9b1rtFdzqOSHfdg9pfBiC2J5piEjuSanYpDDTIwpMz0ciiv5N3WWUaQpz9fEgH8lttQqL41vIFuDA==",
       "dependencies": [
         "hono"
       ]
     },
-    "@hono/zod-openapi@0.19.6_hono@4.7.10_zod@3.25.32": {
+    "@hono/zod-openapi@0.19.6_hono@4.9.10_zod@3.25.76": {
       "integrity": "sha512-qD2I0i5Ksry8gf47rXR6tuUAfv5S/wRZPRUNn+y8vOkgArDtIs30Ha3KGHeuGhcMk773D197IlPUppSCbHt6iQ==",
       "dependencies": [
         "@asteasolutions/zod-to-openapi",
@@ -58,7 +58,7 @@
         "zod"
       ]
     },
-    "@hono/zod-validator@0.5.0_hono@4.7.10_zod@3.25.32": {
+    "@hono/zod-validator@0.5.0_hono@4.9.10_zod@3.25.76": {
       "integrity": "sha512-ds5bW6DCgAnNHP33E3ieSbaZFd5dkV52ZjyaXtGoR06APFrCtzAsKZxTHwOrJNBdXsi0e5wNwo5L4nVEVnJUdg==",
       "dependencies": [
         "hono",
@@ -74,21 +74,21 @@
         "base-x"
       ]
     },
-    "hono@4.7.10": {
-      "integrity": "sha512-QkACju9MiN59CKSY5JsGZCYmPZkA6sIW6OFCUp7qDjZu6S6KHtJHhAc9Uy9mV9F8PJ1/HQ3ybZF2yjCa/73fvQ=="
+    "hono@4.9.10": {
+      "integrity": "sha512-AlI15ijFyKTXR7eHo7QK7OR4RoKIedZvBuRjO8iy4zrxvlY5oFCdiRG/V/lFJHCNXJ0k72ATgnyzx8Yqa5arug=="
     },
-    "openapi3-ts@4.4.0": {
-      "integrity": "sha512-9asTNB9IkKEzWMcHmVZE7Ts3kC9G7AFHfs8i7caD8HbI76gEjdkId4z/AkP83xdZsH7PLAnnbl47qZkXuxpArw==",
+    "openapi3-ts@4.5.0": {
+      "integrity": "sha512-jaL+HgTq2Gj5jRcfdutgRGLosCy/hT8sQf6VOy+P+g36cZOjI1iukdPnijC+4CmeRzg/jEllJUboEic2FhxhtQ==",
       "dependencies": [
         "yaml"
       ]
     },
-    "yaml@2.8.0": {
-      "integrity": "sha512-4lLa/EcQCB0cJkyts+FpIRx5G/llPxfP6VQU5KByHEhLxY3IJCH0f0Hy1MHI8sClTvsIb8qwRJ6R/ZdlDJ/leQ==",
+    "yaml@2.8.1": {
+      "integrity": "sha512-lcYcMxX2PO9XMGvAJkJ3OsNMw+/7FKes7/hgerGUYWIoWu5j/+YQqcZr5JnPZWzOsEBgMbSbiSTn/dv/69Mkpw==",
       "bin": true
     },
-    "zod@3.25.32": {
-      "integrity": "sha512-OSm2xTIRfW8CV5/QKgngwmQW/8aPfGdaQFlrGoErlgg/Epm7cjb6K6VEyExfe65a3VybUOnu381edLb0dfJl0g=="
+    "zod@3.25.76": {
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
     }
   },
   "remote": {
@@ -225,9 +225,6 @@
     "https://deno.land/std@0.221.0/path/windows/to_namespaced_path.ts": "4ffa4fb6fae321448d5fe810b3ca741d84df4d7897e61ee29be961a6aac89a4c",
     "https://deno.land/std@0.221.0/text/closest_string.ts": "8a91ee8b6d69ff96addcb7c251dad53b476ac8be9c756a0ef786abe9e13a93a5",
     "https://deno.land/std@0.221.0/text/levenshtein_distance.ts": "24be5cc88326bbba83ca7c1ea89259af0050cffda2817ff3a6d240ad6495eae2",
-    "https://deno.land/std@0.224.0/assert/assert_exists.ts": "43420cf7f956748ae6ed1230646567b3593cb7a36c5a5327269279c870c5ddfd",
-    "https://deno.land/std@0.224.0/assert/assertion_error.ts": "ba8752bd27ebc51f723702fac2f54d3e94447598f54264a6653d6413738a8917",
-    "https://deno.land/std@0.224.0/flags/mod.ts": "88553267f34519c8982212185339efdb2d2e62c159ec558f47eb50c8952a6be3",
     "https://deno.land/std@0.97.0/fmt/colors.ts": "db22b314a2ae9430ae7460ce005e0a7130e23ae1c999157e3bb77cf55800f7e4",
     "https://deno.land/std@0.97.0/testing/_diff.ts": "961eaf6d9f5b0a8556c9d835bbc6fa74f5addd7d3b02728ba7936ff93364f7a3",
     "https://deno.land/std@0.97.0/testing/asserts.ts": "341292d12eebc44be4c3c2ca101ba8b6b5859cef2fa69d50c217f9d0bfbcfd1f",
