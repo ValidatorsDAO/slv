@@ -17,7 +17,7 @@ on:
 jobs:
   test:
     name: Run Tests
-    runs-on: [self-hosted, kaien-runner]
+    runs-on: [self-hosted, linux, x64, kaien-runner-2]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
