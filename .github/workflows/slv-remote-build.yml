@@ -63,26 +63,13 @@ jobs:
       - name: Create artifacts directory
         run: mkdir -p artifacts dist renamed_files
 
-      - name: Set up SSH key and known_hosts (tunnel-aware)
-        shell: bash
-        run: |
-          set -e
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.BUILD_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          touch ~/.ssh/known_hosts
-
-      - name: Update inventory file (IP only; port is already 2222)
-        run: |
-          sed -i "s/<BUILD_SERVER_IP>/${{ secrets.BUILD_SERVER_IP }}/g" ansible/inventory.yml
-
       - name: Setup build server (packages, dirs)
         run: |
-          ansible-playbook -i ansible/inventory.yml ansible/setup-build-server.yml
+          ansible-playbook -i localhost, ansible/setup-build-server.yml
 
       - name: Compile SLV on remote server
         run: |
-          ansible-playbook -i ansible/inventory.yml ansible/compile-slv.yml \
+          ansible-playbook -i localhost, ansible/compile-slv.yml \
             -e "version=${{ env.VERSION }}" \
             -e "github_token=${{ secrets.GITHUB_TOKEN }}" \
             -e "cloudflare_account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
