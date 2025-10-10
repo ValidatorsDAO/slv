@@ -1,0 +1,33 @@
+---
+- name: Deploy and configure Solana validator service
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Ensure systemd service directory exists
+      file:
+        path: /etc/systemd/system
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy Agave3 systemd service file
+      template:
+        src: ~/.slv/testnet-rpc/solv-agave.service.j2
+        dest: /etc/systemd/system/solv.service
+        owner: root
+        group: root
+        mode: '0644'
+      register: service_updated
+      
+    - name: Ensure /mnt directory has correct permissions
+      file:
+        path: '/mnt'
+        state: directory
+        owner: solv
+        group: solv
+        mode: '0755'
+
+    - name: Reload systemd daemon
+      command: systemctl daemon-reload
