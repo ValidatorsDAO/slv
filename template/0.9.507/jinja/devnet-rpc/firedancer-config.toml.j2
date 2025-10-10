@@ -10,18 +10,6 @@ dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
     level_stderr = "NOTICE"
     level_flush = "WARNING"
 
-name = "solv"
-user = "solv"
-scratch_directory = "/home/{{ user | default('solv') }}"
-dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
-
-[log]
-    path = "/home/solv/solana-validator.log"
-    colorize = "auto"
-    level_logfile = "INFO"
-    level_stderr = "NOTICE"
-    level_flush = "WARNING"
-
 [rpc]
     port = {{ rpc_port | default(8899) }}
     {% if rpc_type == 'Geyser gRPC' %}
