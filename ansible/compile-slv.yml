@@ -3,7 +3,7 @@
 # This playbook clones the repository, compiles the code, and uploads the artifacts
 
 - name: Compile SLV
-  hosts: all
+  hosts: localhost
   become: true
   vars:
     version: '{{ version }}'

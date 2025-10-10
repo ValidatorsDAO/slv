@@ -65,7 +65,7 @@ jobs:
 
       - name: Compile SLV on remote server
         run: |
-          ansible-playbook -i localhost, -u solv ansible/compile-slv.yml \
+          ansible-playbook -i 'localhost,' -u solv -c local ansible/compile-slv.yml \
             -e "version=${{ env.VERSION }}" \
             -e "github_token=${{ secrets.GITHUB_TOKEN }}" \
             -e "cloudflare_account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
