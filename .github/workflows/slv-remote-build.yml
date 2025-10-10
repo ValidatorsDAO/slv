@@ -65,11 +65,11 @@ jobs:
 
       - name: Setup build server (packages, dirs)
         run: |
-          ansible-playbook -i localhost, ansible/setup-build-server.yml
+          ansible-playbook -i localhost, -u solv ansible/setup-build-server.yml
 
       - name: Compile SLV on remote server
         run: |
-          ansible-playbook -i localhost, ansible/compile-slv.yml \
+          ansible-playbook -i localhost, -u solv ansible/compile-slv.yml \
             -e "version=${{ env.VERSION }}" \
             -e "github_token=${{ secrets.GITHUB_TOKEN }}" \
             -e "cloudflare_account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
