@@ -65,11 +65,11 @@
         PATH: "/home/solv/.cargo/bin:{{ ansible_env.PATH }}"
       register: build_result
 
-    - name: Add Agave to PATH in .profile (optional)
+    - name: Add Bin to PATH in .profile
       become: no
       lineinfile:
         path: '/home/solv/.profile'
-        line: 'export PATH={{ agave_bin_dir }}:$PATH'
+        line: 'export PATH={{ solana_bin_dir }}:$PATH'
         state: present
         create: yes
 

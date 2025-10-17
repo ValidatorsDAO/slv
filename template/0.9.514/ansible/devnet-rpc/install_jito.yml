@@ -103,6 +103,22 @@
       loop: '{{ binary_candidates }}'
       when: build_result is succeeded
 
+    - name: Add Bin to PATH in .profile
+      become: no
+      lineinfile:
+        path: '/home/solv/.profile'
+        line: 'export PATH={{ solana_bin_dir }}:$PATH'
+        state: present
+        create: yes
+
+    - name: Add Bin to PATH in .profile
+      become: no
+      lineinfile:
+        path: '/home/solv/.profile'
+        line: 'export PATH={{ solana_bin_dir }}:$PATH'
+        state: present
+        create: yes
+
     - name: Deploy Jito systemd service file
       template:
         src: ~/.slv/testnet-validator/solv.service.j2
