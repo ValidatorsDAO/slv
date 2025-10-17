@@ -16,3 +16,4 @@
       retries: 3
       async: 3600
       poll: 10
+      failed_when: false

@@ -1,15 +1,135 @@
 ---
-- name: Install Jito
+- name: Install Jito Solana (agave + solana bins from target/release)
   hosts: all
   become: true
   vars_files:
     - ~/.slv/versions.yml
+  vars:
+    jito_version: v{{ testnet_validators.version_jito }}
+    jito_repo: https://github.com/jito-foundation/jito-solana.git
+    jito_install_dir: '/home/solv/jito-solana'
+    jito_release_dir: '{{ jito_install_dir }}/target/release'
+    solana_release_dir: '/home/solv/.local/share/solana/install/active_release'
+    solana_bin_dir: '{{ solana_release_dir }}/bin'
+
   tasks:
-    - name: Install Jito using the fetched version as solv user
+    - name: Check if Rust is installed
+      become: no
+      shell: command -v rustc
+      register: rust_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Rust if missing
+      become: no
       shell: |
-        tag=v{{ testnet_validators.version_jito }}-jito
-        sh -c "$(curl -sSfL https://release.jito.wtf/${tag}/install)"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+      when: rust_check.rc != 0
       args:
         executable: /bin/bash
-      become: true
-      become_user: solv
+
+    - name: Install build dependencies
+      apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - libclang-dev
+          - cmake
+          - protobuf-compiler
+          - git
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Clone Jito Solana repository
+      become: no
+      git:
+        repo: '{{ jito_repo }}'
+        dest: '{{ jito_install_dir }}'
+        version: '{{ jito_version }}'
+        force: yes
+
+    - name: Build Jito Solana (cargo-install-all)
+      become: no
+      shell: |
+        set -e
+        source $HOME/.cargo/env
+        cd {{ jito_install_dir }}
+        ./scripts/cargo-install-all.sh .
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "/home/solv/.cargo/bin:{{ ansible_env.PATH }}"
+      register: build_result
+
+    # ====== Symlink agave* / solana / solana* from target/release ======
+    - name: Ensure Solana active release bin directory exists
+      file:
+        path: '{{ solana_bin_dir }}'
+        state: directory
+        owner: solv
+        group: solv
+        mode: '0755'
+
+    - name: Find agave* and solana* binaries in target/release (include 'solana')
+      find:
+        paths: '{{ jito_release_dir }}'
+        recurse: no
+        file_type: file
+        patterns:
+          - 'solana'
+          - 'solana-*'
+          - 'agave-*'
+      register: found_bins
+
+    - name: Filter only real executables (exclude .d/.rlib/.so)
+      set_fact:
+        binary_candidates: >-
+          {{ found_bins.files
+             | map(attribute='path')
+             | reject('search', '\.(d|rlib|so)$')
+             | list }}
+
+    - name: Symlink agave/solana binaries into active_release/bin
+      become: no
+      file:
+        src: '{{ item }}'
+        dest: '{{ solana_bin_dir }}/{{ item | basename }}'
+        state: link
+        force: yes
+      loop: '{{ binary_candidates }}'
+      when: build_result is succeeded
+
+    - name: Deploy Jito systemd service file
+      template:
+        src: ~/.slv/testnet-validator/solv.service.j2
+        dest: /etc/systemd/system/solv.service
+        owner: root
+        group: root
+        mode: '0644'
+      register: service_updated
+
+    - name: Reload systemd daemon and restart service if updated
+      systemd:
+        name: solv
+        state: restarted
+        daemon_reload: yes
+      when: service_updated.changed
+
+    - name: Verify binaries via active_release/bin
+      become: no
+      shell: |
+        {{ solana_bin_dir }}/solana --version || true
+        {{ solana_bin_dir }}/agave-validator --version || true
+      args:
+        executable: /bin/bash
+      register: version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Debug version output
+      debug:
+        var: version_check.stdout
