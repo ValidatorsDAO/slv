@@ -79,7 +79,7 @@ rpcCmd.command('setup:firedancer')
     const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
     const playbook =
-      `${templateRoot}/ansible/${options.network}/setup_firedancer.yml`
+      `${templateRoot}/ansible/${options.network}-rpc/setup_firedancer.yml`
 
     const result = options.pubkey
       ? await runAnsilbe(playbook, inventoryType, options.pubkey)
