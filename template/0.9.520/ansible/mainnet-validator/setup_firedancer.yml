@@ -21,18 +21,6 @@
       retries: 3
       delay: 10
 
-    - name: Generate overrides.yml from template
-      template:
-        src: ~/.slv/mainnet-validator/overrides.yml.j2
-        dest: /home/solv/overrides.yml
-        mode: "0755"
-        owner: solv
-        group: solv
-      vars:
-        staked_rpc_identity_account: "{{ hostvars[inventory_hostname].staked_rpc_identity_account }}"
-        staked_rpc_amount: "{{ hostvars[inventory_hostname].staked_rpc_amount }}"
-      failed_when: false
-
     - name: Run deps.sh script with yes (async/poll)
       shell: |
         yes y | ./deps.sh
@@ -74,7 +62,7 @@
         group: solv
         mode: "0644"
       vars:
-        block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
+        block_engine_url: "{{ hostvars[inventory_hostname].block_engine_url }}"
         vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
         commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
 

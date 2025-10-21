@@ -12,3 +12,4 @@
       retries: 3
       delay: 10
       until: firedancer_result is succeeded
+      failed_when: false

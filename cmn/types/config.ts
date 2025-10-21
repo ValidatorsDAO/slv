@@ -101,15 +101,14 @@ export interface ValidatorMainnetConfig {
   identity_account: string
   vote_account: string
   authority_account: string
-  validator_type: ValidatorMainnetType
+  validator_type: SolanaNodeType
   commission_bps: number
   relayer_url: string
-  relayer_account: string
-  block_engine_region: string
-  shredstream_address: string
+  block_engine_url: string
+  shred_receiver_address: string
   port_rpc: number
+  dynamic_port_range: string
   limit_ledger_size: number
   staked_rpc_identity_account: string
   staked_rpc_amount: number
-  snapshot_url: string
 }

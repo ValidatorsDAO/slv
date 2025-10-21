@@ -1,7 +1,7 @@
 name = "solv"
 user = "solv"
 scratch_directory = "/home/{user}"
-dynamic_port_range = "8900-9000"
+dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
 [log]
     path = "/home/solv/solana-validator.log"
@@ -11,7 +11,7 @@ dynamic_port_range = "8900-9000"
     level_flush = "WARNING"
 
 [rpc]
-    port = 8899
+    port = {{ rpc_port | default(8899) }}
     full_api = false
     private = false
 
@@ -21,7 +21,7 @@ dynamic_port_range = "8900-9000"
 [ledger]
     path = "/mnt/ledger"
     accounts_path = "/mnt/accounts"
-    limit_size = 200_000_000
+    limit_size = {{ limit_ledger_size | default(200_000_000) }}
     account_indexes = []
     account_index_exclude_keys = []
     snapshot_archive_format = "zstd"
@@ -74,10 +74,13 @@ dynamic_port_range = "8900-9000"
     prometheus_listen_address = "0.0.0.0"
     prometheus_listen_port = 7999
 
+{% if validator_type == 'firedancer-jito' %}
+# Jito Firedancer Configuration
 [tiles.bundle]
     enabled = true
-    url = "https://{{ block_engine_region }}.mainnet.block-engine.jito.wtf"
+    url = "{{ block_engine_url | default('https://mainnet.block-engine.jito.wtf', true) }}"
     tip_distribution_program_addr = "4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7"
     tip_payment_program_addr = "T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt"
     tip_distribution_authority = "GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib"
-    commission_bps = {{ commission_bps }}
+    commission_bps = {{ commission_bps | default(1000, true) }}
+{% endif %}

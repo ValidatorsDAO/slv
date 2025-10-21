@@ -18,10 +18,10 @@
 
 
 - import_playbook: ../cmn/restart_solv.yml
-  when: validator_type == 'agave'
+  when: validator_type in ['agave', 'jito']
 
 - import_playbook: stop_firedancer.yml
-  when: validator_type == 'firedancer'
+  when: validator_type in ['firedancer-jito', 'firedancer-agave']
 
 - import_playbook: start_firedancer.yml
-  when: validator_type == 'firedancer'
+  when: validator_type in ['firedancer-jito', 'firedancer-agave']

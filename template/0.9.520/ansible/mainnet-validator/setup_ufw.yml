@@ -2,8 +2,6 @@
 - name: Setup UFW
   hosts: all
   become: yes
-  vars_files:
-    - ~/.slv/versions.yml
   tasks:
     - name: Ensure UFW is installed
       apt:
@@ -25,6 +23,13 @@
       loop: "{{ mainnet_validators.allowed_ssh_ips }}"
       when: mainnet_validators.allowed_ssh_ips is defined
 
+    - name: Allow SSH All if allowed_ssh_ips not defined
+      ufw:
+        rule: allow
+        port: 22
+        proto: tcp
+      when: mainnet_validators.allowed_ssh_ips is not defined
+
     - name: Allow SSH from all IPs
       ufw:
         rule: allow
@@ -32,16 +37,64 @@
         proto: tcp
       when: mainnet_validators.allowed_ssh_ips is not defined
 
-    - name: Allow ports 8000-8020 TCP
+    - name: Allow ports 8900-8925 TCP
       ufw:
         rule: allow
-        port: "8000:8020"
+        port: '8900:8925'
         proto: tcp
 
-    - name: Allow ports 8000-8020 UDP
+    - name: Allow ports 8900-8925 UDP
       ufw:
         rule: allow
-        port: "8000:8020"
+        port: '8900:8925'
+        proto: udp
+
+    - name: Allow ports 8001 TCP
+      ufw:
+        rule: allow
+        port: 8001
+        proto: tcp
+
+    - name: Allow ports 8001 UDP
+      ufw:
+        rule: allow
+        port: 8001
+        proto: udp
+    
+    - name: Allow ports 8003 TCP
+      ufw:
+        rule: allow
+        port: 8003
+        proto: tcp
+
+    - name: Allow ports 8003 UDP
+      ufw:
+        rule: allow
+        port: 8003
+        proto: udp
+
+    - name: Allow ports 9001 TCP
+      ufw:
+        rule: allow
+        port: 9001
+        proto: tcp
+
+    - name: Allow ports 9001 UDP
+      ufw:
+        rule: allow
+        port: 9001
+        proto: udp
+
+    - name: Allow ports 9007 TCP
+      ufw:
+        rule: allow
+        port: 9007
+        proto: tcp
+
+    - name: Allow ports 9007 UDP
+      ufw:
+        rule: allow
+        port: 9007
         proto: udp
 
     - name: Allow all ports (TCP & UDP) from Known IPs

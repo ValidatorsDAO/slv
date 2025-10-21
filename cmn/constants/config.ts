@@ -11,6 +11,7 @@ export const SolanaNodeTypes = [
   'firedancer-agave',
   'firedancer-jito',
 ]
+export type SolanaNodeType = 'agave' | 'jito' | 'firedancer-agave' | 'firedancer-jito'
 
 export const getOSTarget = () => {
   const os = Deno.build.os

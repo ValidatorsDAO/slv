@@ -31,18 +31,17 @@ const addMainnetInventory = async (
       vote_account: '',
       authority_account: '',
       commission_bps: 0,
-      relayer_account: '',
       username: sshConnection.username,
-      validator_type: 'jito',
+      validator_type: 'firedancer-jito',
       port_rpc: 8899,
+      dynamic_port_range: '8000-8025',
       relayer_url: 'http://localhost:11226',
-      block_engine_region: 'amsterdam',
-      shredstream_address: '',
-      shredstream_desired_regions: '',
+      block_engine_url: 'http://ny.mainnet.relayer.jito.wtf:8100',
+      shred_receiver_address: '',
       limit_ledger_size: 200000000,
-      staked_rpc_identity_account: '',
+      staked_rpc_identity_account:
+        '7KEVKK9gZ1VUjaTowuCCA8mwMJYTUsZSrSKuTCowSLV',
       staked_rpc_amount: 500000000000000,
-      snapshot_url: 'https://snapshots.avorio.network/mainnet-beta',
     } as ValidatorMainnetConfig
 
     const inventoryPath = getInventoryPath(inventoryType)

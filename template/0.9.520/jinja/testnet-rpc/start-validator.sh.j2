@@ -14,12 +14,13 @@ exec agave-validator \
 --known-validator 9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv \
 --only-known-rpc \
 --expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
---dynamic-port-range 8000-8025 \
+--dynamic-port-range {{ dynamic_port_range | default("8900-8925") }}  \
+--no-voting \
+--full-rpc-api \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
---wait-for-supermajority 343175553 \
---expected-shred-version 9065 \
---expected-bank-hash 4oMrSXsLTiCc1X7S27kxSfGVraTCZoZ7YTy2skEB9bPk \
+--expected-shred-version 41708 \
+--expected-bank-hash 4NuNyboT36pwwGJvMPZLreFqYpkbpBjX82nkt4AkJ9QT \
 {% if rpc_type == 'Geyser gRPC' -%}
 # Geyser gRPC specific configuration
 --limit-ledger-size 50000000 \
@@ -52,4 +53,5 @@ exec agave-validator \
 --rpc-pubsub-enable-block-subscription \
 --rpc-pubsub-enable-vote-subscription \
 {% endif %}{% if validator_type == 'jito' %} \
---shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }} \
+--shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }}
+{% endif %}

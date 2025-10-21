@@ -1,6 +1,16 @@
 import { colors } from '@cliffy/colors'
 
-const rpcLog = (ip = '<your-node-ip>') => {
+const loginLiners = (ansibleHosts: string[]) => {
+  let contenxt = ''
+  if (ansibleHosts.length === 1) {
+    contenxt = `ssh solv@${ansibleHosts[0]}`
+  } else {
+    contenxt = ansibleHosts.map((ip) => `ssh solv@${ip}`).join('\n')
+  }
+  return contenxt
+}
+
+const rpcLog = (ansibleHosts = ['<your-node-ip>']) => {
   const lighting = `${colors.yellow('⚡️⚡️⚡️')}`
   const msg = `${
     colors.blue(
@@ -21,7 +31,7 @@ Unlock fast connections and elevate your experience with your very own API key �
   const monitorLog = `You can monitor your Node with the following steps:
 
 Log in to your server with SSH:
-${colors.white(`$ ssh solv@${ip}`)}
+${colors.white(loginLiners(ansibleHosts))}
 
 Then, run the following command to monitor your node:
 ${colors.white(`$ solv m`)}`

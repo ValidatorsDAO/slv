@@ -11,19 +11,17 @@ import { genIdentityKey } from '/src/validator/init/genIdentityKey.ts'
 import type { SSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
 import { genVoteKey } from '/src/validator/init/genVoteKey.ts'
-import type {
-  ValidatorMainnetConfig,
-  ValidatorMainnetType,
-} from '@cmn/types/config.ts'
-import {
-  DEFAULT_RPC_ADDRESS,
-  JITO_BLOCK_ENGINE_REGIONS,
-  SHREDSTREAM_ADDRESS,
-} from '@cmn/constants/config.ts'
+import type { ValidatorMainnetConfig } from '@cmn/types/config.ts'
+import { DEFAULT_RPC_ADDRESS, SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { addMainnetInventory } from '/lib/addMainnetInventory.ts'
 import { updateMainnetInventory } from '/lib/updateMainnetInventory.ts'
 import { updateAllowedSshIps } from '/lib/config/updateAllowedSshIps.ts'
 import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
+import {
+  findNearestJitoRegion,
+  type RegionLatency,
+} from '/lib/jito/findNearestRegion.ts'
+import type { SolanaNodeType } from '@cmn/types/config.ts'
 
 const initMainnetConfig = async (sshConnection: SSHConnection) => {
   try {
@@ -38,44 +36,32 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
   }
   const {
     validatorType,
-    commissionBps,
-    blockEngineRegion,
   } = await prompt([
     {
       name: 'validatorType',
       message: 'Select Validator Type',
       type: Select,
-      options: ['jito', 'firedancer'],
-      default: 'jito',
-    },
-    {
-      name: 'commissionBps',
-      message: 'Enter Commission Rate',
-      type: Input,
-      default: '500',
-    },
-    {
-      name: 'blockEngineRegion',
-      message: '🌐 Select Block Engine Region',
-      type: Select,
-      options: JITO_BLOCK_ENGINE_REGIONS,
-      default: 'amsterdam',
-    },
-  ])
-  const {
-    stakedRPCIdentity,
-  } = await prompt([
-    {
-      name: 'stakedRPCIdentity',
-      message: 'Enter Staked RPC Identity(Optional)',
-      type: Input,
-      default: DEFAULT_RPC_ADDRESS,
+      options: SolanaNodeTypes,
+      default: 'firedancer-jito',
     },
   ])
   if (!validatorType) {
     return
   }
-  const rpcAccount = stakedRPCIdentity || DEFAULT_RPC_ADDRESS
+  let commissionBps = '1000'
+  if (validatorType.includes('jito')) {
+    const cmsBps = await prompt([
+      {
+        name: 'commission_bps',
+        message: 'Enter Commission BPS (Max 1000 = 10%)',
+        type: Input,
+        default: '1000',
+      },
+    ])
+    commissionBps = String(cmsBps.commission_bps)
+  }
+
+  const rpcAccount = DEFAULT_RPC_ADDRESS
   const inventoryType = 'mainnet_validators'
   const identityAccount = await genIdentityKey()
   const { name } = await prompt([
@@ -91,8 +77,11 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     return
   }
   const inventoryPath = getInventoryPath(inventoryType)
-  const shredstream_address =
-    SHREDSTREAM_ADDRESS[blockEngineRegion as keyof typeof SHREDSTREAM_ADDRESS]
+
+  console.log(colors.yellow(`⚠️ Please place your identity key in 
+        
+~/.slv/keys/${identityAccount}.json`))
+
   // Generate or Add Inventory
   const inventoryCheck = await addMainnetInventory(
     name,
@@ -103,18 +92,37 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     console.log(colors.yellow('⚠️ Inventory check failed'))
     return
   }
+  const host = sshConnection.ip
+  const user = sshConnection.username
+  const keyFile = sshConnection.rsa_key_path
+  const network = 'mainnet'
+  const getNearRegion = await findNearestJitoRegion(
+    host,
+    network,
+    {
+      user,
+      keyFile,
+      port: 22,
+    },
+  ) as RegionLatency | null
+  if (!getNearRegion) {
+    console.log(colors.red('❌ Failed to measure latencies. Please try again.'))
+    return
+  }
+  const blockEngineRegion = getNearRegion.info.blockEngineUrl
+  const shredstream_address = getNearRegion.info.shredReceiver
+  const relayer_url = getNearRegion.info.relayerUrl
   // Generate Vote Key
   const { voteAccount, authAccount } = await genVoteKey(identityAccount)
   const configMainnet: Partial<ValidatorMainnetConfig> = {
     name,
     vote_account: voteAccount,
     authority_account: authAccount,
-    validator_type: validatorType as ValidatorMainnetType,
+    validator_type: validatorType as SolanaNodeType,
     commission_bps: Number(commissionBps),
-    relayer_url: 'http://localhost:11226',
-    relayer_account: '',
-    block_engine_region: blockEngineRegion,
-    shredstream_address,
+    relayer_url,
+    block_engine_url: blockEngineRegion,
+    shred_receiver_address: String(shredstream_address),
     staked_rpc_identity_account: rpcAccount,
   }
   await updateAllowedSshIps()

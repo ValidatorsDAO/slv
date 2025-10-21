@@ -16,7 +16,9 @@ exec agave-validator \
 --known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
 --only-known-rpc \
 --expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
---dynamic-port-range 8000-8025 \
+--dynamic-port-range {{ dynamic_port_range | default("8900-8925") }}  \
+--full-rpc-api \
+--no-voting \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
 {% if rpc_type == 'Geyser gRPC' -%}
@@ -52,6 +54,7 @@ exec agave-validator \
 --rpc-pubsub-enable-vote-subscription \
 {% endif %}{% if validator_type == 'jito' %} \
 --commission-bps {{ commission_bps | default(1000) }} \
---relayer-url {{ relayer_url | default("http://ny.testnet.relayer.jito.wtf:8100") }} \
---block-engine-url {{ block_engine_url | default("https://ny.testnet.block-engine.jito.wtf") }} \
+--relayer-url {{ relayer_url | default("http://ny.relayer.jito.wtf:8100") }} \
+--block-engine-url {{ block_engine_url | default("https://ny.block-engine.jito.wtf") }} \
 --shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }} \
+{% endif %}

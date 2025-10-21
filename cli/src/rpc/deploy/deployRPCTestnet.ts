@@ -4,11 +4,14 @@ import { Confirm, prompt } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import rpcLog from '/lib/config/rpcLog.ts'
 import { listRPCs } from '/src/rpc/listRPCs.ts'
+import { getAnsibleHosts } from '/lib/yml/getAnsibleHost.ts'
 
 const deployRPCTestnet = async (limit?: string) => {
   const inventoryType = 'testnet_rpcs'
   const templateRoot = getTemplatePath()
   await listRPCs('testnet', limit)
+  const limitString = limit ? limit : 'all'
+  const ansibleHosts = await getAnsibleHosts(inventoryType, limitString)
   const confirm = await prompt([{
     type: Confirm,
     name: 'continue',
@@ -25,7 +28,7 @@ const deployRPCTestnet = async (limit?: string) => {
     : await runAnsilbe(yml, inventoryType)
   if (result) {
     console.log('Successfully Deployed RPC on testnet')
-    rpcLog()
+    rpcLog(ansibleHosts)
     return true
   }
   console.log('Failed to deploy validator on testnet')

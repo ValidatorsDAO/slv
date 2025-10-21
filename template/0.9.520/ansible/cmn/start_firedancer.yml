@@ -10,6 +10,7 @@
       register: command_output
       retries: 3
       delay: 10
+      failed_when: false
 
     - name: Display Command output
       debug:
