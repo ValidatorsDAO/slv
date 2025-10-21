@@ -69,6 +69,27 @@ rpcCmd.command('list')
     await listRPCs(options.network as NetworkType, options.identity)
   })
 
+rpcCmd.command('setup:firedancer')
+  .description('🔥 Setup/Update Firedancer Validator')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'testnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .action(async (options) => {
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    const templateRoot = getTemplatePath()
+    const playbook =
+      `${templateRoot}/ansible/${options.network}/setup_firedancer.yml`
+
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Setup Firedancer Validator'))
+      return
+    }
+  })
+
 rpcCmd.command('update:version')
   .description('⬆️ Update RPC Version')
   .option('-c, --config-only', 'Update only the config file', {
