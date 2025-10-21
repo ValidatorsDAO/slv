@@ -29,7 +29,7 @@
 - import_playbook: ../cmn/setup_node_exporter.yml
 - import_playbook: ../cmn/install_rust.yml
 - import_playbook: ../cmn/disable_swap.yml
-- import_playbook: ../cmn/mount_disks.yml
+- import_playbook: ../cmn/mount-disks.yml
 - import_playbook: ../cmn/optimize_system.yml
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml

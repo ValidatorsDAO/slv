@@ -3,8 +3,6 @@
   hosts: all
   become: yes
   become_user: solv
-  vars:
-    target_file: /home/solv/firedancer/src/app/fdctl/run/run_agave.c
   vars_files:
     - ~/.slv/versions.yml
   tasks:
@@ -67,19 +65,6 @@
         state: link
       become: yes
       become_user: root
-
-    - name: Get Shreds IP by curl
-      shell: |
-        curl -X 'GET' \
-          https://ip.shredstream.cc/?ip={{ ansible_host }} \
-          -H 'accept: application/json' \
-          -H 'Authorization: Bearer solvers' | jq -r '.ip'
-      register: get_shreds_ip
-      failed_when: false
-
-    - name: Set Shreds IP with default (including empty string)
-      set_fact:
-        shreds_ip: "{{ (get_shreds_ip.stdout | default('')) | trim or '84.32.220.90' }}"
 
     - name: Create config.toml
       template:

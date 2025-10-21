@@ -87,7 +87,7 @@ rpcCmd.command('update:version')
     const templateRoot = getTemplatePath()
 
     const playbook =
-      `${templateRoot}/ansible/${options.network}-rpc/install_jito.yml`
+      `${templateRoot}/ansible/${options.network}-rpc/install_solana.yml`
     if (options.pubkey) {
       await runAnsilbe(playbook, inventoryType, options.pubkey)
       return

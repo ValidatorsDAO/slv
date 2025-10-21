@@ -160,7 +160,7 @@ validatorCmd.command('update:version')
     const templateRoot = getTemplatePath()
     if (options.network === 'mainnet') {
       const playbook =
-        `${templateRoot}/ansible/mainnet-validator/install_jito.yml`
+        `${templateRoot}/ansible/mainnet-validator/install_solana.yml`
       if (options.pubkey) {
         await runAnsilbe(playbook, inventoryType, options.pubkey)
         return
