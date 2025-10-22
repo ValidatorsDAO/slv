@@ -1,0 +1,61 @@
+---
+- name: Load validator type from inventory
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Set validator type fact for each host
+      set_fact:
+        validator_type: "{{ validator_type | default('firedancer-jito') }}"
+
+    - name: Debug validator type. Stop if not set
+      debug:
+        msg: "Validator type is {{ validator_type }}"
+
+    - name: Fail if validator type is not set
+      fail:
+        msg: "Validator type is not set. Please set it in the inventory."
+      when: validator_type is not defined
+
+- import_playbook: ../cmn/fix_permissions.yml
+- import_playbook: copy_restart_sh.yml
+- import_playbook: copy_keys.yml
+- import_playbook: add_solv.yml
+- import_playbook: ../cmn/update_ubuntu.yml
+- import_playbook: ../cmn/install_package.yml
+- import_playbook: ../cmn/setup_node_exporter.yml
+- import_playbook: ../cmn/install_rust.yml
+- import_playbook: ../cmn/disable_swap.yml
+- import_playbook: ../cmn/mount-disks.yml
+- import_playbook: ../cmn/optimize_system.yml
+- import_playbook: ../cmn/setup_norestart.yml
+- import_playbook: ../cmn/setup_logrotate.yml
+
+- import_playbook: install_agave.yml
+  when: validator_type in ['agave', 'firedancer-agave']
+
+- import_playbook: install_jito.yml
+  when: validator_type in ['jito', 'firedancer-jito']
+
+- import_playbook: ../cmn/setup_unstaked_identity.yml
+
+- import_playbook: setup_firedancer.yml
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
+- import_playbook: setup-solv-service.yml
+  when: validator_type in ['agave', 'jito']
+
+- import_playbook: create-start-validator-sh.yml
+  when: validator_type in ['agave', 'jito']
+
+- import_playbook: geyser_build.yml
+  when:
+    - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+    - validator_type in ['agave', 'jito']
+
+- import_playbook: wget_snapshot.yml
+
+- import_playbook: start_solv.yml
+  when: validator_type in ['agave', 'jito']
+
+- import_playbook: start_firedancer.yml
+  when: validator_type in ['firedancer-jito', 'firedancer-agave']
