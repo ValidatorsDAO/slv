@@ -76,9 +76,8 @@ export const testnetInitRpc = async (sshOptions: SSHConnection) => {
     rpc_type: rpc_type as RpcType,
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: getNearRegion.region,
-    snapshot_url: '',
     limit_ledger_size: 200000000,
-    shredstream_address: String(getNearRegion.info.shredReceiver),
+    shred_receiver_address: String(getNearRegion.info.shredReceiver),
   }
 
   // Update ~/.slv/versions.yml

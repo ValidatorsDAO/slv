@@ -38,20 +38,14 @@
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 
-- import_playbook: setup_firedancer_jito.yml
-  when: validator_type in ['firedancer-jito']
+- import_playbook: setup_firedancer.yml
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']
 
-- import_playbook: setup_firedancer_agave.yml
-  when: validator_type in ['firedancer-agave']
-
-- import_playbook: setup_solv_service.yml
+- import_playbook: setup-solv-service.yml
   when: validator_type in ['agave', 'jito']
 
-- import_playbook: create-start-validator-sh-agave.yml
-  when: validator_type in ['agave']
-
-- import_playbook: create-start-validator-sh-jito.yml
-  when: validator_type in ['jito']
+- import_playbook: create-start-validator-sh.yml
+  when: validator_type in ['agave', 'jito']
 
 - import_playbook: geyser_build.yml
   when:

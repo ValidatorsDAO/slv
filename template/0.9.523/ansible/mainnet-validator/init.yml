@@ -36,7 +36,7 @@
   when: validator_type in ['jito', 'firedancer-jito']
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
-- import_playbook: setup_ufw.yml
+# - import_playbook: setup_ufw.yml
 - import_playbook: create_overrides.yml
 
 - import_playbook: setup_firedancer.yml

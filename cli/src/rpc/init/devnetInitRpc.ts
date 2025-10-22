@@ -58,9 +58,8 @@ export const devnetInitRpc = async (sshOptions: SSHConnection) => {
     rpc_type: rpc_type as RpcType,
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: 'ny',
-    snapshot_url: '',
     limit_ledger_size: 200000000,
-    shredstream_address: '-',
+    shred_receiver_address: '-',
   }
 
   // Update ~/.slv/versions.yml

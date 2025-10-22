@@ -125,8 +125,8 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     shred_receiver_address: String(shredstream_address),
     staked_rpc_identity_account: rpcAccount,
   }
-  await updateAllowedSshIps()
-  await updateAllowedIps()
+  // await updateAllowedSshIps()
+  // await updateAllowedIps()
   await updateMainnetInventory(name, configMainnet)
   // Create solv User on Ubuntu Server
   await genSolvUser(name, inventoryType)

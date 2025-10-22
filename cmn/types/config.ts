@@ -88,9 +88,8 @@ export interface RpcConfig {
   region: string
   rpc_type: RpcType
   validator_type: SolanaNodeType
-  snapshot_url: string
   limit_ledger_size: number
-  shredstream_address: string
+  shred_receiver_address: string
 }
 
 export interface ValidatorMainnetConfig {

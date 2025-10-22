@@ -9,7 +9,7 @@
 
     - name: Updatge start-validator.sh from template for Agave
       template:
-        src: ~/.slv/mainnet-rpc/start-validator.sh.j2
+        src: ~/.slv/mainnet-validator/start-validator.sh.j2
         dest: /home/solv/start-validator.sh
         mode: "0755"
         owner: solv
@@ -20,13 +20,13 @@
 
     - name: Update firedancer-config.toml from template
       template:
-        src: ~/.slv/mainnet-rpc/firedancer-config.toml.j2
+        src: ~/.slv/mainnet-validator/firedancer-config.toml.j2
         dest: /home/solv/firedancer-config.toml
         owner: solv
         group: solv
         mode: "0644"
       vars:
-        block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
+        block_engine_url: "{{ hostvars[inventory_hostname].block_engine_url }}"
         vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
         commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
       when: validator_type in ['firedancer-jito', 'firedancer-agave']
