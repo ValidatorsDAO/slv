@@ -142,14 +142,3 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 {% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %}
 # Geyser gRPC Plugin Configuration
 {% endif %}
-
-{% if validator_type == 'firedancer-jito' %}
-# Jito Firedancer Configuration
-[tiles.bundle]
-    enabled = true
-    url = "{{ block_engine_url | default('https://ny.testnet.block-engine.jito.wtf', true) }}"
-    tip_distribution_program_addr = "F2Zu7QZiTYUhPd7u9ukRVwxh7B71oA3NMJcHuCHc29P2"
-    tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
-    tip_distribution_authority = "GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib"
-    commission_bps = {{ commission_bps | default(1000, true) }}
-{% endif %}
