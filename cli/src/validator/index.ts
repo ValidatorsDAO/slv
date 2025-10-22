@@ -141,6 +141,32 @@ validatorCmd.command('setup:firedancer')
     }
   })
 
+validatorCmd.command('update:firedancer')
+  .description('🔥 Update Firedancer Validator')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'testnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .action(async (options) => {
+    const inventoryType: InventoryType = options.network === 'mainnet'
+      ? 'mainnet_validators'
+      : 'testnet_validators'
+    const templateRoot = getTemplatePath()
+    const networkPath = options.network === 'mainnet'
+      ? 'mainnet-validator'
+      : 'testnet-validator'
+    const playbook =
+      `${templateRoot}/ansible/${networkPath}/update_firedancer.yml`
+
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Setup Firedancer Validator'))
+      return
+    }
+  })
+
 validatorCmd.command('update:version')
   .description('⬆️  Update Validator Version')
   .option('-c, --config-only', 'Update Config Only', { default: false })

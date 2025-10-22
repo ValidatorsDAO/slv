@@ -12,5 +12,3 @@
         owner: solv
         group: solv
         mode: '0700'
-      vars:
-        snapshot_url: '{{ hostvars[inventory_hostname].snapshot_url }}'

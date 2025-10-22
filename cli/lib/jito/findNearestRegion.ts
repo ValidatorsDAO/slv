@@ -96,7 +96,7 @@ export async function measureRegionLatencies(
  * @param serverIp - The server IP address to test from
  * @param network - 'mainnet' or 'testnet'
  * @param options - SSH connection options
- * @returns The nearest region information or undefined if all regions are unreachable
+ * @returns The nearest region information, Frankfurt if all unreachable, or undefined if Frankfurt doesn't exist
  */
 export async function findNearestJitoRegion(
   serverIp: string,
@@ -113,7 +113,25 @@ export async function findNearestJitoRegion(
   const reachableRegions = latencies.filter((r) => r.latency !== 9999)
 
   if (reachableRegions.length === 0) {
-    console.log('\n⚠️  All regions are unreachable')
+    console.log('\n⚠️  All regions are unreachable, defaulting to Frankfurt')
+    
+    // Find Frankfurt in the latencies array
+    const frankfurt = latencies.find((r) => r.region === 'frankfurt')
+    if (frankfurt) {
+      console.log(`\n🎯 Default region: ${frankfurt.info.emoji} ${frankfurt.info.name}`)
+      console.log(`   Block Engine: ${frankfurt.info.blockEngineUrl}`)
+      if (frankfurt.info.shredReceiver) {
+        console.log(`   Shred Receiver: ${frankfurt.info.shredReceiver}`)
+      }
+      if (frankfurt.info.relayerUrl) {
+        console.log(`   Relayer: ${frankfurt.info.relayerUrl}`)
+      }
+      if (frankfurt.info.ntpServer) {
+        console.log(`   NTP Server: ${frankfurt.info.ntpServer}`)
+      }
+      return frankfurt
+    }
+    
     return undefined
   }
 

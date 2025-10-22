@@ -74,6 +74,8 @@ export const testnetInitRpc = async (sshOptions: SSHConnection) => {
     identity_account: identity_account,
     name: identity_account,
     rpc_type: rpc_type as RpcType,
+    port_rpc: 8899,
+    dynamic_port_range: '8900-8925',
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: getNearRegion.region,
     limit_ledger_size: 200000000,

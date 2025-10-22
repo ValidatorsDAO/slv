@@ -86,6 +86,8 @@ export interface RpcConfig {
   identity_account: string
   name: string
   region: string
+  port_rpc: number
+  dynamic_port_range: string
   rpc_type: RpcType
   validator_type: SolanaNodeType
   limit_ledger_size: number

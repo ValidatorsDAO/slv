@@ -49,12 +49,11 @@ exec agave-validator \
 # Default configuration
 --limit-ledger-size {{ limit_ledger_size | default(100000000) }} \
 {% endif -%}
---no-port-check{% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %} \
+--no-port-check \
+{% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %}
 --rpc-pubsub-enable-block-subscription \
 --rpc-pubsub-enable-vote-subscription \
-{% endif %}{% if validator_type == 'jito' %} \
---commission-bps {{ commission_bps | default(1000) }} \
---relayer-url {{ relayer_url | default("http://ny.relayer.jito.wtf:8100") }} \
+{% endif %}{% if validator_type == 'jito' %}
 --block-engine-url {{ block_engine_url | default("https://ny.block-engine.jito.wtf") }} \
 --shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }} \
 {% endif %}
