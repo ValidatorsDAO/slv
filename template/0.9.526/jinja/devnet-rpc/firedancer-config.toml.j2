@@ -1,0 +1,144 @@
+name = "solv"
+user = "solv"
+scratch_directory = "/home/{user}"
+dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
+
+[log]
+    path = "/home/solv/solana-validator.log"
+    colorize = "auto"
+    level_logfile = "INFO"
+    level_stderr = "NOTICE"
+    level_flush = "WARNING"
+
+[rpc]
+    port = {{ rpc_port | default(8899) }}
+    {% if rpc_type == 'Geyser gRPC' %}
+    full_api = true
+    private = false
+    transaction_history = {{ transaction_history | default(true)  | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true)  | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true)  | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
+    {% elif rpc_type == 'SendTx RPC' %}
+    full_api = true
+    private = false
+    transaction_history = {{ transaction_history | default(false) | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(false) | to_json }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(false) | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
+    {% elif rpc_type == 'Index RPC' %}
+    full_api = true
+    private = false
+    transaction_history = {{ transaction_history | default(true)  | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true)  | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true)  | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
+    {% elif rpc_type == 'Index RPC + gRPC' %}
+    full_api = true
+    private = false
+    transaction_history = {{ transaction_history | default(true)  | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true)  | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true)  | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+
+    {% else %}
+    full_api = {{ full_api | default(false) | to_json }}
+    private = false
+    transaction_history = {{ transaction_history | default(false) | to_json }}
+    extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
+    pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
+    pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true)  | to_json }}
+    bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
+    {% endif %}
+
+[reporting]
+    solana_metrics_config = "host=https://metrics.solana.com:8086,db=devnet,u=scratch_writer,p=topsecret"
+
+[ledger]
+    path = "/mnt/ledger"
+    accounts_path = "/mnt/accounts"
+    {% if rpc_type == 'Geyser gRPC' %}
+    # Minimal ledger for Geyser gRPC
+    limit_size = {{ limit_ledger_size | default(50_000_000) }}
+    account_indexes = []
+    account_index_exclude_keys = []
+    {% elif rpc_type == 'SendTx RPC' %}
+    # Minimal ledger for SendTx RPC
+    limit_size = {{ limit_ledger_size | default(30_000_000) }}
+    account_indexes = []
+    account_index_exclude_keys = []
+    {% elif rpc_type == 'Index RPC' %}
+    # Full indexing for Index RPC
+    limit_size = {{ limit_ledger_size | default(200_000_000) }}
+    account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
+    account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
+    {% elif rpc_type == 'Index RPC + gRPC' %}
+    # Full indexing for Index RPC + gRPC
+    limit_size = {{ limit_ledger_size | default(200_000_000) }}
+    account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
+    account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
+    {% else %}
+    # Default configuration
+    limit_size = {{ limit_ledger_size | default(100_000_000) }}
+    account_indexes = {{ account_indexes | default("[]") }}
+    account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
+    {% endif %}
+    snapshot_archive_format = "zstd"
+    require_tower = false
+
+[snapshots]
+    incremental_snapshots = true
+    full_snapshot_interval_slots = 25000
+    incremental_snapshot_interval_slots = 100
+    path = "/mnt/snapshot"
+
+[gossip]
+    entrypoints = [
+      "entrypoint.devnet.solana.com:8001",
+      "entrypoint2.devnet.solana.com:8001",
+      "entrypoint3.devnet.solana.com:8001",
+      "entrypoint4.devnet.solana.com:8001",
+      "entrypoint5.devnet.solana.com:8001"
+    ]
+    port_check = false
+
+[consensus]
+    identity_path = "/home/solv/identity.json"
+    snapshot_fetch = true
+    genesis_fetch = true
+    expected_genesis_hash = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+
+[hugetlbfs]
+    mount_path = "/mnt"
+    max_page_size = "huge"
+
+[layout]
+     affinity = "auto"
+     agave_affinity = "auto"
+     verify_tile_count = 1
+     bank_tile_count = 1
+
+[tiles.gui]
+    enabled = true
+    gui_listen_port = 6001
+    gui_listen_address = "0.0.0.0"
+
+[tiles.metric]
+    prometheus_listen_address = "0.0.0.0"
+    prometheus_listen_port = 7999
+
+{% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %}
+# Geyser gRPC Plugin Configuration
+{% endif %}
+
+{% if validator_type == 'firedancer-jito' %}
+# Jito-specific configuration
+{% endif %}
+
