@@ -102,41 +102,50 @@ jobs:
           cp jito-build/target/release/agave-validator agave-validator
           
           # Copy perf-libs directory if it exists
-          echo "Checking for perf-libs directory..."
-          ls -la jito-build/target/release/ | grep perf || echo "No perf-libs found in listing"
+          echo "=== Checking for perf-libs directory ==="
+          echo "Current working directory: $(pwd)"
+          echo "Contents of jito-build/target/release:"
+          ls -la jito-build/target/release/ 
           
+          echo "Specifically looking for perf-libs:"
           if [ -d "jito-build/target/release/perf-libs" ]; then
-            echo "perf-libs directory found, attempting to copy..."
-            cp -r jito-build/target/release/perf-libs perf-libs
+            echo "✓ perf-libs directory found"
+            echo "Source directory permissions:"
+            ls -ld jito-build/target/release/perf-libs
+            echo "Contents of source perf-libs:"
+            ls -la jito-build/target/release/perf-libs/
+            
+            echo "Attempting to copy perf-libs..."
+            set -x  # Enable debug output
+            cp -rv jito-build/target/release/perf-libs ./perf-libs
             copy_exit_code=$?
+            set +x  # Disable debug output
+            
             echo "Copy command exit code: $copy_exit_code"
             
             if [ $copy_exit_code -eq 0 ]; then
-              echo "perf-libs directory copied successfully"
-              echo "Contents of current directory:"
-              ls -la | grep perf || echo "No perf-libs in current directory"
-              
+              echo "✓ perf-libs directory copied successfully"
+              echo "Destination directory check:"
+              ls -ld perf-libs || echo "perf-libs directory not found"
               if [ -d "perf-libs" ]; then
-                echo "Contents of perf-libs directory:"
+                echo "✓ perf-libs directory exists in current location"
+                echo "Contents of copied perf-libs directory:"
                 ls -la perf-libs/
-                # Check CUDA directories
-                for cuda_dir in perf-libs/cuda-*; do
-                  if [ -d "$cuda_dir" ]; then
-                    echo "Contents of $(basename $cuda_dir):"
-                    ls -la "$cuda_dir/"
-                  fi
-                done
               else
-                echo "ERROR: perf-libs directory still not found after copy"
+                echo "✗ ERROR: perf-libs directory not found after copy"
+                echo "Current directory contents:"
+                ls -la
               fi
             else
-              echo "ERROR: Failed to copy perf-libs directory (exit code: $copy_exit_code)"
+              echo "✗ ERROR: Failed to copy perf-libs directory (exit code: $copy_exit_code)"
+              echo "Current directory contents:"
+              ls -la
             fi
           else
-            echo "ERROR: perf-libs directory not found in jito-build/target/release/"
-            echo "Build may have failed to create performance libraries"
-            echo "Available files in target/release:"
-            ls -la jito-build/target/release/ | head -20
+            echo "✗ ERROR: perf-libs directory not found in jito-build/target/release/"
+            echo "Available directories and files:"
+            find jito-build/target/release -maxdepth 2 -type d | head -10
+            find jito-build/target/release -name "*perf*" -o -name "*lib*" | head -10
           fi
 
           # Make sure binaries are executable
