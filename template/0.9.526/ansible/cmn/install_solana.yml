@@ -25,6 +25,10 @@
       - solana
       - solana-keygen
 
+    # Jito specific: perf-libs archive
+    perf_libs_archive: "perf-libs.tar.gz"
+    perf_libs_dir: "{{ release_dir }}/perf-libs"
+
     ignore_missing_binaries: true
 
   tasks:
@@ -98,6 +102,56 @@
         that:
           - downloaded_bins | length > 0
         fail_msg: "No binaries were downloaded. Check URLs, version, or binary names."
+
+    # ==== Jito-specific: Download and extract perf-libs ====
+    - name: Download perf-libs archive (Jito only)
+      get_url:
+        url: "{{ download_base }}/{{ perf_libs_archive }}"
+        dest: "/tmp/{{ perf_libs_archive }}"
+        mode: "0644"
+        force: yes
+      when: solana_cli_type == "jito"
+      register: perf_libs_download
+      failed_when: false
+
+    - name: Extract perf-libs archive (Jito only)
+      unarchive:
+        src: "/tmp/{{ perf_libs_archive }}"
+        dest: "{{ release_dir }}/"
+        remote_src: yes
+        owner: solv
+        group: solv
+      when: 
+        - solana_cli_type == "jito"
+        - perf_libs_download is succeeded
+
+    - name: Ensure perf-libs has proper permissions (Jito only)
+      file:
+        path: "{{ perf_libs_dir }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+        recurse: yes
+      when: 
+        - solana_cli_type == "jito"
+        - perf_libs_download is succeeded
+
+    - name: Create symlink for perf-libs in bin directory (Jito only)
+      file:
+        src: "{{ perf_libs_dir }}"
+        dest: "{{ bin_release_dir }}/perf-libs"
+        state: link
+        force: yes
+      when: 
+        - solana_cli_type == "jito"
+        - perf_libs_download is succeeded
+
+    - name: Clean up perf-libs archive
+      file:
+        path: "/tmp/{{ perf_libs_archive }}"
+        state: absent
+      when: solana_cli_type == "jito"
 
     - name: Point 'current' symlink to this release (atomic flip)
       file:

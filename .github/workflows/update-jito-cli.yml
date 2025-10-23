@@ -100,6 +100,24 @@ jobs:
           cp jito-build/target/release/solana solana
           cp jito-build/target/release/solana-keygen solana-keygen
           cp jito-build/target/release/agave-validator agave-validator
+          
+          # Copy perf-libs directory if it exists
+          if [ -d "jito-build/target/release/perf-libs" ]; then
+            cp -r jito-build/target/release/perf-libs perf-libs
+            echo "perf-libs directory copied"
+            echo "Contents of perf-libs directory:"
+            ls -la perf-libs/
+            # Check CUDA directories
+            for cuda_dir in perf-libs/cuda-*; do
+              if [ -d "$cuda_dir" ]; then
+                echo "Contents of $(basename $cuda_dir):"
+                ls -la "$cuda_dir/"
+              fi
+            done
+          else
+            echo "ERROR: perf-libs directory not found in jito-build/target/release/"
+            echo "Build may have failed to create performance libraries"
+          fi
 
           # Make sure binaries are executable
           chmod +x solana solana-keygen agave-validator
@@ -139,6 +157,28 @@ jobs:
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@agave-validator"
+          
+          # Upload perf-libs if directory exists
+          if [ -d "perf-libs" ]; then
+            echo "Creating perf-libs tarball with all contents..."
+            # Create tarball preserving directory structure
+            tar -czf perf-libs.tar.gz -C . perf-libs
+            
+            echo "Uploading perf-libs.tar.gz..."
+            curl -X PUT \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/${VERSION}/perf-libs.tar.gz" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/gzip" \
+              --data-binary "@perf-libs.tar.gz"
+            
+            echo "perf-libs.tar.gz uploaded successfully"
+            
+            # List what was included in the archive
+            echo "Archive contents:"
+            tar -tzf perf-libs.tar.gz | head -20
+          else
+            echo "WARNING: perf-libs directory not found, skipping perf-libs upload"
+          fi
 
           # Update latest.txt
           echo "$VERSION" > latest.txt
@@ -182,6 +222,11 @@ jobs:
                     \"name\": \"Download URL - solana\",
                     \"value\": \"https://storage.slv.dev/jito/${VERSION}/solana\",
                     \"inline\": false
+                  },
+                  {
+                    \"name\": \"Download URL - perf-libs.tar.gz\",
+                    \"value\": \"https://storage.slv.dev/jito/${VERSION}/perf-libs.tar.gz\",
+                    \"inline\": false
                   }
                 ],
                 \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
@@ -192,4 +237,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          rm -rf jito-build solana solana-keygen agave-validator latest.txt
+          rm -rf jito-build solana solana-keygen agave-validator perf-libs perf-libs.tar.gz latest.txt
