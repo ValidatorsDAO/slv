@@ -102,21 +102,41 @@ jobs:
           cp jito-build/target/release/agave-validator agave-validator
           
           # Copy perf-libs directory if it exists
+          echo "Checking for perf-libs directory..."
+          ls -la jito-build/target/release/ | grep perf || echo "No perf-libs found in listing"
+          
           if [ -d "jito-build/target/release/perf-libs" ]; then
+            echo "perf-libs directory found, attempting to copy..."
             cp -r jito-build/target/release/perf-libs perf-libs
-            echo "perf-libs directory copied"
-            echo "Contents of perf-libs directory:"
-            ls -la perf-libs/
-            # Check CUDA directories
-            for cuda_dir in perf-libs/cuda-*; do
-              if [ -d "$cuda_dir" ]; then
-                echo "Contents of $(basename $cuda_dir):"
-                ls -la "$cuda_dir/"
+            copy_exit_code=$?
+            echo "Copy command exit code: $copy_exit_code"
+            
+            if [ $copy_exit_code -eq 0 ]; then
+              echo "perf-libs directory copied successfully"
+              echo "Contents of current directory:"
+              ls -la | grep perf || echo "No perf-libs in current directory"
+              
+              if [ -d "perf-libs" ]; then
+                echo "Contents of perf-libs directory:"
+                ls -la perf-libs/
+                # Check CUDA directories
+                for cuda_dir in perf-libs/cuda-*; do
+                  if [ -d "$cuda_dir" ]; then
+                    echo "Contents of $(basename $cuda_dir):"
+                    ls -la "$cuda_dir/"
+                  fi
+                done
+              else
+                echo "ERROR: perf-libs directory still not found after copy"
               fi
-            done
+            else
+              echo "ERROR: Failed to copy perf-libs directory (exit code: $copy_exit_code)"
+            fi
           else
             echo "ERROR: perf-libs directory not found in jito-build/target/release/"
             echo "Build may have failed to create performance libraries"
+            echo "Available files in target/release:"
+            ls -la jito-build/target/release/ | head -20
           fi
 
           # Make sure binaries are executable

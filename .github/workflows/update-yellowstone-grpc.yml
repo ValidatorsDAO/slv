@@ -40,7 +40,8 @@ jobs:
       - name: Get latest Yellowstone gRPC release version
         id: get_version
         run: |
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/rpcpool/yellowstone-grpc/releases/latest | jq -r .tag_name)
+          # Get the first (most recent) release from the releases list
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/rpcpool/yellowstone-grpc/releases | jq -r '.[0].tag_name')
           echo "Latest Yellowstone gRPC release: $LATEST_RELEASE"
 
           # Check if the release version is null or empty
