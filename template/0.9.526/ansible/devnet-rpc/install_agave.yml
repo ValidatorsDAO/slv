@@ -111,22 +111,6 @@
       loop: '{{ binary_candidates }}'
       when: build_result is succeeded
 
-    - name: Deploy Agave systemd service file
-      template:
-        src: ~/.slv/testnet-validator/solv.service.j2
-        dest: /etc/systemd/system/solv.service
-        owner: root
-        group: root
-        mode: '0644'
-      register: service_updated
-
-    - name: Reload systemd daemon and restart service if updated
-      systemd:
-        name: solv
-        state: restarted
-        daemon_reload: yes
-      when: service_updated.changed
-
     - name: Verify Agave installation (via active_release/bin)
       become: no
       shell: |
