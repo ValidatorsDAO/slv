@@ -90,8 +90,28 @@ rpcCmd.command('setup:firedancer')
     }
   })
 
+rpcCmd.command('update:firedancer')
+  .description('🔥 Update Firedancer Version')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'testnet',
+  })
+  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .action(async (options) => {
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    const templateRoot = getTemplatePath()
+    const playbook = `${templateRoot}/ansible/cmn/update_firedancer.yml`
+
+    const result = options.pubkey
+      ? await runAnsilbe(playbook, inventoryType, options.pubkey)
+      : await runAnsilbe(playbook, inventoryType)
+    if (result) {
+      console.log(colors.white('✅ Successfully Update Firedancer Version'))
+      return
+    }
+  })
+
 rpcCmd.command('update:version')
-  .description('⬆️ Update RPC Version')
+  .description('⬆️ Update Solana CLI Version')
   .option('-c, --config-only', 'Update only the config file', {
     default: false,
   })

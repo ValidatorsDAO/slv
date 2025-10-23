@@ -142,7 +142,7 @@ validatorCmd.command('setup:firedancer')
   })
 
 validatorCmd.command('update:firedancer')
-  .description('🔥 Update Firedancer Validator')
+  .description('🔥 Update Firedancer Version')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
   })
@@ -162,7 +162,7 @@ validatorCmd.command('update:firedancer')
       ? await runAnsilbe(playbook, inventoryType, options.pubkey)
       : await runAnsilbe(playbook, inventoryType)
     if (result) {
-      console.log(colors.white('✅ Successfully Setup Firedancer Validator'))
+      console.log(colors.white('✅ Successfully Update Firedancer Version'))
       return
     }
   })

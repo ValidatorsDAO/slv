@@ -1,0 +1,174 @@
+name: Update Agave CLI
+
+on:
+  schedule:
+    - cron: "0 * * * *" # Run every hour
+  workflow_dispatch: # Allow manual trigger
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/update-agave-cli.yml"
+
+jobs:
+  check-and-build-agave:
+    name: Check and Build Agave CLI
+    runs-on: [self-hosted]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            libclang-dev \
+            cmake \
+            protobuf-compiler \
+            git \
+            curl \
+            jq
+
+      - name: Get latest Agave release version
+        id: get_version
+        run: |
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/anza-xyz/agave/releases/latest | jq -r .tag_name)
+          echo "Latest Agave release: $LATEST_RELEASE"
+          echo "version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: Check if version exists in R2
+        id: check_r2
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+
+          # Check if the version already exists by trying to access agave-validator binary
+          response=$(curl -s -o /dev/null -w "%{http_code}" "https://storage.slv.dev/agave/${VERSION}/agave-validator")
+
+          if [ "$response" = "200" ]; then
+            echo "Version $VERSION already exists in R2"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version $VERSION not found in R2, will build"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clone Agave repository
+        if: steps.check_r2.outputs.exists == 'false'
+        run: |
+          git clone https://github.com/anza-xyz/agave.git agave-build
+          cd agave-build
+          git checkout ${{ steps.get_version.outputs.version }}
+
+      - name: Build Agave
+        if: steps.check_r2.outputs.exists == 'false'
+        run: |
+          cd agave-build
+          ./scripts/cargo-install-all.sh .
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Extract required binaries
+        if: steps.check_r2.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+
+          # Copy only the required binaries
+          cp agave-build/target/release/solana solana
+          cp agave-build/target/release/solana-keygen solana-keygen
+          cp agave-build/target/release/agave-validator agave-validator
+
+          # Make sure binaries are executable
+          chmod +x solana solana-keygen agave-validator
+
+          # Verify binaries exist
+          ls -la solana solana-keygen agave-validator
+
+      - name: Upload to R2
+        if: steps.check_r2.outputs.exists == 'false'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          BUCKET_NAME="slv"
+
+          # Upload solana binary
+          echo "Uploading solana binary..."
+          curl -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/${VERSION}/solana" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@solana"
+
+          # Upload solana-keygen binary
+          echo "Uploading solana-keygen binary..."
+          curl -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/${VERSION}/solana-keygen" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@solana-keygen"
+
+          # Upload agave-validator binary
+          echo "Uploading agave-validator binary..."
+          curl -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/${VERSION}/agave-validator" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@agave-validator"
+
+          # Update latest.txt
+          echo "$VERSION" > latest.txt
+          curl -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/latest.txt" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: text/plain" \
+            --data-binary "@latest.txt"
+
+          echo "Successfully uploaded Agave ${VERSION} binaries to R2"
+
+      - name: Send Discord notification
+        if: steps.check_r2.outputs.exists == 'false'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          ARCH=$(uname -m)
+          OS=$(uname -s)
+
+          # Send Discord notification
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🚀 New Agave CLI Build Available\",
+                \"description\": \"Successfully built and uploaded Agave CLI ${VERSION}\",
+                \"color\": 5814783,
+                \"fields\": [
+                  {
+                    \"name\": \"Version\",
+                    \"value\": \"${VERSION}\",
+                    \"inline\": true
+                  },
+                  {
+                    \"name\": \"Download URL\",
+                    \"value\": \"https://storage.slv.dev/agave/${VERSION}/agave-validator\",
+                    \"inline\": false
+                  }
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
+              }]
+            }" \
+            ${DISCORD_WEBHOOK_URL}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf agave-build solana solana-keygen agave-validator latest.txt
