@@ -65,8 +65,6 @@
         mode: "0644"
       vars:
         block_engine_url: "{{ hostvars[inventory_hostname].block_engine_url }}"
-        vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
-        commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
 
     - name: Create Firedancer systemd service file with template
       template:

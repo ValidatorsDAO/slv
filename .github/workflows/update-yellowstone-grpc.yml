@@ -1,4 +1,4 @@
-name: Update Jito CLI
+name: Update Yellowstone gRPC
 
 on:
   schedule:
@@ -7,11 +7,11 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/update-jito-cli.yml"
+      - ".github/workflows/update-yellowstone-grpc.yml"
 
 jobs:
-  check-and-build-jito:
-    name: Check and Build Jito CLI
+  check-and-build-yellowstone:
+    name: Check and Build Yellowstone gRPC
     runs-on: [self-hosted]
     steps:
       - name: Checkout code
@@ -37,26 +37,26 @@ jobs:
             curl \
             jq
 
-      - name: Get latest Jito release version
+      - name: Get latest Yellowstone gRPC release version
         id: get_version
         run: |
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/jito-foundation/jito-solana/releases/latest | jq -r .tag_name)
-          echo "Latest Jito release: $LATEST_RELEASE"
-          
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/rpcpool/yellowstone-grpc/releases/latest | jq -r .tag_name)
+          echo "Latest Yellowstone gRPC release: $LATEST_RELEASE"
+
           # Check if the release version is null or empty
           if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
             echo "Failed to fetch latest release version (got null or empty). Exiting safely."
             echo "version=none" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
 
       - name: Check if version exists in R2
         id: check_r2
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
-          
+
           # Skip if version is none (failed to fetch)
           if [ "$VERSION" = "none" ]; then
             echo "Skipping R2 check due to no valid version"
@@ -64,8 +64,8 @@ jobs:
             exit 0
           fi
 
-          # Check if the version already exists by trying to access agave-validator binary
-          response=$(curl -s -o /dev/null -w "%{http_code}" "https://storage.slv.dev/jito/${VERSION}/agave-validator")
+          # Check if the version already exists by trying to access libyellowstone_grpc_geyser.so
+          response=$(curl -s -o /dev/null -w "%{http_code}" "https://storage.slv.dev/yellowstone-grpc/${VERSION}/libyellowstone_grpc_geyser.so")
 
           if [ "$response" = "200" ]; then
             echo "Version $VERSION already exists in R2"
@@ -75,37 +75,31 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Clone Jito repository
+      - name: Clone Yellowstone gRPC repository
         if: steps.check_r2.outputs.exists == 'false'
         run: |
-          git clone --recursive https://github.com/jito-foundation/jito-solana.git jito-build
-          cd jito-build
+          git clone https://github.com/rpcpool/yellowstone-grpc.git yellowstone-build
+          cd yellowstone-build
           git checkout ${{ steps.get_version.outputs.version }}
-          git submodule update --init --recursive
 
-      - name: Build Jito
+      - name: Build Yellowstone gRPC
         if: steps.check_r2.outputs.exists == 'false'
         run: |
-          cd jito-build
-          ./scripts/cargo-install-all.sh .
+          cd yellowstone-build
+          cargo build --release
         env:
           RUST_BACKTRACE: 1
 
-      - name: Extract required binaries
+      - name: Extract required library
         if: steps.check_r2.outputs.exists == 'false'
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
 
-          # Copy only the required binaries
-          cp jito-build/target/release/solana solana
-          cp jito-build/target/release/solana-keygen solana-keygen
-          cp jito-build/target/release/agave-validator agave-validator
+          # Copy the Yellowstone gRPC shared library
+          cp yellowstone-build/target/release/libyellowstone_grpc_geyser.so libyellowstone_grpc_geyser.so
 
-          # Make sure binaries are executable
-          chmod +x solana solana-keygen agave-validator
-
-          # Verify binaries exist
-          ls -la solana solana-keygen agave-validator
+          # Verify library exists
+          ls -la libyellowstone_grpc_geyser.so
 
       - name: Upload to R2
         if: steps.check_r2.outputs.exists == 'false'
@@ -116,39 +110,23 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           BUCKET_NAME="slv"
 
-          # Upload solana binary
-          echo "Uploading solana binary..."
+          # Upload libyellowstone_grpc_geyser.so library
+          echo "Uploading libyellowstone_grpc_geyser.so library..."
           curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/${VERSION}/solana" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/yellowstone-grpc/${VERSION}/libyellowstone_grpc_geyser.so" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@solana"
-
-          # Upload solana-keygen binary
-          echo "Uploading solana-keygen binary..."
-          curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/${VERSION}/solana-keygen" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@solana-keygen"
-
-          # Upload agave-validator binary
-          echo "Uploading agave-validator binary..."
-          curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/${VERSION}/agave-validator" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@agave-validator"
+            --data-binary "@libyellowstone_grpc_geyser.so"
 
           # Update latest.txt
           echo "$VERSION" > latest.txt
           curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/latest.txt" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/yellowstone-grpc/latest.txt" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: text/plain" \
             --data-binary "@latest.txt"
 
-          echo "Successfully uploaded Jito ${VERSION} binaries to R2"
+          echo "Successfully uploaded Yellowstone gRPC ${VERSION} binary to R2"
 
       - name: Send Discord notification
         if: steps.check_r2.outputs.exists == 'false'
@@ -164,9 +142,9 @@ jobs:
             -X POST \
             -d "{
               \"embeds\": [{
-                \"title\": \"⚡ New Jito CLI Build Available\",
-                \"description\": \"Successfully built and uploaded Jito CLI ${VERSION}\",
-                \"color\": 16776960,
+                \"title\": \"🌟 New Yellowstone gRPC Build Available\",
+                \"description\": \"Successfully built and uploaded Yellowstone gRPC ${VERSION}\",
+                \"color\": 16753920,
                 \"fields\": [
                   {
                     \"name\": \"Version\",
@@ -174,13 +152,8 @@ jobs:
                     \"inline\": true
                   },
                   {
-                    \"name\": \"Download URL - agave-validator\",
-                    \"value\": \"https://storage.slv.dev/jito/${VERSION}/agave-validator\",
-                    \"inline\": false
-                  },
-                  {
-                    \"name\": \"Download URL - solana\",
-                    \"value\": \"https://storage.slv.dev/jito/${VERSION}/solana\",
+                    \"name\": \"Download URL - libyellowstone_grpc_geyser.so\",
+                    \"value\": \"https://storage.slv.dev/yellowstone-grpc/${VERSION}/libyellowstone_grpc_geyser.so\",
                     \"inline\": false
                   }
                 ],
@@ -192,4 +165,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          rm -rf jito-build solana solana-keygen agave-validator latest.txt
+          rm -rf yellowstone-build libyellowstone_grpc_geyser.so latest.txt

@@ -42,12 +42,27 @@ jobs:
         run: |
           LATEST_RELEASE=$(curl -s https://api.github.com/repos/anza-xyz/agave/releases/latest | jq -r .tag_name)
           echo "Latest Agave release: $LATEST_RELEASE"
+          
+          # Check if the release version is null or empty
+          if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
+            echo "Failed to fetch latest release version (got null or empty). Exiting safely."
+            echo "version=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
           echo "version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
 
       - name: Check if version exists in R2
         id: check_r2
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
+          
+          # Skip if version is none (failed to fetch)
+          if [ "$VERSION" = "none" ]; then
+            echo "Skipping R2 check due to no valid version"
+            echo "exists=skip" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           # Check if the version already exists by trying to access agave-validator binary
           response=$(curl -s -o /dev/null -w "%{http_code}" "https://storage.slv.dev/agave/${VERSION}/agave-validator")
