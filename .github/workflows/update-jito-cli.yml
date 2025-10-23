@@ -63,9 +63,10 @@ jobs:
       - name: Clone Jito repository
         if: steps.check_r2.outputs.exists == 'false'
         run: |
-          git clone https://github.com/jito-foundation/jito-solana.git jito-build
+          git clone --recursive https://github.com/jito-foundation/jito-solana.git jito-build
           cd jito-build
           git checkout ${{ steps.get_version.outputs.version }}
+          git submodule update --init --recursive
 
       - name: Build Jito
         if: steps.check_r2.outputs.exists == 'false'
