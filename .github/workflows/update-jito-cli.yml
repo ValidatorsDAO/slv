@@ -1,4 +1,4 @@
-name: Update Agave CLI
+name: Update Jito CLI
 
 on:
   schedule:
@@ -7,11 +7,11 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/update-agave-cli.yml"
+      - ".github/workflows/update-jito-cli.yml"
 
 jobs:
-  check-and-build-agave:
-    name: Check and Build Agave CLI
+  check-and-build-jito:
+    name: Check and Build Jito CLI
     runs-on: [self-hosted]
     steps:
       - name: Checkout code
@@ -37,11 +37,11 @@ jobs:
             curl \
             jq
 
-      - name: Get latest Agave release version
+      - name: Get latest Jito release version
         id: get_version
         run: |
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/anza-xyz/agave/releases/latest | jq -r .tag_name)
-          echo "Latest Agave release: $LATEST_RELEASE"
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/jito-foundation/jito-solana/releases/latest | jq -r .tag_name)
+          echo "Latest Jito release: $LATEST_RELEASE"
           echo "version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
 
       - name: Check if version exists in R2
@@ -50,7 +50,7 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
 
           # Check if the version already exists by trying to access agave-validator binary
-          response=$(curl -s -o /dev/null -w "%{http_code}" "https://storage.slv.dev/agave/${VERSION}/agave-validator")
+          response=$(curl -s -o /dev/null -w "%{http_code}" "https://storage.slv.dev/jito/${VERSION}/agave-validator")
 
           if [ "$response" = "200" ]; then
             echo "Version $VERSION already exists in R2"
@@ -60,17 +60,17 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Clone Agave repository
+      - name: Clone Jito repository
         if: steps.check_r2.outputs.exists == 'false'
         run: |
-          git clone https://github.com/anza-xyz/agave.git agave-build
-          cd agave-build
+          git clone https://github.com/jito-foundation/jito-solana.git jito-build
+          cd jito-build
           git checkout ${{ steps.get_version.outputs.version }}
 
-      - name: Build Agave
+      - name: Build Jito
         if: steps.check_r2.outputs.exists == 'false'
         run: |
-          cd agave-build
+          cd jito-build
           ./scripts/cargo-install-all.sh .
         env:
           RUST_BACKTRACE: 1
@@ -81,9 +81,9 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
 
           # Copy only the required binaries
-          cp agave-build/target/release/solana solana
-          cp agave-build/target/release/solana-keygen solana-keygen
-          cp agave-build/target/release/agave-validator agave-validator
+          cp jito-build/target/release/solana solana
+          cp jito-build/target/release/solana-keygen solana-keygen
+          cp jito-build/target/release/agave-validator agave-validator
 
           # Make sure binaries are executable
           chmod +x solana solana-keygen agave-validator
@@ -103,7 +103,7 @@ jobs:
           # Upload solana binary
           echo "Uploading solana binary..."
           curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/${VERSION}/solana" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/${VERSION}/solana" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@solana"
@@ -111,7 +111,7 @@ jobs:
           # Upload solana-keygen binary
           echo "Uploading solana-keygen binary..."
           curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/${VERSION}/solana-keygen" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/${VERSION}/solana-keygen" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@solana-keygen"
@@ -119,7 +119,7 @@ jobs:
           # Upload agave-validator binary
           echo "Uploading agave-validator binary..."
           curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/${VERSION}/agave-validator" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/${VERSION}/agave-validator" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@agave-validator"
@@ -127,12 +127,12 @@ jobs:
           # Update latest.txt
           echo "$VERSION" > latest.txt
           curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/agave/latest.txt" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/jito/latest.txt" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: text/plain" \
             --data-binary "@latest.txt"
 
-          echo "Successfully uploaded Agave ${VERSION} binaries to R2"
+          echo "Successfully uploaded Jito ${VERSION} binaries to R2"
 
       - name: Send Discord notification
         if: steps.check_r2.outputs.exists == 'false'
@@ -148,9 +148,9 @@ jobs:
             -X POST \
             -d "{
               \"embeds\": [{
-                \"title\": \"🚀 New Agave CLI Build Available\",
-                \"description\": \"Successfully built and uploaded Agave CLI ${VERSION}\",
-                \"color\": 5814783,
+                \"title\": \"⚡ New Jito CLI Build Available\",
+                \"description\": \"Successfully built and uploaded Jito CLI ${VERSION}\",
+                \"color\": 16776960,
                 \"fields\": [
                   {
                     \"name\": \"Version\",
@@ -159,12 +159,12 @@ jobs:
                   },
                   {
                     \"name\": \"Download URL - agave-validator\",
-                    \"value\": \"https://storage.slv.dev/agave/${VERSION}/agave-validator\",
+                    \"value\": \"https://storage.slv.dev/jito/${VERSION}/agave-validator\",
                     \"inline\": false
                   },
                   {
                     \"name\": \"Download URL - solana\",
-                    \"value\": \"https://storage.slv.dev/agave/${VERSION}/solana\",
+                    \"value\": \"https://storage.slv.dev/jito/${VERSION}/solana\",
                     \"inline\": false
                   }
                 ],
@@ -176,4 +176,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          rm -rf agave-build solana solana-keygen agave-validator latest.txt
+          rm -rf jito-build solana solana-keygen agave-validator latest.txt
