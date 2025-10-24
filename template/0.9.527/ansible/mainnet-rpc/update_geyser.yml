@@ -14,6 +14,7 @@
         dest: "{{ working_dir }}/yellowstone-grpc"
         version: "{{ geyser_version }}"
         update: yes
+        force: yes
       become_user: solv
       vars:
         geyser_version: "{{ mainnet_rpcs.geyser_version }}"
