@@ -24,6 +24,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -40,111 +41,128 @@ jobs:
       - name: Get latest Yellowstone gRPC release version
         id: get_version
         run: |
-          # Get the first (most recent) release from the releases list
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/rpcpool/yellowstone-grpc/releases | jq -r '.[0].tag_name')
-          echo "Latest Yellowstone gRPC release: $LATEST_RELEASE"
-
-          # Check if the release version is null or empty
-          if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
-            echo "Failed to fetch latest release version (got null or empty). Exiting safely."
+          set -euo pipefail
+          # Get most recent release
+          LATEST_RELEASE=$(curl -fsSL https://api.github.com/repos/rpcpool/yellowstone-grpc/releases | jq -r '.[0].tag_name' || true)
+          echo "Latest Yellowstone gRPC release: ${LATEST_RELEASE}"
+          if [ -z "${LATEST_RELEASE}" ] || [ "${LATEST_RELEASE}" = "null" ]; then
             echo "version=none" >> $GITHUB_OUTPUT
             exit 0
           fi
+          echo "version=${LATEST_RELEASE}" >> $GITHUB_OUTPUT
 
-          echo "version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
-
-      - name: Check if version exists in R2
+      - name: Check which artifact already exists in R2 (slv & slv-asia)
         id: check_r2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          set -euo pipefail
           VERSION="${{ steps.get_version.outputs.version }}"
-
-          # Skip if version is none (failed to fetch)
-          if [ "$VERSION" = "none" ]; then
-            echo "Skipping R2 check due to no valid version"
-            echo "exists=skip" >> $GITHUB_OUTPUT
+          if [ "${VERSION}" = "none" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Check if the version already exists by trying to access libyellowstone_grpc_geyser.so
-          response=$(curl -s -o /dev/null -w "%{http_code}" "https://storage.slv.dev/yellowstone-grpc/${VERSION}/libyellowstone_grpc_geyser.so")
+          BUCKETS=("slv" "slv-asia")
+          KEY_SO="yellowstone-grpc/${VERSION}/libyellowstone_grpc_geyser.so"
 
-          if [ "$response" = "200" ]; then
-            echo "Version $VERSION already exists in R2"
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version $VERSION not found in R2, will build"
+          # Use Cloudflare R2 API to check both buckets
+          check_api() {
+            local bucket="$1"; local key="$2"
+            curl -s -o /dev/null -w "%{http_code}" -X GET \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${key}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          }
+
+          need_upload=false
+          for b in "${BUCKETS[@]}"; do
+            code=$(check_api "$b" "${KEY_SO}")
+            echo "Check $b -> ${KEY_SO}: ${code}"
+            if [ "$code" != "200" ]; then
+              need_upload=true
+            fi
+          done
+
+          if [ "$need_upload" = "true" ]; then
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo "skip=false"   >> $GITHUB_OUTPUT
+          else
+            echo "exists=true"  >> $GITHUB_OUTPUT
+            echo "skip=true"    >> $GITHUB_OUTPUT
           fi
 
       - name: Clone Yellowstone gRPC repository
-        if: steps.check_r2.outputs.exists == 'false'
+        if: steps.check_r2.outputs.skip == 'false'
         run: |
+          set -euxo pipefail
           git clone https://github.com/rpcpool/yellowstone-grpc.git yellowstone-build
           cd yellowstone-build
           git checkout ${{ steps.get_version.outputs.version }}
+          git submodule update --init --recursive || true
 
       - name: Build Yellowstone gRPC
-        if: steps.check_r2.outputs.exists == 'false'
+        if: steps.check_r2.outputs.skip == 'false'
         run: |
+          set -euxo pipefail
           cd yellowstone-build
           cargo build --release
         env:
           RUST_BACKTRACE: 1
 
-      - name: Extract required library
-        if: steps.check_r2.outputs.exists == 'false'
+      - name: Collect library
+        if: steps.check_r2.outputs.skip == 'false'
         run: |
-          VERSION="${{ steps.get_version.outputs.version }}"
-
-          # Copy the Yellowstone gRPC shared library
+          set -euxo pipefail
           cp yellowstone-build/target/release/libyellowstone_grpc_geyser.so libyellowstone_grpc_geyser.so
-
-          # Verify library exists
           ls -la libyellowstone_grpc_geyser.so
 
-      - name: Upload to R2
-        if: steps.check_r2.outputs.exists == 'false'
+      - name: Upload to R2 (mirror to slv & slv-asia)
+        if: steps.check_r2.outputs.skip == 'false'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BUCKET_NAMES: "slv slv-asia"
         run: |
+          set -euo pipefail
           VERSION="${{ steps.get_version.outputs.version }}"
-          BUCKET_NAME="slv"
 
-          # Upload libyellowstone_grpc_geyser.so library
-          echo "Uploading libyellowstone_grpc_geyser.so library..."
-          curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/yellowstone-grpc/${VERSION}/libyellowstone_grpc_geyser.so" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@libyellowstone_grpc_geyser.so"
+          api_put() {
+            local bucket="$1"; local key="$2"; local file="$3"; local ctype="$4"
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${key}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: ${ctype}" \
+              --data-binary "@${file}")
+            echo "PUT s3://${bucket}/${key} -> HTTP ${code}"
+            [ "$code" = "200" ] || { echo "Upload failed: s3://${bucket}/${key}"; exit 1; }
+          }
 
-          # Update latest.txt
-          echo "$VERSION" > latest.txt
-          curl -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/yellowstone-grpc/latest.txt" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: text/plain" \
-            --data-binary "@latest.txt"
+          for BUCKET_NAME in ${BUCKET_NAMES}; do
+            echo "=== Uploading to bucket: ${BUCKET_NAME} ==="
+            api_put "${BUCKET_NAME}" "yellowstone-grpc/${VERSION}/libyellowstone_grpc_geyser.so" "libyellowstone_grpc_geyser.so" "application/octet-stream"
 
-          echo "Successfully uploaded Yellowstone gRPC ${VERSION} binary to R2"
+            # latest.txt を両バケットに更新
+            echo "${VERSION}" > latest.txt
+            api_put "${BUCKET_NAME}" "yellowstone-grpc/latest.txt" "latest.txt" "text/plain"
+          done
 
       - name: Send Discord notification
-        if: steps.check_r2.outputs.exists == 'false'
+        if: steps.check_r2.outputs.skip == 'false'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
+          set -euo pipefail
           VERSION="${{ steps.get_version.outputs.version }}"
           ARCH=$(uname -m)
           OS=$(uname -s)
 
-          # Send Discord notification
           curl -H "Content-Type: application/json" \
             -X POST \
             -d "{
               \"embeds\": [{
-                \"title\": \"🌟 New Yellowstone gRPC Build Available\",
-                \"description\": \"Successfully built and uploaded Yellowstone gRPC ${VERSION}\",
+                \"title\": \"🌟 New/Updated Yellowstone gRPC\",
+                \"description\": \"Uploaded library for ${VERSION}\",
                 \"color\": 16753920,
                 \"fields\": [
                   {
@@ -161,9 +179,9 @@ jobs:
                 \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
               }]
             }" \
-            ${DISCORD_WEBHOOK_URL}
+            "${DISCORD_WEBHOOK_URL}"
 
       - name: Cleanup
         if: always()
         run: |
-          rm -rf yellowstone-build libyellowstone_grpc_geyser.so latest.txt
+          rm -rf yellowstone-build libyellowstone_grpc_geyser.so latest.txt || true

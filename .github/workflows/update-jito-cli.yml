@@ -144,42 +144,50 @@ jobs:
           chmod +x solana solana-keygen agave-validator || true
           ls -la || true
 
-      - name: Upload to R2 (only missing ones)
+      - name: Upload to R2 (only missing ones, to slv & slv-asia)
         if: steps.check_r2.outputs.skip == 'false'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BUCKET_NAMES: "slv slv-asia"
         run: |
           set -euo pipefail
           VERSION="${{ steps.get_version.outputs.version }}"
-          BUCKET_NAME="slv"
+
           api_put() {
-            local key="$1"; local file="$2"; local ctype="$3"
+            local bucket="$1"; local key="$2"; local file="$3"; local ctype="$4"
             code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET_NAME}/objects/${key}" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${key}" \
               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
               -H "Content-Type: ${ctype}" \
               --data-binary "@${file}")
-            echo "PUT ${key} -> HTTP ${code}"
-            [ "$code" = "200" ] || { echo "Upload failed: ${key}"; exit 1; }
+            echo "PUT s3://${bucket}/${key} -> HTTP ${code}"
+            [ "$code" = "200" ] || { echo "Upload failed: s3://${bucket}/${key}"; exit 1; }
           }
 
-          if [ "${{ steps.check_r2.outputs.need_solana }}" = "true" ] && [ -f "solana" ]; then
-            api_put "jito/${VERSION}/solana" "solana" "application/octet-stream"
-          fi
-          if [ "${{ steps.check_r2.outputs.need_keygen }}" = "true" ] && [ -f "solana-keygen" ]; then
-            api_put "jito/${VERSION}/solana-keygen" "solana-keygen" "application/octet-stream"
-          fi
-          if [ "${{ steps.check_r2.outputs.need_agave }}" = "true" ] && [ -f "agave-validator" ]; then
-            api_put "jito/${VERSION}/agave-validator" "agave-validator" "application/octet-stream"
-          fi
-          if [ "${{ steps.check_r2.outputs.need_perf }}" = "true" ] && [ -f "perf-libs.tar.gz" ]; then
-            api_put "jito/${VERSION}/perf-libs.tar.gz" "perf-libs.tar.gz" "application/gzip"
-          fi
+          for BUCKET_NAME in ${BUCKET_NAMES}; do
+            echo "=== Uploading to bucket: ${BUCKET_NAME} ==="
 
-          # latest.txt は常に更新（好みで条件付け可）
-          echo "${VERSION}" > latest.txt
-          api_put "jito/latest.txt" "latest.txt" "text/plain"
+            if [ "${{ steps.check_r2.outputs.need_solana }}" = "true" ] && [ -f "solana" ]; then
+              api_put "${BUCKET_NAME}" "jito/${VERSION}/solana" "solana" "application/octet-stream"
+            fi
+
+            if [ "${{ steps.check_r2.outputs.need_keygen }}" = "true" ] && [ -f "solana-keygen" ]; then
+              api_put "${BUCKET_NAME}" "jito/${VERSION}/solana-keygen" "solana-keygen" "application/octet-stream"
+            fi
+
+            if [ "${{ steps.check_r2.outputs.need_agave }}" = "true" ] && [ -f "agave-validator" ]; then
+              api_put "${BUCKET_NAME}" "jito/${VERSION}/agave-validator" "agave-validator" "application/octet-stream"
+            fi
+
+            if [ "${{ steps.check_r2.outputs.need_perf }}" = "true" ] && [ -f "perf-libs.tar.gz" ]; then
+              api_put "${BUCKET_NAME}" "jito/${VERSION}/perf-libs.tar.gz" "perf-libs.tar.gz" "application/gzip"
+            fi
+
+            # latest.txt は両バケットに更新
+            echo "${VERSION}" > latest.txt
+            api_put "${BUCKET_NAME}" "jito/latest.txt" "latest.txt" "text/plain"
+          done
 
       - name: Send Discord notification (only if something new uploaded)
         if: steps.check_r2.outputs.skip == 'false'
