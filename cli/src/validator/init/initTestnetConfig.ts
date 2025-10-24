@@ -16,6 +16,8 @@ import { updateInventory } from '/lib/updateInventory.ts'
 import { Input, prompt, Select } from '@cliffy/prompt'
 import { testnetValidatorConfigDir } from '@cmn/constants/path.ts'
 import { SolanaNodeTypes } from '@cmn/constants/config.ts'
+import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
+import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
 
 const initTestnetConfig = async (sshConnection: SSHConnection) => {
   try {
@@ -68,6 +70,23 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
   console.log(colors.yellow(`⚠️ Please place your identity key in 
         
 ~/.slv/keys/${identityAccount}.json`))
+  const host = sshConnection.ip
+  const user = sshConnection.username
+  const keyFile = sshConnection.rsa_key_path
+  const network = 'testnet'
+  const getNearRegion = await findNearestJitoRegion(
+    host,
+    network,
+    {
+      user,
+      keyFile,
+      port: 22,
+    },
+  ) as RegionLatency | null
+  if (!getNearRegion) {
+    console.log(colors.red('❌ Failed to measure latencies. Please try again.'))
+    return
+  }
   // Generate Vote Key
   const { voteAccount, authAccount } = await genVoteKey(identityAccount)
   // Generate or Add Inventory
@@ -89,6 +108,13 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
     vote_account: voteAccount,
     authority_account: authAccount,
     validator_type: validatorType as SolanaNodeType,
+    region: getNearRegion.region,
+    commission_bps: 1000,
+    relayer_url: getNearRegion.info.relayerUrl,
+    block_engine_url: getNearRegion.info.blockEngineUrl,
+    shred_receiver_address: String(getNearRegion.info.shredReceiver),
+    port_rpc: 8899,
+    dynamic_port_range: '8900-8925',
   }
   await updateInventory(name, configTestnet)
   // Create solv User on Ubuntu Server

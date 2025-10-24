@@ -119,6 +119,7 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     vote_account: voteAccount,
     authority_account: authAccount,
     validator_type: validatorType as SolanaNodeType,
+    region: getNearRegion.region,
     commission_bps: Number(commissionBps),
     relayer_url,
     block_engine_url: blockEngineRegion,

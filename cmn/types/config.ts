@@ -22,6 +22,13 @@ export interface ValidatorTestnetConfig {
   vote_account: string
   authority_account: string
   validator_type: SolanaNodeType
+  commission_bps: number
+  relayer_url: string
+  block_engine_url: string
+  region: string
+  shred_receiver_address: string
+  port_rpc: number
+  dynamic_port_range: string
 }
 
 export type InventoryTestnetValidatorType = {
@@ -106,6 +113,7 @@ export interface ValidatorMainnetConfig {
   commission_bps: number
   relayer_url: string
   block_engine_url: string
+  region: string
   shred_receiver_address: string
   port_rpc: number
   dynamic_port_range: string

@@ -13,7 +13,6 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 [rpc]
     port = {{ rpc_port | default(8899) }}
     {% if rpc_type == 'Geyser gRPC' %}
-    # Geyser gRPC configuration
     full_api = true
     private = false
     transaction_history = {{ transaction_history | default(true) | to_json }}
@@ -23,7 +22,6 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
     {% elif rpc_type == 'SendTx RPC' %}
-    # SendTx RPC configuration (minimal for transaction sending)
     full_api = true
     private = false
     transaction_history = {{ transaction_history | default(false) | to_json }}
@@ -33,7 +31,6 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
     {% elif rpc_type == 'Index RPC' %}
-    # Full indexing for Index RPC
     full_api = true
     private = false
     transaction_history = {{ transaction_history | default(true) | to_json }}
@@ -43,7 +40,6 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
     {% elif rpc_type == 'Index RPC + gRPC' %}
-    # Index RPC + gRPC configuration (full features)
     full_api = true
     private = false
     transaction_history = {{ transaction_history | default(true) | to_json }}
@@ -53,7 +49,6 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
     {% else %}
-    # Default configuration
     full_api = {{ full_api | default(false) | to_json }}
     private = false
     transaction_history = {{ transaction_history | default(false) | to_json }}
@@ -70,27 +65,22 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     path = "/mnt/ledger"
     accounts_path = "/mnt/accounts"
     {% if rpc_type == 'Geyser gRPC' %}
-    # Minimal ledger for Geyser gRPC
     limit_size = {{ limit_ledger_size | default(50_000_000) }}
     account_indexes = []
     account_index_exclude_keys = []
     {% elif rpc_type == 'SendTx RPC' %}
-    # Minimal ledger for SendTx RPC
     limit_size = {{ limit_ledger_size | default(30_000_000) }}
     account_indexes = []
     account_index_exclude_keys = []
     {% elif rpc_type == 'Index RPC' %}
-    # Full indexing for Index RPC
     limit_size = {{ limit_ledger_size | default(200_000_000) }}
     account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
     account_index_exclude_keys = {{ account_index_exclude_keys | default('[]') }}
     {% elif rpc_type == 'Index RPC + gRPC' %}
-    # Full indexing for Index RPC + gRPC
     limit_size = {{ limit_ledger_size | default(200_000_000) }}
     account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
     account_index_exclude_keys = {{ account_index_exclude_keys | default('[]') }}
     {% else %}
-    # Default configuration
     limit_size = {{ limit_ledger_size | default(100_000_000) }}
     account_indexes = {{ account_indexes | default('[]') }}
     account_index_exclude_keys = {{ account_index_exclude_keys | default('[]') }}
@@ -140,5 +130,4 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     prometheus_listen_port = 7999
 
 {% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %}
-# Geyser gRPC Plugin Configuration
 {% endif %}

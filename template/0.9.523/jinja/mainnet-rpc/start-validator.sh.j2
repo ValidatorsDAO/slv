@@ -25,7 +25,7 @@ exec agave-validator \
 # Geyser gRPC specific configuration
 --limit-ledger-size 50000000 \
 --no-snapshot-fetch \
---geyser-plugin-config /home/solv/geyser-plugin-config.json \
+--geyser-plugin-config /home/solv/geyser.json \
 {% elif rpc_type == 'SendTx RPC' -%}
 # SendTx RPC minimal configuration
 --limit-ledger-size 30000000 \
@@ -44,7 +44,7 @@ exec agave-validator \
 --enable-rpc-transaction-history \
 --enable-extended-tx-metadata-storage \
 --account-index program-id spl-token-mint spl-token-owner \
---geyser-plugin-config /home/solv/geyser-plugin-config.json \
+--geyser-plugin-config /home/solv/geyser.json \
 {% else -%}
 # Default configuration
 --limit-ledger-size {{ limit_ledger_size | default(100000000) }} \

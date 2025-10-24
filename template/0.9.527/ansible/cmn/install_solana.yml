@@ -3,16 +3,12 @@
   hosts: all
   become: true
   vars:
-    # ==== Args: -e "solana_cli_type=agave version=v3.0.7" ====
-    solana_cli_type: "agave"   # agave or jito
+    # ==== Args: -e "solana_cli_type=agave version=v3.0.7 region=tokyo" ====
+    validator_type: "agave"   # agave, jito, firedancer-agave, or firedancer-jito
     version: "v3.0.7"
+    region: "frankfurt"        # default region. use "tokyo" or "singapore" to switch to storage-asia
 
-    # ==== URLs ====
-    # e.g.:
-    #  agave -> https://storage.slv.dev/agave/v3.0.7/...
-    #  jito  -> https://storage.slv.dev/jito/v3.0.7-jito/...
-    download_base: "https://storage.slv.dev/{{ solana_cli_type }}/{{ version }}"
-
+    # These are computed later via set_fact (don't change here)
     install_root: "/opt/{{ solana_cli_type }}"
     release_dir: "{{ install_root }}/releases/{{ version }}"
     bin_release_dir: "{{ release_dir }}/bin"
@@ -29,9 +25,18 @@
     perf_libs_archive: "perf-libs.tar.gz"
     perf_libs_dir: "{{ release_dir }}/perf-libs"
 
+    # If true, missing binaries won't fail the run (allows agave-only or jito-only artifacts to pass)
     ignore_missing_binaries: true
 
   tasks:
+    - name: Determine solana_cli_type based on validator_type
+      set_fact:
+        solana_cli_type: "{{ 'jito' if 'jito' in validator_type else 'agave' }}"
+
+    - name: Show determined CLI type
+      debug:
+        msg: "validator_type={{ validator_type }} -> solana_cli_type={{ solana_cli_type }}"
+
     - name: Validate solana_cli_type
       assert:
         that:
@@ -41,6 +46,15 @@
     - name: Validate version looks like vX.Y.Z (warning only)
       debug:
         msg: "Using version={{ version }} (make sure it matches your storage layout, e.g. v3.0.7)"
+
+    - name: Compute download host and base per region
+      set_fact:
+        download_host: "{{ 'storage-asia.slv.dev' if (region | lower) in ['tokyo','singapore'] else 'storage.slv.dev' }}"
+        download_base: "https://{{ download_host }}/{{ solana_cli_type }}/{{ version }}"
+
+    - name: Show resolved download source
+      debug:
+        msg: "Region={{ region | lower }}, using host={{ download_host }}, base={{ download_base }}"
 
     - name: Ensure directories exist
       file:
@@ -79,13 +93,16 @@
         dest: "{{ bin_release_dir }}/{{ item }}"
         mode: "0755"
         force: yes
-        # checksum: "sha256:{{ lookup('url', download_base ~ '/' ~ item ~ '.sha256') | default('') }}"  # 配布あれば活用
+        # checksum: "sha256:{{ lookup('url', download_base ~ '/' ~ item ~ '.sha256', split_lines=False) | default('') }}"
+        timeout: 60
       loop: "{{ binaries }}"
       register: dl_results
       failed_when: >
         (not ignore_missing_binaries) and
         (dl_results is failed)
       ignore_errors: "{{ ignore_missing_binaries }}"
+      retries: 3
+      delay: 2
 
     - name: Build list of successfully downloaded binaries
       set_fact:
@@ -110,9 +127,12 @@
         dest: "/tmp/{{ perf_libs_archive }}"
         mode: "0644"
         force: yes
+        timeout: 120
       when: solana_cli_type == "jito"
       register: perf_libs_download
       failed_when: false
+      retries: 3
+      delay: 2
 
     - name: Extract perf-libs archive (Jito only)
       unarchive:
@@ -121,7 +141,7 @@
         remote_src: yes
         owner: solv
         group: solv
-      when: 
+      when:
         - solana_cli_type == "jito"
         - perf_libs_download is succeeded
 
@@ -133,7 +153,7 @@
         group: solv
         mode: "0755"
         recurse: yes
-      when: 
+      when:
         - solana_cli_type == "jito"
         - perf_libs_download is succeeded
 
@@ -143,7 +163,7 @@
         dest: "{{ bin_release_dir }}/perf-libs"
         state: link
         force: yes
-      when: 
+      when:
         - solana_cli_type == "jito"
         - perf_libs_download is succeeded
 

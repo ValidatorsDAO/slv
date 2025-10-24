@@ -10,6 +10,7 @@ import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import { runAnsilbe } from '/lib/runAnsible.ts'
 import { deployRPCTestnet } from '/src/rpc/deploy/deployRPCTestnet.ts'
 import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
+import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 
 // rpc Command
 export const rpcCmd = new Command()
@@ -91,7 +92,7 @@ rpcCmd.command('setup:firedancer')
   })
 
 rpcCmd.command('update:firedancer')
-  .description('🔥 Update Firedancer Version')
+  .description('♻️ Update Firedancer Version')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
   })
@@ -110,8 +111,8 @@ rpcCmd.command('update:firedancer')
     }
   })
 
-rpcCmd.command('update:version')
-  .description('⬆️ Update Solana CLI Version')
+rpcCmd.command('build:solana-cli')
+  .description('⬆️ Build Solana CLI from Source')
   .option('-c, --config-only', 'Update only the config file', {
     default: false,
   })
@@ -129,6 +130,40 @@ rpcCmd.command('update:version')
 
     const playbook =
       `${templateRoot}/ansible/${options.network}-rpc/install_solana.yml`
+    if (options.pubkey) {
+      await runAnsilbe(playbook, inventoryType, options.pubkey)
+      return
+    }
+    await runAnsilbe(playbook, inventoryType)
+    return
+  })
+
+rpcCmd.command('install:solana')
+  .description('➡️ Install Solana CLI Binary')
+  .option('-v, --version <version>', 'Solana CLI version to install')
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
+  .option('-n, --network <network>', 'Network to deploy validators', {
+    default: 'mainnet',
+  })
+  .action(async (options) => {
+    const inventoryType = options.network + '_rpcs' as InventoryType
+    const templateRoot = getTemplatePath()
+    const playbook = `${templateRoot}/ansible/cmn/install_solana.yml`
+    if (options.version) {
+      const extraVars = { version: options.version }
+      if (options.pubkey) {
+        await runAnsilbe(
+          playbook,
+          inventoryType,
+          options.pubkey,
+          extraVars,
+        )
+        return
+      }
+      await runAnsilbe(playbook, inventoryType, undefined, extraVars)
+      return
+    }
+
     if (options.pubkey) {
       await runAnsilbe(playbook, inventoryType, options.pubkey)
       return
