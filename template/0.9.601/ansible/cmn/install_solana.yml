@@ -3,10 +3,12 @@
   hosts: all
   become: true
   vars:
-    # ==== Args: -e "solana_cli_type=agave version=v3.0.7 region=tokyo" ====
-    validator_type: "agave"   # agave, jito, firedancer-agave, or firedancer-jito
-    version: "v3.0.7"
-    region: "frankfurt"        # default region. use "tokyo" or "singapore" to switch to storage-asia
+    # ==== Args: -e "validator_type=jito version=v3.0.7 region=tokyo" ====
+    # validator_type can be: agave, jito, firedancer-agave, or firedancer-jito
+    # If not provided, defaults to "agave"
+    # Default values if not provided via inventory or -e
+    default_version: "v3.0.7"
+    default_region: "frankfurt"        # default region. use "tokyo" or "singapore" to switch to storage-asia
 
     # These are computed later via set_fact (don't change here)
     install_root: "/opt/{{ solana_cli_type }}"
@@ -29,13 +31,50 @@
     ignore_missing_binaries: true
 
   tasks:
+    - name: Load versions.yml
+      include_vars:
+        file: ~/.slv/versions.yml
+        name: slv_versions
+
+    - name: Get group names for current host
+      set_fact:
+        host_groups: "{{ group_names }}"
+
+    - name: Find the matching group from versions.yml
+      set_fact:
+        matched_group: "{{ item }}"
+      when: item in slv_versions
+      loop: "{{ host_groups }}"
+
+    - name: Debug - Show matched group and available versions
+      debug:
+        msg: "Matched group: {{ matched_group | default('none') }}, Available versions: {{ slv_versions[matched_group] | default({}) }}"
+      when: matched_group is defined
+
     - name: Determine solana_cli_type based on validator_type
       set_fact:
-        solana_cli_type: "{{ 'jito' if 'jito' in validator_type else 'agave' }}"
+        solana_cli_type: "{{ 'jito' if 'jito' in (validator_type | default('agave')) else 'agave' }}"
+
+    - name: Set version from versions.yml based on validator_type
+      set_fact:
+        version: >-
+          {%- if matched_group is defined -%}
+            {%- if 'jito' in (validator_type | default('')) -%}
+              v{{ slv_versions[matched_group]['version_jito'] }}
+            {%- else -%}
+              v{{ slv_versions[matched_group]['version_agave'] }}
+            {%- endif -%}
+          {%- else -%}
+            {{ version | default(default_version) }}
+          {%- endif -%}
+
+    - name: Set region with default
+      set_fact:
+        region: "{{ region | default(default_region) }}"
 
     - name: Show determined CLI type
       debug:
-        msg: "validator_type={{ validator_type }} -> solana_cli_type={{ solana_cli_type }}"
+        msg: "validator_type={{ validator_type | default('agave') }} -> solana_cli_type={{ solana_cli_type }}"
 
     - name: Validate solana_cli_type
       assert:
@@ -133,7 +172,7 @@
         timeout: 120
       when: solana_cli_type == "jito"
       register: perf_libs_download
-      failed_when: false
+      ignore_errors: yes
       retries: 3
       delay: 2
 
@@ -146,7 +185,8 @@
         group: solv
       when:
         - solana_cli_type == "jito"
-        - perf_libs_download is succeeded
+        - perf_libs_download is defined
+        - perf_libs_download is not failed
 
     - name: Ensure perf-libs has proper permissions (Jito only)
       file:
@@ -158,7 +198,8 @@
         recurse: yes
       when:
         - solana_cli_type == "jito"
-        - perf_libs_download is succeeded
+        - perf_libs_download is defined
+        - perf_libs_download is not failed
 
     - name: Create symlink for perf-libs in bin directory (Jito only)
       file:
@@ -168,7 +209,8 @@
         force: yes
       when:
         - solana_cli_type == "jito"
-        - perf_libs_download is succeeded
+        - perf_libs_download is defined
+        - perf_libs_download is not failed
 
     - name: Clean up perf-libs archive
       file:
