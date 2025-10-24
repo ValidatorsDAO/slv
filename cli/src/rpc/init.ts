@@ -10,7 +10,7 @@ import { devnetInitRpc } from '/src/rpc/init/devnetInitRpc.ts'
 import { testnetInitRpc } from '/src/rpc/init/testnetInitRpc.ts'
 import { checkSSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 
-async function copyTemplateDirs() {
+export async function copyTemplateDirs() {
   const templateBase = join(configRoot, 'template', denoJson.version, 'jinja')
   const pairs = [
     ['testnet-rpc', 'testnet-rpc'],

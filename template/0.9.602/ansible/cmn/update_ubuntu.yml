@@ -1,54 +1,95 @@
-- name: Setup Firedancer
+- name: Update Ubuntu apt sources and upgrade packages
   hosts: all
   become: yes
+  vars:
+    ubuntu_suites: ["noble", "noble-updates", "noble-backports"]
+
+    mirrors:
+      default:
+        archive: "http://nl.archive.ubuntu.com/ubuntu/"
+        security: "http://security.ubuntu.com/ubuntu/"
+      tokyo:
+        archive: "http://ftp.jaist.ac.jp/pub/Linux/ubuntu/"
+        security: "http://ftp.jaist.ac.jp/pub/Linux/ubuntu/"
+      singapore:
+        archive: "http://sg.archive.ubuntu.com/ubuntu/"
+        security: "http://sg.archive.ubuntu.com/ubuntu/"
+
   tasks:
     - name: Check Ubuntu version
       debug:
-        msg: 'Ubuntu version: {{ ansible_distribution_version }}'
+        msg: "Ubuntu version: {{ ansible_distribution_version }}"
 
-    - name: Create ubuntu.sources file if Ubuntu version is 24.0 or later and less than 25.0
+    - name: Read region from inventory (raw)
+      set_fact:
+        region_effective_raw: "{{ hostvars[inventory_hostname].region | default('default') | string }}"
+
+    - name: Normalize region
+      set_fact:
+        region_key: "{{ (region_effective_raw | string | trim | lower) }}"
+
+    - name: Resolve region aliases (no whitespace)
+      set_fact:
+        region_effective: >-
+          {%- if region_key in ['sgp','singapore'] -%}singapore
+          {%- elif region_key in ['tokyo','tyo'] -%}tokyo
+          {%- else -%}default
+          {%- endif -%}
+
+    - name: Show region debug
+      debug:
+        msg:
+          - "region (raw): {{ region_effective_raw }}"
+          - "region (effective): {{ region_effective }}"
+
+    - name: Pick mirror for region
+      set_fact:
+        chosen_mirror: "{{ mirrors[region_effective] if region_effective in mirrors else mirrors['default'] }}"
+
+    - name: Show chosen mirror
+      debug:
+        msg: "Using archive={{ chosen_mirror.archive }} security={{ chosen_mirror.security }}"
+
+    - name: Create ubuntu.sources for Ubuntu 24.x (deb822)
       copy:
         content: |
           Types: deb
-          URIs: http://nl.archive.ubuntu.com/ubuntu/
-          Suites: noble noble-updates noble-backports
+          URIs: {{ chosen_mirror.archive }}
+          Suites: {{ ubuntu_suites | join(' ') }}
           Components: main restricted universe multiverse
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
           Types: deb
-          URIs: http://security.ubuntu.com/ubuntu/
+          URIs: {{ chosen_mirror.security }}
           Suites: noble-security
           Components: main restricted universe multiverse
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
         dest: /etc/apt/sources.list.d/ubuntu.sources
         owner: root
         group: root
-        mode: '0644'
-      when: >
+        mode: "0644"
+      when: ansible_distribution == "Ubuntu" and
         (ansible_distribution_version is version('24.0', '>=')) and
         (ansible_distribution_version is version('25.0', '<'))
-      ignore_errors: true
 
-    - name: Remove /etc/apt/sources.list
+    - name: Remove /etc/apt/sources.list for Ubuntu 24.x
       file:
         path: /etc/apt/sources.list
         state: absent
-      when: >
+      when: ansible_distribution == "Ubuntu" and
         (ansible_distribution_version is version('24.0', '>=')) and
         (ansible_distribution_version is version('25.0', '<'))
-      ignore_errors: true
 
-    - name: Add explanation to /etc/apt/sources.list
+    - name: Add note to /etc/apt/sources.list for Ubuntu 24.x
       copy:
         content: "# Ubuntu sources have moved to /etc/apt/sources.list.d/ubuntu.sources\n"
         dest: /etc/apt/sources.list
         owner: root
         group: root
-        mode: '0644'
-      when: >
+        mode: "0644"
+      when: ansible_distribution == "Ubuntu" and
         (ansible_distribution_version is version('24.0', '>=')) and
         (ansible_distribution_version is version('25.0', '<'))
-      ignore_errors: true
 
     - name: Update package lists
       apt:

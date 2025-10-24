@@ -16,6 +16,7 @@ import { exec } from '@elsoul/child-process'
 import { configRoot } from '@cmn/constants/path.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
+import { copyTemplateDirs } from '/src/rpc/init.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -90,7 +91,7 @@ validatorCmd.command('set:identity')
 
 validatorCmd.command('set:unstaked')
   .description(
-    '🔄 Set Validator Identity to Unstaked Key',
+    '📴 Set Validator Identity to Unstaked Key',
   )
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
@@ -142,7 +143,7 @@ validatorCmd.command('setup:firedancer')
   })
 
 validatorCmd.command('update:firedancer')
-  .description('🔥 Update Firedancer Version')
+  .description('🔄 Update Firedancer Version')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
   })
@@ -167,19 +168,13 @@ validatorCmd.command('update:firedancer')
     }
   })
 
-validatorCmd.command('update:version')
-  .description('⬆️  Update Validator Version')
-  .option('-c, --config-only', 'Update Config Only', { default: false })
+validatorCmd.command('build:solana-cli')
+  .description('🛠️ Build Solana CLI from Source')
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
   })
   .action(async (options) => {
-    if (options.configOnly) {
-      await transformValidatorTypeFile()
-      await updateDefaultVersion()
-      return
-    }
     const inventoryType: InventoryType = options.network === 'mainnet'
       ? 'mainnet_validators'
       : 'testnet_validators'
@@ -389,7 +384,7 @@ validatorCmd.command('cleanup')
   })
 
 validatorCmd.command('get:snapshot')
-  .description('⚡️ Download Snapshot with aria2c ⚡️')
+  .description('💾 Download Snapshot with aria2c')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
   })

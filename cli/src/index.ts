@@ -15,11 +15,9 @@ import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
 import { serverCmd } from '/src/server/index.ts'
 import { getCmd } from '/src/get/index.ts'
-import {
-  findNearestJitoRegion,
-  displayLatencyResults,
-  measureRegionLatencies,
-} from '/lib/jito/findNearestRegion.ts'
+import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
+import { copyTemplateDirs } from '/src/rpc/init.ts'
+import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 
 const program = new Command()
   .name('slv')
@@ -37,39 +35,13 @@ program
     await upgrade()
   })
 
-// Test Command
 program
-  .command('test')
-  .description('Test command for development')
+  .command('upgrade:settings')
+  .description('Upgrade Default Settings Files')
   .action(async () => {
-    console.log('Test command executed')
-
-    // Configuration for SSH connection
-    const serverIp = '82.27.98.6' // Example server IP
-    const sshOptions = {
-      user: 'solv',
-      keyFile: '~/.ssh/id_rsa',
-      port: 22,
-    }
-
-    console.log('\n=== Finding Nearest Jito Region ===')
-    console.log(`Server IP: ${serverIp}`)
-    
-    // Test with only mainnet and limited regions for faster testing
-    console.log('\n🌐 Testing Mainnet Regions (limited for demo):')
-    
-    // Just find the nearest region without duplicate measurement
-    const nearestMainnet = await findNearestJitoRegion(
-      serverIp,
-      'mainnet',
-      sshOptions
-    )
-    
-    if (nearestMainnet) {
-      console.log(`\n✨ Best Mainnet Region Found!`)
-    } else {
-      console.log(`\n❌ Could not find reachable mainnet region`)
-    }
+    await transformValidatorTypeFile()
+    await copyTemplateDirs()
+    await updateDefaultVersion()
   })
 
 // Subcommands

@@ -1,10 +1,10 @@
 ---
-- name: Install Rust 1.84.1 and Cargo
+- name: Install Rust 1.90.0 and Cargo
   hosts: all
   become: true
   vars:
     rust_url: "https://sh.rustup.rs"
-    rust_version: "1.84.1"
+    rust_version: "1.90.0"
   tasks:
     - name: Ensure Rust installer is downloaded
       get_url:
@@ -19,13 +19,13 @@
         chdir: /home/solv/
       register: install_output
 
-    - name: Ensure Rust 1.84.1 is installed
+    - name: Ensure Rust 1.90.0 is installed
       shell: |
         sudo -i -u solv bash -c "rustup install {{ rust_version }}"
       args:
         executable: /bin/bash
 
-    - name: Set Rust 1.84.1 as default
+    - name: Set Rust 1.90.0 as default
       shell: |
         sudo -i -u solv bash -c "rustup default {{ rust_version }}"
       args:

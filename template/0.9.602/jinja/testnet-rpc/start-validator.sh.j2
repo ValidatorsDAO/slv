@@ -47,6 +47,6 @@ exec agave-validator \
 --no-port-check{% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %} \
 --rpc-pubsub-enable-block-subscription \
 --rpc-pubsub-enable-vote-subscription \
-{% endif %}{% if validator_type == 'jito' %} \
+{% endif %}{% if validator_type == 'jito' %}
 --shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }}
 {% endif %}

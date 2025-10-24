@@ -92,7 +92,7 @@ rpcCmd.command('setup:firedancer')
   })
 
 rpcCmd.command('update:firedancer')
-  .description('♻️ Update Firedancer Version')
+  .description('🔄 Update Firedancer Version')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
   })
@@ -112,19 +112,12 @@ rpcCmd.command('update:firedancer')
   })
 
 rpcCmd.command('build:solana-cli')
-  .description('⬆️ Build Solana CLI from Source')
-  .option('-c, --config-only', 'Update only the config file', {
-    default: false,
-  })
+  .description('🛠️ Build Solana CLI from Source')
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .option('-n, --network <network>', 'Network to deploy validators', {
     default: 'mainnet',
   })
   .action(async (options) => {
-    if (options.configOnly) {
-      await updateDefaultVersion()
-      return
-    }
     const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
 
@@ -290,7 +283,7 @@ rpcCmd.command('cleanup')
   })
 
 rpcCmd.command('get:snapshot')
-  .description('🔥 Download Snapshot with aria2c')
+  .description('💾 Download Snapshot with aria2c')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'mainnet',
   })

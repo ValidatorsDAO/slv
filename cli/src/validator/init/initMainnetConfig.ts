@@ -121,6 +121,8 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     validator_type: validatorType as SolanaNodeType,
     region: getNearRegion.region,
     commission_bps: Number(commissionBps),
+    port_rpc: 7211,
+    dynamic_port_range: '8900-8925',
     relayer_url,
     block_engine_url: blockEngineRegion,
     shred_receiver_address: String(shredstream_address),

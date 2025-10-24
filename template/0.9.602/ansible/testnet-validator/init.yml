@@ -27,12 +27,7 @@
 - import_playbook: ../cmn/optimize_system.yml
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
-
-- import_playbook: install_agave.yml
-  when: validator_type in ['agave', 'firedancer-agave']
-
-- import_playbook: install_jito.yml
-  when: validator_type in ['jito', 'firedancer-jito']
+- import_playbook: ../cmn/install_solana.yml
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 
