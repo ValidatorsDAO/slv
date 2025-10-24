@@ -47,9 +47,12 @@
       debug:
         msg: "Using version={{ version }} (make sure it matches your storage layout, e.g. v3.0.7)"
 
-    - name: Compute download host and base per region
+    - name: Compute download host per region
       set_fact:
         download_host: "{{ 'storage-asia.slv.dev' if (region | lower) in ['tokyo','singapore'] else 'storage.slv.dev' }}"
+
+    - name: Compute download base URL
+      set_fact:
         download_base: "https://{{ download_host }}/{{ solana_cli_type }}/{{ version }}"
 
     - name: Show resolved download source

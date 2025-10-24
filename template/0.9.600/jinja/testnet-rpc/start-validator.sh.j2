@@ -25,12 +25,11 @@ exec agave-validator \
 {% if rpc_type == 'Geyser gRPC' -%}
 --limit-ledger-size 50000000 \
 --no-snapshot-fetch \
+--enable-rpc-transaction-history \
 --geyser-plugin-config /home/solv/geyser.json \
 {% elif rpc_type == 'SendTx RPC' -%}
 --limit-ledger-size 30000000 \
 --no-snapshot-fetch \
---enable-rpc-transaction-history false \
---enable-extended-tx-metadata-storage false \
 {% elif rpc_type == 'Index RPC' -%}
 --limit-ledger-size 200000000 \
 --enable-rpc-transaction-history \
