@@ -1,0 +1,213 @@
+---
+- name: Install/Update Solana CLI (agave or jito) from hosted binaries
+  hosts: all
+  become: true
+  vars:
+    # ==== Args: -e "solana_cli_type=agave version=v3.0.7 region=tokyo" ====
+    validator_type: "agave"   # agave, jito, firedancer-agave, or firedancer-jito
+    version: "v3.0.7"
+    region: "frankfurt"        # default region. use "tokyo" or "singapore" to switch to storage-asia
+
+    # These are computed later via set_fact (don't change here)
+    install_root: "/opt/{{ solana_cli_type }}"
+    release_dir: "{{ install_root }}/releases/{{ version }}"
+    bin_release_dir: "{{ release_dir }}/bin"
+    current_link: "{{ install_root }}/current"
+    solana_release_dir: "/home/solv/.local/share/solana/install/active_release"
+    solana_bin_dir: "{{ solana_release_dir }}/bin"
+
+    binaries:
+      - agave-validator
+      - solana
+      - solana-keygen
+
+    # Jito specific: perf-libs archive
+    perf_libs_archive: "perf-libs.tar.gz"
+    perf_libs_dir: "{{ release_dir }}/perf-libs"
+
+    # If true, missing binaries won't fail the run (allows agave-only or jito-only artifacts to pass)
+    ignore_missing_binaries: true
+
+  tasks:
+    - name: Determine solana_cli_type based on validator_type
+      set_fact:
+        solana_cli_type: "{{ 'jito' if 'jito' in validator_type else 'agave' }}"
+
+    - name: Show determined CLI type
+      debug:
+        msg: "validator_type={{ validator_type }} -> solana_cli_type={{ solana_cli_type }}"
+
+    - name: Validate solana_cli_type
+      assert:
+        that:
+          - solana_cli_type in ['agave', 'jito']
+        fail_msg: "solana_cli_type must be 'agave' or 'jito'. Got: {{ solana_cli_type }}"
+
+    - name: Validate version looks like vX.Y.Z (warning only)
+      debug:
+        msg: "Using version={{ version }} (make sure it matches your storage layout, e.g. v3.0.7)"
+
+    - name: Compute download host and base per region
+      set_fact:
+        download_host: "{{ 'storage-asia.slv.dev' if (region | lower) in ['tokyo','singapore'] else 'storage.slv.dev' }}"
+        download_base: "https://{{ download_host }}/{{ solana_cli_type }}/{{ version }}"
+
+    - name: Show resolved download source
+      debug:
+        msg: "Region={{ region | lower }}, using host={{ download_host }}, base={{ download_base }}"
+
+    - name: Ensure directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      loop:
+        - "{{ install_root }}"
+        - "{{ install_root }}/releases"
+        - "{{ release_dir }}"
+        - "{{ bin_release_dir }}"
+        - "{{ solana_bin_dir }}"
+
+    - name: Detect current linked release (if any)
+      stat:
+        path: "{{ current_link }}"
+        follow: false
+      register: current_link_stat
+
+    - name: Read link target of current
+      command: readlink -f "{{ current_link }}"
+      register: current_target
+      changed_when: false
+      failed_when: false
+      when: current_link_stat.stat.islnk is defined and current_link_stat.stat.islnk
+
+    - name: Decide if update is required
+      set_fact:
+        update_required: "{{ (current_target.stdout | default('')) != release_dir }}"
+
+    - name: Download binaries into versioned bin dir
+      get_url:
+        url: "{{ download_base }}/{{ item }}"
+        dest: "{{ bin_release_dir }}/{{ item }}"
+        mode: "0755"
+        force: yes
+        # checksum: "sha256:{{ lookup('url', download_base ~ '/' ~ item ~ '.sha256', split_lines=False) | default('') }}"
+        timeout: 60
+      loop: "{{ binaries }}"
+      register: dl_results
+      failed_when: >
+        (not ignore_missing_binaries) and
+        (dl_results is failed)
+      ignore_errors: "{{ ignore_missing_binaries }}"
+      retries: 3
+      delay: 2
+
+    - name: Build list of successfully downloaded binaries
+      set_fact:
+        downloaded_bins: >-
+          {{
+            (dl_results.results | default([]))
+            | selectattr('failed','!=',True)
+            | map(attribute='item')
+            | list
+          }}
+
+    - name: Ensure we have at least one binary
+      assert:
+        that:
+          - downloaded_bins | length > 0
+        fail_msg: "No binaries were downloaded. Check URLs, version, or binary names."
+
+    # ==== Jito-specific: Download and extract perf-libs ====
+    - name: Download perf-libs archive (Jito only)
+      get_url:
+        url: "{{ download_base }}/{{ perf_libs_archive }}"
+        dest: "/tmp/{{ perf_libs_archive }}"
+        mode: "0644"
+        force: yes
+        timeout: 120
+      when: solana_cli_type == "jito"
+      register: perf_libs_download
+      failed_when: false
+      retries: 3
+      delay: 2
+
+    - name: Extract perf-libs archive (Jito only)
+      unarchive:
+        src: "/tmp/{{ perf_libs_archive }}"
+        dest: "{{ release_dir }}/"
+        remote_src: yes
+        owner: solv
+        group: solv
+      when:
+        - solana_cli_type == "jito"
+        - perf_libs_download is succeeded
+
+    - name: Ensure perf-libs has proper permissions (Jito only)
+      file:
+        path: "{{ perf_libs_dir }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+        recurse: yes
+      when:
+        - solana_cli_type == "jito"
+        - perf_libs_download is succeeded
+
+    - name: Create symlink for perf-libs in bin directory (Jito only)
+      file:
+        src: "{{ perf_libs_dir }}"
+        dest: "{{ bin_release_dir }}/perf-libs"
+        state: link
+        force: yes
+      when:
+        - solana_cli_type == "jito"
+        - perf_libs_download is succeeded
+
+    - name: Clean up perf-libs archive
+      file:
+        path: "/tmp/{{ perf_libs_archive }}"
+        state: absent
+      when: solana_cli_type == "jito"
+
+    - name: Point 'current' symlink to this release (atomic flip)
+      file:
+        src: "{{ release_dir }}"
+        dest: "{{ current_link }}"
+        state: link
+        force: yes
+
+    - name: Link binaries into active_release/bin
+      file:
+        src: "{{ bin_release_dir }}/{{ item }}"
+        dest: "{{ solana_bin_dir }}/{{ item }}"
+        state: link
+        force: yes
+      loop: "{{ downloaded_bins }}"
+
+    - name: Ensure PATH line exists in /home/solv/.profile
+      become: no
+      lineinfile:
+        path: "/home/solv/.profile"
+        line: "export PATH={{ solana_bin_dir }}:$PATH"
+        state: present
+        create: yes
+
+    - name: Verify versions
+      become: no
+      shell: |
+        set -e
+        if [ -x "{{ solana_bin_dir }}/solana" ]; then "{{ solana_bin_dir }}/solana" --version || true; fi
+        if [ -x "{{ solana_bin_dir }}/agave-validator" ]; then "{{ solana_bin_dir }}/agave-validator" --version || true; fi
+      args:
+        executable: /bin/bash
+      register: version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Show version outputs
+      debug:
+        var: version_check.stdout
