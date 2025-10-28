@@ -39,7 +39,6 @@ program
   .command('upgrade:settings')
   .description('Upgrade Default Settings Files')
   .action(async () => {
-    await transformValidatorTypeFile()
     await copyTemplateDirs()
     await updateDefaultVersion()
   })

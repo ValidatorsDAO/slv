@@ -256,24 +256,6 @@ validatorCmd.command('update:script')
     await runAnsilbe(playbook, inventoryType, options.pubkey)
   })
 
-validatorCmd.command('update:jinja')
-  .description('🧩 Update Jinja Template')
-  .option('-n, --network <network>', 'Solana Network', {
-    default: 'testnet',
-  })
-  .action(async (options) => {
-    const network = options.network as NetworkType
-    const networkPath = network === 'mainnet'
-      ? 'mainnet-validator'
-      : 'testnet-validator'
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/${networkPath} ${configRoot}`,
-    )
-    console.log(
-      colors.white(`✅ Successfully Updated Jinja Template for ${network}`),
-    )
-  })
-
 validatorCmd.command('start')
   .description('🟢 Start Validator')
   .option('-n, --network <network>', 'Solana Network', {

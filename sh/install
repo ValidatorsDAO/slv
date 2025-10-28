@@ -179,7 +179,6 @@ main() {
     echo "Windows users, add $INSTALL_DIR to your PATH manually."
   fi
 
-  slv v update:jinja
   slv upgrade:settings
   
   # Optional: Test the installed 'slv'
