@@ -1,0 +1,53 @@
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--snapshots /mnt/snapshot \
+--entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint3.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint4.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint5.mainnet-beta.solana.com:8001 \
+--known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+--known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ \
+--known-validator DE1bawNcRJB9rVm3buyMVfr8mBEoyyu73NBovf2oXJsJ \
+--known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
+--only-known-rpc \
+--expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
+--dynamic-port-range {{ dynamic_port_range | default("8900-8925") }}  \
+--full-rpc-api \
+--no-voting \
+--rpc-port {{ port_rpc | default(8899, true) }} \
+--wal-recovery-mode skip_any_corrupted_record \
+{% if rpc_type == 'Geyser gRPC' -%}
+--limit-ledger-size 50000000 \
+--no-snapshot-fetch \
+--enable-rpc-transaction-history \
+--geyser-plugin-config /home/solv/geyser.json \
+{% elif rpc_type == 'SendTx RPC' -%}
+--limit-ledger-size 30000000 \
+--no-snapshot-fetch \
+{% elif rpc_type == 'Index RPC' -%}
+--limit-ledger-size 200000000 \
+--enable-rpc-transaction-history \
+--enable-extended-tx-metadata-storage \
+--account-index program-id spl-token-mint spl-token-owner \
+{% elif rpc_type == 'Index RPC + gRPC' -%}
+--limit-ledger-size 200000000 \
+--enable-rpc-transaction-history \
+--enable-extended-tx-metadata-storage \
+--account-index program-id spl-token-mint spl-token-owner \
+--geyser-plugin-config /home/solv/geyser.json \
+{% else -%}
+--limit-ledger-size {{ limit_ledger_size | default(100000000) }} \
+{% endif -%}
+--no-port-check \
+{% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %}
+--rpc-pubsub-enable-block-subscription \
+--rpc-pubsub-enable-vote-subscription \
+{% endif %}{% if validator_type == 'jito' %}
+--block-engine-url {{ block_engine_url | default("https://ny.block-engine.jito.wtf") }} \
+--shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }} \
+{% endif %}

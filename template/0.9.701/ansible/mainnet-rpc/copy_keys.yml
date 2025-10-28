@@ -1,0 +1,15 @@
+---
+- name: Copy RPC Identity Key File
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Copy RPC Identity Key File
+      become: yes
+      become_user: root
+      copy:
+        src: "~/.slv/keys/{{ hostvars[inventory_hostname].identity_account }}.json"
+        dest: "/home/solv/rpc-identity.json"
+        owner: solv
+        group: solv
+        mode: "0600"
