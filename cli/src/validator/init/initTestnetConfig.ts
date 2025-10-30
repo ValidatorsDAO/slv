@@ -14,22 +14,11 @@ import { exec } from '@elsoul/child-process'
 import denoJson from '/deno.json' with { type: 'json' }
 import { updateInventory } from '/lib/updateInventory.ts'
 import { Input, prompt, Select } from '@cliffy/prompt'
-import { testnetValidatorConfigDir } from '@cmn/constants/path.ts'
 import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
 
 const initTestnetConfig = async (sshConnection: SSHConnection) => {
-  try {
-    await Deno.stat(testnetValidatorConfigDir)
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/testnet-validator ${configRoot}`,
-    )
-  } catch (_error) {
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/testnet-validator ${configRoot}`,
-    )
-  }
   const { validatorType } = await prompt([
     {
       name: 'validatorType',
@@ -43,15 +32,6 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
     return
   }
   const inventoryType = 'testnet_validators' as InventoryType
-  // Check if testnet-validator Template exists
-  try {
-    const inventoryPath = getInventoryPath(inventoryType)
-    await Deno.stat(inventoryPath)
-  } catch (_error) {
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/testnet-validator ${configRoot}`,
-    )
-  }
   const identityAccount = await genIdentityKey()
   const { name } = await prompt([
     {

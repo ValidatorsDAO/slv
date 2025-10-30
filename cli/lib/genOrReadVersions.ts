@@ -6,7 +6,6 @@ import { join } from '@std/path'
 
 const genOrReadVersions = async (): Promise<CmnType> => {
   const versionsPath = join(configRoot, 'versions.yml')
-  await Deno.remove(versionsPath, { recursive: false })
   try {
     await Deno.stat(versionsPath)
   } catch (_error) {

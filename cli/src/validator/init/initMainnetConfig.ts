@@ -24,16 +24,6 @@ import {
 import type { SolanaNodeType } from '@cmn/types/config.ts'
 
 const initMainnetConfig = async (sshConnection: SSHConnection) => {
-  try {
-    await Deno.stat(mainnetValidatorConfigDir)
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/mainnet-validator ${configRoot}`,
-    )
-  } catch (_error) {
-    await exec(
-      `cp -r ${configRoot}/template/${denoJson.version}/jinja/mainnet-validator ${configRoot}`,
-    )
-  }
   const {
     validatorType,
   } = await prompt([

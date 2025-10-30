@@ -15,9 +15,9 @@ import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
 import { serverCmd } from '/src/server/index.ts'
 import { getCmd } from '/src/get/index.ts'
-import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
+import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 
 const program = new Command()
   .name('slv')
@@ -39,6 +39,7 @@ program
   .command('upgrade:settings')
   .description('Upgrade Default Settings Files')
   .action(async () => {
+    await genOrReadVersions()
     await copyTemplateDirs()
     await updateDefaultVersion()
   })
