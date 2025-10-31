@@ -1,0 +1,52 @@
+---
+- name: Execute tasks as solv user
+  hosts: all
+  become: true
+  become_user: solv
+  vars_files:
+    - vars/config.yml
+  tasks:
+    - name: Stop firedancer.service
+      ansible.builtin.systemd:
+        name: firedancer.service
+        state: stopped
+      become: true
+      become_user: root
+      register: stop_service_result
+
+    - name: Display stop service result
+      ansible.builtin.debug:
+        msg: '{{ inventory_hostname }}: Stopped firedancer.service.'
+
+    - name: Remove all files in /mnt/ledger/ using rm -rf
+      shell: sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -delete
+      become: true
+      become_user: root
+
+    - name: Remove All Snapshot Archives
+      ansible.builtin.shell: rm -rf /mnt/snapshot/*
+      become: true
+      become_user: root
+
+    - name: Run Snapshot Finder
+      shell: |
+        source ./venv/bin/activate && python3 snapshot-finder.py --snapshot_path /mnt/snapshot --version {{ hostvars[inventory_hostname].solana_version }} -r http://api.testnet.solana.com --min_download_speed 45
+      args:
+        chdir: /home/solv/solana-snapshot-finder
+        executable: /bin/bash
+      become: false
+      become_user: solv
+      async: 3600
+      poll: 10
+
+    - name: Start firedancer.service
+      ansible.builtin.systemd:
+        name: firedancer.service
+        state: started
+      become: true
+      become_user: root
+      register: start_service_result
+
+    - name: Display start service result
+      ansible.builtin.debug:
+        msg: '{{ inventory_hostname }}: Started firedancer.service.'
