@@ -18,6 +18,7 @@ export async function copyTemplateDirs() {
     ['devnet-rpc', 'devnet-rpc'],
     ['mainnet-rpc', 'mainnet-rpc'],
     ['mainnet-validator', 'mainnet-validator'],
+    ['cmn', 'cmn'],
   ] as const
   await Promise.all(
     pairs.map(([srcName, destName]) => {

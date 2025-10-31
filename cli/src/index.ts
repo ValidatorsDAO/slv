@@ -4,8 +4,6 @@ import { botCmd } from '@/bot/index.ts'
 import { appCmd } from '@/app/index.ts'
 import { validatorCmd } from '@/validator/index.ts'
 import { rpcCmd } from '@/rpc/index.ts'
-import { cloudCmd } from '@/cloud/index.ts'
-import { swapCmd } from '@/swap/index.ts'
 import { metalCmd } from '@/metal/index.ts'
 import { loginCmd } from '@/login/index.ts'
 import { logoutCmd } from '@/login/logout.ts'
@@ -13,11 +11,10 @@ import { checkCmd } from '@/check/index.ts'
 import { installClientMessage, slvAA } from '/lib/slvAA.ts'
 import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
-import { serverCmd } from '/src/server/index.ts'
-import { getCmd } from '/src/get/index.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
+import { installCmd } from '/src/install/index.ts'
 
 const program = new Command()
   .name('slv')
@@ -61,11 +58,8 @@ program
   .alias('r')
 
 program
-  .command('cloud', cloudCmd)
-  .alias('c')
-
-program
-  .command('swap', swapCmd)
+  .command('install', installCmd)
+  .alias('i')
 
 program
   .command('metal', metalCmd)
@@ -82,13 +76,5 @@ program
 
 program
   .command('check', checkCmd)
-
-program
-  .command('get', getCmd)
-
-program
-  .command('server', serverCmd)
-  .alias('s')
-  .description('🔮 Open SLV UI')
 
 await program.parse(Deno.args)
