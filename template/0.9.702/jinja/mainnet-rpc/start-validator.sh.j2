@@ -24,8 +24,8 @@ exec agave-validator \
 --no-wait-for-vote-to-start-leader \
 --use-snapshot-archives-at-startup when-newest \
 --no-skip-initial-accounts-db-clean \
-{% if rpc_type == 'Geyser gRPC' -%}
 --private-rpc \
+{% if rpc_type == 'Geyser gRPC' -%}
 --limit-ledger-size 200000000 \
 --no-snapshot-fetch \
 --enable-rpc-transaction-history \

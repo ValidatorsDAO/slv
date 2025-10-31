@@ -100,12 +100,16 @@ e.g. slv i -i 1.1.1.1,2.2.2.2 or slv i -i ~/.slv/inventory.app.yml
     const inventoryDisplay = ips.length > 0 || inventoryFileIps.length > 0
       ? accessTargets.join(', ')
       : inventory
-    endpointLog(accessTargets, promptResult.name as SoftwareComponent)
     const filePath =
       `${templateRoot}/ansible/cmn/software/install-${softwareName}.yml`
     console.log(colors.blue('\n📋 Installation Details:'))
     console.log(colors.blue('Software: ') + colors.white(promptResult.name!))
     console.log(colors.blue('Inventory: ') + colors.white(inventory))
+    if (softwareName === 'tidb') {
+      console.log(colors.yellow(
+        '\n⚠️ a few minutes to 10 minutes may be required for TiDB installation depending on your server performance.\n',
+      ))
+    }
     if (inventoryDisplay !== inventory) {
       console.log(
         colors.blue('Resolved IPs: ') + colors.white(inventoryDisplay),
