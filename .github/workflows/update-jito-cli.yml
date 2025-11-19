@@ -42,7 +42,8 @@ jobs:
         id: get_version
         run: |
           set -euo pipefail
-          LATEST_RELEASE=$(curl -fsSL https://api.github.com/repos/jito-foundation/jito-solana/releases/latest | jq -r .tag_name || true)
+          # Get the most recent release from all releases (not just /latest)
+          LATEST_RELEASE=$(curl -fsSL https://api.github.com/repos/jito-foundation/jito-solana/releases | jq -r '.[0].tag_name' || true)
           echo "Latest Jito release: ${LATEST_RELEASE}"
           if [ -z "${LATEST_RELEASE}" ] || [ "${LATEST_RELEASE}" = "null" ]; then
             echo "version=none" >> $GITHUB_OUTPUT
