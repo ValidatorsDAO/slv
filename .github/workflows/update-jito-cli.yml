@@ -120,23 +120,59 @@ jobs:
             cp -v agave-validator ../../..
           fi
 
-          # perf-libs は優先して solana-perf.tgz をアップする
+          # perf-libs のビルドと収集
           if [ "${{ steps.check_r2.outputs.need_perf }}" = "true" ]; then
-            real_perf_dir=$(readlink -f perf-libs || true)   # -> ../perf-libs の実体
-            echo "perf-libs symlink real path: ${real_perf_dir}"
+            echo "Checking for perf-libs..."
+            
+            # perf-libs ディレクトリまたはシンボリックリンクの存在確認
+            if [ -L perf-libs ]; then
+              real_perf_dir=$(readlink -f perf-libs)
+              echo "perf-libs is a symlink pointing to: ${real_perf_dir}"
+            elif [ -d perf-libs ]; then
+              real_perf_dir="perf-libs"
+              echo "perf-libs is a directory"
+            elif [ -d ../perf-libs ]; then
+              real_perf_dir="../perf-libs"
+              echo "Found perf-libs in parent directory"
+            else
+              echo "WARNING: perf-libs directory not found after build"
+              # perf-libs が見つからない場合、明示的にビルドを試みる
+              echo "Attempting to build perf-libs explicitly..."
+              cd ..
+              if [ -f scripts/build-perf-libs.sh ]; then
+                ./scripts/build-perf-libs.sh
+              elif [ -f perf/build.sh ]; then
+                cd perf && ./build.sh && cd ..
+              else
+                echo "ERROR: Could not find perf-libs build script"
+              fi
+              cd target/release
+              
+              # 再度チェック
+              if [ -L perf-libs ]; then
+                real_perf_dir=$(readlink -f perf-libs)
+              elif [ -d perf-libs ]; then
+                real_perf_dir="perf-libs"
+              elif [ -d ../perf-libs ]; then
+                real_perf_dir="../perf-libs"
+              else
+                echo "ERROR: perf-libs still not found after build attempt"
+                exit 1
+              fi
+            fi
 
-            # パス候補: 実体側 or symlink側 どちらにも対応
+            # solana-perf.tgz の優先使用、なければディレクトリをアーカイブ
             if [ -f "${real_perf_dir}/solana-perf.tgz" ]; then
               cp -v "${real_perf_dir}/solana-perf.tgz" ../../../perf-libs.tar.gz
               echo "Using existing solana-perf.tgz as perf-libs.tar.gz"
-            elif [ -f "perf-libs/solana-perf.tgz" ]; then
-              cp -v "perf-libs/solana-perf.tgz" ../../../perf-libs.tar.gz
-              echo "Using symlinked perf-libs/solana-perf.tgz as perf-libs.tar.gz"
-            else
-              echo "solana-perf.tgz not found. Falling back to tar directory..."
-              # ディレクトリをアーカイブ（シンボリックリンクは実体へ）
-              tar -C "${real_perf_dir:-perf-libs}" -czf ../../../perf-libs.tar.gz .
+            elif [ -f "${real_perf_dir}/libsolana_rbpf.so" ] || [ -f "${real_perf_dir}/libsolana_sbf_c.a" ]; then
+              echo "Found perf-libs directory with libraries, creating archive..."
+              tar -C "${real_perf_dir}" -czf ../../../perf-libs.tar.gz .
               echo "Created perf-libs.tar.gz from directory"
+            else
+              echo "ERROR: perf-libs directory exists but contains no expected files"
+              ls -la "${real_perf_dir}" || true
+              exit 1
             fi
           fi
 
