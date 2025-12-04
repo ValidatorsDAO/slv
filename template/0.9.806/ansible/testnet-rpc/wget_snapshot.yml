@@ -1,0 +1,19 @@
+---
+- name: Wget Snapshot
+  hosts: all
+  become: true
+  become_user: solv
+
+  tasks:
+    - name: Wget Snapshot
+      shell: |
+        aria2c -x16 -s16 --force-sequential=true https://snapshots.avorio.network/testnet/snapshot.tar.bz2 https://snapshots.avorio.network/testnet/incremental-snapshot.tar.bz2
+      args:
+        chdir: /mnt/snapshot
+        executable: /bin/bash
+      register: snapshot_result
+      until: snapshot_result.rc == 0
+      retries: 3
+      async: 3600
+      poll: 10
+      failed_when: false
