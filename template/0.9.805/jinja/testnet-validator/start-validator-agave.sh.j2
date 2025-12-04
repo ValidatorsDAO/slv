@@ -14,8 +14,8 @@ exec agave-validator \
 --dynamic-port-range {{ dynamic_port_range | default("8900-8925", true) }} \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
---wait-for-supermajority 361144649 \
---expected-shred-version 41708 \
---expected-bank-hash 4NuNyboT36pwwGJvMPZLreFqYpkbpBjX82nkt4AkJ9QT \
+--wait-for-supermajority 374301609 \
+--expected-shred-version 24207 \
+--expected-bank-hash CJZAAtgdqYiqHTFKJ9XD9qw4W21wHqojkhrVJSfFF9b7 \
 --limit-ledger-size \
 --no-port-check
