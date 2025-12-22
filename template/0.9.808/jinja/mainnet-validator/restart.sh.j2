@@ -1,0 +1,5 @@
+sudo systemctl stop firedancer
+sudo rm -rf /mnt/snapshot/*
+sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -delete
+cd /mnt/snapshot && aria2c -x16 -s16 --force-sequential=true https://snapshots.avorio.network/mainnet-beta/snapshot.tar.bz2 https://snapshots.avorio.network/mainnet-beta/incremental-snapshot.tar.bz2
+sudo systemctl start firedancer
