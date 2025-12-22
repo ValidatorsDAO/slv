@@ -70,5 +70,3 @@
         owner: solv
         group: solv
         mode: "0644"
-      vars:
-        geyser_lib_path: "{{ geyser_lib_path }}"
