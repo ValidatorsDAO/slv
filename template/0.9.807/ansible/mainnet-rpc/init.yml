@@ -30,6 +30,8 @@
 
 - import_playbook: ../cmn/setup_node_exporter.yml
 - import_playbook: ../cmn/install_rust.yml
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
 - import_playbook: ../cmn/disable_swap.yml
 - import_playbook: ../cmn/mount_disks.yml
 - import_playbook: ../cmn/optimize_system.yml
