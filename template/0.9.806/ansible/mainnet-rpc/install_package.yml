@@ -8,19 +8,6 @@
         update_cache: yes
       tags: setup_lib
 
-    - name: Install fail2ban
-      apt:
-        name: fail2ban
-        state: present
-      tags: setup_lib
-
-    - name: Ensure fail2ban is started and enabled
-      service:
-        name: fail2ban
-        state: started
-        enabled: yes
-      tags: setup_lib
-
     - name: Install development tools and libraries for all versions
       apt:
         name:

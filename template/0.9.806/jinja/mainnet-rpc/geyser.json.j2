@@ -1,5 +1,5 @@
 {
-  "libpath": "/home/solv/yellowstone-grpc/target/release/libyellowstone_grpc_geyser.so",
+  "libpath": "{{ geyser_lib_path | default('/home/solv/yellowstone-grpc/target/release/libyellowstone_grpc_geyser.so') }}",
   "log": {
     "level": "error"
   },

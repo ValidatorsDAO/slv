@@ -58,7 +58,7 @@
     - name: Set version from versions.yml based on validator_type
       set_fact:
         version: >-
-          {%- if matched_group is defined -%}
+          {%- if version is not defined and matched_group is defined -%}
             {%- if 'jito' in (validator_type | default('')) -%}
               v{{ slv_versions[matched_group]['version_jito'] }}
             {%- else -%}
