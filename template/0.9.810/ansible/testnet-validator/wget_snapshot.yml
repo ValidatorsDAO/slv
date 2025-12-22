@@ -7,7 +7,7 @@
   tasks:
     - name: Wget Snapshot
       shell: |
-        aria2c -x16 -s16 --force-sequential=true https://snapshots.avorio.network/testnet/snapshot.tar.bz2 https://snapshots.avorio.network/testnet/incremental-snapshot.tar.bz2
+        wget --trust-server-names  https://snapshots.avorio.network/testnet/snapshot.tar.bz2 https://snapshots.avorio.network/testnet/incremental-snapshot.tar.bz2
       args:
         chdir: /mnt/snapshot
         executable: /bin/bash
