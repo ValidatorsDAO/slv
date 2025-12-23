@@ -1,3 +1,4 @@
+---
 logs:
   json: false
 
@@ -6,56 +7,33 @@ metrics:
 
 channel:
   tokio:
-    worker_threads: null # by default number of cpus
-    affinity: null # by default no affinity (taskset syntax)
+    worker_threads: null
+    affinity: null
 
   sources:
     - name: plugin-grpc
-      parser: prost # valid: prost, limited
+      parser: prost
       disable_accounts: false
       reconnect: null
-      source: richat # valid: richat, dragons_mouth
+      source: richat
       transport: grpc
-      # FIX: must point to apps.richat.grpc.endpoint
       endpoint: http://127.0.0.1:10004
       ca_certificate: null
       connect_timeout: null
       buffer_size: null
-      http2_adaptive_window: null
-      http2_keep_alive_interval: null
-      initial_connection_window_size: null
-      initial_stream_window_size: null
-      keep_alive_timeout: null
+      http2_adaptive_window: true
+      http2_keep_alive_interval: 30s
+      initial_connection_window_size: 67108864   # 64MiB
+      initial_stream_window_size: 16777216       # 16MiB
+      keep_alive_timeout: 10s
       keep_alive_while_idle: false
       tcp_keepalive: 30s
       tcp_nodelay: true
       timeout: null
-      max_decoding_message_size: 16MiB # better set to 16MiB (because account messages can be more than 10MiB)
+      max_decoding_message_size: 16MiB
       compression:
-        accept: [] # valid: gzip, zstd
-        send: [] # valid: gzip, zstd
-      x_token: null
-
-    - name: plugin-quic
-      parser: prost
-      disable_accounts: false
-      reconnect:
-        initial_interval: 1s
-        max_interval: 30s
-        multiplier: 2
-      transport: quic
-      source: richat # valid: richat, dragons_mouth
-      # FIX: must point to apps.richat.quic.endpoint
-      endpoint: 127.0.0.1:10101
-      local_addr: "[::]:0"
-      expected_rtt: 5
-      max_stream_bandwidth: 125_000_000 # 2000Mbits with 5ms latency
-      max_idle_timeout: 30s
-      server_name: null # localhost
-      recv_streams: 32
-      max_backlog: 8192
-      insecure: false
-      cert: null
+        accept: []
+        send: []
       x_token: null
 
   config:
@@ -64,8 +42,8 @@ channel:
 
 apps:
   tokio:
-    worker_threads: null # by default number of cpus
-    affinity: null # by default no affinity (taskset syntax)
+    worker_threads: null
+    affinity: null
 
   richat:
     grpc:
@@ -90,11 +68,11 @@ apps:
       tls_config:
         self_signed_alt_names:
           - localhost
-      expected_rtt: 5
-      max_stream_bandwidth: 125_000_000
+      expected_rtt: 100
+      max_stream_bandwidth: 12_500_000
       max_idle_timeout: 30
-      max_recv_streams: 32
-      max_request_size: 4092
+      max_recv_streams: 16
+      max_request_size: 1024
       x_tokens: []
 
   grpc:
@@ -122,6 +100,6 @@ apps:
       ping_interval: 30s
 
     unary:
-      enabled: false
-      affinity: null # by default no affinity (taskset syntax)
+      enabled: true
+      affinity: null
       requests_queue_size: 100
