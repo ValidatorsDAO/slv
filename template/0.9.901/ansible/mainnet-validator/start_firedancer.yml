@@ -1,0 +1,15 @@
+---
+- name: Start Firedancer Service
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Start Firedancer Service
+      systemd:
+        name: firedancer
+        state: started
+      register: firedancer_result
+      retries: 3
+      delay: 10
+      until: firedancer_result is succeeded
+      failed_when: false
