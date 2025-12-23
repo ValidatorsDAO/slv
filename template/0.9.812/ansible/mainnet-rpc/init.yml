@@ -49,7 +49,12 @@
 - import_playbook: create-start-validator-sh.yml
   when: validator_type in ['agave', 'jito']
 
-- import_playbook: geyser_build.yml
+- import_playbook: geyser_richat_build.yml
+  when:
+    - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+    - validator_type in ['agave', 'jito']
+
+- import_playbook: install_richat.yml
   when:
     - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
     - validator_type in ['agave', 'jito']

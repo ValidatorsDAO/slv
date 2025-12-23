@@ -12,6 +12,7 @@
       apt:
         name:
           - wget
+          - aria2
         state: present
       tags: setup_lib
       failed_when: false

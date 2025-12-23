@@ -1,11 +1,14 @@
 logs:
   json: false
+
 metrics:
   endpoint: 127.0.0.1:10124
+
 channel:
   tokio:
     worker_threads: null # by default number of cpus
     affinity: null # by default no affinity (taskset syntax)
+
   sources:
     - name: plugin-grpc
       parser: prost # valid: prost, limited
@@ -13,6 +16,7 @@ channel:
       reconnect: null
       source: richat # valid: richat, dragons_mouth
       transport: grpc
+      # FIX: must point to apps.richat.grpc.endpoint
       endpoint: http://127.0.0.1:10004
       ca_certificate: null
       connect_timeout: null
@@ -31,6 +35,7 @@ channel:
         accept: [] # valid: gzip, zstd
         send: [] # valid: gzip, zstd
       x_token: null
+
     - name: plugin-quic
       parser: prost
       disable_accounts: false
@@ -40,7 +45,8 @@ channel:
         multiplier: 2
       transport: quic
       source: richat # valid: richat, dragons_mouth
-      endpoint: 127.0.0.1:10001
+      # FIX: must point to apps.richat.quic.endpoint
+      endpoint: 127.0.0.1:10101
       local_addr: "[::]:0"
       expected_rtt: 5
       max_stream_bandwidth: 125_000_000 # 2000Mbits with 5ms latency
@@ -51,23 +57,16 @@ channel:
       insecure: false
       cert: null
       x_token: null
+
   config:
     max_messages: 2_097_152
     max_bytes: 16GiB
-    # storage:
-    #   path: ./db
-    #   max_slots: 1024
-    #   serialize_affinity: null # taskset syntax
-    #   write_affinity: null
-    #   messages_compression: none # none, snappy, zlib, bz2, lz4, lz4hc, zstd
-    #   replay_inflight_max: 1024
-    #   replay_threads: 4
-    #   replay_affinity: null
-    #   replay_decode_per_tick: 256
+
 apps:
   tokio:
     worker_threads: null # by default number of cpus
     affinity: null # by default no affinity (taskset syntax)
+
   richat:
     grpc:
       endpoint: "0.0.0.0:10100"
@@ -85,6 +84,7 @@ apps:
       server_http2_keepalive_timeout: 10s
       server_initial_connection_window_size: 67108864
       server_initial_stream_window_size: 16777216
+
     quic:
       endpoint: "0.0.0.0:10101"
       tls_config:
@@ -96,6 +96,7 @@ apps:
       max_recv_streams: 32
       max_request_size: 4092
       x_tokens: []
+
   grpc:
     server:
       endpoint: 0.0.0.0:10000
@@ -113,28 +114,14 @@ apps:
       server_http2_keepalive_timeout: 10s
       server_initial_connection_window_size: 67108864
       server_initial_stream_window_size: 16777216
+
     stream:
       messages_len_max: 16MiB
       messages_max_per_tick: 100
       messages_replay_len_max: 256MiB
       ping_interval: 30s
+
     unary:
       enabled: false
       affinity: null # by default no affinity (taskset syntax)
       requests_queue_size: 100
-  # pubsub:
-  #   endpoint: 0.0.0.0:8400
-  #   tcp_nodelay: null
-  #   recv_max_message_size: 16KiB
-  #   enable_block_subscription: false
-  #   enable_transaction_subscription: false
-  #   clients_requests_channel_size: 8_192
-  #   subscriptions_worker_affinity: null # by default no affinity (taskset syntax)
-  #   subscriptions_workers_count: 2
-  #   subscriptions_workers_affinity: null # by default no affinity (taskset syntax)
-  #   subscriptions_max_clients_request_per_tick: 32
-  #   subscriptions_max_messages_per_commitment_per_tick: 256
-  #   notifications_messages_max_count: 16_777_216
-  #   notifications_messages_max_bytes: 32GiB
-  #   signatures_cache_max: 1_228_800
-  #   signatures_cache_slots_max: 150
