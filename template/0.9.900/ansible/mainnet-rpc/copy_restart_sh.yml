@@ -1,0 +1,17 @@
+---
+- name: Copy restart.sh
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Copy restart.sh
+      become: yes
+      become_user: solv
+      template:
+        src: "~/.slv/mainnet-rpc/restart.sh.j2"
+        dest: "/home/solv/restarter.sh"
+        owner: solv
+        group: solv
+        mode: "0700"
+      vars:
+        snapshot_url: "{{ hostvars[inventory_hostname].snapshot_url }}"
+        service_name: "solv"
