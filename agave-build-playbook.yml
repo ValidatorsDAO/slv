@@ -1,0 +1,242 @@
+---
+- name: Build and Upload Agave CLI
+  hosts: all
+  gather_facts: yes
+  vars:
+    agave_version: "{{ version | mandatory }}"
+    agave_repo_url: "https://github.com/anza-xyz/agave.git"
+    build_dir: "/tmp/agave-build-{{ agave_version }}"
+    storage_base_url: "https://storage.slv.dev/agave"
+    bucket_names:
+      - slv
+      - slv-asia
+    cloudflare_account_id: "{{ cloudflare_account_id | default(lookup('env', 'CLOUDFLARE_ACCOUNT_ID')) }}"
+    cloudflare_api_token: "{{ cloudflare_api_token | default(lookup('env', 'CLOUDFLARE_API_TOKEN')) }}"
+    discord_webhook_url: "{{ discord_webhook_url | default(lookup('env', 'DISCORD_WEBHOOK_URL') | default('')) }}"
+
+  tasks:
+    - name: Validate required environment variables
+      assert:
+        that:
+          - cloudflare_account_id != ''
+          - cloudflare_api_token != ''
+        fail_msg: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set"
+
+    - name: Install build dependencies (Debian/Ubuntu)
+      become: yes
+      apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - libclang-dev
+          - cmake
+          - protobuf-compiler
+          - git
+          - curl
+          - jq
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Check if Rust is installed
+      command: rustc --version
+      register: rust_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Install Rust if not present
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+      args:
+        executable: /bin/bash
+      when: rust_check.rc != 0
+
+    - name: Ensure Rust is in PATH
+      lineinfile:
+        path: ~/.bashrc
+        line: 'source $HOME/.cargo/env'
+        create: yes
+      when: rust_check.rc != 0
+
+    - name: Check which artifacts already exist in R2
+      uri:
+        url: "{{ storage_base_url }}/{{ agave_version }}/{{ item }}"
+        method: HEAD
+        status_code: [200, 404]
+      register: artifact_checks
+      loop:
+        - agave-validator
+        - solana
+        - solana-keygen
+      changed_when: false
+
+    - name: Set facts for missing artifacts
+      set_fact:
+        need_agave: "{{ artifact_checks.results[0].status != 200 }}"
+        need_solana: "{{ artifact_checks.results[1].status != 200 }}"
+        need_keygen: "{{ artifact_checks.results[2].status != 200 }}"
+
+    - name: Determine if build is needed
+      set_fact:
+        skip_build: "{{ not (need_agave or need_solana or need_keygen) }}"
+
+    - name: Display build status
+      debug:
+        msg: |
+          Agave version: {{ agave_version }}
+          agave-validator: {{ 'Missing' if need_agave else 'Exists' }}
+          solana: {{ 'Missing' if need_solana else 'Exists' }}
+          solana-keygen: {{ 'Missing' if need_keygen else 'Exists' }}
+          Skip build: {{ skip_build }}
+
+    - block:
+        - name: Clean up previous build directory if exists
+          file:
+            path: "{{ build_dir }}"
+            state: absent
+
+        - name: Clone Agave repository
+          git:
+            repo: "{{ agave_repo_url }}"
+            dest: "{{ build_dir }}"
+            version: "{{ agave_version }}"
+            recursive: yes
+            force: yes
+
+        - name: Build Agave binaries
+          shell: |
+            source $HOME/.cargo/env
+            ./scripts/cargo-install-all.sh .
+          args:
+            chdir: "{{ build_dir }}"
+            executable: /bin/bash
+          environment:
+            RUST_BACKTRACE: 1
+          when: need_agave or need_solana or need_keygen
+
+        - name: Collect solana binary
+          copy:
+            src: "{{ build_dir }}/target/release/solana"
+            dest: "/tmp/solana-{{ agave_version }}"
+            mode: '0755'
+            remote_src: yes
+          when: need_solana
+
+        - name: Collect solana-keygen binary
+          copy:
+            src: "{{ build_dir }}/target/release/solana-keygen"
+            dest: "/tmp/solana-keygen-{{ agave_version }}"
+            mode: '0755'
+            remote_src: yes
+          when: need_keygen
+
+        - name: Collect agave-validator binary
+          copy:
+            src: "{{ build_dir }}/target/release/agave-validator"
+            dest: "/tmp/agave-validator-{{ agave_version }}"
+            mode: '0755'
+            remote_src: yes
+          when: need_agave
+
+        - name: Upload solana binary to R2 buckets
+          shell: |
+            for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+              curl -s -X PUT \
+                "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/agave/{{ agave_version }}/solana" \
+                -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@/tmp/solana-{{ agave_version }}"
+            done
+          when: need_solana
+
+        - name: Upload solana-keygen binary to R2 buckets
+          shell: |
+            for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+              curl -s -X PUT \
+                "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/agave/{{ agave_version }}/solana-keygen" \
+                -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@/tmp/solana-keygen-{{ agave_version }}"
+            done
+          when: need_keygen
+
+        - name: Upload agave-validator binary to R2 buckets
+          shell: |
+            for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+              curl -s -X PUT \
+                "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/agave/{{ agave_version }}/agave-validator" \
+                -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@/tmp/agave-validator-{{ agave_version }}"
+            done
+          when: need_agave
+
+        - name: Update latest.txt in both buckets
+          uri:
+            url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/{{ item }}/objects/agave/latest.txt"
+            method: PUT
+            headers:
+              Authorization: "Bearer {{ cloudflare_api_token }}"
+              Content-Type: "text/plain"
+            body: "{{ agave_version }}"
+            status_code: 200
+          loop: "{{ bucket_names }}"
+
+        - name: Send Discord notification
+          uri:
+            url: "{{ discord_webhook_url }}"
+            method: POST
+            headers:
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              embeds:
+                - title: "🚀 New/Updated Agave CLI Artifacts"
+                  description: "Uploaded missing artifacts for {{ agave_version }}"
+                  color: 5814783
+                  fields:
+                    - name: "Version"
+                      value: "{{ agave_version }}"
+                      inline: true
+                    - name: "agave-validator"
+                      value: "{{ storage_base_url }}/{{ agave_version }}/agave-validator"
+                      inline: false
+                    - name: "solana"
+                      value: "{{ storage_base_url }}/{{ agave_version }}/solana"
+                      inline: false
+                    - name: "solana-keygen"
+                      value: "{{ storage_base_url }}/{{ agave_version }}/solana-keygen"
+                      inline: false
+                  timestamp: "{{ ansible_date_time.iso8601 }}"
+            status_code: [200, 204]
+          when: discord_webhook_url != ''
+
+      when: not skip_build
+
+    - name: Clean up build directory
+      file:
+        path: "{{ build_dir }}"
+        state: absent
+      when: not skip_build
+
+    - name: Clean up temporary files
+      file:
+        path: "/tmp/{{ item }}"
+        state: absent
+      loop:
+        - "solana-{{ agave_version }}"
+        - "solana-keygen-{{ agave_version }}"
+        - "agave-validator-{{ agave_version }}"
+      when: not skip_build
+
+    - name: Final message
+      debug:
+        msg: |
+          {% if skip_build %}
+          All artifacts for version {{ agave_version }} already exist. No action taken.
+          {% else %}
+          Successfully built and uploaded Agave CLI version {{ agave_version }}
+          {% endif %}
