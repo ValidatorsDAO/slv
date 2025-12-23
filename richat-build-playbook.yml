@@ -1,0 +1,216 @@
+---
+- name: Build and Upload Richat
+  hosts: all
+  gather_facts: yes
+  vars:
+    richat_version: "{{ version | mandatory }}"
+    richat_repo_url: "https://github.com/lamports-dev/richat.git"
+    build_dir: "/tmp/richat-build-{{ richat_version }}"
+    storage_base_url: "https://storage.slv.dev/richat"
+    bucket_names:
+      - slv
+      - slv-asia
+    cloudflare_account_id: "{{ cloudflare_account_id | default(lookup('env', 'CLOUDFLARE_ACCOUNT_ID')) }}"
+    cloudflare_api_token: "{{ cloudflare_api_token | default(lookup('env', 'CLOUDFLARE_API_TOKEN')) }}"
+    discord_webhook_url: "{{ discord_webhook_url | default(lookup('env', 'DISCORD_WEBHOOK_URL') | default('')) }}"
+
+  tasks:
+    - name: Validate required environment variables
+      assert:
+        that:
+          - cloudflare_account_id != ''
+          - cloudflare_api_token != ''
+        fail_msg: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set"
+
+    - name: Install build dependencies (Debian/Ubuntu)
+      become: yes
+      apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - libclang-dev
+          - cmake
+          - protobuf-compiler
+          - git
+          - curl
+          - jq
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Check if Rust is installed
+      command: rustc --version
+      register: rust_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Install Rust if not present
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+      args:
+        executable: /bin/bash
+      when: rust_check.rc != 0
+
+    - name: Ensure Rust is in PATH
+      lineinfile:
+        path: ~/.bashrc
+        line: 'source $HOME/.cargo/env'
+        create: yes
+      when: rust_check.rc != 0
+
+    - name: Check which artifacts already exist in R2
+      uri:
+        url: "{{ storage_base_url }}/{{ richat_version }}/{{ item }}"
+        method: HEAD
+        status_code: [200, 404]
+      register: artifact_checks
+      loop:
+        - richat
+        - librichat_plugin_agave.so
+      changed_when: false
+
+    - name: Set facts for missing artifacts
+      set_fact:
+        need_richat: "{{ artifact_checks.results[0].status != 200 }}"
+        need_plugin: "{{ artifact_checks.results[1].status != 200 }}"
+
+    - name: Determine if build is needed
+      set_fact:
+        skip_build: "{{ not (need_richat or need_plugin) }}"
+
+    - name: Display build status
+      debug:
+        msg: |
+          Richat version: {{ richat_version }}
+          richat: {{ 'Missing' if need_richat else 'Exists' }}
+          librichat_plugin_agave.so: {{ 'Missing' if need_plugin else 'Exists' }}
+          Skip build: {{ skip_build }}
+
+    - block:
+        - name: Clean up previous build directory if exists
+          file:
+            path: "{{ build_dir }}"
+            state: absent
+
+        - name: Clone Richat repository
+          git:
+            repo: "{{ richat_repo_url }}"
+            dest: "{{ build_dir }}"
+            version: "{{ richat_version }}"
+            recursive: yes
+            force: yes
+
+        - name: Build Richat artifacts
+          shell: |
+            source $HOME/.cargo/env
+            cargo build --release --workspace --locked --features rustls-install-default-provider
+          args:
+            chdir: "{{ build_dir }}"
+            executable: /bin/bash
+          environment:
+            RUST_BACKTRACE: 1
+          when: need_richat or need_plugin
+
+        - name: Collect richat binary
+          copy:
+            src: "{{ build_dir }}/target/release/richat"
+            dest: "/tmp/richat-{{ richat_version }}"
+            mode: '0755'
+            remote_src: yes
+          when: need_richat
+
+        - name: Collect librichat_plugin_agave.so
+          copy:
+            src: "{{ build_dir }}/target/release/librichat_plugin_agave.so"
+            dest: "/tmp/librichat_plugin_agave-{{ richat_version }}.so"
+            mode: '0644'
+            remote_src: yes
+          when: need_plugin
+
+        - name: Upload richat binary to R2 buckets
+          shell: |
+            for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+              curl -s -X PUT \
+                "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/richat/{{ richat_version }}/richat" \
+                -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@/tmp/richat-{{ richat_version }}"
+            done
+          when: need_richat
+
+        - name: Upload librichat_plugin_agave.so to R2 buckets
+          shell: |
+            for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+              curl -s -X PUT \
+                "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/richat/{{ richat_version }}/librichat_plugin_agave.so" \
+                -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@/tmp/librichat_plugin_agave-{{ richat_version }}.so"
+            done
+          when: need_plugin
+
+        - name: Update latest.txt in both buckets
+          uri:
+            url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/{{ item }}/objects/richat/latest.txt"
+            method: PUT
+            headers:
+              Authorization: "Bearer {{ cloudflare_api_token }}"
+              Content-Type: "text/plain"
+            body: "{{ richat_version }}"
+            status_code: 200
+          loop: "{{ bucket_names }}"
+
+        - name: Send Discord notification
+          uri:
+            url: "{{ discord_webhook_url }}"
+            method: POST
+            headers:
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              embeds:
+                - title: "💬 New/Updated Richat Artifacts"
+                  description: "Uploaded missing artifacts for {{ richat_version }}"
+                  color: 5025616
+                  fields:
+                    - name: "Version"
+                      value: "{{ richat_version }}"
+                      inline: true
+                    - name: "richat"
+                      value: "{{ storage_base_url }}/{{ richat_version }}/richat"
+                      inline: false
+                    - name: "librichat_plugin_agave.so"
+                      value: "{{ storage_base_url }}/{{ richat_version }}/librichat_plugin_agave.so"
+                      inline: false
+                  timestamp: "{{ ansible_date_time.iso8601 }}"
+            status_code: [200, 204]
+          when: discord_webhook_url != ''
+
+      when: not skip_build
+
+    - name: Clean up build directory
+      file:
+        path: "{{ build_dir }}"
+        state: absent
+      when: not skip_build
+
+    - name: Clean up temporary files
+      file:
+        path: "/tmp/{{ item }}"
+        state: absent
+      loop:
+        - "richat-{{ richat_version }}"
+        - "librichat_plugin_agave-{{ richat_version }}.so"
+      when: not skip_build
+
+    - name: Final message
+      debug:
+        msg: |
+          {% if skip_build %}
+          All artifacts for version {{ richat_version }} already exist. No action taken.
+          {% else %}
+          Successfully built and uploaded Richat version {{ richat_version }}
+          {% endif %}

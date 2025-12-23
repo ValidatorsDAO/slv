@@ -1,0 +1,201 @@
+name: Update Richat
+
+on:
+  schedule:
+    - cron: "0 * * * *" # Run every hour
+  workflow_dispatch: # Allow manual trigger
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/update-richat.yml"
+
+jobs:
+  check-and-build-richat:
+    name: Check and Build Richat
+    runs-on: [self-hosted]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install build dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            libclang-dev \
+            cmake \
+            protobuf-compiler \
+            git \
+            curl \
+            jq
+
+      - name: Get latest Richat release version
+        id: get_version
+        run: |
+          set -euo pipefail
+          LATEST_RELEASE=$(curl -fsSL https://api.github.com/repos/lamports-dev/richat/releases | jq -r '.[0].tag_name' || true)
+          echo "Latest Richat release: ${LATEST_RELEASE}"
+          if [ -z "${LATEST_RELEASE}" ] || [ "${LATEST_RELEASE}" = "null" ]; then
+            echo "version=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "version=${LATEST_RELEASE}" >> $GITHUB_OUTPUT
+
+      - name: Check which artifacts already exist in R2 (slv & slv-asia)
+        id: check_r2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_version.outputs.version }}"
+          if [ "${VERSION}" = "none" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          BUCKETS=("slv" "slv-asia")
+          KEY_BIN="richat/${VERSION}/richat"
+          KEY_SO="richat/${VERSION}/librichat_plugin_agave.so"
+
+          check_api() {
+            local bucket="$1"; local key="$2"
+            curl -s -o /dev/null -w "%{http_code}" -X GET \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${key}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          }
+
+          need_richat=false
+          need_plugin=false
+
+          for b in "${BUCKETS[@]}"; do
+            code_bin=$(check_api "$b" "${KEY_BIN}")
+            code_so=$(check_api "$b" "${KEY_SO}")
+            echo "Check $b -> ${KEY_BIN}: ${code_bin}, ${KEY_SO}: ${code_so}"
+
+            [ "$code_bin" = "200" ] || need_richat=true
+            [ "$code_so" = "200" ] || need_plugin=true
+          done
+
+          echo "need_richat=${need_richat}" >> $GITHUB_OUTPUT
+          echo "need_plugin=${need_plugin}" >> $GITHUB_OUTPUT
+
+          if [ "$need_richat" = "false" ] && [ "$need_plugin" = "false" ]; then
+            echo "All artifacts already exist in both buckets. Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Some artifacts are missing. Will proceed."
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clone Richat repository
+        if: steps.check_r2.outputs.skip == 'false'
+        run: |
+          set -euxo pipefail
+          git clone https://github.com/lamports-dev/richat.git richat-build
+          cd richat-build
+          git checkout ${{ steps.get_version.outputs.version }}
+          git submodule update --init --recursive || true
+
+      - name: Build Richat (only if any artifact missing)
+        if: steps.check_r2.outputs.skip == 'false'
+        run: |
+          set -euxo pipefail
+          cd richat-build
+          cargo build --release --workspace --locked --features rustls-install-default-provider
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Collect artifacts (copy only those needed)
+        if: steps.check_r2.outputs.skip == 'false'
+        run: |
+          set -euxo pipefail
+          cd richat-build/target/release
+
+          if [ "${{ steps.check_r2.outputs.need_richat }}" = "true" ]; then
+            cp -v richat ../../..
+          fi
+          if [ "${{ steps.check_r2.outputs.need_plugin }}" = "true" ]; then
+            cp -v librichat_plugin_agave.so ../../..
+          fi
+
+          cd ../../..
+          chmod +x richat || true
+          ls -la || true
+
+      - name: Upload to R2 (mirror to slv & slv-asia; upload only those needed)
+        if: steps.check_r2.outputs.skip == 'false'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BUCKET_NAMES: "slv slv-asia"
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_version.outputs.version }}"
+
+          api_put() {
+            local bucket="$1"; local key="$2"; local file="$3"; local ctype="$4"
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${key}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: ${ctype}" \
+              --data-binary "@${file}")
+            echo "PUT s3://${bucket}/${key} -> HTTP ${code}"
+            [ "$code" = "200" ] || { echo "Upload failed: s3://${bucket}/${key}"; exit 1; }
+          }
+
+          for BUCKET_NAME in ${BUCKET_NAMES}; do
+            echo "=== Uploading to bucket: ${BUCKET_NAME} ==="
+
+            if [ "${{ steps.check_r2.outputs.need_richat }}" = "true" ] && [ -f "richat" ]; then
+              api_put "${BUCKET_NAME}" "richat/${VERSION}/richat" "richat" "application/octet-stream"
+            fi
+
+            if [ "${{ steps.check_r2.outputs.need_plugin }}" = "true" ] && [ -f "librichat_plugin_agave.so" ]; then
+              api_put "${BUCKET_NAME}" "richat/${VERSION}/librichat_plugin_agave.so" "librichat_plugin_agave.so" "application/octet-stream"
+            fi
+
+            echo "${VERSION}" > latest.txt
+            api_put "${BUCKET_NAME}" "richat/latest.txt" "latest.txt" "text/plain"
+          done
+
+      - name: Send Discord notification (only if something uploaded)
+        if: steps.check_r2.outputs.skip == 'false'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_version.outputs.version }}"
+          ARCH=$(uname -m)
+          OS=$(uname -s)
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"💬 New/Updated Richat Artifacts\",
+                \"description\": \"Uploaded missing artifacts for ${VERSION}\",
+                \"color\": 5025616,
+                \"fields\": [
+                  { \"name\": \"Version\", \"value\": \"${VERSION}\", \"inline\": true },
+                  { \"name\": \"richat\", \"value\": \"https://storage.slv.dev/richat/${VERSION}/richat\", \"inline\": false },
+                  { \"name\": \"librichat_plugin_agave.so\", \"value\": \"https://storage.slv.dev/richat/${VERSION}/librichat_plugin_agave.so\", \"inline\": false }
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
+              }]
+            }" \
+            "${DISCORD_WEBHOOK_URL}"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf richat-build richat librichat_plugin_agave.so latest.txt || true
