@@ -32,13 +32,14 @@ exec agave-validator \
 --geyser-plugin-config /home/solv/geyser.json \
 {% elif rpc_type == 'SendTx RPC' -%}
 --limit-ledger-size 30000000 \
---no-snapshot-fetch \
 {% elif rpc_type == 'Index RPC' -%}
 --full-rpc-api \
 --limit-ledger-size 200000000 \
 --enable-rpc-transaction-history \
 --enable-extended-tx-metadata-storage \
 --account-index program-id spl-token-mint spl-token-owner \
+--rpc-pubsub-enable-block-subscription \
+--rpc-pubsub-enable-vote-subscription \
 {% elif rpc_type == 'Index RPC + gRPC' -%}
 --full-rpc-api \
 --limit-ledger-size 200000000 \

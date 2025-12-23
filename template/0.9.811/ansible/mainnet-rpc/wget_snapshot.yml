@@ -2,13 +2,12 @@
 - name: Wget Snapshot
   hosts: all
   become: true
-  vars_files: ../cmn/config/config.yml
   become_user: solv
 
   tasks:
     - name: Wget Snapshot
       shell: |
-        wget --trust-server-names https://snapshots.avorio.network/mainnet-beta/snapshot.tar.bz2 https://snapshots.avorio.network/mainnet-beta/incremental-snapshot.tar.bz2
+        aria2c -x16 -s16 --force-sequential=true {{ snapshot_url | default('https://snapshots.avorio.network/mainnet-beta/snapshot.tar.bz2') }} {{ incremental_snapshot_url | default('https://snapshots.avorio.network/mainnet-beta/incremental-snapshot.tar.bz2') }}
       args:
         chdir: /mnt/snapshot
         executable: /bin/bash
