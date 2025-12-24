@@ -82,6 +82,7 @@ export interface CmnMainnetRpcType {
   version_jito: string
   version_firedancer: string
   geyser_version: string
+  richat_version: string
   allowed_ssh_ips: string[]
   allowed_ips: string[]
 }
@@ -99,6 +100,7 @@ export interface RpcConfig {
   validator_type: SolanaNodeType
   limit_ledger_size: number
   shred_receiver_address: string
+  richat_version: string
 }
 
 export interface ValidatorMainnetConfig {

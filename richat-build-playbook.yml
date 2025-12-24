@@ -10,9 +10,9 @@
     bucket_names:
       - slv
       - slv-asia
-    cloudflare_account_id: "{{ lookup('env', 'CLOUDFLARE_ACCOUNT_ID') | default('', true) }}"
-    cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') | default('', true) }}"
-    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') | default('', true) }}"
+    cloudflare_account_id: "{{ lookup('env', 'CLOUDFLARE_ACCOUNT_ID') | default(lookup('ini', 'CLOUDFLARE_ACCOUNT_ID file=.env type=properties default='''), true) }}"
+    cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') | default(lookup('ini', 'CLOUDFLARE_API_TOKEN file=.env type=properties default='''), true) }}"
+    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') | default(lookup('ini', 'DISCORD_WEBHOOK_URL file=.env type=properties default='''), true) }}"
 
   tasks:
     - name: Validate required environment variables
