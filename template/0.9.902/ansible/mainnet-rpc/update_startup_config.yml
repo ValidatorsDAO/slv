@@ -1,0 +1,43 @@
+---
+- name: Deploy start-validator script dynamically
+  hosts: all
+  become: true
+  vars:
+    geyser_config_template: "~/.slv/mainnet-rpc/geyser.json.j2"
+    geyser_config_path: "/home/solv/geyser.json"
+  vars_files:
+    - ~/.slv/versions.yml
+  tasks:
+    - name: Set RPC type fact for each host
+      set_fact:
+        rpc_type: "{{ rpc_type | default('Geyser gRPC') }}"
+    
+    - name: Debug RPC type. Stop if not set
+      debug:
+        msg: "RPC type is {{ rpc_type }}"
+
+    - name: Fail if RPC type is not set
+      fail:
+        msg: "RPC type is not set. Please set it in the inventory."
+      when: rpc_type is not defined
+
+    - name: Generate start-validator.sh from template for Geyser gRPC
+      template:
+        src: ~/.slv/mainnet-rpc/start-validator.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
+        port_rpc: "{{ mainnet_rpcs.port_rpc }}"
+        limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
+
+    - name: Copy the geyser.json configuration file
+      template:
+        src: "{{ geyser_config_template }}"
+        dest: "{{ geyser_config_path }}"
+        owner: solv
+        group: solv
+        mode: "0644"
+      when: rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
