@@ -16,8 +16,9 @@
       - solana
       - solana-keygen
       - agave-validator
-      - bam
-      - bam-client
+      - solana-test-validator
+      - solana-faucet
+    include_perf_libs: true
     bucket_names:
       - slv
       - slv-asia
@@ -193,6 +194,75 @@
             that:
               - (found_bins.stdout_lines | select('match','.+') | list | length) > 0
             fail_msg: "No expected binaries were built. Check bam-client repo or expected_bins."
+
+        - name: Check for perf-libs directory or symlink
+          stat:
+            path: "{{ build_dir }}/target/release/perf-libs"
+          register: perf_libs_stat
+          when: include_perf_libs
+
+        - name: Find real perf-libs directory
+          shell: |
+            cd {{ build_dir }}/target/release
+            if [ -L perf-libs ]; then
+              readlink -f perf-libs
+            elif [ -d perf-libs ]; then
+              echo "{{ build_dir }}/target/release/perf-libs"
+            elif [ -d ../perf-libs ]; then
+              echo "{{ build_dir }}/target/perf-libs"
+            else
+              echo ""
+            fi
+          register: real_perf_dir
+          when: include_perf_libs
+          changed_when: false
+
+        - name: Build perf-libs if not found
+          shell: |
+            set -e
+            source $HOME/.cargo/env
+            if [ -f scripts/build-perf-libs.sh ]; then
+              ./scripts/build-perf-libs.sh
+            elif [ -f perf/build.sh ]; then
+              cd perf && ./build.sh
+            fi
+          args:
+            chdir: "{{ build_dir }}"
+            executable: /bin/bash
+          when: include_perf_libs and real_perf_dir.stdout == ""
+
+        - name: Re-check for perf-libs after build
+          shell: |
+            cd {{ build_dir }}/target/release
+            if [ -L perf-libs ]; then
+              readlink -f perf-libs
+            elif [ -d perf-libs ]; then
+              echo "{{ build_dir }}/target/release/perf-libs"
+            elif [ -d ../perf-libs ]; then
+              echo "{{ build_dir }}/target/perf-libs"
+            else
+              echo ""
+            fi
+          register: real_perf_dir_final
+          when: include_perf_libs and real_perf_dir.stdout == ""
+          changed_when: false
+
+        - name: Set final perf directory
+          set_fact:
+            perf_directory: "{{ real_perf_dir_final.stdout if real_perf_dir.stdout == '' else real_perf_dir.stdout }}"
+          when: include_perf_libs
+
+        - name: Stage perf-libs archive when available
+          shell: |
+            set -e
+            if [ -f "{{ perf_directory }}/solana-perf.tgz" ]; then
+              cp "{{ perf_directory }}/solana-perf.tgz" "{{ build_dir }}/dist/perf-libs.tar.gz"
+            elif [ "{{ perf_directory }}" != "" ]; then
+              tar -C "{{ perf_directory }}" -czf "{{ build_dir }}/dist/perf-libs.tar.gz" .
+            fi
+          args:
+            executable: /bin/bash
+          when: include_perf_libs and perf_directory is defined and perf_directory != ""
 
         - name: Create artifact archive
           shell: |

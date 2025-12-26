@@ -31,6 +31,13 @@
     ignore_missing_binaries: true
     bam_storage_prefix: "bam-client"
     bam_release_api_base: "https://api.github.com/repos/jito-labs/bam-client/releases/tags"
+    bam_expected_bins:
+      - solana
+      - solana-keygen
+      - agave-validator
+    bam_optional_bins:
+      - bam
+      - bam-client
 
   tasks:
     - name: Load versions.yml
@@ -300,7 +307,7 @@
         - name: Find BAM Client executables (expected names)
           shell: |
             set -e
-            find {{ release_dir }} -maxdepth 6 -type f \( -name 'solana' -o -name 'solana-keygen' -o -name 'agave-validator' -o -name 'bam' -o -name 'bam-client' \)
+            find {{ release_dir }} -maxdepth 6 -type f \( {% for n in bam_expected_bins + bam_optional_bins %}-name '{{ n }}'{% if not loop.last %} -o {% endif %}{% endfor %} \)
           register: bam_execs
           changed_when: false
 
@@ -330,12 +337,12 @@
             state: absent
       when: solana_cli_type == 'jito-bam'
 
-    - name: Ensure we have at least one binary
-      assert:
-        that:
-          - downloaded_bin_paths | default([]) | length > 0
-        fail_msg: >-
-          No binaries were staged. For jito-bam expected one of: solana, solana-keygen, agave-validator, bam, bam-client.
+        - name: Ensure we have at least one binary
+          assert:
+            that:
+              - downloaded_bin_paths | default([]) | length > 0
+            fail_msg: >-
+          No binaries were staged. For jito-bam expected one of: {{ (bam_expected_bins + bam_optional_bins) | join(', ') }}.
           Check the BAM artifact URL/contents or provide bam_client_asset_name.
 
     # ==== Jito-specific: Download and extract perf-libs ====
@@ -393,6 +400,46 @@
         path: "/tmp/{{ perf_libs_archive }}"
         state: absent
       when: solana_cli_type == "jito"
+
+    # ==== Jito-bam: use bundled perf-libs if present in the artifact ====
+    - name: Check for bundled perf-libs archive (Jito-bam only)
+      stat:
+        path: "{{ release_dir }}/{{ perf_libs_archive }}"
+      register: bam_perf_libs_stat
+      when: solana_cli_type == "jito-bam"
+
+    - name: Extract bundled perf-libs archive (Jito-bam only)
+      unarchive:
+        src: "{{ release_dir }}/{{ perf_libs_archive }}"
+        dest: "{{ release_dir }}/"
+        remote_src: yes
+        owner: solv
+        group: solv
+      when:
+        - solana_cli_type == "jito-bam"
+        - bam_perf_libs_stat.stat.exists
+
+    - name: Ensure perf-libs has proper permissions (Jito-bam only)
+      file:
+        path: "{{ perf_libs_dir }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+        recurse: yes
+      when:
+        - solana_cli_type == "jito-bam"
+        - bam_perf_libs_stat.stat.exists
+
+    - name: Create symlink for perf-libs in bin directory (Jito-bam only)
+      file:
+        src: "{{ perf_libs_dir }}"
+        dest: "{{ bin_release_dir }}/perf-libs"
+        state: link
+        force: yes
+      when:
+        - solana_cli_type == "jito-bam"
+        - bam_perf_libs_stat.stat.exists
 
     - name: Point 'current' symlink to this release (atomic flip)
       file:
