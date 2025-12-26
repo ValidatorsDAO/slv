@@ -12,6 +12,7 @@
     artifact_name: "{{ bam_client_asset_name | default('bam-client-' ~ bam_version ~ '.tar.gz') }}"
     artifact_path: "/tmp/{{ artifact_name }}"
     storage_prefix: "bam-client"
+    force_build: false
     expected_bins:
       - solana
       - solana-keygen
@@ -129,7 +130,7 @@
 
     - name: Decide if upload is needed
       set_fact:
-        need_upload: "{{ (r2_checks.results | selectattr('status', 'equalto', 200) | list | length) != (bucket_names | length) }}"
+        need_upload: "{{ force_build or ((r2_checks.results | selectattr('status', 'equalto', 200) | list | length) != (bucket_names | length)) }}"
 
     - name: Show status
       debug:
@@ -137,7 +138,7 @@
           BAM Client version: {{ bam_version }}
           Artifact: {{ artifact_name }}
           R2 key: {{ r2_key }}
-          Need upload: {{ need_upload }}
+          Need upload: {{ need_upload }} (force_build={{ force_build }})
       when: need_upload
 
     - block:
