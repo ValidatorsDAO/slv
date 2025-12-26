@@ -1,13 +1,23 @@
 ---
-# Mirrors jito-labs/bam-client release artifacts to Cloudflare R2.
-# Usage: ansible-playbook -i inventory.yml bam-client-release-playbook.yml [-e "version=v3.1.4-bam-patch1"]
-- name: Mirror BAM Client release to R2
+# Builds (from jito-labs/bam-client) and uploads BAM Client artifacts to Cloudflare R2.
+# Usage: ansible-playbook -i inventory.yml bam-client-release-playbook.yml [-e "version=v3.1.4-bam"]
+- name: Build and upload BAM Client to R2
   hosts: all
   gather_facts: yes
   vars:
     bam_version: "{{ version | default('') }}"
     bam_releases_url: "https://api.github.com/repos/jito-labs/bam-client/releases"
+    bam_repo_url: "https://github.com/jito-labs/bam-client.git"
+    build_dir: "/tmp/bam-client-build-{{ bam_version | default('latest') }}"
+    artifact_name: "{{ bam_client_asset_name | default('bam-client-' ~ bam_version ~ '.tar.gz') }}"
+    artifact_path: "/tmp/{{ artifact_name }}"
     storage_prefix: "bam-client"
+    expected_bins:
+      - solana
+      - solana-keygen
+      - agave-validator
+      - bam
+      - bam-client
     bucket_names:
       - slv
       - slv-asia
@@ -29,9 +39,38 @@
         name:
           - curl
           - jq
+          - git
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - libclang-dev
+          - cmake
+          - protobuf-compiler
         state: present
         update_cache: yes
       when: ansible_os_family == "Debian"
+
+    - name: Check if Rust is installed
+      command: rustc --version
+      register: rust_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Install Rust if not present
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+      args:
+        executable: /bin/bash
+      when: rust_check.rc != 0
+
+    - name: Ensure Rust is in PATH
+      lineinfile:
+        path: ~/.bashrc
+        line: 'source $HOME/.cargo/env'
+        create: yes
+      when: rust_check.rc != 0
 
     - name: Fetch latest BAM Client releases (when version is not provided)
       uri:
@@ -51,6 +90,7 @@
         url: "https://api.github.com/repos/jito-labs/bam-client/releases/tags/{{ bam_version }}"
         method: GET
         return_content: yes
+        status_code: [200, 404]
       register: bam_release_by_tag
       when: bam_version != ''
 
@@ -59,24 +99,21 @@
         bam_release: "{{ bam_release_by_tag.json | default({}) }}"
       when: bam_version != ''
 
-    - name: Extract release metadata
+    - name: Set BAM Client version from release data
       set_fact:
         bam_version: "{{ bam_release.tag_name | default(bam_version) }}"
-        asset_name: "{{ (bam_release.assets | default([]) | first | default({})).name | default('') }}"
-        asset_url: "{{ (bam_release.assets | default([]) | first | default({})).browser_download_url | default('') }}"
-        download_path: "/tmp/{{ (bam_release.assets | default([]) | first | default({})).name | default('bam-client.tar.gz') }}"
 
-    - name: Validate release metadata
+    - name: Validate version is set
       assert:
         that:
           - bam_version != ''
-          - asset_name != ''
-          - asset_url != ''
-        fail_msg: "Failed to determine BAM Client version or asset info"
+        fail_msg: "Failed to determine BAM Client version"
 
-    - name: Build R2 object key
+    - name: Compute artifact names and R2 key
       set_fact:
-        r2_key: "{{ storage_prefix }}/{{ bam_version }}/{{ asset_name }}"
+        artifact_name: "{{ bam_client_asset_name | default('bam-client-' ~ bam_version ~ '.tar.gz') }}"
+        artifact_path: "/tmp/{{ bam_client_asset_name | default('bam-client-' ~ bam_version ~ '.tar.gz') }}"
+        r2_key: "{{ storage_prefix }}/{{ bam_version }}/{{ bam_client_asset_name | default('bam-client-' ~ bam_version ~ '.tar.gz') }}"
 
     - name: Check artifact existence in R2 buckets
       uri:
@@ -97,28 +134,84 @@
       debug:
         msg: |
           BAM Client version: {{ bam_version }}
-          Asset: {{ asset_name }}
+          Artifact: {{ artifact_name }}
           R2 key: {{ r2_key }}
           Need upload: {{ need_upload }}
-
-    - name: Download BAM Client asset
-      get_url:
-        url: "{{ asset_url }}"
-        dest: "{{ download_path }}"
-        mode: '0644'
       when: need_upload
 
-    - name: Upload asset to R2 buckets
-      shell: |
-        for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
-          curl -s -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/{{ r2_key }}" \
-            -H "Authorization: Bearer {{ cloudflare_api_token }}" \
-            -H "Content-Type: application/gzip" \
-            --data-binary "@{{ download_path }}"
-        done
-      args:
-        executable: /bin/bash
+    - block:
+        - name: Clean up previous build directory if exists
+          file:
+            path: "{{ build_dir }}"
+            state: absent
+
+        - name: Clone bam-client repository
+          git:
+            repo: "{{ bam_repo_url }}"
+            dest: "{{ build_dir }}"
+            version: "{{ bam_version }}"
+            recursive: yes
+            force: yes
+
+        - name: Build BAM Client binaries
+          shell: |
+            set -e
+            source $HOME/.cargo/env
+            cargo build --release --locked
+          args:
+            chdir: "{{ build_dir }}"
+            executable: /bin/bash
+          environment:
+            RUST_BACKTRACE: 1
+
+        - name: Ensure dist directory exists
+          file:
+            path: "{{ build_dir }}/dist"
+            state: directory
+
+        - name: Collect expected binaries
+          shell: |
+            set -e
+            for name in {{ expected_bins | join(' ') }}; do
+              if [ -f "{{ build_dir }}/target/release/${name}" ]; then
+                echo "{{ build_dir }}/target/release/${name}"
+              fi
+            done
+          register: found_bins
+          changed_when: false
+
+        - name: Stage binaries for packaging
+          copy:
+            src: "{{ item }}"
+            dest: "{{ build_dir }}/dist/{{ item | basename }}"
+            remote_src: yes
+            mode: "0755"
+          loop: "{{ found_bins.stdout_lines | select('match','.+') | list }}"
+
+        - name: Ensure we have at least one staged binary
+          assert:
+            that:
+              - (found_bins.stdout_lines | select('match','.+') | list | length) > 0
+            fail_msg: "No expected binaries were built. Check bam-client repo or expected_bins."
+
+        - name: Create artifact archive
+          shell: |
+            set -e
+            tar -C "{{ build_dir }}/dist" -czf "{{ artifact_path }}" .
+          args:
+            executable: /bin/bash
+
+        - name: Upload artifact to R2 buckets
+          shell: |
+            for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+              curl -s -X PUT \
+                "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/{{ r2_key }}" \
+                -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+                -H "Content-Type: application/gzip" \
+                --data-binary "@{{ artifact_path }}"
+            done
+          args:
+            executable: /bin/bash
       when: need_upload
 
     - name: Update latest.txt in both buckets
@@ -145,7 +238,7 @@
         body:
           embeds:
             - title: "📦 New/Updated BAM Client release"
-              description: "Mirrored {{ asset_name }} to R2"
+              description: "Built and uploaded {{ artifact_name }} to R2"
               color: 1127128
               fields:
                 - name: "Version"
@@ -158,12 +251,13 @@
         status_code: [200, 204]
       when: need_upload and discord_webhook_url != ''
 
-    - name: Cleanup downloaded files
+    - name: Cleanup build artifacts
       file:
         path: "{{ item }}"
         state: absent
       loop:
-        - "{{ download_path }}"
+        - "{{ build_dir }}"
+        - "{{ artifact_path }}"
         - /tmp/bam-client-latest.txt
       when: need_upload
 
@@ -171,7 +265,7 @@
       debug:
         msg: |
           {% if need_upload %}
-          Successfully mirrored BAM Client {{ bam_version }} to R2.
+          Built and uploaded BAM Client {{ bam_version }} to R2.
           {% else %}
           All BAM Client artifacts for {{ bam_version }} already exist in all buckets. No action taken.
           {% endif %}

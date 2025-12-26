@@ -73,6 +73,7 @@ export interface CmnMainnetValidatorType {
   version_agave: string
   version_firedancer: string
   version_jito: string
+  version_jito_bam: string
   allowed_ssh_ips: string[]
   allowed_ips: string[]
 }
