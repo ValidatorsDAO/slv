@@ -337,11 +337,11 @@
             state: absent
       when: solana_cli_type == 'jito-bam'
 
-        - name: Ensure we have at least one binary
-          assert:
-            that:
-              - downloaded_bin_paths | default([]) | length > 0
-            fail_msg: >-
+    - name: Ensure we have at least one binary
+      assert:
+        that:
+          - downloaded_bin_paths | default([]) | length > 0
+        fail_msg: >-
           No binaries were staged. For jito-bam expected one of: {{ (bam_expected_bins + bam_optional_bins) | join(', ') }}.
           Check the BAM artifact URL/contents or provide bam_client_asset_name.
 
