@@ -6,7 +6,7 @@
 
     mirrors:
       default:
-        archive: "http://nl.archive.ubuntu.com/ubuntu/"
+        archive: "http://archive.ubuntu.com/ubuntu/"
         security: "http://security.ubuntu.com/ubuntu/"
       tokyo:
         archive: "http://ftp.jaist.ac.jp/pub/Linux/ubuntu/"

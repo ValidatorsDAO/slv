@@ -1,0 +1,177 @@
+---
+# Mirrors jito-labs/bam-client release artifacts to Cloudflare R2.
+# Usage: ansible-playbook -i inventory.yml bam-client-release-playbook.yml [-e "version=v3.1.4-bam-patch1"]
+- name: Mirror BAM Client release to R2
+  hosts: all
+  gather_facts: yes
+  vars:
+    bam_version: "{{ version | default('') }}"
+    bam_releases_url: "https://api.github.com/repos/jito-labs/bam-client/releases"
+    storage_prefix: "bam-client"
+    bucket_names:
+      - slv
+      - slv-asia
+    cloudflare_account_id: "{{ lookup('env', 'CLOUDFLARE_ACCOUNT_ID') | default(lookup('ini', 'CLOUDFLARE_ACCOUNT_ID file=.env type=properties default='''), true) }}"
+    cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') | default(lookup('ini', 'CLOUDFLARE_API_TOKEN file=.env type=properties default='''), true) }}"
+    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') | default(lookup('ini', 'DISCORD_WEBHOOK_URL file=.env type=properties default='''), true) }}"
+
+  tasks:
+    - name: Validate required environment variables
+      assert:
+        that:
+          - cloudflare_account_id != ''
+          - cloudflare_api_token != ''
+        fail_msg: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set"
+
+    - name: Install dependencies (Debian/Ubuntu)
+      become: yes
+      apt:
+        name:
+          - curl
+          - jq
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Fetch latest BAM Client releases (when version is not provided)
+      uri:
+        url: "{{ bam_releases_url }}"
+        method: GET
+        return_content: yes
+      register: bam_release_list
+      when: bam_version == ''
+
+    - name: Select latest stable release
+      set_fact:
+        bam_release: "{{ (bam_release_list.json | selectattr('draft', 'equalto', false) | selectattr('prerelease', 'equalto', false) | list)[0] | default({}) }}"
+      when: bam_version == ''
+
+    - name: Fetch release by tag (when version is provided)
+      uri:
+        url: "https://api.github.com/repos/jito-labs/bam-client/releases/tags/{{ bam_version }}"
+        method: GET
+        return_content: yes
+      register: bam_release_by_tag
+      when: bam_version != ''
+
+    - name: Use tagged release details
+      set_fact:
+        bam_release: "{{ bam_release_by_tag.json | default({}) }}"
+      when: bam_version != ''
+
+    - name: Extract release metadata
+      set_fact:
+        bam_version: "{{ bam_release.tag_name | default(bam_version) }}"
+        asset_name: "{{ (bam_release.assets | default([]) | first | default({})).name | default('') }}"
+        asset_url: "{{ (bam_release.assets | default([]) | first | default({})).browser_download_url | default('') }}"
+        download_path: "/tmp/{{ (bam_release.assets | default([]) | first | default({})).name | default('bam-client.tar.gz') }}"
+
+    - name: Validate release metadata
+      assert:
+        that:
+          - bam_version != ''
+          - asset_name != ''
+          - asset_url != ''
+        fail_msg: "Failed to determine BAM Client version or asset info"
+
+    - name: Build R2 object key
+      set_fact:
+        r2_key: "{{ storage_prefix }}/{{ bam_version }}/{{ asset_name }}"
+
+    - name: Check artifact existence in R2 buckets
+      uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/{{ item }}/objects/{{ r2_key }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+        status_code: [200, 404]
+      register: r2_checks
+      loop: "{{ bucket_names }}"
+      changed_when: false
+
+    - name: Decide if upload is needed
+      set_fact:
+        need_upload: "{{ (r2_checks.results | selectattr('status', 'equalto', 200) | list | length) != (bucket_names | length) }}"
+
+    - name: Show status
+      debug:
+        msg: |
+          BAM Client version: {{ bam_version }}
+          Asset: {{ asset_name }}
+          R2 key: {{ r2_key }}
+          Need upload: {{ need_upload }}
+
+    - name: Download BAM Client asset
+      get_url:
+        url: "{{ asset_url }}"
+        dest: "{{ download_path }}"
+        mode: '0644'
+      when: need_upload
+
+    - name: Upload asset to R2 buckets
+      shell: |
+        for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+          curl -s -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/{{ r2_key }}" \
+            -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+            -H "Content-Type: application/gzip" \
+            --data-binary "@{{ download_path }}"
+        done
+      args:
+        executable: /bin/bash
+      when: need_upload
+
+    - name: Update latest.txt in both buckets
+      shell: |
+        echo "{{ bam_version }}" > /tmp/bam-client-latest.txt
+        for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+          curl -s -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/{{ storage_prefix }}/latest.txt" \
+            -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+            -H "Content-Type: text/plain" \
+            --data-binary "@/tmp/bam-client-latest.txt"
+        done
+      args:
+        executable: /bin/bash
+      when: need_upload
+
+    - name: Send Discord notification
+      uri:
+        url: "{{ discord_webhook_url }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          embeds:
+            - title: "📦 New/Updated BAM Client release"
+              description: "Mirrored {{ asset_name }} to R2"
+              color: 1127128
+              fields:
+                - name: "Version"
+                  value: "{{ bam_version }}"
+                  inline: true
+                - name: "Download"
+                  value: "https://storage.slv.dev/{{ r2_key }}"
+                  inline: false
+              timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: need_upload and discord_webhook_url != ''
+      status_code: [200, 204]
+
+    - name: Cleanup downloaded files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ download_path }}"
+        - /tmp/bam-client-latest.txt
+      when: need_upload
+
+    - name: Final message
+      debug:
+        msg: |
+          {% if need_upload %}
+          Successfully mirrored BAM Client {{ bam_version }} to R2.
+          {% else %}
+          All BAM Client artifacts for {{ bam_version }} already exist in all buckets. No action taken.
+          {% endif %}

@@ -1,0 +1,198 @@
+---
+# Mirrors rpcpool/yellowstone-faithful release artifacts to Cloudflare R2.
+# Usage: ansible-playbook -i inventory.yml yellowstone-faithful-release-playbook.yml [-e "version=v0.7.14"]
+- name: Mirror Yellowstone Faithful release to R2
+  hosts: all
+  gather_facts: yes
+  vars:
+    faithful_version: "{{ version | default('') }}"
+    faithful_releases_url: "https://api.github.com/repos/rpcpool/yellowstone-faithful/releases"
+    storage_prefix: "yellowstone-faithful"
+    bucket_names:
+      - slv
+      - slv-asia
+    cloudflare_account_id: "{{ lookup('env', 'CLOUDFLARE_ACCOUNT_ID') | default(lookup('ini', 'CLOUDFLARE_ACCOUNT_ID file=.env type=properties default='''), true) }}"
+    cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') | default(lookup('ini', 'CLOUDFLARE_API_TOKEN file=.env type=properties default='''), true) }}"
+    discord_webhook_url: "{{ lookup('env', 'DISCORD_WEBHOOK_URL') | default(lookup('ini', 'DISCORD_WEBHOOK_URL file=.env type=properties default='''), true) }}"
+
+  tasks:
+    - name: Validate required environment variables
+      assert:
+        that:
+          - cloudflare_account_id != ''
+          - cloudflare_api_token != ''
+        fail_msg: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set"
+
+    - name: Install dependencies (Debian/Ubuntu)
+      become: yes
+      apt:
+        name:
+          - curl
+          - jq
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Fetch latest releases (when version is not provided)
+      uri:
+        url: "{{ faithful_releases_url }}"
+        method: GET
+        return_content: yes
+      register: faithful_release_list
+      when: faithful_version == ''
+
+    - name: Select latest stable release
+      set_fact:
+        faithful_release: "{{ (faithful_release_list.json | selectattr('draft', 'equalto', false) | selectattr('prerelease', 'equalto', false) | list)[0] | default({}) }}"
+      when: faithful_version == ''
+
+    - name: Fetch release by tag (when version is provided)
+      uri:
+        url: "https://api.github.com/repos/rpcpool/yellowstone-faithful/releases/tags/{{ faithful_version }}"
+        method: GET
+        return_content: yes
+      register: faithful_release_by_tag
+      when: faithful_version != ''
+
+    - name: Use tagged release details
+      set_fact:
+        faithful_release: "{{ faithful_release_by_tag.json | default({}) }}"
+      when: faithful_version != ''
+
+    - name: Extract release metadata
+      set_fact:
+        faithful_version: "{{ faithful_release.tag_name | default(faithful_version) }}"
+
+    - name: Build asset list
+      set_fact:
+        faithful_assets: "{{ faithful_assets | default([]) + [ {'name': item.name, 'url': item.browser_download_url, 'content_type': item.content_type | default('application/octet-stream')} ] }}"
+      loop: "{{ faithful_release.assets | default([]) }}"
+
+    - name: Validate release metadata
+      assert:
+        that:
+          - faithful_version != ''
+          - faithful_assets | length > 0
+        fail_msg: "Failed to determine Yellowstone Faithful version or asset info"
+
+    - name: Initialize missing assets list
+      set_fact:
+        missing_assets: []
+
+    - name: Check artifact existence in R2 buckets
+      vars:
+        asset_name: "{{ item.name }}"
+      block:
+        - name: Check asset in buckets
+          uri:
+            url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/{{ bucket_name }}/objects/{{ storage_prefix }}/{{ faithful_version }}/{{ asset_name }}"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ cloudflare_api_token }}"
+            status_code: [200, 404]
+          loop: "{{ bucket_names }}"
+          loop_control:
+            loop_var: bucket_name
+          register: asset_checks
+          changed_when: false
+
+        - name: Mark asset missing if any bucket lacks it
+          set_fact:
+            missing_assets: "{{ missing_assets + [asset_name] }}"
+          when: (asset_checks.results | selectattr('status', 'equalto', 200) | list | length) != (bucket_names | length)
+      loop: "{{ faithful_assets }}"
+
+    - name: Decide if upload is needed
+      set_fact:
+        need_upload: "{{ missing_assets | length > 0 }}"
+
+    - name: Show status
+      debug:
+        msg: |
+          Yellowstone Faithful version: {{ faithful_version }}
+          Assets: {{ faithful_assets | map(attribute='name') | list }}
+          Missing assets: {{ missing_assets }}
+          Need upload: {{ need_upload }}
+
+    - name: Build asset lookup map
+      set_fact:
+        faithful_asset_map: "{{ faithful_asset_map | default({}) | combine({ item.name: item }) }}"
+      loop: "{{ faithful_assets }}"
+
+    - name: Build asset URL list
+      set_fact:
+        faithful_asset_urls: "{{ faithful_assets | map(attribute='name') | map('regex_replace', '^(.*)$', 'https://storage.slv.dev/' ~ storage_prefix ~ '/' ~ faithful_version ~ '/\\1') | list }}"
+
+    - name: Download missing assets
+      get_url:
+        url: "{{ faithful_asset_map[item].url }}"
+        dest: "/tmp/{{ item }}"
+        mode: '0644'
+      loop: "{{ missing_assets }}"
+      when: need_upload
+
+    - name: Upload missing assets to R2 buckets
+      shell: |
+        ctype="{{ faithful_asset_map[item.1].content_type | default('application/octet-stream') }}"
+        curl -s -X PUT \
+          "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/{{ item.0 }}/objects/{{ storage_prefix }}/{{ faithful_version }}/{{ item.1 }}" \
+          -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+          -H "Content-Type: ${ctype}" \
+          --data-binary "@/tmp/{{ item.1 }}"
+      args:
+        executable: /bin/bash
+      loop: "{{ bucket_names | product(missing_assets) | list }}"
+      when: need_upload
+
+    - name: Update latest.txt in both buckets
+      shell: |
+        echo "{{ faithful_version }}" > /tmp/yellowstone-faithful-latest.txt
+        for BUCKET_NAME in {{ bucket_names | join(' ') }}; do
+          curl -s -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/r2/buckets/${BUCKET_NAME}/objects/{{ storage_prefix }}/latest.txt" \
+            -H "Authorization: Bearer {{ cloudflare_api_token }}" \
+            -H "Content-Type: text/plain" \
+            --data-binary "@/tmp/yellowstone-faithful-latest.txt"
+        done
+      args:
+        executable: /bin/bash
+      when: need_upload
+
+    - name: Send Discord notification
+      uri:
+        url: "{{ discord_webhook_url }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          embeds:
+            - title: "🌠 New/Updated Yellowstone Faithful"
+              description: "Mirrored assets for {{ faithful_version }}"
+              color: 56063
+              fields:
+                - name: "Version"
+                  value: "{{ faithful_version }}"
+                  inline: true
+                - name: "Assets"
+                  value: "{{ faithful_asset_urls | join('\n') }}"
+                  inline: false
+              timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: need_upload and discord_webhook_url != ''
+      status_code: [200, 204]
+
+    - name: Clean up downloaded files
+      file:
+        path: "/tmp/{{ item }}"
+        state: absent
+      loop: "{{ missing_assets + ['yellowstone-faithful-latest.txt'] }}"
+      when: need_upload
+
+    - name: Final message
+      debug:
+        msg: |
+          {% if need_upload %}
+          Successfully mirrored Yellowstone Faithful {{ faithful_version }} to R2.
+          {% else %}
+          All Yellowstone Faithful assets for {{ faithful_version }} already exist in all buckets. No action taken.
+          {% endif %}

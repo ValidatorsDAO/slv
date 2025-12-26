@@ -1,0 +1,172 @@
+name: Update Yellowstone Faithful
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/update-yellowstone-faithful.yml"
+
+jobs:
+  mirror-faithful:
+    name: Mirror Yellowstone Faithful release
+    runs-on: [self-hosted]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl jq
+
+      - name: Get latest Yellowstone Faithful release metadata
+        id: get_release
+        run: |
+          set -euo pipefail
+          RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/rpcpool/yellowstone-faithful/releases | jq 'map(select(.draft == false and .prerelease == false))[0]' || true)
+          VERSION=$(echo "${RELEASE_JSON}" | jq -r '.tag_name // empty')
+          ASSETS_JSON=$(echo "${RELEASE_JSON}" | jq -c '[.assets[] | {name:.name, url:.browser_download_url, content_type:(.content_type // "application/octet-stream")}]')
+
+          echo "Latest Yellowstone Faithful release: ${VERSION}"
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "null" ] || [ -z "${ASSETS_JSON}" ] || [ "${ASSETS_JSON}" = "[]" ]; then
+            echo "version=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "assets=${ASSETS_JSON}" >> $GITHUB_OUTPUT
+
+      - name: Check which artifacts already exist in R2 (slv & slv-asia)
+        id: check_r2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_release.outputs.version }}"
+          ASSETS_JSON='${{ steps.get_release.outputs.assets }}'
+
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "none" ] || [ -z "${ASSETS_JSON}" ] || [ "${ASSETS_JSON}" = "[]" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          BUCKETS=("slv" "slv-asia")
+          need_upload=false
+          missing_assets=()
+
+          for row in $(echo "${ASSETS_JSON}" | jq -c '.[]'); do
+            name=$(echo "${row}" | jq -r '.name')
+            key="yellowstone-faithful/${VERSION}/${name}"
+            exists_all=true
+
+            for b in "${BUCKETS[@]}"; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" -X GET \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${b}/objects/${key}" \
+                -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+              echo "Check ${b} -> ${key}: ${code}"
+              if [ "$code" != "200" ]; then
+                exists_all=false
+              fi
+            done
+
+            if [ "${exists_all}" = "false" ]; then
+              need_upload=true
+              missing_assets+=("${name}")
+            fi
+          done
+
+          missing_json=$(printf '%s\n' "${missing_assets[@]}" | jq -R . | jq -cs .)
+          echo "missing_assets=${missing_json}" >> $GITHUB_OUTPUT
+
+          if [ "${need_upload}" = "true" ]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+          else
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download missing assets
+        if: steps.check_r2.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          ASSETS_JSON='${{ steps.get_release.outputs.assets }}'
+          MISSING_JSON='${{ steps.check_r2.outputs.missing_assets }}'
+
+          echo "${ASSETS_JSON}" | jq -r --argjson missing "${MISSING_JSON}" '.[] | select(.name as $n | $missing | index($n)) | [.name, .url, .content_type] | @tsv' | while IFS=$'\t' read -r name url ctype; do
+            echo "Downloading ${name} ..."
+            curl -fL "${url}" -o "${name}"
+            printf "%s\t%s\n" "${name}" "${ctype:-application/octet-stream}" >> assets_meta.txt
+          done
+
+          ls -lh
+
+      - name: Upload to R2 (mirror to slv & slv-asia)
+        if: steps.check_r2.outputs.skip == 'false'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BUCKET_NAMES: "slv slv-asia"
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_release.outputs.version }}"
+
+          if [ ! -f assets_meta.txt ]; then
+            echo "assets_meta.txt is missing; nothing to upload."
+            exit 1
+          fi
+
+          api_put() {
+            local bucket="$1"; local key="$2"; local file="$3"; local ctype="$4"
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${key}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: ${ctype}" \
+              --data-binary "@${file}")
+            echo "PUT s3://${bucket}/${key} -> HTTP ${code}"
+            [ "$code" = "200" ] || { echo "Upload failed: s3://${bucket}/${key}"; exit 1; }
+          }
+
+          while IFS=$'\t' read -r name ctype; do
+            key="yellowstone-faithful/${VERSION}/${name}"
+            for BUCKET_NAME in ${BUCKET_NAMES}; do
+              echo "=== Uploading ${name} to bucket: ${BUCKET_NAME} ==="
+              api_put "${BUCKET_NAME}" "${key}" "${name}" "${ctype:-application/octet-stream}"
+              echo "${VERSION}" > latest.txt
+              api_put "${BUCKET_NAME}" "yellowstone-faithful/latest.txt" "latest.txt" "text/plain"
+            done
+          done < assets_meta.txt
+
+      - name: Send Discord notification (only if something uploaded)
+        if: steps.check_r2.outputs.skip == 'false'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_release.outputs.version }}"
+          ASSETS_JSON='${{ steps.get_release.outputs.assets }}'
+          ASSET_LINKS=$(echo "${ASSETS_JSON}" | jq -r --arg v "${VERSION}" '.[] | "https://storage.slv.dev/yellowstone-faithful/" + $v + "/" + .name' | paste -sd '\\n' -)
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🌠 New/Updated Yellowstone Faithful\",
+                \"description\": \"Mirrored assets for ${VERSION}\",
+                \"color\": 56063,
+                \"fields\": [
+                  { \"name\": \"Version\", \"value\": \"${VERSION}\", \"inline\": true },
+                  { \"name\": \"Assets\", \"value\": \"${ASSET_LINKS}\", \"inline\": false }
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
+              }]
+            }" \
+            "${DISCORD_WEBHOOK_URL}"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f latest.txt assets_meta.txt faithful-cli_* *.exe || true

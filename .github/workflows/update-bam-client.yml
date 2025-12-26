@@ -1,0 +1,147 @@
+name: Update BAM Client
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/update-bam-client.yml"
+
+jobs:
+  mirror-bam-client:
+    name: Mirror BAM Client release
+    runs-on: [self-hosted]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl jq
+
+      - name: Get latest BAM Client release metadata
+        id: get_release
+        run: |
+          set -euo pipefail
+          RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/jito-labs/bam-client/releases | jq 'map(select(.draft == false and .prerelease == false))[0]' || true)
+          VERSION=$(echo "${RELEASE_JSON}" | jq -r '.tag_name // empty')
+          ASSET_NAME=$(echo "${RELEASE_JSON}" | jq -r '.assets[0].name // empty')
+          ASSET_URL=$(echo "${RELEASE_JSON}" | jq -r '.assets[0].browser_download_url // empty')
+
+          echo "Latest BAM Client release: ${VERSION} (${ASSET_NAME})"
+
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "null" ] || [ -z "${ASSET_URL}" ]; then
+            echo "version=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "asset_name=${ASSET_NAME}" >> $GITHUB_OUTPUT
+          echo "asset_url=${ASSET_URL}" >> $GITHUB_OUTPUT
+
+      - name: Check which artifact already exists in R2 (slv & slv-asia)
+        id: check_r2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_release.outputs.version }}"
+          ASSET_NAME="${{ steps.get_release.outputs.asset_name }}"
+
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "none" ] || [ -z "${ASSET_NAME}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          BUCKETS=("slv" "slv-asia")
+          KEY="bam-client/${VERSION}/${ASSET_NAME}"
+          need_upload=false
+
+          for b in "${BUCKETS[@]}"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X GET \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${b}/objects/${KEY}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+            echo "Check $b -> ${KEY}: ${code}"
+            [ "$code" = "200" ] || need_upload=true
+          done
+
+          echo "artifact_key=${KEY}" >> $GITHUB_OUTPUT
+
+          if [ "$need_upload" = "true" ]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+          else
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download BAM Client asset
+        if: steps.check_r2.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          curl -fL "${{ steps.get_release.outputs.asset_url }}" -o "${{ steps.get_release.outputs.asset_name }}"
+          ls -lh "${{ steps.get_release.outputs.asset_name }}"
+
+      - name: Upload to R2 (mirror to slv & slv-asia)
+        if: steps.check_r2.outputs.skip == 'false'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BUCKET_NAMES: "slv slv-asia"
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_release.outputs.version }}"
+          ASSET_NAME="${{ steps.get_release.outputs.asset_name }}"
+          KEY="${{ steps.check_r2.outputs.artifact_key }}"
+
+          api_put() {
+            local bucket="$1"; local key="$2"; local file="$3"; local ctype="$4"
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${key}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: ${ctype}" \
+              --data-binary "@${file}")
+            echo "PUT s3://${bucket}/${key} -> HTTP ${code}"
+            [ "$code" = "200" ] || { echo "Upload failed: s3://${bucket}/${key}"; exit 1; }
+          }
+
+          for BUCKET_NAME in ${BUCKET_NAMES}; do
+            echo "=== Uploading to bucket: ${BUCKET_NAME} ==="
+            api_put "${BUCKET_NAME}" "${KEY}" "${ASSET_NAME}" "application/gzip"
+
+            echo "${VERSION}" > latest.txt
+            api_put "${BUCKET_NAME}" "bam-client/latest.txt" "latest.txt" "text/plain"
+          done
+
+      - name: Send Discord notification (only if something uploaded)
+        if: steps.check_r2.outputs.skip == 'false'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_release.outputs.version }}"
+          ASSET_NAME="${{ steps.get_release.outputs.asset_name }}"
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"📦 New/Updated BAM Client release\",
+                \"description\": \"Mirrored ${ASSET_NAME}\",
+                \"color\": 1127128,
+                \"fields\": [
+                  { \"name\": \"Version\", \"value\": \"${VERSION}\", \"inline\": true },
+                  { \"name\": \"Download\", \"value\": \"https://storage.slv.dev/bam-client/${VERSION}/${ASSET_NAME}\", \"inline\": false }
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
+              }]
+            }" \
+            "${DISCORD_WEBHOOK_URL}"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f "${{ steps.get_release.outputs.asset_name }}" latest.txt || true
