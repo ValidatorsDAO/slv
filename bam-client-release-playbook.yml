@@ -155,8 +155,8 @@
                   value: "https://storage.slv.dev/{{ r2_key }}"
                   inline: false
               timestamp: "{{ ansible_date_time.iso8601 }}"
+        status_code: [200, 204]
       when: need_upload and discord_webhook_url != ''
-      status_code: [200, 204]
 
     - name: Cleanup downloaded files
       file:
