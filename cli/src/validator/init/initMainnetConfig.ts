@@ -15,8 +15,6 @@ import type { ValidatorMainnetConfig } from '@cmn/types/config.ts'
 import { DEFAULT_RPC_ADDRESS, SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { addMainnetInventory } from '/lib/addMainnetInventory.ts'
 import { updateMainnetInventory } from '/lib/updateMainnetInventory.ts'
-import { updateAllowedSshIps } from '/lib/config/updateAllowedSshIps.ts'
-import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import {
   findNearestJitoRegion,
   type RegionLatency,
@@ -31,7 +29,7 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
       name: 'validatorType',
       message: 'Select Validator Type',
       type: Select,
-      options: SolanaNodeTypes,
+      options: [...SolanaNodeTypes],
       default: 'firedancer-jito',
     },
   ])

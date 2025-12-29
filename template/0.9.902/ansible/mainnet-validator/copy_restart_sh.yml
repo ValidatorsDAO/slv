@@ -7,7 +7,7 @@
       become: yes
       become_user: solv
       template:
-        src: '~/.slv/mainnet-validator/restart.sh.j2'
+        src: "~/.slv/cmn/restart.sh.j2"
         dest: '/home/solv/restarter.sh'
         owner: solv
         group: solv

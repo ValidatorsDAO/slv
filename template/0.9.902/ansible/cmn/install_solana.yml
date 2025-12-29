@@ -7,7 +7,7 @@
     # validator_type can be: agave, jito, firedancer-agave, or firedancer-jito
     # If not provided, defaults to "agave"
     # Default values if not provided via inventory or -e
-    default_version: "v3.0.7"
+    default_version: "v3.0.12"
     default_region: "frankfurt"        # default region. use "tokyo" or "singapore" to switch to storage-asia
 
     # These are computed later via set_fact (don't change here)
@@ -123,7 +123,7 @@
         version: "{{ default_version }}"
       when:
         - (version is not defined) or (version == '')
-        - solana_cli_type in ['agave', 'jito']
+        - solana_cli_type in ['agave', 'jito', 'jito-bam']
 
     - name: Fetch latest BAM Client version from storage when needed
       uri:
@@ -277,6 +277,8 @@
             mode: "0644"
             force: yes
             timeout: 120
+            headers:
+              Cache-Control: "no-cache"
           register: bam_download
 
         - name: Detect whether BAM artifact is an archive
@@ -325,8 +327,10 @@
           set_fact:
             downloaded_bin_paths: >-
               {{
-                (bam_execs.stdout_lines | select('match','.+') | map('basename') | list)
-                | map('regex_replace', '^(.*)$', bin_release_dir ~ '/\\1')
+                bam_execs.stdout_lines
+                | select('match','.+')
+                | map('basename')
+                | map('regex_replace', '^', bin_release_dir ~ '/')
                 | list
               }}
             downloaded_bins: "{{ bam_execs.stdout_lines | select('match','.+') | map('basename') | list }}"
@@ -345,6 +349,15 @@
           No binaries were staged. For jito-bam expected one of: {{ (bam_expected_bins + bam_optional_bins) | join(', ') }}.
           Check the BAM artifact URL/contents or provide bam_client_asset_name.
 
+    - name: Ensure perf-libs directory exists (Jito/Jito-bam)
+      file:
+        path: "{{ perf_libs_dir }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      when: solana_cli_type in ["jito", "jito-bam"]
+
     # ==== Jito-specific: Download and extract perf-libs ====
     - name: Download perf-libs archive (Jito only)
       get_url:
@@ -362,7 +375,7 @@
     - name: Extract perf-libs archive (Jito only)
       unarchive:
         src: "/tmp/{{ perf_libs_archive }}"
-        dest: "{{ release_dir }}/"
+        dest: "{{ perf_libs_dir }}/"
         remote_src: yes
         owner: solv
         group: solv
@@ -411,7 +424,7 @@
     - name: Extract bundled perf-libs archive (Jito-bam only)
       unarchive:
         src: "{{ release_dir }}/{{ perf_libs_archive }}"
-        dest: "{{ release_dir }}/"
+        dest: "{{ perf_libs_dir }}/"
         remote_src: yes
         owner: solv
         group: solv

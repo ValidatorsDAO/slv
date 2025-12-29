@@ -16,7 +16,7 @@
         group: solv
       vars:
         vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
-      when: validator_type in ['agave', 'jito']
+      when: validator_type in ['agave', 'jito', 'jito-bam']
 
     - name: Update firedancer-config.toml from template
       template:

@@ -34,7 +34,7 @@
 - import_playbook: switch_off_identity.yml
   vars:
     off_host: "{{ source_host }}"
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'jito-bam']
 
 - import_playbook: switch_off_firedancer_identity.yml
   vars:
@@ -44,7 +44,7 @@
 - import_playbook: switch_on_identity.yml
   vars:
     on_host: "{{ target_host }}"
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'jito-bam']
 
 - import_playbook: switch_on_firedancer_identity.yml
   vars:

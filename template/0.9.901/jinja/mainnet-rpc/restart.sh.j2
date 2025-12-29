@@ -1,5 +1,0 @@
-sudo systemctl stop {{ service_name }}
-sudo rm -rf /mnt/snapshot/*
-sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -delete
-cd /mnt/snapshot && aria2c -x16 -s16 --force-sequential=true {{ snapshot_url | default('https://snapshots.avorio.network/mainnet-beta/snapshot.tar.bz2') }} {{ incremental_snapshot_url | default('https://snapshots.avorio.network/mainnet-beta/incremental-snapshot.tar.bz2') }}
-sudo systemctl start {{ service_name }}

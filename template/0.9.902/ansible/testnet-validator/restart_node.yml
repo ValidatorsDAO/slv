@@ -18,7 +18,7 @@
 
 
 - import_playbook: ../cmn/restart_solv.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'jito-bam']
 
 - import_playbook: stop_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']

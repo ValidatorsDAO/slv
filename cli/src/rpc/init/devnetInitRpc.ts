@@ -14,11 +14,10 @@ import { getInventoryPath } from '@cmn/constants/path.ts'
 import type { SolanaNodeType } from '@cmn/types/config.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { updateVersionsYml } from '/lib/config/updateVersionsYml.ts'
-import { updateAllowedSshIps } from '/lib/config/updateAllowedSshIps.ts'
-import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
 import { addMainnetRPCInventory } from '/lib/addMainnetRPCInventory.ts'
 import { updateMainnetRPCInventory } from '/lib/updateMainnetRPCInventory.ts'
+import { VERSION_RICHAT } from '@cmn/constants/version.ts'
 
 export const devnetInitRpc = async (sshOptions: SSHConnection) => {
   // const host = sshOptions.ip
@@ -57,6 +56,7 @@ export const devnetInitRpc = async (sshOptions: SSHConnection) => {
     name: identity_account,
     rpc_type: rpc_type as RpcType,
     port_rpc: 7211,
+    richat_version: VERSION_RICHAT,
     dynamic_port_range: '8000-8025',
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: 'ny',

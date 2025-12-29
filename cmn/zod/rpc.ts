@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi'
 import { RpcTypeArray } from '@cmn/zod/config.ts'
 import { JITO_BLOCK_ENGINE_REGIONS } from '@cmn/zod/jito.ts'
+import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 
 export const InitRPCParams = z.object({
   name: z
@@ -28,11 +29,13 @@ export const InitRPCParams = z.object({
   rpc_type: z
     .enum(RpcTypeArray)
     .openapi({ description: 'RPC type', example: 'Geyser gRPC' }),
-  solana_cli: z.string().openapi({
-    description: 'Solana CLI version',
-    example: 'jito',
-    enum: ['jito'],
-  }),
+  solana_cli: z
+    .enum(SolanaNodeTypes)
+    .openapi({
+      description: 'Solana CLI version',
+      example: 'jito',
+      enum: [...SolanaNodeTypes],
+    }),
   block_engine_region: JITO_BLOCK_ENGINE_REGIONS,
   port_rpc: z
     .number()

@@ -11,7 +11,7 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     level_flush = "WARNING"
 
 [rpc]
-    port = {{ rpc_port | default(8899) }}
+    port = {{ rpc_port | default(7211) }}
     {% if rpc_type == 'Geyser gRPC' %}
     full_api = true
     private = false

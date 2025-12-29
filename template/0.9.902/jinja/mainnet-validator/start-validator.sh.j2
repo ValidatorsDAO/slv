@@ -28,12 +28,15 @@ exec agave-validator \
 --no-port-check \
 --staked-nodes-overrides overrides.yml \
 --rpc-bind-address 0.0.0.0 \
-{% if validator_type == 'jito' %}
+{% if validator_type in ['jito', 'jito-bam'] %}
 --tip-payment-program-pubkey T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt \
 --tip-distribution-program-pubkey 4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7 \
---merkle-root-upload-authority GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib \
+--merkle-root-upload-authority 8F4jGUmxF36vQ6yabnsxX6AQVXdKBhs8kGSUuRKSg8Xt \
 --commission-bps {{ commission_bps | default(1000) }} \
---relayer-url {{ relayer_url | default("http://ny.mainnet.relayer.jito.wtf:8100") }} \
---block-engine-url {{ block_engine_url | default("https://mainnet.block-engine.jito.wtf") }} \
+--relayer-url {{ relayer_url | default("http://frankfurt.mainnet.relayer.jito.wtf:8100") }} \
+--block-engine-url {{ block_engine_url | default("https://frankfurt.block-engine.jito.wtf") }} \
 --shred-receiver-address {{ shred_receiver_address | default("141.98.216.96:1002") }} \
+{% endif %}
+{% if validator_type === 'jito-bam' %}
+--bam-url {{ bam_url | default("http://frankfurt.mainnet.bam.jito.wtf") }} \
 {% endif %}

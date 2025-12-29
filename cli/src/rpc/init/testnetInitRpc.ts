@@ -16,13 +16,12 @@ import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 import type { SolanaNodeType } from '@cmn/types/config.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { updateVersionsYml } from '/lib/config/updateVersionsYml.ts'
-import { updateAllowedSshIps } from '/lib/config/updateAllowedSshIps.ts'
-import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
 import { addMainnetRPCInventory } from '/lib/addMainnetRPCInventory.ts'
 import { updateMainnetRPCInventory } from '/lib/updateMainnetRPCInventory.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
+import { VERSION_RICHAT } from '@cmn/constants/version.ts'
 
 export const testnetInitRpc = async (sshOptions: SSHConnection) => {
   const host = sshOptions.ip
@@ -51,7 +50,7 @@ export const testnetInitRpc = async (sshOptions: SSHConnection) => {
       name: 'validatorType',
       message: 'Select Solana CLI',
       type: Select,
-      options: SolanaNodeTypes,
+      options: [...SolanaNodeTypes],
       default: 'jito',
     },
   ])
@@ -79,6 +78,7 @@ export const testnetInitRpc = async (sshOptions: SSHConnection) => {
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: getNearRegion.region,
     limit_ledger_size: 200000000,
+    richat_version: VERSION_RICHAT,
     shred_receiver_address: String(getNearRegion.info.shredReceiver),
   }
 

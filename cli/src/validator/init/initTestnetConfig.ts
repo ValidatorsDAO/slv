@@ -10,7 +10,6 @@ import { configRoot, getInventoryPath } from '@cmn/constants/path.ts'
 import { colors } from '@cliffy/colors'
 import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
 import { addInventory } from '/lib/addInventory.ts'
-import { exec } from '@elsoul/child-process'
 import denoJson from '/deno.json' with { type: 'json' }
 import { updateInventory } from '/lib/updateInventory.ts'
 import { Input, prompt, Select } from '@cliffy/prompt'
@@ -24,7 +23,7 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
       name: 'validatorType',
       message: 'Select Validator Type',
       type: Select,
-      options: SolanaNodeTypes,
+      options: [...SolanaNodeTypes],
       default: 'agave',
     },
   ])

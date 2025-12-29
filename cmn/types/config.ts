@@ -3,7 +3,6 @@ export type KeyDirType = 'rpc' | 'validator' | 'relayer' | 'shreadstream'
 export type NetworkType = 'mainnet' | 'devnet' | 'testnet'
 export type RpcType = 'Geyser gRPC' | 'Index RPC' | 'SendTx RPC' | 'Index RPC + gRPC'
 export type ValidatorTestnetType = 'firedancer' | 'agave'
-export type ValidatorMainnetType = 'jito' | 'firedancer'
 export type InventoryType =
   'testnet_validators' |
   'mainnet_validators' |
@@ -11,7 +10,20 @@ export type InventoryType =
   'devnet_rpcs' |
   'testnet_rpcs'
 
-export type SolanaNodeType = 'agave' | 'jito' | 'firedancer-agave' | 'firedancer-jito'
+export type SolanaNodeType =
+  | 'agave'
+  | 'jito'
+  | 'jito-bam'
+  | 'firedancer-agave'
+  | 'firedancer-jito'
+
+export const SolanaNodeTypes = [
+  'agave',
+  'jito',
+  'jito-bam',
+  'firedancer-agave',
+  'firedancer-jito',
+] as const
 
 export interface ValidatorTestnetConfig {
   ansible_user: string

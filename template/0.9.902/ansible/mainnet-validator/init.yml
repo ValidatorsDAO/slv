@@ -39,16 +39,15 @@
   when: validator_type in ['firedancer-agave', 'firedancer-jito']
 
 - import_playbook: setup_solv_service.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'jito-bam']
 
 - import_playbook: create-start-validator-sh.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'jito-bam']
 
 - import_playbook: wget_snapshot.yml
-  when: validator_type in ['jito', 'firedancer']
 
 - import_playbook: start_solv.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'jito-bam']
 
 - import_playbook: start_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']

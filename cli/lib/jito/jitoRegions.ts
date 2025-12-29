@@ -2,6 +2,7 @@ export interface JitoRegion {
   name: string
   emoji: string
   blockEngineUrl: string
+  bamUrl?: string
   shredReceiver?: string
   relayerUrl?: string
   ntpServer?: string
@@ -23,6 +24,7 @@ const mainnetRegions = new Map<string, JitoRegion>([
     name: 'Amsterdam',
     emoji: '🇳🇱',
     blockEngineUrl: 'https://amsterdam.mainnet.block-engine.jito.wtf',
+    bamUrl: 'http://amsterdam.mainnet.bam.jito.wtf',
     shredReceiver: '74.118.140.240:1002',
     relayerUrl: 'http://amsterdam.mainnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.amsterdam.jito.wtf',
@@ -39,6 +41,7 @@ const mainnetRegions = new Map<string, JitoRegion>([
     name: 'Frankfurt',
     emoji: '🇩🇪',
     blockEngineUrl: 'https://frankfurt.mainnet.block-engine.jito.wtf',
+    bamUrl: 'http://frankfurt.mainnet.bam.jito.wtf',
     shredReceiver: '64.130.50.14:1002',
     relayerUrl: 'http://frankfurt.mainnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.frankfurt.jito.wtf',
@@ -47,6 +50,7 @@ const mainnetRegions = new Map<string, JitoRegion>([
     name: 'London',
     emoji: '🇬🇧',
     blockEngineUrl: 'https://london.mainnet.block-engine.jito.wtf',
+    bamUrl: 'http://london.mainnet.bam.jito.wtf',
     shredReceiver: '142.91.127.175:1002',
     relayerUrl: 'http://london.mainnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.london.jito.wtf',
@@ -55,6 +59,7 @@ const mainnetRegions = new Map<string, JitoRegion>([
     name: 'New York',
     emoji: '🇺🇸',
     blockEngineUrl: 'https://ny.mainnet.block-engine.jito.wtf',
+    bamUrl: 'http://ny.mainnet.bam.jito.wtf',
     shredReceiver: '141.98.216.96:1002',
     relayerUrl: 'http://ny.mainnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.dallas.jito.wtf',
@@ -63,6 +68,7 @@ const mainnetRegions = new Map<string, JitoRegion>([
     name: 'Salt Lake City',
     emoji: '🇺🇸',
     blockEngineUrl: 'https://slc.mainnet.block-engine.jito.wtf',
+    bamUrl: 'http://slc.mainnet.bam.jito.wtf',
     shredReceiver: '64.130.53.8:1002',
     relayerUrl: 'http://slc.mainnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.slc.jito.wtf',
@@ -71,6 +77,7 @@ const mainnetRegions = new Map<string, JitoRegion>([
     name: 'Singapore',
     emoji: '🇸🇬',
     blockEngineUrl: 'https://singapore.mainnet.block-engine.jito.wtf',
+    bamUrl: 'http://singapore.mainnet.bam.jito.wtf',
     shredReceiver: '202.8.11.224:1002',
     relayerUrl: 'http://singapore.mainnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.singapore.jito.wtf',
@@ -79,6 +86,7 @@ const mainnetRegions = new Map<string, JitoRegion>([
     name: 'Tokyo',
     emoji: '🇯🇵',
     blockEngineUrl: 'https://tokyo.mainnet.block-engine.jito.wtf',
+    bamUrl: 'http://tokyo.mainnet.bam.jito.wtf',
     shredReceiver: '202.8.9.160:1002',
     relayerUrl: 'http://tokyo.mainnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.tokyo.jito.wtf',
@@ -96,6 +104,7 @@ const testnetRegions = new Map<string, JitoRegion>([
     name: 'Dallas',
     emoji: '🇺🇸',
     blockEngineUrl: 'https://dallas.testnet.block-engine.jito.wtf',
+    bamUrl: 'http://dallas.testnet.bam.jito.wtf',
     shredReceiver: '141.98.218.12:1002',
     relayerUrl: 'http://dallas.testnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.dallas.jito.wtf',
@@ -104,9 +113,16 @@ const testnetRegions = new Map<string, JitoRegion>([
     name: 'New York',
     emoji: '🇺🇸',
     blockEngineUrl: 'https://ny.testnet.block-engine.jito.wtf',
+    bamUrl: 'http://ny.testnet.bam.jito.wtf',
     shredReceiver: '64.130.35.224:1002',
     relayerUrl: 'http://ny.testnet.relayer.jito.wtf:8100',
     ntpServer: 'ntp.dallas.jito.wtf',
+  }],
+  ['slc', {
+    name: 'Salt Lake City',
+    emoji: '🇺🇸',
+    blockEngineUrl: 'https://slc.testnet.block-engine.jito.wtf',
+    bamUrl: 'http://slc.testnet.bam.jito.wtf',
   }],
 ])
 

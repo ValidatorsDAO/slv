@@ -1,4 +1,5 @@
 import { z, extendZodWithOpenApi } from '@hono/zod-openapi'
+import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 
 extendZodWithOpenApi(z)
 
@@ -6,8 +7,8 @@ export const KeyDirTypeSchema = z.enum(['rpc', 'validator', 'relayer', 'shreadst
 export const NetworkTypeSchema = z.enum(['mainnet', 'testnet'])
 export const RpcTypeSchema = z.enum(['Geyser gRPC', 'Index RPC', 'SendTx RPC'])
 export const RpcTypeArray = RpcTypeSchema.options
-export const ValidatorTestnetTypeSchema = z.enum(['firedancer', 'agave'])
-export const ValidatorMainnetTypeSchema = z.enum(['jito', 'firedancer'])
+export const ValidatorTestnetTypeSchema = z.enum(SolanaNodeTypes)
+export const ValidatorMainnetTypeSchema = ValidatorTestnetTypeSchema
 export const InventoryTypeSchema = z.enum(['testnet_validators', 'mainnet_validators', 'mainnet_rpcs'])
 
 export const CmnTestnetValidatorTypeSchema = z.object({

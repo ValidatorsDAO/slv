@@ -23,6 +23,7 @@ import { addMainnetRPCInventory } from '/lib/addMainnetRPCInventory.ts'
 import { updateMainnetRPCInventory } from '/lib/updateMainnetRPCInventory.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
+import { VERSION_RICHAT } from '@cmn/constants/version.ts'
 
 export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
   const host = sshOptions.ip
@@ -51,7 +52,7 @@ export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
       name: 'validatorType',
       message: 'Select Solana CLI',
       type: Select,
-      options: SolanaNodeTypes,
+      options: [...SolanaNodeTypes],
       default: 'jito',
     },
   ])
@@ -78,6 +79,7 @@ export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: getNearRegion.region,
     limit_ledger_size: 200000000,
+    richat_version: VERSION_RICHAT,
     shred_receiver_address: String(getNearRegion.info.shredReceiver),
   }
 

@@ -7,10 +7,13 @@
   tasks:
     - name: Wget Snapshot
       shell: |
-        wget --trust-server-names  https://snapshots.avorio.network/mainnet-beta/snapshot.tar.bz2 https://snapshots.avorio.network/mainnet-beta/incremental-snapshot.tar.bz2
+        cd /mnt/snapshot
+        wget -c {{ snapshot_url }}/snapshot.tar.bz2
+        wget -c {{ snapshot_url }}/incremental-snapshot.tar.bz2 
       args:
         chdir: /mnt/snapshot
         executable: /bin/bash
       async: 3600
       poll: 10
       failed_when: false
+      when: snapshot_url is defined
