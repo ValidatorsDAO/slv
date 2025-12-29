@@ -29,4 +29,4 @@ export const JITO_BLOCK_ENGINE_REGIONS = [
   'tokyo'
 ]
 
-export const DEFAULT_RPC_ADDRESS = '3YgDq4EbniJZGeshHuYxg8KQfpDiawkuEp17DvQeGWhL'
+export const DEFAULT_RPC_ADDRESS = '7KEVKK9gZ1VUjaTowuCCA8mwMJYTUsZSrSKuTCowSLV'

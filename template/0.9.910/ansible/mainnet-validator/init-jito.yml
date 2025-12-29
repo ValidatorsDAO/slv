@@ -1,5 +1,5 @@
 ---
-- import_playbook: copy_restart_sh.yml
+- import_playbook: ../cmn/copy_restart_sh.yml
 - import_playbook: ../cmn/add_solv.yml
 - import_playbook: ../cmn/install_package.yml
 - import_playbook: ../cmn/update_ubuntu.yml

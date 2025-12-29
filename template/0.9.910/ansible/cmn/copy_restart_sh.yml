@@ -7,10 +7,11 @@
       become: yes
       become_user: solv
       template:
-        src: "~/.slv/mainnet-validator/restart.sh.j2"
+        src: "~/.slv/cmn/restart.sh.j2"
         dest: "/home/solv/restarter.sh"
         owner: solv
         group: solv
         mode: "0700"
       vars:
         snapshot_url: "{{ hostvars[inventory_hostname].snapshot_url }}"
+        validator_type: "solv"

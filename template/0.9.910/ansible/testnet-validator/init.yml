@@ -46,7 +46,7 @@
 - import_playbook: create-start-validator-sh-jito.yml
   when: validator_type in ['jito']
 
-- import_playbook: wget_snapshot.yml
+- import_playbook: ../cmn/wget_snapshot.yml
 
 - import_playbook: start_solv.yml
   when: validator_type in ['agave', 'jito', 'jito-bam']
