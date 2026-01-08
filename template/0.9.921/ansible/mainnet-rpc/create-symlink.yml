@@ -1,0 +1,13 @@
+---
+- name: Create and link Solana identity files
+  hosts: all
+  become: yes
+  tasks:
+    - name: Ensure /home/solv/identity.json is a symlink to /home/solv/rpc-identity.json
+      file:
+        src: /home/solv/rpc-identity.json
+        dest: /home/solv/identity.json
+        state: link
+
+    - name: Update ownership of identity.json symlink
+      command: chown --no-dereference solv:solv /home/solv/identity.json
