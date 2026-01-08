@@ -16,12 +16,16 @@
     cloudflare_email: '{{ cloudflare_email }}'
     cloudflare_api_key: '{{ cloudflare_api_key }}'
     cloudflare_zone_id: '{{ cloudflare_zone_id }}'
+    build_user: solv
+    build_group: solv
+    build_home: /home/solv
+    deno_install_dir: '{{ build_home }}/.deno'
     build_dir: /opt/slv-build
     artifacts_dir: /opt/slv-artifacts
     deno_env:
-      HOME: "/root"
-      DENO_INSTALL: "/root/.deno"
-      PATH: "/root/.deno/bin:/usr/bin:/bin"
+      HOME: '{{ build_home }}'
+      DENO_INSTALL: '{{ deno_install_dir }}'
+      PATH: '{{ deno_install_dir }}/bin:/usr/bin:/bin'
   tasks:
     - name: Install required packages
       apt:
@@ -52,25 +56,26 @@
         path: '{{ build_dir }}'
         state: directory
         mode: '0755'
-        owner: root
-        group: root
+        owner: '{{ build_user }}'
+        group: '{{ build_group }}'
 
     - name: Remove existing Deno installation
       file:
-        path: /root/.deno
+        path: '{{ deno_install_dir }}'
         state: absent
 
     - name: Install specific version of Deno (v2.6.3)
       shell: curl -fsSL https://deno.land/install.sh | sh -s v2.6.3
       args:
-        creates: /root/.deno/bin/deno
-      become_user: root
+        creates: '{{ deno_install_dir }}/bin/deno'
+      environment: "{{ deno_env }}"
+      become_user: '{{ build_user }}'
 
     - name: Set Deno PATH globally
       copy:
         dest: /etc/profile.d/deno.sh
         content: |
-          export DENO_INSTALL="/root/.deno"
+          export DENO_INSTALL="{{ deno_install_dir }}"
           export PATH="$DENO_INSTALL/bin:$PATH"
         owner: root
         group: root
@@ -84,18 +89,20 @@
       environment:
         GIT_TERMINAL_PROMPT: 0
         GH_TOKEN: '{{ github_token }}'
+      become_user: '{{ build_user }}'
 
     - name: Update version in constants
       replace:
         path: '{{ build_dir }}/cmn/constants/version.ts'
         regexp: "export const VERSION = '[^']*'"
         replace: "export const VERSION = '{{ version }}'"
+      become_user: '{{ build_user }}'
 
     - name: Confirm Deno version used
       shell: deno --version
-      environment:
-        PATH: "/root/.deno/bin:/usr/bin:/bin"
+      environment: "{{ deno_env }}"
       register: deno_version
+      become_user: '{{ build_user }}'
 
     - name: Show Deno version
       debug:
@@ -106,27 +113,30 @@
       shell: deno run -A scripts/update-version.ts
       args:
         chdir: '{{ build_dir }}'
-      environment:
-        DENO_INSTALL: "/root/.deno"
-        PATH: "/root/.deno/bin:/usr/bin:/bin"
+      environment: "{{ deno_env }}"
+      become_user: '{{ build_user }}'
 
     - name: Create dist directory
       file:
         path: '{{ build_dir }}/dist'
         state: directory
         mode: '0755'
+        owner: '{{ build_user }}'
+        group: '{{ build_group }}'
 
     - name: Build for Linux
       shell: deno install --allow-scripts=npm:protobufjs@7.4.0 && deno i && deno task build:linux
       args:
         chdir: '{{ build_dir }}'
       environment: "{{ deno_env }}"
+      become_user: '{{ build_user }}'
 
     - name: Build for Mac
       shell: deno task build:mac
       args:
         chdir: '{{ build_dir }}'
       environment: "{{ deno_env }}"
+      become_user: '{{ build_user }}'
 
     - name: Copy Linux artifacts
       copy:
@@ -142,7 +152,7 @@
 
     - name: Upload Linux executable
       shell: |
-        export DENO_INSTALL="/root/.deno"
+        export DENO_INSTALL="{{ deno_install_dir }}"
         export PATH="$DENO_INSTALL/bin:$PATH"
         export CLOUDFLARE_ACCOUNT_ID="{{ cloudflare_account_id }}"
         export CLOUDFLARE_API_TOKEN="{{ cloudflare_api_token }}"
@@ -151,16 +161,18 @@
         cd {{ build_dir }} && deno run -A cli/uploadExe.ts
       args:
         executable: /bin/bash
+      become_user: '{{ build_user }}'
 
     - name: Create template archive
       shell: |
         cd {{ build_dir }} && tar -czf dist/template.tar.gz ./template/{{ version }}
       args:
         executable: /bin/bash
+      become_user: '{{ build_user }}'
 
     - name: Upload template
       shell: |
-        export DENO_INSTALL="/root/.deno"
+        export DENO_INSTALL="{{ deno_install_dir }}"
         export PATH="$DENO_INSTALL/bin:$PATH"
         export CLOUDFLARE_ACCOUNT_ID="{{ cloudflare_account_id }}"
         export CLOUDFLARE_API_TOKEN="{{ cloudflare_api_token }}"
@@ -169,10 +181,11 @@
         cd {{ build_dir }} && deno run -A cli/uploadTemplate.ts
       args:
         executable: /bin/bash
+      become_user: '{{ build_user }}'
 
     - name: Upload install script
       shell: |
-        export DENO_INSTALL="/root/.deno"
+        export DENO_INSTALL="{{ deno_install_dir }}"
         export PATH="$DENO_INSTALL/bin:$PATH"
         export CLOUDFLARE_ACCOUNT_ID="{{ cloudflare_account_id }}"
         export CLOUDFLARE_API_TOKEN="{{ cloudflare_api_token }}"
@@ -181,10 +194,11 @@
         cd {{ build_dir }} && deno run -A cli/uploadScript.ts
       args:
         executable: /bin/bash
+      become_user: '{{ build_user }}'
 
     - name: Purge cache
       shell: |
-        export DENO_INSTALL="/root/.deno"
+        export DENO_INSTALL="{{ deno_install_dir }}"
         export PATH="$DENO_INSTALL/bin:$PATH"
         export CLOUDFLARE_PURGE_EMAIL="{{ cloudflare_purge_email }}"
         export CLOUDFLARE_PURGE_API_TOKEN="{{ cloudflare_purge_api_token }}"
@@ -193,6 +207,7 @@
         cd {{ build_dir }} && deno run -A cmn/lib/purgeR2Cache.ts
       args:
         executable: /bin/bash
+      become_user: '{{ build_user }}'
 
     - name: Copy Linux artifacts to dist directory
       copy:
