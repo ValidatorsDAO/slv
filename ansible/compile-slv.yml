@@ -125,16 +125,24 @@
         group: '{{ build_group }}'
 
     - name: Build for Linux
-      shell: deno install --allow-scripts=npm:protobufjs@7.4.0 && deno i && deno task build:linux
+      shell: |
+        cd {{ build_dir }}
+        mkdir -p dist
+        deno install --allow-scripts=npm:protobufjs@7.4.0
+        deno i
+        deno task build:linux
       args:
-        chdir: '{{ build_dir }}'
+        executable: /bin/bash
       environment: "{{ deno_env }}"
       become_user: '{{ build_user }}'
 
     - name: Build for Mac
-      shell: deno task build:mac
+      shell: |
+        cd {{ build_dir }}
+        mkdir -p dist
+        deno task build:mac
       args:
-        chdir: '{{ build_dir }}'
+        executable: /bin/bash
       environment: "{{ deno_env }}"
       become_user: '{{ build_user }}'
 
