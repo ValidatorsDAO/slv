@@ -60,8 +60,8 @@
         path: /root/.deno
         state: absent
 
-    - name: Install specific version of Deno (v2.5.4)
-      shell: curl -fsSL https://deno.land/install.sh | sh -s v2.5.4
+    - name: Install specific version of Deno (v2.6.3)
+      shell: curl -fsSL https://deno.land/install.sh | sh -s v2.6.3
       args:
         creates: /root/.deno/bin/deno
       become_user: root

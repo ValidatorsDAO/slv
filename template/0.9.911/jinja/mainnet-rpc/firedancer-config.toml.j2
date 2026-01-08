@@ -12,45 +12,36 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
 [rpc]
     port = {{ rpc_port | default(7211) }}
-    {% if rpc_type == 'Geyser gRPC' %}
-    full_api = true
-    private = false
+    private = true
+    {% if rpc_type == 'Geyser gRPC' %}full_api = true
     transaction_history = {{ transaction_history | default(true)  | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true)  | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
     pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true)  | to_json }}
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
-    {% elif rpc_type == 'SendTx RPC' %}
-    full_api = true
-    private = false
+    {% elif rpc_type == 'SendTx RPC' %}full_api = true
     transaction_history = {{ transaction_history | default(false) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(false) | to_json }}
     pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(false) | to_json }}
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
-    {% elif rpc_type == 'Index RPC' %}
-    full_api = true
-    private = false
+    {% elif rpc_type == 'Index RPC' %}full_api = true
     transaction_history = {{ transaction_history | default(true)  | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true)  | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
     pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true)  | to_json }}
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
-    {% elif rpc_type == 'Index RPC + gRPC' %}
-    full_api = true
-    private = false
+    {% elif rpc_type == 'Index RPC + gRPC' %}full_api = true
     transaction_history = {{ transaction_history | default(true)  | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true)  | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
     pubsub_enable_vote_subscription  = {{ pubsub_enable_vote_subscription  | default(true)  | to_json }}
     bigtable_ledger_storage = {{ bigtable_ledger_storage | default(false) | to_json }}
 
-    {% else %}
-    full_api = {{ full_api | default(false) | to_json }}
-    private = false
+    {% else %}full_api = {{ full_api | default(false) | to_json }}
     transaction_history = {{ transaction_history | default(false) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true)  | to_json }}
@@ -64,28 +55,22 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 [ledger]
     path = "/mnt/ledger"
     accounts_path = "/mnt/accounts"
-    {% if rpc_type == 'Geyser gRPC' %}
-    limit_size = {{ limit_ledger_size | default(50_000_000) }}
+    {% if rpc_type == 'Geyser gRPC' %}limit_size = {{ limit_ledger_size | default(50_000_000) }}
     account_indexes = []
     account_index_exclude_keys = []
-    {% elif rpc_type == 'SendTx RPC' %}
-    limit_size = {{ limit_ledger_size | default(30_000_000) }}
+    {% elif rpc_type == 'SendTx RPC' %}limit_size = {{ limit_ledger_size | default(30_000_000) }}
     account_indexes = []
     account_index_exclude_keys = []
-    {% elif rpc_type == 'Index RPC' %}
-    limit_size = {{ limit_ledger_size | default(200_000_000) }}
+    {% elif rpc_type == 'Index RPC' %}limit_size = {{ limit_ledger_size | default(200_000_000) }}
     account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
     account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
-    {% elif rpc_type == 'Index RPC + gRPC' %}
-    limit_size = {{ limit_ledger_size | default(200_000_000) }}
+    {% elif rpc_type == 'Index RPC + gRPC' %}limit_size = {{ limit_ledger_size | default(200_000_000) }}
     account_indexes = {{ account_indexes | default('["program-id", "spl-token-mint", "spl-token-owner"]') }}
     account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
-    {% else %}
-    limit_size = {{ limit_ledger_size | default(100_000_000) }}
+    {% else %}limit_size = {{ limit_ledger_size | default(100_000_000) }}
     account_indexes = {{ account_indexes | default("[]") }}
     account_index_exclude_keys = {{ account_index_exclude_keys | default("[]") }}
-    {% endif %}
-    snapshot_archive_format = "zstd"
+    {% endif %}snapshot_archive_format = "zstd"
     require_tower = false
 
 [snapshots]

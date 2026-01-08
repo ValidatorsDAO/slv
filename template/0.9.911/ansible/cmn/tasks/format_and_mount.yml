@@ -11,10 +11,18 @@
     dev: "/dev/{{ disk_name }}"
   when: blkid_result.stdout == ""
 
-- name: Mount /dev/{{ disk_name }} to {{ mount_path }}
+- name: Get UUID for /dev/{{ disk_name }}
+  command: blkid -s UUID -o value /dev/{{ disk_name }}
+  register: disk_uuid_result
+  changed_when: false
+  retries: 5
+  delay: 2
+  until: disk_uuid_result.stdout | trim != ""
+
+- name: Mount /dev/{{ disk_name }} to {{ mount_path }} using UUID
   mount:
     path: "{{ mount_path }}"
-    src: "/dev/{{ disk_name }}"
+    src: "UUID={{ disk_uuid_result.stdout | trim }}"
     fstype: ext4
     state: mounted
     opts: defaults,noatime

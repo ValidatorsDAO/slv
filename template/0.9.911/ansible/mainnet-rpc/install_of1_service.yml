@@ -4,7 +4,7 @@
   become: true
   gather_facts: yes
   vars:
-    epoch: 899
+    epoch: 905
     faithful_binary_path: "/home/solv/faithful-cli"
     faithful_workdir: "/home/solv"
     faithful_proxy_path: "/home/solv/proxy.yml"

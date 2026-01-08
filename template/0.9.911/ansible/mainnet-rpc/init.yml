@@ -66,3 +66,11 @@
 
 - import_playbook: start_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']
+
+- import_playbook: install_of1.yml
+  when:
+    - rpc_type in ['Index RPC', 'Index RPC + gRPC']
+
+- import_playbook: install_of1_service.yml
+  when:
+    - rpc_type in ['Index RPC', 'Index RPC + gRPC']
