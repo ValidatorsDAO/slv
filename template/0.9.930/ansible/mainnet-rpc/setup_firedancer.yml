@@ -86,6 +86,12 @@
       become: yes
       become_user: root
 
+    - name: Unload irdma module (async/poll)
+      shell: sudo rmmod irdma
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
     - name: Ensure /mnt directory has correct permissions
       shell: sudo chown -R solv:solv /mnt && sudo chmod -R 700 /mnt
       failed_when: false

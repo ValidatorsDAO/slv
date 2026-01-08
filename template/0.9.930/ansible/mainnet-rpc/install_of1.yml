@@ -3,7 +3,7 @@
   hosts: all
   gather_facts: yes
   vars:
-    faithful_version: "{{ version | default('v0.7.14') }}"
+    faithful_version: "{{ faithful_version | default('v0.7.14') }}"
     faithful_asset_name: "{{ asset_name | default('faithful-cli_linux_amd64') }}"
     faithful_download_url: "https://github.com/rpcpool/yellowstone-faithful/releases/download/{{ faithful_version }}/{{ faithful_asset_name }}"
     faithful_install_dir: "/home/solv"
