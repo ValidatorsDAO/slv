@@ -22,7 +22,6 @@
       HOME: "/root"
       DENO_INSTALL: "/root/.deno"
       PATH: "/root/.deno/bin:/usr/bin:/bin"
-      TMPDIR: "{{ build_dir }}/tmp"
   tasks:
     - name: Install required packages
       apt:
@@ -116,12 +115,6 @@
         path: '{{ build_dir }}/dist'
         state: directory
         mode: '0755'
-
-    - name: Create temp directory for builds
-      file:
-        path: '{{ build_dir }}/tmp'
-        state: directory
-        mode: '1777'
 
     - name: Build for Linux
       shell: deno install --allow-scripts=npm:protobufjs@7.4.0 && deno i && deno task build:linux
