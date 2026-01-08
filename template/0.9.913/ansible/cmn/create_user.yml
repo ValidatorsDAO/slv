@@ -1,0 +1,99 @@
+---
+- name: Create solv user with specific password and configure SSH access
+  hosts: all
+  become: yes
+  vars:
+    home_paths_authorized_keys: /home/solv/.ssh/authorized_keys
+    ansible_remote_tmp: /tmp/ansible_tmp
+    local_public_key_path: "{{ lookup('env', 'HOME') + '/.ssh/id_rsa.pub' }}"
+  vars_files:
+    - ~/.slv/config.pwd.yml
+  tasks:
+    - name: Ensure solv user exists
+      user:
+        name: solv
+        password: "{{ encrypted_password }}"
+        state: present
+        shell: /bin/bash
+
+    - name: Ensure .ssh directory exists for solv user
+      file:
+        path: /home/solv/.ssh
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0700"
+
+    - name: Add local public key to authorized_keys
+      lineinfile:
+        path: "{{ home_paths_authorized_keys }}"
+        line: "{{ lookup('file', local_public_key_path) }}"
+        create: yes
+        owner: solv
+        group: solv
+        mode: "0600"
+
+    - name: Generate SSH key for solv user if not exists
+      shell: su - solv -c "ssh-keygen -t rsa -b 4096 -N '' -f /home/solv/.ssh/id_rsa"
+      args:
+        creates: /home/solv/.ssh/id_rsa
+
+    - name: Ensure correct permissions for .ssh directory
+      file:
+        path: /home/solv/.ssh
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0700"
+
+    - name: Ensure correct permissions for authorized_keys
+      file:
+        path: "{{ home_paths_authorized_keys }}"
+        state: file
+        owner: solv
+        group: solv
+        mode: "0600"
+
+    - name: Add solv user to sudoers group
+      user:
+        name: solv
+        groups: sudo
+        append: yes
+
+    - name: Configure sudoers file for solv user (no password required)
+      lineinfile:
+        path: /etc/sudoers
+        state: present
+        regexp: '^solv ALL=\(ALL\) NOPASSWD:ALL'
+        line: "solv ALL=(ALL) NOPASSWD:ALL"
+        validate: "visudo -cf %s"
+
+    - name: Ensure PubkeyAuthentication is enabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PubkeyAuthentication\s+.*'
+        line: "PubkeyAuthentication yes"
+      notify:
+        - restart ssh
+
+    - name: Ensure PasswordAuthentication is disabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication\s+.*'
+        line: "PasswordAuthentication no"
+      notify:
+        - restart ssh
+
+    - name: Ensure ChallengeResponseAuthentication is disabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ChallengeResponseAuthentication\s+.*'
+        line: "ChallengeResponseAuthentication no"
+      notify:
+        - restart ssh
+
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted
