@@ -138,9 +138,14 @@
 
     - name: Build for Mac
       shell: |
+        set -e
         cd {{ build_dir }}
         mkdir -p dist
-        deno task build:mac
+        tmp_out=/tmp/slv-x86_64-apple-darwin-exe
+        rm -f "$tmp_out"
+        deno compile -A --target x86_64-apple-darwin --no-check --output "$tmp_out" cli/src/index.ts
+        mv "$tmp_out" dist/slv-x86_64-apple-darwin-exe
+        tar -czvf dist/slv-x86_64-apple-darwin-exe.tar.gz dist/slv-x86_64-apple-darwin-exe
       args:
         executable: /bin/bash
       environment: "{{ deno_env }}"
