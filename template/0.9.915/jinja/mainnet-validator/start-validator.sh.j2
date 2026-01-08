@@ -1,0 +1,42 @@
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--vote-account {{ vote_account }} \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--snapshots /mnt/snapshot \
+--entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint3.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint4.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint5.mainnet-beta.solana.com:8001 \
+--known-validator Certusm1sa411sMpV9FPqU5dXAYhmmhygvxJ23S6hJ24 \
+--known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+--known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ \
+--known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
+--only-known-rpc \
+--expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
+--expected-shred-version 50093 \
+--dynamic-port-range {{ dynamic_port_range | default("8900-8925") }}  \
+--rpc-port {{ port_rpc | default(8899, true) }} \
+--wal-recovery-mode skip_any_corrupted_record \
+--use-snapshot-archives-at-startup when-newest \
+--limit-ledger-size {{ limit_ledger_size | default(100000000) }} \
+--no-port-check \
+--staked-nodes-overrides overrides.yml \
+--rpc-bind-address 0.0.0.0 \
+{% if validator_type in ['jito', 'jito-bam'] %}
+--tip-payment-program-pubkey T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt \
+--tip-distribution-program-pubkey 4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7 \
+--merkle-root-upload-authority 8F4jGUmxF36vQ6yabnsxX6AQVXdKBhs8kGSUuRKSg8Xt \
+--commission-bps {{ commission_bps | default(1000) }} \
+--block-engine-url {{ block_engine_url | default("https://frankfurt.block-engine.jito.wtf") }} \
+--shred-receiver-address {{ shred_receiver_address | default("141.98.216.96:1002") }} \
+{% endif %}
+{% if validator_type === 'jito-bam' %}
+--bam-url {{ bam_url | default("http://frankfurt.mainnet.bam.jito.wtf") }} \
+{% endif %}
+{% if validator_type in ['jito'] %}
+--relayer-url {{ relayer_url | default("http://frankfurt.mainnet.relayer.jito.wtf:8100") }} \
+{% endif %}
