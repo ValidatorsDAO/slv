@@ -35,9 +35,10 @@ This script:
 
 1. Updates the version in cmn/constants/version.ts
 2. Runs the update-version.ts script
-3. Commits the changes
-4. Creates a tag
-5. Pushes the changes and tag
+3. Builds the macOS executable locally and stages it in release-assets/
+4. Commits the changes
+5. Creates a tag
+6. Pushes the changes and tag
 
 After running this script, GitHub Actions will automatically build and publish
 the release.
@@ -53,7 +54,7 @@ The recommended release process is:
    ```
 3. GitHub Actions will automatically:
    - Run tests
-   - Build the binaries
+   - Build the Linux binary and upload the staged macOS binary
    - Upload artifacts to storage
    - Create a GitHub release
 

@@ -124,14 +124,6 @@
         owner: '{{ build_user }}'
         group: '{{ build_group }}'
 
-    - name: Create temp directory for builds
-      file:
-        path: '{{ build_dir }}/tmp'
-        state: directory
-        mode: '0755'
-        owner: '{{ build_user }}'
-        group: '{{ build_group }}'
-
     - name: Build for Linux
       shell: |
         cd {{ build_dir }}
@@ -144,19 +136,26 @@
       environment: "{{ deno_env }}"
       become_user: '{{ build_user }}'
 
-    - name: Build for Mac
-      shell: |
-        set -e
-        cd {{ build_dir }}
-        tmp_out="{{ build_dir }}/tmp/slv-x86_64-apple-darwin-exe"
-        rm -f "$tmp_out"
-        deno compile -A --target x86_64-apple-darwin --no-check --output "$tmp_out" cli/src/index.ts
-        mv "$tmp_out" "{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe"
-        tar -czvf "{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe.tar.gz" "{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe"
-      args:
-        executable: /bin/bash
-      environment: "{{ deno_env }}"
+    - name: Check macOS artifact from local release
+      stat:
+        path: '{{ build_dir }}/release-assets/{{ version }}/slv-x86_64-apple-darwin-exe.tar.gz'
+      register: mac_artifact_stat
       become_user: '{{ build_user }}'
+
+    - name: Fail if macOS artifact is missing
+      fail:
+        msg: >-
+          Missing macOS artifact at {{ build_dir }}/release-assets/{{ version }}/slv-x86_64-apple-darwin-exe.tar.gz.
+          Run create-release.ts on macOS before tagging.
+      when: not mac_artifact_stat.stat.exists
+
+    - name: Stage macOS artifact into dist
+      copy:
+        src: '{{ build_dir }}/release-assets/{{ version }}/slv-x86_64-apple-darwin-exe.tar.gz'
+        dest: '{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe.tar.gz'
+        remote_src: yes
+        owner: '{{ build_user }}'
+        group: '{{ build_group }}'
 
     - name: Copy Linux artifacts
       copy:
