@@ -1,0 +1,50 @@
+---
+- name: Install yellowstone-faithful CLI (one-off)
+  hosts: all
+  gather_facts: yes
+  vars:
+    faithful_version: "{{ of1_version | default('v0.7.14') }}"
+    faithful_asset_name: "{{ asset_name | default('faithful-cli_linux_amd64') }}"
+    faithful_download_url: "https://github.com/rpcpool/yellowstone-faithful/releases/download/{{ faithful_version }}/{{ faithful_asset_name }}"
+    faithful_install_dir: "/home/solv"
+    faithful_binary_path: "{{ faithful_install_dir }}/faithful-cli-{{ faithful_version }}"
+    faithful_symlink_path: "{{ faithful_install_dir }}/faithful-cli"
+
+  tasks:
+    - name: Ensure install directory exists
+      become: yes
+      file:
+        path: "{{ faithful_install_dir }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    - name: Download faithful-cli binary
+      become: yes
+      get_url:
+        url: "{{ faithful_download_url }}"
+        dest: "{{ faithful_binary_path }}"
+        mode: "0755"
+        owner: solv
+        group: solv
+        force: yes
+        timeout: 120
+      register: download_result
+
+    - name: Create/refresh symlink
+      become: yes
+      file:
+        src: "{{ faithful_binary_path }}"
+        dest: "{{ faithful_symlink_path }}"
+        state: link
+        force: yes
+        owner: solv
+        group: solv
+
+    - name: Show install result
+      debug:
+        msg: >
+          Installed yellowstone-faithful {{ faithful_version }} to {{ faithful_binary_path }}
+          (download changed={{ download_result.changed }}).
+          Symlink: {{ faithful_symlink_path }} -> {{ faithful_binary_path }}.
