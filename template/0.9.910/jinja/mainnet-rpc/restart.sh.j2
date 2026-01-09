@@ -1,5 +1,0 @@
-sudo systemctl stop {{ 'firedancer' if validator_type in ['firedancer-jito', 'firedancer-agave'] else 'solv' }}
-sudo rm -rf /mnt/snapshot/*
-sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -delete
-cd /mnt/snapshot && wget --trust-server-names {{ snapshot_url }}/snapshot.tar.bz2 && wget --trust-server-names {{ snapshot_url }}/incremental-snapshot.tar.bz2
-sudo systemctl start {{ 'firedancer' if validator_type in ['firedancer-jito', 'firedancer-agave'] else 'solv' }}

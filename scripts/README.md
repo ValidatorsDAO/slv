@@ -21,6 +21,7 @@ This script:
 4. Creates a new version directory in sh/ and copies the install file
 5. Creates a new version directory in template/ and copies the template files
 6. Updates the template/latest symlink
+7. Removes old versions in sh/ and template/ (keeps latest 3)
 
 ### create-release.ts
 
@@ -35,7 +36,8 @@ This script:
 
 1. Updates the version in cmn/constants/version.ts
 2. Runs the update-version.ts script
-3. Builds the macOS executable locally and stages it in release-assets/
+3. Cleans old release-assets/ and builds the macOS executable locally
+   - Stages it in release-assets/
 4. Commits the changes
 5. Creates a tag
 6. Pushes the changes and tag

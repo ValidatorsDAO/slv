@@ -55,6 +55,14 @@ async function createRelease() {
     console.error('Error: create-release must be run on macOS for mac builds.')
     Deno.exit(1)
   }
+  const releaseAssetsRoot = './release-assets'
+  try {
+    await Deno.remove(releaseAssetsRoot, { recursive: true })
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) {
+      throw error
+    }
+  }
   console.log('Building macOS executable locally...')
   await Deno.mkdir('./dist', { recursive: true })
   const buildMacResult = await spawnSync('deno task build:mac')
@@ -64,7 +72,7 @@ async function createRelease() {
   }
   console.log(buildMacResult.message)
   const macTarPath = './dist/slv-x86_64-apple-darwin-exe.tar.gz'
-  const releaseAssetsDir = `./release-assets/${newVersion}`
+  const releaseAssetsDir = `${releaseAssetsRoot}/${newVersion}`
   await Deno.mkdir(releaseAssetsDir, { recursive: true })
   const macReleasePath =
     `${releaseAssetsDir}/slv-x86_64-apple-darwin-exe.tar.gz`

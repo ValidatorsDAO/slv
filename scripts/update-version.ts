@@ -4,6 +4,44 @@ import { VERSION } from '../cmn/constants/version.ts'
 import { join } from '@std/path'
 import { copy, ensureDir, ensureSymlink } from '@std/fs'
 
+const VERSION_DIR_REGEX = /^\d+\.\d+\.\d+$/
+const KEEP_VERSIONS = 3
+
+const listVersionDirs = async (root: string) => {
+  const versions: string[] = []
+  for await (const entry of Deno.readDir(root)) {
+    if (entry.isDirectory && VERSION_DIR_REGEX.test(entry.name)) {
+      versions.push(entry.name)
+    }
+  }
+  versions.sort((a, b) => {
+    const aParts = a.split('.').map(Number)
+    const bParts = b.split('.').map(Number)
+    for (let i = 0; i < 3; i += 1) {
+      if (aParts[i] !== bParts[i]) {
+        return bParts[i] - aParts[i]
+      }
+    }
+    return 0
+  })
+  return versions
+}
+
+const pruneOldVersions = async (root: string) => {
+  const versions = await listVersionDirs(root)
+  const keep = versions.slice(0, KEEP_VERSIONS)
+  const remove = versions.slice(KEEP_VERSIONS)
+  for (const dir of remove) {
+    await Deno.remove(join(root, dir), { recursive: true })
+  }
+  if (remove.length > 0) {
+    console.log(
+      `✅ Removed old versions from ${root}: ${remove.join(', ')}`,
+    )
+  }
+  return keep
+}
+
 /**
  * Updates all version references in the project
  * This script:
@@ -13,6 +51,7 @@ import { copy, ensureDir, ensureSymlink } from '@std/fs'
  * 4. Creates a new version directory in sh/ and copies the install file
  * 5. Creates a new version directory in template/ and copies the template files
  * 6. Updates the template/latest symlink
+ * 7. Removes old versions in sh/ and template/ (keeps latest 3)
  */
 async function updateVersion() {
   console.log(`Updating version references to ${VERSION}...`)
@@ -58,28 +97,7 @@ async function updateVersion() {
 
   // 5. Create a new version directory in template/ and copy the template files
   // First, find the latest version directory in template/
-  const templateDirs = []
-  for await (const entry of Deno.readDir('./template')) {
-    if (
-      entry.isDirectory && entry.name !== 'latest' &&
-      entry.name.match(/^\d+\.\d+\.\d+$/)
-    ) {
-      templateDirs.push(entry.name)
-    }
-  }
-
-  // Sort versions and get the latest
-  templateDirs.sort((a, b) => {
-    const aParts = a.split('.').map(Number)
-    const bParts = b.split('.').map(Number)
-    for (let i = 0; i < 3; i++) {
-      if (aParts[i] !== bParts[i]) {
-        return bParts[i] - aParts[i]
-      }
-    }
-    return 0
-  })
-
+  const templateDirs = await listVersionDirs('./template')
   const latestTemplateDir = templateDirs[0]
   const newTemplateDir = `./template/${VERSION}`
 
@@ -123,6 +141,10 @@ async function updateVersion() {
   console.log(
     `✅ Updated template/latest symlink to point to ${newTemplateDir}`,
   )
+
+  // 7. Remove old versions (keep latest 3)
+  await pruneOldVersions('./template')
+  await pruneOldVersions('./sh')
 
   console.log(`\n✅ All version references updated to ${VERSION}`)
 }
