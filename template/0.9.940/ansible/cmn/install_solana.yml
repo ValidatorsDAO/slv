@@ -8,7 +8,7 @@
     # If not provided, defaults to "agave"
     # Default values if not provided via inventory or -e
     default_version: "v3.0.12"
-    default_region: "frankfurt"        # default region. use "tokyo" or "singapore" to switch to storage-asia
+    default_region: "frankfurt" # default region. use "tokyo" or "singapore" to switch to storage-asia
 
     # These are computed later via set_fact (don't change here)
     install_root: "/opt/{{ solana_cli_type }}"
@@ -108,15 +108,15 @@
         - slv_versions[matched_group]['version_jito'] is defined
 
     - name: Set version from versions.yml for jito-bam
+      vars:
+        bam_version: "{{ slv_versions[matched_group]['version_jito_bam'] | default(slv_versions[matched_group]['version_bam'] | default('')) | trim }}"
       set_fact:
-        version: >-
-          {% set bam_version = slv_versions[matched_group]['version_jito_bam'] | default(slv_versions[matched_group]['version_bam'] | default('')) %}
-          {% if bam_version %}v{{ bam_version }}{% endif %}
+        version: "{{ ('v' ~ bam_version) if (bam_version | length > 0) else '' }}"
       when:
         - (version is not defined) or (version == '')
         - matched_group is defined
         - solana_cli_type == 'jito-bam'
-        - (slv_versions[matched_group]['version_jito_bam'] | default(slv_versions[matched_group]['version_bam'] | default(''))) | length > 0
+        - bam_version | length > 0
 
     - name: Set default version when still unset (agave/jito)
       set_fact:
@@ -142,13 +142,14 @@
       when:
         - solana_cli_type == 'jito-bam'
         - bam_latest is defined
+        - not bam_latest.skipped
 
     - name: Ensure version is set
       assert:
         that:
           - version is defined
           - version | length > 0
-        fail_msg: "version could not be determined. Provide -e \"version=vX.Y.Z\" or ensure metadata exists."
+        fail_msg: 'version could not be determined. Provide -e "version=vX.Y.Z" or ensure metadata exists.'
 
     - name: Validate version looks like vX.Y.Z (warning only)
       debug:

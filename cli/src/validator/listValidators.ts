@@ -61,17 +61,29 @@ const listValidators = async (network: NetworkType, pubkey?: string) => {
     validatorVersion = version.testnet_validators.version_firedancer
   }
   for (const validator of validators) {
-    validatorVersion = network === 'mainnet'
-      ? validator.validator_type.includes('firedancer')
-        ? version.mainnet_validators.version_firedancer
-        : validator.validator_type.includes('jito')
-        ? version.mainnet_validators.version_jito
-        : version.mainnet_validators.version_agave
-      : validator.validator_type === 'agave'
-      ? version.testnet_validators.version_agave
-      : validator.validator_type === 'jito'
-      ? version.testnet_validators.version_jito
-      : version.testnet_validators.version_firedancer
+    if (network === 'mainnet') {
+      if (validator.validator_type.includes('firedancer')) {
+        validatorVersion = version.mainnet_validators.version_firedancer
+      } else if (validator.validator_type === 'jito-bam') {
+        validatorVersion = version.mainnet_validators.version_jito_bam ||
+          version.mainnet_validators.version_jito
+      } else if (validator.validator_type.includes('jito')) {
+        validatorVersion = version.mainnet_validators.version_jito
+      } else {
+        validatorVersion = version.mainnet_validators.version_agave
+      }
+    } else {
+      if (validator.validator_type === 'agave') {
+        validatorVersion = version.testnet_validators.version_agave
+      } else if (validator.validator_type === 'jito-bam') {
+        validatorVersion = version.testnet_validators.version_jito_bam ||
+          version.testnet_validators.version_jito
+      } else if (validator.validator_type === 'jito') {
+        validatorVersion = version.testnet_validators.version_jito
+      } else {
+        validatorVersion = version.testnet_validators.version_firedancer
+      }
+    }
     const table = new Table()
     table
       .body([

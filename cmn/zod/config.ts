@@ -15,6 +15,7 @@ export const CmnTestnetValidatorTypeSchema = z.object({
   solana_cli: z.string(),
   version_firedancer: z.string(),
   version_jito: z.string(),
+  version_jito_bam: z.string(),
   version_agave: z.string(),
   allowed_ssh_ips: z.array(z.string()),
   allowed_ips: z.array(z.string()),

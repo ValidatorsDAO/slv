@@ -5,6 +5,8 @@ import {
   VERSION_GEYSER_YELLOWSTONE_DEVNET,
   VERSION_GEYSER_YELLOWSTONE_MAINNET,
   VERSION_GEYSER_YELLOWSTONE_TESTNNET,
+  VERSION_JITO_BAM_MAINNET,
+  VERSION_JITO_BAM_TESTNET,
   VERSION_JITO_DEVNET,
   VERSION_JITO_MAINNET,
   VERSION_JITO_TESTNET,
@@ -55,12 +57,14 @@ export const updateDefaultVersion = async () => {
     mainnet_validators: {
       version_agave: currentVersion.mainnet_validators.version_agave,
       version_jito: currentVersion.mainnet_validators.version_jito,
+      version_jito_bam: currentVersion.mainnet_validators.version_jito_bam,
       version_firedancer: currentVersion.mainnet_validators.version_firedancer,
     },
     testnet_validators: {
       version_agave: currentVersion.testnet_validators.version_agave,
       version_firedancer: currentVersion.testnet_validators.version_firedancer,
       version_jito: currentVersion.testnet_validators.version_jito,
+      version_jito_bam: currentVersion.testnet_validators.version_jito_bam,
     },
     mainnet_rpcs: {
       version_agave: currentVersion.mainnet_rpcs.version_agave,
@@ -85,12 +89,14 @@ export const updateDefaultVersion = async () => {
   // Update to new versions
   currentVersion.mainnet_validators.version_agave = VERSION_SOLANA_MAINNET
   currentVersion.mainnet_validators.version_jito = VERSION_JITO_MAINNET
+  currentVersion.mainnet_validators.version_jito_bam = VERSION_JITO_BAM_MAINNET
   currentVersion.mainnet_validators.version_firedancer =
     VERSION_FIREDANCER_MAINNET
   currentVersion.testnet_validators.version_agave = VERSION_SOLANA_TESTNET
   currentVersion.testnet_validators.version_firedancer =
     VERSION_FIREDANCER_TESTNET
   currentVersion.testnet_validators.version_jito = VERSION_JITO_TESTNET
+  currentVersion.testnet_validators.version_jito_bam = VERSION_JITO_BAM_TESTNET
   currentVersion.mainnet_rpcs.version_agave = VERSION_SOLANA_MAINNET
   currentVersion.mainnet_rpcs.version_jito = VERSION_JITO_MAINNET
   currentVersion.mainnet_rpcs.version_firedancer = VERSION_FIREDANCER_MAINNET
@@ -122,6 +128,11 @@ export const updateDefaultVersion = async () => {
     currentVersion.mainnet_validators.version_jito,
   )
   displayVersionChange(
+    'Jito-bam',
+    oldVersions.mainnet_validators.version_jito_bam,
+    currentVersion.mainnet_validators.version_jito_bam,
+  )
+  displayVersionChange(
     'Firedancer',
     oldVersions.mainnet_validators.version_firedancer,
     currentVersion.mainnet_validators.version_firedancer,
@@ -140,6 +151,11 @@ export const updateDefaultVersion = async () => {
     'Jito',
     oldVersions.testnet_validators.version_jito,
     currentVersion.testnet_validators.version_jito,
+  )
+  displayVersionChange(
+    'Jito-bam',
+    oldVersions.testnet_validators.version_jito_bam,
+    currentVersion.testnet_validators.version_jito_bam,
   )
   displayVersionChange(
     'Firedancer',
