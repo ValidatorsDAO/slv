@@ -64,8 +64,8 @@
         path: '{{ deno_install_dir }}'
         state: absent
 
-    - name: Install specific version of Deno (v2.6.3)
-      shell: curl -fsSL https://deno.land/install.sh | sh -s v2.6.3
+    - name: Install specific version of Deno (v2.6.5)
+      shell: curl -fsSL https://deno.land/install.sh | sh -s v2.6.5
       args:
         creates: '{{ deno_install_dir }}/bin/deno'
       environment: "{{ deno_env }}"

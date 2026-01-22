@@ -25,10 +25,11 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
-          deno-version: v2.6.3
+          deno-version: v2.6.5
 
       - name: Run tests
-        run: deno task test
+        run: |
+          deno test -A --config=cli/deno.json test-solana-key/test.ts cli/test
 
   remote-build:
     name: Remote Build and Release
