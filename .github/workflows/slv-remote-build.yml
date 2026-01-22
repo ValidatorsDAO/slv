@@ -19,6 +19,15 @@ jobs:
     name: Run Tests
     runs-on: [self-hosted]
     steps:
+      - name: Pre-clean workspace
+        run: |
+          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
+            echo "Invalid GITHUB_WORKSPACE: '$GITHUB_WORKSPACE'"
+            exit 1
+          fi
+          rm -rf "$GITHUB_WORKSPACE"/*
+          rm -rf "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?*
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -48,6 +57,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Pre-clean workspace
+        run: |
+          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
+            echo "Invalid GITHUB_WORKSPACE: '$GITHUB_WORKSPACE'"
+            exit 1
+          fi
+          rm -rf "$GITHUB_WORKSPACE"/*
+          rm -rf "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?*
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
