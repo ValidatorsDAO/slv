@@ -114,6 +114,7 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     relayer_url,
     block_engine_url: blockEngineRegion,
     shred_receiver_address: String(shredstream_address),
+    snapshot_url: '',
     staked_rpc_identity_account: rpcAccount,
   }
   // await updateAllowedSshIps()

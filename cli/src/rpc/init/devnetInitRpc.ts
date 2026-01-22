@@ -62,6 +62,7 @@ export const devnetInitRpc = async (sshOptions: SSHConnection) => {
     region: 'ny',
     limit_ledger_size: 200000000,
     shred_receiver_address: '-',
+    snapshot_url: '',
   }
 
   // Update ~/.slv/versions.yml

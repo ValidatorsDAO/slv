@@ -14,10 +14,12 @@ exec agave-validator \
 --dynamic-port-range {{ dynamic_port_range | default("8900-8925") }} \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
---expected-shred-version 9604 \
+--expected-shred-version 24207 \
 --expected-bank-hash EJMzxv7JscF8WNZfDYqzsAyALCDCS52HuihabVgyz5mf \
---limit-ledger-size \
+--limit-ledger-size {{ limit_ledger_size | default(100000000) }} \
 --no-port-check \
+--staked-nodes-overrides overrides.yml \
+--rpc-bind-address 0.0.0.0 \
 {% if validator_type in ['jito', 'jito-bam'] %}
 --tip-payment-program-pubkey GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy \
 --tip-distribution-program-pubkey DzvGET57TAgEDxvm3ERUM4GNcsAJdqjDLCne9sdfY4wf \
@@ -25,4 +27,7 @@ exec agave-validator \
 --commission-bps {{ commission_bps | default(1000) }} \
 --block-engine-url {{ block_engine_url | default("https://frankfurt.block-engine.jito.wtf") }} \
 --shred-receiver-address {{ shred_receiver_address | default("141.98.216.96:1002") }} \
+{% endif %}
+{% if validator_type == 'jito-bam' %}
+--bam-url {{ bam_url | default("http://ny.testnet.bam.jito.wtf") }} \
 {% endif %}

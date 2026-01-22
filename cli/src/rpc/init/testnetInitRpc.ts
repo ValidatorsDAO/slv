@@ -80,6 +80,7 @@ export const testnetInitRpc = async (sshOptions: SSHConnection) => {
     limit_ledger_size: 200000000,
     richat_version: VERSION_RICHAT,
     shred_receiver_address: String(getNearRegion.info.shredReceiver),
+    snapshot_url: '',
   }
 
   // Update ~/.slv/versions.yml

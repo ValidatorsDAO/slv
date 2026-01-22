@@ -33,11 +33,13 @@ const addMainnetInventory = async (
       commission_bps: 0,
       username: sshConnection.username,
       validator_type: 'firedancer-jito',
+      region: '',
       port_rpc: 8899,
       dynamic_port_range: '8000-8025',
       relayer_url: 'http://localhost:11226',
       block_engine_url: 'http://ny.mainnet.relayer.jito.wtf:8100',
       shred_receiver_address: '',
+      snapshot_url: '',
       limit_ledger_size: 200000000,
       staked_rpc_identity_account:
         '7KEVKK9gZ1VUjaTowuCCA8mwMJYTUsZSrSKuTCowSLV',

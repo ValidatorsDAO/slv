@@ -34,7 +34,7 @@ exec agave-validator \
 --block-engine-url {{ block_engine_url | default("https://frankfurt.block-engine.jito.wtf") }} \
 --shred-receiver-address {{ shred_receiver_address | default("141.98.216.96:1002") }} \
 {% endif %}
-{% if validator_type === 'jito-bam' %}
+{% if validator_type == 'jito-bam' %}
 --bam-url {{ bam_url | default("http://frankfurt.mainnet.bam.jito.wtf") }} \
 {% endif %}
 {% if validator_type in ['jito'] %}

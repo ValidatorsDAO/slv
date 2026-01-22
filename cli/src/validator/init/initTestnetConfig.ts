@@ -92,6 +92,7 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
     relayer_url: getNearRegion.info.relayerUrl,
     block_engine_url: getNearRegion.info.blockEngineUrl,
     shred_receiver_address: String(getNearRegion.info.shredReceiver),
+    snapshot_url: '',
     port_rpc: 7211,
     dynamic_port_range: '8900-8925',
   }

@@ -47,6 +47,7 @@ export interface ValidatorConfigBase extends NodeConfigBase {
   commission_bps: number
   relayer_url: string
   block_engine_url: string
+  snapshot_url: string
 }
 
 export interface ValidatorTestnetConfig extends ValidatorConfigBase {}
@@ -108,6 +109,7 @@ export interface RpcConfig extends NodeConfigBase {
   rpc_type: RpcType
   limit_ledger_size: number
   richat_version: string
+  snapshot_url: string
 }
 
 export interface ValidatorMainnetConfig extends ValidatorConfigBase {

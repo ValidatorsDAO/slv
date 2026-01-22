@@ -33,6 +33,7 @@ const addInventory = async (
       vote_account: voteAccount,
       authority_account: authorityAccount,
       validator_type,
+      snapshot_url: '',
     }
     const inventoryPath = getInventoryPath(inventoryType)
     await Deno.writeTextFile(inventoryPath, stringify(inventory))

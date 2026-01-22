@@ -21,9 +21,18 @@
 - import_playbook: ../cmn/copy_restart_sh.yml
 - import_playbook: copy_keys.yml
 - import_playbook: ../cmn/add_solv.yml
+
 - import_playbook: ../cmn/install_package.yml
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
+- import_playbook: ../cmn/install_min_package.yml
+  when: validator_type in ['agave', 'jito', 'jito-bam']
+
 - import_playbook: ../cmn/setup_node_exporter.yml
+
 - import_playbook: ../cmn/install_rust.yml
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']
+  
 - import_playbook: ../cmn/disable_swap.yml
 - import_playbook: ../cmn/mount_disks.yml
 - import_playbook: ../cmn/optimize_system.yml
