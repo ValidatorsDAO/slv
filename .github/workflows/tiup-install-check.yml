@@ -1,0 +1,30 @@
+name: tiup install check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/ci/tiup-install-check.sh"
+      - "api/slv-api/src/db/dbInit.ts"
+      - ".github/workflows/tiup-install-check.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "scripts/ci/tiup-install-check.sh"
+      - "api/slv-api/src/db/dbInit.ts"
+      - ".github/workflows/tiup-install-check.yml"
+
+jobs:
+  install-check:
+    name: Install tiup on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install tiup
+        run: bash scripts/ci/tiup-install-check.sh

@@ -1,6 +1,7 @@
 export { SolanaNodeTypes } from '../types/config.ts'
 export type { SolanaNodeType } from '../types/config.ts'
 
+export const LOCAL_DB_URL = 'mysql://solv:solvLocal@127.0.0.1:4000/slv_api'
 export const compileTargets = [
   'x86_64-apple-darwin',
   'x86_64-unknown-linux-gnu',

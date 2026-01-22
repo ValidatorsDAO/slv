@@ -15,6 +15,7 @@ import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { installCmd } from '/src/install/index.ts'
+import { prepareLocalDb } from '@db/dbInit.ts'
 
 const program = new Command()
   .name('slv')
@@ -39,6 +40,13 @@ program
     await genOrReadVersions()
     await copyTemplateDirs()
     await updateDefaultVersion()
+  })
+
+program
+  .command('db:init')
+  .description('Initialize local TiDB (tiup playground) for SLV API')
+  .action(async () => {
+    await prepareLocalDb()
   })
 
 // Subcommands

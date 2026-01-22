@@ -25,45 +25,48 @@ export const SolanaNodeTypes = [
   'firedancer-jito',
 ] as const
 
-export interface ValidatorTestnetConfig {
+export interface AnsibleHostConfig {
   ansible_user: string
   ansible_host: string
   ansible_ssh_private_key_file: string
+}
+
+export interface NodeConfigBase extends AnsibleHostConfig {
   name: string
   identity_account: string
+  region: string
+  port_rpc: number
+  dynamic_port_range: string
+  validator_type: SolanaNodeType
+  shred_receiver_address: string
+}
+
+export interface ValidatorConfigBase extends NodeConfigBase {
   vote_account: string
   authority_account: string
-  validator_type: SolanaNodeType
   commission_bps: number
   relayer_url: string
   block_engine_url: string
-  region: string
-  shred_receiver_address: string
-  port_rpc: number
-  dynamic_port_range: string
 }
 
-export type InventoryTestnetValidatorType = {
-  testnet_validators: TestnetData
+export interface ValidatorTestnetConfig extends ValidatorConfigBase {}
+
+export interface HostsData<T> {
+  hosts: Record<string, T>
 }
 
-export interface TestnetData {
-  hosts: Record<string, ValidatorTestnetConfig>
-}
+export type TestnetData = HostsData<ValidatorTestnetConfig>
+export type MainnetData = HostsData<ValidatorMainnetConfig>
+export type RpcData = HostsData<RpcConfig>
 
-export interface MainnetData {
-  hosts: Record<string, ValidatorMainnetConfig>
-}
+type InventoryRecord<K extends InventoryType, V> = Record<K, V>
 
-export interface RpcData {
-  hosts: Record<string, RpcConfig>
-}
-
-export type Inventory = Record<'testnet_validators', TestnetData>
-export type InventoryMainnet = Record<'mainnet_validators', MainnetData>
-export type InventoryRPC = Record<'mainnet_rpcs', RpcData>
-export type InventoryDevnetRPC = Record<'devnet_rpcs', RpcData>
-export type InventoryTestnetRPC = Record<'testnet_rpcs', RpcData>
+export type InventoryTestnetValidatorType = InventoryRecord<'testnet_validators', TestnetData>
+export type Inventory = InventoryRecord<'testnet_validators', TestnetData>
+export type InventoryMainnet = InventoryRecord<'mainnet_validators', MainnetData>
+export type InventoryRPC = InventoryRecord<'mainnet_rpcs', RpcData>
+export type InventoryDevnetRPC = InventoryRecord<'devnet_rpcs', RpcData>
+export type InventoryTestnetRPC = InventoryRecord<'testnet_rpcs', RpcData>
 
 export interface CmnType {
   mainnet_validators: CmnMainnetValidatorType
@@ -73,66 +76,41 @@ export interface CmnType {
   testnet_rpcs: CmnMainnetRpcType
 }
 
-export interface CmnTestnetValidatorType {
-  version_firedancer: string
-  version_jito: string
-  version_jito_bam: string
-  version_agave: string
+interface CmnAccessList {
   allowed_ssh_ips: string[]
   allowed_ips: string[]
 }
 
-export interface CmnMainnetValidatorType {
+interface CmnSolanaVersionBase {
   version_agave: string
   version_firedancer: string
   version_jito: string
-  version_jito_bam: string
-  allowed_ssh_ips: string[]
-  allowed_ips: string[]
 }
 
-export interface CmnMainnetRpcType {
-  version_agave: string
-  version_jito: string
-  version_firedancer: string
+interface CmnSolanaVersionWithJitoBam extends CmnSolanaVersionBase {
+  version_jito_bam: string
+}
+
+export interface CmnTestnetValidatorType
+  extends CmnSolanaVersionWithJitoBam,
+    CmnAccessList {}
+
+export interface CmnMainnetValidatorType
+  extends CmnSolanaVersionWithJitoBam,
+    CmnAccessList {}
+
+export interface CmnMainnetRpcType extends CmnSolanaVersionBase, CmnAccessList {
   geyser_version: string
   richat_version: string
-  allowed_ssh_ips: string[]
-  allowed_ips: string[]
 }
 
-export interface RpcConfig {
-  ansible_host: string
-  ansible_user: string
-  ansible_ssh_private_key_file: string
-  identity_account: string
-  name: string
-  region: string
-  port_rpc: number
-  dynamic_port_range: string
+export interface RpcConfig extends NodeConfigBase {
   rpc_type: RpcType
-  validator_type: SolanaNodeType
   limit_ledger_size: number
-  shred_receiver_address: string
   richat_version: string
 }
 
-export interface ValidatorMainnetConfig {
-  name: string
-  ansible_host: string
-  ansible_user: string
-  ansible_ssh_private_key_file: string
-  identity_account: string
-  vote_account: string
-  authority_account: string
-  validator_type: SolanaNodeType
-  commission_bps: number
-  relayer_url: string
-  block_engine_url: string
-  region: string
-  shred_receiver_address: string
-  port_rpc: number
-  dynamic_port_range: string
+export interface ValidatorMainnetConfig extends ValidatorConfigBase {
   limit_ledger_size: number
   staked_rpc_identity_account: string
   staked_rpc_amount: number

@@ -82,3 +82,6 @@ build
 !tsconfig.json
 !package.json
 !.eslintrc.json
+
+.log
+.logs
