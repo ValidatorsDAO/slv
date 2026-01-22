@@ -25,6 +25,11 @@ jobs:
           clean: true
           fetch-depth: 0
 
+      - name: Ensure full checkout
+        run: |
+          git sparse-checkout disable || true
+          test -f api/slv-api/deno.json
+
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
@@ -45,6 +50,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
+
+      - name: Ensure full checkout
+        run: |
+          git sparse-checkout disable || true
+          test -f api/slv-api/deno.json
 
       - name: Set up Python
         uses: actions/setup-python@v5
