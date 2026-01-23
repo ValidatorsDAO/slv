@@ -35,9 +35,15 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure full checkout
+        shell: bash
         run: |
-          git sparse-checkout disable || true
-          test -f api/slv-api/deno.json
+          set -euo pipefail
+          if [ ! -f api/slv-api/deno.json ]; then
+            echo "Missing api/slv-api/deno.json; checkout may be incomplete"
+            git status --porcelain=v1 || true
+            ls -la api || true
+            exit 1
+          fi
 
       - name: Setup Deno
         uses: denoland/setup-deno@v1
@@ -73,9 +79,15 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure full checkout
+        shell: bash
         run: |
-          git sparse-checkout disable || true
-          test -f api/slv-api/deno.json
+          set -euo pipefail
+          if [ ! -f api/slv-api/deno.json ]; then
+            echo "Missing api/slv-api/deno.json; checkout may be incomplete"
+            git status --porcelain=v1 || true
+            ls -la api || true
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
