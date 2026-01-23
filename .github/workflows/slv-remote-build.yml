@@ -38,10 +38,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f api/slv-api/deno.json ]; then
-            echo "Missing api/slv-api/deno.json; checkout may be incomplete"
+          required_files=(cli/deno.json test-solana-key/test.ts)
+          missing=()
+          for f in "${required_files[@]}"; do
+            [ -f "$f" ] || missing+=("$f")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "Missing required files: ${missing[*]}"
             git status --porcelain=v1 || true
-            ls -la api || true
+            ls -la || true
             exit 1
           fi
 
@@ -82,10 +87,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f api/slv-api/deno.json ]; then
-            echo "Missing api/slv-api/deno.json; checkout may be incomplete"
+          required_files=(ansible/compile-slv.yml)
+          missing=()
+          for f in "${required_files[@]}"; do
+            [ -f "$f" ] || missing+=("$f")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "Missing required files: ${missing[*]}"
             git status --porcelain=v1 || true
-            ls -la api || true
+            ls -la || true
             exit 1
           fi
 
