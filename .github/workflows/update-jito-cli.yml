@@ -67,19 +67,22 @@ jobs:
           code_solana=$(check "${base}/solana")
           code_keygen=$(check "${base}/solana-keygen")
           code_perf=$(check "${base}/perf-libs.tar.gz")
+          code_bundle=$(check "${base}/target-release.tar.gz")
 
           need_agave=$([ "$code_agave" = "200" ] && echo "false" || echo "true")
           need_solana=$([ "$code_solana" = "200" ] && echo "false" || echo "true")
           need_keygen=$([ "$code_keygen" = "200" ] && echo "false" || echo "true")
           need_perf=$([ "$code_perf" = "200" ] && echo "false" || echo "true")
+          need_bundle=$([ "$code_bundle" = "200" ] && echo "false" || echo "true")
 
           echo "need_agave=${need_agave}" >> $GITHUB_OUTPUT
           echo "need_solana=${need_solana}" >> $GITHUB_OUTPUT
           echo "need_keygen=${need_keygen}" >> $GITHUB_OUTPUT
           echo "need_perf=${need_perf}"   >> $GITHUB_OUTPUT
+          echo "need_bundle=${need_bundle}" >> $GITHUB_OUTPUT
 
           # 何か一つでも足りなければスキップしない
-          if [ "$need_agave" = "false" ] && [ "$need_solana" = "false" ] && [ "$need_keygen" = "false" ] && [ "$need_perf" = "false" ]; then
+          if [ "$need_agave" = "false" ] && [ "$need_solana" = "false" ] && [ "$need_keygen" = "false" ] && [ "$need_perf" = "false" ] && [ "$need_bundle" = "false" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -95,7 +98,7 @@ jobs:
           git submodule update --init --recursive
 
       - name: Build Jito (only if binaries are missing)
-        if: steps.check_r2.outputs.skip == 'false' && (steps.check_r2.outputs.need_agave == 'true' || steps.check_r2.outputs.need_solana == 'true' || steps.check_r2.outputs.need_keygen == 'true' || steps.check_r2.outputs.need_perf == 'true')
+        if: steps.check_r2.outputs.skip == 'false' && (steps.check_r2.outputs.need_agave == 'true' || steps.check_r2.outputs.need_solana == 'true' || steps.check_r2.outputs.need_keygen == 'true' || steps.check_r2.outputs.need_perf == 'true' || steps.check_r2.outputs.need_bundle == 'true')
         run: |
           set -euxo pipefail
           cd jito-build
@@ -109,6 +112,20 @@ jobs:
         run: |
           set -euxo pipefail
           cd jito-build/target/release
+
+          # libpoh-simd.so is built by the poh-simd crate (not perf-libs), so locate it separately.
+          # We restage it as libpoh-simd.so so it can be bundled with other runtime libs in perf-libs/.
+          shopt -s nullglob
+          poh_simd_candidates=(deps/libpoh*simd*.so)
+          if [ "${#poh_simd_candidates[@]}" -eq 0 ]; then
+            echo "ERROR: libpoh-simd.so not found (SIMD expected enabled)"
+            exit 1
+          fi
+          if [ "${#poh_simd_candidates[@]}" -gt 1 ]; then
+            echo "WARN: multiple libpoh-simd candidates found, using first match:"
+            printf ' - %s\n' "${poh_simd_candidates[@]}"
+          fi
+          cp -v "${poh_simd_candidates[0]}" ./libpoh-simd.so
 
           if [ "${{ steps.check_r2.outputs.need_solana }}" = "true" ]; then
             cp -v solana ../../..
@@ -161,19 +178,29 @@ jobs:
               fi
             fi
 
-            # solana-perf.tgz の優先使用、なければディレクトリをアーカイブ
+            # libpoh-simd.so is not part of perf-libs output; inject it so it lands in the standard perf-libs/ runtime path.
             if [ -f "${real_perf_dir}/solana-perf.tgz" ]; then
-              cp -v "${real_perf_dir}/solana-perf.tgz" ../../../perf-libs.tar.gz
-              echo "Using existing solana-perf.tgz as perf-libs.tar.gz"
+              tmp_perf_dir=$(mktemp -d)
+              tar -C "${tmp_perf_dir}" -xzf "${real_perf_dir}/solana-perf.tgz"
+              cp -v "./libpoh-simd.so" "${tmp_perf_dir}/libpoh-simd.so"
+              tar -C "${tmp_perf_dir}" -czf ../../../perf-libs.tar.gz .
+              rm -rf "${tmp_perf_dir}"
+              echo "Created perf-libs.tar.gz from solana-perf.tgz + libpoh-simd.so"
             elif [ -f "${real_perf_dir}/libsolana_rbpf.so" ] || [ -f "${real_perf_dir}/libsolana_sbf_c.a" ]; then
               echo "Found perf-libs directory with libraries, creating archive..."
-              tar -C "${real_perf_dir}" -czf ../../../perf-libs.tar.gz .
-              echo "Created perf-libs.tar.gz from directory"
+              tar -C "${real_perf_dir}" -czf ../../../perf-libs.tar.gz . -C "$(pwd)" "libpoh-simd.so"
+              echo "Created perf-libs.tar.gz from directory + libpoh-simd.so"
             else
               echo "ERROR: perf-libs directory exists but contains no expected files"
               ls -la "${real_perf_dir}" || true
               exit 1
             fi
+          fi
+
+          # Bundle full target/release tree for safer, offline reuse (keeps existing artifacts intact).
+          if [ "${{ steps.check_r2.outputs.need_bundle }}" = "true" ]; then
+            tar -C .. -czf ../../../target-release.tar.gz release
+            echo "Created target-release.tar.gz"
           fi
 
           cd ../../..
@@ -221,6 +248,10 @@ jobs:
               api_put "${BUCKET_NAME}" "jito/${VERSION}/perf-libs.tar.gz" "perf-libs.tar.gz" "application/gzip"
             fi
 
+            if [ "${{ steps.check_r2.outputs.need_bundle }}" = "true" ] && [ -f "target-release.tar.gz" ]; then
+              api_put "${BUCKET_NAME}" "jito/${VERSION}/target-release.tar.gz" "target-release.tar.gz" "application/gzip"
+            fi
+
             # latest.txt は両バケットに更新
             echo "${VERSION}" > latest.txt
             api_put "${BUCKET_NAME}" "jito/latest.txt" "latest.txt" "text/plain"
@@ -257,4 +288,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          rm -rf jito-build solana solana-keygen agave-validator perf-libs perf-libs.tar.gz latest.txt || true
+          rm -rf jito-build solana solana-keygen agave-validator perf-libs perf-libs.tar.gz target-release.tar.gz latest.txt || true

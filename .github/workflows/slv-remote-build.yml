@@ -17,7 +17,7 @@ on:
 jobs:
   test:
     name: Run Tests
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, runner-slv-1]
     steps:
       - name: Pre-clean workspace
         run: |
