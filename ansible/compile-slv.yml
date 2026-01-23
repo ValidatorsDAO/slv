@@ -91,6 +91,29 @@
         GH_TOKEN: '{{ github_token }}'
       become_user: '{{ build_user }}'
 
+    - name: Ensure api/slv-api directory exists for workspace
+      file:
+        path: '{{ build_dir }}/api/slv-api'
+        state: directory
+        mode: '0755'
+        owner: '{{ build_user }}'
+        group: '{{ build_group }}'
+
+    - name: Check for api/slv-api/deno.json
+      stat:
+        path: '{{ build_dir }}/api/slv-api/deno.json'
+      register: api_config_stat
+
+    - name: Create stub api/slv-api/deno.json if missing
+      copy:
+        dest: '{{ build_dir }}/api/slv-api/deno.json'
+        content: |
+          {}
+        owner: '{{ build_user }}'
+        group: '{{ build_group }}'
+        mode: '0644'
+      when: not api_config_stat.stat.exists
+
     - name: Update version in constants
       replace:
         path: '{{ build_dir }}/cmn/constants/version.ts'

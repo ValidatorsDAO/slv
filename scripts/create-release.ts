@@ -35,6 +35,18 @@ async function createRelease() {
 
   console.log(`Creating release v${newVersion}...`)
 
+  // Ensure workspace member config exists so tagged release is usable in CI
+  const apiConfigPath = './api/slv-api/deno.json'
+  try {
+    await Deno.stat(apiConfigPath)
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      console.error(`Error: Missing ${apiConfigPath}. Add it before tagging.`)
+      Deno.exit(1)
+    }
+    throw error
+  }
+
   // 1. Update the version in cmn/constants/version.ts
   const versionPath = './cmn/constants/version.ts'
   let versionContent = await Deno.readTextFile(versionPath)

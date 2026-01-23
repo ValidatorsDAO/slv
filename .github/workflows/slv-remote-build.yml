@@ -49,6 +49,12 @@ jobs:
             ls -la || true
             exit 1
           fi
+          # Deno workspace expects api/slv-api/deno.json; create a stub if missing in older tags.
+          if [ ! -f api/slv-api/deno.json ]; then
+            echo "api/slv-api/deno.json missing; creating stub for workspace compatibility"
+            mkdir -p api/slv-api
+            printf '{\n}\n' > api/slv-api/deno.json
+          fi
 
       - name: Setup Deno
         uses: denoland/setup-deno@v1
