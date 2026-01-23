@@ -56,8 +56,13 @@ jobs:
           deno-version: v2.6.5
 
       - name: Run tests
+        shell: bash
         run: |
-          deno test -A --config=cli/deno.json test-solana-key/test.ts cli/test
+          set -euo pipefail
+          # Run CLI tests from its own directory to avoid root workspace resolution
+          (cd cli && deno test -A --config=deno.json test)
+          # Run the standalone test without loading root config/workspace
+          deno test -A --no-config test-solana-key/test.ts
 
   remote-build:
     name: Remote Build and Release
