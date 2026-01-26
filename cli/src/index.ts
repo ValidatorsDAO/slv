@@ -13,7 +13,7 @@ import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
-import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
+import { migrateVersionsYml } from '/lib/migrate/migrateVersionsYml.ts'
 import { installCmd } from '/src/install/index.ts'
 import { prepareLocalDb } from '@db/dbInit.ts'
 
@@ -37,7 +37,7 @@ program
   .command('upgrade:settings')
   .description('Upgrade Default Settings Files')
   .action(async () => {
-    await genOrReadVersions()
+    await migrateVersionsYml()
     await copyTemplateDirs()
     await updateDefaultVersion()
   })

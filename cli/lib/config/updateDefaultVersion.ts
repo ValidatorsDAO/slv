@@ -24,26 +24,53 @@ import { colors } from '@cliffy/colors'
  */
 const displayVersionChange = (
   name: string,
-  oldVersion: string,
-  newVersion: string,
+  oldVersion: unknown,
+  newVersion: unknown,
   indent = 2,
 ) => {
   const padding = ' '.repeat(indent)
+  const formatVersion = (value: unknown): string => {
+    if (typeof value === 'string') {
+      return value.length > 0 ? value : 'N/A'
+    }
+    if (
+      typeof value === 'number' ||
+      typeof value === 'bigint' ||
+      typeof value === 'boolean'
+    ) {
+      return String(value)
+    }
+    if (value === null || value === undefined) {
+      return 'N/A'
+    }
+    try {
+      return String(value)
+    } catch (_error) {
+      try {
+        const json = JSON.stringify(value)
+        return json ?? 'N/A'
+      } catch (_error) {
+        return Object.prototype.toString.call(value)
+      }
+    }
+  }
+  const oldLabel = formatVersion(oldVersion)
+  const newLabel = formatVersion(newVersion)
 
   // Always show both versions for clarity
-  if (oldVersion === newVersion) {
+  if (oldLabel === newLabel) {
     // No change in version - show with equals sign
     console.log(
-      `${padding}${colors.bold(name)}: ${colors.dim(oldVersion)} ${
+      `${padding}${colors.bold(name)}: ${colors.dim(oldLabel)} ${
         colors.blue('=')
-      } ${colors.green(newVersion)}`,
+      } ${colors.green(newLabel)}`,
     )
   } else {
     // Version has changed - show both with an arrow
     console.log(
-      `${padding}${colors.bold(name)}: ${colors.dim(oldVersion)} ${
+      `${padding}${colors.bold(name)}: ${colors.dim(oldLabel)} ${
         colors.yellow('→')
-      } ${colors.green.bold(newVersion)}`,
+      } ${colors.green.bold(newLabel)}`,
     )
   }
 }
