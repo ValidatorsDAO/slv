@@ -111,24 +111,42 @@ rpcCmd.command('update:firedancer')
     }
   })
 
-rpcCmd.command('build:solana-cli')
+type BuildSolanaOptions = {
+  pubkey?: string
+  network?: string
+}
+
+const runBuildSolana = async (options: BuildSolanaOptions) => {
+  const inventoryType = options.network + '_rpcs' as InventoryType
+  const templateRoot = getTemplatePath()
+
+  const playbook =
+    `${templateRoot}/ansible/${options.network}-rpc/install_solana.yml`
+  if (options.pubkey) {
+    await runAnsilbe(playbook, inventoryType, options.pubkey)
+    return
+  }
+  await runAnsilbe(playbook, inventoryType)
+}
+
+rpcCmd.command('build:solana')
   .description('🛠️ Build Solana CLI from Source')
   .option('-p, --pubkey <pubkey>', 'Name of RPC')
   .option('-n, --network <network>', 'Network to deploy validators', {
     default: 'mainnet',
   })
   .action(async (options) => {
-    const inventoryType = options.network + '_rpcs' as InventoryType
-    const templateRoot = getTemplatePath()
+    await runBuildSolana(options)
+  })
 
-    const playbook =
-      `${templateRoot}/ansible/${options.network}-rpc/install_solana.yml`
-    if (options.pubkey) {
-      await runAnsilbe(playbook, inventoryType, options.pubkey)
-      return
-    }
-    await runAnsilbe(playbook, inventoryType)
-    return
+rpcCmd.command('build:solana-cli')
+  .description('🔁 Alias for build:solana')
+  .option('-p, --pubkey <pubkey>', 'Name of RPC')
+  .option('-n, --network <network>', 'Network to deploy validators', {
+    default: 'mainnet',
+  })
+  .action(async (options) => {
+    await runBuildSolana(options)
   })
 
 rpcCmd.command('install:solana')

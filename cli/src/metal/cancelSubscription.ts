@@ -10,12 +10,11 @@ const cancelSubscription = async (apiKey: string, subscriptionId: string) => {
     )
     myHeaders.append('Content-Type', 'application/json')
     const requestOptions = {
-      method: 'POST',
+      method: 'DELETE',
       headers: myHeaders,
-      body: JSON.stringify({ subscriptionId }),
     }
     const response = await fetch(
-      METAL_API_URL + '/metal/cancel',
+      `${METAL_API_URL}/user/subscription/cancel/${subscriptionId}`,
       requestOptions,
     )
     const result = await response.json() as {

@@ -168,35 +168,54 @@ validatorCmd.command('update:firedancer')
     }
   })
 
-validatorCmd.command('build:solana-cli')
+type BuildSolanaOptions = {
+  pubkey?: string
+  network?: string
+}
+
+const runBuildSolana = async (options: BuildSolanaOptions) => {
+  const inventoryType: InventoryType = options.network === 'mainnet'
+    ? 'mainnet_validators'
+    : 'testnet_validators'
+  const templateRoot = getTemplatePath()
+  if (options.network === 'mainnet') {
+    const playbook =
+      `${templateRoot}/ansible/mainnet-validator/install_solana.yml`
+    if (options.pubkey) {
+      await runAnsilbe(playbook, inventoryType, options.pubkey)
+      return
+    }
+    await runAnsilbe(playbook, inventoryType)
+    return
+  } else {
+    const playbook =
+      `${templateRoot}/ansible/testnet-validator/install_solana.yml`
+    if (options.pubkey) {
+      await runAnsilbe(playbook, inventoryType, options.pubkey)
+      return
+    }
+    await runAnsilbe(playbook, inventoryType)
+  }
+}
+
+validatorCmd.command('build:solana')
   .description('🛠️ Build Solana CLI from Source')
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .option('-n, --network <network>', 'Solana Network', {
     default: 'testnet',
   })
   .action(async (options) => {
-    const inventoryType: InventoryType = options.network === 'mainnet'
-      ? 'mainnet_validators'
-      : 'testnet_validators'
-    const templateRoot = getTemplatePath()
-    if (options.network === 'mainnet') {
-      const playbook =
-        `${templateRoot}/ansible/mainnet-validator/install_solana.yml`
-      if (options.pubkey) {
-        await runAnsilbe(playbook, inventoryType, options.pubkey)
-        return
-      }
-      await runAnsilbe(playbook, inventoryType)
-      return
-    } else {
-      const playbook =
-        `${templateRoot}/ansible/testnet-validator/install_solana.yml`
-      if (options.pubkey) {
-        await runAnsilbe(playbook, inventoryType, options.pubkey)
-        return
-      }
-      await runAnsilbe(playbook, inventoryType)
-    }
+    await runBuildSolana(options)
+  })
+
+validatorCmd.command('build:solana-cli')
+  .description('🔁 Alias for build:solana')
+  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .option('-n, --network <network>', 'Solana Network', {
+    default: 'testnet',
+  })
+  .action(async (options) => {
+    await runBuildSolana(options)
   })
 
 validatorCmd.command('install:solana')
