@@ -18,7 +18,7 @@
     "docker:rm": "bash scripts/docker-systemd-rm.sh",
     "upload:script": "deno run -A cli/uploadScript.ts",
     "upload:exe": "deno run -A cli/uploadExe.ts",
-    "upload:template": "tar -czf dist/template.tar.gz ./template/0.9.960 && deno run -A cli/uploadTemplate.ts",
+    "upload:template": "tar -czf dist/template.tar.gz ./template/0.9.961 && deno run -A cli/uploadTemplate.ts",
     "purge:cache": "deno run -A cmn/lib/purgeR2Cache.ts"
   },
   "imports": {
