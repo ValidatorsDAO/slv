@@ -1,0 +1,28 @@
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--vote-account {{ vote_account }} \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--entrypoint entrypoint.testnet.solana.com:8001 \
+--entrypoint entrypoint2.testnet.solana.com:8001 \
+--entrypoint entrypoint3.testnet.solana.com:8001 \
+--known-validator 5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on \
+--only-known-rpc \
+--expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+--dynamic-port-range {{ dynamic_port_range | default("8900-8925") }} \
+--rpc-port {{ port_rpc | default(8899, true) }} \
+--wal-recovery-mode skip_any_corrupted_record \
+--wait-for-supermajority 374301609 \
+--expected-shred-version 24207 \
+--expected-bank-hash CJZAAtgdqYiqHTFKJ9XD9qw4W21wHqojkhrVJSfFF9b7 \
+--limit-ledger-size \
+--no-port-check \
+--commission-bps {{ commission_bps | default(1000) }} \
+--relayer-url http://ny.testnet.relayer.jito.wtf:8100 \
+--block-engine-url https://ny.testnet.block-engine.jito.wtf \
+--shred-receiver-address 64.130.35.224:1002 \
+--tip-payment-program-pubkey GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy \
+--tip-distribution-program-pubkey DzvGET57TAgEDxvm3ERUM4GNcsAJdqjDLCne9sdfY4wf \
+--merkle-root-upload-authority 7T4inmPmtNBX3MhLwJ9hFsSMnGJYYkKioVABSNTWVRuS \
