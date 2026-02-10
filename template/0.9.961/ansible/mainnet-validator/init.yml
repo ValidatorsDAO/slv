@@ -6,14 +6,14 @@
     - name: Set validator type fact for each host
       set_fact:
         validator_type: "{{ validator_type | default('firedancer-jito') }}"
-    
+
     - name: Debug validator type. Stop if not set
       debug:
-        msg: "Validator type is {{ validator_type }}"
+        msg: 'Validator type is {{ validator_type }}'
 
     - name: Fail if validator type is not set
       fail:
-        msg: "Validator type is not set. Please set it in the inventory."
+        msg: 'Validator type is not set. Please set it in the inventory.'
       when: validator_type is not defined
 
 # 共通処理
@@ -23,22 +23,17 @@
 - import_playbook: ../cmn/add_solv.yml
 
 - import_playbook: ../cmn/install_package.yml
-  when: validator_type in ['firedancer-agave', 'firedancer-jito']
-
-- import_playbook: ../cmn/install_min_package.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
-
 - import_playbook: ../cmn/setup_node_exporter.yml
 
 - import_playbook: ../cmn/install_rust.yml
   when: validator_type in ['firedancer-agave', 'firedancer-jito']
-  
+
 - import_playbook: ../cmn/disable_swap.yml
 - import_playbook: ../cmn/mount_disks.yml
 - import_playbook: ../cmn/optimize_system.yml
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
-- import_playbook: ../cmn/install_solana.yml
+- import_playbook: ../cmn/build_solana.yml
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 # - import_playbook: setup_ufw.yml

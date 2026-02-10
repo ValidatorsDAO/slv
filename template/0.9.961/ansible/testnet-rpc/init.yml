@@ -13,11 +13,11 @@
 
     - name: Debug validator type. Stop if not set
       debug:
-        msg: "Validator type is {{ validator_type }}"
+        msg: 'Validator type is {{ validator_type }}'
 
     - name: Fail if validator type is not set
       fail:
-        msg: "Validator type is not set. Please set it in the inventory."
+        msg: 'Validator type is not set. Please set it in the inventory.'
       when: validator_type is not defined
 
 - import_playbook: ../cmn/fix_permissions.yml
@@ -33,7 +33,7 @@
 - import_playbook: ../cmn/optimize_system.yml
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
-- import_playbook: ../cmn/install_solana.yml
+- import_playbook: ../cmn/build_solana.yml
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 

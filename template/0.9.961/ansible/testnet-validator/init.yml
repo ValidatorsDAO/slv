@@ -39,7 +39,7 @@
 - import_playbook: setup_solv_service.yml
   when: validator_type in ['agave', 'jito', 'jito-bam']
 
-- import_playbook: create-start-validator-sh.yml
+- import_playbook: deploy-start-validator-sh.yml
   when: validator_type in ['agave', 'jito', 'jito-bam']
 
 - import_playbook: ../cmn/wget_snapshot.yml
