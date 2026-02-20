@@ -188,3 +188,62 @@ ansible-playbook -i inventory mainnet-rpc/init.yml \
 ```
 
 No `versions.yml` required — all variables can be passed via `extra_vars`.
+
+## Interactive Deployment Flow
+
+See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for output format.
+
+### Required Variables
+
+| Variable | Prompt | Validation |
+|---|---|---|
+| `server_ip` | "Target server IP?" | Valid IPv4 |
+| `network` | "mainnet, testnet, or devnet?" | `mainnet`, `testnet`, `devnet` |
+| `region` | "Server region?" | String |
+| `rpc_type` | "RPC type?" | `RPC`, `Index RPC`, `Geyser gRPC`, `Index RPC + gRPC` |
+| `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
+| `identity_account` | "Node identity pubkey?" | Base58 pubkey |
+| `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
+
+### Conditionally Required Variables
+
+| Variable | Default | When Required |
+|---|---|---|
+| `jito_version` | Matches solana_version | jito/jito-bam types |
+| `firedancer_version` | — | firedancer types |
+| `yellowstone_grpc_version` | — | Yellowstone gRPC plugin |
+| `richat_version` | — | Richat plugin |
+| `of1_version` | — | Index RPC (Old Faithful) |
+| `epoch` | — | Index RPC (faithful service) |
+| `faithful_proxy_target_url` | — | Index RPC |
+
+### Optional Variables
+
+| Variable | Default | When Required |
+|---|---|---|
+| `ssh_user` | `solv` | Always |
+| `port_rpc` | `8899` (ERPC: `7211`) | Always |
+| `limit_ledger_size` | `100000000` | Always |
+| `dynamic_port_range` | `8000-8025` | Always |
+| `port_grpc` | `10000` | gRPC types only |
+| `tpu_peer_address` | — | Index RPC (tx forwarding) |
+| `allowed_ssh_ips` | — | Strongly recommended (UFW) |
+| `allowed_ips` | — | Optional (UFW) |
+| `expected_shred_version` | Epoch-dependent | Testnet only |
+
+### Pre-flight: Fresh Server Setup
+
+```bash
+ansible-playbook -i inventory.yml cmn/add_solv.yml \
+  -e '{"ansible_user":"ubuntu"}' --become
+```
+
+### Deployment Command
+
+All paths relative to skill's `ansible/` directory:
+```bash
+cd /path/to/slv-rpc/ansible/
+ansible-playbook -i inventory.yml {network}-rpc/init.yml \
+  -e '{"rpc_type":"<type>","solana_version":"<version>"}'
+```

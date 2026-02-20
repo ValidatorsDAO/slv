@@ -1,0 +1,44 @@
+# SLV RPC — Example Inventory
+#
+# Usage:
+#   ansible-playbook -i inventory.yml mainnet-rpc/init.yml
+#
+# Or with extra_vars:
+#   ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
+#     -e '{"solana_version":"3.1.8","rpc_type":"Geyser gRPC"}'
+
+all:
+  hosts:
+    rpc-1:
+      ansible_host: "<server-ip>"
+      ansible_user: "solv"
+      ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+  vars:
+    # --- RPC Type ---
+    # Options: RPC, Index RPC, Geyser gRPC, Index RPC + gRPC
+    rpc_type: "RPC"
+
+    # --- Validator Type (underlying client) ---
+    # Options: agave, jito, jito-bam, firedancer-agave
+    validator_type: "agave"
+
+    # --- Versions ---
+    solana_version: "3.1.8"
+    # jito_version: "3.1.8"
+    # firedancer_version: "0.305.20104"
+    # yellowstone_grpc_version: "v2.2.1"
+    # richat_version: "richat-v8.1.0"
+
+    # --- Snapshot ---
+    snapshot_url: ""
+
+    # --- Network ---
+    limit_ledger_size: 100000000
+    dynamic_port_range: "8000-8025"
+
+    # --- gRPC (when rpc_type includes gRPC) ---
+    # port_grpc: 10000
+
+    # --- Testnet Only ---
+    # expected_shred_version: ""

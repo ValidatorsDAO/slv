@@ -131,15 +131,25 @@ if grep -rq '\.slv/cmn/' "$DIST_DIR/ansible/" 2>/dev/null; then
   fi
 fi
 
-# --- Copy OSS SKILL.md (NOT the internal/admin one) ---
-if [[ -f "$OSS_SKILL_DIR/SKILL.md" ]]; then
-  cp "$OSS_SKILL_DIR/SKILL.md" "$DIST_DIR/SKILL.md"
-else
-  echo "WARNING: No OSS SKILL.md found at $OSS_SKILL_DIR/SKILL.md" >&2
+# --- Copy OSS documentation files ---
+for f in SKILL.md AGENT.md README.md; do
+  if [[ -f "$OSS_SKILL_DIR/$f" ]]; then
+    cp "$OSS_SKILL_DIR/$f" "$DIST_DIR/$f"
+  fi
+done
+
+# Copy examples/
+if [[ -d "$OSS_SKILL_DIR/examples" ]]; then
+  cp -r "$OSS_SKILL_DIR/examples" "$DIST_DIR/examples"
 fi
 
 # --- Safety check: ensure no internal API references leaked ---
-LEAKED=$(grep -rl 'master.api\|master-api\|server.api\|server-api\|kafka.api\|kafka-api\|ansible-api\|erpc\.global\|Bearer solv\|heySOLV\|queue(' "$DIST_DIR/" 2>/dev/null || true)
+# Security check: scan for internal API references
+# erpc.global (public website) is allowed; only internal subdomains are blocked
+LEAKED=$(grep -rl 'master.api\|master-api\|server.api\|server-api\|kafka.api\|kafka-api\|ansible-api\|Bearer solv\|heySOLV\|queue(' "$DIST_DIR/" 2>/dev/null || true)
+# Also check for internal subdomains (but allow bare erpc.global and snapshot endpoints)
+LEAKED_INTERNAL=$(grep -rPl '(?<!solana-snapshot-\w{2,8}\.)(?<!solana-snapshot-\w{2,12}\.)(?<!\w)(master-api|user-api|server-api|kafka-api|ansible-api)\.erpc\.global' "$DIST_DIR/" 2>/dev/null || true)
+LEAKED="$LEAKED$LEAKED_INTERNAL"
 if [[ -n "$LEAKED" ]]; then
   echo "🚨 SECURITY: Internal API references found in OSS output!" >&2
   echo "$LEAKED" >&2
