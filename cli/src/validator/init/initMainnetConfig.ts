@@ -20,6 +20,7 @@ import {
   type RegionLatency,
 } from '/lib/jito/findNearestRegion.ts'
 import type { SolanaNodeType } from '@cmn/types/config.ts'
+import { findNearestSnapshotUrl } from '/lib/snapshot/findNearestSnapshot.ts'
 
 const initMainnetConfig = async (sshConnection: SSHConnection) => {
   const {
@@ -114,7 +115,7 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     relayer_url,
     block_engine_url: blockEngineRegion,
     shred_receiver_address: String(shredstream_address),
-    snapshot_url: '',
+    snapshot_url: await findNearestSnapshotUrl(host, { user, keyFile, port: 22 }),
     staked_rpc_identity_account: rpcAccount,
   }
   // await updateAllowedSshIps()

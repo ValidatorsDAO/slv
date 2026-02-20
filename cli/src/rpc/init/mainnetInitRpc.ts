@@ -24,6 +24,7 @@ import { updateMainnetRPCInventory } from '/lib/updateMainnetRPCInventory.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
 import { VERSION_RICHAT } from '@cmn/constants/version.ts'
+import { findNearestSnapshotUrl } from '/lib/snapshot/findNearestSnapshot.ts'
 
 export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
   const host = sshOptions.ip
@@ -81,7 +82,7 @@ export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
     limit_ledger_size: 200000000,
     richat_version: VERSION_RICHAT,
     shred_receiver_address: String(getNearRegion.info.shredReceiver),
-    snapshot_url: '',
+    snapshot_url: await findNearestSnapshotUrl(host, { user, keyFile, port: 22 }),
   }
 
   // Update ~/.slv/versions.yml
