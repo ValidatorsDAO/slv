@@ -33,7 +33,7 @@
 - import_playbook: ../cmn/optimize_system.yml
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
-- import_playbook: ../cmn/install_solana.yml
+- import_playbook: ../cmn/build_solana.yml
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 
