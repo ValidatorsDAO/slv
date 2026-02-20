@@ -51,7 +51,6 @@ keyfile.json
 /functions/
 tmp
 /sql/
-dist
 .turbo
 node_modules
 .aws
@@ -85,4 +84,6 @@ build
 
 .log
 .logs
-dist/
+dist/**
+!dist/skills/
+!dist/skills/**
