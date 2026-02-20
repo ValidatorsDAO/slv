@@ -44,6 +44,12 @@ exec agave-validator \
 {% else -%}
 --limit-ledger-size {{ limit_ledger_size | default(100000000) }} \
 {% endif -%}
+{% if tpu_peer_address is defined and tpu_peer_address %}
+{% if rpc_type == 'Index RPC' or rpc_type == 'Index RPC + gRPC' %}
+--rpc-send-transaction-tpu-peer {{ tpu_peer_address }} \
+--rpc-send-transaction-also-leader \
+{% endif %}
+{% endif %}
 --no-port-check{% if rpc_type == 'Geyser gRPC' or rpc_type == 'Index RPC + gRPC' %} \
 --rpc-pubsub-enable-block-subscription \
 --rpc-pubsub-enable-vote-subscription \
