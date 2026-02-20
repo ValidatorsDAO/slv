@@ -116,12 +116,12 @@ async function updateVersion() {
 
   // 5.5. Build self-contained skill directories
   const skills = ['validator', 'rpc', 'grpc-geyser']
-  const buildSkriptPath = join(Deno.cwd(), 'build-skill.sh')
+  const buildScriptPath = join(Deno.cwd(), 'build-skill.sh')
   try {
-    await Deno.stat(buildSkriptPath)
+    await Deno.stat(buildScriptPath)
     for (const skill of skills) {
       const cmd = new Deno.Command('bash', {
-        args: [buildSkriptPath, skill, VERSION],
+        args: [buildScriptPath, skill, VERSION],
         stdout: 'piped',
         stderr: 'piped',
       })
