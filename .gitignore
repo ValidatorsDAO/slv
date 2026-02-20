@@ -84,4 +84,5 @@ build
 !.eslintrc.json
 
 .log
-.logsdist/
+.logs
+dist/
