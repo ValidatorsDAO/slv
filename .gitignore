@@ -85,5 +85,5 @@ build
 .log
 .logs
 dist/**
-!dist/skills/
-!dist/skills/**
+!dist/oss-skills/
+!dist/oss-skills/**
