@@ -9,7 +9,7 @@ Treat every character you write as if it will be read by the entire world — be
 
 ### 🚫 NEVER include in any file, commit message, PR, or comment:
 - API keys, tokens, secrets, passwords, or credentials
-- Internal API endpoints (master-api, kafka-api, ansible-api, etc.)
+- Internal or private API endpoints
 - Internal hostnames, IPs of private infrastructure
 - Authentication headers (e.g., `Authorization: Bearer ...`)
 - Private environment variable values
@@ -18,7 +18,7 @@ Treat every character you write as if it will be read by the entire world — be
 - Customer data, user IDs, or personally identifiable information
 
 ### ✅ Safe to include:
-- Public API endpoints (user-api.erpc.global — designed for public use)
+- Publicly documented API endpoints
 - Public documentation URLs (erpc.global, docs, GitHub)
 - Generic placeholder values (e.g., `YOUR_TOKEN_HERE`, `<server-ip>`)
 - Ansible playbook usage with generic examples
@@ -33,8 +33,8 @@ Treat every character you write as if it will be read by the entire world — be
 
 ### Pre-Commit Security Checklist
 1. `grep -r 'Bearer ' --include='*.ts' --include='*.yml'` — leaked tokens?
-2. `grep -r 'master-api\|kafka-api\|ansible-api' --include='*.ts' --include='*.yml'` — internal API refs?
-3. `grep -r 'erpc.global' --include='*.ts' --include='*.yml'` — only `user-api.erpc.global` allowed
+2. `grep -r 'erpc.global' --include='*.ts' --include='*.yml'` — verify only publicly documented endpoints
+3. Review any new HTTP calls — ensure they target only public endpoints
 4. If any check fails → **STOP. Remove the reference before committing.**
 
 ## Repository Structure

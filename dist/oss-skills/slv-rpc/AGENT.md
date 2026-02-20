@@ -120,5 +120,7 @@ ansible-playbook -i /path/to/inventory.yml mainnet-rpc/init.yml -e '{...}'
 
 ## ⚠️ OSS Security
 
-This is an open-source skill. Do not reference internal APIs, internal IPs,
-credentials, or non-public infrastructure. Only `user-api.erpc.global` is safe to reference.
+This is an open-source skill.
+- Do not include any internal API endpoints, hostnames, or credentials
+- Do not hardcode IP addresses of private infrastructure
+- Only publicly documented endpoints may be referenced

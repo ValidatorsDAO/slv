@@ -123,6 +123,7 @@ ansible-playbook -i /path/to/inventory.yml mainnet-validator/init.yml -e '{...}'
 
 ## ⚠️ OSS Security
 
-This is an open-source skill. Do not reference internal APIs (master-api, kafka-api, ansible-api),
-internal IPs, credentials, or any non-public infrastructure details.
-Only `user-api.erpc.global` is a safe public endpoint to reference.
+This is an open-source skill.
+- Do not include any internal API endpoints, hostnames, or credentials
+- Do not hardcode IP addresses of private infrastructure
+- Only publicly documented endpoints may be referenced
