@@ -188,3 +188,35 @@ ansible-playbook -i inventory mainnet-rpc/init.yml \
 ```
 
 No `versions.yml` required — all variables can be passed via `extra_vars`.
+
+## Interactive Deployment Flow
+
+See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for output format.
+
+### Required Variables
+
+| Variable | Prompt | Validation |
+|---|---|---|
+| `server_ip` | "Target server IP?" | Valid IPv4 |
+| `network` | "mainnet, testnet, or devnet?" | `mainnet`, `testnet`, `devnet` |
+| `rpc_type` | "RPC type?" | `RPC`, `Index RPC`, `Geyser gRPC`, `Index RPC + gRPC` |
+| `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+| `solana_version` | "Solana version? (default: 3.1.8)" | Semver format |
+
+### Optional Variables
+
+| Variable | Default | When Required |
+|---|---|---|
+| `snapshot_url` | Auto-detected for ERPC nodes | Always |
+| `limit_ledger_size` | `100000000` | Always |
+| `port_grpc` | `10000` | gRPC types only |
+| `yellowstone_grpc_version` | Latest | Yellowstone gRPC only |
+| `richat_version` | Latest | Richat only |
+| `expected_shred_version` | Epoch-dependent | Testnet only |
+
+### Deployment Command
+
+```bash
+ansible-playbook -i inventory.yml {network}-rpc/init.yml \
+  -e '{"rpc_type":"<type>","solana_version":"<version>"}'
+```

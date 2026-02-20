@@ -115,3 +115,40 @@ ansible-playbook -i inventory mainnet-rpc/geyser_richat_build.yml \
 ```
 
 No `versions.yml` required — all variables can be passed via `extra_vars`.
+
+## Interactive Deployment Flow
+
+See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for output format.
+
+### Required Variables
+
+| Variable | Prompt | Validation |
+|---|---|---|
+| `server_ip` | "Target server IP?" | Valid IPv4 |
+| `rpc_type` | "Geyser gRPC or Index RPC + gRPC?" | `Geyser gRPC`, `Index RPC + gRPC` |
+| `solana_version` | "Solana version? (default: 3.1.8)" | Semver format |
+| `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+
+### Plugin Selection
+
+| Plugin | Variable | Source |
+|---|---|---|
+| Yellowstone gRPC | `yellowstone_grpc_version` | github.com/rpcpool/yellowstone-grpc |
+| Richat | `richat_version` | github.com/lamports-dev/richat |
+
+Both are built from source (no pre-built binaries). Build time: ~15-30 min.
+
+### Optional Variables
+
+| Variable | Default | When Required |
+|---|---|---|
+| `snapshot_url` | Auto-detected for ERPC nodes | Always |
+| `port_grpc` | `10000` | Always |
+| `limit_ledger_size` | `100000000` | Always |
+
+### Deployment Command
+
+```bash
+ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
+  -e '{"rpc_type":"Geyser gRPC","solana_version":"<version>","richat_version":"<version>"}'
+```

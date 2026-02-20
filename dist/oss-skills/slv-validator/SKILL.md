@@ -189,3 +189,47 @@ ansible-playbook -i inventory mainnet-validator/init.yml \
 ```
 
 No `versions.yml` required — all variables can be passed via `extra_vars`.
+
+## Interactive Deployment Flow
+
+When deploying a new validator, the agent should guide the user through variable collection
+in this order. See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml`
+for the generated output format.
+
+### Required Variables (must collect)
+
+| Variable | Prompt | Validation |
+|---|---|---|
+| `server_ip` | "What is the target server IP?" | Valid IPv4 |
+| `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
+| `validator_type` | "Which validator type?" | One of: `jito`, `jito-bam`, `agave`, `firedancer-agave`, `firedancer-jito` |
+| `solana_version` | "Solana version? (default: 3.1.8)" | Semver format |
+| `identity_account` | "Validator identity pubkey? (or generate new)" | Base58 pubkey or `generate` |
+| `vote_account` | "Vote account pubkey? (or generate new)" | Base58 pubkey or `generate` |
+
+### Optional Variables (show defaults, confirm)
+
+| Variable | Default | When Required |
+|---|---|---|
+| `ssh_user` | `solv` | Always |
+| `commission_bps` | `0` | Always |
+| `snapshot_url` | Auto-detected for ERPC nodes | Always |
+| `block_engine_url` | By region | Jito types only |
+| `shred_receiver_address` | By region | Jito types only |
+| `expected_shred_version` | Epoch-dependent | Testnet only |
+
+### Deployment Command
+
+```bash
+ansible-playbook -i inventory.yml {network}-validator/init.yml \
+  -e '{"validator_type":"<type>","solana_version":"<version>","snapshot_url":"<url>"}'
+```
+
+### Dry-Run First
+
+Always offer `--check` mode before actual deployment:
+
+```bash
+ansible-playbook -i inventory.yml {network}-validator/init.yml \
+  -e '{"validator_type":"jito","solana_version":"3.1.8"}' --check
+```
