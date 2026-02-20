@@ -19,7 +19,7 @@ SKILL="${1:?Usage: $0 <validator|rpc|grpc-geyser> [version]}"
 if [[ -n "${2:-}" ]]; then
   VERSION="$2"
 else
-  VERSION=$(grep -oP "VERSION\s*=\s*['\"]?\K[0-9]+\.[0-9]+\.[0-9]+" "$SCRIPT_DIR/cmn/constants/version.ts" 2>/dev/null || echo "")
+  VERSION=$(sed -n "s/.*VERSION\s*=\s*['\"]\\([0-9]*\\.[0-9]*\\.[0-9]*\\).*/\\1/p" "$SCRIPT_DIR/cmn/constants/version.ts" 2>/dev/null | head -1)
   if [[ -z "$VERSION" ]]; then
     echo "ERROR: Could not detect version from version.ts. Pass version as second arg." >&2
     exit 1
