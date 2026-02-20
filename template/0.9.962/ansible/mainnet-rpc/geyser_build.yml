@@ -1,67 +1,51 @@
 ---
-- name: Install Yellowstone Geyser gRPC plugin from hosted binary
+- name: Build Yellowstone Geyser gRPC plugin from source
   hosts: all
   vars_files:
     - ~/.slv/versions.yml
   become: true
   vars:
+    working_dir: "/home/solv"
+    repo_url: "https://github.com/rpcpool/yellowstone-grpc.git"
     geyser_install_root: "/home/solv/yellowstone-grpc"
-    geyser_current_link: "{{ geyser_install_root }}/current"
     geyser_target_dir: "{{ geyser_install_root }}/target/release"
     geyser_lib_name: "libyellowstone_grpc_geyser.so"
     geyser_lib_path: "{{ geyser_target_dir }}/{{ geyser_lib_name }}"
     geyser_config_template: "~/.slv/mainnet-rpc/geyser.json.j2"
     geyser_config_path: "/home/solv/geyser.json"
   tasks:
-    - name: Resolve geyser version and download URL (overridable via -e geyser_version=)
+    - name: Resolve geyser version (overridable via -e geyser_version=)
       set_fact:
         geyser_version_resolved: "{{ geyser_version | default(mainnet_rpcs.geyser_version) }}"
-        geyser_release_dir: "{{ geyser_install_root }}/releases/{{ geyser_version | default(mainnet_rpcs.geyser_version) }}"
-        geyser_download_url: "https://storage.slv.dev/yellowstone-grpc/{{ (geyser_version | default(mainnet_rpcs.geyser_version)) | urlencode }}/{{ geyser_lib_name }}"
-        geyser_download_dest: "{{ geyser_install_root }}/releases/{{ geyser_version | default(mainnet_rpcs.geyser_version) }}/{{ geyser_lib_name }}"
 
-    - name: Ensure directories exist for geyser plugin
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: solv
-        group: solv
-        mode: "0755"
-      loop:
-        - "{{ geyser_install_root }}"
-        - "{{ geyser_install_root }}/releases"
-        - "{{ geyser_release_dir }}"
-        - "{{ geyser_target_dir }}"
-
-    - name: Download geyser plugin shared object
-      get_url:
-        url: "{{ geyser_download_url }}"
-        dest: "{{ geyser_download_dest }}"
-        mode: "0644"
-        owner: solv
-        group: solv
+    - name: Clone or update the Yellowstone gRPC repository with specific tag
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ geyser_install_root }}"
+        version: "{{ geyser_version_resolved }}"
+        update: yes
         force: yes
-        timeout: 60
-      retries: 3
-      delay: 2
+      become_user: solv
 
-    - name: Point 'current' symlink to this geyser release
-      file:
-        src: "{{ geyser_release_dir }}"
-        dest: "{{ geyser_current_link }}"
-        state: link
-        force: yes
-        owner: solv
-        group: solv
+    - name: Build Yellowstone gRPC plugin using Cargo
+      shell: |
+        source ~/.profile
+        cargo build --release
+      args:
+        chdir: "{{ geyser_install_root }}"
+        executable: /bin/bash
+      become_user: solv
 
-    - name: Symlink geyser plugin into target/release
-      file:
-        src: "{{ geyser_download_dest }}"
-        dest: "{{ geyser_lib_path }}"
-        state: link
-        force: yes
-        owner: solv
-        group: solv
+    - name: Verify built shared object exists
+      stat:
+        path: "{{ geyser_lib_path }}"
+      register: geyser_so_stat
+
+    - name: Fail if shared object was not built
+      assert:
+        that:
+          - geyser_so_stat.stat.exists
+        fail_msg: "Build failed: {{ geyser_lib_path }} not found after cargo build"
 
     - name: Copy the geyser.json configuration file
       template:

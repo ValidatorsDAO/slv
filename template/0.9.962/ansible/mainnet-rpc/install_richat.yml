@@ -1,10 +1,12 @@
 ---
-- name: Install and run Richat daemon
+- name: Build and install Richat daemon from source
   hosts: all
   become: true
   vars_files:
     - ~/.slv/versions.yml
   vars:
+    repo_url: "https://github.com/lamports-dev/richat.git"
+    richat_src_dir: "/home/solv/richat-src"
     richat_install_dir: "/home/solv"
     richat_binary_path: "{{ richat_install_dir }}/richat"
     richat_config_template: "~/.slv/mainnet-rpc/richat-setting.yml.j2"
@@ -23,31 +25,43 @@
           - richat_version_resolved != ''
         fail_msg: "richat_version must be provided (via -e richat_version= or mainnet_rpcs.richat_version in ~/.slv/versions.yml)"
 
-    - name: Build download URL for richat binary
-      set_fact:
-        richat_download_url: "https://storage.slv.dev/richat/{{ richat_version_resolved | urlencode }}/richat"
-
-    - name: Ensure directories for richat exist
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: solv
-        group: solv
-        mode: "0755"
-      loop:
-        - "{{ richat_install_dir }}"
-
-    - name: Download richat binary
-      get_url:
-        url: "{{ richat_download_url }}"
-        dest: "{{ richat_binary_path }}"
-        mode: "0755"
-        owner: solv
-        group: solv
+    - name: Clone or update the Richat repository with specific tag
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ richat_src_dir }}"
+        version: "{{ richat_version_resolved }}"
+        update: yes
         force: yes
-        timeout: 60
-      retries: 3
-      delay: 2
+      become_user: solv
+
+    - name: Build Richat binary using Cargo
+      shell: |
+        source ~/.profile
+        cargo build --release -p richat
+      args:
+        chdir: "{{ richat_src_dir }}"
+        executable: /bin/bash
+      become_user: solv
+
+    - name: Verify built richat binary exists
+      stat:
+        path: "{{ richat_src_dir }}/target/release/richat"
+      register: richat_bin_stat
+
+    - name: Fail if richat binary was not built
+      assert:
+        that:
+          - richat_bin_stat.stat.exists
+        fail_msg: "Build failed: {{ richat_src_dir }}/target/release/richat not found"
+
+    - name: Copy built richat binary to install location
+      copy:
+        src: "{{ richat_src_dir }}/target/release/richat"
+        dest: "{{ richat_binary_path }}"
+        remote_src: yes
+        owner: solv
+        group: solv
+        mode: "0755"
 
     - name: Deploy richat config
       template:
