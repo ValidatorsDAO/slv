@@ -114,6 +114,36 @@ async function updateVersion() {
     console.log(`✅ Template directory ${newTemplateDir} already exists, skipping copy`)
   }
 
+  // 5.5. Build self-contained skill directories
+  const skills = ['validator', 'rpc', 'grpc-geyser']
+  const buildSkriptPath = join(Deno.cwd(), 'build-skill.sh')
+  try {
+    await Deno.stat(buildSkriptPath)
+    for (const skill of skills) {
+      const cmd = new Deno.Command('bash', {
+        args: [buildSkriptPath, skill, VERSION],
+        stdout: 'piped',
+        stderr: 'piped',
+      })
+      const { code, stdout, stderr } = await cmd.output()
+      const out = new TextDecoder().decode(stdout)
+      if (code !== 0) {
+        const err = new TextDecoder().decode(stderr)
+        console.error(`⚠️ Failed to build skill ${skill}: ${err}`)
+      } else {
+        // Extract first line (summary)
+        const summary = out.split('\n')[0]
+        console.log(summary)
+      }
+    }
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      console.log('⏭️ build-skill.sh not found, skipping skill build')
+    } else {
+      throw error
+    }
+  }
+
   // 6. Update the template/latest symlink
   try {
     // Check if it's a symlink first
