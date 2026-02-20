@@ -25,12 +25,20 @@ using Ansible playbooks and the `slv` CLI.
 
 When a user wants to deploy a new validator, collect these variables interactively:
 
+### Step 0: Pre-flight — User Setup
+New servers may not have the `solv` user. If deploying to a fresh server:
+```bash
+ansible-playbook -i inventory.yml cmn/add_solv.yml \
+  -e '{"ansible_user":"ubuntu"}' --become
+```
+Ask the user: "Is this a fresh server? If so, we'll create the `solv` user first."
+
 ### Step 1: Server Connection
-Ask the user for:
-- `server_ip` — Target server IP address (required)
-- `ssh_user` — SSH username (default: `solv`)
+- `server_ip` — Target server IP address (required, validate IPv4)
+- `ssh_user` — SSH username (default: `solv`; use `ubuntu` or `root` for fresh servers)
 - `ssh_key_path` — Path to SSH private key (default: `~/.ssh/id_rsa`)
 - `network` — `mainnet` or `testnet` (required)
+- `region` — Server geographic region (e.g., `amsterdam`, `frankfurt`, `tokyo`, `ny`) — used for CDN selection and Jito endpoint auto-selection
 
 ### Step 2: Validator Type
 Present options and ask the user to choose:
@@ -41,35 +49,69 @@ Present options and ask the user to choose:
 - `firedancer-jito` — Firedancer with Jito consensus (default for new deployments)
 
 ### Step 3: Versions
-- `solana_version` — Solana version (show current default, confirm)
-- `jito_version` — Jito version (if jito/jito-bam selected)
-- `firedancer_version` — Firedancer version (if firedancer selected)
+- `solana_version` — Solana version (required, show current default: `3.1.8`)
+- `jito_version` — **Required** if validator_type is `jito` or `jito-bam` (typically matches solana_version)
+- `firedancer_version` — **Required** if validator_type contains `firedancer`
 
 ### Step 4: Keys
 Ask if user has existing keys or needs to generate:
-- `identity_account` — Validator identity pubkey
-- `vote_account` — Vote account pubkey
+- `identity_account` — Validator identity pubkey (required)
+- `vote_account` — Vote account pubkey (required)
 - If generating: use `solana-keygen new` on the target server
 
-### Step 5: Validator Config
+### Step 5: Snapshot
+- `snapshot_url` — Snapshot download URL
+  - For ERPC nodes: auto-detected via `checkOwnServer` → nearest snapshot node
+  - For external nodes: ask user to provide URL, or use `snapshot_finder` playbook
+  - **Cannot be empty for init** — init.yml includes snapshot download step
+  - Alternatively, run `run_snapshot_finder.yml` first to find the best snapshot
+
+### Step 6: Validator Config
 - `commission_bps` — Commission in basis points (default: `0`)
 - `dynamic_port_range` — Port range (default: `8000-8025`)
 - `limit_ledger_size` — Ledger size limit (default: `200000000`)
-- `snapshot_url` — Snapshot download URL (auto-detected for ERPC nodes, otherwise ask)
 
-### Step 6: Jito-specific (if applicable)
+### Step 7: Network Security
+- `allowed_ssh_ips` — List of IPs allowed SSH access (strongly recommended)
+- `allowed_ips` — List of IPs for additional firewall rules (optional)
+
+### Step 8: Jito-specific (if validator_type is jito/jito-bam)
 - `block_engine_url` — Jito block engine URL (auto-select by region)
 - `shred_receiver_address` — Jito shred receiver (auto-select by region)
 
-### Step 7: Testnet-specific (if applicable)
-- `expected_shred_version` — Epoch-dependent (check Solana docs)
+**Jito Region Defaults:**
+| Region | block_engine_url | shred_receiver_address |
+|---|---|---|
+| Frankfurt/EU | `https://frankfurt.mainnet.block-engine.jito.wtf` | `64.130.50.14:1002` |
+| Amsterdam/EU | `https://amsterdam.mainnet.block-engine.jito.wtf` | `74.118.140.240:1002` |
+| NY/US-East | `https://ny.mainnet.block-engine.jito.wtf` | `141.98.216.96:1002` |
+| Tokyo/Asia | `https://tokyo.mainnet.block-engine.jito.wtf` | `202.8.9.160:1002` |
+
+### Step 9: Testnet-specific (if network is testnet)
+- `expected_shred_version` — Epoch-dependent (check Solana docs, required)
 - `expected_bank_hash` — Optional, epoch-dependent
 - `wait_for_supermajority` — Optional, epoch-dependent
 
-### Step 8: Generate Inventory & Deploy
+### Step 10: Generate Inventory & Deploy
 1. Generate `inventory.yml` from collected variables
 2. Show the user the generated inventory for confirmation
-3. Run: `ansible-playbook -i inventory.yml {net}-validator/init.yml -e '{...}'`
+3. Offer `--check` (dry-run) first:
+   ```bash
+   ansible-playbook -i inventory.yml {net}-validator/init.yml -e '{...}' --check
+   ```
+4. On confirmation, run:
+   ```bash
+   ansible-playbook -i inventory.yml {net}-validator/init.yml -e '{...}'
+   ```
+
+### Playbook Execution Directory
+
+All playbook paths are relative to the skill's `ansible/` directory.
+Run commands from the skill root, or use absolute paths:
+```bash
+cd /path/to/slv-validator/ansible/
+ansible-playbook -i /path/to/inventory.yml mainnet-validator/init.yml -e '{...}'
+```
 
 ## Safety Rules
 

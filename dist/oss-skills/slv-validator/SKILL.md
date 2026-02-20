@@ -200,27 +200,46 @@ for the generated output format.
 
 | Variable | Prompt | Validation |
 |---|---|---|
-| `server_ip` | "What is the target server IP?" | Valid IPv4 |
+| `server_ip` | "Target server IP?" | Valid IPv4 |
 | `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
-| `validator_type` | "Which validator type?" | One of: `jito`, `jito-bam`, `agave`, `firedancer-agave`, `firedancer-jito` |
-| `solana_version` | "Solana version? (default: 3.1.8)" | Semver format |
-| `identity_account` | "Validator identity pubkey? (or generate new)" | Base58 pubkey or `generate` |
-| `vote_account` | "Vote account pubkey? (or generate new)" | Base58 pubkey or `generate` |
+| `region` | "Server region? (amsterdam, frankfurt, tokyo, ny, ...)" | String |
+| `validator_type` | "Which validator type?" | `jito`, `jito-bam`, `agave`, `firedancer-agave`, `firedancer-jito` |
+| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
+| `jito_version` | "Jito version?" (if jito/jito-bam) | Semver |
+| `firedancer_version` | "Firedancer version?" (if firedancer) | String |
+| `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
+| `vote_account` | "Vote account pubkey? (or generate)" | Base58 pubkey or `generate` |
+| `snapshot_url` | "Snapshot URL? (auto-detected for ERPC nodes)" | URL (cannot be empty for init) |
 
 ### Optional Variables (show defaults, confirm)
 
 | Variable | Default | When Required |
 |---|---|---|
-| `ssh_user` | `solv` | Always |
+| `ssh_user` | `solv` (`ubuntu` for fresh servers) | Always |
 | `commission_bps` | `0` | Always |
-| `snapshot_url` | Auto-detected for ERPC nodes | Always |
-| `block_engine_url` | By region | Jito types only |
-| `shred_receiver_address` | By region | Jito types only |
+| `dynamic_port_range` | `8000-8025` | Always |
+| `limit_ledger_size` | `200000000` | Always |
+| `allowed_ssh_ips` | — | Strongly recommended (UFW) |
+| `allowed_ips` | — | Optional (UFW) |
+| `block_engine_url` | Auto by region | Jito types only |
+| `shred_receiver_address` | Auto by region | Jito types only |
 | `expected_shred_version` | Epoch-dependent | Testnet only |
+| `expected_bank_hash` | Epoch-dependent | Testnet (optional) |
+| `wait_for_supermajority` | Epoch-dependent | Testnet (optional) |
+
+### Pre-flight: Fresh Server Setup
+
+If the target is a new server without a `solv` user:
+```bash
+ansible-playbook -i inventory.yml cmn/add_solv.yml \
+  -e '{"ansible_user":"ubuntu"}' --become
+```
 
 ### Deployment Command
 
+All paths relative to skill's `ansible/` directory:
 ```bash
+cd /path/to/slv-validator/ansible/
 ansible-playbook -i inventory.yml {network}-validator/init.yml \
   -e '{"validator_type":"<type>","solana_version":"<version>","snapshot_url":"<url>"}'
 ```
@@ -228,7 +247,6 @@ ansible-playbook -i inventory.yml {network}-validator/init.yml \
 ### Dry-Run First
 
 Always offer `--check` mode before actual deployment:
-
 ```bash
 ansible-playbook -i inventory.yml {network}-validator/init.yml \
   -e '{"validator_type":"jito","solana_version":"3.1.8"}' --check

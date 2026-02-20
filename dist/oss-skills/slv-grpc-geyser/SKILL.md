@@ -125,30 +125,56 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | Variable | Prompt | Validation |
 |---|---|---|
 | `server_ip` | "Target server IP?" | Valid IPv4 |
+| `region` | "Server region?" | String |
 | `rpc_type` | "Geyser gRPC or Index RPC + gRPC?" | `Geyser gRPC`, `Index RPC + gRPC` |
-| `solana_version` | "Solana version? (default: 3.1.8)" | Semver format |
 | `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
+| `identity_account` | "Node identity pubkey?" | Base58 pubkey |
+| `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
 
-### Plugin Selection
+### Plugin Selection (choose ONE)
 
-| Plugin | Variable | Source |
-|---|---|---|
-| Yellowstone gRPC | `yellowstone_grpc_version` | github.com/rpcpool/yellowstone-grpc |
-| Richat | `richat_version` | github.com/lamports-dev/richat |
+| Plugin | Version Variable | Source | Output |
+|---|---|---|---|
+| Yellowstone gRPC | `yellowstone_grpc_version` | github.com/rpcpool/yellowstone-grpc | `libyellowstone_grpc_geyser.so` |
+| Richat | `richat_version` | github.com/lamports-dev/richat | `librichat_plugin_agave.so` |
 
 Both are built from source (no pre-built binaries). Build time: ~15-30 min.
+**Only collect the version variable for the selected plugin.**
+
+### Conditionally Required Variables
+
+| Variable | When Required |
+|---|---|
+| `jito_version` | jito/jito-bam types |
+| `firedancer_version` | firedancer types |
+| `shred_receiver_address` | jito/jito-bam (auto by region) |
+| `block_engine_url` | jito/jito-bam (auto by region) |
 
 ### Optional Variables
 
 | Variable | Default | When Required |
 |---|---|---|
-| `snapshot_url` | Auto-detected for ERPC nodes | Always |
+| `ssh_user` | `solv` | Always |
 | `port_grpc` | `10000` | Always |
+| `port_rpc` | `8899` (ERPC: `7211`) | Always |
 | `limit_ledger_size` | `100000000` | Always |
+| `dynamic_port_range` | `8000-8025` | Always |
+| `allowed_ssh_ips` | — | Strongly recommended (UFW) |
+| `allowed_ips` | — | Optional (UFW) |
+
+### Pre-flight: Fresh Server Setup
+
+```bash
+ansible-playbook -i inventory.yml cmn/add_solv.yml \
+  -e '{"ansible_user":"ubuntu"}' --become
+```
 
 ### Deployment Command
 
+All paths relative to skill's `ansible/` directory:
 ```bash
+cd /path/to/slv-grpc-geyser/ansible/
 ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
   -e '{"rpc_type":"Geyser gRPC","solana_version":"<version>","richat_version":"<version>"}'
 ```
