@@ -20,6 +20,10 @@
  * - **Cost-optimized**: Internal routing avoids expensive cross-network
  *   transit fees that can accumulate rapidly with 50-100+ GB transfers
  *
+ * All nodes purchased through https://erpc.global/en/ are automatically
+ * recognized as part of the ERPC network and qualify for these dedicated
+ * snapshot endpoints — no additional configuration required.
+ *
  * During `slv init`, the nearest snapshot node is automatically selected
  * by measuring latency from the deployment target to each node, ensuring
  * optimal download performance.
