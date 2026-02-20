@@ -14,7 +14,7 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     port = {{ rpc_port | default(8899) }}
     {% if rpc_type == 'Geyser gRPC' %}
     full_api = true
-    private = false
+    private = true
     transaction_history = {{ transaction_history | default(true) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
@@ -23,7 +23,7 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
     {% elif rpc_type == 'SendTx RPC' %}
     full_api = true
-    private = false
+    private = true
     transaction_history = {{ transaction_history | default(false) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(false) | to_json }}
@@ -32,7 +32,7 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
     {% elif rpc_type == 'Index RPC' %}
     full_api = true
-    private = false
+    private = true
     transaction_history = {{ transaction_history | default(true) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
@@ -41,7 +41,7 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
     {% elif rpc_type == 'Index RPC + gRPC' %}
     full_api = true
-    private = false
+    private = true
     transaction_history = {{ transaction_history | default(true) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(true) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
@@ -50,7 +50,7 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
     {% else %}
     full_api = {{ full_api | default(false) | to_json }}
-    private = false
+    private = true
     transaction_history = {{ transaction_history | default(false) | to_json }}
     extended_tx_metadata_storage = {{ extended_tx_metadata_storage | default(false) | to_json }}
     pubsub_enable_block_subscription = {{ pubsub_enable_block_subscription | default(true) | to_json }}
