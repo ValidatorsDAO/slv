@@ -56,7 +56,7 @@ async function measureSnapshotLatencies(
  * Only runs for mainnet deployments on our own infrastructure.
  *
  * Flow:
- * 1. Check if server IP is our own (via master-api check-ip)
+ * 1. Check if server IP is our own (via user-api check-ip)
  * 2. If yes, measure ping to all snapshot nodes
  * 3. Return the nearest snapshot node URL
  * 4. If not our server or all unreachable, return empty string
