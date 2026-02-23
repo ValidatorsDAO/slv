@@ -1,7 +1,7 @@
 name = "solv"
 user = "solv"
 scratch_directory = "/home/{user}"
-dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
+dynamic_port_range = "{{ dynamic_port_range | default("8100-8125") }}"
 
 [log]
     path = "/home/solv/solana-validator.log"
@@ -48,9 +48,9 @@ dynamic_port_range = "{{ dynamic_port_range | default("8900-8925") }}"
     snapshot_fetch = true
     genesis_fetch = true
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
-    expected_bank_hash = "CJZAAtgdqYiqHTFKJ9XD9qw4W21wHqojkhrVJSfFF9b7"
-    expected_shred_version = 24207
-    wait_for_supermajority_at_slot = 374301609
+    expected_bank_hash = "{{ expected_bank_hash | default("3zk4WMwk6wCTVJXu9UAk2dYWMedCKooDs15XL5u6FkvE") }}"
+    expected_shred_version = {{ expected_shred_version | default(27350) }}
+    wait_for_supermajority_at_slot = {{ wait_for_supermajority | default(383520372) }}
 
 [hugetlbfs]
     mount_path = "/mnt"

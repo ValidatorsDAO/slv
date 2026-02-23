@@ -227,6 +227,14 @@ for the generated output format.
 | `expected_bank_hash` | Epoch-dependent | Testnet (optional) |
 | `wait_for_supermajority` | Epoch-dependent | Testnet (optional) |
 
+### Optional: Reference RPC
+
+| Variable | Description | Default |
+|---|---|---|
+| `reference_rpc_url` | Reference RPC endpoint for slot sync comparison (e.g., ERPC) | — |
+
+ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
+
 ### Pre-flight: Fresh Server Setup
 
 If the target is a new server without a `solv` user:

@@ -161,6 +161,58 @@ cd /path/to/slv-validator/ansible/
 ansible-playbook -i /path/to/inventory.yml mainnet-validator/init.yml -e '{...}'
 ```
 
+## Validator Health Check & Slot Sync Monitoring
+
+After restarting or deploying a validator, monitor startup completion:
+
+### Detection Logic
+
+1. **Local RPC Response Check** (every 30 seconds):
+   ```bash
+   curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}'
+   ```
+   - No response → still loading ledger, retry
+
+2. **Gossip Connection Check** (after RPC responds):
+   ```bash
+   curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getClusterNodes"}' | jq '.result | length'
+   ```
+   - Result > 0 → gossip network connected
+   - Result = 0 or error → not yet connected, retry
+
+3. **Slot Sync Check** (every 60 seconds, after RPC responds):
+   ```bash
+   # Network latest slot (requires ERPC API key or other reference RPC)
+   NETWORK_SLOT=$(curl -s "${REFERENCE_RPC_URL}" \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' | jq -r '.result')
+
+   # Local slot
+   LOCAL_SLOT=$(curl -s http://localhost:8899 -X POST -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' | jq -r '.result')
+
+   DIFF=$((NETWORK_SLOT - LOCAL_SLOT))
+   ```
+
+4. **Completion Criteria**:
+   - Slot difference < 100 AND `/health` returns `ok` AND gossip peers > 0 → ✅ **Complete**
+   - 45 minute timeout → ⚠️ **Error / Manual intervention needed**
+
+5. **Health Endpoint**:
+   ```bash
+   curl -s http://localhost:8899/health
+   # Returns "ok" when healthy
+   ```
+
+### Optional: ERPC API Key
+
+For full slot sync monitoring, an ERPC API key can be configured as `reference_rpc_url`.
+ERPC API keys are free to obtain at https://erpc.global — **recommended for full monitoring**.
+
+Without an API key, health check falls back to local `/health` endpoint and gossip check only.
+
 ## Safety Rules
 
 - **NEVER run playbooks without user confirmation**

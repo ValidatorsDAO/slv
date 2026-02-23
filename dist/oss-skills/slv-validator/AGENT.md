@@ -13,6 +13,42 @@ using Ansible playbooks and the `slv` CLI.
 - Build Solana from source (Agave, Jito, Firedancer)
 - Configure firewall, systemd services, and log rotation
 
+## Validator CLI Build & Install
+
+### CLI の種類とビルドソース
+
+| validator_type | CLI バイナリ | ソースリポ | ビルド playbook |
+|---|---|---|---|
+| `agave` | `agave-validator` (純正 Agave) | https://github.com/anza-xyz/agave.git | `cmn/build_agave.yml` or `{net}-validator/install_agave.yml` |
+| `jito` / `jito-bam` | `agave-validator` (Jito ビルド) | https://github.com/jito-foundation/jito-solana.git | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
+| `firedancer-agave` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_agave.yml` |
+| `firedancer-jito` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_jito.yml` |
+
+### ⚠️ Critical: Jito vs Agave CLI Differences
+
+- **Jito ビルドの `agave-validator` と純正 Agave の `agave-validator` は別物**
+  - Jito ビルドは以下のフラグが**必須**: `--tip-payment-program-pubkey`, `--tip-distribution-program-pubkey`, `--merkle-root-upload-authority`, `--bam-url`, `--block-engine-url`, `--shred-receiver-address`
+  - 純正 Agave にはこれらのフラグは**存在しない**
+- **validator_type を切り替える場合、対応する CLI のビルド・インストールも必要**
+  - jito → agave: `install_agave.yml` で純正 Agave をビルドしてから start-validator.sh を切り替え
+  - agave → jito: `install_jito.yml` で Jito をビルドしてから切り替え
+- **ビルドは Rust ソースからのコンパイル** — 30分〜1時間かかる
+
+### バージョン変数
+
+- `solana_version` — 全タイプ共通。Jito の場合は `v3.1.8-jito` のような形式
+- `firedancer_version` — Firedancer タイプ (`firedancer-agave`, `firedancer-jito`) の場合に必要
+
+### テストネット Jito 固有設定
+
+| パラメータ | 値 |
+|---|---|
+| `--bam-url` | `http://ny.testnet.bam.jito.wtf` |
+| `--shred-receiver-address` | `64.130.35.224:1002` |
+| `--block-engine-url` | `https://ny.testnet.block-engine.jito.wtf` |
+
+> `--relayer-url` は **deprecated**。使わない。
+
 ## Behavior
 
 1. **Security first**: Never expose private keys, tokens, or credentials in logs or messages
@@ -48,9 +84,21 @@ Present options and ask the user to choose:
 - `firedancer-agave` — Firedancer with Agave consensus
 - `firedancer-jito` — Firedancer with Jito consensus (default for new deployments)
 
+### Step 2.5: CLI Build Check
+After the user selects a `validator_type`, verify the corresponding CLI binary is installed on the target server:
+- `agave` → check `agave-validator --version`
+- `jito` / `jito-bam` → check `agave-validator --version` (should show Jito build tag)
+- `firedancer-*` → check `fdctl version`
+
+If the CLI is missing or mismatched, run the appropriate build playbook **before** proceeding:
+```bash
+# Example: install Jito build for testnet
+ansible-playbook -i inventory.yml testnet-validator/install_jito.yml -e '{"solana_version":"v3.1.8-jito"}'
+```
+⚠️ Build takes 30–60 minutes (Rust source compilation).
+
 ### Step 3: Versions
-- `solana_version` — Solana version (required, show current default: `3.1.8`)
-- `jito_version` — **Required** if validator_type is `jito` or `jito-bam` (typically matches solana_version)
+- `solana_version` — Solana version (required). For Jito builds, use `v3.1.8-jito` format. Single variable for all solv-based types.
 - `firedancer_version` — **Required** if validator_type contains `firedancer`
 
 ### Step 4: Keys
@@ -112,6 +160,58 @@ Run commands from the skill root, or use absolute paths:
 cd /path/to/slv-validator/ansible/
 ansible-playbook -i /path/to/inventory.yml mainnet-validator/init.yml -e '{...}'
 ```
+
+## Validator Health Check & Slot Sync Monitoring
+
+After restarting or deploying a validator, monitor startup completion:
+
+### Detection Logic
+
+1. **Local RPC Response Check** (every 30 seconds):
+   ```bash
+   curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}'
+   ```
+   - No response → still loading ledger, retry
+
+2. **Gossip Connection Check** (after RPC responds):
+   ```bash
+   curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getClusterNodes"}' | jq '.result | length'
+   ```
+   - Result > 0 → gossip network connected
+   - Result = 0 or error → not yet connected, retry
+
+3. **Slot Sync Check** (every 60 seconds, after RPC responds):
+   ```bash
+   # Network latest slot (requires ERPC API key or other reference RPC)
+   NETWORK_SLOT=$(curl -s "${REFERENCE_RPC_URL}" \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' | jq -r '.result')
+
+   # Local slot
+   LOCAL_SLOT=$(curl -s http://localhost:8899 -X POST -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' | jq -r '.result')
+
+   DIFF=$((NETWORK_SLOT - LOCAL_SLOT))
+   ```
+
+4. **Completion Criteria**:
+   - Slot difference < 100 AND `/health` returns `ok` AND gossip peers > 0 → ✅ **Complete**
+   - 45 minute timeout → ⚠️ **Error / Manual intervention needed**
+
+5. **Health Endpoint**:
+   ```bash
+   curl -s http://localhost:8899/health
+   # Returns "ok" when healthy
+   ```
+
+### Optional: ERPC API Key
+
+For full slot sync monitoring, an ERPC API key can be configured as `reference_rpc_url`.
+ERPC API keys are free to obtain at https://erpc.global — **recommended for full monitoring**.
+
+Without an API key, health check falls back to local `/health` endpoint and gossip check only.
 
 ## Safety Rules
 

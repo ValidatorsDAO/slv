@@ -110,6 +110,60 @@ Both Geyser plugins are built from source — no pre-built binaries:
 
 Build times vary by hardware (15-30 min on typical servers).
 
+## gRPC Geyser Health Check & Slot Sync Monitoring
+
+After restarting or deploying a gRPC Geyser node, monitor startup completion:
+
+### Detection Logic
+
+1. **Local RPC Response Check** (every 30 seconds):
+   ```bash
+   curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}'
+   ```
+   - No response → still loading ledger, retry
+
+2. **gRPC Port Response Check** (after RPC responds):
+   ```bash
+   # Check if gRPC port is listening (default: 10000)
+   ss -tlnp | grep ':10000'
+   # Or use grpcurl if available:
+   grpcurl -plaintext localhost:10000 list
+   ```
+   - Port not listening → Geyser plugin still loading, retry
+   - Port listening and responding → gRPC service ready
+
+3. **Slot Sync Check** (every 60 seconds, after RPC responds):
+   ```bash
+   # Network latest slot (requires ERPC API key or other reference RPC)
+   NETWORK_SLOT=$(curl -s "${REFERENCE_RPC_URL}" \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' | jq -r '.result')
+
+   # Local slot
+   LOCAL_SLOT=$(curl -s http://localhost:8899 -X POST -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' | jq -r '.result')
+
+   DIFF=$((NETWORK_SLOT - LOCAL_SLOT))
+   ```
+
+4. **Completion Criteria**:
+   - Slot difference < 100 AND `/health` returns `ok` AND gRPC port responding → ✅ **Complete**
+   - 45 minute timeout → ⚠️ **Error / Manual intervention needed**
+
+5. **Health Endpoint**:
+   ```bash
+   curl -s http://localhost:8899/health
+   # Returns "ok" when healthy
+   ```
+
+### Optional: ERPC API Key
+
+For full slot sync monitoring, an ERPC API key can be configured as `reference_rpc_url`.
+ERPC API keys are free to obtain at https://erpc.global — **recommended for full monitoring**.
+
+Without an API key, health check falls back to local `/health` endpoint and gRPC port check only.
+
 ## Safety Rules
 
 - **NEVER run playbooks without user confirmation**

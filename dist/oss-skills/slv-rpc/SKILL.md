@@ -232,6 +232,14 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `allowed_ips` | — | Optional (UFW) |
 | `expected_shred_version` | Epoch-dependent | Testnet only |
 
+### Optional: Reference RPC
+
+| Variable | Description | Default |
+|---|---|---|
+| `reference_rpc_url` | Reference RPC endpoint for slot sync comparison (e.g., ERPC) | — |
+
+ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
+
 ### Pre-flight: Fresh Server Setup
 
 ```bash

@@ -25,10 +25,8 @@ exec agave-validator \
 --tip-payment-program-pubkey GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy \
 --tip-distribution-program-pubkey DzvGET57TAgEDxvm3ERUM4GNcsAJdqjDLCne9sdfY4wf \
 --merkle-root-upload-authority 7T4inmPmtNBX3MhLwJ9hFsSMnGJYYkKioVABSNTWVRuS \
---commission-bps {{ commission_bps | default(1000) }} \
---block-engine-url {{ block_engine_url | default("https://frankfurt.block-engine.jito.wtf") }} \
---shred-receiver-address {{ shred_receiver_address | default("141.98.216.96:1002") }} \
-{% endif %}
-{% if validator_type == 'jito-bam' %}
+--commission-bps {{ commission_bps | default(0) }} \
 --bam-url {{ bam_url | default("http://ny.testnet.bam.jito.wtf") }} \
+--block-engine-url {{ block_engine_url | default("https://ny.testnet.block-engine.jito.wtf") }} \
+--shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }} \
 {% endif %}
