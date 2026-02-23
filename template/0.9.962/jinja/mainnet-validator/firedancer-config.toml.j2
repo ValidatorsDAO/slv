@@ -59,7 +59,7 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
 
 [hugetlbfs]
     mount_path = "/mnt"
-    max_page_size = "gigantic"
+    max_page_size = "{{ hugetlbfs_page_size | default('huge') }}"
 
 [layout]
      affinity = "auto"
