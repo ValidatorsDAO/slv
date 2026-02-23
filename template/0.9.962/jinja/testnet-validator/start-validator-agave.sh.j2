@@ -11,11 +11,12 @@ exec agave-validator \
 --known-validator 5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on \
 --only-known-rpc \
 --expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
---dynamic-port-range {{ dynamic_port_range | default("8900-8925", true) }} \
+--dynamic-port-range {{ dynamic_port_range | default("8000-8025") }} \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
---wait-for-supermajority 374301609 \
---expected-shred-version 24207 \
---expected-bank-hash CJZAAtgdqYiqHTFKJ9XD9qw4W21wHqojkhrVJSfFF9b7 \
---limit-ledger-size \
---no-port-check
+--wait-for-supermajority {{ wait_for_supermajority | default("383520372") }} \
+--expected-shred-version {{ expected_shred_version | default("27350") }} \
+--expected-bank-hash {{ expected_bank_hash | default("3zk4WMwk6wCTVJXu9UAk2dYWMedCKooDs15XL5u6FkvE") }} \
+--limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
+--no-port-check \
+--rpc-bind-address 0.0.0.0
