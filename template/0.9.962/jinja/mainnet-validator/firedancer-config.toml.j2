@@ -82,5 +82,5 @@ dynamic_port_range = "{{ dynamic_port_range | default('8900-8925') }}"
     tip_distribution_program_addr = "4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7"
     tip_payment_program_addr = "T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt"
     tip_distribution_authority = "GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib"
-    commission_bps = {{ commission_bps | default(1000, true) }}
+    commission_bps = {{ commission_bps | default(0) }}
 {% endif %}
