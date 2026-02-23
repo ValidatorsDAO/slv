@@ -15,39 +15,39 @@ using Ansible playbooks and the `slv` CLI.
 
 ## Validator CLI Build & Install
 
-### CLI の種類とビルドソース
+### CLI Types and Build Sources
 
-| validator_type | CLI バイナリ | ソースリポ | ビルド playbook |
+| validator_type | CLI Binary | Source Repo | Build Playbook |
 |---|---|---|---|
-| `agave` | `agave-validator` (純正 Agave) | https://github.com/anza-xyz/agave.git | `cmn/build_agave.yml` or `{net}-validator/install_agave.yml` |
-| `jito` / `jito-bam` | `agave-validator` (Jito ビルド) | https://github.com/jito-foundation/jito-solana.git | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
+| `agave` | `agave-validator` (upstream Agave) | https://github.com/anza-xyz/agave.git | `cmn/build_agave.yml` or `{net}-validator/install_agave.yml` |
+| `jito` / `jito-bam` | `agave-validator` (Jito build) | https://github.com/jito-foundation/jito-solana.git | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
 | `firedancer-agave` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_agave.yml` |
 | `firedancer-jito` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_jito.yml` |
 
 ### ⚠️ Critical: Jito vs Agave CLI Differences
 
-- **Jito ビルドの `agave-validator` と純正 Agave の `agave-validator` は別物**
-  - Jito ビルドは以下のフラグが**必須**: `--tip-payment-program-pubkey`, `--tip-distribution-program-pubkey`, `--merkle-root-upload-authority`, `--bam-url`, `--block-engine-url`, `--shred-receiver-address`
-  - 純正 Agave にはこれらのフラグは**存在しない**
-- **validator_type を切り替える場合、対応する CLI のビルド・インストールも必要**
-  - jito → agave: `install_agave.yml` で純正 Agave をビルドしてから start-validator.sh を切り替え
-  - agave → jito: `install_jito.yml` で Jito をビルドしてから切り替え
-- **ビルドは Rust ソースからのコンパイル** — 30分〜1時間かかる
+- **The Jito-built `agave-validator` and upstream Agave `agave-validator` are different binaries**
+  - The Jito build **requires** these flags: `--tip-payment-program-pubkey`, `--tip-distribution-program-pubkey`, `--merkle-root-upload-authority`, `--bam-url`, `--block-engine-url`, `--shred-receiver-address`
+  - Upstream Agave **does not have** these flags
+- **When switching validator_type, the corresponding CLI must also be built and installed**
+  - jito → agave: Build upstream Agave via `install_agave.yml`, then switch start-validator.sh
+  - agave → jito: Build Jito via `install_jito.yml`, then switch
+- **Builds compile from Rust source** — takes 30–60 minutes
 
-### バージョン変数
+### Version Variables
 
-- `solana_version` — 全タイプ共通。Jito の場合は `v3.1.8-jito` のような形式
-- `firedancer_version` — Firedancer タイプ (`firedancer-agave`, `firedancer-jito`) の場合に必要
+- `solana_version` — Common to all types. For Jito, use format like `v3.1.8-jito`
+- `firedancer_version` — Required for Firedancer types (`firedancer-agave`, `firedancer-jito`)
 
-### テストネット Jito 固有設定
+### Testnet Jito-Specific Settings
 
-| パラメータ | 値 |
+| Parameter | Value |
 |---|---|
 | `--bam-url` | `http://ny.testnet.bam.jito.wtf` |
 | `--shred-receiver-address` | `64.130.35.224:1002` |
 | `--block-engine-url` | `https://ny.testnet.block-engine.jito.wtf` |
 
-> `--relayer-url` は **deprecated**。使わない。
+> `--relayer-url` is **deprecated**. Do not use.
 
 ## Behavior
 
