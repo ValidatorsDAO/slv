@@ -8,18 +8,15 @@
  *
  * ## How it works
  *
- * 1. **Own-server detection**: Checks if the target IP belongs to the ERPC
- *    network via the user-api. Only ERPC infrastructure nodes qualify for
- *    the dedicated snapshot endpoints.
+ * 1. **Ping-based detection**: Measures real network latency (via SSH + ping)
+ *    from the deployment target to all snapshot nodes worldwide. ERPC snapshot
+ *    endpoints restrict access to ERPC-network servers only, so:
+ *    - **ERPC servers**: pings succeed, latency measured, nearest node selected
+ *    - **Non-ERPC servers**: all pings timeout (blocked by firewall)
  *
- * 2. **Latency measurement**: For ERPC nodes, measures real network latency
- *    (via SSH + ping) from the deployment target to all 7 snapshot nodes
- *    worldwide. This ensures the selection reflects actual network topology,
- *    not just geographic distance.
- *
- * 3. **Automatic selection**: Returns the URL of the lowest-latency snapshot
- *    node. If all nodes are unreachable (rare edge case), falls back to a
- *    localhost placeholder so the init flow never fails.
+ * 2. **Automatic selection**: Returns the URL of the lowest-latency snapshot
+ *    node. If all nodes are unreachable, returns an empty string so the init
+ *    flow can continue with standard snapshot sources.
  *
  * ## Why dedicated snapshot routing?
  *
@@ -34,7 +31,6 @@
 
 import { remotePingMinLatency } from '/lib/ping/remotePingMinLatency.ts'
 import { SNAPSHOT_NODES, type SnapshotNode } from './snapshotNodes.ts'
-import { checkOwnServer } from './checkOwnServer.ts'
 import { colors } from '@cliffy/colors'
 
 /**
@@ -100,21 +96,19 @@ async function measureSnapshotLatencies(
  * Find the nearest ERPC snapshot node for a deployment target.
  *
  * This is the main entry point for snapshot URL auto-determination during
- * `slv init`. It orchestrates the full detection flow:
+ * `slv init`. It uses ping-based detection — ERPC snapshot endpoints restrict
+ * access to ERPC-network servers only, so reachability itself proves membership.
  *
- * 1. Verifies the target is an ERPC-managed server
- * 2. Measures latency to all global snapshot nodes
- * 3. Returns the URL of the nearest reachable node
+ * **Detection flow**:
+ * 1. Ping all 7 global snapshot nodes from the target server
+ * 2. If **all pings timeout** → server is not on ERPC network → return empty string
+ * 3. If **any ping succeeds** → server is on ERPC network → select nearest by latency
  *
- * **Fallback behavior**: If the server is not part of ERPC, returns an empty
- * string (external users manage their own snapshot sources). If it is an ERPC
- * server but all snapshot nodes are unreachable, returns a localhost fallback
- * (`http://127.0.0.1:8899`) to prevent the init flow from failing.
+ * No external HTTP calls or API tokens required — pure network-level detection.
  *
  * @param serverIp - The deployment target IP address
  * @param options - SSH connection parameters for remote ping
- * @returns The optimal snapshot download URL, empty string for non-ERPC servers,
- *          or localhost fallback if all snapshot nodes are unreachable
+ * @returns The optimal snapshot download URL, or empty string for non-ERPC servers
  *
  * @example
  * ```ts
@@ -134,23 +128,8 @@ export async function findNearestSnapshotUrl(
     port?: number
   },
 ): Promise<string> {
-  console.log(`\n🔍 Checking if ${serverIp} is an ERPC server...`)
-
-  const checkResult = await checkOwnServer(serverIp)
-
-  if (!checkResult.isOwn) {
-    console.log(
-      colors.yellow(
-        `  ℹ️  ${serverIp} is not an ERPC server. Skipping snapshot auto-detection.`,
-      ),
-    )
-    return ''
-  }
-
   console.log(
-    colors.green(
-      `  ✅ ${serverIp} is an ERPC ${checkResult.type} in ${checkResult.region}`,
-    ),
+    `\n🔍 Detecting ERPC network membership for ${serverIp} via snapshot node reachability...`,
   )
 
   const latencies = await measureSnapshotLatencies(serverIp, options)
@@ -159,14 +138,19 @@ export async function findNearestSnapshotUrl(
   if (reachable.length === 0) {
     console.log(
       colors.yellow(
-        '\n⚠️  All snapshot nodes unreachable. Using localhost fallback.',
+        `\n  ℹ️  ${serverIp} cannot reach any ERPC snapshot nodes. Not an ERPC server or network issue.`,
       ),
     )
-    return 'http://127.0.0.1:8899'
+    return ''
   }
 
   const nearest = reachable[0]
 
+  console.log(
+    colors.green(
+      `\n  ✅ ${serverIp} is on the ERPC network (${reachable.length}/${latencies.length} nodes reachable)`,
+    ),
+  )
   console.log(
     `\n🎯 Nearest snapshot node: ${nearest.node.name} (${nearest.node.region})`,
   )
