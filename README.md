@@ -26,14 +26,36 @@ SLV provides Ansible playbooks, Jinja2 templates, and AI agent skills that let y
 
 ## Quick Start — Deploy with AI
 
-### 1. Install an AI Agent Skill
+### 1. Install a Skill
 
+SLV skills work with **any AI coding agent** — OpenClaw, Claude Code, Codex, Cursor, Windsurf, and more. Pick the method that fits your setup:
+
+#### OpenClaw (via ClawHub)
 ```bash
-# Using OpenClaw
-npx clawhub install slv-validator    # Validator deployment
-npx clawhub install slv-rpc          # RPC node deployment
-npx clawhub install slv-grpc-geyser  # gRPC Geyser streaming
+npx clawhub install slv-validator
 ```
+
+#### Claude Code
+```bash
+# Copy skill into your project
+cp -r dist/oss-skills/slv-validator /your/project/.claude/skills/
+```
+
+#### Codex / Cursor / Other AI Agents
+```bash
+# Add SKILL.md to your agent's context
+cp dist/oss-skills/slv-validator/SKILL.md /your/project/AGENTS.md
+# Or reference it in your agent's config
+```
+
+#### Direct from GitHub
+```bash
+# Clone just the skill you need
+git clone --depth 1 https://github.com/ValidatorsDAO/slv.git
+cp -r slv/dist/oss-skills/slv-validator ./my-skill
+```
+
+Skills are just Markdown files (SKILL.md + AGENT.md) with Ansible playbooks — any AI that can read files and run commands can use them.
 
 ### 2. Talk to Your Agent
 
@@ -68,17 +90,20 @@ You: Switch validator identity with zero downtime
 
 ## Available Skills
 
-| Skill | Install | What It Does |
+| Skill | ClawHub | What It Does |
 |---|---|---|
 | **[slv-validator](dist/oss-skills/slv-validator/)** | `npx clawhub install slv-validator` | Deploy & manage mainnet/testnet validators (Jito, Agave, Firedancer) |
 | **[slv-rpc](dist/oss-skills/slv-rpc/)** | `npx clawhub install slv-rpc` | Deploy & manage RPC nodes (Standard, Index, Geyser gRPC, Index+gRPC) |
 | **[slv-grpc-geyser](dist/oss-skills/slv-grpc-geyser/)** | `npx clawhub install slv-grpc-geyser` | Deploy & manage gRPC Geyser streaming (Yellowstone, Richat) |
 
 Each skill includes:
-- **SKILL.md** — Complete playbook knowledge for the AI agent
+- **SKILL.md** — Complete playbook knowledge for the AI agent (works with any AI)
 - **AGENT.md** — Interactive deployment flows and behavior rules
-- **setup.sh** — Auto-install prerequisites (ansible-core, SSH, solana-cli)
+- **scripts/setup.sh** — Auto-install prerequisites (ansible-core, SSH, solana-cli)
+- **ansible/** — Ansible playbooks (can also be used standalone)
 - **examples/** — Sample inventory files
+
+> **No lock-in.** Skills are plain Markdown + Ansible. Use them with any AI agent, or run the playbooks directly without AI.
 
 ## Prerequisites
 
