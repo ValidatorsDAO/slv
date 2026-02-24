@@ -41,7 +41,7 @@
     - name: Build Richat plugin-agave using Cargo
       shell: |
         source ~/.profile
-        cargo build --release -p richat-plugin-agave
+        cargo build --release -p richat-plugin-agave --features rustls-install-default-provider
       args:
         chdir: "{{ richat_src_dir }}"
         executable: /bin/bash
