@@ -138,6 +138,11 @@ for f in SKILL.md AGENT.md README.md; do
   fi
 done
 
+# --- Copy and version-stamp skill.json ---
+if [[ -f "$OSS_SKILL_DIR/skill.json" ]]; then
+  sed "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$OSS_SKILL_DIR/skill.json" > "$DIST_DIR/skill.json"
+fi
+
 # Copy examples/
 if [[ -d "$OSS_SKILL_DIR/examples" ]]; then
   cp -r "$OSS_SKILL_DIR/examples" "$DIST_DIR/examples"
