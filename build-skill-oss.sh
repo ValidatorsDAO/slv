@@ -148,6 +148,12 @@ if [[ -d "$OSS_SKILL_DIR/examples" ]]; then
   cp -r "$OSS_SKILL_DIR/examples" "$DIST_DIR/examples"
 fi
 
+# Copy scripts/
+if [[ -d "$OSS_SKILL_DIR/scripts" ]]; then
+  cp -r "$OSS_SKILL_DIR/scripts" "$DIST_DIR/scripts"
+  chmod +x "$DIST_DIR/scripts/"*.sh 2>/dev/null || true
+fi
+
 # --- Safety check: ensure no internal API references leaked ---
 # Security check: scan for internal API references
 # erpc.global (public website) is allowed; only internal subdomains are blocked
