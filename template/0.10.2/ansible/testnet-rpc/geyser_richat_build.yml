@@ -12,18 +12,18 @@
     richat_current_link: "{{ richat_install_root }}/current"
     richat_lib_name: "librichat_plugin_agave.so"
     richat_symlink_path: "/home/solv/{{ richat_lib_name }}"
-    richat_config_template: "~/.slv/devnet-rpc/geyser-richat.json.j2"
+    richat_config_template: "~/.slv/testnet-rpc/geyser-richat.json.j2"
     richat_config_path: "/home/solv/geyser.json"
   tasks:
     - name: Resolve richat plugin version (overridable via -e richat_version=)
       set_fact:
-        richat_version_resolved: "{{ richat_version | default(devnet_rpcs.richat_version | default('', true), true) }}"
+        richat_version_resolved: "{{ richat_version | default(testnet_rpcs.richat_version | default('', true), true) }}"
 
     - name: Ensure richat_version is provided
       assert:
         that:
           - richat_version_resolved != ''
-        fail_msg: "richat_version must be provided (via -e richat_version= or devnet_rpcs.richat_version in ~/.slv/versions.yml)"
+        fail_msg: "richat_version must be provided (via -e richat_version= or testnet_rpcs.richat_version in ~/.slv/versions.yml)"
 
     - name: Set paths for Richat plugin release
       set_fact:
@@ -41,7 +41,7 @@
     - name: Build Richat plugin-agave using Cargo
       shell: |
         source ~/.profile
-        cargo build --release -p richat-plugin-agave --features rustls-install-default-provider
+        cargo build --release -p richat-plugin-agave
       args:
         chdir: "{{ richat_src_dir }}"
         executable: /bin/bash

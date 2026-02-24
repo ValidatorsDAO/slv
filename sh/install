@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="0.10.1"
+VERSION="0.10.2"
 BASE_URL="https://storage.slv.dev/slv"
 GRPC_TEST_URL_LINUX="https://storage.elsoul.nl/grpc_test"
 GRPC_TEST_URL_MAC="https://storage.elsoul.nl/grpc_test_mac"
