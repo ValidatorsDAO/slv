@@ -293,6 +293,7 @@ jobs:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           npm i -g clawhub
+          clawhub login --token "$CLAWHUB_TOKEN" --no-browser
           for skill_dir in oss-skills/slv-validator oss-skills/slv-rpc oss-skills/slv-grpc-geyser; do
             if [ -d "$skill_dir" ]; then
               echo "Publishing $skill_dir..."
