@@ -1,0 +1,21 @@
+[Unit]
+Description=Firedancer
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=root
+LimitNOFILE=1000000
+LimitMEMLOCK=2000000000
+LogRateLimitIntervalSec=0
+
+ExecStartPre=/bin/bash -c "chown -R solv:solv /mnt/ledger /mnt/accounts /mnt/snapshot 2>/dev/null || true"
+ExecStartPre=/bin/bash -c "chmod -R 700 /mnt/ledger /mnt/accounts /mnt/snapshot 2>/dev/null || true"
+ExecStart=sudo /home/solv/firedancer/build/native/gcc/bin/fdctl run --config /home/solv/firedancer-config.toml
+TimeoutSec=infinity
+
+[Install]
+WantedBy=multi-user.target
