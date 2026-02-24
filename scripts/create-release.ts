@@ -68,19 +68,50 @@ async function createRelease() {
   await spawnSync(`git commit -m "Release v${newVersion}"`)
   console.log('✅ Changes committed')
 
-  // 4. Create a tag
-  console.log(`Creating tag v${newVersion}...`)
-  await spawnSync(`git tag v${newVersion}`)
-  console.log(`✅ Tag v${newVersion} created`)
+  // 4. Create release branch and push
+  const branchName = `release/v${newVersion}`
+  console.log(`Creating branch ${branchName}...`)
+  await spawnSync(`git checkout -b ${branchName}`)
+  console.log(`✅ Branch ${branchName} created`)
 
-  // 5. Push the changes and tag
-  console.log('Pushing changes and tag...')
-  await spawnSync('git push origin main')
-  await spawnSync(`git push origin v${newVersion}`)
-  console.log('✅ Changes and tag pushed')
+  console.log(`Pushing branch ${branchName}...`)
+  await spawnSync(`git push origin ${branchName}`)
+  console.log(`✅ Branch ${branchName} pushed`)
 
-  console.log(`\n✅ Release v${newVersion} created successfully!`)
-  console.log('GitHub Actions will now build and publish the release.')
+  // 5. Create Pull Request via GitHub API
+  console.log('Creating Pull Request...')
+  const ghToken = Deno.env.get('GITHUB_TOKEN') || ''
+  if (!ghToken) {
+    console.error('Error: GITHUB_TOKEN environment variable is required for PR creation')
+    Deno.exit(1)
+  }
+
+  const prBody = `## Release v${newVersion}\n\nThis PR updates the version to v${newVersion}.\n\nWhen merged, GitHub Actions will automatically create the \`v${newVersion}\` tag and trigger the build & release process.`
+
+  const prResponse = await fetch('https://api.github.com/repos/ValidatorsDAO/slv/pulls', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${ghToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: `Release v${newVersion}`,
+      body: prBody,
+      head: branchName,
+      base: 'main',
+    }),
+  })
+
+  const prData = await prResponse.json()
+  if (prResponse.ok) {
+    console.log(`✅ Pull Request created: ${prData.html_url}`)
+  } else {
+    console.error(`Error creating PR: ${JSON.stringify(prData)}`)
+    Deno.exit(1)
+  }
+
+  console.log(`\n✅ Release v${newVersion} PR created successfully!`)
+  console.log('Once the PR is merged, GitHub Actions will automatically tag and release.')
 }
 
 // Run the release function
