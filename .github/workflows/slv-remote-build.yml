@@ -15,6 +15,41 @@ on:
         default: "0.6.0"
 
 jobs:
+  build-mac:
+    name: Build macOS Binary
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure api/slv-api/deno.json exists
+        run: |
+          if [ ! -f api/slv-api/deno.json ]; then
+            mkdir -p api/slv-api
+            printf '{\n}\n' > api/slv-api/deno.json
+          fi
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.6.5
+
+      - name: Build macOS executable
+        run: |
+          deno install --allow-scripts=npm:protobufjs@7.4.0
+          deno i
+          deno task build:mac
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slv-macos-binary
+          path: dist/slv-x86_64-apple-darwin-exe.tar.gz
+          retention-days: 1
+
   test:
     name: Run Tests
     runs-on: [self-hosted, runner-slv-1]
@@ -74,6 +109,7 @@ jobs:
     name: Remote Build and Release
     needs:
       - test
+      - build-mac
     if: success() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted]
     permissions:
@@ -132,6 +168,12 @@ jobs:
       - name: Create artifacts directory
         run: mkdir -p artifacts dist renamed_files
 
+      - name: Download macOS artifact from build-mac job
+        uses: actions/download-artifact@v4
+        with:
+          name: slv-macos-binary
+          path: dist/
+
       - name: Compile SLV on remote server
         run: |
           ansible-playbook -i 'localhost,' -u solv -c local ansible/compile-slv.yml \
@@ -185,3 +227,28 @@ jobs:
 
             - See commit history for details
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build OpenClaw skills
+        run: |
+          for skill in validator rpc grpc-geyser; do
+            bash build-skill.sh "$skill" "${{ env.VERSION }}"
+          done
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install clawhub CLI and publish skills
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          npm i -g clawhub
+          for skill_dir in oss-skills/slv-validator oss-skills/slv-rpc oss-skills/slv-grpc-geyser; do
+            if [ -d "$skill_dir" ]; then
+              echo "Publishing $skill_dir..."
+              clawhub publish "$skill_dir" --version "${{ env.VERSION }}"
+            else
+              echo "Warning: $skill_dir not found, skipping"
+            fi
+          done
