@@ -1,0 +1,187 @@
+name: SLV Tests and Release
+
+on:
+  push:
+    branches: ["main"]
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without v prefix)"
+        required: true
+        default: "0.6.0"
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: [self-hosted, runner-slv-1]
+    steps:
+      - name: Pre-clean workspace
+        run: |
+          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
+            echo "Invalid GITHUB_WORKSPACE: '$GITHUB_WORKSPACE'"
+            exit 1
+          fi
+          rm -rf "$GITHUB_WORKSPACE"/*
+          rm -rf "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?*
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
+
+      - name: Ensure full checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_files=(cli/deno.json test-solana-key/test.ts)
+          missing=()
+          for f in "${required_files[@]}"; do
+            [ -f "$f" ] || missing+=("$f")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "Missing required files: ${missing[*]}"
+            git status --porcelain=v1 || true
+            ls -la || true
+            exit 1
+          fi
+          # Deno workspace expects api/slv-api/deno.json; create a stub if missing in older tags.
+          if [ ! -f api/slv-api/deno.json ]; then
+            echo "api/slv-api/deno.json missing; creating stub for workspace compatibility"
+            mkdir -p api/slv-api
+            printf '{\n}\n' > api/slv-api/deno.json
+          fi
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.6.5
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Run CLI tests from its own directory to avoid root workspace resolution
+          (cd cli && deno test -A --config=deno.json test)
+          # Run the standalone test without loading root config/workspace
+          deno test -A --no-config test-solana-key/test.ts
+
+  remote-build:
+    name: Remote Build and Release
+    needs:
+      - test
+    if: success() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted]
+    permissions:
+      contents: write
+    steps:
+      - name: Pre-clean workspace
+        run: |
+          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
+            echo "Invalid GITHUB_WORKSPACE: '$GITHUB_WORKSPACE'"
+            exit 1
+          fi
+          rm -rf "$GITHUB_WORKSPACE"/*
+          rm -rf "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?*
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
+
+      - name: Ensure full checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_files=(ansible/compile-slv.yml)
+          missing=()
+          for f in "${required_files[@]}"; do
+            [ -f "$f" ] || missing+=("$f")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "Missing required files: ${missing[*]}"
+            git status --porcelain=v1 || true
+            ls -la || true
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Extract version from tag or input
+        id: get_version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+          fi
+
+      - name: Create artifacts directory
+        run: mkdir -p artifacts dist renamed_files
+
+      - name: Compile SLV on remote server
+        run: |
+          ansible-playbook -i 'localhost,' -u solv -c local ansible/compile-slv.yml \
+            -e "version=${{ env.VERSION }}" \
+            -e "github_token=${{ secrets.GITHUB_TOKEN }}" \
+            -e "cloudflare_account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
+            -e "cloudflare_api_token=${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -e "cloudflare_purge_email=${{ secrets.CLOUDFLARE_PURGE_EMAIL }}" \
+            -e "cloudflare_purge_api_token=${{ secrets.CLOUDFLARE_PURGE_API_TOKEN }}" \
+            -e "cloudflare_email=${{ secrets.CLOUDFLARE_EMAIL }}" \
+            -e "cloudflare_api_key=${{ secrets.CLOUDFLARE_API_KEY }}" \
+            -e "cloudflare_zone_id=${{ secrets.CLOUDFLARE_ZONE_ID }}"
+
+      - name: Debug directories
+        run: |
+          echo "Listing artifacts directory content:"
+          ls -la artifacts/ || echo "artifacts directory not found or empty"
+          echo "Listing dist directory content:"
+          ls -la dist/ || echo "dist directory not found or empty"
+          echo "Current working directory:"
+          pwd
+
+      - name: Rename files to match download script expectations
+        run: |
+          if [ -f "dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ]; then
+            cp dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz renamed_files/x86_64-unknown-linux-gnu-exe.tar.gz
+            echo "Renamed Linux executable for GitHub release"
+          else
+            echo "Linux executable not found in dist directory"
+          fi
+          if [ -f "dist/slv-x86_64-apple-darwin-exe.tar.gz" ]; then
+            cp dist/slv-x86_64-apple-darwin-exe.tar.gz renamed_files/x86_64-apple-darwin-exe.tar.gz
+            echo "Renamed Mac executable for GitHub release"
+          else
+            echo "Mac executable not found in dist directory"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: |
+            dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz
+            dist/slv-x86_64-apple-darwin-exe.tar.gz
+            renamed_files/x86_64-unknown-linux-gnu-exe.tar.gz
+            renamed_files/x86_64-apple-darwin-exe.tar.gz
+          body: |
+            SLV v${{ env.VERSION }} Release (Remote Build)
+
+            ## Changes
+
+            - See commit history for details
+          token: ${{ secrets.GITHUB_TOKEN }}
