@@ -62,35 +62,6 @@ async function createRelease() {
   const updateResult = await spawnSync('deno run -A scripts/update-version.ts')
   console.log(updateResult.message)
 
-  // 2.5 Build macOS executable locally and stage it for remote upload
-  if (Deno.build.os !== 'darwin') {
-    console.error('Error: create-release must be run on macOS for mac builds.')
-    Deno.exit(1)
-  }
-  const releaseAssetsRoot = './release-assets'
-  try {
-    await Deno.remove(releaseAssetsRoot, { recursive: true })
-  } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) {
-      throw error
-    }
-  }
-  console.log('Building macOS executable locally...')
-  await Deno.mkdir('./dist', { recursive: true })
-  const buildMacResult = await spawnSync('deno task build:mac')
-  if (!buildMacResult.success) {
-    console.error('❌ Failed to build macOS executable.')
-    Deno.exit(1)
-  }
-  console.log(buildMacResult.message)
-  const macTarPath = './dist/slv-x86_64-apple-darwin-exe.tar.gz'
-  const releaseAssetsDir = `${releaseAssetsRoot}/${newVersion}`
-  await Deno.mkdir(releaseAssetsDir, { recursive: true })
-  const macReleasePath =
-    `${releaseAssetsDir}/slv-x86_64-apple-darwin-exe.tar.gz`
-  await Deno.copyFile(macTarPath, macReleasePath)
-  console.log(`✅ Staged macOS artifact at ${macReleasePath}`)
-
   // 3. Commit the changes
   console.log('Committing changes...')
   await spawnSync(`git add .`)

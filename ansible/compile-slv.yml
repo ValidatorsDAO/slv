@@ -159,22 +159,9 @@
       environment: "{{ deno_env }}"
       become_user: '{{ build_user }}'
 
-    - name: Check macOS artifact from local release
-      stat:
-        path: '{{ build_dir }}/release-assets/{{ version }}/slv-x86_64-apple-darwin-exe.tar.gz'
-      register: mac_artifact_stat
-      become_user: '{{ build_user }}'
-
-    - name: Fail if macOS artifact is missing
-      fail:
-        msg: >-
-          Missing macOS artifact at {{ build_dir }}/release-assets/{{ version }}/slv-x86_64-apple-darwin-exe.tar.gz.
-          Run create-release.ts on macOS before tagging.
-      when: not mac_artifact_stat.stat.exists
-
-    - name: Stage macOS artifact into dist
+    - name: Copy macOS artifact from Actions into build dist
       copy:
-        src: '{{ build_dir }}/release-assets/{{ version }}/slv-x86_64-apple-darwin-exe.tar.gz'
+        src: '{{ playbook_dir }}/../dist/slv-x86_64-apple-darwin-exe.tar.gz'
         dest: '{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe.tar.gz'
         remote_src: yes
         owner: '{{ build_user }}'
