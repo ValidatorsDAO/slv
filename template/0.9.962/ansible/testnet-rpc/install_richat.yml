@@ -1,0 +1,89 @@
+---
+- name: Build and install Richat daemon from source
+  hosts: all
+  become: true
+  vars_files:
+    - ~/.slv/versions.yml
+  vars:
+    repo_url: "https://github.com/lamports-dev/richat.git"
+    richat_src_dir: "/home/solv/richat-src"
+    richat_install_dir: "/home/solv"
+    richat_binary_path: "{{ richat_install_dir }}/richat"
+    richat_config_template: "~/.slv/testnet-rpc/richat-setting.yml.j2"
+    richat_config_path: "/home/solv/richat-config.yml"
+    richat_service_template: "~/.slv/testnet-rpc/richat.service.j2"
+    richat_service_path: "/etc/systemd/system/richat.service"
+
+  tasks:
+    - name: Resolve richat version (override with -e richat_version=)
+      set_fact:
+        richat_version_resolved: "{{ richat_version | default(testnet_rpcs.richat_version | default('', true), true) }}"
+
+    - name: Ensure richat version is provided
+      assert:
+        that:
+          - richat_version_resolved != ''
+        fail_msg: "richat_version must be provided (via -e richat_version= or testnet_rpcs.richat_version in ~/.slv/versions.yml)"
+
+    - name: Clone or update the Richat repository with specific tag
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ richat_src_dir }}"
+        version: "{{ richat_version_resolved }}"
+        update: yes
+        force: yes
+      become_user: solv
+
+    - name: Build Richat binary using Cargo
+      shell: |
+        source ~/.profile
+        cargo build --release -p richat
+      args:
+        chdir: "{{ richat_src_dir }}"
+        executable: /bin/bash
+      become_user: solv
+
+    - name: Verify built richat binary exists
+      stat:
+        path: "{{ richat_src_dir }}/target/release/richat"
+      register: richat_bin_stat
+
+    - name: Fail if richat binary was not built
+      assert:
+        that:
+          - richat_bin_stat.stat.exists
+        fail_msg: "Build failed: {{ richat_src_dir }}/target/release/richat not found"
+
+    - name: Copy built richat binary to install location
+      copy:
+        src: "{{ richat_src_dir }}/target/release/richat"
+        dest: "{{ richat_binary_path }}"
+        remote_src: yes
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    - name: Deploy richat config
+      template:
+        src: "{{ richat_config_template }}"
+        dest: "{{ richat_config_path }}"
+        owner: solv
+        group: solv
+        mode: "0644"
+
+    - name: Deploy richat systemd service
+      template:
+        src: "{{ richat_service_template }}"
+        dest: "{{ richat_service_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Reload systemd daemon
+      command: systemctl daemon-reload
+
+    - name: Enable and start richat service
+      systemd:
+        name: richat.service
+        enabled: true
+        state: restarted

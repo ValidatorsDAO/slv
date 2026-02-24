@@ -1,3 +1,6 @@
+# ⚠️ DEPRECATED: This playbook downloads pre-built binaries from storage.slv.dev
+# Use cmn/build_solana.yml instead (builds from GitHub source)
+# This file will be removed in a future version.
 ---
 - name: Install/Update Solana CLI (agave, jito, or jito-bam) from hosted binaries
   hosts: all
