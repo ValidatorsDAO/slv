@@ -1,0 +1,19 @@
+{
+  "name": "slv-rpc",
+  "displayName": "SLV RPC",
+  "version": "0.9.962",
+  "description": "Deploy and manage Solana RPC nodes with AI-powered interactive guidance. Supports Standard RPC, Index RPC, Geyser gRPC, and Index+gRPC configurations across mainnet, testnet, and devnet.",
+  "author": "ValidatorsDAO",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ValidatorsDAO/slv",
+  "repository": "https://github.com/ValidatorsDAO/slv",
+  "tags": ["solana", "rpc", "ansible", "infrastructure", "blockchain"],
+  "requirements": {
+    "system": ["ansible-core>=2.15", "ssh"],
+    "optional": ["solana-cli"]
+  },
+  "files": {
+    "skill": "SKILL.md",
+    "agent": "AGENT.md"
+  }
+}

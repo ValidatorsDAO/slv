@@ -1,0 +1,19 @@
+{
+  "name": "slv-validator",
+  "displayName": "SLV Validator",
+  "version": "0.9.962",
+  "description": "Deploy and manage Solana validators (mainnet & testnet) with AI-powered interactive guidance. Supports Jito, Agave, and Firedancer validator types via Ansible playbooks.",
+  "author": "ValidatorsDAO",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ValidatorsDAO/slv",
+  "repository": "https://github.com/ValidatorsDAO/slv",
+  "tags": ["solana", "validator", "ansible", "infrastructure", "blockchain"],
+  "requirements": {
+    "system": ["ansible-core>=2.15", "ssh"],
+    "optional": ["solana-cli"]
+  },
+  "files": {
+    "skill": "SKILL.md",
+    "agent": "AGENT.md"
+  }
+}
