@@ -11,11 +11,14 @@ const RSYNC_EXCLUDES = [
   '/media/*',
   '/lost+found',
   '/swapfile',
-  // Preserve remote SSH access — these are merged in post-copy step
+  // Preserve remote SSH access — these are merged/regenerated in post-copy step
   '/root/.ssh/authorized_keys',
   '/home/*/.ssh/authorized_keys',
   '/etc/ssh/sshd_config',
   '/etc/ssh/sshd_config.d/*',
+  '/etc/ssh/ssh_host_*',
+  // Snap loopback mounts (Ubuntu)
+  '/snap/*',
 ]
 
 interface MigrateOptions {
@@ -236,29 +239,32 @@ else
 fi
 
 echo "==> Merging SSH authorized_keys..."
-# The source's authorized_keys were synced to a temp location by rsync (excluded from overwrite).
-# Merge source user keys into the existing (preserved) authorized_keys.
-for keydir in /root/.ssh /home/*/.ssh; do
-  [ -d "$keydir" ] || continue
-  ak="$keydir/authorized_keys"
-  # If source had keys that rsync placed elsewhere, or if source's /etc/passwd added users,
-  # their .ssh dirs (minus authorized_keys) were synced. The remote's original keys are preserved.
-  # Append source's keys from the synced user home (they may have other key files).
-  for pub in "$keydir"/*.pub; do
-    [ -f "$pub" ] || continue
-    cat "$pub" >> "$ak" 2>/dev/null || true
-  done
-  # Deduplicate
-  if [ -f "$ak" ]; then
+# Source's authorized_keys were excluded from rsync and placed at /tmp/.slv_src_authorized_keys.
+# Merge them into remote's preserved authorized_keys (remote keys + source keys, deduplicated).
+if [ -f /tmp/.slv_src_authorized_keys ]; then
+  for keydir in /root/.ssh /home/*/.ssh; do
+    [ -d "$keydir" ] || continue
+    ak="$keydir/authorized_keys"
+    touch "$ak"
+    cat /tmp/.slv_src_authorized_keys >> "$ak"
     sort -u -o "$ak" "$ak"
     chmod 600 "$ak"
-  fi
-done
-echo "  Authorized keys merged."
+  done
+  rm -f /tmp/.slv_src_authorized_keys
+  echo "  Source authorized_keys merged into remote."
+else
+  echo "  No source authorized_keys to merge."
+fi
 
-echo "==> Merging SSH server config..."
+echo "==> Regenerating SSH host keys..."
+# Host keys were excluded from rsync to avoid 2 servers sharing the same keys.
+# Regenerate fresh host keys for the new server.
+rm -f /etc/ssh/ssh_host_*
+ssh-keygen -A 2>/dev/null || dpkg-reconfigure openssh-server 2>/dev/null || true
+echo "  SSH host keys regenerated."
+
+echo "==> Updating SSH server config..."
 # sshd_config was excluded from rsync, so the remote's config is preserved.
-# Copy over any custom settings from source (synced to /etc/ssh/sshd_config.migrated if needed).
 # Ensure PermitRootLogin remains enabled for post-migration access.
 if grep -q "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null; then
   sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -288,9 +294,10 @@ GATEWAY=$(ip route | grep default | awk '{print $3}' | head -1 || true)
 if [ -d /etc/netplan ]; then
   for f in /etc/netplan/*.yaml /etc/netplan/*.yml; do
     [ -f "$f" ] || continue
-    echo "  Updating netplan: $f"
-    # Replace interface names and IPs if they differ
-    # This is best-effort; complex configs may need manual review
+    echo "  ⚠️  Netplan config found: $f"
+    echo "  Source netplan was synced via rsync. If NIC names or IPs differ,"
+    echo "  you MUST manually update this file before reboot or network will be lost."
+    echo "  Current remote IP: $PRIMARY_IP  Interface: $PRIMARY_IF  Gateway: $GATEWAY"
   done
 fi
 
@@ -436,15 +443,27 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     }
   }
 
-  // Step 4: rsync (SSH keys and sshd_config are excluded to preserve remote access)
+  // Step 4: Collect source authorized_keys before rsync (they are excluded from rsync)
+  console.log(colors.blue('  Collecting source authorized_keys for post-copy merge...'))
+  const sourceKeys = await runCapture('bash', ['-c',
+    'cat /root/.ssh/authorized_keys 2>/dev/null; for u in /home/*; do [ -f "$u/.ssh/authorized_keys" ] && cat "$u/.ssh/authorized_keys"; done',
+  ])
+
+  // Step 5: rsync (SSH keys, sshd_config and host keys are excluded to preserve remote access)
   const rsyncOk = await runRsync(to, port, extraExcludes)
   if (!rsyncOk) return false
 
-  // Step 5: Environment patches (includes SSH key merge + sshd_config fixup)
+  // Step 5.5: Copy source authorized_keys to remote temp file for merge
+  if (sourceKeys.trim()) {
+    const escaped = sourceKeys.replace(/'/g, "'\\''")
+    await sshRun(to, `echo '${escaped}' > /tmp/.slv_src_authorized_keys`, port)
+  }
+
+  // Step 6: Environment patches (includes SSH key merge + host key regen + sshd_config fixup)
   const patchOk = await patchRemoteEnvironment(to, port)
   if (!patchOk) return false
 
-  // Step 6: Reboot
+  // Step 7: Reboot
   if (!skipReboot) {
     const rebootOk = await rebootAndWait(to, port)
     if (!rebootOk) {
