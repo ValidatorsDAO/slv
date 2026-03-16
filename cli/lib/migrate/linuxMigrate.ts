@@ -11,6 +11,11 @@ const RSYNC_EXCLUDES = [
   '/media/*',
   '/lost+found',
   '/swapfile',
+  // Preserve remote SSH access — these are merged in post-copy step
+  '/root/.ssh/authorized_keys',
+  '/home/*/.ssh/authorized_keys',
+  '/etc/ssh/sshd_config',
+  '/etc/ssh/sshd_config.d/*',
 ]
 
 interface MigrateOptions {
@@ -42,8 +47,8 @@ async function run(
     stdin: opts?.stdin ?? 'inherit',
   })
   const result = await command.output()
-  const stdout = result.stdout ? new TextDecoder().decode(result.stdout) : ''
-  const stderr = result.stderr ? new TextDecoder().decode(result.stderr) : ''
+  const stdout = opts?.captureOutput && result.stdout ? new TextDecoder().decode(result.stdout) : ''
+  const stderr = opts?.captureOutput && result.stderr ? new TextDecoder().decode(result.stderr) : ''
   return { success: result.success, stdout, stderr, code: result.code }
 }
 
@@ -230,6 +235,39 @@ else
   echo "  Skipped fstab patching (no UUID found or no fstab)."
 fi
 
+echo "==> Merging SSH authorized_keys..."
+# The source's authorized_keys were synced to a temp location by rsync (excluded from overwrite).
+# Merge source user keys into the existing (preserved) authorized_keys.
+for keydir in /root/.ssh /home/*/.ssh; do
+  [ -d "$keydir" ] || continue
+  ak="$keydir/authorized_keys"
+  # If source had keys that rsync placed elsewhere, or if source's /etc/passwd added users,
+  # their .ssh dirs (minus authorized_keys) were synced. The remote's original keys are preserved.
+  # Append source's keys from the synced user home (they may have other key files).
+  for pub in "$keydir"/*.pub; do
+    [ -f "$pub" ] || continue
+    cat "$pub" >> "$ak" 2>/dev/null || true
+  done
+  # Deduplicate
+  if [ -f "$ak" ]; then
+    sort -u -o "$ak" "$ak"
+    chmod 600 "$ak"
+  fi
+done
+echo "  Authorized keys merged."
+
+echo "==> Merging SSH server config..."
+# sshd_config was excluded from rsync, so the remote's config is preserved.
+# Copy over any custom settings from source (synced to /etc/ssh/sshd_config.migrated if needed).
+# Ensure PermitRootLogin remains enabled for post-migration access.
+if grep -q "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null; then
+  sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+else
+  echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+fi
+systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+echo "  SSH config updated, PermitRootLogin enabled."
+
 echo "==> Updating /etc/hostname..."
 ORIG_HOSTNAME=$(hostname)
 echo "$ORIG_HOSTNAME" > /etc/hostname
@@ -282,11 +320,16 @@ echo "==> Environment patching complete."
   const result = await sshRun(target, patchScript, port)
   if (!result.success) {
     console.error(
-      colors.yellow(
-        '\n⚠️  Some environment patches may have failed. Check output above.',
+      colors.red(
+        '\n❌ Environment patching failed. SSH to remote may be broken.',
       ),
     )
-    // Don't fail the whole migration for non-critical patch issues
+    console.error(
+      colors.yellow(
+        '  Hint: Connect via provider console to check SSH access and review patch output.',
+      ),
+    )
+    return false
   }
   console.log(colors.green('\n✅ Environment patches applied.'))
   return true
@@ -393,12 +436,13 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     }
   }
 
-  // Step 4: rsync
+  // Step 4: rsync (SSH keys and sshd_config are excluded to preserve remote access)
   const rsyncOk = await runRsync(to, port, extraExcludes)
   if (!rsyncOk) return false
 
-  // Step 5: Environment patches
-  await patchRemoteEnvironment(to, port)
+  // Step 5: Environment patches (includes SSH key merge + sshd_config fixup)
+  const patchOk = await patchRemoteEnvironment(to, port)
+  if (!patchOk) return false
 
   // Step 6: Reboot
   if (!skipReboot) {
