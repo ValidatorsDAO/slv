@@ -66,7 +66,7 @@ export const productAction = async () => {
       ).border(true),
       new Row(
         colors.blue('Regions'),
-        colors.white('🇪🇺 EU  🌏 Asia  🇺🇸 US-East  🇺🇸 US-West  🇦🇺 Oceania'),
+        colors.white('EU, Asia, US-East, US-West, Oceania'),
       ).border(true),
       new Row(
         colors.blue('Capacity'),
