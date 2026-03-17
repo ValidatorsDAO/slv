@@ -39,6 +39,14 @@
         state: present
         update_cache: yes
 
+    - name: Ensure build user exists
+      user:
+        name: '{{ build_user }}'
+        home: '{{ build_home }}'
+        create_home: yes
+        shell: /bin/bash
+        state: present
+
     - name: Create artifacts directory
       file:
         path: '{{ artifacts_dir }}'
