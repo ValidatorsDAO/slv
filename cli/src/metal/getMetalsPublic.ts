@@ -1,7 +1,7 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
 import type { ListProductResType } from '@cmn/types/metal.ts'
 
-export type MetalType = 'APP' | 'RPC' | 'MV'
+export type MetalType = 'APP' | 'RPC' | 'MV' | 'UT'
 
 const getMetalsPublic = async (
   metalType: MetalType = 'APP',

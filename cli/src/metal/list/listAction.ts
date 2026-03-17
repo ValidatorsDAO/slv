@@ -19,9 +19,10 @@ const AVAILAVLE_REGIONS = [
 ]
 
 const listAction = async (defaultMetalType?: MetalType) => {
-  const app = '📦 APP - For Trade Bot,Testnet Validator, DApp and More!'
-  const mv = '🚀 MV - For Solana Mainnet Validator'
-  const rpc = '🛡️⚡️ RPC - For Solana RPC Node'
+  const app = '📦 APP - For Trade Bot, Testnet Validator, DApp and More!'
+  const mv = '🚀 MV - For Solana Mainnet Validator / gRPC'
+  const rpc = '🛡️⚡️ RPC - For Solana RPC Node (Index)'
+  const ut = '👑 UT - Ultimate (48+ CPU cores)'
   let metalType: MetalType = 'APP'
   if (defaultMetalType) {
     metalType = defaultMetalType
@@ -35,6 +36,7 @@ const listAction = async (defaultMetalType?: MetalType) => {
           app,
           mv,
           rpc,
+          ut,
         ],
         default: 'APP',
       },
@@ -49,6 +51,9 @@ const listAction = async (defaultMetalType?: MetalType) => {
         break
       case mv:
         metalType = 'MV'
+        break
+      case ut:
+        metalType = 'UT'
         break
       default:
         metalType = 'APP'
