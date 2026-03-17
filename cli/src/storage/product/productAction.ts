@@ -6,8 +6,17 @@ import { Row, Table } from '@cliffy/table'
 import {
   storageProductList,
   StorageApiError,
+  type StorageProduct,
 } from '/src/storage/api.ts'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
+
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+}
 
 export const productAction = async () => {
   const apiKey = await getApiKeyFromYml()
@@ -24,7 +33,43 @@ export const productAction = async () => {
     }
     spinner.succeed('Found storage products')
 
-    const products = result.message
+    // If user already has storage, show upgrade info
+    if (result.hasExistingStorage && result.currentStorage) {
+      const storage = result.currentStorage
+      const usedPercent = storage.storageLimitBytes > 0
+        ? ((storage.usedBytes / storage.storageLimitBytes) * 100).toFixed(1)
+        : '0'
+
+      console.log(colors.bold('\n📦 Current Storage\n'))
+      const table = new Table()
+      table.body([
+        new Row(colors.blue('Capacity'), colors.white(`${storage.currentQuantityGB} GB`))
+          .border(true),
+        new Row(
+          colors.blue('Used'),
+          colors.white(`${formatBytes(storage.usedBytes)} (${usedPercent}%)`),
+        ).border(true),
+      ])
+      table.render()
+
+      console.log(
+        colors.white(`
+To change your storage capacity, run:
+
+  $ ${colors.yellow('slv storage upgrade')}
+
+Stripe will automatically prorate the difference.
+
+Need help? ValidatorsDAO Discord: ${DISCORD_LINK}`),
+      )
+      return true
+    }
+
+    // New user — show products for purchase
+    const products: StorageProduct[] = Array.isArray(result.message)
+      ? result.message
+      : []
+
     if (products.length === 0) {
       console.log(colors.yellow('\nNo storage products available.'))
       return false

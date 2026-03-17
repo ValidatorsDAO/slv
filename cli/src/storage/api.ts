@@ -178,7 +178,16 @@ export type StorageProduct = {
 
 export type StorageProductListRes = {
   success: boolean
-  message: StorageProduct[]
+  hasExistingStorage?: boolean
+  currentStorage?: {
+    storageLimitBytes: number
+    currentQuantityGB: number
+    usedBytes: number
+    subscriptionItemId: string
+  }
+  upgradeEndpoint?: string
+  message: StorageProduct[] | string
+  products?: StorageProduct[]
 }
 
 export const storageProductList = async (
