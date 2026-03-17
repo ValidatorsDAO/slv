@@ -18,7 +18,9 @@ const sea = (s: string) => colors.rgb24(s, 0x4a90a8)
 const seaL = (s: string) => colors.rgb24(s, 0x6bb5c9)
 const seaD = (s: string) => colors.rgb24(s, 0x2e6e82)
 const sand = (s: string) => colors.rgb24(s, 0xc2956b)
-const robo = (s: string) => colors.rgb24(s, 0x8a8a8a)
+const neko = (s: string) => colors.rgb24(s, 0xf0d870)
+const star = (s: string) => colors.bold.rgb24(s, 0xffd700)
+const shell = (s: string) => colors.bold.rgb24(s, 0xff69b4)
 
 export const slvAA = (version: string) => {
   const header = `${colors.bold.rgb24(`Welcome to SLV v${version}`, 0x14f195)}
@@ -31,18 +33,18 @@ ${
 
   const art = `
 ${header}
-${sk1('                          ')}${snow('▄▄')}${sk1('              ')}${
-    moon('▄████▄')
-  }${sk1('        ')}
+${sk1('     ')}${star('*')}${sk1('                    ')}${snow('▄▄')}${
+    sk1('              ')
+  }${moon('▄████▄')}${sk1('        ')}
 ${sk1('                        ')}${snow('▄████▄')}${sk1('            ')}${
     moon('██████')
   }${sk1('        ')}
-${sk2('                      ')}${snow('▄██████▄')}${sk2('            ')}${
-    moon('▀████▀')
-  }${sk2('        ')}
+${sk2('            ')}${star('*')}${sk2('         ')}${snow('▄██████▄')}${
+    sk2('            ')
+  }${moon('▀████▀')}${sk2('        ')}
 ${sk2('    ')}${pine('▄██▄')}${sk2('           ')}${snow('▄████')}${
     fuji('████')
-  }${snow('██▄')}${sk2('                        ')}
+  }${snow('██▄')}${sk2('                    ')}${star('*')}${sk2('   ')}
 ${sk3('     ')}${trunk('█')}${pine('▄███▄')}${sk3('      ')}${fuji('▄██')}${
     fujiD('████████████')
   }${fuji('▄')}${sk3('                       ')}
@@ -74,20 +76,17 @@ ${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${
   }${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~')}${
     seaL('~~')
   }${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}
-${sand('·:·.·:·.·')}${robo('▄███▄')}${
-    sand('·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·')
+${sand('·:·.·:·')}${neko('▄█')}${sand('·····')}${neko('█▄')}${
+    sand('·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·')
   }
-${sand('·:·.·:·.·')}${robo('█▄█▄█')}${
-    sand('·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·')
+${sand('·:·.·:·')}${neko('█████████')}${
+    sand(':·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·')
   }
-${sand('·:·.·:·.·')}${robo('▄███▄')}${
-    sand('·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·')
-  }
-${sand('·:·.·:·.·')}${robo('█████')}${robo('/')}${
-    sand('.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·')
-  }
-${sand('…………………………')}${robo('█')}${sand(' ')}${robo('█')}${
-    sand('………………………………………………………………………………………………………………')
+${sand('·:·.·:·')}${neko('██▄███▄██')}${sand(':·.·:·.·:·.·:·.·:·.·:·')}${
+    shell('☆')
+  }${sand('·')}${shell('@')}${sand('·:·.·:·.·:·')}
+${sand('…………………')}${neko('█████████')}${
+    sand('……………………………………………………………………………………………………………')
   }`
 
   console.log(art)
