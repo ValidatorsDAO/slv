@@ -1,25 +1,5 @@
 import { colors } from '@cliffy/colors'
-
-/** Excluded paths for rsync full-disk copy */
-const RSYNC_EXCLUDES = [
-  '/dev/*',
-  '/proc/*',
-  '/sys/*',
-  '/tmp/*',
-  '/run/*',
-  '/mnt/*',
-  '/media/*',
-  '/lost+found',
-  '/swapfile',
-  // Preserve remote SSH access — these are merged/regenerated in post-copy step
-  '/root/.ssh/authorized_keys',
-  '/home/*/.ssh/authorized_keys',
-  '/etc/ssh/sshd_config',
-  '/etc/ssh/sshd_config.d/*',
-  '/etc/ssh/ssh_host_*',
-  // Snap loopback mounts (Ubuntu)
-  '/snap/*',
-]
+import { buildExcludeList, printExcludes, SSH_EXCLUDES } from '@/backup/excludes.ts'
 
 interface MigrateOptions {
   /** SSH destination, e.g. "root@192.168.1.100" */
@@ -28,6 +8,10 @@ interface MigrateOptions {
   port?: number
   /** Extra rsync excludes */
   extraExcludes?: string[]
+  /** Paths to remove from default excludes */
+  extraIncludes?: string[]
+  /** Show exclude list and exit */
+  listExcludes?: boolean
   /** Skip reboot step */
   skipReboot?: boolean
   /** Skip confirmation prompt */
@@ -182,11 +166,10 @@ async function showDiskUsage(target: string, port: number): Promise<boolean> {
 async function runRsync(
   target: string,
   port: number,
-  extraExcludes: string[],
+  excludes: string[],
 ): Promise<boolean> {
   console.log(colors.blue('\n🚀 Starting rsync full-disk copy...\n'))
 
-  const excludes = [...RSYNC_EXCLUDES, ...extraExcludes]
   const excludeArgs = excludes.flatMap((e) => ['--exclude', e])
 
   const args = [
@@ -414,13 +397,39 @@ async function rebootAndWait(target: string, port: number): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
-  const { to, port = 22, extraExcludes = [], skipReboot = false, yes = false } = options
+  const {
+    to,
+    port = 22,
+    extraExcludes = [],
+    extraIncludes = [],
+    listExcludes = false,
+    skipReboot = false,
+    yes = false,
+  } = options
+
+  // Build exclude list using shared module
+  const excludes = buildExcludeList({
+    extraExcludes,
+    extraIncludes,
+    includeSSH: false, // SSH is always excluded for migrate
+  })
+  // SSH_EXCLUDES are already included via buildExcludeList when includeSSH=false
+  const allExcludes = excludes
+
+  // --list-excludes: show and exit
+  if (listExcludes) {
+    printExcludes(allExcludes)
+    return true
+  }
 
   console.log(colors.bold(colors.blue('\n🚀 SLV Linux Server Migration\n')))
   console.log(colors.white(`  Source:      localhost (this machine)`))
   console.log(colors.white(`  Destination: ${to}`))
   console.log(colors.white(`  SSH Port:    ${port}`))
   console.log('')
+
+  // Show exclude list before confirmation
+  printExcludes(allExcludes)
 
   // Step 1: Pre-flight checks
   const prereqOk = await checkPrerequisites(to, port)
@@ -450,7 +459,7 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
   ])
 
   // Step 5: rsync (SSH keys, sshd_config and host keys are excluded to preserve remote access)
-  const rsyncOk = await runRsync(to, port, extraExcludes)
+  const rsyncOk = await runRsync(to, port, allExcludes)
   if (!rsyncOk) return false
 
   // Step 5.5: Copy source authorized_keys to remote temp file for merge
