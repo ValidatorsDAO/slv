@@ -32,7 +32,7 @@ export const productAction = async () => {
 
     const options = products.map((p) => ({
       name: colors.white(
-        `${p.product} - ${(p.price / 100).toLocaleString('en-US')} EUR/month`,
+        `${p.product} - ${(p.price / 100).toLocaleString('en-US')} EUR/GB/month`,
       ),
       value: p.product,
     }))
@@ -56,11 +56,17 @@ export const productAction = async () => {
     table.body([
       new Row(colors.blue('Product'), colors.white(selected.product))
         .border(true),
-      new Row(colors.blue('Description'), colors.white(selected.description))
-        .border(true),
       new Row(
         colors.blue('Price'),
-        colors.white(`${(selected.price / 100).toLocaleString('en-US')} EUR/month`),
+        colors.white(`${(selected.price / 100).toLocaleString('en-US')} EUR/GB/month`),
+      ).border(true),
+      new Row(
+        colors.blue('Includes'),
+        colors.white('1,000 API requests/GB/month, free egress'),
+      ).border(true),
+      new Row(
+        colors.blue('Capacity'),
+        colors.white('Choose at checkout, adjust anytime'),
       ).border(true),
     ])
     table.render()
