@@ -46,5 +46,5 @@ $ slv signup
       colors.green('\n✔️ API Key Successfully Saved to ~/.slv/api.yml\n'),
     )
     console.log(colors.white(`🚀 Full Features Unlocked\n`))
-    console.log(colors.blue(`👉 $ slv metal list\n`))
+    console.log(colors.blue(`👉 $ slv metal product\n`))
   })

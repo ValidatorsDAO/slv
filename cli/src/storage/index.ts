@@ -5,6 +5,7 @@ import { downloadAction } from '/src/storage/download/downloadAction.ts'
 import { listStorageAction } from '/src/storage/list/listAction.ts'
 import { deleteAction } from '/src/storage/delete/deleteAction.ts'
 import { usageAction } from '/src/storage/usage/usageAction.ts'
+import { productAction } from '/src/storage/product/productAction.ts'
 import type { StorageRegion } from '/src/storage/api.ts'
 
 const VALID_REGIONS: StorageRegion[] = ['eu', 'asia', 'us-east', 'us-west', 'oc']
@@ -94,4 +95,8 @@ export const storageCmd = new Command()
   .command('usage', 'Show storage usage and quota')
   .action(async () => {
     await usageAction()
+  })
+  .command('product', 'Browse and purchase storage plans')
+  .action(async () => {
+    await productAction()
   })
