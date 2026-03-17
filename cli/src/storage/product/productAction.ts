@@ -62,7 +62,7 @@ export const productAction = async () => {
       ).border(true),
       new Row(
         colors.blue('Includes'),
-        colors.white('1,000 API requests/GB/month, free egress'),
+        colors.white('1,000 API requests/GB/month, free egress (e.g. 5GB = 5,000 req)'),
       ).border(true),
       new Row(
         colors.blue('Capacity'),
