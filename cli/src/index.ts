@@ -25,8 +25,8 @@ const program = new Command()
   .description('slv is a Toolkit for Solana Developers')
   .version(denoJson.version)
   .option('-P,--print', 'Print slv ASCII Art').action(() => {
-    slvAA()
-    installClientMessage(denoJson.version)
+    slvAA(denoJson.version)
+    installClientMessage()
   })
 
 program
