@@ -2,7 +2,7 @@ import { METAL_API_URL } from '@cmn/constants/url.ts'
 import type { z } from '@hono/zod-openapi'
 import type { ListProductRes } from '@cmn/types/metal.ts'
 
-export type MetalType = 'APP' | 'RPC' | 'MV'
+export type MetalType = 'APP' | 'RPC' | 'MV' | 'UT'
 
 const getMetals = async (
   apiKey: string,
