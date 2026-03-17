@@ -6,13 +6,24 @@ import {
   StorageApiError,
   type StorageRegion,
 } from '/src/storage/api.ts'
+import { promptRegion, promptSelectFile } from '/src/storage/prompt.ts'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 
 export const deleteAction = async (
-  remotePath: string,
+  remotePath: string | undefined,
   options: { region?: StorageRegion; yes?: boolean },
 ) => {
   const apiKey = await getApiKeyFromYml()
+
+  // Interactive: prompt for region if not provided
+  const region = options.region ?? await promptRegion()
+
+  // Interactive: select file from list if path not provided
+  if (!remotePath) {
+    const selected = await promptSelectFile(apiKey, region)
+    if (!selected) return false
+    remotePath = selected.path
+  }
 
   if (!options.yes) {
     const { confirmed } = await prompt([
@@ -35,7 +46,7 @@ export const deleteAction = async (
   spinner.start()
 
   try {
-    const result = await storageDelete(apiKey, remotePath, options.region)
+    const result = await storageDelete(apiKey, remotePath, region)
     if (result.success) {
       spinner.succeed(`Deleted: ${remotePath}`)
       return true
