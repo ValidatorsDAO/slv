@@ -178,7 +178,27 @@ export type StorageProduct = {
 
 export type StorageProductListRes = {
   success: boolean
-  message: StorageProduct[]
+  hasExistingStorage?: boolean
+  currentStorage?: {
+    storageLimitBytes: number
+    currentQuantityGB: number
+    usedBytes: number
+    subscriptionItemId: string
+  }
+  upgradeEndpoint?: string
+  upgradeMethod?: string
+  upgradeBody?: string
+  message: StorageProduct[] | string
+  products?: StorageProduct[]
+}
+
+export type StorageUpgradeRes = {
+  success: boolean
+  message: {
+    previousQuantity: number
+    newQuantity: number
+    proratedAmount?: string
+  }
 }
 
 export const storageProductList = async (
@@ -190,6 +210,19 @@ export const storageProductList = async (
   })
   if (!response.ok) await handleErrorResponse(response)
   return await response.json() as StorageProductListRes
+}
+
+export const storageUpgradePlan = async (
+  apiKey: string,
+  quantity: number,
+): Promise<StorageUpgradeRes> => {
+  const response = await fetch(`${METAL_API_URL}/storage/upgrade-plan`, {
+    method: 'POST',
+    headers: storageHeaders(apiKey),
+    body: JSON.stringify({ quantity }),
+  })
+  if (!response.ok) await handleErrorResponse(response)
+  return await response.json() as StorageUpgradeRes
 }
 
 export const storageUsage = async (
