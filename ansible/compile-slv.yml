@@ -36,6 +36,7 @@
           - git
           - python3
           - python3-pip
+          - acl
         state: present
         update_cache: yes
 

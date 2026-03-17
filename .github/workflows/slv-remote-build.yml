@@ -224,6 +224,7 @@ jobs:
 
       - name: Compile SLV on remote server
         run: |
+          export ANSIBLE_ALLOW_WORLD_READABLE_TMPFILES=1
           ansible-playbook -i 'localhost,' -u solv -c local ansible/compile-slv.yml \
             -e "version=${{ env.VERSION }}" \
             -e "github_token=${{ secrets.GITHUB_TOKEN }}" \
