@@ -32,7 +32,7 @@ export const productAction = async () => {
 
     const options = products.map((p) => ({
       name: colors.white(
-        `${p.product} - ${(p.price / 100).toLocaleString('en-US')} EUR/GB/month`,
+        `${p.product} - ${p.price.toLocaleString('en-US')} EUR/GB/month`,
       ),
       value: p.product,
     }))
@@ -58,7 +58,7 @@ export const productAction = async () => {
         .border(true),
       new Row(
         colors.blue('Price'),
-        colors.white(`${(selected.price / 100).toLocaleString('en-US')} EUR/GB/month`),
+        colors.white(`${selected.price.toLocaleString('en-US')} EUR/GB/month`),
       ).border(true),
       new Row(
         colors.blue('Includes'),
