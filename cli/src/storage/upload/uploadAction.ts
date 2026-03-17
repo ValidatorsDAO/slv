@@ -5,6 +5,11 @@ import {
   StorageApiError,
   type StorageRegion,
 } from '/src/storage/api.ts'
+import {
+  promptFilePath,
+  promptRegion,
+  promptRemotePath,
+} from '/src/storage/prompt.ts'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 import { basename, extname } from 'https://deno.land/std@0.202.0/path/mod.ts'
 
@@ -34,10 +39,15 @@ const guessContentType = (filePath: string): string => {
 }
 
 export const uploadAction = async (
-  filePath: string,
+  filePath: string | undefined,
   options: { path?: string; region?: StorageRegion },
 ) => {
   const apiKey = await getApiKeyFromYml()
+
+  // Interactive: prompt for file path if not provided
+  if (!filePath) {
+    filePath = await promptFilePath()
+  }
 
   let fileInfo: Deno.FileInfo
   try {
@@ -51,7 +61,13 @@ export const uploadAction = async (
     return false
   }
 
-  const remotePath = options.path || basename(filePath)
+  // Interactive: prompt for region if not provided
+  const region = options.region ?? await promptRegion()
+
+  // Interactive: prompt for remote path if not provided
+  const defaultRemotePath = basename(filePath)
+  const remotePath = options.path ?? await promptRemotePath(defaultRemotePath)
+
   const contentType = guessContentType(filePath)
 
   const spinner = new Kia(colors.cyan('Requesting presigned URL...'))
@@ -62,7 +78,7 @@ export const uploadAction = async (
     const presign = await presignUpload(
       apiKey,
       remotePath,
-      options.region,
+      region,
       contentType,
     )
     spinner.succeed('Got presigned URL')

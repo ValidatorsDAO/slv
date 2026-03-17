@@ -36,13 +36,13 @@ export const storageCmd = new Command()
     return
   })
   .command('upload', 'Upload a file to cloud storage')
-  .arguments('<file:string>')
+  .arguments('[file:string]')
   .option('-p, --path <path:string>', 'Remote path (default: filename)')
   .option(
     '-r, --region <region:string>',
     'Storage region (eu, asia, us-east, us-west, oc)',
   )
-  .action(async (options, file) => {
+  .action(async (options, file?: string) => {
     await uploadAction(file, {
       path: options.path,
       region: validateRegion(options.region),
@@ -50,13 +50,13 @@ export const storageCmd = new Command()
   })
   .command('download', 'Download a file from cloud storage')
   .alias('dl')
-  .arguments('<path:string>')
+  .arguments('[path:string]')
   .option('-o, --output <output:string>', 'Local output path (default: filename)')
   .option(
     '-r, --region <region:string>',
     'Storage region',
   )
-  .action(async (options, path) => {
+  .action(async (options, path?: string) => {
     await downloadAction(path, {
       output: options.output,
       region: validateRegion(options.region),
@@ -79,13 +79,13 @@ export const storageCmd = new Command()
   })
   .command('delete', 'Delete a file from cloud storage')
   .alias('rm')
-  .arguments('<path:string>')
+  .arguments('[path:string]')
   .option(
     '-r, --region <region:string>',
     'Storage region',
   )
   .option('-y, --yes', 'Skip confirmation')
-  .action(async (options, path) => {
+  .action(async (options, path?: string) => {
     await deleteAction(path, {
       region: validateRegion(options.region),
       yes: options.yes,
