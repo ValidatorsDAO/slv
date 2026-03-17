@@ -30,26 +30,30 @@ export const productAction = async () => {
       return false
     }
 
-    const options = products.map((p) => ({
-      name: colors.white(
-        `${p.product} - ${p.price.toLocaleString('en-US')} EUR/GB/month`,
-      ),
-      value: p.product,
-    }))
+    let selected = products[0]
+    if (products.length > 1) {
+      const options = products.map((p) => ({
+        name: colors.white(
+          `${p.product} - ${p.price.toLocaleString('en-US')} EUR/GB/month`,
+        ),
+        value: p.product,
+      }))
 
-    const { productName } = await prompt([
-      {
-        name: 'productName',
-        message: 'Select a Storage plan to purchase',
-        type: Select,
-        options,
-      },
-    ])
+      const { productName } = await prompt([
+        {
+          name: 'productName',
+          message: 'Select a Storage plan to purchase',
+          type: Select,
+          options,
+        },
+      ])
 
-    const selected = products.find((p) => p.product === productName)
-    if (!selected) {
-      console.log(colors.red('Failed to get product info'))
-      return false
+      const found = products.find((p) => p.product === productName)
+      if (!found) {
+        console.log(colors.red('Failed to get product info'))
+        return false
+      }
+      selected = found
     }
 
     const table = new Table()
