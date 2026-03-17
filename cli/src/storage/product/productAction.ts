@@ -65,6 +65,10 @@ export const productAction = async () => {
         colors.white('1,000 API requests/GB/month, free egress (e.g. 5GB = 5,000 req)'),
       ).border(true),
       new Row(
+        colors.blue('Regions'),
+        colors.white('🇪🇺 EU  🌏 Asia  🇺🇸 US-East  🇺🇸 US-West  🇦🇺 Oceania'),
+      ).border(true),
+      new Row(
         colors.blue('Capacity'),
         colors.white('Choose at checkout, adjust anytime'),
       ).border(true),
