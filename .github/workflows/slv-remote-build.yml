@@ -245,6 +245,14 @@ jobs:
           echo "Current working directory:"
           pwd
 
+      - name: Ensure Linux binary in dist
+        run: |
+          if [ ! -f "dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ] && [ -f "/opt/slv-build/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ]; then
+            cp /opt/slv-build/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz dist/
+            echo "Copied Linux binary from build dir"
+          fi
+          echo "dist/ contents:" && ls -la dist/
+
       - name: Rename files to match download script expectations
         run: |
           if [ -f "dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ]; then
@@ -298,7 +306,7 @@ jobs:
           for skill_dir in oss-skills/slv-validator oss-skills/slv-rpc oss-skills/slv-grpc-geyser; do
             if [ -d "$skill_dir" ]; then
               echo "Publishing $skill_dir..."
-              clawhub publish "$skill_dir" --version "${{ env.VERSION }}"
+              clawhub publish "$skill_dir" --version "${{ env.VERSION }}" || echo "Warning: publish failed for $skill_dir (may already exist), continuing..."
             else
               echo "Warning: $skill_dir not found, skipping"
             fi
