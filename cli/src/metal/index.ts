@@ -37,7 +37,8 @@ export const metalCmd = new Command()
     this.showHelp()
     return
   })
-  .command('list', 'List   - 🛡️  Solana Compatible BareMetal Resources')
+  .command('product', 'Product - 🛡️  Browse & Purchase Solana BareMetal Servers')
+  .alias('list')
   .action(async () => {
     await listAction()
     return
