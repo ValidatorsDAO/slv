@@ -6,6 +6,7 @@ import { listStorageAction } from '/src/storage/list/listAction.ts'
 import { deleteAction } from '/src/storage/delete/deleteAction.ts'
 import { usageAction } from '/src/storage/usage/usageAction.ts'
 import { productAction } from '/src/storage/product/productAction.ts'
+import { upgradeAction } from '/src/storage/upgrade/upgradeAction.ts'
 import type { StorageRegion } from '/src/storage/api.ts'
 
 const VALID_REGIONS: StorageRegion[] = ['eu', 'asia', 'us-east', 'us-west', 'oc']
@@ -99,4 +100,8 @@ export const storageCmd = new Command()
   .command('product', 'Browse and purchase storage plans')
   .action(async () => {
     await productAction()
+  })
+  .command('upgrade', 'Upgrade storage capacity')
+  .action(async () => {
+    await upgradeAction()
   })
