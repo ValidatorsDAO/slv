@@ -10,7 +10,6 @@ const getMetals = async (
 ) => {
   try {
     const myHeaders = new Headers()
-    myHeaders.append('x-token', 'solv')
     myHeaders.append(
       'Authorization',
       `Bearer ${apiKey}`,
