@@ -30,7 +30,7 @@
  */
 
 import { remotePingMinLatency } from '/lib/ping/remotePingMinLatency.ts'
-import { SNAPSHOT_NODES, type SnapshotNode } from './snapshotNodes.ts'
+import { SNAPSHOT_NODES, type SnapshotNode } from '/lib/snapshot/snapshotNodes.ts'
 import { colors } from '@cliffy/colors'
 
 /**
