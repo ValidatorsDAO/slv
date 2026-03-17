@@ -90,7 +90,7 @@ jobs:
 
   test:
     name: Run Tests
-    runs-on: [self-hosted, runner-slv-1]
+    runs-on: [slv-bm-runners, slv-bm-runners]
     steps:
       - name: Pre-clean workspace
         run: |
@@ -157,7 +157,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         (needs.check-version-tag.result == 'success' && needs.check-version-tag.outputs.tag_created == 'true')
       )
-    runs-on: [self-hosted]
+    runs-on: [slv-bm-runners]
     permissions:
       contents: write
     steps:
