@@ -3,7 +3,6 @@ import { METAL_API_URL } from '@cmn/constants/url.ts'
 const cancelSubscription = async (apiKey: string, subscriptionId: string) => {
   try {
     const myHeaders = new Headers()
-    myHeaders.append('x-token', 'solv')
     myHeaders.append(
       'Authorization',
       `Bearer ${apiKey}`,
