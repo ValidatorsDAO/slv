@@ -17,6 +17,7 @@ import { migrateVersionsYml } from '/lib/migrate/migrateVersionsYml.ts'
 import { installCmd } from '/src/install/index.ts'
 import { migrateCmd } from '@/migrate/index.ts'
 import { storageCmd } from '@/storage/index.ts'
+import { backupCmd } from '@/backup/index.ts'
 import { prepareLocalDb } from '@db/dbInit.ts'
 
 const program = new Command()
@@ -24,8 +25,8 @@ const program = new Command()
   .description('slv is a Toolkit for Solana Developers')
   .version(denoJson.version)
   .option('-P,--print', 'Print slv ASCII Art').action(() => {
-    slvAA()
-    installClientMessage(denoJson.version)
+    slvAA(denoJson.version)
+    installClientMessage()
   })
 
 program
@@ -87,6 +88,9 @@ program
 program
   .command('storage', storageCmd)
   .alias('st')
+
+program
+  .command('backup', backupCmd)
 
 program
   .command('migrate', migrateCmd)
