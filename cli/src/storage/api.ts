@@ -168,6 +168,30 @@ export const storageDelete = async (
   return await response.json() as { success: boolean }
 }
 
+export type StorageProduct = {
+  product: string
+  description: string
+  imageUrls: string[]
+  paymentLink: string
+  price: number
+}
+
+export type StorageProductListRes = {
+  success: boolean
+  message: StorageProduct[]
+}
+
+export const storageProductList = async (
+  apiKey: string,
+): Promise<StorageProductListRes> => {
+  const response = await fetch(`${METAL_API_URL}/storage/product-list`, {
+    method: 'GET',
+    headers: storageHeaders(apiKey),
+  })
+  if (!response.ok) await handleErrorResponse(response)
+  return await response.json() as StorageProductListRes
+}
+
 export const storageUsage = async (
   apiKey: string,
 ): Promise<StorageUsageRes> => {
