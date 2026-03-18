@@ -7,6 +7,7 @@ import { deleteAction } from '/src/storage/delete/deleteAction.ts'
 import { usageAction } from '/src/storage/usage/usageAction.ts'
 import { productAction } from '/src/storage/product/productAction.ts'
 import { upgradeAction } from '/src/storage/upgrade/upgradeAction.ts'
+import { syncAction } from '/src/storage/sync/syncAction.ts'
 import type { StorageRegion } from '/src/storage/api.ts'
 
 const VALID_REGIONS: StorageRegion[] = ['eu', 'asia', 'us-east', 'us-west', 'oc']
@@ -24,9 +25,9 @@ const validateRegion = (region: string | undefined): StorageRegion | undefined =
   return region as StorageRegion
 }
 
-const text = `Cloud Storage powered by Cloudflare R2
+const text = `ERPC Global Storage
 
-Upload, download, list, and manage files in your SLV Cloud Storage.
+Upload, download, list, and manage files in your ERPC Global Storage.
 
 Regions: ${VALID_REGIONS.join(', ')} (default: eu)
 `
@@ -105,4 +106,9 @@ export const storageCmd = new Command()
   .arguments('[quantity:number]')
   .action(async (_options, quantity?: number) => {
     await upgradeAction(quantity)
+  })
+  .command('sync', 'Reconcile storage usage with actual cloud data')
+  .option('-r, --region <region:string>', 'Storage region')
+  .action(async (options) => {
+    await syncAction({ region: validateRegion(options.region) })
   })
