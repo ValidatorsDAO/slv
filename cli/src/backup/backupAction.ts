@@ -4,7 +4,7 @@ import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import {
   multipartComplete,
   multipartCreate,
-  multipartPresign,
+  multipartUploadPart,
   presignUpload,
   storageDelete,
   storageList,
@@ -14,6 +14,43 @@ import {
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import { buildExcludeList, printExcludes } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
+
+/**
+ * Resolve the webhook URL from (in priority order):
+ * 1. --webhook CLI option
+ * 2. SLV_BACKUP_WEBHOOK environment variable
+ * 3. Original user's environment when running under sudo
+ *
+ * This must be called BEFORE any sudo escalation to capture the env
+ * before sudo resets it.
+ */
+function getWebhookUrl(cliOption?: string): string | undefined {
+  // 1. CLI option always wins
+  if (cliOption) return cliOption
+
+  // 2. Direct environment variable (works in cron and sudo -E)
+  const direct = Deno.env.get('SLV_BACKUP_WEBHOOK')
+  if (direct) return direct
+
+  // 3. When running under sudo, check the original user's environment
+  const sudoUser = Deno.env.get('SUDO_USER')
+  if (sudoUser) {
+    try {
+      const cmd = new Deno.Command('su', {
+        args: ['-', sudoUser, '-c', 'echo $SLV_BACKUP_WEBHOOK'],
+        stdout: 'piped',
+        stderr: 'piped',
+      })
+      const result = cmd.outputSync()
+      const val = new TextDecoder().decode(result.stdout).trim()
+      if (val) return val
+    } catch {
+      // ignore — su may not be available or user shell may fail
+    }
+  }
+
+  return undefined
+}
 
 /**
  * Send a notification to a Discord webhook URL.
@@ -82,8 +119,12 @@ export const backupAction = async (options: {
   listExcludes?: boolean
   retention?: number
   cron?: string
+  webhook?: string
   yes?: boolean
 }) => {
+  // Capture webhook URL BEFORE any sudo escalation resets the environment
+  const webhookUrl = getWebhookUrl(options.webhook)
+
   const excludes = buildExcludeList({
     extraExcludes: options.exclude,
     extraIncludes: options.include,
@@ -239,11 +280,10 @@ export const backupAction = async (options: {
     )
 
     // Notify webhook on backup creation success
-    const webhookUrl = Deno.env.get('SLV_BACKUP_WEBHOOK')
     if (webhookUrl) {
       await notifyWebhook(
         webhookUrl,
-        `✅ **SLV Backup Complete**\n**Host**: ${hostname}\n**File**: ${output}\n**Size**: ${fileSizeFormatted}\n**Upload**: ${options.upload ? `yes (${options.region || 'eu'})` : 'no'}`,
+        `✅ **SLV Backup Complete**\n**Host**: ${hostname}\n**File**: ${output}\n**Size**: ${fileSizeFormatted}`,
       )
     }
   } catch (error) {
@@ -251,7 +291,6 @@ export const backupAction = async (options: {
     console.log(colors.red(String(error)))
 
     // Notify webhook on backup failure
-    const webhookUrl = Deno.env.get('SLV_BACKUP_WEBHOOK')
     if (webhookUrl) {
       await notifyWebhook(
         webhookUrl,
@@ -264,14 +303,14 @@ export const backupAction = async (options: {
 
   // Upload
   if (options.upload) {
-    await uploadBackup(output, hostname, options.region as StorageRegion, options.retention ?? 7)
+    await uploadBackup(output, hostname, options.region as StorageRegion, options.retention ?? 7, webhookUrl)
   }
 
   console.log(colors.green('\n✅ Backup complete.\n'))
 }
 
 /** Threshold for switching to multipart upload (5 GB). */
-const MULTIPART_THRESHOLD_BYTES = 5 * 1024 * 1024 * 1024
+const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024 // 100 MB
 
 /** Chunk size for multipart upload (100 MB). */
 const MULTIPART_CHUNK_SIZE = 100 * 1024 * 1024
@@ -284,6 +323,7 @@ async function uploadBackup(
   hostname: string,
   region?: StorageRegion,
   retention = 7,
+  webhookUrl?: string,
 ): Promise<void> {
   const apiKey = await getApiKeyFromYml()
   const filename = filePath.includes('/') ? filePath.split('/').pop()! : filePath
@@ -318,7 +358,6 @@ async function uploadBackup(
     )
 
     // Notify webhook on upload success
-    const webhookUrl = Deno.env.get('SLV_BACKUP_WEBHOOK')
     if (webhookUrl) {
       await notifyWebhook(
         webhookUrl,
@@ -331,10 +370,26 @@ async function uploadBackup(
       await cleanupOldBackups(apiKey, hostname, retention, region)
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
     if (error instanceof StorageApiError) {
       console.log(colors.red(`\n${error.message}`))
     } else {
       console.log(colors.red(String(error)))
+    }
+
+    // Notify webhook on upload failure
+    if (webhookUrl) {
+      const isStorageLimit = errorMessage.toLowerCase().includes('storage limit') ||
+        errorMessage.toLowerCase().includes('quota') ||
+        errorMessage.toLowerCase().includes('exceeded') ||
+        (error instanceof StorageApiError && error.status === 413)
+      const tipLine = isStorageLimit
+        ? `\n**💡 Tip**: Run \`slv storage upgrade\` to increase capacity`
+        : ''
+      await notifyWebhook(
+        webhookUrl,
+        `⚠️ **SLV Backup Upload Failed**\n**Host**: ${hostname}\n**File**: ${filename}\n**Size**: ${formatBytes(fileSize)}\n**Error**: ${errorMessage}${tipLine}`,
+      )
     }
   }
 }
@@ -448,26 +503,17 @@ async function uploadBackupMultipart(
 
         const chunk = bytesRead === desc.size ? buf : buf.subarray(0, bytesRead)
 
-        const presign = await multipartPresign(
+        // Upload the chunk directly via Workers API
+        const result = await multipartUploadPart(
           apiKey,
           upload.uploadId,
           upload.key,
           desc.partNumber,
+          chunk,
           region,
         )
 
-        const res = await fetch(presign.url, {
-          method: 'PUT',
-          headers: { 'Content-Length': String(chunk.byteLength) },
-          body: chunk,
-        })
-
-        if (!res.ok) {
-          throw new Error(`Part ${desc.partNumber} upload failed (HTTP ${res.status})`)
-        }
-
-        const etag = res.headers.get('etag') ?? ''
-        completedParts.push({ partNumber: desc.partNumber, etag })
+        completedParts.push({ partNumber: desc.partNumber, etag: result.etag })
 
         const done = completedParts.length
         const pct = Math.round((done / totalParts) * 100)

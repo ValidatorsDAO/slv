@@ -35,6 +35,10 @@ export const backupCmd = new Command()
     '--cron <interval:string>',
     'Set up cron job (daily|weekly|monthly|off)',
   )
+  .option(
+    '--webhook <url:string>',
+    'Discord webhook URL for notifications (overrides SLV_BACKUP_WEBHOOK)',
+  )
   .option('-y, --yes', 'Skip confirmation prompts')
   .action(backupAction)
   .command('restore', 'Restore from a backup file')

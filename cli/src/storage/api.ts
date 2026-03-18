@@ -237,6 +237,32 @@ export const storageUsage = async (
   return await response.json() as StorageUsageRes
 }
 
+// ── Sync API ──
+
+export type StorageSyncRes = {
+  success: boolean
+  r2UsedBytes: number
+  r2FileCount: number
+  dbUsedBytes: number
+  dbFileCount: number
+  corrected: boolean
+}
+
+export const storageSync = async (
+  apiKey: string,
+  region?: StorageRegion,
+): Promise<StorageSyncRes> => {
+  const body: Record<string, string> = {}
+  if (region) body.region = region
+  const response = await fetch(`${METAL_API_URL}/storage/sync`, {
+    method: 'POST',
+    headers: storageHeaders(apiKey),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) await handleErrorResponse(response)
+  return await response.json() as StorageSyncRes
+}
+
 // ── Multipart Upload API ──
 
 export type MultipartCreateRes = {
@@ -245,10 +271,9 @@ export type MultipartCreateRes = {
   region: string
 }
 
-export type MultipartPresignRes = {
-  url: string
+export type MultipartUploadPartRes = {
   partNumber: number
-  expiresAt: string
+  etag: string
 }
 
 export type MultipartCompleteRes = {
@@ -276,22 +301,34 @@ export const multipartCreate = async (
   return await response.json() as MultipartCreateRes
 }
 
-export const multipartPresign = async (
+export const multipartUploadPart = async (
   apiKey: string,
   uploadId: string,
   key: string,
   partNumber: number,
+  body: Uint8Array,
   region?: StorageRegion,
-): Promise<MultipartPresignRes> => {
-  const body: Record<string, string | number> = { uploadId, key, partNumber }
-  if (region) body.region = region
-  const response = await fetch(`${METAL_API_URL}/storage/multipart/presign`, {
-    method: 'POST',
-    headers: storageHeaders(apiKey),
-    body: JSON.stringify(body),
+): Promise<MultipartUploadPartRes> => {
+  const params = new URLSearchParams({
+    uploadId,
+    key,
+    partNumber: String(partNumber),
   })
+  if (region) params.set('region', region)
+
+  const response = await fetch(
+    `${METAL_API_URL}/storage/multipart/upload-part?${params}`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/octet-stream',
+      },
+      body,
+    },
+  )
   if (!response.ok) await handleErrorResponse(response)
-  return await response.json() as MultipartPresignRes
+  return await response.json() as MultipartUploadPartRes
 }
 
 export const multipartComplete = async (

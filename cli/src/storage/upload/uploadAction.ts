@@ -3,7 +3,7 @@ import { colors } from '@cliffy/colors'
 import {
   multipartComplete,
   multipartCreate,
-  multipartPresign,
+  multipartUploadPart,
   presignUpload,
   StorageApiError,
   storageUsage,
@@ -38,7 +38,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 }
 
 /** Threshold for switching to multipart upload (5 GB). */
-const MULTIPART_THRESHOLD_BYTES = 5 * 1024 * 1024 * 1024
+const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024 // 100 MB
 
 /** Chunk size for multipart upload (100 MB). */
 const MULTIPART_CHUNK_SIZE = 100 * 1024 * 1024
@@ -209,30 +209,17 @@ async function multipartUpload(
 
         const chunk = bytesRead === desc.size ? buf : buf.subarray(0, bytesRead)
 
-        // Get presigned URL for this part
-        const presign = await multipartPresign(
+        // Upload the chunk directly via Workers API
+        const result = await multipartUploadPart(
           apiKey,
           upload.uploadId,
           upload.key,
           desc.partNumber,
+          chunk,
           region,
         )
 
-        // Upload the chunk
-        const res = await fetch(presign.url, {
-          method: 'PUT',
-          headers: { 'Content-Length': String(chunk.byteLength) },
-          body: chunk,
-        })
-
-        if (!res.ok) {
-          throw new Error(
-            `Part ${desc.partNumber} upload failed (HTTP ${res.status}): ${describeUploadError(res.status)}`,
-          )
-        }
-
-        const etag = res.headers.get('etag') ?? ''
-        completedParts.push({ partNumber: desc.partNumber, etag })
+        completedParts.push({ partNumber: desc.partNumber, etag: result.etag })
 
         // Progress
         const done = completedParts.length
