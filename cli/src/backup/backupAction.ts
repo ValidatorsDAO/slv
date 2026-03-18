@@ -4,7 +4,7 @@ import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import {
   multipartComplete,
   multipartCreate,
-  multipartPresign,
+  multipartUploadPart,
   presignUpload,
   storageDelete,
   storageList,
@@ -503,26 +503,17 @@ async function uploadBackupMultipart(
 
         const chunk = bytesRead === desc.size ? buf : buf.subarray(0, bytesRead)
 
-        const presign = await multipartPresign(
+        // Upload the chunk directly via Workers API
+        const result = await multipartUploadPart(
           apiKey,
           upload.uploadId,
           upload.key,
           desc.partNumber,
+          chunk,
           region,
         )
 
-        const res = await fetch(presign.url, {
-          method: 'PUT',
-          headers: { 'Content-Length': String(chunk.byteLength) },
-          body: chunk,
-        })
-
-        if (!res.ok) {
-          throw new Error(`Part ${desc.partNumber} upload failed (HTTP ${res.status})`)
-        }
-
-        const etag = res.headers.get('etag') ?? ''
-        completedParts.push({ partNumber: desc.partNumber, etag })
+        completedParts.push({ partNumber: desc.partNumber, etag: result.etag })
 
         const done = completedParts.length
         const pct = Math.round((done / totalParts) * 100)
