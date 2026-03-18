@@ -1,0 +1,11 @@
+---
+- name: Install Solana Client
+  hosts: all
+  become: yes
+  become_user: solv
+
+- import_playbook: build_agave.yml
+  when: validator_type in ['agave', 'firedancer-agave']
+
+- import_playbook: build_jito.yml
+  when: validator_type in ['jito', 'jito-bam', 'firedancer-jito', 'firedancer']
