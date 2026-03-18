@@ -243,7 +243,7 @@ export const backupAction = async (options: {
     if (webhookUrl) {
       await notifyWebhook(
         webhookUrl,
-        `✅ **SLV Backup Complete**\n**Host**: ${hostname}\n**File**: ${output}\n**Size**: ${fileSizeFormatted}\n**Upload**: ${options.upload ? `yes (${options.region || 'eu'})` : 'no'}`,
+        `✅ **SLV Backup Complete**\n**Host**: ${hostname}\n**File**: ${output}\n**Size**: ${fileSizeFormatted}`,
       )
     }
   } catch (error) {
@@ -331,10 +331,27 @@ async function uploadBackup(
       await cleanupOldBackups(apiKey, hostname, retention, region)
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
     if (error instanceof StorageApiError) {
       console.log(colors.red(`\n${error.message}`))
     } else {
       console.log(colors.red(String(error)))
+    }
+
+    // Notify webhook on upload failure
+    const webhookUrl = Deno.env.get('SLV_BACKUP_WEBHOOK')
+    if (webhookUrl) {
+      const isStorageLimit = errorMessage.toLowerCase().includes('storage limit') ||
+        errorMessage.toLowerCase().includes('quota') ||
+        errorMessage.toLowerCase().includes('exceeded') ||
+        (error instanceof StorageApiError && error.status === 413)
+      const tipLine = isStorageLimit
+        ? `\n**💡 Tip**: Run \`slv storage upgrade\` to increase capacity`
+        : ''
+      await notifyWebhook(
+        webhookUrl,
+        `⚠️ **SLV Backup Upload Failed**\n**Host**: ${hostname}\n**File**: ${filename}\n**Size**: ${formatBytes(fileSize)}\n**Error**: ${errorMessage}${tipLine}`,
+      )
     }
   }
 }
