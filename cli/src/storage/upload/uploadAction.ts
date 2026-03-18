@@ -38,7 +38,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 }
 
 /** Threshold for switching to multipart upload (5 GB). */
-const MULTIPART_THRESHOLD_BYTES = 5 * 1024 * 1024 * 1024
+const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024 // 100 MB
 
 /** Chunk size for multipart upload (100 MB). */
 const MULTIPART_CHUNK_SIZE = 100 * 1024 * 1024
