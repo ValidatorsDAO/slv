@@ -92,6 +92,8 @@ export type StorageUsageRes = {
   egressBytes: number
   storageLimitBytes: number
   region: string
+  monthlyAccessCount?: number
+  monthlyAccessLimit?: number
 }
 
 export const presignUpload = async (

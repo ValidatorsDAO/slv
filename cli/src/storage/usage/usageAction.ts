@@ -36,6 +36,16 @@ export const usageAction = async () => {
         colors.blue('Egress'),
         colors.white(formatBytes(usage.egressBytes)),
       ).border(true),
+      ...(usage.monthlyAccessCount != null && usage.monthlyAccessLimit != null
+        ? [
+            new Row(
+              colors.blue('Requests'),
+              colors.white(
+                `${usage.monthlyAccessCount.toLocaleString()} / ${usage.monthlyAccessLimit.toLocaleString()} (this month)`,
+              ),
+            ).border(true),
+          ]
+        : []),
     ])
 
     console.log('')
