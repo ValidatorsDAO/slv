@@ -1,6 +1,7 @@
+import { Confirm, Input } from '@cliffy/prompt'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
-import { Confirm, Number as NumberPrompt } from '@cliffy/prompt'
+import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import {
   storageProductList,
   storageUpgradePlan,
@@ -9,96 +10,111 @@ import {
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 
-export const upgradeAction = async () => {
+export const upgradeAction = async (quantity?: number) => {
   const apiKey = await getApiKeyFromYml()
 
-  const spinner = new Kia(colors.cyan('Fetching current storage plan...'))
+  const spinner = new Kia(colors.cyan('Fetching current storage info...'))
   spinner.start()
 
   try {
-    const productRes = await storageProductList(apiKey)
-    spinner.succeed('Storage plan loaded')
+    const result = await storageProductList(apiKey)
+    if (!result.success) {
+      spinner.fail('Failed to fetch storage info')
+      console.log(colors.yellow('Please try again later...'))
+      return false
+    }
+    spinner.succeed('Found storage info')
 
-    if (!productRes.hasExistingStorage) {
+    if (!result.hasExistingStorage || !result.currentStorage) {
       console.log(
         colors.yellow(
-          '\nNo storage subscription found. Purchase storage first:\n  $ slv storage product',
+          `\nNo existing storage subscription found.\nPurchase storage first:\n\n  $ ${colors.white('slv storage product')}\n`,
         ),
       )
-      return
+      return false
     }
 
-    const currentGB = productRes.currentStorage?.capacityGB ?? 0
-    const usedBytes = productRes.currentStorage?.usedBytes ?? 0
-    const capacityBytes = currentGB * 1024 * 1024 * 1024
-    const usedPercent = capacityBytes > 0
-      ? ((usedBytes / capacityBytes) * 100).toFixed(1)
-      : '0'
+    const storage = result.currentStorage
+    const currentGB = storage.currentQuantityGB
 
-    console.log('')
-    console.log(colors.blue('📦 Current Storage'))
     console.log(
-      `   Capacity: ${colors.white(String(currentGB) + ' GB')}`,
+      colors.bold(
+        `\n📦 Current Storage: ${currentGB} GB (Used: ${formatBytes(storage.usedBytes)})\n`,
+      ),
     )
-    console.log(
-      `   Used:     ${colors.white(`${formatBytes(usedBytes)} (${usedPercent}%)`)}`,
-    )
-    console.log('')
 
-    const newQuantity = await NumberPrompt.prompt({
-      message: 'New capacity (GB)',
-      min: 1,
-      max: 1000,
-      validate: (value: number) => {
-        if (value === currentGB) {
-          return `Capacity is already ${currentGB} GB. Enter a different value.`
-        }
-        return true
-      },
+    // Get new quantity
+    let newGB: number
+    if (quantity !== undefined) {
+      newGB = quantity
+    } else {
+      const input = await Input.prompt({
+        message: 'New storage capacity (GB)',
+      })
+      newGB = Number(input)
+    }
+
+    // Validate
+    if (!Number.isInteger(newGB) || newGB < 1) {
+      console.log(
+        colors.red('\nInvalid input. Please enter a positive integer (minimum 1 GB).'),
+      )
+      return false
+    }
+
+    if (newGB === currentGB) {
+      console.log(
+        colors.yellow(`\nStorage is already ${currentGB} GB. No change needed.`),
+      )
+      return false
+    }
+
+    // Show change summary
+    const action = newGB > currentGB ? 'upgrade' : 'downgrade'
+    console.log(
+      colors.white(
+        `\n  Change: ${currentGB} GB → ${newGB} GB\n  Stripe will automatically prorate the difference.\n`,
+      ),
+    )
+
+    // Confirm
+    const confirmed = await Confirm.prompt({
+      message: `Proceed with ${action}?`,
+      default: true,
     })
 
-    const confirmed = await Confirm.prompt(
-      `Change capacity from ${currentGB} GB to ${newQuantity} GB? Stripe will prorate the difference.`,
-    )
-
     if (!confirmed) {
-      console.log(colors.yellow('\nUpgrade cancelled.'))
-      return
+      console.log(colors.yellow(`\n${action.charAt(0).toUpperCase() + action.slice(1)} cancelled.`))
+      return false
     }
 
-    const upgradeSpinner = new Kia(colors.cyan('Requesting capacity change...'))
+    const upgradeSpinner = new Kia(colors.cyan('Updating storage plan...'))
     upgradeSpinner.start()
 
-    const result = await storageUpgradePlan(apiKey, newQuantity)
-    upgradeSpinner.succeed('Capacity change requested')
+    try {
+      const upgradeResult = await storageUpgradePlan(apiKey, newGB)
+      upgradeSpinner.succeed(
+        `Storage updated: ${upgradeResult.message.previousQuantityGB} GB → ${upgradeResult.message.newQuantityGB} GB`,
+      )
 
-    if (result.success) {
-      console.log(
-        colors.green(
-          '\n✅ Storage capacity change requested. New capacity will be reflected after payment processing.',
-        ),
-      )
-      if (result.message.proratedAmount) {
-        console.log(
-          colors.white(
-            `   Prorated amount: ${result.message.proratedAmount}`,
-          ),
-        )
+      if (upgradeResult.message.note) {
+        console.log(colors.white(`  Note: ${upgradeResult.message.note}`))
       }
-      console.log(
-        colors.white(
-          `   ${result.message.previousQuantity} GB → ${result.message.newQuantity} GB`,
-        ),
-      )
-    } else {
-      console.log(colors.red('\nFailed to change storage capacity.'))
+    } catch (error) {
+      upgradeSpinner.fail('Failed to update storage')
+      throw error
     }
+
+    console.log(
+      colors.gray(`\nNeed help? ValidatorsDAO Discord: ${DISCORD_LINK}`),
+    )
+    return true
   } catch (error) {
-    spinner.stop()
     if (error instanceof StorageApiError) {
       console.log(colors.red(`\n${error.message}`))
     } else {
       console.log(colors.red(String(error)))
     }
+    return false
   }
 }
