@@ -59,6 +59,20 @@ export async function setupCron(
     Deno.exit(1)
   }
 
+  // Prompt for Discord webhook URL
+  const currentWebhook = Deno.env.get('SLV_BACKUP_WEBHOOK') || ''
+  let webhookUrl = ''
+  try {
+    const { Input } = await import('@cliffy/prompt')
+    webhookUrl = await Input.prompt({
+      message: 'Discord webhook URL for backup notifications (optional, press Enter to skip)',
+      default: currentWebhook,
+    })
+  } catch {
+    // Non-interactive — use env var if available
+    webhookUrl = currentWebhook
+  }
+
   // Read existing crontab
   const { stdout: existing } = await runCapture('crontab', ['-l'])
   const lines = existing.split('\n').filter((line) => line.trim() !== '')
@@ -75,9 +89,10 @@ export async function setupCron(
     }
   } catch { /* use default */ }
 
-  // Add new entry
+  // Build cron entry with optional webhook env var
+  const webhookPrefix = webhookUrl ? `SLV_BACKUP_WEBHOOK="${webhookUrl}" ` : ''
   const entry =
-    `${schedule} ${slvPath} backup create --upload --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
+    `${schedule} ${webhookPrefix}${slvPath} backup create --upload --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
   filtered.push(entry)
 
   // Write back

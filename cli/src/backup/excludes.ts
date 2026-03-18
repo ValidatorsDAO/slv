@@ -13,6 +13,8 @@ export const DEFAULT_EXCLUDES = [
   '/swapfile',
   '/snap/*',
   '/var/log/*',
+  './backup-*.tar.zst',
+  './backup-*.tar.gz',
 ]
 
 /** SSH-related excludes (used by migrate linux to preserve remote access) */

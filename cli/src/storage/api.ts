@@ -1,5 +1,5 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
-import { DISCORD_LINK } from '@cmn/constants/url.ts'
+
 
 const storageHeaders = (apiKey: string) => {
   const headers = new Headers()
@@ -36,8 +36,8 @@ const handleErrorResponse = async (response: Response): Promise<never> => {
       throw new StorageApiError(
         403,
         serverMessage.includes('limit')
-          ? `Storage limit exceeded. Upgrade your plan or delete unused files.\n  Manage plan: ${DISCORD_LINK}`
-          : `No active storage subscription. Purchase storage first:\n  $ slv storage usage\n  Get started: ${DISCORD_LINK}`,
+          ? `Storage limit exceeded.\n  Check usage:  slv storage usage\n  Free space:   slv storage rm <path>\n  Upgrade:      slv storage upgrade`
+          : `No active storage subscription.\n  Browse plans: slv storage product`,
       )
     case 429:
       throw new StorageApiError(
@@ -92,6 +92,8 @@ export type StorageUsageRes = {
   egressBytes: number
   storageLimitBytes: number
   region: string
+  monthlyAccessCount?: number
+  monthlyAccessLimit?: number
 }
 
 export const presignUpload = async (
@@ -233,4 +235,79 @@ export const storageUsage = async (
   })
   if (!response.ok) await handleErrorResponse(response)
   return await response.json() as StorageUsageRes
+}
+
+// ── Multipart Upload API ──
+
+export type MultipartCreateRes = {
+  uploadId: string
+  key: string
+  region: string
+}
+
+export type MultipartPresignRes = {
+  url: string
+  partNumber: number
+  expiresAt: string
+}
+
+export type MultipartCompleteRes = {
+  success: boolean
+  key: string
+  region: string
+}
+
+export const multipartCreate = async (
+  apiKey: string,
+  path: string,
+  fileSize: number,
+  region?: StorageRegion,
+  contentType?: string,
+): Promise<MultipartCreateRes> => {
+  const body: Record<string, string | number> = { path, fileSize }
+  if (region) body.region = region
+  if (contentType) body.contentType = contentType
+  const response = await fetch(`${METAL_API_URL}/storage/multipart/create`, {
+    method: 'POST',
+    headers: storageHeaders(apiKey),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) await handleErrorResponse(response)
+  return await response.json() as MultipartCreateRes
+}
+
+export const multipartPresign = async (
+  apiKey: string,
+  uploadId: string,
+  key: string,
+  partNumber: number,
+  region?: StorageRegion,
+): Promise<MultipartPresignRes> => {
+  const body: Record<string, string | number> = { uploadId, key, partNumber }
+  if (region) body.region = region
+  const response = await fetch(`${METAL_API_URL}/storage/multipart/presign`, {
+    method: 'POST',
+    headers: storageHeaders(apiKey),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) await handleErrorResponse(response)
+  return await response.json() as MultipartPresignRes
+}
+
+export const multipartComplete = async (
+  apiKey: string,
+  uploadId: string,
+  key: string,
+  parts: { partNumber: number; etag: string }[],
+  region?: StorageRegion,
+): Promise<MultipartCompleteRes> => {
+  const body: Record<string, unknown> = { uploadId, key, parts }
+  if (region) body.region = region
+  const response = await fetch(`${METAL_API_URL}/storage/multipart/complete`, {
+    method: 'POST',
+    headers: storageHeaders(apiKey),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) await handleErrorResponse(response)
+  return await response.json() as MultipartCompleteRes
 }
