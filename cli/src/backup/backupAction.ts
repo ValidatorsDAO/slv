@@ -2,6 +2,9 @@ import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import {
+  multipartComplete,
+  multipartCreate,
+  multipartPresign,
   presignUpload,
   storageDelete,
   storageList,
@@ -235,6 +238,15 @@ export const backupAction = async (options: {
   console.log(colors.green('\n✅ Backup complete.\n'))
 }
 
+/** Threshold for switching to multipart upload (5 GB). */
+const MULTIPART_THRESHOLD_BYTES = 5 * 1024 * 1024 * 1024
+
+/** Chunk size for multipart upload (100 MB). */
+const MULTIPART_CHUNK_SIZE = 100 * 1024 * 1024
+
+/** Maximum concurrent chunk uploads. */
+const MULTIPART_CONCURRENCY = 4
+
 async function uploadBackup(
   filePath: string,
   hostname: string,
@@ -244,41 +256,32 @@ async function uploadBackup(
   const apiKey = await getApiKeyFromYml()
   const filename = filePath.includes('/') ? filePath.split('/').pop()! : filePath
   const remotePath = `backups/${filename}`
-
-  const spinner = new Kia(colors.cyan('Requesting presigned upload URL...'))
-  spinner.start()
+  const fileInfo = await Deno.stat(filePath)
+  const fileSize = fileInfo.size ?? 0
 
   try {
-    const presign = await presignUpload(apiKey, remotePath, region)
-    spinner.succeed('Got presigned URL')
+    let uploadRegion: string
 
-    const fileInfo = await Deno.stat(filePath)
-    const uploadSpinner = new Kia(
-      colors.cyan(
-        `Uploading ${filename} (${formatBytes(fileInfo.size ?? 0)})...`,
-      ),
-    )
-    uploadSpinner.start()
-
-    const file = await Deno.open(filePath, { read: true })
-    const uploadRes = await fetch(presign.url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: file.readable,
-    })
-
-    if (!uploadRes.ok) {
-      uploadSpinner.fail('Upload failed')
+    if (fileSize > MULTIPART_THRESHOLD_BYTES) {
+      // ── Multipart upload for large backups ──
       console.log(
-        colors.red(`Upload failed (HTTP ${uploadRes.status})`),
+        colors.cyan(
+          `\n📦 Large backup detected (${formatBytes(fileSize)}). Using multipart upload.\n`,
+        ),
       )
-      return
+      const result = await uploadBackupMultipart(apiKey, filePath, remotePath, fileSize, region)
+      if (!result) return
+      uploadRegion = result.region
+    } else {
+      // ── Single presigned PUT ──
+      const result = await uploadBackupSingle(apiKey, filePath, filename, remotePath, fileSize, region)
+      if (!result) return
+      uploadRegion = result.region
     }
 
-    uploadSpinner.succeed('Upload complete')
     console.log(
       colors.white(
-        `\n  Remote: ${colors.green(remotePath)}\n  Region: ${colors.green(presign.region)}`,
+        `\n  Remote: ${colors.green(remotePath)}\n  Region: ${colors.green(uploadRegion)}`,
       ),
     )
 
@@ -287,12 +290,190 @@ async function uploadBackup(
       await cleanupOldBackups(apiKey, hostname, retention, region)
     }
   } catch (error) {
-    spinner.fail('Upload failed')
     if (error instanceof StorageApiError) {
       console.log(colors.red(`\n${error.message}`))
     } else {
       console.log(colors.red(String(error)))
     }
+  }
+}
+
+async function uploadBackupSingle(
+  apiKey: string,
+  filePath: string,
+  filename: string,
+  remotePath: string,
+  fileSize: number,
+  region?: StorageRegion,
+): Promise<{ region: string } | null> {
+  const spinner = new Kia(colors.cyan('Requesting presigned upload URL...'))
+  spinner.start()
+
+  try {
+    const presign = await presignUpload(apiKey, remotePath, region)
+    spinner.succeed('Got presigned URL')
+
+    const uploadSpinner = new Kia(
+      colors.cyan(
+        `Uploading ${filename} (${formatBytes(fileSize)})...`,
+      ),
+    )
+    uploadSpinner.start()
+
+    const file = await Deno.open(filePath, { read: true })
+    try {
+      const uploadRes = await fetch(presign.url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(fileSize),
+        },
+        body: file.readable,
+      })
+
+      if (!uploadRes.ok) {
+        uploadSpinner.fail('Upload failed')
+        console.log(colors.red(`Upload failed (HTTP ${uploadRes.status})`))
+        return null
+      }
+    } catch (err) {
+      try { file.close() } catch { /* already closed */ }
+      throw err
+    }
+
+    uploadSpinner.succeed('Upload complete')
+    return { region: presign.region }
+  } catch (error) {
+    spinner.fail('Upload failed')
+    throw error
+  }
+}
+
+async function uploadBackupMultipart(
+  apiKey: string,
+  filePath: string,
+  remotePath: string,
+  fileSize: number,
+  region?: StorageRegion,
+): Promise<{ region: string } | null> {
+  const totalParts = Math.ceil(fileSize / MULTIPART_CHUNK_SIZE)
+
+  // Initiate
+  const initSpinner = new Kia(colors.cyan('Initiating multipart upload...'))
+  initSpinner.start()
+
+  let upload: Awaited<ReturnType<typeof multipartCreate>>
+  try {
+    upload = await multipartCreate(apiKey, remotePath, fileSize, region, 'application/octet-stream')
+    initSpinner.succeed(
+      `Multipart upload initiated (${totalParts} parts × ${formatBytes(MULTIPART_CHUNK_SIZE)})`,
+    )
+  } catch (error) {
+    initSpinner.fail('Failed to initiate multipart upload')
+    throw error
+  }
+
+  // Upload parts with bounded concurrency
+  const completedParts: { partNumber: number; etag: string }[] = []
+
+  try {
+    const partDescs: { partNumber: number; offset: number; size: number }[] = []
+    let offset = 0
+    let partNumber = 1
+    while (offset < fileSize) {
+      const size = Math.min(MULTIPART_CHUNK_SIZE, fileSize - offset)
+      partDescs.push({ partNumber, offset, size })
+      offset += size
+      partNumber++
+    }
+
+    const inflight = new Set<Promise<void>>()
+
+    for (const desc of partDescs) {
+      const task = (async () => {
+        const buf = new Uint8Array(desc.size)
+        let bytesRead = 0
+        const chunkFile = await Deno.open(filePath, { read: true })
+        try {
+          await chunkFile.seek(desc.offset, Deno.SeekMode.Start)
+          while (bytesRead < desc.size) {
+            const n = await chunkFile.read(buf.subarray(bytesRead))
+            if (n === null) break
+            bytesRead += n
+          }
+        } finally {
+          chunkFile.close()
+        }
+
+        const chunk = bytesRead === desc.size ? buf : buf.subarray(0, bytesRead)
+
+        const presign = await multipartPresign(
+          apiKey,
+          upload.uploadId,
+          upload.key,
+          desc.partNumber,
+          region,
+        )
+
+        const res = await fetch(presign.url, {
+          method: 'PUT',
+          headers: { 'Content-Length': String(chunk.byteLength) },
+          body: chunk,
+        })
+
+        if (!res.ok) {
+          throw new Error(`Part ${desc.partNumber} upload failed (HTTP ${res.status})`)
+        }
+
+        const etag = res.headers.get('etag') ?? ''
+        completedParts.push({ partNumber: desc.partNumber, etag })
+
+        const done = completedParts.length
+        const pct = Math.round((done / totalParts) * 100)
+        const bar = '█'.repeat(Math.round(pct / 4)) + '░'.repeat(25 - Math.round(pct / 4))
+        Deno.stdout.writeSync(
+          new TextEncoder().encode(
+            `\r  ${colors.cyan(bar)} ${colors.white(`${done}/${totalParts} parts`)} (${pct}%)`,
+          ),
+        )
+      })()
+
+      const tracked = task.then(
+        () => { inflight.delete(tracked) },
+        (err) => { inflight.delete(tracked); throw err },
+      )
+      inflight.add(tracked)
+
+      if (inflight.size >= MULTIPART_CONCURRENCY) {
+        await Promise.race(inflight)
+      }
+    }
+
+    await Promise.all(inflight)
+    console.log() // newline after progress bar
+  } catch (error) {
+    console.log(colors.red(`\n\n❌ Multipart upload failed: ${error instanceof Error ? error.message : String(error)}`))
+    return null
+  }
+
+  // Complete
+  const completeSpinner = new Kia(colors.cyan('Completing multipart upload...'))
+  completeSpinner.start()
+
+  try {
+    completedParts.sort((a, b) => a.partNumber - b.partNumber)
+    const result = await multipartComplete(
+      apiKey,
+      upload.uploadId,
+      upload.key,
+      completedParts,
+      region,
+    )
+    completeSpinner.succeed('Multipart upload complete')
+    return { region: result.region }
+  } catch (error) {
+    completeSpinner.fail('Failed to complete multipart upload')
+    throw error
   }
 }
 

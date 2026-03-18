@@ -1,6 +1,9 @@
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import {
+  multipartComplete,
+  multipartCreate,
+  multipartPresign,
   presignUpload,
   StorageApiError,
   storageUsage,
@@ -34,8 +37,14 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   '.bin': 'application/octet-stream',
 }
 
-/** Maximum file size for a single R2 presigned PUT upload (5 GB). */
-const MAX_SINGLE_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024
+/** Threshold for switching to multipart upload (5 GB). */
+const MULTIPART_THRESHOLD_BYTES = 5 * 1024 * 1024 * 1024
+
+/** Chunk size for multipart upload (100 MB). */
+const MULTIPART_CHUNK_SIZE = 100 * 1024 * 1024
+
+/** Maximum concurrent chunk uploads. */
+const MULTIPART_CONCURRENCY = 4
 
 const guessContentType = (filePath: string): string => {
   const ext = extname(filePath).toLowerCase()
@@ -59,6 +68,230 @@ const describeUploadError = (status: number): string => {
       return 'File exceeds the maximum upload size allowed by the server.'
     default:
       return `Unexpected server error (HTTP ${status}). Please try again later.`
+  }
+}
+
+/**
+ * Upload a file using a single presigned PUT (for files ≤ 5 GB).
+ */
+async function singleUpload(
+  apiKey: string,
+  filePath: string,
+  remotePath: string,
+  fileSize: number,
+  contentType: string,
+  region?: StorageRegion,
+): Promise<{ region: string } | null> {
+  const spinner = new Kia(colors.cyan('Requesting presigned URL...'))
+  spinner.start()
+
+  let presignDone = false
+  try {
+    const presign = await presignUpload(apiKey, remotePath, region, contentType)
+    spinner.succeed('Got presigned URL')
+    presignDone = true
+
+    const uploadSpinner = new Kia(
+      colors.cyan(
+        `Uploading ${basename(filePath)} (${formatBytes(fileSize)})...`,
+      ),
+    )
+    uploadSpinner.start()
+
+    const file = await Deno.open(filePath, { read: true })
+    try {
+      const uploadRes = await fetch(presign.url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': String(fileSize),
+        },
+        body: file.readable,
+      })
+
+      if (!uploadRes.ok) {
+        uploadSpinner.fail('Upload failed')
+        console.log(
+          colors.red(`\n❌ Upload to R2 failed (HTTP ${uploadRes.status})`),
+        )
+        console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
+        return null
+      }
+    } catch (uploadErr) {
+      try {
+        file.close()
+      } catch { /* already closed */ }
+      throw uploadErr
+    }
+
+    uploadSpinner.succeed('Upload complete')
+    return { region: presign.region }
+  } catch (error) {
+    if (!presignDone) {
+      spinner.fail('Upload failed')
+    }
+    if (error instanceof StorageApiError) {
+      console.log(colors.red(`\n${error.message}`))
+    } else {
+      console.log(colors.red(String(error)))
+    }
+    return null
+  }
+}
+
+/**
+ * Upload a file using multipart upload (for files > 5 GB).
+ */
+async function multipartUpload(
+  apiKey: string,
+  filePath: string,
+  remotePath: string,
+  fileSize: number,
+  contentType: string,
+  region?: StorageRegion,
+): Promise<{ region: string } | null> {
+  const totalParts = Math.ceil(fileSize / MULTIPART_CHUNK_SIZE)
+
+  // Step 1: Create multipart upload
+  const initSpinner = new Kia(colors.cyan('Initiating multipart upload...'))
+  initSpinner.start()
+
+  let upload: Awaited<ReturnType<typeof multipartCreate>>
+  try {
+    upload = await multipartCreate(apiKey, remotePath, fileSize, region, contentType)
+    initSpinner.succeed(
+      `Multipart upload initiated (${totalParts} parts × ${formatBytes(MULTIPART_CHUNK_SIZE)})`,
+    )
+  } catch (error) {
+    initSpinner.fail('Failed to initiate multipart upload')
+    if (error instanceof StorageApiError) {
+      console.log(colors.red(`\n${error.message}`))
+    } else {
+      console.log(colors.red(String(error)))
+    }
+    return null
+  }
+
+  // Step 2 & 3: Upload chunks with bounded concurrency
+  const completedParts: { partNumber: number; etag: string }[] = []
+
+  try {
+    // Build list of part descriptors
+    const partDescs: { partNumber: number; offset: number; size: number }[] = []
+    let offset = 0
+    let partNumber = 1
+    while (offset < fileSize) {
+      const size = Math.min(MULTIPART_CHUNK_SIZE, fileSize - offset)
+      partDescs.push({ partNumber, offset, size })
+      offset += size
+      partNumber++
+    }
+
+    // Upload with bounded concurrency using a pool
+    const inflight = new Set<Promise<void>>()
+
+    for (const desc of partDescs) {
+      const task = (async () => {
+        // Read chunk from a dedicated file handle
+        const buf = new Uint8Array(desc.size)
+        let bytesRead = 0
+        const chunkFile = await Deno.open(filePath, { read: true })
+        try {
+          await chunkFile.seek(desc.offset, Deno.SeekMode.Start)
+          while (bytesRead < desc.size) {
+            const n = await chunkFile.read(buf.subarray(bytesRead))
+            if (n === null) break
+            bytesRead += n
+          }
+        } finally {
+          chunkFile.close()
+        }
+
+        const chunk = bytesRead === desc.size ? buf : buf.subarray(0, bytesRead)
+
+        // Get presigned URL for this part
+        const presign = await multipartPresign(
+          apiKey,
+          upload.uploadId,
+          upload.key,
+          desc.partNumber,
+          region,
+        )
+
+        // Upload the chunk
+        const res = await fetch(presign.url, {
+          method: 'PUT',
+          headers: { 'Content-Length': String(chunk.byteLength) },
+          body: chunk,
+        })
+
+        if (!res.ok) {
+          throw new Error(
+            `Part ${desc.partNumber} upload failed (HTTP ${res.status}): ${describeUploadError(res.status)}`,
+          )
+        }
+
+        const etag = res.headers.get('etag') ?? ''
+        completedParts.push({ partNumber: desc.partNumber, etag })
+
+        // Progress
+        const done = completedParts.length
+        const pct = Math.round((done / totalParts) * 100)
+        const bar = '█'.repeat(Math.round(pct / 4)) + '░'.repeat(25 - Math.round(pct / 4))
+        Deno.stdout.writeSync(
+          new TextEncoder().encode(
+            `\r  ${colors.cyan(bar)} ${colors.white(`${done}/${totalParts} parts`)} (${pct}%)`,
+          ),
+        )
+      })()
+
+      // Track this task; remove itself from inflight when done
+      const tracked = task.then(
+        () => { inflight.delete(tracked) },
+        (err) => { inflight.delete(tracked); throw err },
+      )
+      inflight.add(tracked)
+
+      // When we hit concurrency limit, wait for one to finish
+      if (inflight.size >= MULTIPART_CONCURRENCY) {
+        await Promise.race(inflight)
+      }
+    }
+
+    // Wait for all remaining
+    await Promise.all(inflight)
+
+    // Newline after progress bar
+    console.log()
+  } catch (error) {
+    console.log(colors.red(`\n\n❌ Multipart upload failed: ${error instanceof Error ? error.message : String(error)}`))
+    return null
+  }
+
+  // Step 4: Complete multipart upload
+  const completeSpinner = new Kia(colors.cyan('Completing multipart upload...'))
+  completeSpinner.start()
+
+  try {
+    // Sort parts by partNumber before completing
+    completedParts.sort((a, b) => a.partNumber - b.partNumber)
+    const result = await multipartComplete(
+      apiKey,
+      upload.uploadId,
+      upload.key,
+      completedParts,
+      region,
+    )
+    completeSpinner.succeed('Multipart upload complete')
+    return { region: result.region }
+  } catch (error) {
+    completeSpinner.fail('Failed to complete multipart upload')
+    if (error instanceof StorageApiError) {
+      console.log(colors.red(`\n${error.message}`))
+    } else {
+      console.log(colors.red(String(error)))
+    }
+    return null
   }
 }
 
@@ -86,20 +319,6 @@ export const uploadAction = async (
   }
 
   const fileSize = fileInfo.size ?? 0
-
-  // ── Pre-upload size gate: reject files > 5 GB ──
-  if (fileSize > MAX_SINGLE_UPLOAD_BYTES) {
-    console.log(
-      colors.red(`\n❌ File too large for single upload (${formatBytes(fileSize)})`),
-    )
-    console.log(
-      colors.white(
-        `  Maximum single upload size: ${formatBytes(MAX_SINGLE_UPLOAD_BYTES)}\n` +
-          '  For large backups, consider splitting or compressing further.',
-      ),
-    )
-    return false
-  }
 
   // ── Pre-upload storage quota check ──
   try {
@@ -141,74 +360,28 @@ export const uploadAction = async (
 
   const contentType = guessContentType(filePath)
 
-  const spinner = new Kia(colors.cyan('Requesting presigned URL...'))
-  spinner.start()
-
-  let presignDone = false
-  try {
-    const presign = await presignUpload(
-      apiKey,
-      remotePath,
-      region,
-      contentType,
-    )
-    spinner.succeed('Got presigned URL')
-    presignDone = true
-
-    const uploadSpinner = new Kia(
-      colors.cyan(
-        `Uploading ${basename(filePath)} (${formatBytes(fileSize)})...`,
-      ),
-    )
-    uploadSpinner.start()
-
-    // Stream the file instead of reading it entirely into memory.
-    const file = await Deno.open(filePath, { read: true })
-    try {
-      const uploadRes = await fetch(presign.url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': contentType,
-          'Content-Length': String(fileSize),
-        },
-        body: file.readable,
-      })
-
-      if (!uploadRes.ok) {
-        uploadSpinner.fail('Upload failed')
-        console.log(
-          colors.red(`\n❌ Upload to R2 failed (HTTP ${uploadRes.status})`),
-        )
-        console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
-        return false
-      }
-    } catch (uploadErr) {
-      // Ensure the file handle is not leaked on network errors.
-      // file.readable auto-closes on full consumption, but not on abort.
-      try {
-        file.close()
-      } catch { /* already closed */ }
-      throw uploadErr
-    }
-
-    uploadSpinner.succeed('Upload complete')
+  // Choose upload strategy based on file size
+  const useMultipart = fileSize > MULTIPART_THRESHOLD_BYTES
+  if (useMultipart) {
     console.log(
-      colors.white(
-        `\n  Path:   ${colors.green(remotePath)}\n  Region: ${colors.green(presign.region)}\n  Size:   ${colors.green(formatBytes(fileSize))}`,
+      colors.cyan(
+        `\n📦 Large file detected (${formatBytes(fileSize)}). Using multipart upload.\n`,
       ),
     )
-    return true
-  } catch (error) {
-    if (!presignDone) {
-      spinner.fail('Upload failed')
-    }
-    if (error instanceof StorageApiError) {
-      console.log(colors.red(`\n${error.message}`))
-    } else {
-      console.log(colors.red(String(error)))
-    }
-    return false
   }
+
+  const result = useMultipart
+    ? await multipartUpload(apiKey, filePath, remotePath, fileSize, contentType, region)
+    : await singleUpload(apiKey, filePath, remotePath, fileSize, contentType, region)
+
+  if (!result) return false
+
+  console.log(
+    colors.white(
+      `\n  Path:   ${colors.green(remotePath)}\n  Region: ${colors.green(result.region)}\n  Size:   ${colors.green(formatBytes(fileSize))}`,
+    ),
+  )
+  return true
 }
 
 export const formatBytes = (bytes: number): string => {
