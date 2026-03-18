@@ -15,6 +15,18 @@ import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import { buildExcludeList, printExcludes } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
 
+/**
+ * Send a notification to a Discord webhook URL.
+ * Silently ignores errors — backup should never fail because of a notification.
+ */
+async function notifyWebhook(webhookUrl: string, message: string): Promise<void> {
+  await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: message }),
+  }).catch(() => {})
+}
+
 async function getHostname(): Promise<string> {
   const command = new Deno.Command('hostname', { stdout: 'piped', stderr: 'piped' })
   const result = await command.output()
@@ -221,12 +233,32 @@ export const backupAction = async (options: {
     }
 
     const fileInfo = await Deno.stat(output)
+    const fileSizeFormatted = formatBytes(fileInfo.size ?? 0)
     spinner.succeed(
-      `Backup created: ${output} (${formatBytes(fileInfo.size ?? 0)})`,
+      `Backup created: ${output} (${fileSizeFormatted})`,
     )
+
+    // Notify webhook on backup creation success
+    const webhookUrl = Deno.env.get('SLV_BACKUP_WEBHOOK')
+    if (webhookUrl) {
+      await notifyWebhook(
+        webhookUrl,
+        `✅ **SLV Backup Complete**\n**Host**: ${hostname}\n**File**: ${output}\n**Size**: ${fileSizeFormatted}\n**Upload**: ${options.upload ? `yes (${options.region || 'eu'})` : 'no'}`,
+      )
+    }
   } catch (error) {
     spinner.fail('Backup failed')
     console.log(colors.red(String(error)))
+
+    // Notify webhook on backup failure
+    const webhookUrl = Deno.env.get('SLV_BACKUP_WEBHOOK')
+    if (webhookUrl) {
+      await notifyWebhook(
+        webhookUrl,
+        `❌ **SLV Backup Failed**\n**Host**: ${hostname}\n**Error**: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+
     Deno.exit(1)
   }
 
@@ -284,6 +316,15 @@ async function uploadBackup(
         `\n  Remote: ${colors.green(remotePath)}\n  Region: ${colors.green(uploadRegion)}`,
       ),
     )
+
+    // Notify webhook on upload success
+    const webhookUrl = Deno.env.get('SLV_BACKUP_WEBHOOK')
+    if (webhookUrl) {
+      await notifyWebhook(
+        webhookUrl,
+        `✅ **SLV Backup Uploaded**\n**Host**: ${hostname}\n**File**: ${filename}\n**Size**: ${formatBytes(fileSize)}\n**Region**: ${uploadRegion}`,
+      )
+    }
 
     // Retention cleanup
     if (retention > 0) {
