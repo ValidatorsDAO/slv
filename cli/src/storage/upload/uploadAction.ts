@@ -3,6 +3,7 @@ import { colors } from '@cliffy/colors'
 import {
   presignUpload,
   StorageApiError,
+  storageUsage,
   type StorageRegion,
 } from '/src/storage/api.ts'
 import {
@@ -33,9 +34,32 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   '.bin': 'application/octet-stream',
 }
 
+/** Maximum file size for a single R2 presigned PUT upload (5 GB). */
+const MAX_SINGLE_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024
+
 const guessContentType = (filePath: string): string => {
   const ext = extname(filePath).toLowerCase()
   return CONTENT_TYPE_MAP[ext] || 'application/octet-stream'
+}
+
+/**
+ * Return a human-readable description of an HTTP error from R2.
+ */
+const describeUploadError = (status: number): string => {
+  switch (status) {
+    case 400:
+      return 'Bad request. The presigned URL may be malformed.'
+    case 403:
+      return 'Permission denied. The presigned URL may have expired — please retry.'
+    case 408:
+      return 'Request timed out. Check your network connection and try again.'
+    case 411:
+      return 'Content-Length header missing or rejected by the server.'
+    case 413:
+      return 'File exceeds the maximum upload size allowed by the server.'
+    default:
+      return `Unexpected server error (HTTP ${status}). Please try again later.`
+  }
 }
 
 export const uploadAction = async (
@@ -59,6 +83,53 @@ export const uploadAction = async (
   if (!fileInfo.isFile) {
     console.log(colors.red(`Not a file: ${filePath}`))
     return false
+  }
+
+  const fileSize = fileInfo.size ?? 0
+
+  // ── Pre-upload size gate: reject files > 5 GB ──
+  if (fileSize > MAX_SINGLE_UPLOAD_BYTES) {
+    console.log(
+      colors.red(`\n❌ File too large for single upload (${formatBytes(fileSize)})`),
+    )
+    console.log(
+      colors.white(
+        `  Maximum single upload size: ${formatBytes(MAX_SINGLE_UPLOAD_BYTES)}\n` +
+          '  For large backups, consider splitting or compressing further.',
+      ),
+    )
+    return false
+  }
+
+  // ── Pre-upload storage quota check ──
+  try {
+    const usage = await storageUsage(apiKey)
+    const available = usage.storageLimitBytes - usage.usedBytes
+    if (fileSize > available) {
+      console.log(colors.red('\n❌ Storage limit exceeded'))
+      console.log(
+        colors.white(
+          `  File size:  ${colors.yellow(formatBytes(fileSize))}\n` +
+            `  Used:       ${formatBytes(usage.usedBytes)} / ${formatBytes(usage.storageLimitBytes)}\n` +
+            `  Available:  ${formatBytes(available > 0 ? available : 0)}`,
+        ),
+      )
+      console.log(
+        colors.cyan(
+          '\n💡 Free up space with: slv storage rm <path>\n' +
+            '   Or upgrade:         slv storage upgrade',
+        ),
+      )
+      return false
+    }
+  } catch (error) {
+    // If we cannot reach the usage API, warn but continue — the server
+    // will reject over-quota uploads anyway.
+    if (error instanceof StorageApiError) {
+      console.log(
+        colors.yellow(`⚠ Could not check storage quota: ${error.message}`),
+      )
+    }
   }
 
   // Interactive: prompt for region if not provided
@@ -86,30 +157,44 @@ export const uploadAction = async (
 
     const uploadSpinner = new Kia(
       colors.cyan(
-        `Uploading ${basename(filePath)} (${formatBytes(fileInfo.size ?? 0)})...`,
+        `Uploading ${basename(filePath)} (${formatBytes(fileSize)})...`,
       ),
     )
     uploadSpinner.start()
 
-    const fileData = await Deno.readFile(filePath)
-    const uploadRes = await fetch(presign.url, {
-      method: 'PUT',
-      headers: { 'Content-Type': contentType },
-      body: fileData,
-    })
+    // Stream the file instead of reading it entirely into memory.
+    const file = await Deno.open(filePath, { read: true })
+    try {
+      const uploadRes = await fetch(presign.url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': String(fileSize),
+        },
+        body: file.readable,
+      })
 
-    if (!uploadRes.ok) {
-      uploadSpinner.fail('Upload failed')
-      console.log(
-        colors.red(`Upload to R2 failed (HTTP ${uploadRes.status})`),
-      )
-      return false
+      if (!uploadRes.ok) {
+        uploadSpinner.fail('Upload failed')
+        console.log(
+          colors.red(`\n❌ Upload to R2 failed (HTTP ${uploadRes.status})`),
+        )
+        console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
+        return false
+      }
+    } catch (uploadErr) {
+      // Ensure the file handle is not leaked on network errors.
+      // file.readable auto-closes on full consumption, but not on abort.
+      try {
+        file.close()
+      } catch { /* already closed */ }
+      throw uploadErr
     }
 
     uploadSpinner.succeed('Upload complete')
     console.log(
       colors.white(
-        `\n  Path:   ${colors.green(remotePath)}\n  Region: ${colors.green(presign.region)}\n  Size:   ${colors.green(formatBytes(fileInfo.size ?? 0))}`,
+        `\n  Path:   ${colors.green(remotePath)}\n  Region: ${colors.green(presign.region)}\n  Size:   ${colors.green(formatBytes(fileSize))}`,
       ),
     )
     return true

@@ -17,7 +17,7 @@ export const metalStatus = async (apiKey: string) => {
 
 export const metalAvailability = async (apiKey: string, region: string) => {
   const res = await fetch(
-    `${METAL_API_URL}/baremetal/search/available-baremetal?region=${encodeURIComponent(region)}&limit=25`,
+    `${METAL_API_URL}/baremetal/search-available-baremetal?region=${encodeURIComponent(region)}&limit=25`,
     {
       method: 'GET',
       headers: makeHeaders(apiKey),
