@@ -12,7 +12,7 @@ import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 export const syncAction = async (options: { region?: StorageRegion }) => {
   const apiKey = await getApiKeyFromYml()
 
-  const spinner = new Kia(colors.cyan('Syncing storage usage with R2...'))
+  const spinner = new Kia(colors.cyan('Syncing storage usage...'))
   spinner.start()
 
   try {
@@ -35,7 +35,7 @@ export const syncAction = async (options: { region?: StorageRegion }) => {
           ),
         ).border(true),
         new Row(
-          colors.blue('After (R2)'),
+          colors.blue('After (Cloud)'),
           colors.white(
             `${formatBytes(result.r2UsedBytes)} / ${result.r2FileCount} files`,
           ),
