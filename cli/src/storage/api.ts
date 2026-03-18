@@ -237,6 +237,32 @@ export const storageUsage = async (
   return await response.json() as StorageUsageRes
 }
 
+// ── Sync API ──
+
+export type StorageSyncRes = {
+  success: boolean
+  r2UsedBytes: number
+  r2FileCount: number
+  dbUsedBytes: number
+  dbFileCount: number
+  corrected: boolean
+}
+
+export const storageSync = async (
+  apiKey: string,
+  region?: StorageRegion,
+): Promise<StorageSyncRes> => {
+  const body: Record<string, string> = {}
+  if (region) body.region = region
+  const response = await fetch(`${METAL_API_URL}/storage/sync`, {
+    method: 'POST',
+    headers: storageHeaders(apiKey),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) await handleErrorResponse(response)
+  return await response.json() as StorageSyncRes
+}
+
 // ── Multipart Upload API ──
 
 export type MultipartCreateRes = {
