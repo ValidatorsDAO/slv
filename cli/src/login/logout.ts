@@ -11,21 +11,14 @@ export const logoutCmd = new Command()
       console.log(colors.red('⚠️ HOME environment variable not found'))
       Deno.exit(1)
     }
-    const inventoryPath = home + '/.slv/api.yml'
-    try {
-      await Deno.stat(inventoryPath)
-      await Deno.writeTextFile(
-        inventoryPath,
-        `slv:
+    const configDir = home + '/.slv'
+    const inventoryPath = configDir + '/api.yml'
+    await Deno.mkdir(configDir, { recursive: true })
+    await Deno.writeTextFile(
+      inventoryPath,
+      `slv:
   api_key:`,
-      )
-    } catch (_error) {
-      await Deno.writeTextFile(
-        inventoryPath,
-        `slv:
-  api_key:`,
-      )
-    }
+    )
     console.log(
       colors.green('\n✔️ API Key Successfully Removed from ~/.slv/api.yml\n'),
     )

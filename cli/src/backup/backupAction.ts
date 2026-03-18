@@ -87,6 +87,11 @@ export const backupAction = async (options: {
     if (!options.upload) return // cron-only mode
   }
 
+  // Pre-flight: upload requires API key before spending time on prompts or archive
+  if (options.upload) {
+    await getApiKeyFromYml()
+  }
+
   // Root check – prompt for sudo when running interactively
   let useSudo = false
   if (Deno.uid() !== 0) {

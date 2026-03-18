@@ -9,10 +9,12 @@ const getApiKeyFromYml = async (ignoreError = false) => {
     console.log(colors.red('⚠️ HOME environment variable not found'))
     Deno.exit(1)
   }
-  const inventoryPath = home + '/.slv/api.yml'
+  const configDir = home + '/.slv'
+  const inventoryPath = configDir + '/api.yml'
   try {
     await Deno.stat(inventoryPath)
   } catch (_error) {
+    await Deno.mkdir(configDir, { recursive: true })
     await Deno.writeTextFile(
       inventoryPath,
       defaultApiKeyYml(),
