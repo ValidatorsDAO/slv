@@ -112,6 +112,124 @@ async function checkPrerequisites(
 }
 
 // ---------------------------------------------------------------------------
+// Fresh server check
+// ---------------------------------------------------------------------------
+
+const DEFAULT_HOME_DIRS = new Set(['ubuntu', 'debian', 'root'])
+const CUSTOM_SERVICE_KEYWORDS = ['openclaw', 'slv', 'pingora', 'solana', 'figaro']
+const UPTIME_THRESHOLD_DAYS = 7
+
+async function checkFreshServer(
+  target: string,
+  port: number,
+  yes: boolean,
+): Promise<boolean> {
+  console.log(colors.blue('\n🔍 Checking destination server state...\n'))
+
+  const warnings: string[] = []
+
+  // 1. Check for custom home directories
+  const homeDirs = await sshCapture(
+    target,
+    "ls -1 /home/ 2>/dev/null || true",
+    port,
+  )
+  const customHomeDirs = homeDirs
+    .split('\n')
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0 && !DEFAULT_HOME_DIRS.has(d))
+
+  if (customHomeDirs.length > 0) {
+    warnings.push(
+      `Custom home directories: ${customHomeDirs.map((d) => `/home/${d}`).join(', ')}`,
+    )
+  }
+
+  // 2. Check for custom systemd services
+  const enabledUnits = await sshCapture(
+    target,
+    "systemctl list-unit-files --state=enabled --no-pager --no-legend 2>/dev/null | awk '{print $1}' || true",
+    port,
+  )
+  const customServices = enabledUnits
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) =>
+      s.length > 0 &&
+      CUSTOM_SERVICE_KEYWORDS.some((kw) => s.toLowerCase().includes(kw))
+    )
+
+  if (customServices.length > 0) {
+    warnings.push(`Custom services: ${customServices.join(', ')}`)
+  }
+
+  // 3. Check server uptime
+  const uptimeSeconds = await sshCapture(
+    target,
+    "cat /proc/uptime 2>/dev/null | awk '{print int($1)}' || echo 0",
+    port,
+  )
+  const parsed = parseInt(uptimeSeconds, 10)
+  const uptimeDays = Number.isNaN(parsed) ? 0 : Math.floor(parsed / 86400)
+
+  if (uptimeDays >= UPTIME_THRESHOLD_DAYS) {
+    warnings.push(`Server uptime: ${uptimeDays} days`)
+  }
+
+  // If no warnings, all clear
+  if (warnings.length === 0) {
+    console.log(colors.green('  ✔ Destination appears to be a fresh server'))
+    return true
+  }
+
+  // Display warning
+  console.log(
+    colors.bold(
+      colors.yellow(
+        '⚠️  Warning: The destination server may not be a fresh installation.\n',
+      ),
+    ),
+  )
+  console.log(colors.yellow('  Detected:'))
+  for (const w of warnings) {
+    console.log(colors.yellow(`  • ${w}`))
+  }
+  console.log('')
+  console.log(
+    colors.yellow(
+      '  Migration will OVERWRITE existing data on the destination.',
+    ),
+  )
+  console.log(
+    colors.yellow(
+      '  This is intended for migrating to a NEW/EMPTY server.',
+    ),
+  )
+  console.log('')
+
+  // If --yes, show warning but continue
+  if (yes) {
+    console.log(
+      colors.yellow('  Continuing due to --yes flag.\n'),
+    )
+    return true
+  }
+
+  // Otherwise, ask for explicit confirmation
+  const { Confirm } = await import('@cliffy/prompt')
+  const proceed = await Confirm.prompt({
+    message:
+      'The destination may not be fresh. Do you still want to proceed?',
+    default: false,
+  })
+  if (!proceed) {
+    console.log(colors.yellow('\n⚠️  Migration cancelled.'))
+    return false
+  }
+  return true
+}
+
+// ---------------------------------------------------------------------------
 // Disk usage info
 // ---------------------------------------------------------------------------
 
@@ -509,6 +627,10 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
   // Step 1: Pre-flight checks
   const prereqOk = await checkPrerequisites(to, port)
   if (!prereqOk) return false
+
+  // Step 1.5: Fresh server warning
+  const freshOk = await checkFreshServer(to, port, yes)
+  if (!freshOk) return false
 
   // Step 2: Disk usage
   const diskOk = await showDiskUsage(to, port)
