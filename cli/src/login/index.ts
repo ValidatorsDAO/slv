@@ -2,6 +2,7 @@ import { Command } from '@cliffy'
 import { prompt, Secret } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
+import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 
 export const loginCmd = new Command()
   .description('Login to SLV using Discord')
@@ -22,11 +23,7 @@ $ slv signup
       message: '🔑 Enter API Key',
       type: Secret,
     }])
-    const home = Deno.env.get('HOME')
-    if (!home) {
-      console.log(colors.red('⚠️ HOME environment variable not found'))
-      Deno.exit(1)
-    }
+    const home = resolveHome()
     const configDir = home + '/.slv'
     const inventoryPath = configDir + '/api.yml'
     await Deno.mkdir(configDir, { recursive: true })

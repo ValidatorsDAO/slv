@@ -1,16 +1,13 @@
 import { Command } from '@cliffy'
 import { colors } from '@cliffy/colors'
+import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 
 export const logoutCmd = new Command()
   .description('Logout from SLV')
   .action(async () => {
     const loginTxt = `⚡️ SLV Logout to remove API Key ⚡️\n`
     console.log(colors.bold.blue(loginTxt))
-    const home = Deno.env.get('HOME')
-    if (!home) {
-      console.log(colors.red('⚠️ HOME environment variable not found'))
-      Deno.exit(1)
-    }
+    const home = resolveHome()
     const configDir = home + '/.slv'
     const inventoryPath = configDir + '/api.yml'
     await Deno.mkdir(configDir, { recursive: true })
