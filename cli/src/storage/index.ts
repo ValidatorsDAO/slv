@@ -25,9 +25,9 @@ const validateRegion = (region: string | undefined): StorageRegion | undefined =
   return region as StorageRegion
 }
 
-const text = `Cloud Storage powered by Cloudflare R2
+const text = `ERPC Global Storage
 
-Upload, download, list, and manage files in your SLV Cloud Storage.
+Upload, download, list, and manage files in your ERPC Global Storage.
 
 Regions: ${VALID_REGIONS.join(', ')} (default: eu)
 `
@@ -107,7 +107,7 @@ export const storageCmd = new Command()
   .action(async (_options, quantity?: number) => {
     await upgradeAction(quantity)
   })
-  .command('sync', 'Reconcile storage usage with actual R2 data')
+  .command('sync', 'Reconcile storage usage with actual cloud data')
   .option('-r, --region <region:string>', 'Storage region')
   .action(async (options) => {
     await syncAction({ region: validateRegion(options.region) })

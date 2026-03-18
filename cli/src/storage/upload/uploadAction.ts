@@ -112,7 +112,7 @@ async function singleUpload(
       if (!uploadRes.ok) {
         uploadSpinner.fail('Upload failed')
         console.log(
-          colors.red(`\n❌ Upload to R2 failed (HTTP ${uploadRes.status})`),
+          colors.red(`\n❌ Upload failed (HTTP ${uploadRes.status})`),
         )
         console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
         return null

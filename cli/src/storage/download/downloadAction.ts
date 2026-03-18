@@ -42,7 +42,7 @@ export const downloadAction = async (
     if (!res.ok) {
       downloadSpinner.fail('Download failed')
       console.log(
-        colors.red(`Download from R2 failed (HTTP ${res.status})`),
+        colors.red(`Download failed (HTTP ${res.status})`),
       )
       return false
     }

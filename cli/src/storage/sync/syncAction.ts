@@ -35,7 +35,7 @@ export const syncAction = async (options: { region?: StorageRegion }) => {
           ),
         ).border(true),
         new Row(
-          colors.blue('After (R2)'),
+          colors.blue('After (Cloud)'),
           colors.white(
             `${formatBytes(result.r2UsedBytes)} / ${result.r2FileCount} files`,
           ),
