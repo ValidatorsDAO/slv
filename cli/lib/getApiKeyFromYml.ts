@@ -3,12 +3,28 @@ import { defaultApiKeyYml } from '/lib/config/defaultApiKeyYml.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { colors } from '@cliffy/colors'
 
-const getApiKeyFromYml = async (ignoreError = false) => {
+/**
+ * Resolve the real user's home directory.
+ * When running under `sudo`, HOME points to /root but the API key
+ * lives in the invoking user's home. Use SUDO_USER to find it.
+ * Note: slv targets Linux servers only — uses /home/<user> convention.
+ */
+export function resolveHome(): string {
+  const sudoUser = Deno.env.get('SUDO_USER')
+  if (sudoUser && /^[a-zA-Z0-9._-]+$/.test(sudoUser)) {
+    if (sudoUser === 'root') return '/root'
+    return `/home/${sudoUser}`
+  }
   const home = Deno.env.get('HOME')
   if (!home) {
     console.log(colors.red('⚠️ HOME environment variable not found'))
     Deno.exit(1)
   }
+  return home
+}
+
+const getApiKeyFromYml = async (ignoreError = false) => {
+  const home = resolveHome()
   const configDir = home + '/.slv'
   const inventoryPath = configDir + '/api.yml'
   try {
