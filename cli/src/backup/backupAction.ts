@@ -87,16 +87,54 @@ export const backupAction = async (options: {
     if (!options.upload) return // cron-only mode
   }
 
-  // Root check
+  // Root check – prompt for sudo when running interactively
+  let useSudo = false
   if (Deno.uid() !== 0) {
     console.log(
       colors.yellow(
         '\n⚠️  Warning: Not running as root. Backup may miss files due to permission errors.',
       ),
     )
-    console.log(
-      colors.yellow('   Consider running with: sudo slv backup create\n'),
-    )
+
+    if (!options.yes) {
+      const { Confirm } = await import('@cliffy/prompt')
+      useSudo = await Confirm.prompt({
+        message: 'Use sudo for backup? (recommended for complete backup)',
+        default: true,
+      })
+      if (!useSudo) {
+        const proceed = await Confirm.prompt({
+          message:
+            'Continue without root? Some files may be missing from backup.',
+          default: false,
+        })
+        if (!proceed) {
+          console.log(
+            colors.yellow(
+              '\n⚠️  Backup cancelled. Re-run with: sudo slv backup create\n',
+            ),
+          )
+          return
+        }
+      }
+    } else {
+      // --yes mode: auto-enable sudo for non-root
+      useSudo = true
+      const sudoCheck = new Deno.Command('sudo', {
+        args: ['-n', 'true'],
+        stdout: 'piped',
+        stderr: 'piped',
+      })
+      const sudoResult = await sudoCheck.output()
+      if (!sudoResult.success) {
+        console.log(
+          colors.yellow('   sudo not available (NOPASSWD). Continuing without sudo.\n'),
+        )
+        useSudo = false
+      } else {
+        console.log(colors.green('  ✔ sudo access verified (auto-enabled for --yes mode)'))
+      }
+    }
   }
 
   // Detect compression
@@ -155,8 +193,10 @@ export const backupAction = async (options: {
   spinner.start()
 
   try {
-    const command = new Deno.Command('tar', {
-      args: tarArgs,
+    const cmd = useSudo ? 'sudo' : 'tar'
+    const cmdArgs = useSudo ? ['tar', ...tarArgs] : tarArgs
+    const command = new Deno.Command(cmd, {
+      args: cmdArgs,
       stdout: 'piped',
       stderr: 'piped',
     })

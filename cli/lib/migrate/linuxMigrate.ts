@@ -16,6 +16,8 @@ interface MigrateOptions {
   skipReboot?: boolean
   /** Skip confirmation prompt */
   yes?: boolean
+  /** Use sudo for rsync (for non-root users) */
+  useSudo?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +112,124 @@ async function checkPrerequisites(
 }
 
 // ---------------------------------------------------------------------------
+// Fresh server check
+// ---------------------------------------------------------------------------
+
+const DEFAULT_HOME_DIRS = new Set(['ubuntu', 'debian', 'root'])
+const CUSTOM_SERVICE_KEYWORDS = ['openclaw', 'slv', 'pingora', 'solana', 'figaro']
+const UPTIME_THRESHOLD_DAYS = 7
+
+async function checkFreshServer(
+  target: string,
+  port: number,
+  yes: boolean,
+): Promise<boolean> {
+  console.log(colors.blue('\n🔍 Checking destination server state...\n'))
+
+  const warnings: string[] = []
+
+  // 1. Check for custom home directories
+  const homeDirs = await sshCapture(
+    target,
+    "ls -1 /home/ 2>/dev/null || true",
+    port,
+  )
+  const customHomeDirs = homeDirs
+    .split('\n')
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0 && !DEFAULT_HOME_DIRS.has(d))
+
+  if (customHomeDirs.length > 0) {
+    warnings.push(
+      `Custom home directories: ${customHomeDirs.map((d) => `/home/${d}`).join(', ')}`,
+    )
+  }
+
+  // 2. Check for custom systemd services
+  const enabledUnits = await sshCapture(
+    target,
+    "systemctl list-unit-files --state=enabled --no-pager --no-legend 2>/dev/null | awk '{print $1}' || true",
+    port,
+  )
+  const customServices = enabledUnits
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) =>
+      s.length > 0 &&
+      CUSTOM_SERVICE_KEYWORDS.some((kw) => s.toLowerCase().includes(kw))
+    )
+
+  if (customServices.length > 0) {
+    warnings.push(`Custom services: ${customServices.join(', ')}`)
+  }
+
+  // 3. Check server uptime
+  const uptimeSeconds = await sshCapture(
+    target,
+    "cat /proc/uptime 2>/dev/null | awk '{print int($1)}' || echo 0",
+    port,
+  )
+  const parsed = parseInt(uptimeSeconds, 10)
+  const uptimeDays = Number.isNaN(parsed) ? 0 : Math.floor(parsed / 86400)
+
+  if (uptimeDays >= UPTIME_THRESHOLD_DAYS) {
+    warnings.push(`Server uptime: ${uptimeDays} days`)
+  }
+
+  // If no warnings, all clear
+  if (warnings.length === 0) {
+    console.log(colors.green('  ✔ Destination appears to be a fresh server'))
+    return true
+  }
+
+  // Display warning
+  console.log(
+    colors.bold(
+      colors.yellow(
+        '⚠️  Warning: The destination server may not be a fresh installation.\n',
+      ),
+    ),
+  )
+  console.log(colors.yellow('  Detected:'))
+  for (const w of warnings) {
+    console.log(colors.yellow(`  • ${w}`))
+  }
+  console.log('')
+  console.log(
+    colors.yellow(
+      '  Migration will OVERWRITE existing data on the destination.',
+    ),
+  )
+  console.log(
+    colors.yellow(
+      '  This is intended for migrating to a NEW/EMPTY server.',
+    ),
+  )
+  console.log('')
+
+  // If --yes, show warning but continue
+  if (yes) {
+    console.log(
+      colors.yellow('  Continuing due to --yes flag.\n'),
+    )
+    return true
+  }
+
+  // Otherwise, ask for explicit confirmation
+  const { Confirm } = await import('@cliffy/prompt')
+  const proceed = await Confirm.prompt({
+    message:
+      'The destination may not be fresh. Do you still want to proceed?',
+    default: false,
+  })
+  if (!proceed) {
+    console.log(colors.yellow('\n⚠️  Migration cancelled.'))
+    return false
+  }
+  return true
+}
+
+// ---------------------------------------------------------------------------
 // Disk usage info
 // ---------------------------------------------------------------------------
 
@@ -167,6 +287,7 @@ async function runRsync(
   target: string,
   port: number,
   excludes: string[],
+  useSudo = false,
 ): Promise<boolean> {
   console.log(colors.blue('\n🚀 Starting rsync full-disk copy...\n'))
 
@@ -178,16 +299,30 @@ async function runRsync(
     '--info=progress2',
     ...excludeArgs,
     '-e', `ssh -o StrictHostKeyChecking=no -p ${port}`,
-    '/',
-    `${target}:/`,
   ]
 
-  const result = await run('rsync', args)
-  if (!result.success) {
-    console.error(colors.red('\n❌ rsync failed.'))
-    return false
+  if (useSudo) {
+    args.push('--rsync-path=sudo rsync')
   }
-  console.log(colors.green('\n✅ rsync completed successfully.'))
+
+  args.push('/', `${target}:/`)
+
+  // Use sudo locally if needed
+  const cmd = useSudo ? 'sudo' : 'rsync'
+  const cmdArgs = useSudo ? ['rsync', ...args] : args
+
+  const result = await run(cmd, cmdArgs)
+  if (!result.success) {
+    if (result.code === 23 || result.code === 24) {
+      console.log(colors.yellow('\n⚠️  rsync completed with warnings: some files could not be transferred (permission denied or vanished).'))
+      console.log(colors.yellow('   This is usually safe to ignore for system logs and temporary files.'))
+    } else {
+      console.error(colors.red(`\n❌ rsync failed (exit code ${result.code}).`))
+      return false
+    }
+  } else {
+    console.log(colors.green('\n✅ rsync completed successfully.'))
+  }
   return true
 }
 
@@ -198,12 +333,24 @@ async function runRsync(
 async function patchRemoteEnvironment(
   target: string,
   port: number,
+  useSudo = false,
 ): Promise<boolean> {
   console.log(colors.blue('\n🔧 Applying environment patches on remote...\n'))
 
   // Build a single script to run on the remote to minimize SSH roundtrips
   const patchScript = `
 set -e
+
+# Determine if sudo is needed
+if [ "$(id -u)" -ne 0 ]; then
+  if ! sudo -n true 2>/dev/null; then
+    echo "Error: sudo access required but not available (NOPASSWD not configured)"
+    exit 1
+  fi
+  SUDO="sudo"
+else
+  SUDO=""
+fi
 
 echo "==> Patching /etc/fstab UUIDs..."
 # Get current disk UUIDs on the new server and update fstab
@@ -212,7 +359,7 @@ if [ -n "$NEW_ROOT_UUID" ] && [ -f /etc/fstab ]; then
   # Get the UUID currently referenced for / in fstab
   OLD_ROOT_UUID=$(grep -E '\\s+/\\s+' /etc/fstab | grep -oP 'UUID=\\K[a-fA-F0-9-]+' || true)
   if [ -n "$OLD_ROOT_UUID" ] && [ "$OLD_ROOT_UUID" != "$NEW_ROOT_UUID" ]; then
-    sed -i "s|UUID=$OLD_ROOT_UUID|UUID=$NEW_ROOT_UUID|g" /etc/fstab
+    $SUDO sed -i "s|UUID=$OLD_ROOT_UUID|UUID=$NEW_ROOT_UUID|g" /etc/fstab
     echo "  Updated root UUID: $OLD_ROOT_UUID -> $NEW_ROOT_UUID"
   else
     echo "  Root UUID unchanged or already correct."
@@ -228,12 +375,12 @@ if [ -f /tmp/.slv_src_authorized_keys ]; then
   for keydir in /root/.ssh /home/*/.ssh; do
     [ -d "$keydir" ] || continue
     ak="$keydir/authorized_keys"
-    touch "$ak"
-    cat /tmp/.slv_src_authorized_keys >> "$ak"
-    sort -u -o "$ak" "$ak"
-    chmod 600 "$ak"
+    $SUDO touch "$ak"
+    $SUDO bash -c "cat /tmp/.slv_src_authorized_keys >> '$ak'"
+    $SUDO bash -c "sort -u -o '$ak' '$ak'"
+    $SUDO chmod 600 "$ak"
   done
-  rm -f /tmp/.slv_src_authorized_keys
+  $SUDO rm -f /tmp/.slv_src_authorized_keys
   echo "  Source authorized_keys merged into remote."
 else
   echo "  No source authorized_keys to merge."
@@ -242,29 +389,29 @@ fi
 echo "==> Regenerating SSH host keys..."
 # Host keys were excluded from rsync to avoid 2 servers sharing the same keys.
 # Regenerate fresh host keys for the new server.
-rm -f /etc/ssh/ssh_host_*
-ssh-keygen -A 2>/dev/null || dpkg-reconfigure openssh-server 2>/dev/null || true
+$SUDO rm -f /etc/ssh/ssh_host_*
+$SUDO ssh-keygen -A 2>/dev/null || $SUDO dpkg-reconfigure openssh-server 2>/dev/null || true
 echo "  SSH host keys regenerated."
 
 echo "==> Updating SSH server config..."
 # sshd_config was excluded from rsync, so the remote's config is preserved.
 # Ensure PermitRootLogin remains enabled for post-migration access.
 if grep -q "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null; then
-  sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+  $SUDO sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 else
-  echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+  echo "PermitRootLogin yes" | $SUDO tee -a /etc/ssh/sshd_config > /dev/null
 fi
-systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+$SUDO systemctl restart ssh 2>/dev/null || $SUDO systemctl restart sshd 2>/dev/null || true
 echo "  SSH config updated, PermitRootLogin enabled."
 
 echo "==> Updating /etc/hostname..."
 ORIG_HOSTNAME=$(hostname)
-echo "$ORIG_HOSTNAME" > /etc/hostname
+echo "$ORIG_HOSTNAME" | $SUDO tee /etc/hostname > /dev/null
 echo "  Hostname: $ORIG_HOSTNAME"
 
 echo "==> Regenerating /etc/machine-id..."
-rm -f /etc/machine-id
-systemd-machine-id-setup 2>/dev/null || dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || true
+$SUDO rm -f /etc/machine-id
+$SUDO systemd-machine-id-setup 2>/dev/null || $SUDO dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || true
 echo "  machine-id: $(cat /etc/machine-id 2>/dev/null || echo 'unknown')"
 
 echo "==> Updating network configuration..."
@@ -289,20 +436,20 @@ echo "==> Reinstalling bootloader..."
 if [ -d /sys/firmware/efi ]; then
   echo "  EFI system detected"
   BOOT_DISK=$(findmnt -n -o SOURCE / | sed 's/[0-9]*$//' | sed 's/p$//')
-  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB "$BOOT_DISK" 2>/dev/null || \
-  grub-install --target=x86_64-efi --efi-directory=/boot/efi "$BOOT_DISK" 2>/dev/null || \
+  $SUDO grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB "$BOOT_DISK" 2>/dev/null || \
+  $SUDO grub-install --target=x86_64-efi --efi-directory=/boot/efi "$BOOT_DISK" 2>/dev/null || \
   echo "  Warning: grub-install for EFI may need manual intervention"
 else
   echo "  BIOS system detected"
   BOOT_DISK=$(findmnt -n -o SOURCE / | sed 's/[0-9]*$//' | sed 's/p$//')
-  grub-install "$BOOT_DISK" 2>/dev/null || echo "  Warning: grub-install failed (may need manual intervention)"
+  $SUDO grub-install "$BOOT_DISK" 2>/dev/null || echo "  Warning: grub-install failed (may need manual intervention)"
 fi
 
 echo "==> Updating initramfs..."
-update-initramfs -u -k all 2>/dev/null || echo "  Warning: update-initramfs not available or failed"
+$SUDO update-initramfs -u -k all 2>/dev/null || echo "  Warning: update-initramfs not available or failed"
 
 echo "==> Updating GRUB config..."
-update-grub 2>/dev/null || grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+$SUDO update-grub 2>/dev/null || $SUDO grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
 
 echo "==> Environment patching complete."
 `
@@ -329,11 +476,12 @@ echo "==> Environment patching complete."
 // Reboot and wait
 // ---------------------------------------------------------------------------
 
-async function rebootAndWait(target: string, port: number): Promise<boolean> {
+async function rebootAndWait(target: string, port: number, useSudo = false): Promise<boolean> {
   console.log(colors.blue('\n🔄 Rebooting remote server...\n'))
 
   // Send reboot (will disconnect SSH)
-  await sshRun(target, 'nohup bash -c "sleep 2 && reboot" &>/dev/null &', port, true)
+  const rebootCmd = useSudo ? 'sudo reboot' : 'reboot'
+  await sshRun(target, `nohup bash -c "sleep 2 && ${rebootCmd}" &>/dev/null &`, port, true)
     .catch(() => {})
 
   console.log(colors.dim('  Reboot signal sent. Waiting for server to come back...'))
@@ -431,9 +579,58 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
   // Show exclude list before confirmation
   printExcludes(allExcludes)
 
+  // Root check
+  let useSudo = false
+  if (Deno.uid() !== 0) {
+    console.log(colors.yellow('\n⚠️  Warning: Not running as root. Migration requires root privileges for full disk copy.'))
+    console.log(colors.yellow('   Files owned by other users may fail to transfer.\n'))
+
+    if (!yes) {
+      const { Confirm } = await import('@cliffy/prompt')
+      const wantSudo = await Confirm.prompt({
+        message: 'Use sudo for rsync on both local and remote? (recommended)',
+        default: true,
+      })
+      if (wantSudo) {
+        useSudo = true
+        // Verify local sudo access (NOPASSWD)
+        const sudoCheck = await run('sudo', ['-n', 'true'], { captureOutput: true })
+        if (!sudoCheck.success) {
+          console.error(colors.red('\n❌ Local sudo access not available without password (NOPASSWD required).'))
+          console.log(colors.yellow('   Re-run with: sudo slv migrate linux'))
+          return false
+        }
+        console.log(colors.green('  ✔ Local sudo access verified'))
+      } else {
+        const proceed = await Confirm.prompt({
+          message: 'Continue without root? Some files may not be transferred.',
+          default: false,
+        })
+        if (!proceed) {
+          console.log(colors.yellow('\n⚠️  Migration cancelled. Re-run with: sudo slv migrate linux'))
+          return false
+        }
+      }
+    } else {
+      // --yes mode: auto-enable sudo for non-root
+      useSudo = true
+      const sudoCheck = await run('sudo', ['-n', 'true'], { captureOutput: true })
+      if (!sudoCheck.success) {
+        console.log(colors.yellow('\n⚠️  Warning: --yes mode but local sudo not available (NOPASSWD). Continuing without sudo.'))
+        useSudo = false
+      } else {
+        console.log(colors.green('  ✔ Local sudo access verified (auto-enabled for --yes mode)'))
+      }
+    }
+  }
+
   // Step 1: Pre-flight checks
   const prereqOk = await checkPrerequisites(to, port)
   if (!prereqOk) return false
+
+  // Step 1.5: Fresh server warning
+  const freshOk = await checkFreshServer(to, port, yes)
+  if (!freshOk) return false
 
   // Step 2: Disk usage
   const diskOk = await showDiskUsage(to, port)
@@ -459,7 +656,7 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
   ])
 
   // Step 5: rsync (SSH keys, sshd_config and host keys are excluded to preserve remote access)
-  const rsyncOk = await runRsync(to, port, allExcludes)
+  const rsyncOk = await runRsync(to, port, allExcludes, useSudo)
   if (!rsyncOk) return false
 
   // Step 5.5: Copy source authorized_keys to remote temp file for merge
@@ -468,13 +665,25 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     await sshRun(to, `echo '${escaped}' > /tmp/.slv_src_authorized_keys`, port)
   }
 
+  // Step 5.6: Verify remote sudo if needed
+  if (useSudo) {
+    const remoteSudoCheck = await sshRun(to, 'sudo -n true', port, true)
+    if (!remoteSudoCheck.success) {
+      console.error(colors.red('\n❌ Remote sudo access not available without password (NOPASSWD required).'))
+      console.log(colors.yellow('   Ensure the SSH user on the remote has passwordless sudo access.'))
+      console.log(colors.yellow('   Data has been copied via rsync but environment patches cannot be applied.'))
+      return false
+    }
+    console.log(colors.green('  ✔ Remote sudo access verified'))
+  }
+
   // Step 6: Environment patches (includes SSH key merge + host key regen + sshd_config fixup)
-  const patchOk = await patchRemoteEnvironment(to, port)
+  const patchOk = await patchRemoteEnvironment(to, port, useSudo)
   if (!patchOk) return false
 
   // Step 7: Reboot
   if (!skipReboot) {
-    const rebootOk = await rebootAndWait(to, port)
+    const rebootOk = await rebootAndWait(to, port, useSudo)
     if (!rebootOk) {
       console.log(
         colors.yellow(
