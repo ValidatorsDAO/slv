@@ -12,6 +12,7 @@ export const DEFAULT_EXCLUDES = [
   '/lost+found',
   '/swapfile',
   '/snap/*',
+  '/var/log/*',
 ]
 
 /** SSH-related excludes (used by migrate linux to preserve remote access) */

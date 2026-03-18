@@ -21,8 +21,18 @@ export const migrateLinuxCmd = new Command()
   .option('--list-excludes', 'Show current exclude list and exit')
   .action(async (options) => {
     if (!options.listExcludes && !options.to) {
-      console.error(colors.red('Error: --to is required for migration. Use --list-excludes to view excludes.'))
-      Deno.exit(1)
+      const { Input } = await import('@cliffy/prompt')
+      const to = await Input.prompt({
+        message: 'SSH destination (e.g. root@new-server)',
+        validate: (v: string) => {
+          const trimmed = v.trim()
+          if (trimmed.length === 0) return 'SSH destination is required'
+          if (!/^[\w.-]+@[\w.-]+$/.test(trimmed) && !/^[\w.-]+$/.test(trimmed))
+            return 'Invalid format. Expected: user@host or hostname'
+          return true
+        },
+      })
+      options.to = to.trim()
     }
     const success = await migrateLinux({
       to: options.to ?? '',
