@@ -13,16 +13,18 @@ import type { StorageRegion } from '/src/storage/api.ts'
 const VALID_REGIONS: StorageRegion[] = ['eu', 'asia', 'us-east', 'us-west', 'oc']
 
 const validateRegion = (region: string | undefined): StorageRegion | undefined => {
-  if (!region) return undefined
-  if (!VALID_REGIONS.includes(region as StorageRegion)) {
+  // CLI option takes priority, then env var
+  const resolved = region || Deno.env.get('SLV_STORAGE_REGION')
+  if (!resolved) return undefined
+  if (!VALID_REGIONS.includes(resolved as StorageRegion)) {
     console.log(
       colors.red(
-        `Invalid region: "${region}". Valid regions: ${VALID_REGIONS.join(', ')}`,
+        `Invalid region: "${resolved}". Valid regions: ${VALID_REGIONS.join(', ')}`,
       ),
     )
     Deno.exit(1)
   }
-  return region as StorageRegion
+  return resolved as StorageRegion
 }
 
 const text = `ERPC Global Storage
@@ -30,6 +32,9 @@ const text = `ERPC Global Storage
 Upload, download, list, and manage files in your ERPC Global Storage.
 
 Regions: ${VALID_REGIONS.join(', ')} (default: eu)
+
+Environment:
+  SLV_STORAGE_REGION  Default region (overridden by --region)
 `
 
 export const storageCmd = new Command()
