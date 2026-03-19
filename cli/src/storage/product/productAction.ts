@@ -79,7 +79,7 @@ Need help? ValidatorsDAO Discord: ${DISCORD_LINK}`),
     if (products.length > 1) {
       const options = products.map((p) => ({
         name: colors.white(
-          `${p.product} - ${p.price.toLocaleString('en-US')} EUR/GB/month`,
+          `${p.product} - ${p.price.toLocaleString('en-US')} EUR / 5 GB / month`,
         ),
         value: p.product,
       }))
@@ -107,11 +107,11 @@ Need help? ValidatorsDAO Discord: ${DISCORD_LINK}`),
         .border(true),
       new Row(
         colors.blue('Price'),
-        colors.white(`${selected.price.toLocaleString('en-US')} EUR/GB/month`),
+        colors.white(`${selected.price.toLocaleString('en-US')} EUR / 5 GB / month`),
       ).border(true),
       new Row(
         colors.blue('Includes'),
-        colors.white('1,000 API requests/GB/month, free egress (e.g. 5GB = 5,000 req)'),
+        colors.white('1,000 requests per 5 GB/month, free egress'),
       ).border(true),
       new Row(
         colors.blue('Regions'),

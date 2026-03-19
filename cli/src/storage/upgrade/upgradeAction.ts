@@ -43,21 +43,29 @@ export const upgradeAction = async (quantity?: number) => {
       ),
     )
 
-    // Get new quantity
+    // Get new quantity (in GB, must be multiple of 5)
+    const GB_PER_UNIT = 5
     let newGB: number
     if (quantity !== undefined) {
       newGB = quantity
     } else {
       const input = await Input.prompt({
-        message: 'New storage capacity (GB)',
+        message: `New storage capacity in GB (multiples of ${GB_PER_UNIT}, e.g. 5, 10, 15)`,
       })
       newGB = Number(input)
     }
 
     // Validate
-    if (!Number.isInteger(newGB) || newGB < 1) {
+    if (!Number.isInteger(newGB) || newGB < GB_PER_UNIT) {
       console.log(
-        colors.red('\nInvalid input. Please enter a positive integer (minimum 1 GB).'),
+        colors.red(`\nInvalid input. Minimum ${GB_PER_UNIT} GB.`),
+      )
+      return false
+    }
+
+    if (newGB % GB_PER_UNIT !== 0) {
+      console.log(
+        colors.red(`\nCapacity must be a multiple of ${GB_PER_UNIT} GB (e.g. 5, 10, 15, 20).`),
       )
       return false
     }
@@ -69,11 +77,16 @@ export const upgradeAction = async (quantity?: number) => {
       return false
     }
 
+    // Convert GB to units for API
+    const newUnits = newGB / GB_PER_UNIT
+
     // Show change summary
     const action = newGB > currentGB ? 'upgrade' : 'downgrade'
+    const currentPrice = currentGB / GB_PER_UNIT
+    const newPrice = newUnits
     console.log(
       colors.white(
-        `\n  Change: ${currentGB} GB → ${newGB} GB\n  Stripe will automatically prorate the difference.\n`,
+        `\n  Change: ${currentGB} GB (€${currentPrice}/mo) → ${newGB} GB (€${newPrice}/mo)\n  Stripe will automatically prorate the difference.\n`,
       ),
     )
 
@@ -92,9 +105,11 @@ export const upgradeAction = async (quantity?: number) => {
     upgradeSpinner.start()
 
     try {
-      const upgradeResult = await storageUpgradePlan(apiKey, newGB)
+      const upgradeResult = await storageUpgradePlan(apiKey, newUnits)
+      const prevGB = upgradeResult.message.previousQuantityGB || currentGB
+      const resultGB = (upgradeResult.message.newQuantityGB || newUnits) * GB_PER_UNIT
       upgradeSpinner.succeed(
-        `Storage updated: ${upgradeResult.message.previousQuantityGB} GB → ${upgradeResult.message.newQuantityGB} GB`,
+        `Storage updated: ${prevGB} GB → ${resultGB} GB`,
       )
 
       if (upgradeResult.message.note) {
