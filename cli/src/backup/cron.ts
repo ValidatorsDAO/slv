@@ -90,9 +90,12 @@ export async function setupCron(
   } catch { /* use default */ }
 
   // Build cron entry with optional webhook env var
+  // Ensure HOME is set so slv finds ~/.slv/api.yml under cron (which defaults to HOME=/root)
+  const homeDir = Deno.env.get('HOME') || '/root'
+  const homePrefix = `HOME="${homeDir}" `
   const webhookPrefix = webhookUrl ? `SLV_BACKUP_WEBHOOK="${webhookUrl}" ` : ''
   const entry =
-    `${schedule} ${webhookPrefix}${slvPath} backup create --upload --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
+    `${schedule} ${homePrefix}${webhookPrefix}${slvPath} backup create --upload --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
   filtered.push(entry)
 
   // Write back
