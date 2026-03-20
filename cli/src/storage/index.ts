@@ -100,8 +100,9 @@ export const storageCmd = new Command()
     })
   })
   .command('usage', 'Show storage usage and quota')
-  .action(async () => {
-    await usageAction()
+  .option('-r, --region <region:string>', 'Storage region (omit to show all regions with data)')
+  .action(async (options) => {
+    await usageAction({ region: validateRegion(options.region) })
   })
   .command('product', 'Browse and purchase storage plans')
   .action(async () => {
