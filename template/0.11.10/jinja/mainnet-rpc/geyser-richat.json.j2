@@ -1,0 +1,32 @@
+{
+  "libpath": "/home/solv/librichat_plugin_agave.so",
+  "logs": { "level": "error" },
+  "metrics": { "endpoint": "127.0.0.1:8999" },
+  "tokio": { "worker_threads": 24, "affinity": "0-23" },
+  "channel": {
+    "encoder": "raw",
+    "max_messages": "2_097_152",
+    "max_bytes": "16GiB"
+  },
+  "grpc": {
+    "endpoint": "127.0.0.1:10004",
+    "compression": { "accept": [], "send": [] },
+    "max_decoding_message_size": "16MiB",
+    "server_tcp_keepalive": "30s",
+    "server_tcp_nodelay": true,
+    "server_http2_adaptive_window": null,
+    "server_http2_keepalive_interval": null,
+    "server_http2_keepalive_timeout": null,
+    "server_initial_connection_window_size": null,
+    "server_initial_stream_window_size": null
+  },
+  "quic": {
+    "endpoint": "127.0.0.1:10001",
+    "tls_config": { "self_signed_alt_names": ["localhost"] },
+    "expected_rtt": 5,
+    "max_stream_bandwidth": 125000000,
+    "max_idle_timeout": 30,
+    "max_recv_streams": 32,
+    "max_request_size": 4092
+  }
+}
