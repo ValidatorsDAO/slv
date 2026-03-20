@@ -86,6 +86,11 @@ export type StorageListRes = {
   truncated: boolean
 }
 
+export type RegionUsageEntry = {
+  usedBytes: number
+  fileCount: number
+}
+
 export type StorageUsageRes = {
   usedBytes: number
   fileCount: number
@@ -94,6 +99,7 @@ export type StorageUsageRes = {
   region: string
   monthlyAccessCount?: number
   monthlyAccessLimit?: number
+  regionUsage?: Record<string, RegionUsageEntry>
 }
 
 export const presignUpload = async (
