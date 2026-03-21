@@ -1,6 +1,6 @@
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getApiKeyFromYml, sanitizeSudoUser } from '/lib/getApiKeyFromYml.ts'
 import {
   multipartComplete,
   multipartCreate,
@@ -14,6 +14,7 @@ import {
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import { buildExcludeList, printExcludes } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
+import { resticBackup, type ResticBackupOptions } from '@/backup/restic.ts'
 
 /**
  * Resolve the webhook URL from (in priority order):
@@ -33,7 +34,7 @@ function getWebhookUrl(cliOption?: string): string | undefined {
   if (direct) return direct
 
   // 3. When running under sudo, check the original user's environment
-  const sudoUser = Deno.env.get('SUDO_USER')
+  const sudoUser = sanitizeSudoUser()
   if (sudoUser) {
     try {
       const cmd = new Deno.Command('su', {
@@ -120,6 +121,7 @@ export const backupAction = async (options: {
   retention?: number
   cron?: string
   webhook?: string
+  restic?: boolean
   yes?: boolean
 }) => {
   // Capture webhook URL BEFORE any sudo escalation resets the environment
@@ -140,12 +142,62 @@ export const backupAction = async (options: {
   // --cron: set up cron job
   if (options.cron) {
     await setupCron(options.cron, options.retention ?? 7)
-    if (!options.upload) return // cron-only mode
+    if (!options.upload && !options.restic) return // cron-only mode
   }
 
-  // Pre-flight: upload requires API key before spending time on prompts or archive
-  if (options.upload) {
+  // Pre-flight: restic or upload requires API key
+  if (options.upload || options.restic) {
     await getApiKeyFromYml()
+  }
+
+  // --restic: use restic for incremental backup
+  if (options.restic) {
+    const apiKey = await getApiKeyFromYml()
+    const hostname = await getHostname()
+    const resticOpts: ResticBackupOptions = {
+      region: options.region,
+      exclude: options.exclude,
+      include: options.include,
+      retention: options.retention,
+    }
+
+    console.log(colors.bold(colors.blue('\n🗄️  SLV Backup (restic mode)\n')))
+    console.log(colors.white(`  Region:    ${options.region || 'default'}`))
+    console.log(colors.white(`  Retention: ${options.retention ?? 7} days`))
+    printExcludes(excludes)
+
+    if (!options.yes) {
+      const { Confirm } = await import('@cliffy/prompt')
+      const proceed = await Confirm.prompt({
+        message: 'Create restic backup?',
+        default: true,
+      })
+      if (!proceed) {
+        console.log(colors.yellow('\n⚠️  Backup cancelled.\n'))
+        return
+      }
+    }
+
+    try {
+      await resticBackup(apiKey, resticOpts)
+      if (webhookUrl) {
+        await notifyWebhook(
+          webhookUrl,
+          `✅ **SLV Restic Backup Complete**\n**Host**: ${hostname}\n**Region**: ${options.region || 'default'}`,
+        )
+      }
+    } catch (error) {
+      if (webhookUrl) {
+        await notifyWebhook(
+          webhookUrl,
+          `❌ **SLV Restic Backup Failed**\n**Host**: ${hostname}\n**Error**: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+      throw error
+    }
+
+    console.log(colors.green('\n✅ Backup complete.\n'))
+    return
   }
 
   // Root check – prompt for sudo when running interactively

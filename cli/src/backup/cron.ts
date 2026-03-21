@@ -1,4 +1,5 @@
 import { colors } from '@cliffy/colors'
+import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 
 const CRON_SCHEDULES: Record<string, string> = {
   daily: '0 3 * * *',
@@ -89,13 +90,27 @@ export async function setupCron(
     }
   } catch { /* use default */ }
 
-  // Build cron entry with optional webhook env var
-  // Ensure HOME is set so slv finds ~/.slv/api.yml under cron (which defaults to HOME=/root)
+  // Save webhook URL to ~/.slv/backup.env (mode 0600) instead of embedding in crontab
+  const home = resolveHome()
+  const slvDir = `${home}/.slv`
+  const backupEnvFile = `${slvDir}/backup.env`
+
+  if (webhookUrl) {
+    await Deno.mkdir(slvDir, { recursive: true, mode: 0o700 })
+    await Deno.writeTextFile(
+      backupEnvFile,
+      `SLV_BACKUP_WEBHOOK="${webhookUrl}"\n`,
+      { mode: 0o600 },
+    )
+    console.log(colors.dim(`  Webhook URL saved to ${backupEnvFile}`))
+  }
+
+  // Build cron entry — source backup.env for webhook, keep secrets out of crontab
   const homeDir = Deno.env.get('HOME') || '/root'
   const homePrefix = `HOME="${homeDir}" `
-  const webhookPrefix = webhookUrl ? `SLV_BACKUP_WEBHOOK="${webhookUrl}" ` : ''
+  const sourceEnv = `. ${backupEnvFile} 2>/dev/null; `
   const entry =
-    `${schedule} ${homePrefix}${webhookPrefix}${slvPath} backup create --upload --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
+    `${schedule} ${homePrefix}${sourceEnv}${slvPath} backup create --upload --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
   filtered.push(entry)
 
   // Write back
