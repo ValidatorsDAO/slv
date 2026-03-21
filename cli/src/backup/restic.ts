@@ -3,32 +3,28 @@ import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { buildExcludeList } from '@/backup/excludes.ts'
 
 const RESTIC_PASSWORD_FILE_NAME = '.slv/restic-password'
-const RESTIC_REPO_BASE = 'rest:https://user-api.erpc.global/v3/storage/restic/'
+const RESTIC_REPO_HOST = 'user-api.erpc.global'
+const RESTIC_REPO_PATH = '/v3/storage/restic/'
 
 /**
  * NOTE on REST backend authentication:
  *
- * We use `--option rest.headers="Authorization: Bearer {apiKey}"` to send a
- * Bearer token to the user-api REST backend. This is supported since restic
- * 0.14+ via the `rest.headers` extended option.
+ * restic uses Basic Auth for REST backend URLs.  We embed the API key as the
+ * username in the URL: rest:https://<apiKey>:x@host/path
  *
- * The user-api only accepts Bearer authentication, so Basic Auth via URL
- * embedding (rest:https://user:pass@host/...) will NOT work here.
+ * The user-api accepts both Bearer and Basic auth.  With Basic auth the
+ * username is treated as the API key and the password is ignored.
  *
- * Fallback (if rest.headers does not work in a future restic version):
- *   Set environment variables instead:
- *     RESTIC_REST_USERNAME=<apiKey>
- *     RESTIC_REST_PASSWORD=x
- *   and configure the REST backend to accept Basic Auth, or use an HTTP
- *   proxy that converts Basic Auth to Bearer.
+ * This works with all restic versions (0.14+).
  */
 
-/** Build the restic repository URL, optionally with a region query param. */
-function resticRepoUrl(region?: string): string {
+/** Build the restic repository URL with embedded Basic Auth credentials. */
+function resticRepoUrl(apiKey: string, region?: string): string {
+  const base = `rest:https://${encodeURIComponent(apiKey)}:x@${RESTIC_REPO_HOST}${RESTIC_REPO_PATH}`
   if (region) {
-    return `${RESTIC_REPO_BASE}?region=${encodeURIComponent(region)}`
+    return `${base}?region=${encodeURIComponent(region)}`
   }
-  return RESTIC_REPO_BASE
+  return base
 }
 
 function resticPasswordPath(): string {
@@ -149,8 +145,7 @@ export async function resticBackup(
   }
 
   await getOrCreateResticPassword() // ensure password file exists
-  const repo = resticRepoUrl(options.region)
-  const authHeader = `Authorization: Bearer ${apiKey}`
+  const repo = resticRepoUrl(apiKey, options.region)
 
   // Use RESTIC_PASSWORD_FILE instead of RESTIC_PASSWORD to avoid
   // leaking the passphrase via /proc/{pid}/environ.
@@ -178,7 +173,12 @@ export async function resticBackup(
 
   // restic init (first time only — ignore "already initialized" error)
   console.log(colors.cyan('\n🔧 Initializing restic repository (if needed)...'))
-  await runRestic(['init', '--option', `rest.headers=${authHeader}`], env).catch(() => {})
+  const initResult = await runRestic(['init'], env)
+  if (!initResult.success && !initResult.stderr.includes('already initialized')) {
+    console.log(colors.red('\n❌ Failed to initialize restic repository'))
+    if (initResult.stderr) console.log(colors.red(initResult.stderr))
+    Deno.exit(1)
+  }
 
   // restic backup
   console.log(colors.cyan('\n📦 Creating restic backup...'))
@@ -189,8 +189,6 @@ export async function resticBackup(
       ...excludeArgs,
       '--tag',
       `host:${hostname}`,
-      '--option',
-      `rest.headers=${authHeader}`,
     ],
     env,
   )
@@ -219,8 +217,6 @@ export async function resticBackup(
         '--keep-within',
         `${options.retention}d`,
         '--prune',
-        '--option',
-        `rest.headers=${authHeader}`,
       ],
       env,
     )
@@ -249,8 +245,7 @@ export async function resticRestore(
   }
 
   await getResticPassword() // validate password file exists
-  const repo = resticRepoUrl(region)
-  const authHeader = `Authorization: Bearer ${apiKey}`
+  const repo = resticRepoUrl(apiKey, region)
 
   const env = {
     RESTIC_REPOSITORY: repo,
@@ -264,8 +259,6 @@ export async function resticRestore(
       snapshotId || 'latest',
       '--target',
       '/',
-      '--option',
-      `rest.headers=${authHeader}`,
     ],
     env,
   )
@@ -293,8 +286,7 @@ export async function resticSnapshots(
   }
 
   await getResticPassword() // validate password file exists
-  const repo = resticRepoUrl(region)
-  const authHeader = `Authorization: Bearer ${apiKey}`
+  const repo = resticRepoUrl(apiKey, region)
 
   const env = {
     ...Deno.env.toObject(),
@@ -303,7 +295,7 @@ export async function resticSnapshots(
   }
 
   const command = new Deno.Command('restic', {
-    args: ['snapshots', '--json', '--option', `rest.headers=${authHeader}`],
+    args: ['snapshots', '--json'],
     env,
     stdout: 'piped',
     stderr: 'piped',
