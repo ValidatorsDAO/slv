@@ -44,6 +44,7 @@ async function writeCrontab(content: string): Promise<boolean> {
 export async function setupCron(
   interval: string,
   retention: number,
+  useRestic = false,
 ): Promise<void> {
   if (interval === 'off') {
     await removeCron()
@@ -109,8 +110,9 @@ export async function setupCron(
   const homeDir = Deno.env.get('HOME') || '/root'
   const homePrefix = `HOME="${homeDir}" `
   const sourceEnv = `. ${backupEnvFile} 2>/dev/null; `
+  const backupMode = useRestic ? '--restic' : '--upload'
   const entry =
-    `${schedule} ${homePrefix}${sourceEnv}${slvPath} backup create --upload --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
+    `${schedule} ${homePrefix}${sourceEnv}${slvPath} backup create ${backupMode} --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
   filtered.push(entry)
 
   // Write back
