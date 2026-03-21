@@ -174,7 +174,7 @@ export async function resticBackup(
   // restic init (first time only — ignore "already initialized" error)
   console.log(colors.cyan('\n🔧 Initializing restic repository (if needed)...'))
   const initResult = await runRestic(['init'], env)
-  if (!initResult.success && !initResult.stderr.includes('already initialized')) {
+  if (!initResult.success && !initResult.stderr.includes('already initialized') && !initResult.stderr.includes('config file already exists')) {
     console.log(colors.red('\n❌ Failed to initialize restic repository'))
     if (initResult.stderr) console.log(colors.red(initResult.stderr))
     Deno.exit(1)
