@@ -9,6 +9,7 @@ import {
 } from '/src/storage/api.ts'
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import { Select } from '@cliffy/prompt'
+import { hasRestic, resticRestore } from '@/backup/restic.ts'
 
 async function hasZstd(): Promise<boolean> {
   try {
@@ -90,6 +91,13 @@ async function selectRemoteBackup(
   }
 }
 
+/**
+ * Check if the argument looks like a tar archive (legacy backup format).
+ */
+function isTarArchive(arg: string): boolean {
+  return /\.(tar\.(zst|gz)|tgz)$/i.test(arg)
+}
+
 export const importAction = async (
   options: {
     region?: string
@@ -97,6 +105,87 @@ export const importAction = async (
   },
   file?: string,
 ) => {
+  // If the argument is not a tar archive, treat it as a restic snapshot ID
+  if (file && !isTarArchive(file) && !(await fileExists(file))) {
+    // Restic restore mode
+    if (Deno.uid() !== 0) {
+      console.log(colors.red('\n❌ Restore must be run as root to extract files to /.'))
+      console.log(colors.yellow('   Run with: sudo slv backup restore\n'))
+      Deno.exit(1)
+    }
+
+    if (!(await hasRestic())) {
+      const { printResticInstallGuide } = await import('@/backup/restic.ts')
+      printResticInstallGuide()
+      Deno.exit(1)
+    }
+
+    const apiKey = await getApiKeyFromYml()
+
+    console.log(colors.bold(colors.red('\n⚠️  WARNING: This will restore restic snapshot over the current filesystem.')))
+    console.log(colors.white(`\n  Snapshot: ${file}`))
+    console.log(colors.white(`  Target:   /\n`))
+
+    if (!options.yes) {
+      const { Confirm } = await import('@cliffy/prompt')
+      const proceed = await Confirm.prompt({
+        message: 'Proceed with restic restore?',
+        default: false,
+      })
+      if (!proceed) {
+        console.log(colors.yellow('\n⚠️  Restore cancelled.\n'))
+        return
+      }
+    }
+
+    await resticRestore(apiKey, file, options.region)
+    console.log(colors.green('\n✅ Restore completed. Please reboot to apply changes:'))
+    console.log(colors.white('   $ sudo reboot\n'))
+    return
+  }
+
+  // If no argument provided and restic is available, offer choice between restic and tar
+  if (!file && await hasRestic()) {
+    try {
+      const mode = await Select.prompt({
+        message: 'Restore from:',
+        options: [
+          { name: 'Cloud storage (tar archive)', value: 'tar' },
+          { name: 'Restic snapshot (latest)', value: 'restic' },
+        ],
+      })
+
+      if (mode === 'restic') {
+        if (Deno.uid() !== 0) {
+          console.log(colors.red('\n❌ Restore must be run as root.'))
+          console.log(colors.yellow('   Run with: sudo slv backup restore\n'))
+          Deno.exit(1)
+        }
+
+        const apiKey = await getApiKeyFromYml()
+        if (!options.yes) {
+          const { Confirm } = await import('@cliffy/prompt')
+          const proceed = await Confirm.prompt({
+            message: 'Restore latest restic snapshot to /?',
+            default: false,
+          })
+          if (!proceed) {
+            console.log(colors.yellow('\n⚠️  Restore cancelled.\n'))
+            return
+          }
+        }
+
+        await resticRestore(apiKey, undefined, options.region)
+        console.log(colors.green('\n✅ Restore completed. Please reboot to apply changes:'))
+        console.log(colors.white('   $ sudo reboot\n'))
+        return
+      }
+      // Fall through to tar mode below
+    } catch {
+      // Non-interactive, fall through to tar mode
+    }
+  }
+
   let localFile: string
 
   if (file && await fileExists(file)) {
