@@ -2,6 +2,7 @@ import { Command } from '@cliffy'
 import { colors } from '@cliffy/colors'
 import { backupAction } from '@/backup/backupAction.ts'
 import { importAction } from '@/backup/importAction.ts'
+import { listAction } from '@/backup/listAction.ts'
 
 export const backupCmd = new Command()
   .description(colors.white('Backup and restore your node environment'))
@@ -39,11 +40,16 @@ export const backupCmd = new Command()
     '--webhook <url:string>',
     'Discord webhook URL for notifications (overrides SLV_BACKUP_WEBHOOK)',
   )
+  .option('--restic', 'Use restic for incremental backup (requires restic installed)')
   .option('-y, --yes', 'Skip confirmation prompts')
   .action(backupAction)
-  .command('restore', 'Restore from a backup file')
+  .command('restore', 'Restore from a backup file or restic snapshot')
   .alias('import')
   .arguments('[file:string]')
   .option('-r, --region <region:string>', 'Storage region for download')
   .option('-y, --yes', 'Skip confirmation prompts')
   .action(importAction)
+  .command('list', 'List available backups (cloud storage + restic snapshots)')
+  .option('-r, --region <region:string>', 'Storage region')
+  .option('--restic', 'Show restic snapshots only')
+  .action(listAction)
