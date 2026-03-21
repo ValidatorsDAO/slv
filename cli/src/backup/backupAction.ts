@@ -1,6 +1,6 @@
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getApiKeyFromYml, sanitizeSudoUser } from '/lib/getApiKeyFromYml.ts'
 import {
   multipartComplete,
   multipartCreate,
@@ -33,7 +33,7 @@ function getWebhookUrl(cliOption?: string): string | undefined {
   if (direct) return direct
 
   // 3. When running under sudo, check the original user's environment
-  const sudoUser = Deno.env.get('SUDO_USER')
+  const sudoUser = sanitizeSudoUser()
   if (sudoUser) {
     try {
       const cmd = new Deno.Command('su', {

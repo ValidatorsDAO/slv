@@ -4,14 +4,28 @@ import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { colors } from '@cliffy/colors'
 
 /**
+ * Validate SUDO_USER value to prevent path injection.
+ * Returns the sanitized username or undefined if invalid/absent.
+ */
+export function sanitizeSudoUser(): string | undefined {
+  const sudoUser = Deno.env.get('SUDO_USER')
+  if (!sudoUser) return undefined
+  if (!/^[a-zA-Z0-9._-]+$/.test(sudoUser)) {
+    console.log(colors.red('⚠️ Invalid SUDO_USER value — ignoring'))
+    return undefined
+  }
+  return sudoUser
+}
+
+/**
  * Resolve the real user's home directory.
  * When running under `sudo`, HOME points to /root but the API key
  * lives in the invoking user's home. Use SUDO_USER to find it.
  * Note: slv targets Linux servers only — uses /home/<user> convention.
  */
 export function resolveHome(): string {
-  const sudoUser = Deno.env.get('SUDO_USER')
-  if (sudoUser && /^[a-zA-Z0-9._-]+$/.test(sudoUser)) {
+  const sudoUser = sanitizeSudoUser()
+  if (sudoUser) {
     if (sudoUser === 'root') return '/root'
     return `/home/${sudoUser}`
   }
@@ -30,10 +44,11 @@ const getApiKeyFromYml = async (ignoreError = false) => {
   try {
     await Deno.stat(inventoryPath)
   } catch (_error) {
-    await Deno.mkdir(configDir, { recursive: true })
+    await Deno.mkdir(configDir, { recursive: true, mode: 0o700 })
     await Deno.writeTextFile(
       inventoryPath,
       defaultApiKeyYml(),
+      { mode: 0o600 },
     )
   }
   const inventory = await Deno.readTextFile(inventoryPath)
