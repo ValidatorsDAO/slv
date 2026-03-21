@@ -141,7 +141,7 @@ export const backupAction = async (options: {
 
   // --cron: set up cron job
   if (options.cron) {
-    await setupCron(options.cron, options.retention ?? 7)
+    await setupCron(options.cron, options.retention ?? 7, !!options.restic)
     if (!options.upload && !options.restic) return // cron-only mode
   }
 
