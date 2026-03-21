@@ -4,7 +4,7 @@ import { buildExcludeList } from '@/backup/excludes.ts'
 
 const RESTIC_PASSWORD_FILE_NAME = '.slv/restic-password'
 const RESTIC_REPO_HOST = 'user-api.erpc.global'
-const RESTIC_REPO_PATH = '/v3/storage/restic/'
+const RESTIC_REPO_PATH = '/v3/storage/restic'
 
 /**
  * NOTE on REST backend authentication:
