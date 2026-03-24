@@ -21,7 +21,8 @@
     "@/lib": "./lib/",
     "@cmn/": "../cmn/",
     "/": "./",
-    "@std/assert": "jsr:@std/assert@1"
+    "@std/assert": "jsr:@std/assert@1",
+    "openai": "https://deno.land/x/openai@v4.69.0/mod.ts"
   },
   "fmt": {
     "semiColons": false,
