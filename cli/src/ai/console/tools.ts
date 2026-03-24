@@ -267,7 +267,9 @@ ${skillMd ? skillMd + '\n' : ''}
 ## Working Environment
 - Home directory: ${home}
 - SLV CLI binary: \`slv\` (or \`${home}/slv\` if not in PATH)
-- Ansible templates: \`${home}/.slv/template/\`
+- Ansible templates: \`${home}/.slv/template/{version}/ansible/\` — templates are versioned!
+  - To find the latest version: \`ls -d ${home}/.slv/template/*/ | sort -V | tail -1\`
+  - Example: \`${home}/.slv/template/0.12.1/ansible/cmn/add_solv.yml\`
 - When reading/writing files, ALWAYS use absolute paths starting with ${home}.
 
 ## How you work
@@ -277,6 +279,8 @@ ${skillMd ? skillMd + '\n' : ''}
 - If you can execute commands, do so and report results.
 - Keep responses concise and structured for the main agent to relay to the user.
 - Do NOT run discovery commands (\`slv --help\`, \`ls\`, etc). You already know everything from SKILL.md.
+- Do NOT ask for expected_shred_version — it has sensible defaults in the playbooks.
+- Do NOT use markdown tables. Use plain text or bullet lists.
 - English only.
 `
 

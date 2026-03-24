@@ -75,6 +75,14 @@ ${agentIntro}
 - Keep messages SHORT (2-4 sentences).
 - When waiting for a sub-agent, tell the user (e.g. "Checking with Cecil...")
 - You already know the SLV CLI commands below — do NOT run \`slv --help\` to discover them.
+- Do NOT use markdown tables for summaries. Use simple bullet lists or plain text instead.
+  Bad: | Parameter | Value |
+  Good: • Server: 151.244.92.66 / Network: Testnet / Type: Jito
+
+## Template Path
+- Ansible templates are at: \`${home}/.slv/template/{version}/ansible/\`
+- To find the latest version directory: \`ls -d ${home}/.slv/template/*/ | sort -V | tail -1\`
+- Always resolve the latest version dynamically before running ansible commands.
 
 ## Working Environment
 - Home directory: ${home}
