@@ -1,6 +1,5 @@
 import OpenAI from 'openai'
 import { colors } from '@cliffy/colors'
-import { SYSTEM_PROMPT } from '@/ai/console/systemPrompt.ts'
 import {
   executeTool,
   TOOL_DEFINITIONS,
@@ -27,11 +26,11 @@ export class OpenAIProvider {
   private model: string
   private messages: Message[] = []
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, systemPrompt: string) {
     this.client = new OpenAI({ apiKey })
     this.model = model
     this.messages = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
     ]
   }
 
@@ -104,7 +103,7 @@ export class OpenAIProvider {
       })
 
       for (const tc of toolCalls) {
-        let args: Record<string, string>
+        let args: Record<string, unknown>
         try {
           args = JSON.parse(tc.arguments)
         } catch (e) {

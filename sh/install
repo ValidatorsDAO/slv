@@ -142,6 +142,29 @@ install_shreds_test() {
   echo "Shreds test binary installed in $HOME/.slv/bin/shreds_test"
 }
 
+install_skills() {
+  echo "Downloading AI agent skills..."
+  SKILLS_DIR="$HOME/.slv/skills"
+  mkdir -p "$SKILLS_DIR"
+  
+  SKILLS_REPO_URL="https://raw.githubusercontent.com/ValidatorsDAO/slv/main/dist/oss-skills"
+  
+  for SKILL in slv-validator slv-rpc slv-grpc-geyser; do
+    echo "Downloading $SKILL..."
+    SKILL_DIR="$SKILLS_DIR/$SKILL"
+    mkdir -p "$SKILL_DIR"
+    # Download key files
+    for FILE in AGENT.md SKILL.md README.md skill.json; do
+      curl -fsSL "$SKILLS_REPO_URL/$SKILL/$FILE" -o "$SKILL_DIR/$FILE" 2>/dev/null || true
+    done
+    # Download scripts
+    mkdir -p "$SKILL_DIR/scripts"
+    curl -fsSL "$SKILLS_REPO_URL/$SKILL/scripts/setup.sh" -o "$SKILL_DIR/scripts/setup.sh" 2>/dev/null || true
+  done
+  
+  echo "AI agent skills installed in $SKILLS_DIR"
+}
+
 # Main installation process
 main() {
   echo "Detecting platform..."
@@ -167,6 +190,9 @@ main() {
   
   # Install shreds test binary
   install_shreds_test
+  
+  # Install AI agent skills
+  install_skills
   
   # Clean up
   echo "✨ Cleaning up..."

@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { colors } from '@cliffy/colors'
-import { SYSTEM_PROMPT } from '@/ai/console/systemPrompt.ts'
 import {
   executeTool,
   TOOL_DEFINITIONS,
@@ -25,10 +24,12 @@ export class AnthropicProvider {
   private client: Anthropic
   private model: string
   private messages: MessageParam[] = []
+  private systemPrompt: string
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, systemPrompt: string) {
     this.client = new Anthropic({ apiKey })
     this.model = model
+    this.systemPrompt = systemPrompt
   }
 
   async chat(userMessage: string): Promise<void> {
@@ -38,7 +39,7 @@ export class AnthropicProvider {
       const stream = this.client.messages.stream({
         model: this.model,
         max_tokens: DEFAULT_MAX_TOKENS,
-        system: SYSTEM_PROMPT,
+        system: this.systemPrompt,
         messages: this.messages,
         tools: toAnthropicTools(TOOL_DEFINITIONS),
       })
@@ -47,7 +48,7 @@ export class AnthropicProvider {
       const toolUseBlocks: {
         id: string
         name: string
-        input: Record<string, string>
+        input: Record<string, unknown>
       }[] = []
 
       process.stdout.write(colors.rgb24('\n  ', 0x14f195))
@@ -66,7 +67,7 @@ export class AnthropicProvider {
           toolUseBlocks.push({
             id: block.id,
             name: block.name,
-            input: block.input as Record<string, string>,
+            input: block.input as Record<string, unknown>,
           })
         }
       }

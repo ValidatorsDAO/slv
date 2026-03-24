@@ -1,5 +1,6 @@
-import { Input, Secret, Select } from '@cliffy/prompt'
+import { Checkbox, Input, Secret, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
+import { stringify } from '@std/yaml'
 import { slvAA } from '/lib/slvAA.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import {
@@ -78,6 +79,12 @@ const printSecurityWarning = () => {
   console.log()
 }
 
+const SKILL_MAP: Record<string, { name: string; agent: string }> = {
+  'Solana Validator Operations': { name: 'slv-validator', agent: 'Cecil' },
+  'Index RPC Node Operations': { name: 'slv-rpc', agent: 'Tina' },
+  'gRPC Geyser Streaming': { name: 'slv-grpc-geyser', agent: 'Cloud' },
+}
+
 export const onboardAction = async () => {
   slvAA(denoJson.version)
 
@@ -154,11 +161,97 @@ export const onboardAction = async () => {
     model,
   })
 
+  // --- Agent setup ---
+  console.log(
+    colors.bold.rgb24('\n│  Agent Setup', 0x14f195),
+  )
+
+  const userName = await Input.prompt({
+    message: 'Your name',
+    validate: (v) => v.trim().length > 0 || 'Name is required',
+  })
+
+  const callMe = await Input.prompt({
+    message: 'What should the AI call you?',
+    default: userName,
+  })
+
+  const agentName = await Input.prompt({
+    message: 'Name your main AI agent',
+    default: 'SLV Agent',
+  })
+
+  const selectedOps: string[] = await Checkbox.prompt({
+    message: 'What will you be doing?',
+    options: [
+      { name: 'Solana Validator Operations', value: 'Solana Validator Operations', checked: true },
+      { name: 'Index RPC Node Operations', value: 'Index RPC Node Operations', checked: true },
+      { name: 'gRPC Geyser Streaming', value: 'gRPC Geyser Streaming', checked: true },
+      { name: '🔜 Build a Trade App', value: 'Build a Trade App' },
+    ],
+  })
+
+  // Handle Trade App selection
+  if (selectedOps.includes('Build a Trade App')) {
+    console.log(colors.yellow('  🔜 Trade App — Coming soon...\n'))
+  }
+
+  // Build config
+  const home = Deno.env.get('HOME') || ''
+  const agentDir = `${home}/.slv/agent`
+  await Deno.mkdir(agentDir, { recursive: true })
+
+  // USER.md
+  const userMd = `# USER.md
+- **Name:** ${userName}
+- **Call me:** ${callMe}
+`
+  await Deno.writeTextFile(`${agentDir}/USER.md`, userMd)
+
+  // SOUL.md
+  const soulMd = `# SOUL.md — Main Agent
+- **Name:** ${agentName}
+- **Role:** Commander — routes tasks to specialist sub-agents
+
+## Sub-Agents
+- **Cecil (セシル)** — Solana Validator specialist (slv-validator skill)
+- **Tina (ティナ)** — Index RPC Node specialist (slv-rpc skill)
+- **Cloud (クラウド)** — gRPC Geyser Streaming specialist (slv-grpc-geyser skill)
+
+## Behavior
+- Greet the user by their preferred name
+- Analyze user requests and delegate to the appropriate sub-agent
+- For validator tasks → delegate to Cecil
+- For RPC node tasks → delegate to Tina
+- For gRPC Geyser tasks → delegate to Cloud
+- Summarize sub-agent results for the user
+`
+  await Deno.writeTextFile(`${agentDir}/SOUL.md`, soulMd)
+
+  // MEMORY.md
+  const memoryMd = `# MEMORY.md
+Session history and important notes.
+`
+  await Deno.writeTextFile(`${agentDir}/MEMORY.md`, memoryMd)
+
+  // config.yml
+  const allSkillKeys = Object.keys(SKILL_MAP)
+  const skills = allSkillKeys.map((key) => ({
+    name: SKILL_MAP[key].name,
+    enabled: selectedOps.includes(key),
+    agent: SKILL_MAP[key].agent,
+  }))
+  const configYml = stringify({ skills } as Record<string, unknown>)
+  await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
+
   console.log(
     colors.bold.rgb24('\n│', 0x14f195),
   )
   console.log(
     colors.green('◇  AI configuration saved to ~/.slv/api.yml'),
+  )
+  console.log(
+    colors.green('◇  Agent files saved to ~/.slv/agent/'),
   )
   console.log(
     colors.bold.rgb24('│', 0x14f195),
@@ -168,6 +261,9 @@ export const onboardAction = async () => {
   )
   console.log(
     colors.white(`  Model:    ${colors.bold(model)}`),
+  )
+  console.log(
+    colors.white(`  Agent:    ${colors.bold(agentName)}`),
   )
   console.log(
     colors.bold.rgb24('│', 0x14f195),

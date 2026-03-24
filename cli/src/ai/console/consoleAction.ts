@@ -2,6 +2,7 @@ import { colors } from '@cliffy/colors'
 import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
+import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
 type Provider = OpenAIProvider | AnthropicProvider
@@ -62,11 +63,14 @@ export const consoleAction = async () => {
     ),
   )
 
+  // Build dynamic system prompt
+  const systemPrompt = await buildSystemPrompt()
+
   let provider: Provider
   if (config.provider === 'openai') {
-    provider = new OpenAIProvider(config.api_key, config.model)
+    provider = new OpenAIProvider(config.api_key, config.model, systemPrompt)
   } else {
-    provider = new AnthropicProvider(config.api_key, config.model)
+    provider = new AnthropicProvider(config.api_key, config.model, systemPrompt)
   }
 
   while (true) {
@@ -80,15 +84,22 @@ export const consoleAction = async () => {
     if (input === '') continue
 
     if (input === '/exit' || input === '/quit') {
+      // Auto-save memory
+      try {
+        await provider.chat(
+          'Session ending. If anything important happened in this session, update ~/.slv/agent/MEMORY.md using write_file. Keep it concise. If nothing notable happened, do nothing.',
+        )
+      } catch { /* ignore errors on exit */ }
       console.log(colors.rgb24('\n  Goodbye!\n', 0x888888))
       break
     }
 
     if (input === '/clear') {
+      const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
-        provider = new OpenAIProvider(config.api_key, config.model)
+        provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt)
       } else {
-        provider = new AnthropicProvider(config.api_key, config.model)
+        provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt)
       }
       console.log(
         colors.rgb24('  Conversation cleared.\n', 0x888888),
