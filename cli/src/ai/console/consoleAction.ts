@@ -364,8 +364,13 @@ export const consoleAction = async () => {
   checkSolanaReleases().then((updates) => {
     if (updates.length === 0) return
 
+    // Deduplicate for display only (all updates are applied)
+    const seen = new Set<string>()
     let msg = '🔄 New versions available:\n'
     for (const u of updates) {
+      const displayKey = `${u.component}-${u.network}-${u.latest}`
+      if (seen.has(displayKey)) continue
+      seen.add(displayKey)
       msg += `  • ${u.component} (${u.network}): ${u.current} → ${u.latest}\n`
     }
     msg += '\nType /update to apply, or ignore to keep current versions.'

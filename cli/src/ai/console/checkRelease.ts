@@ -174,14 +174,9 @@ export async function checkSolanaReleases(): Promise<VersionUpdate[]> {
     }
   }
 
-  // Deduplicate by component+network (show only unique updates)
-  const seen = new Set<string>()
-  return updates.filter(u => {
-    const key = `${u.component}-${u.network}-${u.latest}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  // Deduplicate display but keep all field updates for apply
+  // Return all updates (applyVersionUpdates needs every field)
+  return updates
 }
 
 // Apply updates to versions.yml
