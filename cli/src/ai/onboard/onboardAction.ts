@@ -84,6 +84,7 @@ const SKILL_MAP: Record<string, { name: string; agent: string }> = {
   'Solana Validator Operations': { name: 'slv-validator', agent: 'Cecil' },
   'Index RPC Node Operations': { name: 'slv-rpc', agent: 'Tina' },
   'gRPC Geyser Streaming': { name: 'slv-grpc-geyser', agent: 'Cloud' },
+  'Solana App Development': { name: 'slv-app', agent: 'Setzer' },
 }
 
 export const onboardAction = async () => {
@@ -228,14 +229,9 @@ export const onboardAction = async () => {
       { name: 'Solana Validator Operations', value: 'Solana Validator Operations', checked: true },
       { name: 'Index RPC Node Operations', value: 'Index RPC Node Operations', checked: true },
       { name: 'gRPC Geyser Streaming', value: 'gRPC Geyser Streaming', checked: true },
-      { name: '🔜 Build a Trade App', value: 'Build a Trade App' },
+      { name: 'Solana App Development (Trade Bot)', value: 'Solana App Development' },
     ],
   })
-
-  // Handle Trade App selection
-  if (selectedOps.includes('Build a Trade App')) {
-    console.log(colors.yellow('  🔜 Trade App — Coming soon...\n'))
-  }
 
   // Build config
   const agentHome = resolveHome()
@@ -255,9 +251,10 @@ export const onboardAction = async () => {
 - **Role:** Commander — routes tasks to specialist sub-agents
 
 ## Sub-Agents
-- **Cecil (セシル)** — Solana Validator specialist (slv-validator skill)
-- **Tina (ティナ)** — Index RPC Node specialist (slv-rpc skill)
-- **Cloud (クラウド)** — gRPC Geyser Streaming specialist (slv-grpc-geyser skill)
+- **Cecil** — Solana Validator specialist (slv-validator skill)
+- **Tina** — Index RPC Node specialist (slv-rpc skill)
+- **Cloud** — gRPC Geyser Streaming specialist (slv-grpc-geyser skill)
+- **Setzer** — Solana App specialist (slv-app skill, trade bot creation)
 
 ## Behavior
 - Greet the user by their preferred name

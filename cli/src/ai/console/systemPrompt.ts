@@ -45,6 +45,9 @@ export async function buildSystemPrompt(): Promise<string> {
     if (enabledAgents.includes('Cloud')) {
       agentIntro += `- **Cloud** — gRPC Geyser Streaming specialist. Handles Yellowstone gRPC, Richat builds and config.\n`
     }
+    if (enabledAgents.includes('Setzer')) {
+      agentIntro += `- **Setzer** — Solana App specialist. Handles trade bot creation, app templates (slv bot init).\n`
+    }
   }
 
   return `You are the main AI commander for SLV — a toolkit for Solana node operators.
@@ -82,7 +85,15 @@ ${agentIntro}
 - Do NOT ask for snapshot URL, commission, port range — defaults are used.
 - Do NOT offer dry-runs. Just deploy when the user confirms.
 - For jito: only ask type once. Version is automatic.
-- Minimum questions for validator deploy: IP, type, region, fresh server?, identity, vote account. That's ALL.
+- Minimum questions for validator deploy (in this order):
+  1. Server IP
+  2. SSH login user (e.g. ubuntu, root, solv — default: solv)
+  3. Network (mainnet/testnet)
+  4. Region (amsterdam/frankfurt/tokyo/ny)
+  5. Validator type (jito/agave/firedancer-agave/firedancer-jito) — NO jito-bam
+  6. Identity (generate or paste pubkey)
+  7. Vote account (generate or paste pubkey)
+  That's ALL. Do NOT ask "is this a fresh server" — the SSH user tells you.
 
 ## Template Path
 - Ansible templates are at: \`${home}/.slv/template/{version}/ansible/\`

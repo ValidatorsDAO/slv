@@ -22,6 +22,7 @@ const AGENT_SKILL_MAP: Record<string, string> = {
   'Cecil': 'slv-validator',
   'Tina': 'slv-rpc',
   'Cloud': 'slv-grpc-geyser',
+  'Setzer': 'slv-app',
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -292,14 +293,15 @@ ${skillMd ? skillMd + '\n' : ''}
    \`\`\`
    Use the agave version from versions.yml.
 
-### Asking the user — minimum questions only
+### Asking the user — minimum questions only (in this order)
 For validator deploy, ask the main agent to collect ONLY:
 1. Server IP
-2. Validator type: jito / agave / firedancer-agave / firedancer-jito
-3. Region: amsterdam / frankfurt / tokyo / ny
-4. Fresh server? (ubuntu user or solv user already exists)
-5. Identity: existing pubkey or "generate"
-6. Vote account: existing pubkey or "generate"
+2. SSH login user (e.g. ubuntu, root, solv — default: solv)
+3. Network: mainnet / testnet
+4. Region: amsterdam / frankfurt / tokyo / ny
+5. Validator type: jito / agave / firedancer-agave / firedancer-jito (NO jito-bam)
+6. Identity: existing pubkey or "generate"
+7. Vote account: existing pubkey or "generate"
 
 Do NOT ask for version — read from versions.yml and show as default.
 Do NOT ask for snapshot URL, commission, port range — use defaults.
@@ -349,11 +351,15 @@ slv v deploy -n <testnet|mainnet> -p <identity_pubkey>
 \`\`\`
 Always use -n and -p flags. NEVER run \`slv v deploy\` without them.
 
-### Validator types (for user selection)
+### Validator types (for user selection — NO jito-bam)
 - jito — Jito MEV client
 - agave — Standard Agave validator
 - firedancer-agave — Firedancer with Agave consensus
 - firedancer-jito — Firedancer with Jito consensus
+
+### Ansible execution
+When running ansible-playbook or slv v deploy, use run_command. The user will see the output in real-time.
+For long-running commands, this is expected behavior — the command output streams to the terminal.
 `
 
   // Read AI config
