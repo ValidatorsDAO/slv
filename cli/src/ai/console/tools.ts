@@ -38,6 +38,7 @@ const AGENT_SKILL_MAP: Record<string, string> = {
   'Tina': 'slv-rpc',
   'Cloud': 'slv-grpc-geyser',
   'Setzer': 'slv-app',
+  'Figaro': 'slv-server-procurement',
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -128,13 +129,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'delegate_to_agent',
     description:
-      'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for RPC tasks, Cloud for gRPC Geyser tasks.',
+      'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for ALL RPC tasks (Index RPC, gRPC Geyser, combo), Setzer for app/bot tasks, Figaro for server procurement.',
     parameters: {
       type: 'object',
       properties: {
         agent: {
           type: 'string',
-          description: 'Sub-agent name: Cecil, Tina, or Cloud',
+          description: 'Sub-agent name: Cecil, Tina, Setzer, or Figaro',
         },
         task: {
           type: 'string',
@@ -380,9 +381,11 @@ async function executeCallMcp(
 }
 
 async function executeDelegateToAgent(agentName: string, task: string): Promise<string> {
-  const skillName = AGENT_SKILL_MAP[agentName]
+  // Cloud is now handled by Tina (RPC specialist covers all RPC types including gRPC)
+  const effectiveName = agentName === 'Cloud' ? 'Tina' : agentName
+  const skillName = AGENT_SKILL_MAP[effectiveName]
   if (!skillName) {
-    return `Unknown agent: ${agentName}. Available agents: Cecil, Tina, Cloud`
+    return `Unknown agent: ${agentName}. Available agents: Cecil, Tina, Setzer, Figaro`
   }
 
   const home = resolveHome()
@@ -398,7 +401,15 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
     skillMd = await Deno.readTextFile(`${skillsDir}/${skillName}/SKILL.md`)
   } catch { /* skill file not found */ }
 
-  const subSystemPrompt = `You are ${agentName}, a backend specialist sub-agent for SLV.
+  // Tina also reads gRPC Geyser skill for comprehensive RPC knowledge
+  if (effectiveName === 'Tina') {
+    try {
+      const grpcSkill = await Deno.readTextFile(`${skillsDir}/slv-grpc-geyser/SKILL.md`)
+      skillMd += `\n\n## Additional Skill: gRPC Geyser\n${grpcSkill}`
+    } catch { /* gRPC skill not installed */ }
+  }
+
+  const subSystemPrompt = `You are ${effectiveName}, a backend specialist sub-agent for SLV.
 You do NOT talk to the user directly. You report back to the main agent only.
 
 ${agentMd ? agentMd + '\n' : ''}

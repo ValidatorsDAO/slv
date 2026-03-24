@@ -1,0 +1,8 @@
+{
+  "name": "slv-server-procurement",
+  "version": "1.0.0",
+  "description": "Server procurement and provisioning management for SLV",
+  "agent": "Figaro",
+  "author": "ELSOUL LABO B.V.",
+  "tags": ["server", "procurement", "baremetal", "vps", "stripe"]
+}
