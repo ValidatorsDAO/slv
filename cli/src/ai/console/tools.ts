@@ -244,10 +244,7 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
     return `Unknown agent: ${agentName}. Available agents: Cecil, Tina, Cloud`
   }
 
-  console.log(
-    '\n' + colors.yellow(`  Delegating to ${agentName}...`),
-  )
-
+  // No console output — sub-agent works silently in the background
   const home = resolveHome()
   const skillsDir = `${home}/.slv/skills`
 
@@ -261,7 +258,8 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
     skillMd = await Deno.readTextFile(`${skillsDir}/${skillName}/SKILL.md`)
   } catch { /* skill file not found */ }
 
-  const subSystemPrompt = `You are ${agentName}, a specialist sub-agent for SLV.
+  const subSystemPrompt = `You are ${agentName}, a backend specialist sub-agent for SLV.
+You do NOT talk to the user directly. You report back to the main agent only.
 
 ${agentMd ? agentMd + '\n' : ''}
 ${skillMd ? skillMd + '\n' : ''}
@@ -269,31 +267,17 @@ ${skillMd ? skillMd + '\n' : ''}
 ## Working Environment
 - Home directory: ${home}
 - SLV CLI binary: \`slv\` (or \`${home}/slv\` if not in PATH)
-- Ansible templates: \`${home}/.slv/template/\` (downloaded during install)
-- Skill files: \`${home}/.slv/skills/${skillName}/\`
-- Agent config: \`${home}/.slv/agent/\`
-- Use \`slv\` CLI commands — do NOT run \`slv --help\` to discover them, you already know them from SKILL.md.
-- Ansible playbooks are accessed via slv CLI — do NOT look for ansible/ in the skills directory.
+- Ansible templates: \`${home}/.slv/template/\`
 - When reading/writing files, ALWAYS use absolute paths starting with ${home}.
 
-## Interactive Deployment Flow — ONE QUESTION AT A TIME
-When a user asks to deploy/init a validator or RPC node:
-- Ask **ONE question at a time**, wait for the answer, then ask the next.
-- Do NOT dump all questions at once. Do NOT show tables of all options at once.
-- Keep each message SHORT (2-4 sentences max).
-- Example flow:
-  1. "What's the target server IP?" → wait
-  2. "Mainnet or testnet?" → wait
-  3. "Which validator type? (jito / agave / firedancer-agave / firedancer-jito)" → wait
-  4. etc.
-- After collecting all info, run \`slv v init\` or \`slv r init\`
-
-## STRICT Rules
-- **Language**: English ONLY. Never use Japanese characters (セシル, ティナ, etc). Not even in parentheses.
-- **Brevity**: Keep responses under 5 sentences. No markdown tables unless the user asks.
-- **No exploration**: Do NOT run \`slv --help\`, \`ls\`, or any discovery commands. You already know everything from SKILL.md.
-- Complete the assigned task using available tools.
-- For destructive operations, always warn via run_command (user will confirm).
+## How you work
+- You receive a task from the main agent.
+- You analyze it using your SKILL.md knowledge.
+- If you need information from the user, tell the main agent WHAT to ask (do NOT ask the user directly).
+- If you can execute commands, do so and report results.
+- Keep responses concise and structured for the main agent to relay to the user.
+- Do NOT run discovery commands (\`slv --help\`, \`ls\`, etc). You already know everything from SKILL.md.
+- English only.
 `
 
   // Read AI config
@@ -358,9 +342,6 @@ async function runAnthropicSubAgent(
     messages.push({ role: 'assistant', content: response.content })
 
     if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
-      if (textContent) {
-        console.log(colors.rgb24(`\n  [${toolUseBlocks.length === 0 ? 'Sub-agent' : 'Sub-agent final'}]: `, 0x888888) + colors.white(textContent))
-      }
       return textContent || '(no response from sub-agent)'
     }
 
@@ -418,11 +399,7 @@ async function runOpenAISubAgent(
     messages.push(assistantMessage as Message)
 
     if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-      const text = assistantMessage.content || ''
-      if (text) {
-        console.log(colors.rgb24('\n  [Sub-agent]: ', 0x888888) + colors.white(text))
-      }
-      return text || '(no response from sub-agent)'
+      return assistantMessage.content || '(no response from sub-agent)'
     }
 
     // Execute tools
