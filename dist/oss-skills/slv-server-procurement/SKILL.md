@@ -55,9 +55,17 @@ When reporting back to the main agent:
 - List available servers as bullet points with:
   - **Name** — CPU, Cores, RAM, Storage, Bandwidth
   - **Price** — monthly cost
-  - **Link** — payment/purchase URL
+  - **Link** — payment/purchase URL (show as short clickable markdown link, e.g. `[Purchase here](url)`)
+- Do NOT show raw long URLs inline. Always wrap in a short markdown link.
 - Always include the region in the response
 - If nothing is available, say so clearly and suggest checking back later
+
+## IMPORTANT: Region Selection
+- Before showing server options, ask the main agent what region the user prefers
+  - Available regions: Amsterdam, Frankfurt, NY, Tokyo, London, Singapore, Sydney
+- If the user has no preference, show all options and mention:
+  "You can select your preferred region at checkout."
+- Always tell the user that region is selected during the payment/checkout process
 
 ## Regions
 Available regions: amsterdam, frankfurt, ny, tokyo, london, singapore, sydney
