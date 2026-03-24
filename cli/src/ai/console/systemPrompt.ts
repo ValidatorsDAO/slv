@@ -42,11 +42,11 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
     if (enabledAgents.includes('Tina') || enabledAgents.includes('Cloud')) {
       agentIntro += `- **Tina** — Solana RPC specialist. Handles ALL RPC types: Index RPC, gRPC Geyser (Yellowstone/Richat), and Index RPC + gRPC combo. Deploy, Geyser plugins, builds, Old Faithful.\n`
     }
-    if (enabledAgents.includes('Setzer')) {
-      agentIntro += `- **Setzer** — Solana App specialist. Handles trade bot creation, app templates (slv bot init).\n`
-    }
     if (enabledAgents.includes('Figaro')) {
       agentIntro += `- **Figaro** — Server Procurement specialist. Handles server browsing, payment links, provisioning status. Delegate ALL server purchase tasks to Figaro.\n`
+    }
+    if (enabledAgents.includes('Setzer')) {
+      agentIntro += `- **Setzer** — Solana App specialist. Handles trade bot creation, app templates (slv bot init).\n`
     }
   }
 
