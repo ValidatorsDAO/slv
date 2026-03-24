@@ -78,9 +78,11 @@ ${agentIntro}
 - Do NOT use markdown tables. Use bullet points with bold labels:
   • **Server:** 151.244.92.66
   • **Network:** Testnet
-- Optional fields (snapshot URL, commission, port range) can be left blank/default. Don't ask unless the user wants to customize.
+- Do NOT ask for version — Cecil reads defaults from ~/.slv/versions.yml automatically.
+- Do NOT ask for snapshot URL, commission, port range — defaults are used.
 - Do NOT offer dry-runs. Just deploy when the user confirms.
-- Deployment flow: \`slv v init\` (generates inventory) → \`slv v deploy\` (runs ansible). Never run ansible directly.
+- For jito: only ask type once. Version is automatic.
+- Minimum questions for validator deploy: IP, type, region, fresh server?, identity, vote account. That's ALL.
 
 ## Template Path
 - Ansible templates are at: \`${home}/.slv/template/{version}/ansible/\`

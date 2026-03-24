@@ -285,62 +285,81 @@ ${skillMd ? skillMd + '\n' : ''}
 - English only.
 
 ## CRITICAL: Deployment Flow
-The \`slv v init\` command is interactive (prompts user) — do NOT run it directly.
-Instead, generate the inventory YAML file yourself, then run \`slv v deploy\`.
 
-### Step 1: Generate inventory YAML
-Use write_file to create the inventory at \`${home}/.slv/inventory.testnet.validators.yml\` (or mainnet).
+### Pre-requisites
+1. Read \`${home}/.slv/versions.yml\` FIRST to get default versions for the selected network/type.
+   - For jito on testnet: use \`testnet_validators.version_jito\` (e.g. "4.0.0-beta.2-jito")
+   - For agave on mainnet: use \`mainnet_validators.version_agave\`
+   - etc.
+2. Check if \`solana-keygen\` (or \`agave-keygen\`) exists. If not, install:
+   \`\`\`
+   sh -c "$(curl -sSfL https://release.anza.xyz/v<agave_version>/install)"
+   export PATH="${home}/.local/share/solana/install/active_release/bin:$PATH"
+   \`\`\`
+   Use the agave version from versions.yml.
 
-Testnet inventory template:
+### Asking the user — minimum questions only
+For validator deploy, ask the main agent to collect ONLY:
+1. Server IP
+2. Validator type: jito / agave / firedancer-agave / firedancer-jito
+3. Region: amsterdam / frankfurt / tokyo / ny
+4. Fresh server? (ubuntu user or solv user already exists)
+5. Identity: existing pubkey or "generate"
+6. Vote account: existing pubkey or "generate"
+
+Do NOT ask for version — read from versions.yml and show as default.
+Do NOT ask for snapshot URL, commission, port range — use defaults.
+
+### Step 1: Generate keys (if "generate")
+\`\`\`
+mkdir -p ${home}/.slv/keys
+solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-identity.json
+solana-keygen pubkey ${home}/.slv/keys/<name>-identity.json
+solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-vote.json
+solana-keygen pubkey ${home}/.slv/keys/<name>-vote.json
+solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-authority.json
+solana-keygen pubkey ${home}/.slv/keys/<name>-authority.json
+\`\`\`
+
+### Step 2: Write inventory YAML
+Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
+
 \`\`\`yaml
-testnet_validators:
+<network>_validators:
   hosts:
     <identity_pubkey>:
       name: <identity_pubkey>
       ansible_host: <server_ip>
-      ansible_user: <ssh_user>
+      ansible_user: solv
       ansible_ssh_private_key_file: ~/.ssh/id_rsa
       identity_account: <identity_pubkey>
       vote_account: <vote_pubkey>
       authority_account: <authority_pubkey>
-      validator_type: <jito|agave|firedancer-agave|firedancer-jito>
-      region: <amsterdam|frankfurt|tokyo|ny>
+      validator_type: <type>
+      region: <region>
       snapshot_url: ""
       commission_bps: 0
       dynamic_port_range: "8900-8925"
       port_rpc: 7211
 \`\`\`
 
-Mainnet uses \`mainnet_validators\` key and file \`inventory.mainnet.validators.yml\`.
-
-If identity/vote keys need generating, run:
-\`\`\`
-solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-identity.json
-solana-keygen pubkey ${home}/.slv/keys/<name>-identity.json
-\`\`\`
-
-### Step 2: Create solv user (fresh servers only)
+### Step 3: Create solv user (fresh servers only)
 \`\`\`
 TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
-ansible-playbook -i '${home}/.slv/inventory.testnet.validators.yml' \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"ubuntu"}' --become --limit <identity_pubkey>
+ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"ubuntu"}' --become --limit <identity_pubkey>
 \`\`\`
 
-### Step 3: Deploy
+### Step 4: Deploy
 \`\`\`
 slv v deploy -n <testnet|mainnet> -p <identity_pubkey>
 \`\`\`
+Always use -n and -p flags. NEVER run \`slv v deploy\` without them.
 
-### Validator types (offer to user)
-- jito — Jito MEV client (recommended for mainnet)
+### Validator types (for user selection)
+- jito — Jito MEV client
 - agave — Standard Agave validator
 - firedancer-agave — Firedancer with Agave consensus
 - firedancer-jito — Firedancer with Jito consensus
-
-### Optional fields (use defaults, don't ask)
-- snapshot_url: leave empty — auto-detected
-- commission_bps: 0
-- dynamic_port_range: "8900-8925"
-- port_rpc: 7211
 `
 
   // Read AI config
