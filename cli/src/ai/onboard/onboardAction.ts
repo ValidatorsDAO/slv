@@ -1,6 +1,6 @@
 import { Checkbox, Input, Secret, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
-import { stringify } from '@std/yaml'
+import { parse, stringify } from '@std/yaml'
 import { slvAA } from '/lib/slvAA.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import {
@@ -9,6 +9,7 @@ import {
   OPENAI_MODELS,
   writeAiConfig,
 } from '@/ai/config.ts'
+import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
 
 const printSecurityWarning = () => {
   const w = 72
@@ -105,6 +106,47 @@ export const onboardAction = async () => {
   if (accepted !== 'yes') {
     console.log(colors.yellow('\n  Setup cancelled.\n'))
     return
+  }
+
+  // Check for existing SLV API key
+  const home = resolveHome()
+  const apiYmlPath = `${home}/.slv/api.yml`
+  let hasSlvKey = false
+  try {
+    const raw = await Deno.readTextFile(apiYmlPath)
+    const yml = parse(raw) as { slv?: { api_key?: string } } | null
+    hasSlvKey = !!(yml?.slv?.api_key && isValidApiKey(String(yml.slv.api_key)))
+  } catch { /* file doesn't exist yet */ }
+
+  if (!hasSlvKey) {
+    console.log(
+      colors.bold.rgb24('│  SLV API Key', 0x14f195),
+    )
+    console.log(
+      colors.white(
+        `  Get your free API key: https://discord.gg/S2gEbJTGJA\n`,
+      ),
+    )
+
+    const slvApiKey = await Secret.prompt({
+      message: '🔑 SLV API Key (or press Enter to skip)',
+    })
+
+    if (slvApiKey && slvApiKey.trim().length > 0) {
+      await Deno.mkdir(`${home}/.slv`, { recursive: true })
+      // Read existing or create new
+      let existing: Record<string, unknown> = {}
+      try {
+        const content = await Deno.readTextFile(apiYmlPath)
+        existing = (parse(content) as Record<string, unknown>) ?? {}
+      } catch { /* file doesn't exist */ }
+      existing.slv = { api_key: slvApiKey.trim() }
+      await Deno.writeTextFile(apiYmlPath, stringify(existing))
+      await Deno.chmod(apiYmlPath, 0o600)
+      console.log(colors.green('  ✔ SLV API Key saved.\n'))
+    } else {
+      console.log(colors.rgb24('  Skipped. You can run `slv login` later.\n', 0x888888))
+    }
   }
 
   const provider: string = await Select.prompt({
