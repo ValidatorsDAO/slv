@@ -1,4 +1,4 @@
-import { Confirm, Input, Secret, Select } from '@cliffy/prompt'
+import { Input, Secret, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { slvAA } from '/lib/slvAA.ts'
 import denoJson from '/deno.json' with { type: 'json' }
@@ -87,12 +87,15 @@ export const onboardAction = async () => {
 
   printSecurityWarning()
 
-  const accepted = await Confirm.prompt({
+  const accepted = await Select.prompt({
     message: 'I understand this is powerful and inherently risky. Continue?',
-    default: false,
+    options: [
+      { name: 'Yes', value: 'yes' },
+      { name: 'No', value: 'no' },
+    ],
   })
 
-  if (!accepted) {
+  if (accepted !== 'yes') {
     console.log(colors.yellow('\n  Setup cancelled.\n'))
     return
   }
