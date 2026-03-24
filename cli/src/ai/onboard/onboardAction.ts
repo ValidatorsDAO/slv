@@ -285,6 +285,32 @@ Session history and important notes.
   const configYml = stringify({ skills } as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
 
+  // --- Notifications (optional) ---
+  console.log(
+    colors.bold.rgb24('\n│  Notifications (optional)', 0x14f195),
+  )
+
+  const discordWebhook = await Input.prompt({
+    message: 'Discord Webhook URL for notifications (Enter to skip)',
+    default: '',
+  })
+
+  if (discordWebhook && discordWebhook.trim().length > 0) {
+    // Save to api.yml preserving existing content
+    const apiYmlPath = `${agentHome}/.slv/api.yml`
+    let existing: Record<string, unknown> = {}
+    try {
+      const content = await Deno.readTextFile(apiYmlPath)
+      existing = (parse(content) as Record<string, unknown>) ?? {}
+    } catch { /* file doesn't exist */ }
+    existing.notifications = { discord_webhook: discordWebhook.trim() }
+    await Deno.writeTextFile(apiYmlPath, stringify(existing))
+    await Deno.chmod(apiYmlPath, 0o600)
+    console.log(colors.green('  ✔ Discord Webhook saved to ~/.slv/api.yml\n'))
+  } else {
+    console.log(colors.rgb24('  Skipped.\n', 0x888888))
+  }
+
   console.log(
     colors.bold.rgb24('\n│', 0x14f195),
   )
