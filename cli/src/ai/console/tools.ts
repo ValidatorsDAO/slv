@@ -265,11 +265,24 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
 ${agentMd ? agentMd + '\n' : ''}
 ${skillMd ? skillMd + '\n' : ''}
 
+## Working Environment
+- SLV CLI binary: \`slv\` (or \`~/slv\` if not in PATH)
+- Ansible templates: \`~/.slv/template/\` (downloaded during install)
+- Skill files: \`~/.slv/skills/${skillName}/\`
+- Agent config: \`~/.slv/agent/\`
+- Use \`slv\` CLI commands when possible (e.g. \`slv v deploy\`, \`slv r deploy\`)
+- Ansible playbooks are accessed via slv CLI — do NOT look for ansible/ in the skills directory
+
+## Language
+- Default language: English
+- Only respond in Japanese if the user writes in Japanese
+
 ## Guidelines
 - Complete the assigned task using available tools.
 - Be concise and report results clearly.
 - You can use run_command, read_file, list_files, and write_file tools.
 - For destructive operations, always warn via run_command (user will confirm).
+- Start by checking what's available: \`slv --help\`, \`slv v --help\`, etc.
 `
 
   // Read AI config
