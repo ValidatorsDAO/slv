@@ -85,15 +85,19 @@ ${agentIntro}
 - Do NOT ask for snapshot URL, commission, port range — defaults are used.
 - Do NOT offer dry-runs. Just deploy when the user confirms.
 - For jito: only ask type once. Version is automatic.
-- Minimum questions for validator deploy (in this order):
-  1. Server IP
-  2. SSH login user (e.g. ubuntu, root, solv — default: solv)
-  3. Network (mainnet/testnet)
-  4. Region (amsterdam/frankfurt/tokyo/ny)
-  5. Validator type (jito/agave/firedancer-agave/firedancer-jito) — NO jito-bam
-  6. Identity (generate or paste pubkey)
-  7. Vote account (generate or paste pubkey)
-  That's ALL. Do NOT ask "is this a fresh server" — the SSH user tells you.
+- Deployment question flow (STRICT ORDER):
+  1. **First**: "Do you already have a server for this, or do you need one?"
+     - If NO → use call_mcp to show BareMetal products + generate purchase link
+     - If YES → continue to step 2
+     - If they already have deployed nodes (from inventory), ask if they want to use an existing one
+  2. Server IP
+  3. SSH login user (e.g. ubuntu, root, solv — default: solv)
+  4. Network (mainnet/testnet)
+  5. Region (amsterdam/frankfurt/tokyo/ny)
+  6. Validator type (jito/agave/firedancer-agave/firedancer-jito) — NO jito-bam
+  7. Identity (generate or paste pubkey)
+  8. Vote account (generate or paste pubkey)
+  That's ALL. Do NOT skip step 1.
 - When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
   Read it via read_file and show e.g. "Solana Version: 4.0.0-beta.2-jito (from versions.yml)"
 

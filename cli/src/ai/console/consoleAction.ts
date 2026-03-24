@@ -312,10 +312,28 @@ export const consoleAction = async () => {
       tui.requestRender()
     },
     onToolCall: (name: string, detail: string) => {
-      if (loader) {
-        chatLog.removeChild(loader)
-        loader.stop()
-        loader = null
+      // For delegate_to_agent, keep the loader spinning — sub-agent is working
+      if (name === 'delegate_to_agent') {
+        // Update loader text to show which agent is working
+        try {
+          const parsed = JSON.parse(detail)
+          const agentName = parsed.agent || 'sub-agent'
+          if (loader) {
+            chatLog.removeChild(loader)
+            loader.stop()
+          }
+          loader = new Loader(`${agentName} is working...`)
+          chatLog.addChild(loader)
+          loader.start()
+        } catch {
+          // keep existing loader
+        }
+      } else {
+        if (loader) {
+          chatLog.removeChild(loader)
+          loader.stop()
+          loader = null
+        }
       }
       chatLog.addTool(name, detail)
       tui.requestRender()
