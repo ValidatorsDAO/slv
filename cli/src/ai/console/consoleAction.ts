@@ -354,7 +354,14 @@ export const consoleAction = async () => {
           const match = detail.match(/"agent"\s*:\s*"([^"]+)"/)
           if (match) agentName = match[1]
         }
-        loader = new Loader(tui, (s: string) => chalk.hex('#14f195')(s), (s: string) => chalk.gray(s), `${agentName} is working...`)
+        const loaderMessages: Record<string, string> = {
+          'Figaro': 'Figaro is searching for the best server...',
+          'Cecil': 'Cecil is preparing the deployment...',
+          'Tina': 'Tina is configuring the RPC setup...',
+          'Setzer': 'Setzer is crafting your app...',
+        }
+        const loaderMsg = loaderMessages[agentName] || `${agentName} is working...`
+        loader = new Loader(tui, (s: string) => chalk.hex('#14f195')(s), (s: string) => chalk.gray(s), loaderMsg)
         chatLog.addChild(loader)
         loader.start()
       } else {

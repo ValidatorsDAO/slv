@@ -194,10 +194,13 @@ You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
 - call_mcp(tool_name="get_user_dashboard") — Full dashboard data
 
 ### BareMetal Servers
-- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "MV"}) — List MV validator servers (has Stripe paymentLink!)
-- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "MR"}) — List MR RPC servers (has Stripe paymentLink!)
-  - Response includes paymentLink (pay.erpc.global) — show this directly to user for purchase
-  - Do NOT use get_baremetal_list_public_node_type (Discord links only, not useful)
+- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "APP"}) — Testnet validators, dev, apps
+- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "MV"}) — Mainnet validators
+- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "RPC"}) — RPC nodes (Index RPC, gRPC Geyser)
+  - Testnet validator → serverType "APP" (NOT "MV")
+  - Mainnet validator → serverType "MV"
+  - RPC → serverType "RPC"
+  - Response includes paymentLink — strip everything after # before showing to user
 - call_mcp(tool_name="get_baremetal_availability") — Your available (unassigned) subscriptions
 - call_mcp(tool_name="get_baremetal_status") — Your BareMetal status
 
