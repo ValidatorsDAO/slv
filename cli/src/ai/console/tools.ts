@@ -559,33 +559,29 @@ Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
       port_rpc: 7211
 \`\`\`
 
-### Step 3: SSH connection test + solv user setup (MANDATORY before deploy)
-This step is CRITICAL. Fresh servers only have the cloud provider's default user (e.g. ubuntu, root).
-You MUST verify SSH connectivity and create the solv user before deploying.
+## ⛔ STOP — READ THIS FIRST ⛔
+Before doing ANYTHING else (even before generating keys or writing inventory), you MUST:
 
-**3a. Test SSH connectivity:**
+### Step 0: SSH connection test (THE VERY FIRST THING YOU DO)
 \`\`\`
 ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <ssh_user>@<server_ip> 'echo SSH_OK'
 \`\`\`
-- If this fails → report the error to the main agent. Do NOT proceed.
-- Default SSH user for fresh servers: ubuntu (most providers), root (some providers)
-- Ask the main agent to confirm the SSH user if unsure.
+- Try the SSH user provided (e.g. ubuntu, root, solv)
+- If SSH fails → STOP EVERYTHING. Report the error: "Cannot connect to server. Check SSH access."
+- Do NOT generate keys, write inventory, or run ansible if SSH fails.
+- Default SSH user for fresh servers: ubuntu (most), root (some)
 
-**3b. Create solv user (if SSH works and ansible_user is NOT solv):**
+### Step 0b: Create solv user (if ssh_user is NOT already solv)
 \`\`\`
 TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
-ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"<ssh_user>"}' -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become --limit <identity_pubkey>
+ansible-playbook -i <temp_inventory> \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"<ssh_user>"}' -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become --limit <server_ip>
 \`\`\`
-- This creates the solv user, sets up SSH keys, and configures sudo.
-- After this, all subsequent commands use \`ansible_user: solv\`.
+Then verify: \`ssh -o StrictHostKeyChecking=accept-new solv@<server_ip> 'echo SOLV_OK'\`
+If solv fails → STOP. Report the error.
 
-**3c. Verify solv user works:**
-\`\`\`
-ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 solv@<server_ip> 'echo SOLV_OK'
-\`\`\`
-- If this fails → the add_solv playbook had an issue. Report the error.
+Only after Step 0 succeeds, proceed to Step 1 (keys), Step 2 (inventory), Step 3 (deploy).
 
-### Step 4: Deploy
+### Step 3: Deploy
 Do NOT use \`slv v deploy\` — it has an interactive confirm prompt that hangs.
 Instead, run ansible-playbook directly:
 \`\`\`
@@ -647,7 +643,7 @@ async function runAnthropicSubAgent(
   type MessageParam = Anthropic.MessageParam
   const messages: MessageParam[] = [{ role: 'user', content: task }]
 
-  const MAX_ITERATIONS = 10
+  const MAX_ITERATIONS = 20
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.messages.create({
       model,
@@ -717,7 +713,7 @@ async function runOpenAISubAgent(
     { role: 'user', content: task },
   ]
 
-  const MAX_ITERATIONS = 10
+  const MAX_ITERATIONS = 20
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.chat.completions.create({
       model,
