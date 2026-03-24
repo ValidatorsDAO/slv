@@ -287,10 +287,31 @@ export const consoleAction = async () => {
   // Store TUI reference for tools.ts suspend/resume
   setTuiInstance(tui)
 
-  // Stream command output lines to TUI
+  // Stream command output lines to TUI — filter out table borders and limit line count
+  let cmdOutputCount = 0
+  const MAX_CMD_OUTPUT_LINES = 50
   setCommandOutputCallback((line: string) => {
-    chatLog.addSystem(`  ${line}`)
-    tui.requestRender()
+    // Skip table border lines that break TUI rendering
+    if (/^[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]+$/.test(line.trim())) return
+    // Skip empty or whitespace-only lines
+    if (!line.trim()) return
+    // Limit output lines to prevent TUI overflow
+    cmdOutputCount++
+    if (cmdOutputCount > MAX_CMD_OUTPUT_LINES) {
+      if (cmdOutputCount === MAX_CMD_OUTPUT_LINES + 1) {
+        chatLog.addSystem('  ... (output truncated)')
+      }
+      return
+    }
+    // Clean up any remaining box-drawing characters
+    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (cleaned) {
+      chatLog.addSystem(`  ${cleaned}`)
+      tui.requestRender()
+    }
+  }, () => {
+    // Reset output counter when command completes
+    cmdOutputCount = 0
   })
 
   // Read auto-execute setting from agent config

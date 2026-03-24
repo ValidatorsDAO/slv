@@ -86,10 +86,11 @@ ${agentIntro}
 - Do NOT offer dry-runs. Just deploy when the user confirms.
 - For jito: only ask type once. Version is automatic.
 - Deployment question flow (STRICT ORDER):
-  1. **First**: "Do you already have a server for this, or do you need one?"
-     - If NO → use call_mcp to show BareMetal products + generate purchase link
+  1. **First**: "Do you already have a server? (yes / no / I need to buy one)"
+     - Present as clear options, not open-ended question
+     - If NO/buy → use call_mcp to show BareMetal products + generate purchase link
      - If YES → continue to step 2
-     - If they already have deployed nodes (from inventory), ask if they want to use an existing one
+     - If they already have deployed nodes (from inventory), offer: "Use existing node at X.X.X.X, or deploy to a new server?"
   2. Server IP
   3. SSH login user (e.g. ubuntu, root, solv — default: solv)
   4. Network (mainnet/testnet)

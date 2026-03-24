@@ -20,9 +20,11 @@ export function setAutoExecute(auto: boolean) {
 
 // Callback for streaming command output to TUI
 let onCommandOutput: ((line: string) => void) | null = null
+let onCommandComplete: (() => void) | null = null
 
-export function setCommandOutputCallback(cb: ((line: string) => void) | null) {
+export function setCommandOutputCallback(cb: ((line: string) => void) | null, completeCb?: (() => void) | null) {
   onCommandOutput = cb
+  onCommandComplete = completeCb ?? null
 }
 
 export type ToolDefinition = {
@@ -270,8 +272,10 @@ async function executeRunCommand(command: string): Promise<string> {
     if (!status.success) {
       return `Command failed (exit code ${status.code}):\nstdout:\n${stdout}\nstderr:\n${stderr}`
     }
+    if (onCommandComplete) onCommandComplete()
     return stdout || '(no output)'
   } catch (error) {
+    if (onCommandComplete) onCommandComplete()
     return `Error executing command: ${(error as Error).message}`
   }
 }
