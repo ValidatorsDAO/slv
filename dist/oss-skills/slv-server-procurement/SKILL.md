@@ -20,11 +20,16 @@ Figaro finds the perfect server for the user's needs, presents it attractively, 
 | `RPC`      | RPC nodes | Index RPC, gRPC Geyser, combos |
 
 ### Mapping: User request → serverType
-- "testnet validator" → `APP`
+- "testnet validator" → `APP` (MUST have 128GB+ RAM — recommend APP+ or higher, NOT base APP)
 - "mainnet validator" → `MV` (recommend), `MV+` (upgrade option)
 - "RPC node" → `RPC`
 - "gRPC node" → `RPC`
 - "dev server" / "app server" → `APP`
+
+### Minimum specs for Solana nodes
+- **Testnet validator**: 128GB RAM minimum. Do NOT recommend servers with less.
+- **Mainnet validator**: 384GB RAM minimum.
+- **RPC node**: 512GB RAM recommended.
 
 ### Status Tracking
 - `call_mcp(tool_name="get_baremetal_status")` — Check user's assigned servers
@@ -65,8 +70,7 @@ Login credentials will be emailed to you.
 
 IMPORTANT:
 - Show the URL on its own line, NOT inside markdown parentheses like `[text](url)`.
-- After presenting the payment link, ALSO open it in the user's browser by calling run_command with: `xdg-open '<paymentLink_url>' 2>/dev/null || open '<paymentLink_url>' 2>/dev/null &`
-- This way the user gets both the visible link AND an automatic browser open.
+- The user can copy the link from the terminal output.
 
 ## CRITICAL Rules
 1. **NEVER modify payment links.** Output the paymentLink from the API response EXACTLY as-is. Do NOT strip, truncate, shorten, or remove any characters including the # fragment. Broken links = lost sales.

@@ -95,7 +95,19 @@ class ChatLog extends Container {
   }
 
   addTool(name: string, detail: string) {
-    this.addChild(new Text(yellow(`  ⚡ ${name}`) + gray(` ${detail}`), 1))
+    // Show user-friendly tool descriptions instead of raw JSON
+    const friendlyNames: Record<string, string> = {
+      'run_command': '⚡ Running command...',
+      'read_file': '📄 Reading file...',
+      'write_file': '📝 Writing file...',
+      'list_files': '📂 Listing files...',
+      'call_mcp': '🔗 Calling SLV Cloud API...',
+      'delegate_to_agent': '', // handled separately
+    }
+    const friendly = friendlyNames[name]
+    if (friendly === '') return // skip
+    const label = friendly || `⚡ ${name}...`
+    this.addChild(new Text(yellow(label), 1))
   }
 }
 
@@ -289,30 +301,43 @@ export const consoleAction = async () => {
   setTuiInstance(tui)
 
   // Stream command output lines to TUI — filter out table borders and limit line count
-  let cmdOutputCount = 0
-  const MAX_CMD_OUTPUT_LINES = 50
+  let cmdOutputLines: string[] = []
+  let cmdOutputText: Text | null = null
+  const MAX_CMD_OUTPUT_LINES = 40
+  let cmdFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+  const flushCmdOutput = () => {
+    if (cmdOutputLines.length === 0) return
+    const combined = cmdOutputLines.join('\n')
+    if (cmdOutputText) {
+      chatLog.removeChild(cmdOutputText)
+    }
+    cmdOutputText = new Text(gray(combined), 1)
+    chatLog.addChild(cmdOutputText)
+    tui.requestRender()
+  }
+
   setCommandOutputCallback((line: string) => {
     // Skip table border lines that break TUI rendering
     if (/^[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]+$/.test(line.trim())) return
     // Skip empty or whitespace-only lines
     if (!line.trim()) return
-    // Limit output lines to prevent TUI overflow
-    cmdOutputCount++
-    if (cmdOutputCount > MAX_CMD_OUTPUT_LINES) {
-      if (cmdOutputCount === MAX_CMD_OUTPUT_LINES + 1) {
-        chatLog.addSystem('  ... (output truncated)')
-      }
-      return
-    }
-    // Clean up any remaining box-drawing characters
+    // Limit output lines
+    if (cmdOutputLines.length >= MAX_CMD_OUTPUT_LINES) return
+
     const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(/\s+/g, ' ').trim()
-    if (cleaned) {
-      chatLog.addSystem(`  ${cleaned}`)
-      tui.requestRender()
-    }
+    if (!cleaned) return
+    cmdOutputLines.push(`  ${cleaned}`)
+
+    // Debounce flush to batch rapid output
+    if (cmdFlushTimer) clearTimeout(cmdFlushTimer)
+    cmdFlushTimer = setTimeout(flushCmdOutput, 100)
   }, () => {
-    // Reset output counter when command completes
-    cmdOutputCount = 0
+    // Flush remaining on command complete
+    if (cmdFlushTimer) { clearTimeout(cmdFlushTimer); cmdFlushTimer = null }
+    flushCmdOutput()
+    cmdOutputLines = []
+    cmdOutputText = null
   })
 
   // Read auto-execute setting from agent config
