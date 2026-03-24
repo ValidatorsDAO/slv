@@ -66,9 +66,11 @@ export const OPENAI_MODELS: string[] = [
 ]
 
 export const ANTHROPIC_MODELS: string[] = [
-  'claude-opus-4-0625',
-  'claude-sonnet-4-20250514',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5',
   'claude-opus-4-20250514',
+  'claude-sonnet-4-20250514',
   'claude-haiku-4-5-20251001',
   'Custom (enter model name)',
 ]
