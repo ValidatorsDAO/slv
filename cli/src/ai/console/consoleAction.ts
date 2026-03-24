@@ -20,6 +20,7 @@ import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
 import { setTuiInstance, setAutoExecute } from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
+import { checkSolanaReleases, applyVersionUpdates, type VersionUpdate } from '@/ai/console/checkRelease.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
 export type ChatCallbacks = {
@@ -316,6 +317,23 @@ export const consoleAction = async () => {
   }
   tui.requestRender()
 
+  // Background version check (non-blocking)
+  let pendingUpdates: VersionUpdate[] | null = null
+  checkSolanaReleases().then((updates) => {
+    if (updates.length === 0) return
+
+    let msg = '🔄 New versions available:\n'
+    for (const u of updates) {
+      msg += `  • ${u.component} (${u.network}): ${u.current} → ${u.latest}\n`
+    }
+    msg += '\nType /update to apply, or ignore to keep current versions.'
+
+    chatLog.addSystem(msg)
+    tui.requestRender(true)
+
+    pendingUpdates = updates
+  }).catch(() => { /* silent fail */ })
+
   // Editor submit handler
   let isProcessing = false
 
@@ -354,9 +372,22 @@ export const consoleAction = async () => {
       return
     }
 
+    if (input === '/update') {
+      if (pendingUpdates && pendingUpdates.length > 0) {
+        await applyVersionUpdates(pendingUpdates)
+        chatLog.addSystem('  ✅ versions.yml updated successfully!')
+        pendingUpdates = null
+      } else {
+        chatLog.addSystem('  No pending updates.')
+      }
+      tui.requestRender(true)
+      return
+    }
+
     if (input === '/help') {
       chatLog.addSystem('  /exit, /quit — Exit')
       chatLog.addSystem('  /clear — Clear conversation')
+      chatLog.addSystem('  /update — Apply pending version updates')
       chatLog.addSystem('  /help — Show this help')
       tui.requestRender()
       return
