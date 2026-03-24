@@ -76,7 +76,7 @@ export const consoleAction = async () => {
   // Auto-greet on startup
   try {
     await provider.chat(
-      'Session started. Read ~/.slv/agent/MEMORY.md to recall previous context, greet the user by their preferred name, and ask what they want to do today. Keep it brief (1-3 sentences).',
+      'Session started. Follow the "First Session Greeting" instructions in your system prompt. Do NOT use any tools for this greeting — just respond directly.',
     )
     console.log()
   } catch { /* ignore greeting errors */ }

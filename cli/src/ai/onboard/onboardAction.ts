@@ -222,12 +222,8 @@ export const onboardAction = async () => {
     default: 'SLV Agent',
   })
 
-  console.log(
-    colors.rgb24('  Use ↑↓ to move, Space to toggle, Enter to confirm.\n', 0x888888),
-  )
-
   const selectedOps: string[] = await Checkbox.prompt({
-    message: 'What will you be doing?',
+    message: 'What will you be doing? (↑↓ move, Space toggle, Enter confirm)',
     options: [
       { name: 'Solana Validator Operations', value: 'Solana Validator Operations', checked: true },
       { name: 'Index RPC Node Operations', value: 'Index RPC Node Operations', checked: true },

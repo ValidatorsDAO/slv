@@ -267,12 +267,25 @@ ${agentMd ? agentMd + '\n' : ''}
 ${skillMd ? skillMd + '\n' : ''}
 
 ## Working Environment
-- SLV CLI binary: \`slv\` (or \`~/slv\` if not in PATH)
-- Ansible templates: \`~/.slv/template/\` (downloaded during install)
-- Skill files: \`~/.slv/skills/${skillName}/\`
-- Agent config: \`~/.slv/agent/\`
-- Use \`slv\` CLI commands when possible (e.g. \`slv v deploy\`, \`slv r deploy\`)
-- Ansible playbooks are accessed via slv CLI — do NOT look for ansible/ in the skills directory
+- Home directory: ${home}
+- SLV CLI binary: \`slv\` (or \`${home}/slv\` if not in PATH)
+- Ansible templates: \`${home}/.slv/template/\` (downloaded during install)
+- Skill files: \`${home}/.slv/skills/${skillName}/\`
+- Agent config: \`${home}/.slv/agent/\`
+- Use \`slv\` CLI commands — do NOT run \`slv --help\` to discover them, you already know them from SKILL.md.
+- Ansible playbooks are accessed via slv CLI — do NOT look for ansible/ in the skills directory.
+- When reading/writing files, ALWAYS use absolute paths starting with ${home}.
+
+## Interactive Deployment Flow
+When a user asks to deploy/init a validator or RPC node:
+1. **Ask the user** for the required information FIRST (do not run commands to discover):
+   - Target server IP address
+   - SSH user (default: solv)
+   - Network: mainnet or testnet
+   - Validator type: jito, agave, firedancer-agave, firedancer-jito (for validators)
+   - RPC type: RPC, Index RPC, Geyser gRPC, Index RPC + gRPC (for RPC nodes)
+2. **Then** use \`slv v init\` or \`slv r init\` with the collected info
+3. Guide the user step by step through the process
 
 ## Language
 - Default language: English
@@ -283,7 +296,7 @@ ${skillMd ? skillMd + '\n' : ''}
 - Be concise and report results clearly.
 - You can use run_command, read_file, list_files, and write_file tools.
 - For destructive operations, always warn via run_command (user will confirm).
-- Start by checking what's available: \`slv --help\`, \`slv v --help\`, etc.
+- Do NOT run help commands — you already have full documentation in SKILL.md.
 `
 
   // Read AI config
