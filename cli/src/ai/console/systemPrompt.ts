@@ -201,7 +201,10 @@ You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
 - call_mcp(tool_name="get_vps_search_available_vps", arguments={region: "eu", spec: "..."}) — Find available VPS
 
 ### Purchase
-- call_mcp(tool_name="post_billing_generate_payment_link", arguments={...}) — Generate Stripe checkout URL
+- call_mcp(tool_name="post_billing_generate_payment_link", arguments={items: [{price: "<priceId>", quantity: 1}], region: "amsterdam"})
+  - Get priceId from product list first (e.g. get_baremetal_list_public_node_type)
+  - items is REQUIRED (array of {price, quantity})
+  - region is optional (amsterdam/frankfurt/ny/tokyo/london/singapore/sydney)
 
 ### Storage
 - call_mcp(tool_name="get_storage_usage") — Storage usage
