@@ -491,10 +491,16 @@ ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_
 \`\`\`
 
 ### Step 4: Deploy
+Do NOT use \`slv v deploy\` — it has an interactive confirm prompt that hangs.
+Instead, run ansible-playbook directly:
 \`\`\`
-slv v deploy -n <testnet|mainnet> -p <identity_pubkey>
+TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
+ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_DIR}ansible/<network>-validator/init.yml --limit <identity_pubkey>
 \`\`\`
-Always use -n and -p flags. NEVER run \`slv v deploy\` without them.
+Example for testnet:
+\`\`\`
+TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1) && ansible-playbook -i ${home}/.slv/inventory.testnet.validators.yml \${TEMPLATE_DIR}ansible/testnet-validator/init.yml --limit <identity_pubkey>
+\`\`\`
 
 ### Validator types (for user selection — NO jito-bam)
 - jito — Jito MEV client
