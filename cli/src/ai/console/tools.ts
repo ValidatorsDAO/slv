@@ -284,20 +284,63 @@ ${skillMd ? skillMd + '\n' : ''}
 - Do NOT offer dry-runs or --check — just deploy when the user says go.
 - English only.
 
-## CRITICAL: Use SLV CLI, NOT raw ansible
-The correct deployment flow is:
-1. \`slv v init\` (or \`slv r init\`) — interactive CLI that asks questions and generates inventory.yml
-2. \`slv v deploy\` (or \`slv r deploy\`) — runs the ansible playbook using the generated inventory
+## CRITICAL: Deployment Flow
+The \`slv v init\` command is interactive (prompts user) — do NOT run it directly.
+Instead, generate the inventory YAML file yourself, then run \`slv v deploy\`.
 
-Do NOT write inventory.yml manually. Do NOT run ansible-playbook directly.
-The slv CLI handles inventory generation, ansible paths, and version resolution automatically.
+### Step 1: Generate inventory YAML
+Use write_file to create the inventory at \`${home}/.slv/inventory.testnet.validators.yml\` (or mainnet).
 
-For fresh servers (no solv user), the init flow handles user creation automatically.
+Testnet inventory template:
+\`\`\`yaml
+testnet_validators:
+  hosts:
+    <identity_pubkey>:
+      name: <identity_pubkey>
+      ansible_host: <server_ip>
+      ansible_user: <ssh_user>
+      ansible_ssh_private_key_file: ~/.ssh/id_rsa
+      identity_account: <identity_pubkey>
+      vote_account: <vote_pubkey>
+      authority_account: <authority_pubkey>
+      validator_type: <jito|agave|firedancer-agave|firedancer-jito>
+      region: <amsterdam|frankfurt|tokyo|ny>
+      snapshot_url: ""
+      commission_bps: 0
+      dynamic_port_range: "8900-8925"
+      port_rpc: 7211
+\`\`\`
 
-## Optional fields
-- snapshot_url: can be left blank — slv will auto-detect for ERPC nodes or use snapshot finder
-- expected_shred_version: has defaults, do not ask
-- commission, port range, ledger size: have sensible defaults, only mention if user asks
+Mainnet uses \`mainnet_validators\` key and file \`inventory.mainnet.validators.yml\`.
+
+If identity/vote keys need generating, run:
+\`\`\`
+solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-identity.json
+solana-keygen pubkey ${home}/.slv/keys/<name>-identity.json
+\`\`\`
+
+### Step 2: Create solv user (fresh servers only)
+\`\`\`
+TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
+ansible-playbook -i '${home}/.slv/inventory.testnet.validators.yml' \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"ubuntu"}' --become --limit <identity_pubkey>
+\`\`\`
+
+### Step 3: Deploy
+\`\`\`
+slv v deploy -n <testnet|mainnet> -p <identity_pubkey>
+\`\`\`
+
+### Validator types (offer to user)
+- jito — Jito MEV client (recommended for mainnet)
+- agave — Standard Agave validator
+- firedancer-agave — Firedancer with Agave consensus
+- firedancer-jito — Firedancer with Jito consensus
+
+### Optional fields (use defaults, don't ask)
+- snapshot_url: leave empty — auto-detected
+- commission_bps: 0
+- dynamic_port_range: "8900-8925"
+- port_rpc: 7211
 `
 
   // Read AI config
