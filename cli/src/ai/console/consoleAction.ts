@@ -73,6 +73,14 @@ export const consoleAction = async () => {
     provider = new AnthropicProvider(config.api_key, config.model, systemPrompt)
   }
 
+  // Auto-greet on startup
+  try {
+    await provider.chat(
+      'Session started. Read ~/.slv/agent/MEMORY.md to recall previous context, greet the user by their preferred name, and ask what they want to do today. Keep it brief (1-3 sentences).',
+    )
+    console.log()
+  } catch { /* ignore greeting errors */ }
+
   while (true) {
     process.stdout.write(
       colors.bold.rgb24('slv> ', 0x14f195),

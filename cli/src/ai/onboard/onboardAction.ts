@@ -181,6 +181,10 @@ export const onboardAction = async () => {
     default: 'SLV Agent',
   })
 
+  console.log(
+    colors.rgb24('  Use ↑↓ to move, Space to toggle, Enter to confirm.\n', 0x888888),
+  )
+
   const selectedOps: string[] = await Checkbox.prompt({
     message: 'What will you be doing?',
     options: [
