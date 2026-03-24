@@ -559,27 +559,10 @@ Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
       port_rpc: 7211
 \`\`\`
 
-## ⛔ STOP — READ THIS FIRST ⛔
-Before doing ANYTHING else (even before generating keys or writing inventory), you MUST:
-
-### Step 0: SSH connection test (THE VERY FIRST THING YOU DO)
-\`\`\`
-ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <ssh_user>@<server_ip> 'echo SSH_OK'
-\`\`\`
-- Try the SSH user provided (e.g. ubuntu, root, solv)
-- If SSH fails → STOP EVERYTHING. Report the error: "Cannot connect to server. Check SSH access."
-- Do NOT generate keys, write inventory, or run ansible if SSH fails.
-- Default SSH user for fresh servers: ubuntu (most), root (some)
-
-### Step 0b: Create solv user (if ssh_user is NOT already solv)
-\`\`\`
-TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
-ansible-playbook -i <temp_inventory> \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"<ssh_user>"}' -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become --limit <server_ip>
-\`\`\`
-Then verify: \`ssh -o StrictHostKeyChecking=accept-new solv@<server_ip> 'echo SOLV_OK'\`
-If solv fails → STOP. Report the error.
-
-Only after Step 0 succeeds, proceed to Step 1 (keys), Step 2 (inventory), Step 3 (deploy).
+## Pre-deploy note
+The main agent has ALREADY verified SSH connectivity and created the solv user.
+The inventory uses \`ansible_user: solv\`. You can proceed directly with key generation, inventory, and deploy.
+If any ansible command fails with SSH errors, report it to the main agent immediately.
 
 ### Step 3: Deploy
 Do NOT use \`slv v deploy\` — it has an interactive confirm prompt that hangs.

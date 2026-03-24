@@ -102,12 +102,22 @@ ${agentIntro}
      - If they already have deployed nodes (from inventory), offer: "Use existing node at X.X.X.X, or deploy to a new server?"
   2. Server IP
   3. SSH login user (e.g. ubuntu, root, solv — default: solv)
+  ── IMMEDIATE SSH CHECK (do this RIGHT AFTER getting IP + SSH user) ──
+  After getting IP and SSH user, IMMEDIATELY run these commands yourself (do NOT delegate):
+  a) Test SSH: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <ssh_user>@<ip> 'echo SSH_OK'\`
+     - If it fails → tell the user "Cannot connect to the server. Please check SSH access and try again." STOP HERE.
+  b) If ssh_user is NOT "solv", create solv user:
+     \`TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1) && ansible-playbook -i '<ip>,' -e 'ansible_user=<ssh_user> ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become \${TEMPLATE_DIR}ansible/cmn/add_solv.yml\`
+  c) Verify solv: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 solv@<ip> 'echo SOLV_OK'\`
+     - If it fails → tell the user "Could not set up the solv user. Please check server access." STOP HERE.
+  d) Tell the user: "✅ Server connected and ready!" Then continue with remaining questions.
+  ── END SSH CHECK ──
   4. Network (mainnet/testnet)
   5. Region (amsterdam/frankfurt/tokyo/ny)
   6. Validator type (jito/agave/firedancer-agave/firedancer-jito) — NO jito-bam
   7. Identity (generate or paste pubkey)
   8. Vote account (generate or paste pubkey)
-  That's ALL. Do NOT skip step 1.
+  That's ALL. Do NOT skip step 1 or the SSH check.
 - When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
   Read it via read_file and show e.g. "Solana Version: 4.0.0-beta.2-jito (from versions.yml)"
 
