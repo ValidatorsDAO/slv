@@ -279,7 +279,11 @@ Session history and important notes.
     enabled: selectedOps.includes(key),
     agent: SKILL_MAP[key].agent,
   }))
-  const configYml = stringify({ skills } as Record<string, unknown>)
+  const configData = {
+    skills,
+    auto_execute: true,  // Commands execute without confirmation by default
+  }
+  const configYml = stringify(configData as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
 
   // --- Notifications (optional) ---

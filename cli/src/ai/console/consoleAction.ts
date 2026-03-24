@@ -17,7 +17,9 @@ import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
-import { setTuiInstance } from '@/ai/console/tools.ts'
+import { setTuiInstance, setAutoExecute } from '@/ai/console/tools.ts'
+import { resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { parse } from '@std/yaml'
 import denoJson from '/deno.json' with { type: 'json' }
 
 export type ChatCallbacks = {
@@ -241,6 +243,16 @@ export const consoleAction = async () => {
 
   // Store TUI reference for tools.ts suspend/resume
   setTuiInstance(tui)
+
+  // Read auto-execute setting from agent config
+  try {
+    const agentConfigPath = `${resolveHome()}/.slv/agent/config.yml`
+    const raw = await Deno.readTextFile(agentConfigPath)
+    const agentConfig = parse(raw) as Record<string, unknown>
+    if (agentConfig.auto_execute === false) {
+      setAutoExecute(false)
+    }
+  } catch { /* default: auto-execute on */ }
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider

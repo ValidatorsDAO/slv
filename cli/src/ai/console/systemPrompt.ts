@@ -94,6 +94,8 @@ ${agentIntro}
   6. Identity (generate or paste pubkey)
   7. Vote account (generate or paste pubkey)
   That's ALL. Do NOT ask "is this a fresh server" — the SSH user tells you.
+- When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
+  Read it via read_file and show e.g. "Solana Version: 4.0.0-beta.2-jito (from versions.yml)"
 
 ## Template Path
 - Ansible templates are at: \`${home}/.slv/template/{version}/ansible/\`

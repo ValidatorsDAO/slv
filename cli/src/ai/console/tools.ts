@@ -7,9 +7,14 @@ import type { TUI } from '@mariozechner/pi-tui'
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
+let autoExecuteCommands = true  // Default: auto-execute without confirmation
 
 export function setTuiInstance(tui: TUI | null) {
   tuiInstance = tui
+}
+
+export function setAutoExecute(auto: boolean) {
+  autoExecuteCommands = auto
 }
 
 export type ToolDefinition = {
@@ -147,20 +152,28 @@ export async function executeSubAgentTool(
 }
 
 async function executeRunCommand(command: string): Promise<string> {
-  // Suspend TUI for confirm prompt
   let confirmed = true
-  if (tuiInstance) {
-    tuiInstance.stop()
-    console.log(`\n  Tool: run_command`)
-    console.log(`  $ ${command}`)
-    confirmed = await Confirm.prompt({
-      message: 'Execute this command?',
-      default: true,
-    })
-    tuiInstance.start()
-    tuiInstance.requestRender(true)
+
+  if (autoExecuteCommands) {
+    // Auto-execute: just show what's running
+    if (tuiInstance) {
+      // TUI mode — show via callback (handled by caller)
+    } else {
+      console.log(`  ▸ ${command}`)
+    }
   } else {
-    confirmed = true
+    // Manual confirm mode
+    if (tuiInstance) {
+      tuiInstance.stop()
+      console.log(`\n  Tool: run_command`)
+      console.log(`  $ ${command}`)
+      confirmed = await Confirm.prompt({
+        message: 'Execute this command?',
+        default: true,
+      })
+      tuiInstance.start()
+      tuiInstance.requestRender(true)
+    }
   }
 
   if (!confirmed) {
