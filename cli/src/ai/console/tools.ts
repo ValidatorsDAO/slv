@@ -20,11 +20,19 @@ export function setAutoExecute(auto: boolean) {
 
 // Callback for streaming command output to TUI
 let onCommandOutput: ((line: string) => void) | null = null
+let activeChildProcess: Deno.ChildProcess | null = null
 let onCommandComplete: (() => void) | null = null
 
 export function setCommandOutputCallback(cb: ((line: string) => void) | null, completeCb?: (() => void) | null) {
   onCommandOutput = cb
   onCommandComplete = completeCb ?? null
+}
+
+export function killActiveProcess() {
+  if (activeChildProcess) {
+    try { activeChildProcess.kill('SIGTERM') } catch { /* ignore */ }
+    activeChildProcess = null
+  }
 }
 
 export type ToolDefinition = {
@@ -242,11 +250,14 @@ async function executeRunCommand(command: string): Promise<string> {
     }
     const proc = new Deno.Command('bash', {
       args: ['-c', command],
+      stdin: 'null',
       stdout: 'piped',
       stderr: 'piped',
       env,
     })
     const child = proc.spawn()
+    // Store child process so it can be killed on Ctrl+C
+    activeChildProcess = child
 
     // Stream stdout lines to TUI in real-time
     const stdoutChunks: string[] = []
@@ -308,9 +319,11 @@ async function executeRunCommand(command: string): Promise<string> {
     if (!status.success) {
       return `Command failed (exit code ${status.code}):\nstdout:\n${stdout}\nstderr:\n${stderr}`
     }
+    activeChildProcess = null
     if (onCommandComplete) onCommandComplete()
     return stdout || '(no output)'
   } catch (error) {
+    activeChildProcess = null
     if (onCommandComplete) onCommandComplete()
     return `Error executing command: ${(error as Error).message}`
   }

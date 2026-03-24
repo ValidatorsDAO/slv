@@ -18,7 +18,7 @@ import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
-import { setTuiInstance, setAutoExecute, setCommandOutputCallback } from '@/ai/console/tools.ts'
+import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess } from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
 import { checkSolanaReleases, applyVersionUpdates, type VersionUpdate } from '@/ai/console/checkRelease.ts'
@@ -655,16 +655,40 @@ RULES:
     tui.requestRender()
   }
 
-  // Global ctrl+c handler
+  // Global ctrl+c handler — always works, never hangs
+  let ctrlCCount = 0
+  let ctrlCResetTimer: ReturnType<typeof setTimeout> | null = null
+
   tui.addInputListener((data: string) => {
     if (matchesKey(data, 'ctrl+c')) {
-      if (isProcessing) {
-        // If LLM is running, exit immediately (can't wait for memory save)
+      ctrlCCount++
+
+      // Reset counter after 2 seconds
+      if (ctrlCResetTimer) clearTimeout(ctrlCResetTimer)
+      ctrlCResetTimer = setTimeout(() => { ctrlCCount = 0 }, 2000)
+
+      if (ctrlCCount >= 2) {
+        // Double Ctrl+C: force exit immediately no matter what
+        killActiveProcess()
         tui.stop()
-        console.log('\n  Goodbye!\n')
-        Deno.exit(0)
+        console.log('\n  Force exit.\n')
+        Deno.exit(1)
+      }
+
+      if (isProcessing) {
+        // First Ctrl+C during processing: kill child process, show message
+        killActiveProcess()
+        chatLog.addSystem('  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
+        isProcessing = false
+        if (loader) { chatLog.removeChild(loader); loader.stop(); loader = null }
+        if (tipTimer) { clearInterval(tipTimer); tipTimer = null }
+        if (tipText) { chatLog.removeChild(tipText); tipText = null }
+        currentDelegateAgent = null
+        currentTaskDescription = ''
+        currentTaskStartedAt = 0
+        tui.requestRender()
       } else {
-        // Save memory before exit
+        // Not processing: save memory and exit
         saveMemoryAndExit()
       }
       return { consume: true }
