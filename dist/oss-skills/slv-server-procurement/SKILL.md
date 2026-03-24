@@ -56,12 +56,15 @@ Report back with this EXACT format:
 • Storage: <storage>
 • Network: <network>
 
-📋 Payment link (copy & paste into browser):
-<clean_url>
+📋 Purchase here:
+<paymentLink_url>
 
 Select your region at checkout. Provisioning takes ~30 min after payment.
 Login credentials will be emailed to you.
 ```
+
+IMPORTANT: Show the URL on its own line, NOT inside markdown parentheses like `[text](url)`.
+Just put the raw URL on a new line after "Purchase here:" — this allows Ctrl+Click in terminals.
 
 ## CRITICAL Rules
 1. Payment links are automatically shortened by the system. Just use the paymentLink from the response as-is.
