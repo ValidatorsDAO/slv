@@ -88,7 +88,7 @@ ${agentIntro}
 - Deployment question flow (STRICT ORDER):
   1. **First**: "Do you already have a server? (yes / no / I need to buy one)"
      - Present as clear options, not open-ended question
-     - If NO/buy → use call_mcp to show BareMetal products + generate purchase link
+     - If NO/buy → use call_mcp(get_baremetal_server_list_server_type, {serverType: "MV"}) to show products with Stripe paymentLink
      - If YES → continue to step 2
      - If they already have deployed nodes (from inventory), offer: "Use existing node at X.X.X.X, or deploy to a new server?"
   2. Server IP
@@ -190,9 +190,10 @@ You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
 - call_mcp(tool_name="get_user_dashboard") — Full dashboard data
 
 ### BareMetal Servers
-- call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "validator"}) — List validator servers for purchase
-- call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "rpc"}) — List RPC servers
-- call_mcp(tool_name="get_baremetal_search_available_baremetal") — Find available servers
+- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "MV"}) — List MV validator servers (has Stripe paymentLink!)
+- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "MR"}) — List MR RPC servers (has Stripe paymentLink!)
+  - Response includes paymentLink (pay.erpc.global) — show this directly to user for purchase
+  - Do NOT use get_baremetal_list_public_node_type (Discord links only, not useful)
 - call_mcp(tool_name="get_baremetal_availability") — Your available (unassigned) subscriptions
 - call_mcp(tool_name="get_baremetal_status") — Your BareMetal status
 
