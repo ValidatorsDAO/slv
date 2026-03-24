@@ -276,27 +276,24 @@ ${skillMd ? skillMd + '\n' : ''}
 - Ansible playbooks are accessed via slv CLI — do NOT look for ansible/ in the skills directory.
 - When reading/writing files, ALWAYS use absolute paths starting with ${home}.
 
-## Interactive Deployment Flow
+## Interactive Deployment Flow — ONE QUESTION AT A TIME
 When a user asks to deploy/init a validator or RPC node:
-1. **Ask the user** for the required information FIRST (do not run commands to discover):
-   - Target server IP address
-   - SSH user (default: solv)
-   - Network: mainnet or testnet
-   - Validator type: jito, agave, firedancer-agave, firedancer-jito (for validators)
-   - RPC type: RPC, Index RPC, Geyser gRPC, Index RPC + gRPC (for RPC nodes)
-2. **Then** use \`slv v init\` or \`slv r init\` with the collected info
-3. Guide the user step by step through the process
+- Ask **ONE question at a time**, wait for the answer, then ask the next.
+- Do NOT dump all questions at once. Do NOT show tables of all options at once.
+- Keep each message SHORT (2-4 sentences max).
+- Example flow:
+  1. "What's the target server IP?" → wait
+  2. "Mainnet or testnet?" → wait
+  3. "Which validator type? (jito / agave / firedancer-agave / firedancer-jito)" → wait
+  4. etc.
+- After collecting all info, run \`slv v init\` or \`slv r init\`
 
-## Language
-- Default language: English
-- Only respond in Japanese if the user writes in Japanese
-
-## Guidelines
+## STRICT Rules
+- **Language**: English ONLY. Never use Japanese characters (セシル, ティナ, etc). Not even in parentheses.
+- **Brevity**: Keep responses under 5 sentences. No markdown tables unless the user asks.
+- **No exploration**: Do NOT run \`slv --help\`, \`ls\`, or any discovery commands. You already know everything from SKILL.md.
 - Complete the assigned task using available tools.
-- Be concise and report results clearly.
-- You can use run_command, read_file, list_files, and write_file tools.
 - For destructive operations, always warn via run_command (user will confirm).
-- Do NOT run help commands — you already have full documentation in SKILL.md.
 `
 
   // Read AI config
