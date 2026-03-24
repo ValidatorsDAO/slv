@@ -1,7 +1,8 @@
 import { parse } from '@std/yaml'
+import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 
 export async function buildSystemPrompt(): Promise<string> {
-  const home = Deno.env.get('HOME') || ''
+  const home = resolveHome()
   const agentDir = `${home}/.slv/agent`
   const skillsDir = `${home}/.slv/skills`
 
@@ -43,9 +44,16 @@ ${memoryMd ? `## Memory (from previous sessions)\n${memoryMd}\n` : ''}
 - For general questions or simple tasks, answer directly.
 - You can also use run_command, read_file, list_files, write_file directly.
 
+## Working Environment
+- Home directory: ${home}
+- Agent files: ${agentDir}/
+- Skills: ${skillsDir}/
+- MEMORY.md: ${agentDir}/MEMORY.md
+
 ## Memory Management
-- After completing significant tasks, update ~/.slv/agent/MEMORY.md with important notes using write_file.
+- After completing significant tasks, update ${agentDir}/MEMORY.md with important notes using write_file.
 - Keep MEMORY.md concise — only record decisions, configurations, server IPs, and key outcomes.
+- When reading files, always use absolute paths starting with ${home}.
 
 ## Available Skills
 ${skillDocs || 'No skills installed. Run \\`slv onboard\\` to configure.'}

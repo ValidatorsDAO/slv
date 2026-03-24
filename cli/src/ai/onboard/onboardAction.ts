@@ -161,32 +161,30 @@ export const onboardAction = async () => {
   if (provider === 'skip') {
     console.log(
       colors.yellow(
-        '\n  Skipped. Run `slv onboard` again when ready.\n',
+        '\n  AI provider skipped. You can configure it later with `slv onboard`.\n',
       ),
     )
-    return
-  }
+  } else {
+    const models = provider === 'openai' ? OPENAI_MODELS : ANTHROPIC_MODELS
+    const providerLabel = provider === 'openai' ? 'OpenAI' : 'Anthropic'
 
-  const models = provider === 'openai' ? OPENAI_MODELS : ANTHROPIC_MODELS
-  const providerLabel = provider === 'openai' ? 'OpenAI' : 'Anthropic'
+    const apiKey = await Secret.prompt({
+      message: `${providerLabel} API Key`,
+      validate: (value) => {
+        if (!value || value.trim().length === 0) {
+          return 'API key is required'
+        }
+        return true
+      },
+    })
 
-  const apiKey = await Secret.prompt({
-    message: `${providerLabel} API Key`,
-    validate: (value) => {
-      if (!value || value.trim().length === 0) {
-        return 'API key is required'
-      }
-      return true
-    },
-  })
+    let model = await Select.prompt({
+      message: 'Default model',
+      options: models,
+    })
 
-  let model = await Select.prompt({
-    message: 'Default model',
-    options: models,
-  })
-
-  if (model === 'Custom (enter model name)') {
-    model = await Input.prompt({
+    if (model === 'Custom (enter model name)') {
+      model = await Input.prompt({
       message: 'Enter custom model name',
       validate: (value) => {
         if (!value || value.trim().length === 0) {
@@ -195,13 +193,14 @@ export const onboardAction = async () => {
         return true
       },
     })
-  }
+    }
 
-  await writeAiConfig({
-    provider: provider as AiProvider,
-    api_key: apiKey,
-    model,
-  })
+    await writeAiConfig({
+      provider: provider as AiProvider,
+      api_key: apiKey,
+      model,
+    })
+  }
 
   // --- Agent setup ---
   console.log(
@@ -294,29 +293,25 @@ Session history and important notes.
     colors.bold.rgb24('\n│', 0x14f195),
   )
   console.log(
-    colors.green('◇  AI configuration saved to ~/.slv/api.yml'),
-  )
-  console.log(
     colors.green('◇  Agent files saved to ~/.slv/agent/'),
   )
   console.log(
     colors.bold.rgb24('│', 0x14f195),
   )
   console.log(
-    colors.white(`  Provider: ${colors.bold(providerLabel)}`),
-  )
-  console.log(
-    colors.white(`  Model:    ${colors.bold(model)}`),
-  )
-  console.log(
     colors.white(`  Agent:    ${colors.bold(agentName)}`),
   )
+  if (provider !== 'skip') {
+    console.log(
+      colors.green('◇  AI configuration saved to ~/.slv/api.yml'),
+    )
+  }
   console.log(
     colors.bold.rgb24('│', 0x14f195),
   )
   console.log(
     colors.rgb24(
-      '└  Run `slv c` to start the AI console.\n',
+      `└  ${provider !== 'skip' ? 'Run `slv c` to start the AI console.' : 'Run `slv onboard` again to configure AI provider.'}\n`,
       0x14f195,
     ),
   )

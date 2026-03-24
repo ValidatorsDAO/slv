@@ -1,3 +1,4 @@
+import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import Anthropic from '@anthropic-ai/sdk'
@@ -217,7 +218,7 @@ async function executeWriteFile(path: string, content: string): Promise<string> 
   )
   console.log(colors.white(`  Path: ${path}`))
 
-  const home = Deno.env.get('HOME') || ''
+  const home = resolveHome()
   const slvDir = `${home}/.slv/`
   if (!path.startsWith(slvDir)) {
     return `Error: write_file only allows writing to ~/.slv/ directory. Requested path: ${path}`
@@ -247,7 +248,7 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
     '\n' + colors.yellow(`  Delegating to ${agentName}...`),
   )
 
-  const home = Deno.env.get('HOME') || ''
+  const home = resolveHome()
   const skillsDir = `${home}/.slv/skills`
 
   // Read AGENT.md and SKILL.md
