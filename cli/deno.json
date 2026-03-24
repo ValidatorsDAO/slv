@@ -22,7 +22,9 @@
     "@cmn/": "../cmn/",
     "/": "./",
     "@std/assert": "jsr:@std/assert@1",
-    "openai": "https://deno.land/x/openai@v4.69.0/mod.ts"
+    "openai": "https://deno.land/x/openai@v4.69.0/mod.ts",
+    "@mariozechner/pi-tui": "npm:@mariozechner/pi-tui@0.61.1",
+    "chalk": "npm:chalk@5.4.1"
   },
   "fmt": {
     "semiColons": false,

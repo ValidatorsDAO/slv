@@ -1,10 +1,10 @@
 import OpenAI from 'openai'
-import { colors } from '@cliffy/colors'
 import {
   executeTool,
   TOOL_DEFINITIONS,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
+import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
 
 type Message = OpenAI.ChatCompletionMessageParam
 
@@ -25,10 +25,12 @@ export class OpenAIProvider {
   private client: OpenAI
   private model: string
   private messages: Message[] = []
+  private callbacks: ChatCallbacks
 
-  constructor(apiKey: string, model: string, systemPrompt: string) {
+  constructor(apiKey: string, model: string, systemPrompt: string, callbacks: ChatCallbacks) {
     this.client = new OpenAI({ apiKey })
     this.model = model
+    this.callbacks = callbacks
     this.messages = [
       { role: 'system', content: systemPrompt },
     ]
@@ -52,15 +54,13 @@ export class OpenAIProvider {
         arguments: string
       }[] = []
 
-      process.stdout.write(colors.rgb24('\n  ', 0x14f195))
-
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta
 
         if (delta?.content) {
           const text = delta.content
           assistantContent += text
-          process.stdout.write(colors.white(text))
+          this.callbacks.onStream(assistantContent)
         }
 
         if (delta?.tool_calls) {
@@ -81,13 +81,12 @@ export class OpenAIProvider {
         }
       }
 
-      console.log()
-
       if (toolCalls.length === 0) {
         this.messages.push({
           role: 'assistant',
           content: assistantContent,
         })
+        this.callbacks.onComplete()
         break
       }
 
@@ -115,6 +114,7 @@ export class OpenAIProvider {
           })
           continue
         }
+        this.callbacks.onToolCall(tc.name, JSON.stringify(args).slice(0, 100))
         const result = await executeTool(tc.name, args)
         this.messages.push({
           role: 'tool',

@@ -1,9 +1,16 @@
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
-import { colors } from '@cliffy/colors'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { readAiConfig, DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
+import type { TUI } from '@mariozechner/pi-tui'
+
+// TUI instance for suspend/resume during confirm prompts
+let tuiInstance: TUI | null = null
+
+export function setTuiInstance(tui: TUI | null) {
+  tuiInstance = tui
+}
 
 export type ToolDefinition = {
   name: string
@@ -139,29 +146,33 @@ export async function executeSubAgentTool(
 }
 
 async function executeRunCommand(command: string): Promise<string> {
-  console.log(
-    '\n' + colors.yellow('  Tool: run_command'),
-  )
-  console.log(
-    colors.white(`  $ ${colors.bold(command)}`),
-  )
-
-  const confirmed = await Confirm.prompt({
-    message: 'Execute this command?',
-    default: true,
-  })
+  // Suspend TUI for confirm prompt
+  let confirmed = true
+  if (tuiInstance) {
+    tuiInstance.stop()
+    console.log(`\n  Tool: run_command`)
+    console.log(`  $ ${command}`)
+    confirmed = await Confirm.prompt({
+      message: 'Execute this command?',
+      default: true,
+    })
+    tuiInstance.start()
+    tuiInstance.requestRender(true)
+  } else {
+    confirmed = true
+  }
 
   if (!confirmed) {
     return 'User declined to execute the command.'
   }
 
   try {
-    const process = new Deno.Command('bash', {
+    const proc = new Deno.Command('bash', {
       args: ['-c', command],
       stdout: 'piped',
       stderr: 'piped',
     })
-    const output = await process.output()
+    const output = await proc.output()
     const stdout = new TextDecoder().decode(output.stdout)
     const stderr = new TextDecoder().decode(output.stderr)
 
@@ -175,11 +186,6 @@ async function executeRunCommand(command: string): Promise<string> {
 }
 
 async function executeReadFile(path: string): Promise<string> {
-  console.log(
-    '\n' + colors.yellow('  Tool: read_file'),
-  )
-  console.log(colors.white(`  Path: ${path}`))
-
   try {
     const content = await Deno.readTextFile(path)
     const lines = content.split('\n')
@@ -194,11 +200,6 @@ async function executeReadFile(path: string): Promise<string> {
 }
 
 async function executeListFiles(path: string): Promise<string> {
-  console.log(
-    '\n' + colors.yellow('  Tool: list_files'),
-  )
-  console.log(colors.white(`  Path: ${path}`))
-
   try {
     const entries: string[] = []
     for await (const entry of Deno.readDir(path)) {
@@ -213,11 +214,6 @@ async function executeListFiles(path: string): Promise<string> {
 }
 
 async function executeWriteFile(path: string, content: string): Promise<string> {
-  console.log(
-    '\n' + colors.yellow('  Tool: write_file'),
-  )
-  console.log(colors.white(`  Path: ${path}`))
-
   const home = resolveHome()
   const slvDir = `${home}/.slv/`
   if (!path.startsWith(slvDir)) {
@@ -231,7 +227,6 @@ async function executeWriteFile(path: string, content: string): Promise<string> 
       await Deno.mkdir(parentDir, { recursive: true })
     }
     await Deno.writeTextFile(path, content)
-    console.log(colors.green(`  ✓ Written to ${path}`))
     return `Successfully wrote to ${path}`
   } catch (error) {
     return `Error writing file: ${(error as Error).message}`
@@ -244,7 +239,6 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
     return `Unknown agent: ${agentName}. Available agents: Cecil, Tina, Cloud`
   }
 
-  // No console output — sub-agent works silently in the background
   const home = resolveHome()
   const skillsDir = `${home}/.slv/skills`
 

@@ -1,139 +1,274 @@
-import { colors } from '@cliffy/colors'
+import {
+  TUI,
+  Container,
+  Text,
+  Markdown,
+  Editor,
+  Spacer,
+  Loader,
+  ProcessTerminal,
+  matchesKey,
+  type MarkdownTheme,
+  type EditorTheme,
+  type Component,
+} from '@mariozechner/pi-tui'
+import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
+import { setTuiInstance } from '@/ai/console/tools.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
-type Provider = OpenAIProvider | AnthropicProvider
+export type ChatCallbacks = {
+  onStream: (fullText: string) => void
+  onToolCall: (name: string, detail: string) => void
+  onComplete: () => void
+}
 
-const readLine = async (): Promise<string | null> => {
-  const chunks: Uint8Array[] = []
-  const buf = new Uint8Array(4096)
+const green = chalk.hex('#14f195')
+const greenBold = chalk.bold.hex('#14f195')
+const gray = chalk.gray
+const white = chalk.white
+const yellow = chalk.yellow
+const red = chalk.red
 
-  while (true) {
-    const n = await Deno.stdin.read(buf)
-    if (n === null) {
-      if (chunks.length === 0) return null
-      break
+const markdownTheme: MarkdownTheme = {
+  heading: (t: string) => greenBold(t),
+  link: (t: string) => chalk.cyan.underline(t),
+  linkUrl: (t: string) => gray(t),
+  code: (t: string) => chalk.bgGray.white(t),
+  codeBlock: (t: string) => gray(t),
+  codeBlockBorder: (t: string) => gray(t),
+  quote: (t: string) => chalk.italic(gray(t)),
+  quoteBorder: (t: string) => gray(t),
+  hr: (t: string) => gray(t),
+  listBullet: (t: string) => green(t),
+  bold: (t: string) => chalk.bold(t),
+  italic: (t: string) => chalk.italic(t),
+  strikethrough: (t: string) => chalk.strikethrough(t),
+  underline: (t: string) => chalk.underline(t),
+  codeBlockIndent: '  ',
+}
+
+const editorTheme: EditorTheme = {
+  borderColor: (t: string) => green(t),
+  selectList: {
+    selectedPrefix: (t: string) => green(t),
+    selectedText: (t: string) => white(t),
+    description: (t: string) => gray(t),
+    scrollInfo: (t: string) => gray(t),
+    noMatch: (t: string) => gray(t),
+  },
+}
+
+/**
+ * ChatLog: scrollable container for messages
+ */
+class ChatLog extends Container {
+  addUser(text: string) {
+    this.addChild(new Spacer(1))
+    this.addChild(new Text(chalk.bold.green('You: ') + white(text), 1))
+  }
+
+  addAssistant(text: string) {
+    this.addChild(new Spacer(1))
+    this.addChild(new Markdown(text, 2, 0, markdownTheme))
+  }
+
+  updateStreaming(text: string) {
+    const last = this.children[this.children.length - 1]
+    if (last instanceof Markdown) {
+      last.setText(text)
+    } else {
+      this.addChild(new Spacer(1))
+      this.addChild(new Markdown(text, 2, 0, markdownTheme))
     }
-    chunks.push(buf.slice(0, n))
-    // Check if we received a newline — indicates end of line
-    if (buf.subarray(0, n).includes(10)) break
   }
 
-  const totalLength = chunks.reduce((sum, c) => sum + c.length, 0)
-  const merged = new Uint8Array(totalLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    merged.set(chunk, offset)
-    offset += chunk.length
+  addSystem(text: string) {
+    this.addChild(new Text(gray(text), 1))
   }
-  return new TextDecoder().decode(merged).trim()
+
+  addTool(name: string, detail: string) {
+    this.addChild(new Text(yellow(`  ⚡ ${name}`) + gray(` ${detail}`), 1))
+  }
 }
 
 export const consoleAction = async () => {
   const config = await readAiConfig()
   if (!config) {
-    console.log(
-      colors.yellow(
-        '\n  AI not configured. Run `slv onboard` first.\n',
-      ),
-    )
+    console.log('\n  AI not configured. Run `slv onboard` first.\n')
     return
   }
 
+  const systemPrompt = await buildSystemPrompt()
   const providerLabel = config.provider === 'openai' ? 'OpenAI' : 'Anthropic'
 
-  console.log(
-    colors.bold.rgb24(
-      `\n  SLV AI Console v${denoJson.version}`,
-      0x14f195,
-    ),
-  )
-  console.log(
-    colors.white(
-      `  Provider: ${providerLabel} | Model: ${config.model}`,
-    ),
-  )
-  console.log(
-    colors.rgb24(
-      '  Type /exit to quit, /clear to reset conversation.\n',
-      0x888888,
-    ),
-  )
+  // TUI init
+  const terminal = new ProcessTerminal()
+  const tui = new TUI(terminal)
 
-  // Build dynamic system prompt
-  const systemPrompt = await buildSystemPrompt()
+  // Layout
+  const chatLog = new ChatLog()
+  const editor = new Editor(tui, editorTheme, { paddingX: 1 })
 
-  let provider: Provider
-  if (config.provider === 'openai') {
-    provider = new OpenAIProvider(config.api_key, config.model, systemPrompt)
-  } else {
-    provider = new AnthropicProvider(config.api_key, config.model, systemPrompt)
+  // Header
+  chatLog.addChild(new Spacer(1))
+  chatLog.addChild(new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1))
+  chatLog.addChild(new Text(white(`  Provider: ${providerLabel} | Model: ${config.model}`), 1))
+  chatLog.addChild(new Text(gray('  Type /exit to quit, /clear to reset. Press Enter to send.'), 1))
+  chatLog.addChild(new Spacer(1))
+
+  tui.addChild(chatLog)
+  tui.addChild(new Spacer(1))
+  tui.addChild(editor)
+
+  tui.setFocus(editor)
+
+  // Store TUI reference for tools.ts suspend/resume
+  setTuiInstance(tui)
+
+  // Provider init with callbacks
+  let provider: OpenAIProvider | AnthropicProvider
+  let loader: Loader | null = null
+
+  const callbacks: ChatCallbacks = {
+    onStream: (text: string) => {
+      if (loader) {
+        chatLog.removeChild(loader)
+        loader.stop()
+        loader = null
+      }
+      chatLog.updateStreaming(text)
+      tui.requestRender()
+    },
+    onToolCall: (name: string, detail: string) => {
+      if (loader) {
+        chatLog.removeChild(loader)
+        loader.stop()
+        loader = null
+      }
+      chatLog.addTool(name, detail)
+      tui.requestRender()
+    },
+    onComplete: () => {
+      if (loader) {
+        chatLog.removeChild(loader)
+        loader.stop()
+        loader = null
+      }
+      tui.requestRender()
+    },
   }
 
-  // Auto-greet on startup
+  if (config.provider === 'openai') {
+    provider = new OpenAIProvider(config.api_key, config.model, systemPrompt, callbacks)
+  } else {
+    provider = new AnthropicProvider(config.api_key, config.model, systemPrompt, callbacks)
+  }
+
+  // Auto-greet
+  chatLog.addSystem('  Starting session...')
+  tui.start()
+
+  // Show loader during greet
+  loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
+  chatLog.addChild(loader)
+  loader.start()
+  tui.requestRender()
+
   try {
     await provider.chat(
       'Session started. Follow the "First Session Greeting" instructions in your system prompt. Do NOT use any tools for this greeting — just respond directly.',
     )
-    console.log()
   } catch { /* ignore greeting errors */ }
 
-  while (true) {
-    process.stdout.write(
-      colors.bold.rgb24('slv> ', 0x14f195),
-    )
+  if (loader) {
+    chatLog.removeChild(loader)
+    loader.stop()
+    loader = null
+  }
+  tui.requestRender()
 
-    const input = await readLine()
-    if (input === null) break
+  // Editor submit handler
+  let isProcessing = false
 
-    if (input === '') continue
+  editor.onSubmit = async (text: string) => {
+    const input = text.trim()
+    if (!input || isProcessing) return
+
+    editor.setText('')
 
     if (input === '/exit' || input === '/quit') {
-      // Auto-save memory
+      chatLog.addSystem('  Saving session...')
+      tui.requestRender()
+      isProcessing = true
       try {
         await provider.chat(
-          'Session ending. If anything important happened in this session, update ~/.slv/agent/MEMORY.md using write_file. Keep it concise. If nothing notable happened, do nothing.',
+          'Session ending. If anything important happened, update ~/.slv/agent/MEMORY.md using write_file. Keep it concise. If nothing notable, do nothing.',
         )
-      } catch { /* ignore errors on exit */ }
-      console.log(colors.rgb24('\n  Goodbye!\n', 0x888888))
-      break
+      } catch { /* ignore */ }
+      tui.stop()
+      await terminal.drainInput()
+      console.log('\n  Goodbye!\n')
+      Deno.exit(0)
+      return
     }
 
     if (input === '/clear') {
+      chatLog.clear()
       const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
-        provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt)
+        provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)
       } else {
-        provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt)
+        provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt, callbacks)
       }
-      console.log(
-        colors.rgb24('  Conversation cleared.\n', 0x888888),
-      )
-      continue
+      chatLog.addSystem('  Conversation cleared.')
+      tui.requestRender()
+      return
     }
 
     if (input === '/help') {
-      console.log(colors.white('\n  Commands:'))
-      console.log(colors.white('  /exit, /quit  — Exit the console'))
-      console.log(
-        colors.white('  /clear        — Clear conversation history'),
-      )
-      console.log(colors.white('  /help         — Show this help\n'))
-      continue
+      chatLog.addSystem('  /exit, /quit — Exit')
+      chatLog.addSystem('  /clear — Clear conversation')
+      chatLog.addSystem('  /help — Show this help')
+      tui.requestRender()
+      return
     }
+
+    chatLog.addUser(input)
+    isProcessing = true
+
+    // Show loader
+    loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
+    chatLog.addChild(loader)
+    loader.start()
+    tui.requestRender()
 
     try {
       await provider.chat(input)
-      console.log()
     } catch (error) {
-      console.log(
-        colors.red(
-          `\n  Error: ${(error as Error).message}\n`,
-        ),
-      )
+      chatLog.addSystem(red(`  Error: ${(error as Error).message}`))
     }
+
+    if (loader) {
+      chatLog.removeChild(loader)
+      loader.stop()
+      loader = null
+    }
+    isProcessing = false
+    tui.requestRender()
   }
+
+  // Global ctrl+c handler
+  tui.addInputListener((data: string) => {
+    if (matchesKey(data, 'ctrl+c')) {
+      tui.stop()
+      console.log('\n  Goodbye!\n')
+      Deno.exit(0)
+      return { consume: true }
+    }
+    return undefined
+  })
 }
