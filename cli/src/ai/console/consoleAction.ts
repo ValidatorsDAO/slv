@@ -1,3 +1,4 @@
+import { getTipsForAgent, pickRandomTip } from '@/ai/console/tips.ts'
 import {
   TUI,
   Container,
@@ -327,6 +328,9 @@ export const consoleAction = async () => {
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider
   let loader: Loader | null = null
+  let tipTimer: ReturnType<typeof setInterval> | null = null
+  let tipText: Text | null = null
+  let currentDelegateAgent: string | null = null
 
   const callbacks: ChatCallbacks = {
     onStream: (text: string) => {
@@ -339,21 +343,28 @@ export const consoleAction = async () => {
       tui.requestRender()
     },
     onToolCall: (name: string, detail: string) => {
-      // For delegate_to_agent, show a spinning loader with agent name
+      // For delegate_to_agent, show tips while agent works (no JSON display)
       if (name === 'delegate_to_agent') {
         if (loader) {
           chatLog.removeChild(loader)
           loader.stop()
         }
+        // Clear any previous tip timer
+        if (tipTimer) {
+          clearInterval(tipTimer)
+          tipTimer = null
+        }
+
         let agentName = 'sub-agent'
         try {
           const parsed = JSON.parse(detail)
           agentName = parsed.agent || agentName
         } catch {
-          // detail may be truncated — extract agent name with regex
           const match = detail.match(/"agent"\s*:\s*"([^"]+)"/)
           if (match) agentName = match[1]
         }
+        currentDelegateAgent = agentName
+
         const loaderMessages: Record<string, string> = {
           'Figaro': 'Figaro is searching for the best server...',
           'Cecil': 'Cecil is preparing the deployment...',
@@ -364,6 +375,28 @@ export const consoleAction = async () => {
         loader = new Loader(tui, (s: string) => chalk.hex('#14f195')(s), (s: string) => chalk.gray(s), loaderMsg)
         chatLog.addChild(loader)
         loader.start()
+        tui.requestRender()
+
+        // Show rotating tips every 4 seconds
+        const tips = getTipsForAgent(agentName)
+        if (tips.length > 0) {
+          // Show first tip immediately
+          if (tipText) chatLog.removeChild(tipText)
+          tipText = new Text(gray(pickRandomTip(tips)), 1)
+          chatLog.addChild(tipText)
+
+          tipTimer = setInterval(() => {
+            const nextTip = pickRandomTip(tips)
+            if (tipText) {
+              chatLog.removeChild(tipText)
+            }
+            tipText = new Text(gray(nextTip), 1)
+            chatLog.addChild(tipText)
+            tui.requestRender()
+          }, 4000)
+        }
+        // Do NOT show chatLog.addTool for delegate_to_agent
+        return
       } else {
         if (loader) {
           chatLog.removeChild(loader)
@@ -380,6 +413,16 @@ export const consoleAction = async () => {
         loader.stop()
         loader = null
       }
+      // Clean up tips display
+      if (tipTimer) {
+        clearInterval(tipTimer)
+        tipTimer = null
+      }
+      if (tipText) {
+        chatLog.removeChild(tipText)
+        tipText = null
+      }
+      currentDelegateAgent = null
       tui.requestRender()
     },
   }
