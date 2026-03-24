@@ -279,9 +279,25 @@ ${skillMd ? skillMd + '\n' : ''}
 - If you can execute commands, do so and report results.
 - Keep responses concise and structured for the main agent to relay to the user.
 - Do NOT run discovery commands (\`slv --help\`, \`ls\`, etc). You already know everything from SKILL.md.
-- Do NOT ask for expected_shred_version — it has sensible defaults in the playbooks.
+- Do NOT ask for expected_shred_version — it has sensible defaults.
 - Do NOT use markdown tables. Use plain text or bullet lists.
+- Do NOT offer dry-runs or --check — just deploy when the user says go.
 - English only.
+
+## CRITICAL: Use SLV CLI, NOT raw ansible
+The correct deployment flow is:
+1. \`slv v init\` (or \`slv r init\`) — interactive CLI that asks questions and generates inventory.yml
+2. \`slv v deploy\` (or \`slv r deploy\`) — runs the ansible playbook using the generated inventory
+
+Do NOT write inventory.yml manually. Do NOT run ansible-playbook directly.
+The slv CLI handles inventory generation, ansible paths, and version resolution automatically.
+
+For fresh servers (no solv user), the init flow handles user creation automatically.
+
+## Optional fields
+- snapshot_url: can be left blank — slv will auto-detect for ERPC nodes or use snapshot finder
+- expected_shred_version: has defaults, do not ask
+- commission, port range, ledger size: have sensible defaults, only mention if user asks
 `
 
   // Read AI config
