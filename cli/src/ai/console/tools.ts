@@ -238,7 +238,7 @@ async function executeRunCommand(command: string): Promise<string> {
     const env: Record<string, string> = {
       ...Object.fromEntries(Object.entries(Deno.env.toObject())),
       ANSIBLE_HOST_KEY_CHECKING: 'False',
-      ANSIBLE_SSH_ARGS: '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null',
+      ANSIBLE_SSH_ARGS: '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no',
     }
     const proc = new Deno.Command('bash', {
       args: ['-c', command],

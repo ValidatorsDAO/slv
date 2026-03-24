@@ -104,13 +104,19 @@ ${agentIntro}
   3. SSH login user (e.g. ubuntu, root, solv — default: solv)
   ── IMMEDIATE SSH CHECK (do this RIGHT AFTER getting IP + SSH user) ──
   After getting IP and SSH user, IMMEDIATELY run these commands yourself (do NOT delegate):
-  a) Test SSH: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <ssh_user>@<ip> 'echo SSH_OK'\`
-     - If it fails → tell the user "Cannot connect to the server. Please check SSH access and try again." STOP HERE.
-  b) If ssh_user is NOT "solv", create solv user:
-     \`TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1) && ansible-playbook -i '<ip>,' -e 'ansible_user=<ssh_user> ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become \${TEMPLATE_DIR}ansible/cmn/add_solv.yml\`
-  c) Verify solv: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 solv@<ip> 'echo SOLV_OK'\`
-     - If it fails → tell the user "Could not set up the solv user. Please check server access." STOP HERE.
-  d) Tell the user: "✅ Server connected and ready!" Then continue with remaining questions.
+  a) FIRST try solv: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o PasswordAuthentication=no solv@<ip> 'echo SOLV_OK'\`
+     - If solv works → great, skip to step d).
+  b) If solv fails, try the provided ssh_user (e.g. root, ubuntu):
+     \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o PasswordAuthentication=no <ssh_user>@<ip> 'echo SSH_OK'\`
+     - If this also fails → tell the user "Cannot connect to the server. Please check SSH access." STOP HERE.
+  c) Create solv user:
+     \`TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1) && ansible-playbook -i '<ip>,' -e 'ansible_user=<ssh_user> ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new -o PasswordAuthentication=no"' --become \${TEMPLATE_DIR}ansible/cmn/add_solv.yml\`
+     Then verify: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o PasswordAuthentication=no solv@<ip> 'echo SOLV_OK'\`
+     - If it fails → tell the user "Could not set up the solv user." STOP HERE.
+  d) Tell the user: "✅ Server connected and ready!" Then continue.
+
+  CRITICAL: ALWAYS use \`-o PasswordAuthentication=no\` on ALL ssh commands. This prevents password prompts that hang the terminal.
+  For existing/redeploy nodes: still run step a) to verify solv works. Do NOT assume it works just because it's in the inventory.
   ── END SSH CHECK ──
   4. Network (mainnet/testnet)
   5. Region (amsterdam/frankfurt/tokyo/ny)
