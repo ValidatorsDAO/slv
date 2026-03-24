@@ -1,7 +1,7 @@
 import { parse } from '@std/yaml'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 
-export async function buildSystemPrompt(): Promise<string> {
+export async function buildSystemPrompt(userContext?: string): Promise<string> {
   const home = resolveHome()
   const agentDir = `${home}/.slv/agent`
   const skillsDir = `${home}/.slv/skills`
@@ -173,6 +173,57 @@ Keep it to 3-5 sentences. Be friendly but not verbose.
 - Do NOT explore the filesystem or run help commands — you already know everything.
 - Default language: English. Only use Japanese if the user writes in Japanese.
 - Never mix Japanese and English (no Japanese in parentheses).
+
+${userContext ? `## User Context (live data)\n${userContext}\n` : ''}
+
+## SLV Cloud MCP API
+You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
+
+### User & Subscription
+- call_mcp(tool_name="get_user_get") — Get user info
+- call_mcp(tool_name="get_user_subscription") — Get active subscriptions
+- call_mcp(tool_name="get_user_dashboard") — Full dashboard data
+
+### BareMetal Servers
+- call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "validator"}) — List validator servers for purchase
+- call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "rpc"}) — List RPC servers
+- call_mcp(tool_name="get_baremetal_search_available_baremetal") — Find available servers
+- call_mcp(tool_name="get_baremetal_availability") — Your available (unassigned) subscriptions
+- call_mcp(tool_name="get_baremetal_status") — Your BareMetal status
+
+### VPS
+- call_mcp(tool_name="get_vps_status") — Your VPS status
+- call_mcp(tool_name="get_vps_list") — VPS plans available
+- call_mcp(tool_name="get_vps_search_available_vps", arguments={region: "eu", spec: "..."}) — Find available VPS
+
+### Purchase
+- call_mcp(tool_name="post_billing_generate_payment_link", arguments={...}) — Generate Stripe checkout URL
+
+### Storage
+- call_mcp(tool_name="get_storage_usage") — Storage usage
+
+### Services
+- call_mcp(tool_name="get_grpc_status") — gRPC service status
+- call_mcp(tool_name="get_geyser_grpc_status") — Geyser gRPC status
+- call_mcp(tool_name="get_rpc_index_status") — RPC Index status
+- call_mcp(tool_name="get_shreds_shared_status") — Shreds status
+
+## Deployment Flow (improved)
+When a user asks to deploy a validator/RPC:
+1. First ask: "Do you already have a server, or do you need one?"
+2. If NO server:
+   - Use call_mcp to show available products (BareMetal for validators, VPS for RPC)
+   - Generate a payment link and show it
+   - After purchase, the server takes ~30min to provision
+   - Use call_mcp(get_baremetal_status or get_vps_status) to check assignment progress
+3. If YES server: proceed with IP/SSH user/etc.
+
+## Session Startup
+On startup, automatically use call_mcp to check:
+- get_user_get — who is this user?
+- get_user_subscription — what do they already have?
+Then read inventory files (~/.slv/inventory.*.yml) to know deployed nodes.
+Include this context in the greeting.
 
 ## Available Skills Reference
 ${skillDocs || 'No skills installed. Run \\`slv onboard\\` to configure.'}

@@ -218,7 +218,49 @@ export const consoleAction = async () => {
     await promptInstallDependencies(missing)
   }
 
-  const systemPrompt = await buildSystemPrompt()
+  // Pre-fetch user context from MCP and inventory files (silent, non-blocking)
+  let userContext = ''
+  try {
+    const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
+    const apiYml = parse(apiYmlRaw) as Record<string, any>
+    const slvApiKey = apiYml?.slv?.api_key || ''
+
+    if (slvApiKey) {
+      const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${slvApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'get_user_get', arguments: {} },
+        }),
+      })
+      const data = await res.json()
+      userContext += `\n## User Account (from MCP)\n${data.result?.content?.[0]?.text || 'Unable to fetch'}\n`
+    }
+  } catch {
+    /* silent */
+  }
+
+  // Read inventory files
+  for (const inv of [
+    'inventory.testnet.validators.yml',
+    'inventory.mainnet.validators.yml',
+    'inventory.mainnet.rpcs.yml',
+  ]) {
+    try {
+      const content = await Deno.readTextFile(`${resolveHome()}/.slv/${inv}`)
+      userContext += `\n## ${inv}\n${content}\n`
+    } catch {
+      /* doesn't exist */
+    }
+  }
+
+  const systemPrompt = await buildSystemPrompt(userContext || undefined)
   const providerLabel = config.provider === 'openai' ? 'OpenAI' : 'Anthropic'
 
   // TUI init

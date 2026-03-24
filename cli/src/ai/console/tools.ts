@@ -3,6 +3,7 @@ import { Confirm } from '@cliffy/prompt'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { readAiConfig, DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
+import { parse } from '@std/yaml'
 import type { TUI } from '@mariozechner/pi-tui'
 
 // TUI instance for suspend/resume during confirm prompts
@@ -96,6 +97,26 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: 'call_mcp',
+    description:
+      'Call the SLV Cloud MCP API. Use this to check user subscriptions, list products, generate payment links, manage servers, etc. The API key from ~/.slv/api.yml is used automatically.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tool_name: {
+          type: 'string',
+          description:
+            'MCP tool name (e.g. get_user_get, get_baremetal_list_public_node_type, post_billing_generate_payment_link)',
+        },
+        arguments: {
+          type: 'object',
+          description: 'Arguments to pass to the MCP tool',
+        },
+      },
+      required: ['tool_name'],
+    },
+  },
+  {
     name: 'delegate_to_agent',
     description:
       'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for RPC tasks, Cloud for gRPC Geyser tasks.',
@@ -133,6 +154,11 @@ export async function executeTool(
       return await executeListFiles(String(args.path || ''))
     case 'write_file':
       return await executeWriteFile(String(args.path || ''), String(args.content || ''))
+    case 'call_mcp':
+      return await executeCallMcp(
+        String(args.tool_name || ''),
+        (args.arguments as Record<string, unknown>) || {},
+      )
     case 'delegate_to_agent':
       return await executeDelegateToAgent(String(args.agent || ''), String(args.task || ''))
     default:
@@ -244,6 +270,57 @@ async function executeWriteFile(path: string, content: string): Promise<string> 
     return `Successfully wrote to ${path}`
   } catch (error) {
     return `Error writing file: ${(error as Error).message}`
+  }
+}
+
+const MCP_MAX_RESPONSE_CHARS = 5000
+
+async function executeCallMcp(
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const home = resolveHome()
+  // Read SLV API key from api.yml
+  let apiKey = ''
+  try {
+    const raw = await Deno.readTextFile(`${home}/.slv/api.yml`)
+    const yml = parse(raw) as Record<string, any>
+    apiKey = yml?.slv?.api_key || ''
+  } catch {
+    return 'Error: Cannot read ~/.slv/api.yml'
+  }
+
+  if (!apiKey) return 'Error: No SLV API key found. Run `slv login` first.'
+
+  try {
+    const response = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'tools/call',
+        params: {
+          name: toolName,
+          arguments: args || {},
+        },
+      }),
+    })
+
+    const data = await response.json()
+    if (data.error) return `MCP Error: ${JSON.stringify(data.error)}`
+
+    const content =
+      data.result?.content?.[0]?.text || JSON.stringify(data.result)
+    if (content.length > MCP_MAX_RESPONSE_CHARS) {
+      return content.slice(0, MCP_MAX_RESPONSE_CHARS) + '\n... (truncated)'
+    }
+    return content
+  } catch (error) {
+    return `MCP request failed: ${(error as Error).message}`
   }
 }
 
@@ -370,9 +447,14 @@ Always use -n and -p flags. NEVER run \`slv v deploy\` without them.
 - firedancer-agave — Firedancer with Agave consensus
 - firedancer-jito — Firedancer with Jito consensus
 
-### Ansible execution
-When running ansible-playbook or slv v deploy, use run_command. The user will see the output in real-time.
-For long-running commands, this is expected behavior — the command output streams to the terminal.
+### Ansible/SSH execution
+When running ansible-playbook or slv commands that connect to servers:
+- ALWAYS add SSH options to avoid host key prompts that hang:
+  - For ansible-playbook: add \`-e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"'\`
+  - For raw ssh/scp: add \`-o StrictHostKeyChecking=accept-new\`
+  - For slv v deploy: set env \`ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=accept-new"\` before the command
+- Example: \`ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=accept-new" slv v deploy -n testnet -p <identity>\`
+- The user will see command output in real-time. Long-running commands are expected.
 `
 
   // Read AI config

@@ -286,6 +286,91 @@ Session history and important notes.
   const configYml = stringify(configData as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
 
+  // --- GitHub Setup (optional) ---
+  console.log(
+    colors.bold.rgb24('\n│  GitHub Setup (optional)', 0x14f195),
+  )
+
+  // Check if gh CLI is available and authenticated
+  let ghAuthenticated = false
+  try {
+    const p = new Deno.Command('gh', {
+      args: ['auth', 'status'],
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+    const { success } = await p.output()
+    ghAuthenticated = success
+  } catch {
+    /* gh not installed */
+  }
+
+  if (ghAuthenticated) {
+    console.log(colors.green('  ✔ GitHub CLI already authenticated.\n'))
+  } else {
+    // Check if gh is installed
+    let ghInstalled = false
+    try {
+      const p = new Deno.Command('gh', {
+        args: ['--version'],
+        stdout: 'piped',
+        stderr: 'piped',
+      })
+      const { success } = await p.output()
+      ghInstalled = success
+    } catch {
+      /* not installed */
+    }
+
+    if (!ghInstalled) {
+      console.log(
+        colors.rgb24(
+          '  GitHub CLI (gh) not found. Install it from https://cli.github.com/\n',
+          0x888888,
+        ),
+      )
+      console.log(
+        colors.rgb24('  Skipped. You can set up GitHub later.\n', 0x888888),
+      )
+    } else {
+      const setupGh = await Select.prompt({
+        message:
+          'Set up GitHub authentication? (enables repo creation, PRs, etc.)',
+        options: [
+          { name: 'Yes — run gh auth login', value: 'yes' },
+          { name: 'Skip for now', value: 'skip' },
+        ],
+      })
+
+      if (setupGh === 'yes') {
+        console.log(colors.white('\n  Running `gh auth login`...\n'))
+        const proc = new Deno.Command('gh', {
+          args: ['auth', 'login'],
+          stdin: 'inherit',
+          stdout: 'inherit',
+          stderr: 'inherit',
+        })
+        const { success } = await proc.output()
+        if (success) {
+          console.log(colors.green('\n  ✔ GitHub authenticated.\n'))
+        } else {
+          console.log(
+            colors.yellow(
+              '\n  ⚠ GitHub authentication failed. You can retry with `gh auth login`.\n',
+            ),
+          )
+        }
+      } else {
+        console.log(
+          colors.rgb24(
+            '  Skipped. You can run `gh auth login` later.\n',
+            0x888888,
+          ),
+        )
+      }
+    }
+  }
+
   // --- Notifications (optional) ---
   console.log(
     colors.bold.rgb24('\n│  Notifications (optional)', 0x14f195),
