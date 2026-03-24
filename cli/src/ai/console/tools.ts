@@ -127,6 +127,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: 'send_notification',
+    description:
+      'Send a notification to the user via Discord webhook (if configured in ~/.slv/agent/config.yml). Use after completing long-running tasks like deployments.',
+    parameters: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description: 'Notification message to send',
+        },
+      },
+      required: ['message'],
+    },
+  },
+  {
     name: 'delegate_to_agent',
     description:
       'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for ALL RPC tasks (Index RPC, gRPC Geyser, combo), Setzer for app/bot tasks, Figaro for server procurement.',
@@ -169,6 +184,8 @@ export async function executeTool(
         String(args.tool_name || ''),
         (args.arguments as Record<string, unknown>) || {},
       )
+    case 'send_notification':
+      return await executeSendNotification(String(args.message || ''))
     case 'delegate_to_agent':
       return await executeDelegateToAgent(String(args.agent || ''), String(args.task || ''))
     default:
@@ -261,8 +278,8 @@ async function executeRunCommand(command: string): Promise<string> {
       }
     }
 
-    // Race between command completion and timeout (10 minutes)
-    const COMMAND_TIMEOUT_MS = 600_000
+    // Race between command completion and timeout (60 minutes — builds and snapshots can take a while)
+    const COMMAND_TIMEOUT_MS = 3_600_000
     const timeoutPromise = new Promise<'timeout'>((resolve) =>
       setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS),
     )
@@ -281,7 +298,7 @@ async function executeRunCommand(command: string): Promise<string> {
       try { child.kill('SIGTERM') } catch { /* ignore */ }
       if (onCommandComplete) onCommandComplete()
       const stdout = stdoutChunks.join('')
-      return `Command timed out after 10 minutes.\nPartial output:\n${stdout.slice(-2000)}`
+      return `Command timed out after 60 minutes.\nPartial output:\n${stdout.slice(-2000)}`
     }
 
     const status = result
@@ -395,6 +412,35 @@ async function executeCallMcp(
     return content
   } catch (error) {
     return `MCP request failed: ${(error as Error).message}`
+  }
+}
+
+async function executeSendNotification(message: string): Promise<string> {
+  const home = resolveHome()
+  try {
+    const raw = await Deno.readTextFile(`${home}/.slv/agent/config.yml`)
+    const config = parse(raw) as Record<string, unknown>
+    const notifications = config.notifications as Record<string, string> | undefined
+    const webhook = notifications?.discord_webhook
+
+    if (!webhook) {
+      return 'No Discord webhook configured. Notification skipped. (Set it up with `slv onboard`)'
+    }
+
+    const res = await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `🤖 **SLV AI Console**\n${message}`,
+      }),
+    })
+
+    if (res.ok || res.status === 204) {
+      return 'Notification sent to Discord successfully.'
+    }
+    return `Discord webhook returned status ${res.status}`
+  } catch (error) {
+    return `Failed to send notification: ${(error as Error).message}`
   }
 }
 

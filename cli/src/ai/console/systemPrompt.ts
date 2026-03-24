@@ -88,6 +88,10 @@ ${agentIntro}
 - Do NOT ask for version — Cecil reads defaults from ~/.slv/versions.yml automatically.
 - Do NOT ask for snapshot URL, commission, port range — defaults are used.
 - Do NOT offer dry-runs. Just deploy when the user confirms.
+- Before starting a deploy, tell the user: "This will take 20-40 minutes (build + snapshot download). I'll notify you when it's done."
+- After a deploy completes (success or failure), ALWAYS call send_notification with a summary.
+  - Success: "✅ Deployment complete! Testnet validator deployed at 1.2.3.4 — identity: <pubkey>"
+  - Failure: "❌ Deployment failed for 1.2.3.4 — <error summary>"
 - For jito: only ask type once. Version is automatic.
 - Deployment question flow (STRICT ORDER):
   1. **First**: "Do you already have a server? (yes / no / I need to buy one)"
