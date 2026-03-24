@@ -207,10 +207,17 @@ async function executeRunCommand(command: string): Promise<string> {
   }
 
   try {
+    // Inject SSH options to prevent host key prompts that hang
+    const env: Record<string, string> = {
+      ...Object.fromEntries(Object.entries(Deno.env.toObject())),
+      ANSIBLE_HOST_KEY_CHECKING: 'False',
+      ANSIBLE_SSH_ARGS: '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null',
+    }
     const proc = new Deno.Command('bash', {
       args: ['-c', command],
       stdout: 'piped',
       stderr: 'piped',
+      env,
     })
     const output = await proc.output()
     const stdout = new TextDecoder().decode(output.stdout)
