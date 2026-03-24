@@ -398,6 +398,8 @@ export const consoleAction = async () => {
           if (match) agentName = match[1]
         }
         currentDelegateAgent = agentName
+        currentTaskDescription = `${agentName} is working`
+        currentTaskStartedAt = Date.now()
 
         const loaderMessages: Record<string, string> = {
           'Figaro': 'Figaro is searching for the best server...',
@@ -439,6 +441,14 @@ export const consoleAction = async () => {
         }
       }
       chatLog.addTool(name, detail)
+      // Track what's running for side-chat status
+      if (name === 'run_command') {
+        currentTaskDescription = 'Running a command'
+        if (!currentTaskStartedAt) currentTaskStartedAt = Date.now()
+      } else if (name === 'call_mcp') {
+        currentTaskDescription = 'Calling SLV Cloud API'
+        if (!currentTaskStartedAt) currentTaskStartedAt = Date.now()
+      }
       tui.requestRender()
     },
     onComplete: () => {
@@ -457,6 +467,8 @@ export const consoleAction = async () => {
         tipText = null
       }
       currentDelegateAgent = null
+      currentTaskDescription = ''
+      currentTaskStartedAt = 0
       tui.requestRender()
     },
   }
@@ -515,6 +527,8 @@ export const consoleAction = async () => {
   // Track user interactions for memory save decision
   let userMessageCount = 0
   let isProcessing = false
+  let currentTaskDescription = '' // What the main agent is currently doing
+  let currentTaskStartedAt = 0
 
   const saveMemoryAndExit = async () => {
     if (userMessageCount > 0) {
@@ -540,11 +554,41 @@ RULES:
     Deno.exit(0)
   }
 
+  const formatElapsedTime = (startMs: number): string => {
+    const seconds = Math.floor((Date.now() - startMs) / 1000)
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${minutes}m ${secs}s`
+  }
+
   editor.onSubmit = async (text: string) => {
     const input = text.trim()
-    if (!input || isProcessing) return
+    if (!input) return
 
     editor.setText('')
+
+    // While processing, handle side-chat messages
+    if (isProcessing) {
+      chatLog.addUser(input)
+      const elapsed = currentTaskStartedAt ? formatElapsedTime(currentTaskStartedAt) : 'a moment'
+      const agent = currentDelegateAgent || 'The system'
+
+      // Build a helpful status response
+      let status = `⏳ ${agent} is still working (${elapsed} elapsed).`
+      if (currentDelegateAgent === 'Cecil') {
+        status += ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
+      } else if (currentDelegateAgent === 'Tina') {
+        status += ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
+      } else if (currentDelegateAgent === 'Figaro') {
+        status += ' Checking server availability and preparing your options.'
+      }
+      status += " I'll let you know as soon as it's done!"
+
+      chatLog.addSystem(status)
+      tui.requestRender()
+      return
+    }
 
     if (input === '/exit' || input === '/quit') {
       isProcessing = true
