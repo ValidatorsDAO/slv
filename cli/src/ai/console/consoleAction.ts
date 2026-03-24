@@ -95,11 +95,124 @@ class ChatLog extends Container {
   }
 }
 
+async function checkDependencies(): Promise<string[]> {
+  const missing: string[] = []
+
+  // Check ansible
+  try {
+    const p = new Deno.Command('ansible-playbook', {
+      args: ['--version'],
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+    const { success } = await p.output()
+    if (!success) missing.push('ansible')
+  } catch {
+    missing.push('ansible')
+  }
+
+  // Check solana-keygen (or agave-keygen)
+  try {
+    const p = new Deno.Command('solana-keygen', {
+      args: ['--version'],
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+    const { success } = await p.output()
+    if (!success) missing.push('solana-cli')
+  } catch {
+    try {
+      const p = new Deno.Command('agave-keygen', {
+        args: ['--version'],
+        stdout: 'piped',
+        stderr: 'piped',
+      })
+      const { success } = await p.output()
+      if (!success) missing.push('solana-cli')
+    } catch {
+      missing.push('solana-cli')
+    }
+  }
+
+  return missing
+}
+
+async function promptInstallDependencies(missing: string[]): Promise<void> {
+  console.log(
+    yellow(`\n  ⚠️  Missing dependencies: ${missing.join(', ')}`),
+  )
+  const buf = new Uint8Array(1)
+  Deno.stdout.writeSync(
+    new TextEncoder().encode('  Install now? (Y/n) '),
+  )
+  await Deno.stdin.read(buf)
+  const answer = new TextDecoder().decode(buf).trim().toLowerCase()
+  if (answer === 'n') {
+    console.log(gray('  Skipping installation. Some features may not work.\n'))
+    return
+  }
+
+  const os = Deno.build.os
+
+  for (const dep of missing) {
+    if (dep === 'ansible') {
+      console.log(green('  Installing ansible-core...'))
+      if (os === 'darwin') {
+        const cmd = new Deno.Command('brew', {
+          args: ['install', 'ansible'],
+          stdout: 'inherit',
+          stderr: 'inherit',
+        })
+        await cmd.output()
+      } else {
+        const cmd = new Deno.Command('pip3', {
+          args: ['install', '--user', 'ansible-core'],
+          stdout: 'inherit',
+          stderr: 'inherit',
+        })
+        await cmd.output()
+      }
+      console.log(green('  ✓ ansible-core installed'))
+    }
+
+    if (dep === 'solana-cli') {
+      console.log(green('  Installing solana-cli (agave)...'))
+      // Try to read agave version from versions.yml in ~/.slv
+      let agaveVersion = 'stable'
+      try {
+        const versionsPath = `${Deno.env.get('HOME')}/.slv/versions.yml`
+        const content = await Deno.readTextFile(versionsPath)
+        const match = content.match(/AGAVE_VERSION:\s*["']?([^"'\s\n]+)/)
+        if (match) agaveVersion = match[1]
+      } catch {
+        // fallback to stable
+      }
+      const installUrl = agaveVersion === 'stable'
+        ? 'https://release.anza.xyz/stable/install'
+        : `https://release.anza.xyz/v${agaveVersion}/install`
+      const cmd = new Deno.Command('sh', {
+        args: ['-c', `curl -sSfL "${installUrl}" | sh`],
+        stdout: 'inherit',
+        stderr: 'inherit',
+      })
+      await cmd.output()
+      console.log(green('  ✓ solana-cli installed'))
+    }
+  }
+  console.log('')
+}
+
 export const consoleAction = async () => {
   const config = await readAiConfig()
   if (!config) {
     console.log('\n  AI not configured. Run `slv onboard` first.\n')
     return
+  }
+
+  // Check dependencies before TUI init
+  const missing = await checkDependencies()
+  if (missing.length > 0) {
+    await promptInstallDependencies(missing)
   }
 
   const systemPrompt = await buildSystemPrompt()
