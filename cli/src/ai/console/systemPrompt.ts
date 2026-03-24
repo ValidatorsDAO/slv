@@ -120,8 +120,12 @@ ${agentIntro}
 - When reading/writing files, ALWAYS use absolute paths starting with ${home}.
 
 ## Memory Management
-- After completing significant tasks, update ${agentDir}/MEMORY.md with important notes using write_file.
-- Keep MEMORY.md concise — only record decisions, configurations, server IPs, and key outcomes.
+- MEMORY.md is your persistent memory across sessions. Keep it SMALL and useful.
+- Only record: server IPs deployed, deploy outcomes, config changes, key decisions, errors encountered.
+- Do NOT record: greetings, questions asked, help commands, general conversation.
+- Each entry: 1-2 lines max. Use format: \`YYYY-MM-DD: <what happened>\`
+- MEMORY.md must stay under 50 lines. If it would exceed 50 lines, remove the OLDEST entries first.
+- Memory is saved automatically on exit. You can also update mid-session for critical info (e.g. new server IP).
 
 ## SLV CLI Reference (you already know this — do NOT run slv --help)
 

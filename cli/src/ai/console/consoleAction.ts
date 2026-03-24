@@ -435,8 +435,33 @@ export const consoleAction = async () => {
     pendingUpdates = updates
   }).catch(() => { /* silent fail */ })
 
-  // Editor submit handler
+  // Track user interactions for memory save decision
+  let userMessageCount = 0
   let isProcessing = false
+
+  const saveMemoryAndExit = async () => {
+    if (userMessageCount > 0) {
+      chatLog.addSystem('  Saving session memory...')
+      tui.requestRender()
+      try {
+        await provider.chat(
+          `Session ending. Update ~/.slv/agent/MEMORY.md using write_file with any noteworthy outcomes from this session.
+
+RULES:
+- Only record: server IPs, deploy results, config changes, key decisions, errors encountered
+- Do NOT record: greetings, questions asked, general chat, help commands
+- Keep each entry to 1-2 lines max
+- Append to existing content, never overwrite
+- If nothing notable happened, do NOT write to the file
+- MEMORY.md must stay under 50 lines total. If it would exceed 50 lines, remove the oldest entries to make room.`,
+        )
+      } catch { /* ignore save errors */ }
+    }
+    tui.stop()
+    await terminal.drainInput()
+    console.log('\n  Goodbye!\n')
+    Deno.exit(0)
+  }
 
   editor.onSubmit = async (text: string) => {
     const input = text.trim()
@@ -445,18 +470,8 @@ export const consoleAction = async () => {
     editor.setText('')
 
     if (input === '/exit' || input === '/quit') {
-      chatLog.addSystem('  Saving session...')
-      tui.requestRender()
       isProcessing = true
-      try {
-        await provider.chat(
-          'Session ending. If anything important happened, update ~/.slv/agent/MEMORY.md using write_file. Keep it concise. If nothing notable, do nothing.',
-        )
-      } catch { /* ignore */ }
-      tui.stop()
-      await terminal.drainInput()
-      console.log('\n  Goodbye!\n')
-      Deno.exit(0)
+      await saveMemoryAndExit()
       return
     }
 
@@ -495,6 +510,7 @@ export const consoleAction = async () => {
     }
 
     chatLog.addUser(input)
+    userMessageCount++
     isProcessing = true
 
     // Show loader
@@ -521,9 +537,15 @@ export const consoleAction = async () => {
   // Global ctrl+c handler
   tui.addInputListener((data: string) => {
     if (matchesKey(data, 'ctrl+c')) {
-      tui.stop()
-      console.log('\n  Goodbye!\n')
-      Deno.exit(0)
+      if (isProcessing) {
+        // If LLM is running, exit immediately (can't wait for memory save)
+        tui.stop()
+        console.log('\n  Goodbye!\n')
+        Deno.exit(0)
+      } else {
+        // Save memory before exit
+        saveMemoryAndExit()
+      }
       return { consume: true }
     }
     return undefined
