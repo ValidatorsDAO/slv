@@ -44,13 +44,8 @@ Call `get_baremetal_server_list_server_type` with the correct serverType.
 - For RPC → recommend the standard RPC tier
 - Do NOT list all products. Recommend ONE.
 
-### Step 4: Clean up the payment link
-The `paymentLink` in the response is very long. ALWAYS strip the `#` fragment:
-- Raw: `https://pay.erpc.global/c/pay/cs_live_xxx#fidnandhYHdWcXxpYCc%2F...`
-- Clean: `https://pay.erpc.global/c/pay/cs_live_xxx`
-- **Remove everything from `#` onwards.** The link works without the fragment.
-
-### Step 5: Present to user
+### Step 4: Present to user
+The payment link is automatically cleaned up (short URL). Just use it as-is from the response.
 Report back with this EXACT format:
 
 ```
@@ -69,8 +64,8 @@ Login credentials will be emailed to you.
 ```
 
 ## CRITICAL Rules
-1. **ALWAYS strip `#` and everything after it from paymentLink** — the fragment makes the URL too long for terminal display
-2. Show the URL on its own line, NOT inside markdown link syntax (terminal markdown links are not clickable). Just the raw clean URL for easy copy-paste.
+1. Payment links are automatically shortened by the system. Just use the paymentLink from the response as-is.
+2. Show the URL on its own line for easy copy-paste.
 3. Recommend ONE product. Only show alternatives if the user asks.
 4. Use the correct serverType: testnet → APP, mainnet → MV, RPC → RPC
 5. Region is already known from the delegation message. Mention "Select region at checkout."

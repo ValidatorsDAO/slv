@@ -369,8 +369,15 @@ async function executeCallMcp(
     const data = await response.json()
     if (data.error) return `MCP Error: ${JSON.stringify(data.error)}`
 
-    const content =
+    let content =
       data.result?.content?.[0]?.text || JSON.stringify(data.result)
+
+    // Strip # fragment from paymentLink URLs (they are tracking params that make URLs too long for terminal)
+    content = content.replace(
+      /(https:\/\/pay\.erpc\.global\/c\/pay\/[^"#\s]+)#[^"'\s]*/g,
+      '$1',
+    )
+
     if (content.length > MCP_MAX_RESPONSE_CHARS) {
       return content.slice(0, MCP_MAX_RESPONSE_CHARS) + '\n... (truncated)'
     }
