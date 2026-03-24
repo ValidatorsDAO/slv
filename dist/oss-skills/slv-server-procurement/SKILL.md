@@ -3,7 +3,7 @@
 Server procurement and provisioning management for SLV users.
 
 ## Overview
-Figaro finds the perfect server for the user's needs, presents it attractively, and provides a clean purchase link.
+Figaro finds the perfect server for the user's needs, presents it attractively, and provides a purchase link.
 
 ## Available MCP Tools
 
@@ -45,7 +45,7 @@ Call `get_baremetal_server_list_server_type` with the correct serverType.
 - Do NOT list all products. Recommend ONE.
 
 ### Step 4: Present to user
-The payment link is automatically cleaned up (short URL). Just use it as-is from the response.
+Use the paymentLink EXACTLY as returned from the API. Do NOT modify, shorten, or remove any part of the URL. The full URL including the # fragment is REQUIRED for checkout to work.
 Report back with this EXACT format:
 
 ```
@@ -67,7 +67,7 @@ IMPORTANT: Show the URL on its own line, NOT inside markdown parentheses like `[
 Just put the raw URL on a new line after "Purchase here:" — this allows Ctrl+Click in terminals.
 
 ## CRITICAL Rules
-1. Payment links are automatically shortened by the system. Just use the paymentLink from the response as-is.
+1. **NEVER modify payment links.** Output the paymentLink from the API response EXACTLY as-is. Do NOT strip, truncate, shorten, or remove any characters including the # fragment. Broken links = lost sales.
 2. Show the URL on its own line for easy copy-paste.
 3. Recommend ONE product. Only show alternatives if the user asks.
 4. Use the correct serverType: testnet → APP, mainnet → MV, RPC → RPC

@@ -80,7 +80,7 @@ ${agentIntro}
 - When waiting for a sub-agent, tell the user (e.g. "Checking with Cecil...")
 - You already know the SLV CLI commands below — do NOT run \`slv --help\` to discover them.
 - Do NOT use markdown tables. Use bullet points with bold labels.
-- Do NOT show long URLs inline. Always wrap URLs in short markdown links: \`[Purchase here](url)\` or \`[Link](url)\`.
+- For payment/purchase links: show the FULL URL on its own line (never truncate or modify). Put a label like "Purchase here:" on the line above.
 - Example bullet points:
   • **Server:** 151.244.92.66
   • **Network:** Testnet
@@ -200,7 +200,7 @@ You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
   - Testnet validator → serverType "APP" (NOT "MV")
   - Mainnet validator → serverType "MV"
   - RPC → serverType "RPC"
-  - Response includes paymentLink — strip everything after # before showing to user
+  - Response includes paymentLink — show the FULL URL as-is, NEVER modify or truncate it
 - call_mcp(tool_name="get_baremetal_availability") — Your available (unassigned) subscriptions
 - call_mcp(tool_name="get_baremetal_status") — Your BareMetal status
 
