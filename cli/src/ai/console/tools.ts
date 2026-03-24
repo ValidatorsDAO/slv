@@ -261,12 +261,30 @@ async function executeRunCommand(command: string): Promise<string> {
       }
     }
 
-    await Promise.all([
-      readStream(child.stdout, stdoutChunks, true),
-      readStream(child.stderr, stderrChunks, false),
-    ])
+    // Race between command completion and timeout (10 minutes)
+    const COMMAND_TIMEOUT_MS = 600_000
+    const timeoutPromise = new Promise<'timeout'>((resolve) =>
+      setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS),
+    )
 
-    const status = await child.status
+    const commandPromise = (async () => {
+      await Promise.all([
+        readStream(child.stdout, stdoutChunks, true),
+        readStream(child.stderr, stderrChunks, false),
+      ])
+      return await child.status
+    })()
+
+    const result = await Promise.race([commandPromise, timeoutPromise])
+
+    if (result === 'timeout') {
+      try { child.kill('SIGTERM') } catch { /* ignore */ }
+      if (onCommandComplete) onCommandComplete()
+      const stdout = stdoutChunks.join('')
+      return `Command timed out after 10 minutes.\nPartial output:\n${stdout.slice(-2000)}`
+    }
+
+    const status = result
     const stdout = stdoutChunks.join('')
     const stderr = stderrChunks.join('')
 
@@ -495,11 +513,31 @@ Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
       port_rpc: 7211
 \`\`\`
 
-### Step 3: Create solv user (fresh servers only)
+### Step 3: SSH connection test + solv user setup (MANDATORY before deploy)
+This step is CRITICAL. Fresh servers only have the cloud provider's default user (e.g. ubuntu, root).
+You MUST verify SSH connectivity and create the solv user before deploying.
+
+**3a. Test SSH connectivity:**
+\`\`\`
+ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <ssh_user>@<server_ip> 'echo SSH_OK'
+\`\`\`
+- If this fails → report the error to the main agent. Do NOT proceed.
+- Default SSH user for fresh servers: ubuntu (most providers), root (some providers)
+- Ask the main agent to confirm the SSH user if unsure.
+
+**3b. Create solv user (if SSH works and ansible_user is NOT solv):**
 \`\`\`
 TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
-ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"ubuntu"}' --become --limit <identity_pubkey>
+ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_DIR}ansible/cmn/add_solv.yml -e '{"ansible_user":"<ssh_user>"}' -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become --limit <identity_pubkey>
 \`\`\`
+- This creates the solv user, sets up SSH keys, and configures sudo.
+- After this, all subsequent commands use \`ansible_user: solv\`.
+
+**3c. Verify solv user works:**
+\`\`\`
+ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 solv@<server_ip> 'echo SOLV_OK'
+\`\`\`
+- If this fails → the add_solv playbook had an issue. Report the error.
 
 ### Step 4: Deploy
 Do NOT use \`slv v deploy\` — it has an interactive confirm prompt that hangs.

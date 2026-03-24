@@ -240,11 +240,23 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 
 ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
 
-### Pre-flight: Fresh Server Setup
+### Pre-flight: Fresh Server Setup (MANDATORY before deploy)
 
+**1. Test SSH connectivity first:**
+```bash
+ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <ssh_user>@<server_ip> 'echo SSH_OK'
+```
+If this fails, report the error. Do NOT proceed.
+
+**2. Create solv user:**
 ```bash
 ansible-playbook -i inventory.yml cmn/add_solv.yml \
-  -e '{"ansible_user":"ubuntu"}' --become
+  -e '{"ansible_user":"<ssh_user>"}' -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become
+```
+
+**3. Verify solv user works:**
+```bash
+ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 solv@<server_ip> 'echo SOLV_OK'
 ```
 
 ### Deployment Command
