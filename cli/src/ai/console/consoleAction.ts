@@ -17,7 +17,7 @@ import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
-import { setTuiInstance, setAutoExecute } from '@/ai/console/tools.ts'
+import { setTuiInstance, setAutoExecute, setCommandOutputCallback } from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
 import { checkSolanaReleases, applyVersionUpdates, type VersionUpdate } from '@/ai/console/checkRelease.ts'
@@ -286,6 +286,12 @@ export const consoleAction = async () => {
 
   // Store TUI reference for tools.ts suspend/resume
   setTuiInstance(tui)
+
+  // Stream command output lines to TUI
+  setCommandOutputCallback((line: string) => {
+    chatLog.addSystem(`  ${line}`)
+    tui.requestRender()
+  })
 
   // Read auto-execute setting from agent config
   try {

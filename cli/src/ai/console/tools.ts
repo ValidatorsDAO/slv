@@ -18,6 +18,13 @@ export function setAutoExecute(auto: boolean) {
   autoExecuteCommands = auto
 }
 
+// Callback for streaming command output to TUI
+let onCommandOutput: ((line: string) => void) | null = null
+
+export function setCommandOutputCallback(cb: ((line: string) => void) | null) {
+  onCommandOutput = cb
+}
+
 export type ToolDefinition = {
   name: string
   description: string
@@ -219,12 +226,49 @@ async function executeRunCommand(command: string): Promise<string> {
       stderr: 'piped',
       env,
     })
-    const output = await proc.output()
-    const stdout = new TextDecoder().decode(output.stdout)
-    const stderr = new TextDecoder().decode(output.stderr)
+    const child = proc.spawn()
 
-    if (!output.success) {
-      return `Command failed (exit code ${output.code}):\nstdout:\n${stdout}\nstderr:\n${stderr}`
+    // Stream stdout lines to TUI in real-time
+    const stdoutChunks: string[] = []
+    const stderrChunks: string[] = []
+
+    const readStream = async (stream: ReadableStream<Uint8Array>, chunks: string[], isStdout: boolean) => {
+      const reader = stream.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const text = decoder.decode(value, { stream: true })
+        buffer += text
+        chunks.push(text)
+
+        // Stream lines to TUI callback
+        if (isStdout && onCommandOutput) {
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            if (line.trim()) onCommandOutput(line.trim())
+          }
+        }
+      }
+      // Flush remaining buffer
+      if (isStdout && onCommandOutput && buffer.trim()) {
+        onCommandOutput(buffer.trim())
+      }
+    }
+
+    await Promise.all([
+      readStream(child.stdout, stdoutChunks, true),
+      readStream(child.stderr, stderrChunks, false),
+    ])
+
+    const status = await child.status
+    const stdout = stdoutChunks.join('')
+    const stderr = stderrChunks.join('')
+
+    if (!status.success) {
+      return `Command failed (exit code ${status.code}):\nstdout:\n${stdout}\nstderr:\n${stderr}`
     }
     return stdout || '(no output)'
   } catch (error) {
