@@ -243,8 +243,8 @@ export const onboardAction = async () => {
   }
 
   // Build config
-  const home = Deno.env.get('HOME') || ''
-  const agentDir = `${home}/.slv/agent`
+  const agentHome = resolveHome()
+  const agentDir = `${agentHome}/.slv/agent`
   await Deno.mkdir(agentDir, { recursive: true })
 
   // USER.md
