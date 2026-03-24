@@ -339,7 +339,7 @@ export const consoleAction = async () => {
       tui.requestRender()
     },
     onToolCall: (name: string, detail: string) => {
-      // For delegate_to_agent, show a spinning loader while sub-agent works
+      // For delegate_to_agent, show a spinning loader with agent name
       if (name === 'delegate_to_agent') {
         if (loader) {
           chatLog.removeChild(loader)
@@ -349,7 +349,11 @@ export const consoleAction = async () => {
         try {
           const parsed = JSON.parse(detail)
           agentName = parsed.agent || agentName
-        } catch { /* use default */ }
+        } catch {
+          // detail may be truncated — extract agent name with regex
+          const match = detail.match(/"agent"\s*:\s*"([^"]+)"/)
+          if (match) agentName = match[1]
+        }
         loader = new Loader(tui, (s: string) => chalk.hex('#14f195')(s), (s: string) => chalk.gray(s), `${agentName} is working...`)
         chatLog.addChild(loader)
         loader.start()
