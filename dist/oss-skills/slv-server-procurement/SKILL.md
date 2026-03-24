@@ -63,8 +63,10 @@ Select your region at checkout. Provisioning takes ~30 min after payment.
 Login credentials will be emailed to you.
 ```
 
-IMPORTANT: Show the URL on its own line, NOT inside markdown parentheses like `[text](url)`.
-Just put the raw URL on a new line after "Purchase here:" — this allows Ctrl+Click in terminals.
+IMPORTANT:
+- Show the URL on its own line, NOT inside markdown parentheses like `[text](url)`.
+- After presenting the payment link, ALSO open it in the user's browser by calling run_command with: `xdg-open '<paymentLink_url>' 2>/dev/null || open '<paymentLink_url>' 2>/dev/null &`
+- This way the user gets both the visible link AND an automatic browser open.
 
 ## CRITICAL Rules
 1. **NEVER modify payment links.** Output the paymentLink from the API response EXACTLY as-is. Do NOT strip, truncate, shorten, or remove any characters including the # fragment. Broken links = lost sales.

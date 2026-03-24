@@ -339,6 +339,15 @@ export const consoleAction = async () => {
         loader.stop()
         loader = null
       }
+      // Clean up tips before streaming starts
+      if (tipTimer) {
+        clearInterval(tipTimer)
+        tipTimer = null
+      }
+      if (tipText) {
+        chatLog.removeChild(tipText)
+        tipText = null
+      }
       chatLog.updateStreaming(text)
       tui.requestRender()
     },
