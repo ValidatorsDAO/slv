@@ -99,15 +99,17 @@ export const installClientMessage = () => {
   )
 
   const msg = `
-${colors.yellow('$ slv metal product')}   - BareMetal Servers for Solana
-${colors.yellow('$ slv storage product')} - Global Cloud Storage powered by R2
-
 ${colors.bold.underline('Quick Start:')}
 
-$ slv validator init
-$ slv validator deploy -n testnet
+${colors.yellow('$ slv onboard')}         - Setup AI Console (recommended)
+${colors.yellow('$ slv c')}               - Launch AI Console
 
-$ slv --help for more information
+${colors.bold.underline('Manual Setup:')}
+
+${colors.yellow('$ slv validator init')}  - Initialize validator config
+${colors.yellow('$ slv validator deploy -n testnet')}
+
+${colors.yellow('$ slv --help')} for more information
 `
   console.log(colors.rgb24(msg, 0xffffff))
 }
