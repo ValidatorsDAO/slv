@@ -43,7 +43,6 @@
           - git
           - curl
         state: present
-        update_cache: yes
 
     - name: Git clone Agave3 repository
       become: no

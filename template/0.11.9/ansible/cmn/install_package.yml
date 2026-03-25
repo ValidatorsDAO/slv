@@ -3,6 +3,35 @@
   hosts: all
   become: yes
   tasks:
+    - name: Stop unattended-upgrades to prevent apt lock conflicts
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - unattended-upgrades
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+      become: yes
+      failed_when: false
+      tags: setup_lib
+
+    - name: Wait for apt locks to be released
+      shell: |
+        for i in $(seq 1 60); do
+          if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
+             ! fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+            exit 0
+          fi
+          sleep 5
+        done
+        echo "apt lock still held after 5 minutes" >&2
+        exit 1
+      args:
+        executable: /bin/bash
+      changed_when: false
+      become: yes
+      tags: setup_lib
+
     - name: Update apt cache
       apt:
         update_cache: yes
