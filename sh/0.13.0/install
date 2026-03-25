@@ -148,20 +148,19 @@ install_skills() {
   mkdir -p "$HOME/.slv/skills"
   
   SKILLS_TEMP=$(mktemp -d)
-  git clone --depth 1 --filter=blob:none --sparse \
-    https://github.com/ValidatorsDAO/slv.git "$SKILLS_TEMP/slv" 2>/dev/null
-  cd "$SKILLS_TEMP/slv"
-  git sparse-checkout set dist/oss-skills 2>/dev/null
+  REPO_TAR="https://github.com/ValidatorsDAO/slv/archive/refs/heads/main.tar.gz"
+  
+  curl -fSL --progress-bar "$REPO_TAR" -o "$SKILLS_TEMP/slv.tar.gz"
+  tar -xzf "$SKILLS_TEMP/slv.tar.gz" -C "$SKILLS_TEMP" --strip-components=1 "slv-main/dist/oss-skills"
   
   for skill in slv-validator slv-rpc slv-grpc-geyser; do
-    if [ -d "dist/oss-skills/$skill" ]; then
+    if [ -d "$SKILLS_TEMP/dist/oss-skills/$skill" ]; then
       rm -rf "$HOME/.slv/skills/$skill"
-      cp -r "dist/oss-skills/$skill" "$HOME/.slv/skills/$skill"
+      cp -r "$SKILLS_TEMP/dist/oss-skills/$skill" "$HOME/.slv/skills/$skill"
       echo "  ✅ $skill installed"
     fi
   done
   
-  cd - >/dev/null
   rm -rf "$SKILLS_TEMP"
   echo "AI agent skills installed in $HOME/.slv/skills/"
 }
