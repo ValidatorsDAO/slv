@@ -142,6 +142,30 @@ install_shreds_test() {
   echo "Shreds test binary installed in $HOME/.slv/bin/shreds_test"
 }
 
+# Install AI agent skills from GitHub
+install_skills() {
+  echo "Installing AI agent skills..."
+  mkdir -p "$HOME/.slv/skills"
+  
+  SKILLS_TEMP=$(mktemp -d)
+  git clone --depth 1 --filter=blob:none --sparse \
+    https://github.com/ValidatorsDAO/slv.git "$SKILLS_TEMP/slv" 2>/dev/null
+  cd "$SKILLS_TEMP/slv"
+  git sparse-checkout set dist/oss-skills 2>/dev/null
+  
+  for skill in slv-validator slv-rpc slv-grpc-geyser; do
+    if [ -d "dist/oss-skills/$skill" ]; then
+      rm -rf "$HOME/.slv/skills/$skill"
+      cp -r "dist/oss-skills/$skill" "$HOME/.slv/skills/$skill"
+      echo "  ✅ $skill installed"
+    fi
+  done
+  
+  cd - >/dev/null
+  rm -rf "$SKILLS_TEMP"
+  echo "AI agent skills installed in $HOME/.slv/skills/"
+}
+
 # Main installation process
 main() {
   echo "Detecting platform..."
@@ -179,14 +203,17 @@ main() {
     echo "Windows users, add $INSTALL_DIR to your PATH manually."
   fi
 
+  # Install AI agent skills from GitHub
+  install_skills
+  
   slv upgrade:settings
   
   # Optional: Test the installed 'slv'
   echo "Testing slv installation... 🔨"
   slv -P || true
   
-  echo "You can now use 'slv check grpc' to run gRPC latency tests:"
-  echo "Example: slv check grpc"
+  echo "You can now use 'slv onboard' to get started with the AI Console."
+  echo "Example: slv onboard"
 }
 
 # Run the main function
