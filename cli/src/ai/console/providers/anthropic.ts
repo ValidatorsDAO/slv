@@ -1,0 +1,99 @@
+import Anthropic from '@anthropic-ai/sdk'
+import {
+  executeTool,
+  TOOL_DEFINITIONS,
+  type ToolDefinition,
+} from '@/ai/console/tools.ts'
+import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
+import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
+
+type MessageParam = Anthropic.MessageParam
+type ToolResultBlockParam = Anthropic.ToolResultBlockParam
+
+function toAnthropicTools(
+  tools: ToolDefinition[],
+): Anthropic.Tool[] {
+  return tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters as Anthropic.Tool['input_schema'],
+  }))
+}
+
+export class AnthropicProvider {
+  private client: Anthropic
+  private model: string
+  private messages: MessageParam[] = []
+  private systemPrompt: string
+  private callbacks: ChatCallbacks
+
+  constructor(apiKey: string, model: string, systemPrompt: string, callbacks: ChatCallbacks) {
+    this.client = new Anthropic({ apiKey })
+    this.model = model
+    this.systemPrompt = systemPrompt
+    this.callbacks = callbacks
+  }
+
+  async chat(userMessage: string): Promise<void> {
+    this.messages.push({ role: 'user', content: userMessage })
+
+    while (true) {
+      const stream = this.client.messages.stream({
+        model: this.model,
+        max_tokens: DEFAULT_MAX_TOKENS,
+        system: this.systemPrompt,
+        messages: this.messages,
+        tools: toAnthropicTools(TOOL_DEFINITIONS),
+      })
+
+      let assistantText = ''
+      const toolUseBlocks: {
+        id: string
+        name: string
+        input: Record<string, unknown>
+      }[] = []
+
+      // Stream text in real-time via callback
+      stream.on('text', (text) => {
+        assistantText += text
+        this.callbacks.onStream(assistantText)
+      })
+
+      const response = await stream.finalMessage()
+
+      // Collect tool_use blocks from the final message
+      for (const block of response.content) {
+        if (block.type === 'tool_use') {
+          toolUseBlocks.push({
+            id: block.id,
+            name: block.name,
+            input: block.input as Record<string, unknown>,
+          })
+        }
+      }
+
+      // Save assistant message with the raw response content
+      this.messages.push({ role: 'assistant', content: response.content })
+
+      if (toolUseBlocks.length === 0) {
+        this.callbacks.onComplete()
+        break
+      }
+
+      // Execute tools and add results
+      const toolResults: ToolResultBlockParam[] = []
+      for (const tb of toolUseBlocks) {
+        this.callbacks.onToolCall(tb.name, JSON.stringify(tb.input).slice(0, 100))
+        const result = await executeTool(tb.name, tb.input)
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: tb.id,
+          content: result,
+        })
+      }
+      this.messages.push({ role: 'user', content: toolResults })
+
+      // Continue loop to let model respond after tool results
+    }
+  }
+}

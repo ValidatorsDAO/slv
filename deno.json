@@ -42,7 +42,8 @@
     "drizzle-kit": "npm:drizzle-kit@0.31.8",
     "drizzle-orm": "npm:drizzle-orm@^0.45.1",
     "drizzle-zod": "npm:drizzle-zod@0.8.3",
-    "mysql2": "npm:mysql2@3.16.0"
+    "mysql2": "npm:mysql2@3.16.0",
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@0.39.0"
   },
   "compilerOptions": {
     "checkJs": true
