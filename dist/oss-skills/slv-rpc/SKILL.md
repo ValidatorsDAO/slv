@@ -2,6 +2,16 @@
 
 Ansible playbooks and Jinja2 templates for deploying and managing Solana RPC nodes (mainnet, testnet, devnet).
 
+## Recommended RAM
+
+| Configuration | Minimum RAM |
+|---|---|
+| gRPC Geyser only | 384 GB |
+| Index RPC (without gRPC) | 768 GB |
+| Index RPC + gRPC | 1 TB |
+
+These are recommended minimums. Higher specs improve performance and stability.
+
 ## Supported RPC Types
 
 | Type | Description |
