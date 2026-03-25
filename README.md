@@ -26,6 +26,8 @@ SLV provides Ansible playbooks, Jinja2 templates, and AI agent skills that let y
 
 ## Quick Start — Deploy with AI
 
+> **🚀 Just want to deploy?** Run `slv onboard` then `slv c` — see [SLV CLI](#slv-cli--the-fastest-way-to-get-started) below.
+
 ### 1. Install a Skill
 
 SLV skills work with **any AI coding agent** — OpenClaw, Claude Code, Codex, Cursor, Windsurf, and more. Pick the method that fits your setup:
@@ -149,17 +151,25 @@ ansible-playbook -i inventory.yml cmn/build_solana.yml \
   -e '{"solana_version":"v3.1.8"}'
 ```
 
-## Using the SLV CLI
+## SLV CLI — The Fastest Way to Get Started
 
-SLV also includes a standalone CLI for interactive deployment:
+Install the CLI and launch the AI Console in 3 commands:
 
 ```bash
 curl -fsSL https://storage.slv.dev/slv/install | sh
-slv validator init
-slv validator deploy
+slv onboard    # Configure AI provider, API keys, and agent settings
+slv c          # Launch AI Console — deploy nodes through conversation
 ```
 
-See [slv.dev](https://slv.dev/) for full CLI documentation.
+The AI Console (`slv c`) gives you a rich terminal UI where specialist agents handle everything:
+- **Cecil** — Validator deployments (Jito, Agave, Firedancer)
+- **Tina** — RPC & gRPC Geyser deployments
+- **Figaro** — Server procurement and pricing
+- **Setzer** — Trading bots and Solana apps
+
+Just describe what you need. The agent handles SSH setup, key generation, inventory creation, builds, snapshot download, and monitoring.
+
+See [slv.dev](https://slv.dev/) for full documentation.
 
 ## ERPC Network Benefits
 
