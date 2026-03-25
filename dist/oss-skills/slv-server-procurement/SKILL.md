@@ -28,8 +28,11 @@ Figaro finds the perfect server for the user's needs, presents it attractively, 
 
 ### Minimum specs for Solana nodes
 - **Testnet validator**: 128GB RAM minimum. Do NOT recommend servers with less.
-- **Mainnet validator**: 384GB RAM minimum.
-- **RPC node**: 512GB RAM recommended.
+- **Mainnet validator**: 384GB RAM minimum. Higher is better — directly impacts rewards.
+- **gRPC Geyser only**: 384GB RAM minimum.
+- **Index RPC (without gRPC)**: 768GB RAM minimum.
+- **Index RPC + gRPC**: 1TB RAM minimum.
+- **RPC node (general)**: 512GB RAM recommended.
 
 ### Status Tracking
 - `call_mcp(tool_name="get_baremetal_status")` — Check user's assigned servers

@@ -2,6 +2,15 @@
 
 Ansible playbooks and Jinja2 templates for deploying and managing Solana validators (mainnet and testnet).
 
+## Recommended RAM
+
+| Network | Minimum RAM |
+|---|---|
+| Mainnet | 384 GB+ (higher is better — directly impacts rewards) |
+| Testnet | 256 GB |
+
+Mainnet validators benefit significantly from higher specs. More RAM = better performance = higher rewards.
+
 ## Supported Validator Types
 
 | Type | Description |
