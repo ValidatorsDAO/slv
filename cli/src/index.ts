@@ -12,7 +12,6 @@ import { installClientMessage, slvAA } from '/lib/slvAA.ts'
 import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
-import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { migrateVersionsYml } from '/lib/migrate/migrateVersionsYml.ts'
 import { installCmd } from '/src/install/index.ts'
 import { migrateCmd } from '@/migrate/index.ts'
@@ -43,7 +42,6 @@ program
   .action(async () => {
     await migrateVersionsYml()
     await copyTemplateDirs()
-    await updateDefaultVersion()
   })
 
 program
