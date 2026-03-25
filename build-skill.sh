@@ -27,14 +27,22 @@ else
 fi
 
 TEMPLATE_DIR="$SCRIPT_DIR/template/$VERSION"
+
+# Fallback: if exact version template doesn't exist, use the latest available
+if [[ ! -d "$TEMPLATE_DIR/ansible" ]]; then
+  LATEST_TEMPLATE=$(ls -d "$SCRIPT_DIR/template"/[0-9]*/ 2>/dev/null | sort -V | tail -1)
+  if [[ -n "$LATEST_TEMPLATE" && -d "$LATEST_TEMPLATE/ansible" ]]; then
+    echo "WARN: Template $VERSION not found, using $(basename "$LATEST_TEMPLATE") instead" >&2
+    TEMPLATE_DIR="$LATEST_TEMPLATE"
+  else
+    echo "ERROR: No template directories found in $SCRIPT_DIR/template/" >&2
+    exit 1
+  fi
+fi
+
 ANSIBLE_DIR="$TEMPLATE_DIR/ansible"
 JINJA_DIR="$TEMPLATE_DIR/jinja"
 DIST_DIR="$SCRIPT_DIR/dist/skills/slv-$SKILL"
-
-if [[ ! -d "$ANSIBLE_DIR" ]]; then
-  echo "ERROR: Template dir not found: $ANSIBLE_DIR" >&2
-  exit 1
-fi
 
 # Define which ansible/jinja directories belong to each skill
 declare -a ANSIBLE_DIRS
