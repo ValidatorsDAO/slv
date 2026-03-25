@@ -303,23 +303,24 @@ export const consoleAction = async () => {
   // Stream command output lines to TUI — filter out table borders and limit line count
   let cmdOutputLines: string[] = []
   let cmdOutputText: Text | null = null
-  const MAX_CMD_OUTPUT_LINES = 40
+  const MAX_CMD_VISIBLE_LINES = 30
   let cmdFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let cmdTotalLineCount = 0
 
-  let prevCmdLineCount = 0
   const flushCmdOutput = () => {
     if (cmdOutputLines.length === 0) return
-    const combined = cmdOutputLines.join('\n')
+    // Show last N lines as a rolling window so the user always sees progress
+    const visible = cmdOutputLines.slice(-MAX_CMD_VISIBLE_LINES)
+    const hiddenCount = cmdTotalLineCount - visible.length
+    const header = hiddenCount > 0 ? `  ... (${hiddenCount} earlier lines hidden)\n` : ''
+    const combined = header + visible.join('\n')
     if (cmdOutputText) {
-      if (cmdOutputLines.length === prevCmdLineCount) {
-        // Same line count — no layout change needed, skip re-render
-        return
-      }
-      chatLog.removeChild(cmdOutputText)
+      // Update text in-place — no remove/add cycle, no layout thrash, no scrollbar flicker
+      cmdOutputText.setText(gray(combined))
+    } else {
+      cmdOutputText = new Text(gray(combined), 1)
+      chatLog.addChild(cmdOutputText)
     }
-    cmdOutputText = new Text(gray(combined), 1)
-    chatLog.addChild(cmdOutputText)
-    prevCmdLineCount = cmdOutputLines.length
     tui.requestRender()
   }
 
@@ -328,23 +329,26 @@ export const consoleAction = async () => {
     if (/^[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]+$/.test(line.trim())) return
     // Skip empty or whitespace-only lines
     if (!line.trim()) return
-    // Limit output lines
-    if (cmdOutputLines.length >= MAX_CMD_OUTPUT_LINES) return
 
     const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(/\s+/g, ' ').trim()
     if (!cleaned) return
+    cmdTotalLineCount++
     cmdOutputLines.push(`  ${cleaned}`)
+    // Keep buffer from growing unbounded — retain 2x visible window
+    if (cmdOutputLines.length > MAX_CMD_VISIBLE_LINES * 2) {
+      cmdOutputLines = cmdOutputLines.slice(-MAX_CMD_VISIBLE_LINES)
+    }
 
     // Debounce flush to batch rapid output
     if (cmdFlushTimer) clearTimeout(cmdFlushTimer)
-    cmdFlushTimer = setTimeout(flushCmdOutput, 500)
+    cmdFlushTimer = setTimeout(flushCmdOutput, 300)
   }, () => {
     // Flush remaining on command complete
     if (cmdFlushTimer) { clearTimeout(cmdFlushTimer); cmdFlushTimer = null }
     flushCmdOutput()
     cmdOutputLines = []
     cmdOutputText = null
-    prevCmdLineCount = 0
+    cmdTotalLineCount = 0
   })
 
   // Read auto-execute setting from agent config
