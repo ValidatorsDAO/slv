@@ -1,0 +1,19 @@
+{
+  "name": "slv-app",
+  "displayName": "SLV App",
+  "version": "0.9.962",
+  "description": "Create and manage Solana trade bot applications with AI-powered interactive guidance. Scaffold app templates and deploy to servers.",
+  "author": "ValidatorsDAO",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ValidatorsDAO/slv",
+  "repository": "https://github.com/ValidatorsDAO/slv",
+  "tags": ["solana", "trade-bot", "app", "deno", "typescript"],
+  "requirements": {
+    "system": ["deno>=2.0"],
+    "optional": ["solana-cli"]
+  },
+  "files": {
+    "skill": "SKILL.md",
+    "agent": "AGENT.md"
+  }
+}
