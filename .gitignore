@@ -87,3 +87,4 @@ build
 dist/**
 !dist/oss-skills/
 !dist/oss-skills/**
+cli/dist/
