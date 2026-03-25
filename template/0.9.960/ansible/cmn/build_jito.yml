@@ -43,7 +43,6 @@
           - git
           - curl
         state: present
-        update_cache: yes
 
     - name: Clone Jito Solana repository
       become: no

@@ -247,6 +247,9 @@ async function executeRunCommand(command: string): Promise<string> {
       ...Object.fromEntries(Object.entries(Deno.env.toObject())),
       ANSIBLE_HOST_KEY_CHECKING: 'False',
       ANSIBLE_SSH_ARGS: '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no',
+      ANSIBLE_STDOUT_CALLBACK: 'default',
+      ANSIBLE_DISPLAY_ARGS_TO_STDOUT: 'False',
+      PYTHONUNBUFFERED: '1',
     }
     const proc = new Deno.Command('bash', {
       args: ['-c', command],
@@ -588,6 +591,29 @@ Example for testnet:
 \`\`\`
 TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1) && ansible-playbook -i ${home}/.slv/inventory.testnet.validators.yml \${TEMPLATE_DIR}ansible/testnet-validator/init.yml --limit <identity_pubkey>
 \`\`\`
+
+### Identity Key Structure (CRITICAL — get this right in completion messages)
+The deploy playbook creates this key layout on the target node:
+
+**Testnet:**
+- \`/home/solv/testnet-validator-keypair.json\` — the validator's staked identity key (copied from ~/.slv/keys/)
+- \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
+- \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\` to prevent double-voting
+- To activate staked identity: \`ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json\`
+
+**Mainnet:**
+- \`/home/solv/<identity-pubkey>.json\` — the validator's staked identity key
+- \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
+- \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`
+- To activate: \`ln -sf /home/solv/<identity-pubkey>.json /home/solv/identity.json\` or use \`slv v set:identity\`
+
+**Why unstaked by default:** Prevents double-voting if the same identity runs on two nodes simultaneously (e.g. during migration). The validator starts with the unstaked key and catches up with the cluster safely. The user switches to staked identity only when ready.
+
+In your completion message, say:
+- "The validator is running with the unstaked identity by default (to prevent double-voting)."
+- For testnet: "Your staked identity is at /home/solv/testnet-validator-keypair.json. Switch with: \`ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json && sudo systemctl restart solv\`"
+- For mainnet: "Your staked identity is ready. Switch with \`slv v set:identity\` when you're ready."
+- Do NOT say "staked-identity.json" — that file does not exist.
 
 ### Validator types (for user selection — NO jito-bam)
 - jito — Jito MEV client

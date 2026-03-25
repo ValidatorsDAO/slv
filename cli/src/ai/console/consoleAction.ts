@@ -306,14 +306,20 @@ export const consoleAction = async () => {
   const MAX_CMD_OUTPUT_LINES = 40
   let cmdFlushTimer: ReturnType<typeof setTimeout> | null = null
 
+  let prevCmdLineCount = 0
   const flushCmdOutput = () => {
     if (cmdOutputLines.length === 0) return
     const combined = cmdOutputLines.join('\n')
     if (cmdOutputText) {
+      if (cmdOutputLines.length === prevCmdLineCount) {
+        // Same line count — no layout change needed, skip re-render
+        return
+      }
       chatLog.removeChild(cmdOutputText)
     }
     cmdOutputText = new Text(gray(combined), 1)
     chatLog.addChild(cmdOutputText)
+    prevCmdLineCount = cmdOutputLines.length
     tui.requestRender()
   }
 
@@ -331,13 +337,14 @@ export const consoleAction = async () => {
 
     // Debounce flush to batch rapid output
     if (cmdFlushTimer) clearTimeout(cmdFlushTimer)
-    cmdFlushTimer = setTimeout(flushCmdOutput, 100)
+    cmdFlushTimer = setTimeout(flushCmdOutput, 500)
   }, () => {
     // Flush remaining on command complete
     if (cmdFlushTimer) { clearTimeout(cmdFlushTimer); cmdFlushTimer = null }
     flushCmdOutput()
     cmdOutputLines = []
     cmdOutputText = null
+    prevCmdLineCount = 0
   })
 
   // Read auto-execute setting from agent config
@@ -424,10 +431,11 @@ export const consoleAction = async () => {
           tipTimer = setInterval(() => {
             const nextTip = pickRandomTip(tips)
             if (tipText) {
-              chatLog.removeChild(tipText)
+              tipText.setText(gray(nextTip))
+            } else {
+              tipText = new Text(gray(nextTip), 1)
+              chatLog.addChild(tipText)
             }
-            tipText = new Text(gray(nextTip), 1)
-            chatLog.addChild(tipText)
             tui.requestRender()
           }, 4000)
         }

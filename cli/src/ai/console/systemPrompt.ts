@@ -127,6 +127,16 @@ ${agentIntro}
 - When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
   Read it via read_file and show e.g. "Solana Version: 4.0.0-beta.2-jito (from versions.yml)"
 
+## Identity Key Structure (IMPORTANT)
+After deployment, the target node has this key layout:
+- **Testnet:** Staked key = \`/home/solv/testnet-validator-keypair.json\`. NOT "staked-identity.json".
+- **Mainnet:** Staked key = \`/home/solv/<identity-pubkey>.json\`. NOT "staked-identity.json".
+- \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup (prevents double-voting).
+- \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`.
+- To switch to staked identity (testnet): \`ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json && sudo systemctl restart solv\`
+- To switch to staked identity (mainnet): \`slv v set:identity\`
+- The file "staked-identity.json" does NOT exist. Never reference it.
+
 ## Template Path
 - Ansible templates are at: \`${home}/.slv/template/{version}/ansible/\`
 - To find the latest version directory: \`ls -d ${home}/.slv/template/*/ | sort -V | tail -1\`
