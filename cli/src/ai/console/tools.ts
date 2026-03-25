@@ -569,11 +569,34 @@ Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
       authority_account: <authority_pubkey>
       validator_type: <type>
       region: <region>
-      snapshot_url: ""
+      snapshot_url: ""  # Auto-detected from nearest region
       commission_bps: 0
       dynamic_port_range: "8900-8925"
       port_rpc: 7211
 \`\`\`
+
+### Snapshot URL — Auto-detect nearest region
+After writing the inventory (Step 2), but BEFORE deploying (Step 3):
+
+1. Run this command to find the nearest snapshot region from the target server:
+\`\`\`
+ssh -o StrictHostKeyChecking=accept-new -o PasswordAuthentication=no solv@<server_ip> 'for region in ams fra lon ny tokyo sgp chi; do (echo -n "$region: "; ping -c 3 -W 2 -q solana-snapshot-$region.erpc.global 2>/dev/null | grep "rtt min" | awk -F"/" "{print \\$5 \\" ms\\"}" || echo "unreachable") & done; wait'
+\`\`\`
+
+2. Pick the region with the lowest latency.
+3. Set snapshot_url in the inventory YAML to the nearest region URL:
+   - amsterdam → https://solana-snapshot-ams.erpc.global
+   - frankfurt → https://solana-snapshot-fra.erpc.global
+   - london → https://solana-snapshot-lon.erpc.global
+   - ny → https://solana-snapshot-ny.erpc.global
+   - tokyo → https://solana-snapshot-tokyo.erpc.global
+   - singapore → https://solana-snapshot-sgp.erpc.global
+   - chicago → https://solana-snapshot-chi.erpc.global
+
+4. Tell the user which region was selected and the latency:
+   "📍 Nearest snapshot: Frankfurt (2.1 ms) — https://solana-snapshot-fra.erpc.global"
+
+If ALL regions are unreachable (ping blocked), the server is not on the ERPC network. Leave snapshot_url as empty string so standard snapshot sources are used.
 
 ## Pre-deploy note
 The main agent has ALREADY verified SSH connectivity and created the solv user.

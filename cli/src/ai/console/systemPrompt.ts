@@ -124,6 +124,8 @@ ${agentIntro}
   7. Identity (generate or paste pubkey)
   8. Vote account (generate or paste pubkey)
   That's ALL. Do NOT skip step 1 or the SSH check.
+- Snapshot URL is auto-detected by the sub-agent (nearest region ping test). No need to ask the user.
+- Available snapshot regions: Amsterdam, Frankfurt, London, NY, Chicago, Singapore, Tokyo
 - When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
   Read it via read_file and show e.g. "Solana Version: 4.0.0-beta.2-jito (from versions.yml)"
 
