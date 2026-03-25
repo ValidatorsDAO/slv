@@ -205,7 +205,6 @@ main() {
   # Install AI agent skills from GitHub
   install_skills
   
-  slv upgrade:settings
   
   # Optional: Test the installed 'slv'
   echo "Testing slv installation... 🔨"
