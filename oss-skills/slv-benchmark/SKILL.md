@@ -36,13 +36,13 @@ account = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 commitment = "processed"
 
 [[endpoint]]
-name = "http://shreds-fra6-1.erpc.global"
-url = "http://shreds-fra6-1.erpc.global"
+name = "http://endpoint-1"
+url = "http://endpoint-1"
 kind = "shredstream"
 
 [[endpoint]]
-name = "http://shreds-turbo-fra-1.erpc.global"
-url = "http://shreds-turbo-fra-1.erpc.global"
+name = "http://endpoint-2"
+url = "http://endpoint-2"
 kind = "shredstream"
 ```
 
