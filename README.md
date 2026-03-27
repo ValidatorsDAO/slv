@@ -26,7 +26,64 @@ SLV provides Ansible playbooks, Jinja2 templates, and AI agent skills that let y
 
 ## Quick Start — Deploy with AI
 
+## SLV CLI — The Fastest Way to Get Started
+<p align="center">
+  <a href="https://slv.dev/" target="_blank">
+    <img src="https://storage.slv.dev/slv-cli-ai-mcp-ready.jpg" alt="SLV" />
+  </a>
+</p>
+
+Install the CLI and launch the AI Console in 3 commands:
+
+```bash
+curl -fsSL https://storage.slv.dev/slv/install | sh
+slv onboard    # Configure AI provider, API keys, and agent settings
+slv c          # Launch AI Console — deploy nodes through conversation
+```
+
+The AI Console (`slv c`) gives you a rich terminal UI where specialist agents handle everything:
+- **Cecil** — Validator deployments (Jito, Agave, Firedancer)
+- **Tina** — RPC & gRPC Geyser deployments
+- **Figaro** — Server procurement and pricing
+- **Setzer** — Trading bots and Solana apps
+
+Just describe what you need. The agent handles SSH setup, key generation, inventory creation, builds, snapshot download, and monitoring.
+
+See [slv.dev](https://slv.dev/) for full documentation.
+
+## ERPC Network Benefits
+
+Servers purchased through [erpc.global](https://erpc.global/en/) automatically get:
+- **Dedicated snapshot endpoints** — 7 global regions for fast node bootstrapping
+- **Internal routing** — dramatically lower bandwidth costs
+- **Auto-detection** — SLV automatically finds the nearest snapshot server via ping
+
+## For Developers
+
+```bash
+# Clone and run locally
+git clone https://github.com/ValidatorsDAO/slv.git
+deno task dev --help
+
+# Build
+deno task build
+
+# Test
+deno test -A
+```
+
 > **🚀 Just want to deploy?** Run `slv onboard` then `slv c` — see [SLV CLI](#slv-cli--the-fastest-way-to-get-started) below.
+
+## Prerequisites
+
+- **ansible-core** >= 2.15 (`pip install ansible-core`)
+- **SSH access** to target servers (key-based authentication)
+- **solana-cli** (optional, for local key generation)
+
+Run the setup script to auto-install:
+```bash
+bash scripts/setup.sh
+```
 
 ### 1. Install a Skill
 
@@ -107,17 +164,6 @@ Each skill includes:
 
 > **No lock-in.** Skills are plain Markdown + Ansible. Use them with any AI agent, or run the playbooks directly without AI.
 
-## Prerequisites
-
-- **ansible-core** >= 2.15 (`pip install ansible-core`)
-- **SSH access** to target servers (key-based authentication)
-- **solana-cli** (optional, for local key generation)
-
-Run the setup script to auto-install:
-```bash
-bash scripts/setup.sh
-```
-
 ## How It Works
 
 SLV uses **Ansible playbooks** and **Jinja2 templates** to deploy Solana nodes. The AI agent skills wrap this infrastructure with conversational interfaces:
@@ -149,47 +195,6 @@ ansible-playbook -i inventory.yml mainnet-validator/restart_node.yml
 # Build Solana from source
 ansible-playbook -i inventory.yml cmn/build_solana.yml \
   -e '{"solana_version":"v3.1.8"}'
-```
-
-## SLV CLI — The Fastest Way to Get Started
-
-Install the CLI and launch the AI Console in 3 commands:
-
-```bash
-curl -fsSL https://storage.slv.dev/slv/install | sh
-slv onboard    # Configure AI provider, API keys, and agent settings
-slv c          # Launch AI Console — deploy nodes through conversation
-```
-
-The AI Console (`slv c`) gives you a rich terminal UI where specialist agents handle everything:
-- **Cecil** — Validator deployments (Jito, Agave, Firedancer)
-- **Tina** — RPC & gRPC Geyser deployments
-- **Figaro** — Server procurement and pricing
-- **Setzer** — Trading bots and Solana apps
-
-Just describe what you need. The agent handles SSH setup, key generation, inventory creation, builds, snapshot download, and monitoring.
-
-See [slv.dev](https://slv.dev/) for full documentation.
-
-## ERPC Network Benefits
-
-Servers purchased through [erpc.global](https://erpc.global/en/) automatically get:
-- **Dedicated snapshot endpoints** — 7 global regions for fast node bootstrapping
-- **Internal routing** — dramatically lower bandwidth costs
-- **Auto-detection** — SLV automatically finds the nearest snapshot server via ping
-
-## For Developers
-
-```bash
-# Clone and run locally
-git clone https://github.com/ValidatorsDAO/slv.git
-deno task dev --help
-
-# Build
-deno task build
-
-# Test
-deno test -A
 ```
 
 ## Community
