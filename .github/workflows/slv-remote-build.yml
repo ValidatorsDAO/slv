@@ -303,7 +303,7 @@ jobs:
         run: |
           npm i -g clawhub
           clawhub login --token "$CLAWHUB_TOKEN" --no-browser
-          for skill_dir in oss-skills/slv-validator oss-skills/slv-rpc oss-skills/slv-grpc-geyser; do
+          for skill_dir in oss-skills/slv-validator oss-skills/slv-rpc oss-skills/slv-grpc-geyser oss-skills/slv-benchmark; do
             if [ -d "$skill_dir" ]; then
               echo "Publishing $skill_dir..."
               clawhub publish "$skill_dir" --version "${{ env.VERSION }}" || echo "Warning: publish failed for $skill_dir (may already exist), continuing..."
