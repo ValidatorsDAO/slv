@@ -180,7 +180,7 @@ install_skills() {
   curl -fSL --progress-bar "$REPO_TAR" -o "$SKILLS_TEMP/slv.tar.gz"
   tar -xzf "$SKILLS_TEMP/slv.tar.gz" -C "$SKILLS_TEMP" --strip-components=1 "slv-main/dist/oss-skills"
   
-  for skill in slv-validator slv-rpc slv-grpc-geyser slv-benchmark; do
+  for skill in slv-validator slv-rpc slv-grpc-geyser slv-benchmark slv-app slv-server-procurement; do
     if [ -d "$SKILLS_TEMP/dist/oss-skills/$skill" ]; then
       rm -rf "$HOME/.slv/skills/$skill"
       cp -r "$SKILLS_TEMP/dist/oss-skills/$skill" "$HOME/.slv/skills/$skill"
