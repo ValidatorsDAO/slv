@@ -2,13 +2,13 @@ import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import { DEFAULT_MAX_TOKENS, readAiConfig } from '@/ai/config.ts'
+import { readAiConfig, DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
 import type { TUI } from '@mariozechner/pi-tui'
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
-let autoExecuteCommands = true // Default: auto-execute without confirmation
+let autoExecuteCommands = true  // Default: auto-execute without confirmation
 
 export function setTuiInstance(tui: TUI | null) {
   tuiInstance = tui
@@ -23,19 +23,14 @@ let onCommandOutput: ((line: string) => void) | null = null
 let activeChildProcess: Deno.ChildProcess | null = null
 let onCommandComplete: (() => void) | null = null
 
-export function setCommandOutputCallback(
-  cb: ((line: string) => void) | null,
-  completeCb?: (() => void) | null,
-) {
+export function setCommandOutputCallback(cb: ((line: string) => void) | null, completeCb?: (() => void) | null) {
   onCommandOutput = cb
   onCommandComplete = completeCb ?? null
 }
 
 export function killActiveProcess() {
   if (activeChildProcess) {
-    try {
-      activeChildProcess.kill('SIGTERM')
-    } catch { /* ignore */ }
+    try { activeChildProcess.kill('SIGTERM') } catch { /* ignore */ }
     activeChildProcess = null
   }
 }
@@ -50,7 +45,7 @@ const AGENT_SKILL_MAP: Record<string, string> = {
   'Cecil': 'slv-validator',
   'Tina': 'slv-rpc',
   'Cloud': 'slv-grpc-geyser',
-  'Cid': 'slv-rpc',
+  'Cid': 'slv-benchmark',
   'Setzer': 'slv-app',
   'Figaro': 'slv-server-procurement',
 }
@@ -177,8 +172,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 ]
 
 // Tools available to sub-agents (no delegate_to_agent to prevent recursion)
-export const SUB_AGENT_TOOL_DEFINITIONS: ToolDefinition[] = TOOL_DEFINITIONS
-  .filter((t) => t.name !== 'delegate_to_agent')
+export const SUB_AGENT_TOOL_DEFINITIONS: ToolDefinition[] =
+  TOOL_DEFINITIONS.filter((t) => t.name !== 'delegate_to_agent')
 
 export async function executeTool(
   name: string,
@@ -192,10 +187,7 @@ export async function executeTool(
     case 'list_files':
       return await executeListFiles(String(args.path || ''))
     case 'write_file':
-      return await executeWriteFile(
-        String(args.path || ''),
-        String(args.content || ''),
-      )
+      return await executeWriteFile(String(args.path || ''), String(args.content || ''))
     case 'call_mcp':
       return await executeCallMcp(
         String(args.tool_name || ''),
@@ -204,10 +196,7 @@ export async function executeTool(
     case 'send_notification':
       return await executeSendNotification(String(args.message || ''))
     case 'delegate_to_agent':
-      return await executeDelegateToAgent(
-        String(args.agent || ''),
-        String(args.task || ''),
-      )
+      return await executeDelegateToAgent(String(args.agent || ''), String(args.task || ''))
     default:
       return `Unknown tool: ${name}`
   }
@@ -258,8 +247,7 @@ async function executeRunCommand(command: string): Promise<string> {
     const env: Record<string, string> = {
       ...Object.fromEntries(Object.entries(Deno.env.toObject())),
       ANSIBLE_HOST_KEY_CHECKING: 'False',
-      ANSIBLE_SSH_ARGS:
-        '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no',
+      ANSIBLE_SSH_ARGS: '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no',
       ANSIBLE_STDOUT_CALLBACK: 'default',
       ANSIBLE_DISPLAY_ARGS_TO_STDOUT: 'False',
       PYTHONUNBUFFERED: '1',
@@ -279,11 +267,7 @@ async function executeRunCommand(command: string): Promise<string> {
     const stdoutChunks: string[] = []
     const stderrChunks: string[] = []
 
-    const readStream = async (
-      stream: ReadableStream<Uint8Array>,
-      chunks: string[],
-      isStdout: boolean,
-    ) => {
+    const readStream = async (stream: ReadableStream<Uint8Array>, chunks: string[], isStdout: boolean) => {
       const reader = stream.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -312,7 +296,7 @@ async function executeRunCommand(command: string): Promise<string> {
     // Race between command completion and timeout (60 minutes — builds and snapshots can take a while)
     const COMMAND_TIMEOUT_MS = 3_600_000
     const timeoutPromise = new Promise<'timeout'>((resolve) =>
-      setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS)
+      setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS),
     )
 
     const commandPromise = (async () => {
@@ -326,14 +310,10 @@ async function executeRunCommand(command: string): Promise<string> {
     const result = await Promise.race([commandPromise, timeoutPromise])
 
     if (result === 'timeout') {
-      try {
-        child.kill('SIGTERM')
-      } catch { /* ignore */ }
+      try { child.kill('SIGTERM') } catch { /* ignore */ }
       if (onCommandComplete) onCommandComplete()
       const stdout = stdoutChunks.join('')
-      return `Command timed out after 60 minutes.\nPartial output:\n${
-        stdout.slice(-2000)
-      }`
+      return `Command timed out after 60 minutes.\nPartial output:\n${stdout.slice(-2000)}`
     }
 
     const status = result
@@ -381,10 +361,7 @@ async function executeListFiles(path: string): Promise<string> {
   }
 }
 
-async function executeWriteFile(
-  path: string,
-  content: string,
-): Promise<string> {
+async function executeWriteFile(path: string, content: string): Promise<string> {
   const home = resolveHome()
   const slvDir = `${home}/.slv/`
   if (!path.startsWith(slvDir)) {
@@ -444,8 +421,8 @@ async function executeCallMcp(
     const data = await response.json()
     if (data.error) return `MCP Error: ${JSON.stringify(data.error)}`
 
-    const content = data.result?.content?.[0]?.text ||
-      JSON.stringify(data.result)
+    const content =
+      data.result?.content?.[0]?.text || JSON.stringify(data.result)
     if (content.length > MCP_MAX_RESPONSE_CHARS) {
       return content.slice(0, MCP_MAX_RESPONSE_CHARS) + '\n... (truncated)'
     }
@@ -460,9 +437,7 @@ async function executeSendNotification(message: string): Promise<string> {
   try {
     const raw = await Deno.readTextFile(`${home}/.slv/agent/config.yml`)
     const config = parse(raw) as Record<string, unknown>
-    const notifications = config.notifications as
-      | Record<string, string>
-      | undefined
+    const notifications = config.notifications as Record<string, string> | undefined
     const webhook = notifications?.discord_webhook
 
     if (!webhook) {
@@ -486,10 +461,7 @@ async function executeSendNotification(message: string): Promise<string> {
   }
 }
 
-async function executeDelegateToAgent(
-  agentName: string,
-  task: string,
-): Promise<string> {
+async function executeDelegateToAgent(agentName: string, task: string): Promise<string> {
   // Cloud is now handled by Tina (RPC specialist covers all RPC types including gRPC)
   const effectiveName = agentName === 'Cloud' ? 'Tina' : agentName
   const skillName = AGENT_SKILL_MAP[effectiveName]
@@ -513,15 +485,12 @@ async function executeDelegateToAgent(
   // Tina and Cid also read gRPC Geyser skill for comprehensive RPC/stream testing knowledge
   if (effectiveName === 'Tina' || effectiveName === 'Cid') {
     try {
-      const grpcSkill = await Deno.readTextFile(
-        `${skillsDir}/slv-grpc-geyser/SKILL.md`,
-      )
+      const grpcSkill = await Deno.readTextFile(`${skillsDir}/slv-grpc-geyser/SKILL.md`)
       skillMd += `\n\n## Additional Skill: gRPC Geyser\n${grpcSkill}`
     } catch { /* gRPC skill not installed */ }
   }
 
-  const subSystemPrompt =
-    `You are ${effectiveName}, a backend specialist sub-agent for SLV.
+  const subSystemPrompt = `You are ${effectiveName}, a backend specialist sub-agent for SLV.
 You do NOT talk to the user directly. You report back to the main agent only.
 
 ${agentMd ? agentMd + '\n' : ''}
@@ -546,6 +515,23 @@ ${skillMd ? skillMd + '\n' : ''}
 - Do NOT use markdown tables. Use plain text or bullet lists.
 - Do NOT offer dry-runs or --check — just deploy when the user says go.
 - English only.
+
+## Benchmark flow (CRITICAL for Cid)
+- When the user says they want to benchmark, first determine WHICH benchmark type they want:
+  1. shredstream
+  2. grpc
+  3. rpc
+- If the benchmark type is not explicitly given, ask the main agent to ask exactly one question:
+  - "Which benchmark do you want to run: shredstream, grpc, or rpc?"
+- After the type is known, ask for the endpoint(s) next. Do not ask for whitelist IP, region, or server details before benchmark type and endpoint are confirmed.
+- Preferred question order for benchmark tasks:
+  1. benchmark type (shredstream / grpc / rpc)
+  2. region to measure with `--region`
+  3. endpoint or endpoints to test
+- For shredstream or grpc benchmarks, prefer using the local `geyserbench` binary if it is available on the machine.
+- If `geyserbench` is available, run it and return the benchmark output directly so the main agent can show the user the result with minimal rewriting.
+- If `geyserbench` is not available, clearly report that and suggest the next best local SLV check command.
+- For benchmark tasks, optimize for fast execution and direct result display, not long advisory explanations.
 
 ## CRITICAL: Deployment Flow
 
@@ -694,19 +680,9 @@ When running ansible-playbook or slv commands that connect to servers:
 
   try {
     if (config.provider === 'anthropic') {
-      return await runAnthropicSubAgent(
-        config.api_key,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
+      return await runAnthropicSubAgent(config.api_key, config.model, subSystemPrompt, task)
     } else {
-      return await runOpenAISubAgent(
-        config.api_key,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
+      return await runOpenAISubAgent(config.api_key, config.model, subSystemPrompt, task)
     }
   } catch (error) {
     return `Sub-agent ${agentName} error: ${(error as Error).message}`
@@ -742,11 +718,7 @@ async function runAnthropicSubAgent(
 
     // Collect text and tool_use blocks
     let textContent = ''
-    const toolUseBlocks: {
-      id: string
-      name: string
-      input: Record<string, unknown>
-    }[] = []
+    const toolUseBlocks: { id: string; name: string; input: Record<string, unknown> }[] = []
     for (const block of response.content) {
       if (block.type === 'text') {
         textContent += block.text
@@ -789,9 +761,7 @@ async function runOpenAISubAgent(
   task: string,
 ): Promise<string> {
   const client = new OpenAI({ apiKey })
-  const tools: OpenAI.ChatCompletionTool[] = SUB_AGENT_TOOL_DEFINITIONS.map((
-    t,
-  ) => ({
+  const tools: OpenAI.ChatCompletionTool[] = SUB_AGENT_TOOL_DEFINITIONS.map((t) => ({
     type: 'function' as const,
     function: {
       name: t.name,
@@ -820,9 +790,7 @@ async function runOpenAISubAgent(
     const assistantMessage = choice.message
     messages.push(assistantMessage as Message)
 
-    if (
-      !assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0
-    ) {
+    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
       return assistantMessage.content || '(no response from sub-agent)'
     }
 
