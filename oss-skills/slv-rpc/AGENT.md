@@ -13,6 +13,7 @@ RPC nodes using Ansible playbooks and the `slv` CLI.
 - Build Solana from source (Agave, Jito, Firedancer)
 - Manage Geyser plugins (Yellowstone, Richat)
 - Configure Old Faithful (yellowstone-faithful) for Index RPC
+- Run benchmark and connectivity checks for gRPC, ShredStream, and RPC endpoints
 
 ## Behavior
 
@@ -21,6 +22,60 @@ RPC nodes using Ansible playbooks and the `slv` CLI.
 3. **Validate inputs**: Check IP format, version format, RPC type before proceeding
 4. **Explain what you're doing**: Before running any playbook, state which playbook and variables
 5. **Interactive variable collection**: Guide users through required variables step by step
+6. **Benchmark tasks first ask type, then endpoints**: for benchmark requests, first determine `shredstream`, `grpc`, or `rpc`, then ask only for the endpoint(s) needed
+
+## Benchmark Flow
+
+For benchmark requests, collect the minimum inputs in this order:
+
+### Step 1: Benchmark Type
+Ask exactly one question if the type is unclear:
+- `shredstream`
+- `grpc`
+- `rpc`
+
+### Step 2: Endpoint Inputs
+After the type is known, ask only for the endpoint inputs required to generate the benchmark config.
+
+- For `shredstream` or `grpc`:
+  - Ask for **two endpoint URLs** to compare
+  - Prefer running the local `geyserbench` binary if installed by `slv install`
+  - Use ERPC API key from `~/.slv/api.yml` if already configured
+  - If the ERPC API key is missing, tell the main agent to ask the user to obtain a free API key and configure `~/.slv/api.yml`
+- For `rpc`:
+  - Ask for the RPC endpoint(s) to check and use the most suitable local SLV check flow
+
+### Step 3: Generate `config.toml` for `geyserbench`
+For `shredstream` / `grpc`, build a config like this:
+
+```toml
+[config]
+region = "frankfurt"
+erpc_url = "https://edge.erpc.global"
+erpc_api_key = "api-key"
+transactions = 10000
+account = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+commitment = "processed"
+
+[[endpoint]]
+name = "http://endpoint-1"
+url = "http://endpoint-1"
+kind = "shredstream"
+
+[[endpoint]]
+name = "http://endpoint-2"
+url = "http://endpoint-2"
+kind = "shredstream"
+```
+
+- Replace `kind` with `grpc`-appropriate `yellowstone` when benchmarking gRPC endpoints.
+- Use the supplied URLs for both `name` and `url` unless a cleaner display name is helpful.
+- Generate the config file automatically once the two URLs are known.
+
+### Step 4: Execute benchmark
+- Prefer a future CLI flow like `slv check geyserbench <options>` when available.
+- Until then, if `geyserbench` is available locally, run it directly with the generated config and return the output with minimal rewriting.
+- Show the benchmark output directly to the user whenever possible.
 
 ## Interactive Init Flow
 
@@ -105,11 +160,21 @@ Present options:
 
 ### Playbook Execution Directory
 
-All paths are relative to the skill's `ansible/` directory:
+All playbooks are stored in `~/.slv/template/{version}/ansible/`.
+To find the latest version directory:
 ```bash
-cd /path/to/slv-rpc/ansible/
-ansible-playbook -i /path/to/inventory.yml mainnet-rpc/init.yml -e '{...}'
+TEMPLATE_DIR=$(ls -d ~/.slv/template/*/ | sort -V | tail -1)
 ```
+
+Example (mainnet RPC):
+```bash
+TEMPLATE_DIR=$(ls -d ~/.slv/template/*/ | sort -V | tail -1)
+ansible-playbook -i ~/.slv/inventory.mainnet.rpcs.yml \
+  ${TEMPLATE_DIR}ansible/mainnet-rpc/init.yml --limit <identity_pubkey>
+```
+
+Do NOT use the skill's own `ansible/` directory for execution. Those files are reference copies.
+The runtime playbooks live in `~/.slv/template/`.
 
 ## RPC Health Check & Slot Sync Monitoring
 
