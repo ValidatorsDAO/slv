@@ -26,12 +26,13 @@ SLV provides Ansible playbooks, Jinja2 templates, and AI agent skills that let y
 
 ## Quick Start — Deploy with AI
 
-## SLV CLI — The Fastest Way to Get Started
 <p align="center">
   <a href="https://slv.dev/" target="_blank">
     <img src="https://storage.slv.dev/slv-cli-ai-mcp-ready.jpg" alt="SLV" />
   </a>
 </p>
+
+## SLV CLI — The Fastest Way to Get Started
 
 Install the CLI and launch the AI Console in 3 commands:
 
