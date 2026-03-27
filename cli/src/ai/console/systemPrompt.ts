@@ -8,9 +8,15 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
 
   // Read agent files
   let soulMd = '', userMd = '', memoryMd = ''
-  try { soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`) } catch { /* not configured */ }
-  try { userMd = await Deno.readTextFile(`${agentDir}/USER.md`) } catch { /* not configured */ }
-  try { memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`) } catch { /* not configured */ }
+  try {
+    soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`)
+  } catch { /* not configured */ }
+  try {
+    userMd = await Deno.readTextFile(`${agentDir}/USER.md`)
+  } catch { /* not configured */ }
+  try {
+    memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`)
+  } catch { /* not configured */ }
 
   // Read config to get enabled skills
   let configYml: Record<string, unknown> = { skills: [] }
@@ -20,15 +26,20 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
   } catch { /* not configured */ }
 
   // Read enabled skill SKILL.md files
-  const skills = (configYml.skills || []) as Array<{ name: string; enabled: boolean; agent: string }>
+  const skills = (configYml.skills || []) as Array<
+    { name: string; enabled: boolean; agent: string }
+  >
   let skillDocs = ''
   const enabledAgents: string[] = []
   for (const skill of skills) {
     if (!skill.enabled) continue
     enabledAgents.push(skill.agent)
     try {
-      const skillMd = await Deno.readTextFile(`${skillsDir}/${skill.name}/SKILL.md`)
-      skillDocs += `\n\n## Skill: ${skill.name} (Agent: ${skill.agent})\n${skillMd}`
+      const skillMd = await Deno.readTextFile(
+        `${skillsDir}/${skill.name}/SKILL.md`,
+      )
+      skillDocs +=
+        `\n\n## Skill: ${skill.name} (Agent: ${skill.agent})\n${skillMd}`
     } catch { /* skill not installed */ }
   }
 
@@ -37,16 +48,24 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
   if (enabledAgents.length > 0) {
     agentIntro = `\n## Your Team\nYou have specialist sub-agents:\n`
     if (enabledAgents.includes('Cecil')) {
-      agentIntro += `- **Cecil** — Solana Validator specialist. Handles validator init, deploy, start/stop, identity migration, builds (Jito/Agave/Firedancer).\n`
+      agentIntro +=
+        `- **Cecil** — Solana Validator specialist. Handles validator init, deploy, start/stop, identity migration, builds (Jito/Agave/Firedancer).\n`
     }
     if (enabledAgents.includes('Tina') || enabledAgents.includes('Cloud')) {
-      agentIntro += `- **Tina** — Solana RPC specialist. Handles ALL RPC types: Index RPC, gRPC Geyser (Yellowstone/Richat), and Index RPC + gRPC combo. Deploy, Geyser plugins, builds, Old Faithful.\n`
+      agentIntro +=
+        `- **Tina** — Solana RPC specialist. Handles ALL RPC types: Index RPC, gRPC Geyser (Yellowstone/Richat), and Index RPC + gRPC combo. Deploy, Geyser plugins, builds, Old Faithful.\n`
+    }
+    if (enabledAgents.includes('Cid')) {
+      agentIntro +=
+        `- **Cid** — Benchmark & connectivity testing specialist. Handles grpc_test, geyserbench, shreds_test, and endpoint latency/throughput troubleshooting.\n`
     }
     if (enabledAgents.includes('Setzer')) {
-      agentIntro += `- **Setzer** — Trading & App specialist. Build high-performance trading bots, MEV strategies, and Solana apps with battle-tested templates.\n`
+      agentIntro +=
+        `- **Setzer** — Trading & App specialist. Build high-performance trading bots, MEV strategies, and Solana apps with battle-tested templates.\n`
     }
     if (enabledAgents.includes('Figaro')) {
-      agentIntro += `- **Figaro** — Server Procurement specialist. Browse available servers, get pricing, and generate payment links.\n`
+      agentIntro +=
+        `- **Figaro** — Server Procurement specialist. Browse available servers, get pricing, and generate payment links.\n`
     }
   }
 
@@ -63,7 +82,8 @@ ${agentIntro}
 - When you need specialist knowledge, delegate to a sub-agent. They report back to YOU, not the user.
 - YOU then relay the information to the user in a friendly, concise way.
 - For Solana validator tasks → delegate_to_agent with agent="Cecil"
-- For ALL RPC tasks (Index RPC, gRPC Geyser, Index+gRPC) → delegate_to_agent with agent="Tina"
+- For ALL RPC deployment/operations tasks (Index RPC, gRPC Geyser, Index+gRPC) → delegate_to_agent with agent="Tina"
+- For benchmark/connectivity test tasks (grpc_test, geyserbench, shreds_test, endpoint latency/throughput checks) → delegate_to_agent with agent="Cid"
 - For Solana app/bot tasks (trade bot, app templates) → delegate_to_agent with agent="Setzer"
 - For server procurement (buy/browse servers) → delegate_to_agent with agent="Figaro"
 
@@ -204,7 +224,7 @@ After deployment, the target node has this key layout:
 When this is the first session (MEMORY.md is empty or just the default), introduce yourself and your team:
 1. Greet the user by their preferred name (from USER.md)
 2. Introduce yourself by name (from SOUL.md) or as "your SLV assistant" if no name is set
-3. Briefly introduce your specialist agents (Cecil, Tina, Setzer, Figaro) and what each handles
+3. Briefly introduce your specialist agents (Cecil, Tina, Cid, Setzer, Figaro) and what each handles
 4. Ask what they'd like to work on today
 Keep it to 3-5 sentences. Be friendly but not verbose.
 

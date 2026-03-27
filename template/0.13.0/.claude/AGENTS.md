@@ -23,6 +23,7 @@ SLV (Solana Validator Launcher) Ansible playbooks. OSS: https://github.com/Valid
 - **Cecil**: Validator specialist (mainnet-validator/, testnet-validator/)
 - **Tina**: RPC specialist (mainnet-rpc/, testnet-rpc/, devnet-rpc/)
 - **Cloud**: gRPC Geyser specialist (geyser files in rpc dirs)
+- **Cid**: Benchmark & connectivity testing specialist (grpc_test, geyserbench, shreds_test, endpoint latency/throughput checks)
 
 ## Conventions
 - `init.yml` = full node initialization from bare metal

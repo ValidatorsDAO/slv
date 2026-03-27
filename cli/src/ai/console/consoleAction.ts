@@ -1,27 +1,36 @@
 import { getTipsForAgent, pickRandomTip } from '@/ai/console/tips.ts'
 import {
-  TUI,
-  Container,
-  Text,
-  Markdown,
-  Editor,
-  Spacer,
-  Loader,
-  ProcessTerminal,
-  matchesKey,
-  type MarkdownTheme,
-  type EditorTheme,
   type Component,
+  Container,
+  Editor,
+  type EditorTheme,
+  Loader,
+  Markdown,
+  type MarkdownTheme,
+  matchesKey,
+  ProcessTerminal,
+  Spacer,
+  Text,
+  TUI,
 } from '@mariozechner/pi-tui'
 import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
-import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess } from '@/ai/console/tools.ts'
+import {
+  killActiveProcess,
+  setAutoExecute,
+  setCommandOutputCallback,
+  setTuiInstance,
+} from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
-import { checkSolanaReleases, applyVersionUpdates, type VersionUpdate } from '@/ai/console/checkRelease.ts'
+import {
+  applyVersionUpdates,
+  checkSolanaReleases,
+  type VersionUpdate,
+} from '@/ai/console/checkRelease.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
 export type ChatCallbacks = {
@@ -253,18 +262,22 @@ export const consoleAction = async () => {
         }),
       })
       const data = await res.json()
-      userContext += `\n## User Account (from MCP)\n${data.result?.content?.[0]?.text || 'Unable to fetch'}\n`
+      userContext += `\n## User Account (from MCP)\n${
+        data.result?.content?.[0]?.text || 'Unable to fetch'
+      }\n`
     }
   } catch {
     /* silent */
   }
 
   // Read inventory files
-  for (const inv of [
-    'inventory.testnet.validators.yml',
-    'inventory.mainnet.validators.yml',
-    'inventory.mainnet.rpcs.yml',
-  ]) {
+  for (
+    const inv of [
+      'inventory.testnet.validators.yml',
+      'inventory.mainnet.validators.yml',
+      'inventory.mainnet.rpcs.yml',
+    ]
+  ) {
     try {
       const content = await Deno.readTextFile(`${resolveHome()}/.slv/${inv}`)
       userContext += `\n## ${inv}\n${content}\n`
@@ -286,9 +299,18 @@ export const consoleAction = async () => {
 
   // Header
   chatLog.addChild(new Spacer(1))
-  chatLog.addChild(new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1))
-  chatLog.addChild(new Text(white(`  Provider: ${providerLabel} | Model: ${config.model}`), 1))
-  chatLog.addChild(new Text(gray('  Type /exit to quit, /clear to reset. Press Enter to send.'), 1))
+  chatLog.addChild(
+    new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1),
+  )
+  chatLog.addChild(
+    new Text(white(`  Provider: ${providerLabel} | Model: ${config.model}`), 1),
+  )
+  chatLog.addChild(
+    new Text(
+      gray('  Type /exit to quit, /clear to reset. Press Enter to send.'),
+      1,
+    ),
+  )
   chatLog.addChild(new Spacer(1))
 
   tui.addChild(chatLog)
@@ -312,7 +334,9 @@ export const consoleAction = async () => {
     // Show last N lines as a rolling window so the user always sees progress
     const visible = cmdOutputLines.slice(-MAX_CMD_VISIBLE_LINES)
     const hiddenCount = cmdTotalLineCount - visible.length
-    const header = hiddenCount > 0 ? `  ... (${hiddenCount} earlier lines hidden)\n` : ''
+    const header = hiddenCount > 0
+      ? `  ... (${hiddenCount} earlier lines hidden)\n`
+      : ''
     const combined = header + visible.join('\n')
     if (cmdOutputText) {
       // Update text in-place — no remove/add cycle, no layout thrash, no scrollbar flicker
@@ -330,7 +354,10 @@ export const consoleAction = async () => {
     // Skip empty or whitespace-only lines
     if (!line.trim()) return
 
-    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(/\s+/g, ' ').trim()
+    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(
+      /\s+/g,
+      ' ',
+    ).trim()
     if (!cleaned) return
     cmdTotalLineCount++
     cmdOutputLines.push(`  ${cleaned}`)
@@ -344,7 +371,10 @@ export const consoleAction = async () => {
     cmdFlushTimer = setTimeout(flushCmdOutput, 300)
   }, () => {
     // Flush remaining on command complete
-    if (cmdFlushTimer) { clearTimeout(cmdFlushTimer); cmdFlushTimer = null }
+    if (cmdFlushTimer) {
+      clearTimeout(cmdFlushTimer)
+      cmdFlushTimer = null
+    }
     flushCmdOutput()
     cmdOutputLines = []
     cmdOutputText = null
@@ -416,10 +446,17 @@ export const consoleAction = async () => {
           'Figaro': 'Figaro is searching for the best server...',
           'Cecil': 'Cecil is preparing the deployment...',
           'Tina': 'Tina is configuring the RPC setup...',
+          'Cid': 'Cid is running benchmark and connectivity checks...',
           'Setzer': 'Setzer is crafting your app...',
         }
-        const loaderMsg = loaderMessages[agentName] || `${agentName} is working...`
-        loader = new Loader(tui, (s: string) => chalk.hex('#14f195')(s), (s: string) => chalk.gray(s), loaderMsg)
+        const loaderMsg = loaderMessages[agentName] ||
+          `${agentName} is working...`
+        loader = new Loader(
+          tui,
+          (s: string) => chalk.hex('#14f195')(s),
+          (s: string) => chalk.gray(s),
+          loaderMsg,
+        )
         chatLog.addChild(loader)
         loader.start()
         tui.requestRender()
@@ -486,9 +523,19 @@ export const consoleAction = async () => {
   }
 
   if (config.provider === 'openai') {
-    provider = new OpenAIProvider(config.api_key, config.model, systemPrompt, callbacks)
+    provider = new OpenAIProvider(
+      config.api_key,
+      config.model,
+      systemPrompt,
+      callbacks,
+    )
   } else {
-    provider = new AnthropicProvider(config.api_key, config.model, systemPrompt, callbacks)
+    provider = new AnthropicProvider(
+      config.api_key,
+      config.model,
+      systemPrompt,
+      callbacks,
+    )
   }
 
   // Auto-greet
@@ -496,7 +543,12 @@ export const consoleAction = async () => {
   tui.start()
 
   // Show loader during greet
-  loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
+  loader = new Loader(
+    tui,
+    (s: string) => green(s),
+    (s: string) => gray(s),
+    'Thinking...',
+  )
   chatLog.addChild(loader)
   loader.start()
   tui.requestRender()
@@ -534,7 +586,7 @@ export const consoleAction = async () => {
     tui.requestRender(true)
 
     pendingUpdates = updates
-  }).catch(() => { /* silent fail */ })
+  }).catch(() => {/* silent fail */})
 
   // Track user interactions for memory save decision
   let userMessageCount = 0
@@ -583,15 +635,22 @@ RULES:
     // While processing, handle side-chat messages
     if (isProcessing) {
       chatLog.addUser(input)
-      const elapsed = currentTaskStartedAt ? formatElapsedTime(currentTaskStartedAt) : 'a moment'
+      const elapsed = currentTaskStartedAt
+        ? formatElapsedTime(currentTaskStartedAt)
+        : 'a moment'
       const agent = currentDelegateAgent || 'The system'
 
       // Build a helpful status response
       let status = `⏳ ${agent} is still working (${elapsed} elapsed).`
       if (currentDelegateAgent === 'Cecil') {
-        status += ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
+        status +=
+          ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
       } else if (currentDelegateAgent === 'Tina') {
-        status += ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
+        status +=
+          ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
+      } else if (currentDelegateAgent === 'Cid') {
+        status +=
+          ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.'
       } else if (currentDelegateAgent === 'Figaro') {
         status += ' Checking server availability and preparing your options.'
       }
@@ -612,9 +671,19 @@ RULES:
       chatLog.clear()
       const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
-        provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+        provider = new OpenAIProvider(
+          config.api_key,
+          config.model,
+          newSystemPrompt,
+          callbacks,
+        )
       } else {
-        provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+        provider = new AnthropicProvider(
+          config.api_key,
+          config.model,
+          newSystemPrompt,
+          callbacks,
+        )
       }
       chatLog.addSystem('  Conversation cleared.')
       tui.requestRender()
@@ -647,7 +716,12 @@ RULES:
     isProcessing = true
 
     // Show loader
-    loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
+    loader = new Loader(
+      tui,
+      (s: string) => green(s),
+      (s: string) => gray(s),
+      'Thinking...',
+    )
     chatLog.addChild(loader)
     loader.start()
     tui.requestRender()
@@ -677,7 +751,9 @@ RULES:
 
       // Reset counter after 2 seconds
       if (ctrlCResetTimer) clearTimeout(ctrlCResetTimer)
-      ctrlCResetTimer = setTimeout(() => { ctrlCCount = 0 }, 2000)
+      ctrlCResetTimer = setTimeout(() => {
+        ctrlCCount = 0
+      }, 2000)
 
       if (ctrlCCount >= 2) {
         // Double Ctrl+C: force exit immediately no matter what
@@ -690,11 +766,23 @@ RULES:
       if (isProcessing) {
         // First Ctrl+C during processing: kill child process, show message
         killActiveProcess()
-        chatLog.addSystem('  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
+        chatLog.addSystem(
+          '  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.',
+        )
         isProcessing = false
-        if (loader) { chatLog.removeChild(loader); loader.stop(); loader = null }
-        if (tipTimer) { clearInterval(tipTimer); tipTimer = null }
-        if (tipText) { chatLog.removeChild(tipText); tipText = null }
+        if (loader) {
+          chatLog.removeChild(loader)
+          loader.stop()
+          loader = null
+        }
+        if (tipTimer) {
+          clearInterval(tipTimer)
+          tipTimer = null
+        }
+        if (tipText) {
+          chatLog.removeChild(tipText)
+          tipText = null
+        }
         currentDelegateAgent = null
         currentTaskDescription = ''
         currentTaskStartedAt = 0
