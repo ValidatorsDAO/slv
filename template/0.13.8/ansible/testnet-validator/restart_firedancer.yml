@@ -1,0 +1,3 @@
+---
+- import_playbook: stop_firedancer.yml
+- import_playbook: start_firedancer.yml
