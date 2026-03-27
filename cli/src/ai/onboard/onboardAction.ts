@@ -88,6 +88,10 @@ const SKILL_MAP: Record<string, { name: string; agent: string }> = {
   'Solana App Development': { name: 'slv-app', agent: 'Setzer' },
 }
 
+const hasBenchmarkOps = (selectedOps: string[]) =>
+  selectedOps.includes('Index RPC Node Operations') ||
+  selectedOps.includes('gRPC Geyser Streaming')
+
 export const onboardAction = async () => {
   slvAA(denoJson.version)
 
@@ -283,6 +287,11 @@ Session history and important notes.
     enabled: selectedOps.includes(key),
     agent: SKILL_MAP[key].agent,
   }))
+  skills.push({
+    name: 'slv-rpc',
+    enabled: hasBenchmarkOps(selectedOps),
+    agent: 'Cid',
+  })
   const configData = {
     skills,
     auto_execute: true,  // Commands execute without confirmation by default
