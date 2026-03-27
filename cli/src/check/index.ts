@@ -83,6 +83,48 @@ async function ensureGeyserbenchConfig(options: {
   return configPath
 }
 
+
+function summarizeGeyserbenchOutput(output: string): string[] {
+  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const important = lines.filter((line) =>
+    line.includes('Loaded configuration') ||
+    line.includes('Region filter') ||
+    line.includes('Ping results') ||
+    line.includes('Finished test results') ||
+    line.includes('Detailed test results') ||
+    line.includes('Not enough data') ||
+    line.includes('matching_slots') ||
+    line.includes('total_slots') ||
+    line.includes('WrongSize') ||
+    line.includes('Error:') ||
+    line.includes('Region:') ||
+    line.includes('Get an upgrade on ERPC Global') ||
+    line.startsWith('🌍') ||
+    line.startsWith('🔗') ||
+    /\) \d+\.\d+ms$/.test(line)
+  )
+  return important.slice(-40)
+}
+
+async function runGeyserbenchCommand(commandArgs: string[]): Promise<void> {
+  const proc = new Deno.Command(commandArgs[0], {
+    args: commandArgs.slice(1),
+    stdout: 'piped',
+    stderr: 'piped',
+  })
+  const { code, stdout, stderr } = await proc.output()
+  const combined = `${new TextDecoder().decode(stdout)}\n${new TextDecoder().decode(stderr)}`
+  const summary = summarizeGeyserbenchOutput(combined)
+
+  if (summary.length > 0) {
+    console.log(summary.join('\n'))
+  }
+
+  if (code !== 0) {
+    throw new Error(`geyserbench exited with code ${code}`)
+  }
+}
+
 export const checkCmd = new Command()
   .description('Check RPC, gRPC, Shreds, and benchmark endpoints')
   .action(() => {
@@ -214,10 +256,14 @@ checkCmd.command('geyserbench')
         transactions,
       })
 
-      console.log(colors.blue(`Running geyserbench (${kind}) in region ${region}`))
+      const normalizedKind = String(kind).trim().toLowerCase()
+      const normalizedRegion = String(region).trim()
+      if (!normalizedRegion) {
+        throw new Error('Region is required for accurate benchmark measurement.')
+      }
+      console.log(colors.blue(`Running geyserbench (${normalizedKind}) in region ${normalizedRegion}`))
       console.log(colors.gray(`Config: ${configPath}`))
-      const command = `${geyserbenchPath} --config ${configPath} --region ${region}`
-      await spawnSync(command)
+      await runGeyserbenchCommand([geyserbenchPath, '--config', configPath, '--region', normalizedRegion])
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       console.error(colors.red('Error executing geyserbench:'), errorMessage)
