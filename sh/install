@@ -176,7 +176,7 @@ install_skills() {
 
   SKILLS_REPO_URL="https://raw.githubusercontent.com/ValidatorsDAO/slv/main/dist/oss-skills"
 
-  for SKILL in slv-validator slv-rpc slv-grpc-geyser slv-app; do
+  for SKILL in slv-validator slv-rpc slv-grpc-geyser slv-benchmark slv-app slv-server-procurement; do
     echo "Downloading $SKILL..."
     SKILL_DIR="$SKILLS_DIR/$SKILL"
     mkdir -p "$SKILL_DIR"

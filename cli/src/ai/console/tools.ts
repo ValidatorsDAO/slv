@@ -593,8 +593,13 @@ Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
       port_rpc: 7211
 \`\`\`
 
-### Snapshot URL — Auto-detect nearest region
-After writing the inventory (Step 2), but BEFORE deploying (Step 3):
+### Snapshot URL — Auto-detect nearest region (MAINNET ONLY)
+**CRITICAL: For testnet deploys, SKIP snapshot auto-detection entirely.**
+- Testnet validators do NOT use ERPC snapshot URLs (those are mainnet only).
+- For testnet, leave \`snapshot_url: ""\` in the inventory. The testnet init playbook handles snapshot acquisition internally.
+- Only run the snapshot region ping test for MAINNET deploys.
+
+For MAINNET deploys, after writing the inventory (Step 2), but BEFORE deploying (Step 3):
 
 1. Run this command to find the nearest snapshot region from the target server:
 \`\`\`
