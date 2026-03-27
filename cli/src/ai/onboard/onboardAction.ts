@@ -86,6 +86,7 @@ const SKILL_MAP: Record<string, { name: string; agent: string }> = {
   'gRPC Geyser Streaming': { name: 'slv-grpc-geyser', agent: 'Cloud' },
   'Benchmark & Connectivity Testing': { name: 'slv-benchmark', agent: 'Cid' },
   'Solana App Development': { name: 'slv-app', agent: 'Setzer' },
+  'Server Procurement': { name: 'slv-server-procurement', agent: 'Figaro' },
 }
 
 export const onboardAction = async () => {

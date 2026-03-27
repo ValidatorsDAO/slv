@@ -96,11 +96,21 @@ Based on selection, set the **required** version variable:
 
 ### Playbook Execution Directory
 
-All paths are relative to the skill's `ansible/` directory:
+All playbooks are stored in `~/.slv/template/{version}/ansible/`.
+To find the latest version directory:
 ```bash
-cd /path/to/slv-grpc-geyser/ansible/
-ansible-playbook -i /path/to/inventory.yml mainnet-rpc/init.yml -e '{...}'
+TEMPLATE_DIR=$(ls -d ~/.slv/template/*/ | sort -V | tail -1)
 ```
+
+Example (mainnet RPC):
+```bash
+TEMPLATE_DIR=$(ls -d ~/.slv/template/*/ | sort -V | tail -1)
+ansible-playbook -i ~/.slv/inventory.mainnet.rpcs.yml \
+  ${TEMPLATE_DIR}ansible/mainnet-rpc/init.yml --limit <identity_pubkey>
+```
+
+Do NOT use the skill's own `ansible/` directory for execution. Those files are reference copies.
+The runtime playbooks live in `~/.slv/template/`.
 
 ## Plugin Build Notes
 
