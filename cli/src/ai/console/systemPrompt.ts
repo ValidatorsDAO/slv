@@ -8,15 +8,9 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
 
   // Read agent files
   let soulMd = '', userMd = '', memoryMd = ''
-  try {
-    soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`)
-  } catch { /* not configured */ }
-  try {
-    userMd = await Deno.readTextFile(`${agentDir}/USER.md`)
-  } catch { /* not configured */ }
-  try {
-    memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`)
-  } catch { /* not configured */ }
+  try { soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`) } catch { /* not configured */ }
+  try { userMd = await Deno.readTextFile(`${agentDir}/USER.md`) } catch { /* not configured */ }
+  try { memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`) } catch { /* not configured */ }
 
   // Read config to get enabled skills
   let configYml: Record<string, unknown> = { skills: [] }
@@ -26,20 +20,15 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
   } catch { /* not configured */ }
 
   // Read enabled skill SKILL.md files
-  const skills = (configYml.skills || []) as Array<
-    { name: string; enabled: boolean; agent: string }
-  >
+  const skills = (configYml.skills || []) as Array<{ name: string; enabled: boolean; agent: string }>
   let skillDocs = ''
   const enabledAgents: string[] = []
   for (const skill of skills) {
     if (!skill.enabled) continue
     enabledAgents.push(skill.agent)
     try {
-      const skillMd = await Deno.readTextFile(
-        `${skillsDir}/${skill.name}/SKILL.md`,
-      )
-      skillDocs +=
-        `\n\n## Skill: ${skill.name} (Agent: ${skill.agent})\n${skillMd}`
+      const skillMd = await Deno.readTextFile(`${skillsDir}/${skill.name}/SKILL.md`)
+      skillDocs += `\n\n## Skill: ${skill.name} (Agent: ${skill.agent})\n${skillMd}`
     } catch { /* skill not installed */ }
   }
 
@@ -48,24 +37,19 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
   if (enabledAgents.length > 0) {
     agentIntro = `\n## Your Team\nYou have specialist sub-agents:\n`
     if (enabledAgents.includes('Cecil')) {
-      agentIntro +=
-        `- **Cecil** — Solana Validator specialist. Handles validator init, deploy, start/stop, identity migration, builds (Jito/Agave/Firedancer).\n`
+      agentIntro += `- **Cecil** — Solana Validator specialist. Handles validator init, deploy, start/stop, identity migration, builds (Jito/Agave/Firedancer).\n`
     }
     if (enabledAgents.includes('Tina') || enabledAgents.includes('Cloud')) {
-      agentIntro +=
-        `- **Tina** — Solana RPC specialist. Handles ALL RPC types: Index RPC, gRPC Geyser (Yellowstone/Richat), and Index RPC + gRPC combo. Deploy, Geyser plugins, builds, Old Faithful.\n`
-    }
-    if (enabledAgents.includes('Cid')) {
-      agentIntro +=
-        `- **Cid** — Benchmark & connectivity testing specialist. Handles grpc_test, geyserbench, shreds_test, and endpoint latency/throughput troubleshooting.\n`
+      agentIntro += `- **Tina** — Solana RPC specialist. Handles ALL RPC types: Index RPC, gRPC Geyser (Yellowstone/Richat), and Index RPC + gRPC combo. Deploy, Geyser plugins, builds, Old Faithful.\n`
     }
     if (enabledAgents.includes('Setzer')) {
-      agentIntro +=
-        `- **Setzer** — Trading & App specialist. Build high-performance trading bots, MEV strategies, and Solana apps with battle-tested templates.\n`
+      agentIntro += `- **Setzer** — Trading & App specialist. Build high-performance trading bots, MEV strategies, and Solana apps with battle-tested templates.\n`
+    }
+    if (enabledAgents.includes('Cid')) {
+      agentIntro += `- **Cid** — Benchmark & connectivity testing specialist. Handles grpc_test, geyserbench, shreds_test, and endpoint latency/throughput troubleshooting.\n`
     }
     if (enabledAgents.includes('Figaro')) {
-      agentIntro +=
-        `- **Figaro** — Server Procurement specialist. Browse available servers, get pricing, and generate payment links.\n`
+      agentIntro += `- **Figaro** — Server Procurement specialist. Browse available servers, get pricing, and generate payment links.\n`
     }
   }
 

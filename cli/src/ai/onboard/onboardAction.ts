@@ -84,12 +84,9 @@ const SKILL_MAP: Record<string, { name: string; agent: string }> = {
   'Solana Validator Operations': { name: 'slv-validator', agent: 'Cecil' },
   'Index RPC Node Operations': { name: 'slv-rpc', agent: 'Tina' },
   'gRPC Geyser Streaming': { name: 'slv-grpc-geyser', agent: 'Cloud' },
+  'Benchmark & Connectivity Testing': { name: 'slv-benchmark', agent: 'Cid' },
   'Solana App Development': { name: 'slv-app', agent: 'Setzer' },
 }
-
-const hasBenchmarkOps = (selectedOps: string[]) =>
-  selectedOps.includes('Index RPC Node Operations') ||
-  selectedOps.includes('gRPC Geyser Streaming')
 
 export const onboardAction = async () => {
   slvAA(denoJson.version)
@@ -150,9 +147,7 @@ export const onboardAction = async () => {
       await Deno.chmod(apiYmlPath, 0o600)
       console.log(colors.green('  ✔ SLV API Key saved.\n'))
     } else {
-      console.log(
-        colors.rgb24('  Skipped. You can run `slv login` later.\n', 0x888888),
-      )
+      console.log(colors.rgb24('  Skipped. You can run `slv login` later.\n', 0x888888))
     }
   }
 
@@ -192,14 +187,14 @@ export const onboardAction = async () => {
 
     if (model === 'Custom (enter model name)') {
       model = await Input.prompt({
-        message: 'Enter custom model name',
-        validate: (value) => {
-          if (!value || value.trim().length === 0) {
-            return 'Model name is required'
-          }
-          return true
-        },
-      })
+      message: 'Enter custom model name',
+      validate: (value) => {
+        if (!value || value.trim().length === 0) {
+          return 'Model name is required'
+        }
+        return true
+      },
+    })
     }
 
     await writeAiConfig({
@@ -232,25 +227,11 @@ export const onboardAction = async () => {
   const selectedOps: string[] = await Checkbox.prompt({
     message: 'What will you be doing? (↑↓ move, Space toggle, Enter confirm)',
     options: [
-      {
-        name: 'Solana Validator Operations',
-        value: 'Solana Validator Operations',
-        checked: true,
-      },
-      {
-        name: 'Index RPC Node Operations',
-        value: 'Index RPC Node Operations',
-        checked: true,
-      },
-      {
-        name: 'gRPC Geyser Streaming',
-        value: 'gRPC Geyser Streaming',
-        checked: true,
-      },
-      {
-        name: 'Solana App Development (Trade Bot)',
-        value: 'Solana App Development',
-      },
+      { name: 'Solana Validator Operations', value: 'Solana Validator Operations', checked: true },
+      { name: 'Index RPC Node Operations', value: 'Index RPC Node Operations', checked: true },
+      { name: 'gRPC Geyser Streaming', value: 'gRPC Geyser Streaming', checked: true },
+      { name: 'Benchmark & Connectivity Testing', value: 'Benchmark & Connectivity Testing', checked: true },
+      { name: 'Solana App Development (Trade Bot)', value: 'Solana App Development' },
     ],
   })
 
@@ -302,15 +283,9 @@ Session history and important notes.
     enabled: selectedOps.includes(key),
     agent: SKILL_MAP[key].agent,
   }))
-
-  skills.push({
-    name: 'slv-rpc',
-    enabled: hasBenchmarkOps(selectedOps),
-    agent: 'Cid',
-  })
   const configData = {
     skills,
-    auto_execute: true, // Commands execute without confirmation by default
+    auto_execute: true,  // Commands execute without confirmation by default
   }
   const configYml = stringify(configData as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
@@ -448,11 +423,7 @@ Session history and important notes.
   )
   console.log(
     colors.rgb24(
-      `└  ${
-        provider !== 'skip'
-          ? 'Run `slv c` to start the AI console.'
-          : 'Run `slv onboard` again to configure AI provider.'
-      }\n`,
+      `└  ${provider !== 'skip' ? 'Run `slv c` to start the AI console.' : 'Run `slv onboard` again to configure AI provider.'}\n`,
       0x14f195,
     ),
   )
