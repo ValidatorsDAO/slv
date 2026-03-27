@@ -1,0 +1,356 @@
+- name: Ledger uses / if it's the largest; Accounts uses next (prefer separate NVMe)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    fstype_default: xfs
+    min_candidate_bytes: "{{ 100 * 1024 * 1024 * 1024 }}"
+
+  tasks:
+    - name: Ensure mount dirs exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      loop:
+        - /mnt/ledger
+        - /mnt/accounts
+
+    - name: Find root source (/) device
+      ansible.builtin.command: findmnt -n -o SOURCE /
+      register: root_src
+      changed_when: false
+
+    - name: Get root free bytes
+      ansible.builtin.command: df -B1 --output=avail /
+      register: root_free_cmd
+      changed_when: false
+
+    - name: Set root facts (use name without /dev/ for comparisons)
+      ansible.builtin.set_fact:
+        root_part: "{{ root_src.stdout }}"
+        root_disk: "{{ root_src.stdout | regex_replace('p?\\\\d+$','') }}"
+        root_disk_name: "{{ (root_src.stdout | regex_replace('p?\\\\d+$','')) | regex_replace('^/dev/','') }}"
+        root_free_bytes: "{{ (root_free_cmd.stdout_lines | last | trim) | int }}"
+
+    - name: Get lsblk JSON
+      ansible.builtin.command: lsblk -b -J -o NAME,TYPE,SIZE,MOUNTPOINT,FSTYPE,PARTLABEL
+      register: lsblk_j
+      changed_when: false
+
+    - name: Parse lsblk
+      ansible.builtin.set_fact:
+        lsblk: "{{ lsblk_j.stdout | from_json }}"
+
+    - name: Init candidate buckets
+      ansible.builtin.set_fact:
+        cand_whole: []
+        cand_parts: []
+        cand_free: []
+
+    - name: Collect whole unused NVMe disks
+      ansible.builtin.set_fact:
+        cand_whole: |
+          {{ cand_whole + [ {
+            'kind':'whole_disk','rank': 1,'size': (item.size | int),
+            'dev': '/dev/' ~ item.name,
+            'parent_name': item.name
+          } ] }}
+      loop: "{{ lsblk.blockdevices }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when:
+        - item.type == 'disk'
+        - item.name is match('^nvme')
+        - item.name != root_disk_name
+        - (item.children is not defined or (item.children | length) == 0)
+        - (item.mountpoint is not defined or item.mountpoint in [None, ''])
+        - (item.size | int) >= (min_candidate_bytes | int)
+
+    - name: Flatten partitions
+      ansible.builtin.set_fact:
+        all_parts: "{{ (lsblk.blockdevices | map(attribute='children') | list | flatten | default([])) | list }}"
+
+    - name: Collect existing unmounted large partitions
+      ansible.builtin.set_fact:
+        cand_parts: |
+          {{ cand_parts + [ {
+            'kind':'existing_part','rank': 2,'size': (item.size | int),
+            'dev': '/dev/' ~ item.name,
+            'parent_name': (item.name | regex_replace('p?\\\\d+$',''))
+          } ] }}
+      loop: "{{ all_parts }}"
+      loop_control:
+        label: "{{ item.name | default('none') }}"
+      when:
+        - item is defined
+        - item.type == 'part'
+        - (item.mountpoint is not defined or item.mountpoint in [None, ''])
+        - (item.fstype | default('')) != 'vfat'
+        - (item.size | int) >= (min_candidate_bytes | int)
+        - (item.name | regex_replace('p?\\\\d+$','')) != root_disk_name
+
+    - name: Compute free space per non-root NVMe disk
+      ansible.builtin.set_fact:
+        cand_free: |
+          {{ cand_free + [ {
+            'kind': 'free_on_disk', 'rank': 3,
+            'size': ((item.size | int) - (((item.children | default([])) | map(attribute='size') | map('int') | list | sum | default(0)))),
+            'disk': '/dev/' ~ item.name,
+            'parent_name': item.name,
+            'start_mib': (((((item.children | default([])) | map(attribute='size') | map('int') | list | sum | default(0)) // 1024 // 1024) + 2)),
+            'end_mib': (((item.size | int) // 1024 // 1024) - 1)
+          } ] }}
+      loop: "{{ lsblk.blockdevices }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when:
+        - item.type == 'disk'
+        - item.name is match('^nvme')
+        - item.name != root_disk_name
+        - (((item.size | int) - (((item.children | default([])) | map(attribute='size') | map('int') | list | sum | default(0))))) >= (min_candidate_bytes | int)
+
+    - name: Build root_fs candidate
+      ansible.builtin.set_fact:
+        cand_root: [ { 'kind':'root_fs', 'rank': 4, 'size': (root_free_bytes | int), 'parent_name': root_disk_name } ]
+
+    - name: Build prioritized candidate list (whole > parts > free > root; size desc inside)
+      ansible.builtin.set_fact:
+        candidates: "{{ cand_whole + cand_parts + cand_free + cand_root }}"
+
+    - name: Stop if no candidates
+      ansible.builtin.debug:
+        msg: "No usable storage candidates found."
+      when: candidates | length == 0
+
+    - name: Select ledger candidate (best overall)
+      ansible.builtin.set_fact:
+        ledger_choice: "{{ candidates | selectattr('rank','equalto',1) | list | sort(attribute='size', reverse=true) | first | default(candidates | selectattr('rank','equalto',2) | list | sort(attribute='size', reverse=true) | first | default(candidates | selectattr('rank','equalto',3) | list | sort(attribute='size', reverse=true) | first | default(candidates | selectattr('rank','equalto',4) | list | first | default(None)))) }}"
+
+    - name: Select accounts candidate (excluding ledger choice)
+      ansible.builtin.set_fact:
+        accounts_choice: |
+          {% if candidates|length < 2 %}{{ None }}
+          {% elif ledger_choice.kind == 'root_fs' %}
+          {% set non_root = candidates | rejectattr('kind','equalto','root_fs') | list %}
+          {{ non_root | selectattr('rank','equalto',1) | list | sort(attribute='size', reverse=true) | first | default(non_root | selectattr('rank','equalto',2) | list | sort(attribute='size', reverse=true) | first | default(non_root | selectattr('rank','equalto',3) | list | sort(attribute='size', reverse=true) | first | default(None))) }}
+          {% else %}
+          {% set ledger_parent = ledger_choice.parent_name %}
+          {% set ledger_dev = ledger_choice.get('dev', ledger_choice.get('disk', '')) %}
+          {% set remaining = candidates | rejectattr('kind','equalto','root_fs') | reject('equalto', ledger_choice) | list %}
+          {% set different_disk = remaining | selectattr('parent_name','ne', ledger_parent) | list %}
+          {% set same_disk = remaining | selectattr('parent_name','equalto', ledger_parent) | list %}
+          {{ different_disk | selectattr('rank','equalto',1) | list | sort(attribute='size', reverse=true) | first | default(different_disk | selectattr('rank','equalto',2) | list | sort(attribute='size', reverse=true) | first | default(different_disk | selectattr('rank','equalto',3) | list | sort(attribute='size', reverse=true) | first | default(same_disk | selectattr('rank','equalto',1) | list | sort(attribute='size', reverse=true) | first | default(same_disk | selectattr('rank','equalto',2) | list | sort(attribute='size', reverse=true) | first | default(same_disk | selectattr('rank','equalto',3) | list | sort(attribute='size', reverse=true) | first | default(None)))))) }}
+          {% endif %}
+
+    - name: Debug ledger_choice
+      ansible.builtin.debug:
+        var: ledger_choice
+      when: candidates | length > 0
+
+    - name: Debug accounts_choice
+      ansible.builtin.debug:
+        var: accounts_choice
+      when: candidates | length > 0
+
+    - name: Show plan (simplified)
+      ansible.builtin.debug:
+        msg:
+          - "ledger -> {{ ledger_choice | default('NONE') }}"
+          - "accounts -> {{ accounts_choice | default('NONE') }}"
+      when: candidates | length > 0
+
+    - name: Prepare ledger on root_fs (directory only)
+      ansible.builtin.file:
+        path: /mnt/ledger
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      when:
+        - candidates | length > 0
+        - ledger_choice.kind == 'root_fs'
+
+    - name: Prepare ledger on device
+      when:
+        - candidates | length > 0
+        - ledger_choice.kind != 'root_fs'
+      block:
+        - name: Resolve ledger device base
+          ansible.builtin.set_fact:
+            ledger_dev_base: "{{ ledger_choice.dev | default(ledger_choice.disk) }}"
+
+        - name: Check if device has existing partition table
+          ansible.builtin.command: parted -s "{{ ledger_dev_base }}" print
+          register: ledger_part_info
+          failed_when: false
+          changed_when: false
+          when: ledger_choice.kind == 'free_on_disk'
+
+        - name: "For free_on_disk ledger - ensure GPT (only if no existing table)"
+          community.general.parted:
+            device: "{{ ledger_dev_base }}"
+            label: gpt
+          when: 
+            - ledger_choice.kind == 'free_on_disk'
+            - ledger_part_info.rc != 0 or 'unrecognised disk label' in ledger_part_info.stderr
+
+        - name: "For free_on_disk ledger - create one partition"
+          community.general.parted:
+            device: "{{ ledger_dev_base }}"
+            unit: MiB
+            state: present
+            number: 99
+            part_type: primary
+            name: ledger
+            part_start: "{{ ledger_choice.start_mib }}MiB"
+            part_end: "{{ ledger_choice.end_mib }}MiB"
+            label: gpt
+          when: ledger_choice.kind == 'free_on_disk'
+
+        - name: partprobe after creating ledger partition
+          ansible.builtin.command: partprobe
+          changed_when: false
+          when: ledger_choice.kind == 'free_on_disk'
+
+        - name: Refresh lsblk after ledger partition (if created)
+          ansible.builtin.command: lsblk -b -J -o NAME,TYPE,SIZE,MOUNTPOINT,FSTYPE,PARTLABEL
+          register: lsblk_after_ledger
+          changed_when: false
+          when: ledger_choice.kind == 'free_on_disk'
+
+        - name: Determine final ledger device path
+          ansible.builtin.set_fact:
+            ledger_dev_final: "{{ (ledger_part | length > 0) | ternary('/dev/' ~ ledger_part, ledger_dev_base) | trim }}"
+          vars:
+            ledger_part: "{{ ((lsblk_after_ledger.stdout | default(lsblk_j.stdout)) | from_json).blockdevices | map(attribute='children') | list | flatten | default([]) | selectattr('type','equalto','part') | selectattr('partlabel','equalto','ledger') | map(attribute='name') | list | first | default('') | trim }}"
+
+        - name: Debug ledger device path
+          ansible.builtin.debug:
+            msg: "Ledger device: {{ ledger_dev_final }}"
+
+        - name: Check FS on ledger device
+          ansible.builtin.command: blkid -o value -s TYPE "{{ ledger_dev_final }}"
+          register: ledger_blkid
+          failed_when: false
+          changed_when: false
+
+        - name: Debug blkid result
+          ansible.builtin.debug:
+            msg: "blkid rc={{ ledger_blkid.rc }}, stdout='{{ ledger_blkid.stdout }}', stderr='{{ ledger_blkid.stderr }}'"
+
+        - name: Make FS for ledger (when no filesystem detected)
+          ansible.builtin.filesystem:
+            fstype: "{{ fstype_default }}"
+            dev: "{{ ledger_dev_final }}"
+            opts: -L ledger
+          when: ledger_blkid.rc != 0 or (ledger_blkid.stdout | trim | length == 0)
+
+        - name: Set ledger filesystem type
+          ansible.builtin.set_fact:
+            ledger_fstype: "{{ (ledger_blkid.rc == 0 and ledger_blkid.stdout | trim | length > 0) | ternary(ledger_blkid.stdout | trim, fstype_default) }}"
+
+        - name: Mount ledger and persist
+          ansible.builtin.mount:
+            path: /mnt/ledger
+            src: "{{ ledger_dev_final }}"
+            fstype: "{{ ledger_fstype }}"
+            state: mounted
+            opts: noatime,nodiratime
+
+    - name: Prepare accounts (if candidate exists)
+      when:
+        - candidates | length > 0
+        - accounts_choice is not none
+        - accounts_choice is mapping
+      block:
+        - name: Resolve accounts device base
+          ansible.builtin.set_fact:
+            accounts_dev_base: "{{ (accounts_choice is not none and accounts_choice is mapping) | ternary(accounts_choice.dev | default(accounts_choice.disk) | default(None), None) }}"
+
+        - name: Check if accounts device has existing partition table
+          ansible.builtin.command: parted -s "{{ accounts_dev_base }}" print
+          register: accounts_part_info
+          failed_when: false
+          changed_when: false
+          when: 
+            - accounts_choice is not none
+            - accounts_choice is mapping
+            - accounts_choice.kind == 'free_on_disk'
+
+        - name: "For free_on_disk accounts - ensure GPT (only if no existing table)"
+          community.general.parted:
+            device: "{{ accounts_dev_base }}"
+            label: gpt
+          when: 
+            - accounts_choice is not none
+            - accounts_choice is mapping
+            - accounts_choice.kind == 'free_on_disk'
+            - accounts_part_info.rc != 0 or 'unrecognised disk label' in accounts_part_info.stderr
+
+        - name: "For free_on_disk accounts - create one partition"
+          community.general.parted:
+            device: "{{ accounts_dev_base }}"
+            unit: MiB
+            state: present
+            number: 98
+            part_type: primary
+            name: accounts
+            part_start: "{{ accounts_choice.start_mib }}MiB"
+            part_end: "{{ accounts_choice.end_mib }}MiB"
+            label: gpt
+          when: 
+            - accounts_choice is not none
+            - accounts_choice is mapping
+            - accounts_choice.kind == 'free_on_disk'
+
+        - name: partprobe after creating accounts partition
+          ansible.builtin.command: partprobe
+          changed_when: false
+          when: 
+            - accounts_choice is not none
+            - accounts_choice is mapping
+            - accounts_choice.kind == 'free_on_disk'
+
+        - name: Refresh lsblk after accounts partition (if created)
+          ansible.builtin.command: lsblk -b -J -o NAME,TYPE,SIZE,MOUNTPOINT,FSTYPE,PARTLABEL
+          register: lsblk_after_accounts
+          changed_when: false
+          when: 
+            - accounts_choice is not none
+            - accounts_choice is mapping
+            - accounts_choice.kind == 'free_on_disk'
+
+        - name: Determine final accounts device path
+          ansible.builtin.set_fact:
+            accounts_dev_final: "{{ (accounts_part | length > 0) | ternary('/dev/' ~ accounts_part, accounts_dev_base) | trim }}"
+          vars:
+            accounts_part: "{{ ((lsblk_after_accounts.stdout | default(lsblk_j.stdout)) | from_json).blockdevices | map(attribute='children') | list | flatten | default([]) | selectattr('type','equalto','part') | selectattr('partlabel','equalto','accounts') | map(attribute='name') | list | first | default('') | trim }}"
+
+        - name: Check FS on accounts device
+          ansible.builtin.command: blkid -o value -s TYPE "{{ accounts_dev_final }}"
+          register: accounts_blkid
+          failed_when: false
+          changed_when: false
+
+        - name: Make FS for accounts
+          ansible.builtin.filesystem:
+            fstype: "{{ fstype_default }}"
+            dev: "{{ accounts_dev_final }}"
+            opts: -L accounts
+          when: accounts_blkid.rc != 0
+
+        - name: Set accounts filesystem type
+          ansible.builtin.set_fact:
+            accounts_fstype: "{{ (accounts_blkid.rc == 0 and accounts_blkid.stdout | trim | length > 0) | ternary(accounts_blkid.stdout | trim, fstype_default) }}"
+
+        - name: Mount accounts and persist
+          ansible.builtin.mount:
+            path: /mnt/accounts
+            src: "{{ accounts_dev_final }}"
+            fstype: "{{ accounts_fstype }}"
+            state: mounted
+            opts: noatime,nodiratime
