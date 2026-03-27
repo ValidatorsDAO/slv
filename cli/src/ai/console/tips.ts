@@ -9,7 +9,7 @@ export const GENERAL_TIPS: string[] = [
   '💡 Lower latency = better trades. Co-locate your bot with the validator for sub-millisecond execution.',
   '💡 Solana leaders rotate every 4 slots (~1.6 seconds). Sending transactions during YOUR leader slot = fastest confirmation.',
   '💡 gRPC streaming is 10-100x faster than polling RPC for real-time data. Perfect for trading bots.',
-  '💡 ShredStream delivers raw block data before it\'s even confirmed — the fastest way to see new transactions.',
+  "💡 ShredStream delivers raw block data before it's even confirmed — the fastest way to see new transactions.",
   '💡 Staked connections (SWQoS) get priority transaction scheduling. Essential for competitive trading.',
   '💡 Tip: Use dedicated RPC for sends, shared RPC for reads. Optimize where it matters most.',
 
@@ -38,7 +38,7 @@ export const GENERAL_TIPS: string[] = [
   // Network & Architecture
   '💡 Solana uses Gulf Stream — transactions are forwarded to the next leader before the current slot ends.',
   '💡 Turbine breaks blocks into "shreds" and distributes them across the network like a torrent.',
-  '💡 Solana\'s Proof of History (PoH) creates a verifiable passage of time — no waiting for consensus on ordering.',
+  "💡 Solana's Proof of History (PoH) creates a verifiable passage of time — no waiting for consensus on ordering.",
   '💡 The Solana cluster has ~1,500 validators globally. More geographic diversity = stronger network.',
 ]
 
@@ -55,7 +55,7 @@ export const FIGARO_TIPS: string[] = [
 export const CECIL_TIPS: string[] = [
   '⚔️ Validators earn more during high-traffic periods. Priority fees spike during NFT mints and token launches.',
   '⚔️ Identity migration (hot-swap) lets you upgrade hardware with zero downtime for your stake.',
-  '⚔️ Firedancer is Solana\'s new validator client — built for maximum performance from the ground up.',
+  "⚔️ Firedancer is Solana's new validator client — built for maximum performance from the ground up.",
   '⚔️ Jito tips go directly to your validator. Top validators earn 100+ SOL/day in MEV tips.',
   '⚔️ Testnet validators help you learn operations risk-free before committing real SOL on mainnet.',
 ]
@@ -67,8 +67,15 @@ export const TINA_TIPS: string[] = [
   '🔧 Yellowstone gRPC can filter by program, account, or transaction type — only get what you need.',
 ]
 
+export const CID_TIPS: string[] = [
+  '📡 Run grpc_test first for quick reachability and latency, then use geyserbench when you need throughput numbers.',
+  '📡 Test from the same region as your app or bot. Cross-region benchmarks hide the real bottleneck.',
+  '📡 If gRPC is reachable but slow, compare TLS handshake time, stream startup time, and sustained message rate separately.',
+  '📡 ShredStream checks are best done alongside gRPC checks — both matter when you care about earliest possible signal.',
+]
+
 export const SETZER_TIPS: string[] = [
-  '🎰 Solana\'s 400ms block time makes it the fastest chain for on-chain trading.',
+  "🎰 Solana's 400ms block time makes it the fastest chain for on-chain trading.",
   '🎰 Jupiter aggregates all Solana DEX liquidity. One API call for the best swap route.',
   '🎰 Raydium CLMM pools offer concentrated liquidity — higher capital efficiency for market makers.',
   '🎰 Tip: Use websocket subscriptions to react to price changes instantly, not HTTP polling.',
@@ -82,6 +89,7 @@ export function getTipsForAgent(agentName: string): string[] {
     'Figaro': FIGARO_TIPS,
     'Cecil': CECIL_TIPS,
     'Tina': TINA_TIPS,
+    'Cid': CID_TIPS,
     'Setzer': SETZER_TIPS,
   }
   const specific = agentTips[agentName] || []
