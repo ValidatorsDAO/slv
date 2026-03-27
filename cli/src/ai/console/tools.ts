@@ -45,6 +45,7 @@ const AGENT_SKILL_MAP: Record<string, string> = {
   'Cecil': 'slv-validator',
   'Tina': 'slv-rpc',
   'Cloud': 'slv-grpc-geyser',
+  'Cid': 'slv-benchmark',
   'Setzer': 'slv-app',
   'Figaro': 'slv-server-procurement',
 }
@@ -152,13 +153,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'delegate_to_agent',
     description:
-      'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for ALL RPC tasks (Index RPC, gRPC Geyser, combo), Setzer for app/bot tasks, Figaro for server procurement.',
+      'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for ALL RPC tasks (Index RPC, gRPC Geyser, combo), Cid for benchmark/connectivity testing, Setzer for app/bot tasks, Figaro for server procurement.',
     parameters: {
       type: 'object',
       properties: {
         agent: {
           type: 'string',
-          description: 'Sub-agent name: Cecil, Tina, Setzer, or Figaro',
+          description: 'Sub-agent name: Cecil, Tina, Cid, Setzer, or Figaro',
         },
         task: {
           type: 'string',
@@ -465,7 +466,7 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
   const effectiveName = agentName === 'Cloud' ? 'Tina' : agentName
   const skillName = AGENT_SKILL_MAP[effectiveName]
   if (!skillName) {
-    return `Unknown agent: ${agentName}. Available agents: Cecil, Tina, Setzer, Figaro`
+    return `Unknown agent: ${agentName}. Available agents: Cecil, Tina, Cid, Setzer, Figaro`
   }
 
   const home = resolveHome()
@@ -481,8 +482,8 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
     skillMd = await Deno.readTextFile(`${skillsDir}/${skillName}/SKILL.md`)
   } catch { /* skill file not found */ }
 
-  // Tina also reads gRPC Geyser skill for comprehensive RPC knowledge
-  if (effectiveName === 'Tina') {
+  // Tina and Cid also read gRPC Geyser skill for comprehensive RPC/stream testing knowledge
+  if (effectiveName === 'Tina' || effectiveName === 'Cid') {
     try {
       const grpcSkill = await Deno.readTextFile(`${skillsDir}/slv-grpc-geyser/SKILL.md`)
       skillMd += `\n\n## Additional Skill: gRPC Geyser\n${grpcSkill}`
@@ -514,6 +515,23 @@ ${skillMd ? skillMd + '\n' : ''}
 - Do NOT use markdown tables. Use plain text or bullet lists.
 - Do NOT offer dry-runs or --check — just deploy when the user says go.
 - English only.
+
+## Benchmark flow (CRITICAL for Cid)
+- When the user says they want to benchmark, first determine WHICH benchmark type they want:
+  1. shredstream
+  2. grpc
+  3. rpc
+- If the benchmark type is not explicitly given, ask the main agent to ask exactly one question:
+  - "Which benchmark do you want to run: shredstream, grpc, or rpc?"
+- After the type is known, ask for the endpoint(s) next. Do not ask for whitelist IP, region, or server details before benchmark type and endpoint are confirmed.
+- Preferred question order for benchmark tasks:
+  1. benchmark type (shredstream / grpc / rpc)
+  2. region to measure with `--region`
+  3. endpoint or endpoints to test
+- For shredstream or grpc benchmarks, prefer using the local `geyserbench` binary if it is available on the machine.
+- If `geyserbench` is available, run it and return the benchmark output directly so the main agent can show the user the result with minimal rewriting.
+- If `geyserbench` is not available, clearly report that and suggest the next best local SLV check command.
+- For benchmark tasks, optimize for fast execution and direct result display, not long advisory explanations.
 
 ## CRITICAL: Deployment Flow
 

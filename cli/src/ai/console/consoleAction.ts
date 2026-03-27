@@ -416,6 +416,7 @@ export const consoleAction = async () => {
           'Figaro': 'Figaro is searching for the best server...',
           'Cecil': 'Cecil is preparing the deployment...',
           'Tina': 'Tina is configuring the RPC setup...',
+          'Cid': 'Cid is running benchmark and connectivity checks...',
           'Setzer': 'Setzer is crafting your app...',
         }
         const loaderMsg = loaderMessages[agentName] || `${agentName} is working...`
@@ -592,6 +593,8 @@ RULES:
         status += ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
       } else if (currentDelegateAgent === 'Tina') {
         status += ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
+      } else if (currentDelegateAgent === 'Cid') {
+        status += ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.'
       } else if (currentDelegateAgent === 'Figaro') {
         status += ' Checking server availability and preparing your options.'
       }

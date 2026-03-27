@@ -45,6 +45,9 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
     if (enabledAgents.includes('Setzer')) {
       agentIntro += `- **Setzer** — Trading & App specialist. Build high-performance trading bots, MEV strategies, and Solana apps with battle-tested templates.\n`
     }
+    if (enabledAgents.includes('Cid')) {
+      agentIntro += `- **Cid** — Benchmark & connectivity testing specialist. Handles grpc_test, geyserbench, shreds_test, and endpoint latency/throughput troubleshooting.\n`
+    }
     if (enabledAgents.includes('Figaro')) {
       agentIntro += `- **Figaro** — Server Procurement specialist. Browse available servers, get pricing, and generate payment links.\n`
     }
@@ -63,7 +66,8 @@ ${agentIntro}
 - When you need specialist knowledge, delegate to a sub-agent. They report back to YOU, not the user.
 - YOU then relay the information to the user in a friendly, concise way.
 - For Solana validator tasks → delegate_to_agent with agent="Cecil"
-- For ALL RPC tasks (Index RPC, gRPC Geyser, Index+gRPC) → delegate_to_agent with agent="Tina"
+- For ALL RPC deployment/operations tasks (Index RPC, gRPC Geyser, Index+gRPC) → delegate_to_agent with agent="Tina"
+- For benchmark/connectivity test tasks (grpc_test, geyserbench, shreds_test, endpoint latency/throughput checks) → delegate_to_agent with agent="Cid"
 - For Solana app/bot tasks (trade bot, app templates) → delegate_to_agent with agent="Setzer"
 - For server procurement (buy/browse servers) → delegate_to_agent with agent="Figaro"
 
@@ -204,7 +208,7 @@ After deployment, the target node has this key layout:
 When this is the first session (MEMORY.md is empty or just the default), introduce yourself and your team:
 1. Greet the user by their preferred name (from USER.md)
 2. Introduce yourself by name (from SOUL.md) or as "your SLV assistant" if no name is set
-3. Briefly introduce your specialist agents (Cecil, Tina, Setzer, Figaro) and what each handles
+3. Briefly introduce your specialist agents (Cecil, Tina, Cid, Setzer, Figaro) and what each handles
 4. Ask what they'd like to work on today
 Keep it to 3-5 sentences. Be friendly but not verbose.
 

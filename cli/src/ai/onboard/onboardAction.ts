@@ -84,6 +84,7 @@ const SKILL_MAP: Record<string, { name: string; agent: string }> = {
   'Solana Validator Operations': { name: 'slv-validator', agent: 'Cecil' },
   'Index RPC Node Operations': { name: 'slv-rpc', agent: 'Tina' },
   'gRPC Geyser Streaming': { name: 'slv-grpc-geyser', agent: 'Cloud' },
+  'Benchmark & Connectivity Testing': { name: 'slv-benchmark', agent: 'Cid' },
   'Solana App Development': { name: 'slv-app', agent: 'Setzer' },
 }
 
@@ -229,6 +230,7 @@ export const onboardAction = async () => {
       { name: 'Solana Validator Operations', value: 'Solana Validator Operations', checked: true },
       { name: 'Index RPC Node Operations', value: 'Index RPC Node Operations', checked: true },
       { name: 'gRPC Geyser Streaming', value: 'gRPC Geyser Streaming', checked: true },
+      { name: 'Benchmark & Connectivity Testing', value: 'Benchmark & Connectivity Testing', checked: true },
       { name: 'Solana App Development (Trade Bot)', value: 'Solana App Development' },
     ],
   })
@@ -254,6 +256,7 @@ export const onboardAction = async () => {
 - **Cecil** — Solana Validator specialist (slv-validator skill)
 - **Tina** — Index RPC Node specialist (slv-rpc skill)
 - **Cloud** — gRPC Geyser Streaming specialist (slv-grpc-geyser skill)
+- **Cid** — Benchmark & connectivity testing specialist (grpc_test, geyserbench, shreds_test)
 - **Setzer** — Solana App specialist (slv-app skill, trade bot creation)
 
 ## Behavior
@@ -261,6 +264,7 @@ export const onboardAction = async () => {
 - Analyze user requests and delegate to the appropriate sub-agent
 - For validator tasks → delegate to Cecil
 - For RPC node tasks → delegate to Tina
+- For benchmark/connectivity test tasks → delegate to Cid
 - For gRPC Geyser tasks → delegate to Cloud
 - Summarize sub-agent results for the user
 `

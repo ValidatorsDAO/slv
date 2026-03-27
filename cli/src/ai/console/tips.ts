@@ -67,6 +67,13 @@ export const TINA_TIPS: string[] = [
   '🔧 Yellowstone gRPC can filter by program, account, or transaction type — only get what you need.',
 ]
 
+export const CID_TIPS: string[] = [
+  '📡 Run grpc_test first for quick reachability and latency, then use geyserbench when you need throughput numbers.',
+  '📡 Test from the same region as your app or bot. Cross-region benchmarks hide the real bottleneck.',
+  '📡 If gRPC is reachable but slow, compare TLS handshake time, stream startup time, and sustained message rate separately.',
+  '📡 ShredStream checks are best done alongside gRPC checks — both matter when you care about earliest possible signal.',
+]
+
 export const SETZER_TIPS: string[] = [
   '🎰 Solana\'s 400ms block time makes it the fastest chain for on-chain trading.',
   '🎰 Jupiter aggregates all Solana DEX liquidity. One API call for the best swap route.',
@@ -82,6 +89,7 @@ export function getTipsForAgent(agentName: string): string[] {
     'Figaro': FIGARO_TIPS,
     'Cecil': CECIL_TIPS,
     'Tina': TINA_TIPS,
+    'Cid': CID_TIPS,
     'Setzer': SETZER_TIPS,
   }
   const specific = agentTips[agentName] || []
