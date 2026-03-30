@@ -30,7 +30,7 @@ SyslogIdentifier=slv-${config.name}
 WantedBy=multi-user.target
 `
 
-const deployAction = async (options: { name?: string }) => {
+const deployAction = async (options: { name?: string; localhost?: boolean }) => {
   // 1. App name
   const { appName } = await prompt([
     {
@@ -60,46 +60,72 @@ const deployAction = async (options: { name?: string }) => {
     return false
   }
 
-  // 3. SSH connection
-  console.log(colors.cyan('\n🔗 Configure SSH connection to deploy target'))
-  const ssh = await checkSSHConnection()
-  if (!ssh) return false
+  let config: BotConfig
 
-  // 4. Remote path
-  const { remotePath } = await prompt([
-    {
-      name: 'remotePath',
-      message: '📂 Remote binary path',
-      type: Input,
-      default: `/home/${ssh.username}/slv/${appName}`,
-    },
-  ])
-  if (!remotePath) {
-    console.log(colors.red('❌ Remote path is required'))
-    return false
-  }
+  if (options.localhost) {
+    // Localhost mode: no SSH required
+    const username = Deno.env.get('USER') || 'solv'
+    const remotePath = `/home/${username}/slv/${appName}`
 
-  const config: BotConfig = {
-    name: appName,
-    ip: ssh.ip,
-    username: ssh.username,
-    sshKeyPath: ssh.rsa_key_path,
-    binaryName: appName,
-    remotePath,
-    serviceName: `slv-${appName}`,
-    localProjectPath: localPath,
-    deployedAt: new Date().toISOString(),
+    config = {
+      name: appName,
+      ip: 'localhost',
+      username,
+      sshKeyPath: '',
+      binaryName: appName,
+      remotePath,
+      serviceName: `slv-${appName}`,
+      localProjectPath: localPath,
+      deployedAt: new Date().toISOString(),
+    }
+  } else {
+    // 3. SSH connection
+    console.log(colors.cyan('\n🔗 Configure SSH connection to deploy target'))
+    const ssh = await checkSSHConnection()
+    if (!ssh) return false
+
+    // 4. Remote path
+    const { remotePath } = await prompt([
+      {
+        name: 'remotePath',
+        message: '📂 Remote binary path',
+        type: Input,
+        default: `/home/${ssh.username}/slv/${appName}`,
+      },
+    ])
+    if (!remotePath) {
+      console.log(colors.red('❌ Remote path is required'))
+      return false
+    }
+
+    config = {
+      name: appName,
+      ip: ssh.ip,
+      username: ssh.username,
+      sshKeyPath: ssh.rsa_key_path,
+      binaryName: appName,
+      remotePath,
+      serviceName: `slv-${appName}`,
+      localProjectPath: localPath,
+      deployedAt: new Date().toISOString(),
+    }
   }
 
   // Confirm
   console.log(colors.white('\n📋 Deploy configuration:'))
   console.log(colors.white(`  Name:         ${config.name}`))
   console.log(colors.white(`  Local:        ${config.localProjectPath}`))
-  console.log(
-    colors.white(
-      `  Remote:       ${config.username}@${config.ip}:${config.remotePath}`,
-    ),
-  )
+  if (options.localhost) {
+    console.log(
+      colors.white(`  Target:       localhost:${config.remotePath}`),
+    )
+  } else {
+    console.log(
+      colors.white(
+        `  Remote:       ${config.username}@${config.ip}:${config.remotePath}`,
+      ),
+    )
+  }
   console.log(colors.white(`  Service:      ${config.serviceName}`))
 
   const { confirmed } = await prompt([
@@ -132,83 +158,151 @@ const deployAction = async (options: { name?: string }) => {
   }
   console.log(colors.green('✅ Build succeeded'))
 
-  // 6. Create remote directory
-  console.log(colors.cyan('📁 Creating remote directory...'))
-  const mkdirResult = await sshExec(
-    config,
-    buildRemoteCmd('mkdir', '-p', config.remotePath),
-  )
-  if (!mkdirResult.success) {
-    console.log(colors.red('❌ Failed to create remote directory'))
-    return false
-  }
+  if (options.localhost) {
+    // --- Localhost deploy ---
+    // 6. Create local directory
+    console.log(colors.cyan('📁 Creating local directory...'))
+    await Deno.mkdir(config.remotePath, { recursive: true })
 
-  // 7. SCP binary
-  console.log(colors.cyan('📤 Uploading binary...'))
-  const binaryPath =
-    `${config.localProjectPath}/target/release/${config.binaryName}`
-  const scpResult = await scpUpload(
-    config,
-    binaryPath,
-    `${config.remotePath}/${config.binaryName}`,
-  )
-  if (!scpResult.success) {
-    console.log(colors.red('❌ Failed to upload binary'))
-    return false
-  }
-  console.log(colors.green('✅ Binary uploaded'))
-
-  // 8. Make binary executable
-  console.log(colors.cyan('🔧 Setting executable permission...'))
-  const chmodResult = await sshExec(
-    config,
-    buildRemoteCmd('chmod', '+x', `${config.remotePath}/${config.binaryName}`),
-  )
-  if (!chmodResult.success) {
-    console.log(colors.red('❌ Failed to chmod +x on remote binary'))
-    return false
-  }
-
-  // 9. Create systemd unit via temp file + SCP (avoids fragile echo -e escaping)
-  console.log(colors.cyan('⚙️ Creating systemd service...'))
-  const unitContent = SYSTEMD_UNIT_TEMPLATE(config)
-  const tmpLocal = await Deno.makeTempFile({ suffix: '.service' })
-  try {
-    await Deno.writeTextFile(tmpLocal, unitContent)
-
-    // Upload to remote user home as temp file
-    const remoteTmp = `/tmp/slv-${config.serviceName}.service`
-    const unitUpload = await scpUpload(config, tmpLocal, remoteTmp)
-    if (!unitUpload.success) {
-      console.log(colors.red('❌ Failed to upload systemd unit file'))
-      return false
-    }
-
-    // Move into place with sudo
-    const unitPath = `/etc/systemd/system/${config.serviceName}.service`
-    const mvResult = await sshExec(
-      config,
-      buildRemoteCmd('sudo', 'mv', remoteTmp, unitPath),
+    // 7. Copy binary
+    console.log(colors.cyan('📤 Copying binary...'))
+    const binaryPath =
+      `${config.localProjectPath}/target/release/${config.binaryName}`
+    await Deno.copyFile(
+      binaryPath,
+      `${config.remotePath}/${config.binaryName}`,
     )
-    if (!mvResult.success) {
-      console.log(colors.red('❌ Failed to install systemd service'))
+    console.log(colors.green('✅ Binary copied'))
+
+    // 8. Make binary executable
+    console.log(colors.cyan('🔧 Setting executable permission...'))
+    await Deno.chmod(`${config.remotePath}/${config.binaryName}`, 0o755)
+
+    // 9. Create systemd unit via temp file + sudo mv
+    console.log(colors.cyan('⚙️ Creating systemd service...'))
+    const unitContent = SYSTEMD_UNIT_TEMPLATE(config)
+    const tmpPath = await Deno.makeTempFile({ suffix: '.service' })
+    try {
+      await Deno.writeTextFile(tmpPath, unitContent)
+      const unitPath = `/etc/systemd/system/${config.serviceName}.service`
+      const mvCmd = new Deno.Command('sudo', {
+        args: ['mv', tmpPath, unitPath],
+        stdout: 'piped',
+        stderr: 'piped',
+      })
+      const mvResult = await mvCmd.output()
+      if (!mvResult.success) {
+        console.log(colors.red('❌ Failed to install systemd service'))
+        return false
+      }
+    } catch {
+      console.log(colors.red('❌ Failed to create systemd service'))
+      return false
+    } finally {
+      await Deno.remove(tmpPath).catch(() => {})
+    }
+
+    // 10. Enable & start
+    console.log(colors.cyan('🚀 Starting service...'))
+    const reloadCmd = new Deno.Command('sudo', {
+      args: ['systemctl', 'daemon-reload'],
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+    await reloadCmd.output()
+    const enableCmd = new Deno.Command('sudo', {
+      args: ['systemctl', 'enable', '--now', config.serviceName],
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+    const enableResult = await enableCmd.output()
+    if (!enableResult.success) {
+      console.log(colors.red('❌ Failed to start service'))
       return false
     }
-  } finally {
-    await Deno.remove(tmpLocal).catch(() => {})
-  }
+    console.log(colors.green('✅ Service started'))
+  } else {
+    // --- Remote deploy (existing flow) ---
+    // 6. Create remote directory
+    console.log(colors.cyan('📁 Creating remote directory...'))
+    const mkdirResult = await sshExec(
+      config,
+      buildRemoteCmd('mkdir', '-p', config.remotePath),
+    )
+    if (!mkdirResult.success) {
+      console.log(colors.red('❌ Failed to create remote directory'))
+      return false
+    }
 
-  // 10. Enable & start
-  console.log(colors.cyan('🚀 Starting service...'))
-  const startResult = await sshExec(
-    config,
-    `sudo systemctl daemon-reload && sudo systemctl enable --now ${shellQuote(config.serviceName)}`,
-  )
-  if (!startResult.success) {
-    console.log(colors.red('❌ Failed to start service'))
-    return false
+    // 7. SCP binary
+    console.log(colors.cyan('📤 Uploading binary...'))
+    const binaryPath =
+      `${config.localProjectPath}/target/release/${config.binaryName}`
+    const scpResult = await scpUpload(
+      config,
+      binaryPath,
+      `${config.remotePath}/${config.binaryName}`,
+    )
+    if (!scpResult.success) {
+      console.log(colors.red('❌ Failed to upload binary'))
+      return false
+    }
+    console.log(colors.green('✅ Binary uploaded'))
+
+    // 8. Make binary executable
+    console.log(colors.cyan('🔧 Setting executable permission...'))
+    const chmodResult = await sshExec(
+      config,
+      buildRemoteCmd(
+        'chmod',
+        '+x',
+        `${config.remotePath}/${config.binaryName}`,
+      ),
+    )
+    if (!chmodResult.success) {
+      console.log(colors.red('❌ Failed to chmod +x on remote binary'))
+      return false
+    }
+
+    // 9. Create systemd unit via temp file + SCP
+    console.log(colors.cyan('⚙️ Creating systemd service...'))
+    const unitContent = SYSTEMD_UNIT_TEMPLATE(config)
+    const tmpLocal = await Deno.makeTempFile({ suffix: '.service' })
+    try {
+      await Deno.writeTextFile(tmpLocal, unitContent)
+
+      const remoteTmp = `/tmp/slv-${config.serviceName}.service`
+      const unitUpload = await scpUpload(config, tmpLocal, remoteTmp)
+      if (!unitUpload.success) {
+        console.log(colors.red('❌ Failed to upload systemd unit file'))
+        return false
+      }
+
+      const unitPath = `/etc/systemd/system/${config.serviceName}.service`
+      const mvResult = await sshExec(
+        config,
+        buildRemoteCmd('sudo', 'mv', remoteTmp, unitPath),
+      )
+      if (!mvResult.success) {
+        console.log(colors.red('❌ Failed to install systemd service'))
+        return false
+      }
+    } finally {
+      await Deno.remove(tmpLocal).catch(() => {})
+    }
+
+    // 10. Enable & start
+    console.log(colors.cyan('🚀 Starting service...'))
+    const startResult = await sshExec(
+      config,
+      `sudo systemctl daemon-reload && sudo systemctl enable --now ${shellQuote(config.serviceName)}`,
+    )
+    if (!startResult.success) {
+      console.log(colors.red('❌ Failed to start service'))
+      return false
+    }
+    console.log(colors.green('✅ Service started'))
   }
-  console.log(colors.green('✅ Service started'))
 
   // 11. Save config
   await saveBotConfig(config)

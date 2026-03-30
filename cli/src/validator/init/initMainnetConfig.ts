@@ -21,8 +21,12 @@ import {
 } from '/lib/jito/findNearestRegion.ts'
 import type { SolanaNodeType } from '@cmn/types/config.ts'
 import { findNearestSnapshotUrl } from '/lib/snapshot/findNearestSnapshot.ts'
+import { getAllRegions } from '/lib/jito/jitoRegions.ts'
 
-const initMainnetConfig = async (sshConnection: SSHConnection) => {
+const initMainnetConfig = async (
+  sshConnection: SSHConnection,
+  isLocalhost?: boolean,
+) => {
   const {
     validatorType,
   } = await prompt([
@@ -76,24 +80,54 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     name,
     identityAccount,
     sshConnection,
+    isLocalhost,
   )
   if (!inventoryCheck) {
     console.log(colors.yellow('⚠️ Inventory check failed'))
     return
   }
-  const host = sshConnection.ip
-  const user = sshConnection.username
-  const keyFile = sshConnection.rsa_key_path
-  const network = 'mainnet'
-  const getNearRegion = await findNearestJitoRegion(
-    host,
-    network,
-    {
+
+  let getNearRegion: RegionLatency | null = null
+  let snapshotUrl = ''
+  if (isLocalhost) {
+    const regions = getAllRegions('mainnet')
+    const regionKeys = regions
+      .filter(([key]) => key !== 'global')
+      .map(([key, r]) => ({ name: `${r.emoji} ${r.name}`, value: key }))
+    const selectedRegion = await Select.prompt({
+      message: 'Select your region',
+      options: regionKeys,
+    })
+    const regionInfo = regions.find(([k]) => k === selectedRegion)
+    if (regionInfo) {
+      getNearRegion = {
+        region: selectedRegion,
+        info: regionInfo[1],
+        latency: 0,
+        host: 'localhost',
+      }
+    }
+  } else {
+    const host = sshConnection.ip
+    const user = sshConnection.username
+    const keyFile = sshConnection.rsa_key_path
+    const network = 'mainnet'
+    getNearRegion = await findNearestJitoRegion(
+      host,
+      network,
+      {
+        user,
+        keyFile,
+        port: 22,
+      },
+    ) as RegionLatency | null
+    snapshotUrl = await findNearestSnapshotUrl(host, {
       user,
       keyFile,
       port: 22,
-    },
-  ) as RegionLatency | null
+    })
+  }
+
   if (!getNearRegion) {
     console.log(colors.red('❌ Failed to measure latencies. Please try again.'))
     return
@@ -115,7 +149,7 @@ const initMainnetConfig = async (sshConnection: SSHConnection) => {
     relayer_url,
     block_engine_url: blockEngineRegion,
     shred_receiver_address: String(shredstream_address),
-    snapshot_url: await findNearestSnapshotUrl(host, { user, keyFile, port: 22 }),
+    snapshot_url: snapshotUrl,
     staked_rpc_identity_account: rpcAccount,
   }
   // await updateAllowedSshIps()

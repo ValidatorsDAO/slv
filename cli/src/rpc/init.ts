@@ -9,6 +9,7 @@ import { mainnetInitRpc } from '/src/rpc/init/mainnetInitRpc.ts'
 import { devnetInitRpc } from '/src/rpc/init/devnetInitRpc.ts'
 import { testnetInitRpc } from '/src/rpc/init/testnetInitRpc.ts'
 import { checkSSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
+import { getLocalConnection } from '@cmn/prompt/localConnection.ts'
 
 export async function copyTemplateDirs() {
   const templateBase = join(configRoot, 'template', denoJson.version, 'jinja')
@@ -37,7 +38,7 @@ export async function copyTemplateDirs() {
   )
 }
 
-const init = async () => {
+const init = async (options?: { localhost?: boolean }) => {
   await copyTemplateDirs()
   const { network } = await prompt([
     {
@@ -52,35 +53,44 @@ const init = async () => {
     console.log(colors.red('❌ Network selection is required'))
     return
   }
-  const hasBareMetal = await prompt([{
-    name: 'bareMetal',
-    message: '🛡️ Do you have a Solana Node Compatabile Server?',
-    type: Select,
-    options: ['yes', 'no'],
-    default: 'no',
-  }])
-  if (hasBareMetal.bareMetal === 'no') {
-    console.log(
-      colors.red(
-        '⚠️ You need a Solana Node Compatabile High Performance Server to Run a RPC Node',
-      ),
-    )
-    console.log(colors.green('🟢 You can get one from the following list:'))
-    await listAction('RPC')
-    return
+
+  let sshOptions
+  if (options?.localhost) {
+    sshOptions = getLocalConnection()
+    console.log(colors.green('🏠 Localhost mode — skipping SSH connection'))
+  } else {
+    const hasBareMetal = await prompt([{
+      name: 'bareMetal',
+      message: '🛡️ Do you have a Solana Node Compatabile Server?',
+      type: Select,
+      options: ['yes', 'no'],
+      default: 'no',
+    }])
+    if (hasBareMetal.bareMetal === 'no') {
+      console.log(
+        colors.red(
+          '⚠️ You need a Solana Node Compatabile High Performance Server to Run a RPC Node',
+        ),
+      )
+      console.log(colors.green('🟢 You can get one from the following list:'))
+      await listAction('RPC')
+      return
+    }
+    const result = await checkSSHConnection()
+    if (!result) {
+      console.error(colors.red('❌ SSH connection failed'))
+      return
+    }
+    sshOptions = result
   }
-  const sshOptions = await checkSSHConnection()
-  if (!sshOptions) {
-    console.error(colors.red('❌ SSH connection failed'))
-    return
-  }
+
   switch (network) {
     case 'testnet':
-      return await testnetInitRpc(sshOptions)
+      return await testnetInitRpc(sshOptions, options?.localhost)
     case 'devnet':
-      return await devnetInitRpc(sshOptions)
+      return await devnetInitRpc(sshOptions, options?.localhost)
     case 'mainnet':
-      return await mainnetInitRpc(sshOptions)
+      return await mainnetInitRpc(sshOptions, options?.localhost)
     default:
       console.log(colors.red('❌ Invalid network selection'))
       return

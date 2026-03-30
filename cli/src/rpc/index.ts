@@ -21,8 +21,11 @@ export const rpcCmd = new Command()
 
 rpcCmd.command('init')
   .description('🚀 Initialize a new RPC node configuration')
-  .action(async () => {
-    await init()
+  .option('-l, --localhost', 'Use localhost (no SSH required)', {
+    default: false,
+  })
+  .action(async (options) => {
+    await init(options)
   })
 
 rpcCmd.command('deploy')

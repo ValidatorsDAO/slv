@@ -22,6 +22,7 @@ const addMainnetRPCInventory = async (
   region: string = 'amsterdam',
   snapshotUrl: string = '',
   network: NetworkType = 'mainnet',
+  isLocalhost?: boolean,
 ) => {
   try {
     const inventoryType = `${network}_rpcs` as InventoryType
@@ -80,6 +81,7 @@ const addMainnetRPCInventory = async (
       snapshot_url: snapshotUrl,
       limit_ledger_size: 200000000,
       shredstream_address: '',
+      ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
     } as RpcConfig
 
     const inventoryPath = getInventoryPath(inventoryType)

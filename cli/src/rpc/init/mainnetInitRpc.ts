@@ -25,21 +25,54 @@ import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
 import { VERSION_RICHAT } from '@cmn/constants/version.ts'
 import { findNearestSnapshotUrl } from '/lib/snapshot/findNearestSnapshot.ts'
+import { getAllRegions } from '/lib/jito/jitoRegions.ts'
 
-export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
-  const host = sshOptions.ip
-  const user = sshOptions.username
-  const keyFile = sshOptions.rsa_key_path
+export const mainnetInitRpc = async (
+  sshOptions: SSHConnection,
+  isLocalhost?: boolean,
+) => {
   const network = 'mainnet'
-  const getNearRegion = await findNearestJitoRegion(
-    host,
-    network,
-    {
-      user,
-      keyFile,
+
+  let getNearRegion: RegionLatency | null = null
+  let snapshotUrl = ''
+  if (isLocalhost) {
+    const regions = getAllRegions('mainnet')
+    const regionKeys = regions
+      .filter(([key]) => key !== 'global')
+      .map(([key, r]) => ({ name: `${r.emoji} ${r.name}`, value: key }))
+    const selectedRegion = await Select.prompt({
+      message: 'Select your region',
+      options: regionKeys,
+    })
+    const regionInfo = regions.find(([k]) => k === selectedRegion)
+    if (regionInfo) {
+      getNearRegion = {
+        region: selectedRegion,
+        info: regionInfo[1],
+        latency: 0,
+        host: 'localhost',
+      }
+    }
+  } else {
+    const host = sshOptions.ip
+    const user = sshOptions.username
+    const keyFile = sshOptions.rsa_key_path
+    getNearRegion = await findNearestJitoRegion(
+      host,
+      network,
+      {
+        user,
+        keyFile,
+        port: 22,
+      },
+    ) as RegionLatency | null
+    snapshotUrl = await findNearestSnapshotUrl(host, {
+      user: sshOptions.username,
+      keyFile: sshOptions.rsa_key_path,
       port: 22,
-    },
-  ) as RegionLatency | null
+    })
+  }
+
   if (!getNearRegion) {
     console.log(colors.red('❌ Failed to measure latencies. Please try again.'))
     return
@@ -82,7 +115,8 @@ export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
     limit_ledger_size: 200000000,
     richat_version: VERSION_RICHAT,
     shred_receiver_address: String(getNearRegion.info.shredReceiver),
-    snapshot_url: await findNearestSnapshotUrl(host, { user, keyFile, port: 22 }),
+    snapshot_url: snapshotUrl,
+    ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
   }
 
   // Update ~/.slv/versions.yml
@@ -101,6 +135,7 @@ export const mainnetInitRpc = async (sshOptions: SSHConnection) => {
     getNearRegion.region,
     '',
     network as NetworkType,
+    isLocalhost,
   )
   if (!inventoryCheck) {
     console.log(colors.yellow('⚠️ Inventory check failed'))
