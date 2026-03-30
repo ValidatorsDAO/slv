@@ -1,5 +1,4 @@
 import { Input, prompt } from '@cliffy/prompt'
-import { exec } from '@elsoul/child-process'
 import { colors } from '@cliffy/colors'
 
 export type SSHConnection = {
@@ -32,12 +31,21 @@ export const checkSSHConnection = async () => {
     return null
   }
 
-  // Check SSH connection
+  // Check SSH connection using Deno.Command (no shell interpolation)
   console.log(colors.white('🔍 Checking SSH connection...'))
-  const res = await exec(
-    `ssh -i ${result.rsa_key_path} ${result.username}@${result.ip} echo 'SSH connection successful'`,
-  )
-  if (!res.success) {
+  const cmd = new Deno.Command('ssh', {
+    args: [
+      '-i', result.rsa_key_path,
+      '-o', 'ConnectTimeout=10',
+      '-o', 'StrictHostKeyChecking=accept-new',
+      `${result.username}@${result.ip}`,
+      'echo', 'SSH connection successful',
+    ],
+    stdout: 'piped',
+    stderr: 'piped',
+  })
+  const output = await cmd.output()
+  if (!output.success) {
     console.error(
       colors.yellow(
         '⚠️ SSH connection failed\nPlease check your SSH key and IP address',
