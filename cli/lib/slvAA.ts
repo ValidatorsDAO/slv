@@ -22,74 +22,79 @@ const neko = (s: string) => colors.rgb24(s, 0xf0d870)
 const star = (s: string) => colors.bold.rgb24(s, 0xffd700)
 const shell = (s: string) => colors.bold.rgb24(s, 0xff69b4)
 
+/** Get terminal width, fallback to 80 */
+const getTermWidth = (): number => {
+  try {
+    return Deno.consoleSize().columns
+  } catch {
+    return 80
+  }
+}
+
+/**
+ * Strip ANSI escape codes to get visible character length.
+ */
+const stripAnsi = (s: string): string =>
+  // deno-lint-ignore no-control-regex
+  s.replace(/\x1b\[[0-9;]*m/g, '')
+
+/**
+ * Trim a line with ANSI codes to fit within maxWidth visible characters.
+ * Walks through the string tracking visible chars and cuts when limit is reached.
+ */
+const trimToWidth = (line: string, maxWidth: number): string => {
+  const visLen = stripAnsi(line).length
+  if (visLen <= maxWidth) return line
+
+  let visible = 0
+  let i = 0
+  while (i < line.length && visible < maxWidth) {
+    if (line[i] === '\x1b') {
+      // Skip ANSI escape sequence
+      const end = line.indexOf('m', i)
+      if (end !== -1) {
+        i = end + 1
+        continue
+      }
+    }
+    visible++
+    i++
+  }
+  // Append reset to avoid color bleed
+  return line.slice(0, i) + '\x1b[0m'
+}
+
+/** Repeat a pattern to fill width */
+const fillWidth = (pattern: string, width: number): string =>
+  pattern.repeat(Math.ceil(width / pattern.length)).slice(0, width)
+
 export const slvAA = (version: string) => {
+  const w = getTermWidth()
+  const sep = colors.rgb24(fillWidth('…', w), 0x555555)
+
   const header = `${colors.bold.rgb24(`Welcome to SLV v${version}`, 0x14f195)}
-${
-    colors.rgb24(
-      '…………………………………………………………………………………………………………………………………………………………',
-      0x555555,
-    )
-  }`
+${sep}`
 
-  const art = `
-${header}
-${sk1('     ')}${star('*')}${sk1('                    ')}${snow('▄▄')}${
-    sk1('              ')
-  }${moon('▄████▄')}${sk1('        ')}
-${sk1('                        ')}${snow('▄████▄')}${sk1('            ')}${
-    moon('██████')
-  }${sk1('        ')}
-${sk2('            ')}${star('*')}${sk2('         ')}${snow('▄██████▄')}${
-    sk2('            ')
-  }${moon('▀████▀')}${sk2('        ')}
-${sk2('    ')}${pine('▄██▄')}${sk2('           ')}${snow('▄████')}${
-    fuji('████')
-  }${snow('██▄')}${sk2('                    ')}${star('*')}${sk2('   ')}
-${sk3('     ')}${trunk('█')}${pine('▄███▄')}${sk3('      ')}${fuji('▄██')}${
-    fujiD('████████████')
-  }${fuji('▄')}${sk3('                       ')}
-${sk3(' ')}${pine('▄███▄')}${trunk('█')}${sk3('    ')}${cloud('▄▄▄')}${
-    sk3(' ')
-  }${fuji('▄██')}${fujiD('████████████████')}${fuji('██▄')}${sk3('    ')}${
-    cloud('▄▄▄')
-  }${sk3('      ')}
-${sk4('     ')}${trunk('█')}${pine('▄██▄')}${cloud('▀▀▀▀▀')}${
-    fujiD('▄████████████████████████')
-  }${fujiD('▄')}${cloud('▀▀▀▀▀▀')}${sk4('   ')}
-${grn('▄▄▄▄')}${trunk('█')}${grnD('▄▄▄▄')}${
-    fujiD('▄████████████████████████████')
-  }${grnD('▄▄▄▄▄')}${grn('▄▄▄▄▄▄')}
-${grn('████')}${trunk('█')}${grn('███')}${
-    grnD('██████████████████████████████████████')
-  }${grn('██████████')}
-${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${
-    sea('~~')
-  }${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${
-    sea('~~')
-  }${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~')}${
-    seaL('~~')
-  }${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}
-${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${
-    seaD('~~')
-  }${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${
-    seaD('~~')
-  }${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~')}${
-    seaL('~~')
-  }${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}
-${sand('·:·.·:·')}${neko('▄█')}${sand('·····')}${neko('█▄')}${
-    sand('·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·')
-  }
-${sand('·:·.·:·')}${neko('█████████')}${
-    sand(':·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·')
-  }
-${sand('·:·.·:·')}${neko('██▄███▄██')}${sand(':·.·:·.·:·.·:·.·:·.·:·')}${
-    shell('☆')
-  }${sand('·')}${shell('@')}${sand('·:·.·:·.·:·')}
-${sand('…………………')}${neko('█████████')}${
-    sand('……………………………………………………………………………………………………………')
-  }`
+  const lines = [
+    `${sk1('     ')}${star('*')}${sk1('                    ')}${snow('▄▄')}${sk1('              ')}${moon('▄████▄')}${sk1('        ')}`,
+    `${sk1('                        ')}${snow('▄████▄')}${sk1('            ')}${moon('██████')}${sk1('        ')}`,
+    `${sk2('            ')}${star('*')}${sk2('         ')}${snow('▄██████▄')}${sk2('            ')}${moon('▀████▀')}${sk2('        ')}`,
+    `${sk2('    ')}${pine('▄██▄')}${sk2('           ')}${snow('▄████')}${fuji('████')}${snow('██▄')}${sk2('                    ')}${star('*')}${sk2('   ')}`,
+    `${sk3('     ')}${trunk('█')}${pine('▄███▄')}${sk3('      ')}${fuji('▄██')}${fujiD('████████████')}${fuji('▄')}${sk3('                       ')}`,
+    `${sk3(' ')}${pine('▄███▄')}${trunk('█')}${sk3('    ')}${cloud('▄▄▄')}${sk3(' ')}${fuji('▄██')}${fujiD('████████████████')}${fuji('██▄')}${sk3('    ')}${cloud('▄▄▄')}${sk3('      ')}`,
+    `${sk4('     ')}${trunk('█')}${pine('▄██▄')}${cloud('▀▀▀▀▀')}${fujiD('▄████████████████████████')}${fujiD('▄')}${cloud('▀▀▀▀▀▀')}${sk4('   ')}`,
+    `${grn('▄▄▄▄')}${trunk('█')}${grnD('▄▄▄▄')}${fujiD('▄████████████████████████████')}${grnD('▄▄▄▄▄')}${grn('▄▄▄▄▄▄')}`,
+    `${grn('████')}${trunk('█')}${grn('███')}${grnD('██████████████████████████████████████')}${grn('██████████')}`,
+    `${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~~')}${sea('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}`,
+    `${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~~')}${seaD('~~')}${sea('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}${seaL('~~')}`,
+    `${sand('·:·.·:·')}${neko('▄█')}${sand('·····')}${neko('█▄')}${sand('·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·')}`,
+    `${sand('·:·.·:·')}${neko('█████████')}${sand(':·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·:·.·')}`,
+    `${sand('·:·.·:·')}${neko('██▄███▄██')}${sand(':·.·:·.·:·.·:·.·:·.·:·')}${shell('☆')}${sand('·')}${shell('@')}${sand('·:·.·:·.·:·')}`,
+  ]
 
-  console.log(art)
+  const trimmed = lines.map((line) => trimToWidth(line, w))
+
+  console.log(`\n${header}\n${trimmed.join('\n')}\n${sep}`)
 }
 
 export const installClientMessage = () => {
@@ -101,12 +106,12 @@ export const installClientMessage = () => {
   const msg = `
 ${colors.bold.underline('Quick Start:')}
 
-${colors.yellow('$ slv onboard')}         - Setup AI Console (recommended)
-${colors.yellow('$ slv c')}               - Launch AI Console
+${colors.yellow('$ slv onboard')}  - Setup AI Console
+${colors.yellow('$ slv c')}        - Launch AI Console
 
 ${colors.bold.underline('Manual Setup:')}
 
-${colors.yellow('$ slv validator init')}  - Initialize validator config
+${colors.yellow('$ slv validator init')}
 ${colors.yellow('$ slv validator deploy -n testnet')}
 
 ${colors.yellow('$ slv --help')} for more information
