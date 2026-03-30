@@ -12,6 +12,7 @@ const addInventory = async (
   inventoryType: InventoryType,
   voteAccount: string,
   authorityAccount: string,
+  isLocalhost?: boolean,
 ) => {
   try {
     const inventory = await genOrReadInventory(inventoryType)
@@ -34,6 +35,7 @@ const addInventory = async (
       authority_account: authorityAccount,
       validator_type,
       snapshot_url: '',
+      ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
     }
     const inventoryPath = getInventoryPath(inventoryType)
     await Deno.writeTextFile(inventoryPath, stringify(inventory))

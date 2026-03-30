@@ -19,10 +19,10 @@ import { addMainnetRPCInventory } from '/lib/addMainnetRPCInventory.ts'
 import { updateMainnetRPCInventory } from '/lib/updateMainnetRPCInventory.ts'
 import { VERSION_RICHAT } from '@cmn/constants/version.ts'
 
-export const devnetInitRpc = async (sshOptions: SSHConnection) => {
-  // const host = sshOptions.ip
-  // const user = sshOptions.username
-  // const keyFile = sshOptions.rsa_key_path
+export const devnetInitRpc = async (
+  sshOptions: SSHConnection,
+  isLocalhost?: boolean,
+) => {
   const network = 'devnet'
 
   // Set solv password
@@ -63,6 +63,7 @@ export const devnetInitRpc = async (sshOptions: SSHConnection) => {
     limit_ledger_size: 200000000,
     shred_receiver_address: '-',
     snapshot_url: '',
+    ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
   }
 
   // Update ~/.slv/versions.yml
@@ -81,6 +82,7 @@ export const devnetInitRpc = async (sshOptions: SSHConnection) => {
     'ny',
     '',
     network as NetworkType,
+    isLocalhost,
   )
   if (!inventoryCheck) {
     console.log(colors.yellow('⚠️ Inventory check failed'))

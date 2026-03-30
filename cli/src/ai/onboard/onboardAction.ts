@@ -240,6 +240,15 @@ export const onboardAction = async () => {
     ],
   })
 
+  // --- Deployment mode ---
+  const deployMode = await Select.prompt({
+    message: 'Deployment mode',
+    options: [
+      { name: 'Local — deploy to this machine', value: 'local' },
+      { name: 'Remote — deploy to remote servers via SSH', value: 'remote' },
+    ],
+  })
+
   // Build config
   const agentHome = resolveHome()
   const agentDir = `${agentHome}/.slv/agent`
@@ -296,6 +305,7 @@ Session history and important notes.
   const configData = {
     skills,
     auto_execute: true,  // Commands execute without confirmation by default
+    mode: deployMode,
   }
   const configYml = stringify(configData as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
