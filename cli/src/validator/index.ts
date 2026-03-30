@@ -26,8 +26,11 @@ export const validatorCmd = new Command()
 
 validatorCmd.command('init')
   .description('🚀 Initialize a new validator configuration')
-  .action(async () => {
-    await init()
+  .option('-l, --localhost', 'Use localhost (no SSH required)', {
+    default: false,
+  })
+  .action(async (options) => {
+    await init(options)
   })
 
 validatorCmd.command('deploy')

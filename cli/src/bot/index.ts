@@ -33,7 +33,10 @@ botCmd.command('init')
 botCmd.command('deploy')
   .description('Build and deploy Rust bot binary to remote server via SSH')
   .option('-n, --name <name:string>', 'Bot app name')
-  .action(async (options: { name?: string }) => {
+  .option('-l, --localhost', 'Deploy to localhost (no SSH required)', {
+    default: false,
+  })
+  .action(async (options: { name?: string; localhost?: boolean }) => {
     await deployAction(options)
   })
 

@@ -16,8 +16,12 @@ import { Input, prompt, Select } from '@cliffy/prompt'
 import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
+import { getAllRegions } from '/lib/jito/jitoRegions.ts'
 
-const initTestnetConfig = async (sshConnection: SSHConnection) => {
+const initTestnetConfig = async (
+  sshConnection: SSHConnection,
+  isLocalhost?: boolean,
+) => {
   const { validatorType } = await prompt([
     {
       name: 'validatorType',
@@ -49,19 +53,42 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
   console.log(colors.yellow(`⚠️ Please place your identity key in 
         
 ~/.slv/keys/${identityAccount}.json`))
-  const host = sshConnection.ip
-  const user = sshConnection.username
-  const keyFile = sshConnection.rsa_key_path
-  const network = 'testnet'
-  const getNearRegion = await findNearestJitoRegion(
-    host,
-    network,
-    {
-      user,
-      keyFile,
-      port: 22,
-    },
-  ) as RegionLatency | null
+
+  let getNearRegion: RegionLatency | null = null
+  if (isLocalhost) {
+    const regions = getAllRegions('testnet')
+    const regionKeys = regions
+      .filter(([key]) => key !== 'global')
+      .map(([key, r]) => ({ name: `${r.emoji} ${r.name}`, value: key }))
+    const selectedRegion = await Select.prompt({
+      message: 'Select your region',
+      options: regionKeys,
+    })
+    const regionInfo = regions.find(([k]) => k === selectedRegion)
+    if (regionInfo) {
+      getNearRegion = {
+        region: selectedRegion,
+        info: regionInfo[1],
+        latency: 0,
+        host: 'localhost',
+      }
+    }
+  } else {
+    const host = sshConnection.ip
+    const user = sshConnection.username
+    const keyFile = sshConnection.rsa_key_path
+    const network = 'testnet'
+    getNearRegion = await findNearestJitoRegion(
+      host,
+      network,
+      {
+        user,
+        keyFile,
+        port: 22,
+      },
+    ) as RegionLatency | null
+  }
+
   if (!getNearRegion) {
     console.log(colors.red('❌ Failed to measure latencies. Please try again.'))
     return
@@ -76,6 +103,7 @@ const initTestnetConfig = async (sshConnection: SSHConnection) => {
     inventoryType,
     voteAccount,
     authAccount,
+    isLocalhost,
   )
   if (!inventoryCheck) {
     console.log(colors.yellow('⚠️ Inventory check failed'))

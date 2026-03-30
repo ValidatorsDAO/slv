@@ -89,6 +89,10 @@ const SKILL_MAP: Record<string, { name: string; agent: string }> = {
   'Server Procurement': { name: 'slv-server-procurement', agent: 'Figaro' },
 }
 
+const hasBenchmarkOps = (selectedOps: string[]) =>
+  selectedOps.includes('Index RPC Node Operations') ||
+  selectedOps.includes('gRPC Geyser Streaming')
+
 export const onboardAction = async () => {
   slvAA(denoJson.version)
 
@@ -236,6 +240,15 @@ export const onboardAction = async () => {
     ],
   })
 
+  // --- Deployment mode ---
+  const deployMode = await Select.prompt({
+    message: 'Deployment mode',
+    options: [
+      { name: 'Local — deploy to this machine', value: 'local' },
+      { name: 'Remote — deploy to remote servers via SSH', value: 'remote' },
+    ],
+  })
+
   // Build config
   const agentHome = resolveHome()
   const agentDir = `${agentHome}/.slv/agent`
@@ -284,9 +297,15 @@ Session history and important notes.
     enabled: selectedOps.includes(key),
     agent: SKILL_MAP[key].agent,
   }))
+  skills.push({
+    name: 'slv-rpc',
+    enabled: hasBenchmarkOps(selectedOps),
+    agent: 'Cid',
+  })
   const configData = {
     skills,
     auto_execute: true,  // Commands execute without confirmation by default
+    mode: deployMode,
   }
   const configYml = stringify(configData as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)

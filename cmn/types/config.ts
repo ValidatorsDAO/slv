@@ -29,6 +29,7 @@ export interface AnsibleHostConfig {
   ansible_user: string
   ansible_host: string
   ansible_ssh_private_key_file: string
+  ansible_connection?: 'local'
 }
 
 export interface NodeConfigBase extends AnsibleHostConfig {

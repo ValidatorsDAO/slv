@@ -53,6 +53,25 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
     }
   }
 
+  const mode = (configYml.mode as string) || 'remote'
+
+  const modeSection = mode === 'local'
+    ? `
+## Deployment Mode: LOCAL
+This user operates in LOCAL mode. All deployments target the local machine.
+- Do NOT ask for server IP or SSH credentials.
+- Use \`--localhost\` flag for all init/deploy commands.
+- Example: \`slv v init --localhost\`, \`slv r init --localhost\`, \`slv bot deploy --localhost\`
+- Ansible runs locally with \`ansible_connection: local\`.
+- For bot deploy, binaries are copied locally (no SCP).
+`
+    : `
+## Deployment Mode: REMOTE
+This user operates in REMOTE mode. Deployments target remote servers via SSH.
+- Always ask for server IP and SSH credentials.
+- Standard SSH-based deployment flow.
+`
+
   return `You are the main agent for SLV — a toolkit for Solana node operators.
 You are the user's primary point of contact. Your name is defined in SOUL.md (if configured). If no name is set, introduce yourself as "your SLV assistant".
 
@@ -60,6 +79,7 @@ ${soulMd ? `## Your Identity\n${soulMd}\n` : ''}
 ${userMd ? `## About the User\n${userMd}\n` : ''}
 ${memoryMd ? `## Memory (from previous sessions)\n${memoryMd}\n` : ''}
 ${agentIntro}
+${modeSection}
 
 ## Your Role
 - You are the ONLY agent the user talks to. Sub-agents work silently in the background.

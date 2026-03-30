@@ -9,6 +9,7 @@ const addMainnetInventory = async (
   name: string,
   identityAccount: string,
   sshConnection: SSHConnection,
+  isLocalhost?: boolean,
 ) => {
   try {
     const inventoryType = 'mainnet_validators'
@@ -44,6 +45,7 @@ const addMainnetInventory = async (
       staked_rpc_identity_account:
         '7KEVKK9gZ1VUjaTowuCCA8mwMJYTUsZSrSKuTCowSLV',
       staked_rpc_amount: 500000000000000,
+      ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
     } as ValidatorMainnetConfig
 
     const inventoryPath = getInventoryPath(inventoryType)
