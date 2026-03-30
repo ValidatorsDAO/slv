@@ -3,10 +3,17 @@ import { configRoot } from '@cmn/constants/path.ts'
 import { colors } from '@cliffy/colors'
 import { join } from '@std/path'
 import { Input, prompt, Select } from '@cliffy/prompt'
-import { BotTempDLinkMap, BotTempTypeArray } from '@cmn/zod/bot.ts'
+import {
+  BOT_TEMP_ARCHIVE_URL,
+  BOT_TEMP_BRANCH,
+  BOT_TEMP_REPO,
+  BotTempDirMap,
+  BotTempTypeArray,
+} from '@cmn/zod/bot.ts'
 
 /**
  * Initialize a new Solana trade bot application by downloading the template
+ * directly from the GitHub repository (temp-release/).
  * @param options Options for initializing the bot
  * @returns Promise<boolean> indicating success or failure
  */
@@ -116,55 +123,61 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       console.log(colors.blue('Using queue mode for template download'))
     }
 
-    const downloadUrl =
-      BotTempDLinkMap[templateType as keyof typeof BotTempDLinkMap]
+    // Resolve template directory name inside temp-release/
+    const tempDirName =
+      BotTempDirMap[templateType as keyof typeof BotTempDirMap]
 
-    if (!downloadUrl) {
+    if (!tempDirName) {
       console.error(
         colors.red(
-          `❌ No download URL found for template type: ${templateType}`,
+          `❌ No template directory found for template type: ${templateType}`,
         ),
       )
       return false
     }
 
-    console.log(colors.gray(`Download URL: ${downloadUrl}`))
+    // Derive the repo name from the archive (e.g. "solana-stream")
+    const repoName = BOT_TEMP_REPO.split('/')[1]
+    // tar filter path: <repo>-<branch>/temp-release/<dir>/
+    const tarFilter = `${repoName}-${BOT_TEMP_BRANCH}/temp-release/${tempDirName}/`
 
-    // Create a temporary file for the download
-    const tempFile = join(appDir, 'template.tar.gz')
+    console.log(
+      colors.gray(
+        `Source: github.com/${BOT_TEMP_REPO} (branch: ${BOT_TEMP_BRANCH})`,
+      ),
+    )
+    console.log(colors.gray(`Template: temp-release/${tempDirName}`))
 
     try {
-      // Download the template archive
-      console.log(colors.blue('📥 Downloading template archive...'))
-      const downloadResult = await exec(
-        `curl -# -sSL "${downloadUrl}" -o "${tempFile}"`,
+      // Download the GitHub archive and extract only the target template directory
+      console.log(
+        colors.blue('📥 Downloading latest template from GitHub...'),
+      )
+      const dlResult = await exec(
+        `curl -fsSL "${BOT_TEMP_ARCHIVE_URL}" | tar -xz -C "${appDir}" --strip-components=3 "${tarFilter}"`,
       )
 
-      if (!downloadResult.success) {
+      if (!dlResult.success) {
         throw new Error(
-          `Download failed: ${downloadResult.message || 'Unknown error'}`,
+          `Download/extract failed: ${dlResult.message || 'Unknown error'}`,
         )
       }
 
-      // Verify the download
-      const fileInfo = await Deno.stat(tempFile)
-      if (fileInfo.size === 0) {
-        throw new Error('Downloaded file is empty')
+      // Verify extraction produced files
+      const entries: string[] = []
+      for await (const entry of Deno.readDir(appDir)) {
+        entries.push(entry.name)
+      }
+      if (entries.length === 0) {
+        throw new Error(
+          'Template extraction produced no files. The template directory may not exist in the repository.',
+        )
       }
 
       console.log(
-        colors.green(
-          `✅ Download completed (${Math.round(fileInfo.size / 1024)}KB)`,
-        ),
+        colors.green(`✅ Template downloaded (${entries.length} items)`),
       )
 
-      // Extract the archive
-      console.log(colors.blue('📤 Extracting template...'))
-      await spawnSync(
-        `tar -xzf "${tempFile}" -C "${appDir}" --strip-components=1`,
-      )
-      // Remove the temporary file after extraction
-      await Deno.remove(tempFile)
       const isRust = templateType.includes('rust')
       console.log(colors.blue('🔧 Initializing git repository...'))
       await exec(`cd ${appDir} && git init`)
@@ -183,12 +196,14 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       const msg = isRust
         ? `$ cargo build\n$ cargo run`
         : `$ pnpm install\n$ pnpm dev`
-      console.log(colors.white(`
+      console.log(
+        colors.white(`
 To get started with your new application, run the following commands:
   
 $ cd ${appName}
 ${msg}
-  `))
+  `),
+      )
     } catch (error) {
       console.error(
         colors.red('❌ Failed to download or extract template:'),
