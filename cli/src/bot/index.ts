@@ -8,6 +8,7 @@ export const botCmd = new Command()
 Available Bot Templates:
 - 🐦 Shreds Stream Client for Rust
 - 🐍 Geyser Stream Client for Typescript
+- 🌊 Shreds UDP Stream Client for Rust
 `)
   .action(() => {
     botCmd.showHelp()
