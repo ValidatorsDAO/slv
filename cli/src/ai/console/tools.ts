@@ -526,11 +526,11 @@ ${skillMd ? skillMd + '\n' : ''}
 - After the type is known, ask for the endpoint(s) next. Do not ask for whitelist IP, region, or server details before benchmark type and endpoint are confirmed.
 - Preferred question order for benchmark tasks:
   1. benchmark type (shredstream / grpc / rpc)
-  2. region to measure with `--region`
+  2. region to measure with \`--region\`
   3. endpoint or endpoints to test
-- For shredstream or grpc benchmarks, prefer using the local `geyserbench` binary if it is available on the machine.
-- If `geyserbench` is available, run it and return the benchmark output directly so the main agent can show the user the result with minimal rewriting.
-- If `geyserbench` is not available, clearly report that and suggest the next best local SLV check command.
+- For shredstream or grpc benchmarks, prefer using the local \`geyserbench\` binary if it is available on the machine.
+- If \`geyserbench\` is available, run it and return the benchmark output directly so the main agent can show the user the result with minimal rewriting.
+- If \`geyserbench\` is not available, clearly report that and suggest the next best local SLV check command.
 - For benchmark tasks, optimize for fast execution and direct result display, not long advisory explanations.
 
 ## CRITICAL: Deployment Flow
