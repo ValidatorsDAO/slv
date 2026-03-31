@@ -42,15 +42,29 @@ const readApiYml = async (): Promise<ApiYml> => {
 
 export const readAiConfig = async (): Promise<AiConfig | null> => {
   const yml = await readApiYml()
-  return yml.ai ?? null
+  if (!yml.ai) return null
+  // Ensure api_key is always a string (may be omitted for provider: slv)
+  return { ...yml.ai, api_key: yml.ai.api_key ?? '' }
 }
 
 export const writeAiConfig = async (config: AiConfig): Promise<void> => {
   const path = getApiYmlPath()
   await Deno.mkdir(dirname(path), { recursive: true })
   const yml = await readApiYml()
-  yml.ai = config
-  await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
+
+  // When provider is 'slv', omit api_key from the YAML (slv.api_key is used instead)
+  if (config.provider === 'slv') {
+    const { api_key: _unused, ...rest } = config
+    yml.ai = { ...rest, api_key: '' } as AiConfig
+    // Write YAML without the ai.api_key field
+    const ymlObj = yml as Record<string, unknown>
+    const aiObj = ymlObj.ai as Record<string, unknown>
+    delete aiObj.api_key
+    await Deno.writeTextFile(path, stringify(ymlObj))
+  } else {
+    yml.ai = config
+    await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
+  }
   await Deno.chmod(path, 0o600)
 }
 
