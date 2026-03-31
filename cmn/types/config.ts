@@ -1,14 +1,18 @@
 export type KeyDirType = 'rpc' | 'validator' | 'relayer' | 'shreadstream'
 
 export type NetworkType = 'mainnet' | 'devnet' | 'testnet'
-export type RpcType = 'Geyser gRPC' | 'Index RPC' | 'SendTx RPC' | 'Index RPC + gRPC'
+export type RpcType =
+  | 'Geyser gRPC'
+  | 'Index RPC'
+  | 'SendTx RPC'
+  | 'Index RPC + gRPC'
 export type ValidatorTestnetType = 'firedancer' | 'agave'
 export type InventoryType =
-  'testnet_validators' |
-  'mainnet_validators' |
-  'mainnet_rpcs' |
-  'devnet_rpcs' |
-  'testnet_rpcs'
+  | 'testnet_validators'
+  | 'mainnet_validators'
+  | 'mainnet_rpcs'
+  | 'devnet_rpcs'
+  | 'testnet_rpcs'
 
 export type SolanaNodeType =
   | 'agave'
@@ -35,6 +39,7 @@ export interface AnsibleHostConfig {
 export interface NodeConfigBase extends AnsibleHostConfig {
   name: string
   identity_account: string
+  doublezero_address?: string
   region: string
   port_rpc: number
   dynamic_port_range: string
@@ -63,9 +68,15 @@ export type RpcData = HostsData<RpcConfig>
 
 type InventoryRecord<K extends InventoryType, V> = Record<K, V>
 
-export type InventoryTestnetValidatorType = InventoryRecord<'testnet_validators', TestnetData>
+export type InventoryTestnetValidatorType = InventoryRecord<
+  'testnet_validators',
+  TestnetData
+>
 export type Inventory = InventoryRecord<'testnet_validators', TestnetData>
-export type InventoryMainnet = InventoryRecord<'mainnet_validators', MainnetData>
+export type InventoryMainnet = InventoryRecord<
+  'mainnet_validators',
+  MainnetData
+>
 export type InventoryRPC = InventoryRecord<'mainnet_rpcs', RpcData>
 export type InventoryDevnetRPC = InventoryRecord<'devnet_rpcs', RpcData>
 export type InventoryTestnetRPC = InventoryRecord<'testnet_rpcs', RpcData>
@@ -94,12 +105,10 @@ interface CmnSolanaVersionWithJitoBam extends CmnSolanaVersionBase {
 }
 
 export interface CmnTestnetValidatorType
-  extends CmnSolanaVersionWithJitoBam,
-    CmnAccessList {}
+  extends CmnSolanaVersionWithJitoBam, CmnAccessList {}
 
 export interface CmnMainnetValidatorType
-  extends CmnSolanaVersionWithJitoBam,
-    CmnAccessList {}
+  extends CmnSolanaVersionWithJitoBam, CmnAccessList {}
 
 export interface CmnMainnetRpcType extends CmnSolanaVersionBase, CmnAccessList {
   geyser_version: string

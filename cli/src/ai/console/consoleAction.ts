@@ -1,36 +1,28 @@
 import { getTipsForAgent, pickRandomTip } from '@/ai/console/tips.ts'
 import {
-  type Component,
-  Container,
-  Editor,
-  type EditorTheme,
-  Loader,
-  Markdown,
-  type MarkdownTheme,
-  matchesKey,
-  ProcessTerminal,
-  Spacer,
-  Text,
   TUI,
+  Container,
+  Text,
+  Markdown,
+  Editor,
+  Spacer,
+  Loader,
+  ProcessTerminal,
+  matchesKey,
+  type MarkdownTheme,
+  type EditorTheme,
+  type Component,
 } from '@mariozechner/pi-tui'
 import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
+import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
-import {
-  killActiveProcess,
-  setAutoExecute,
-  setCommandOutputCallback,
-  setTuiInstance,
-} from '@/ai/console/tools.ts'
+import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess } from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
-import {
-  applyVersionUpdates,
-  checkSolanaReleases,
-  type VersionUpdate,
-} from '@/ai/console/checkRelease.ts'
+import { checkSolanaReleases, applyVersionUpdates, type VersionUpdate } from '@/ai/console/checkRelease.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
 export type ChatCallbacks = {
@@ -228,10 +220,10 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
 }
 
 export const consoleAction = async () => {
-  const config = await readAiConfig()
+  let config = await readAiConfig()
   if (!config) {
-    console.log('\n  AI not configured. Run `slv onboard` first.\n')
-    return
+    // Default to SLV AI — works with just the SLV API Key
+    config = { provider: 'slv', api_key: '', model: 'SLV AI' }
   }
 
   // Check dependencies before TUI init
@@ -262,22 +254,18 @@ export const consoleAction = async () => {
         }),
       })
       const data = await res.json()
-      userContext += `\n## User Account (from MCP)\n${
-        data.result?.content?.[0]?.text || 'Unable to fetch'
-      }\n`
+      userContext += `\n## User Account (from MCP)\n${data.result?.content?.[0]?.text || 'Unable to fetch'}\n`
     }
   } catch {
     /* silent */
   }
 
   // Read inventory files
-  for (
-    const inv of [
-      'inventory.testnet.validators.yml',
-      'inventory.mainnet.validators.yml',
-      'inventory.mainnet.rpcs.yml',
-    ]
-  ) {
+  for (const inv of [
+    'inventory.testnet.validators.yml',
+    'inventory.mainnet.validators.yml',
+    'inventory.mainnet.rpcs.yml',
+  ]) {
     try {
       const content = await Deno.readTextFile(`${resolveHome()}/.slv/${inv}`)
       userContext += `\n## ${inv}\n${content}\n`
@@ -287,7 +275,11 @@ export const consoleAction = async () => {
   }
 
   const systemPrompt = await buildSystemPrompt(userContext || undefined)
-  const providerLabel = config.provider === 'openai' ? 'OpenAI' : 'Anthropic'
+  const providerLabel = config.provider === 'openai'
+    ? 'OpenAI'
+    : config.provider === 'slv'
+    ? 'SLV AI'
+    : 'Anthropic'
 
   // TUI init
   const terminal = new ProcessTerminal()
@@ -299,18 +291,9 @@ export const consoleAction = async () => {
 
   // Header
   chatLog.addChild(new Spacer(1))
-  chatLog.addChild(
-    new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1),
-  )
-  chatLog.addChild(
-    new Text(white(`  Provider: ${providerLabel} | Model: ${config.model}`), 1),
-  )
-  chatLog.addChild(
-    new Text(
-      gray('  Type /exit to quit, /clear to reset. Press Enter to send.'),
-      1,
-    ),
-  )
+  chatLog.addChild(new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1))
+  chatLog.addChild(new Text(white(config.provider === 'slv' ? `  Provider: ${providerLabel}` : `  Provider: ${providerLabel} | Model: ${config.model}`), 1))
+  chatLog.addChild(new Text(gray('  Type /exit to quit, /clear to reset. Press Enter to send.'), 1))
   chatLog.addChild(new Spacer(1))
 
   tui.addChild(chatLog)
@@ -334,9 +317,7 @@ export const consoleAction = async () => {
     // Show last N lines as a rolling window so the user always sees progress
     const visible = cmdOutputLines.slice(-MAX_CMD_VISIBLE_LINES)
     const hiddenCount = cmdTotalLineCount - visible.length
-    const header = hiddenCount > 0
-      ? `  ... (${hiddenCount} earlier lines hidden)\n`
-      : ''
+    const header = hiddenCount > 0 ? `  ... (${hiddenCount} earlier lines hidden)\n` : ''
     const combined = header + visible.join('\n')
     if (cmdOutputText) {
       // Update text in-place — no remove/add cycle, no layout thrash, no scrollbar flicker
@@ -354,10 +335,7 @@ export const consoleAction = async () => {
     // Skip empty or whitespace-only lines
     if (!line.trim()) return
 
-    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(
-      /\s+/g,
-      ' ',
-    ).trim()
+    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(/\s+/g, ' ').trim()
     if (!cleaned) return
     cmdTotalLineCount++
     cmdOutputLines.push(`  ${cleaned}`)
@@ -371,10 +349,7 @@ export const consoleAction = async () => {
     cmdFlushTimer = setTimeout(flushCmdOutput, 300)
   }, () => {
     // Flush remaining on command complete
-    if (cmdFlushTimer) {
-      clearTimeout(cmdFlushTimer)
-      cmdFlushTimer = null
-    }
+    if (cmdFlushTimer) { clearTimeout(cmdFlushTimer); cmdFlushTimer = null }
     flushCmdOutput()
     cmdOutputLines = []
     cmdOutputText = null
@@ -392,7 +367,7 @@ export const consoleAction = async () => {
   } catch { /* default: auto-execute on */ }
 
   // Provider init with callbacks
-  let provider: OpenAIProvider | AnthropicProvider
+  let provider: OpenAIProvider | AnthropicProvider | SLVProvider
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -449,14 +424,8 @@ export const consoleAction = async () => {
           'Cid': 'Cid is running benchmark and connectivity checks...',
           'Setzer': 'Setzer is crafting your app...',
         }
-        const loaderMsg = loaderMessages[agentName] ||
-          `${agentName} is working...`
-        loader = new Loader(
-          tui,
-          (s: string) => chalk.hex('#14f195')(s),
-          (s: string) => chalk.gray(s),
-          loaderMsg,
-        )
+        const loaderMsg = loaderMessages[agentName] || `${agentName} is working...`
+        loader = new Loader(tui, (s: string) => chalk.hex('#14f195')(s), (s: string) => chalk.gray(s), loaderMsg)
         chatLog.addChild(loader)
         loader.start()
         tui.requestRender()
@@ -523,19 +492,22 @@ export const consoleAction = async () => {
   }
 
   if (config.provider === 'openai') {
-    provider = new OpenAIProvider(
-      config.api_key,
-      config.model,
-      systemPrompt,
-      callbacks,
-    )
+    provider = new OpenAIProvider(config.api_key, config.model, systemPrompt, callbacks)
+  } else if (config.provider === 'slv') {
+    // SLV AI uses slv.api_key from ~/.slv/api.yml (not ai.api_key)
+    let slvApiKey = ''
+    try {
+      const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
+      const apiYml = parse(apiYmlRaw) as Record<string, any>
+      slvApiKey = apiYml?.slv?.api_key || ''
+    } catch { /* */ }
+    if (!slvApiKey) {
+      console.log('\n  SLV API Key not found. Run `slv login` first.\n')
+      return
+    }
+    provider = new SLVProvider(slvApiKey, config.model, systemPrompt, callbacks)
   } else {
-    provider = new AnthropicProvider(
-      config.api_key,
-      config.model,
-      systemPrompt,
-      callbacks,
-    )
+    provider = new AnthropicProvider(config.api_key, config.model, systemPrompt, callbacks)
   }
 
   // Auto-greet
@@ -543,12 +515,7 @@ export const consoleAction = async () => {
   tui.start()
 
   // Show loader during greet
-  loader = new Loader(
-    tui,
-    (s: string) => green(s),
-    (s: string) => gray(s),
-    'Thinking...',
-  )
+  loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
   chatLog.addChild(loader)
   loader.start()
   tui.requestRender()
@@ -586,7 +553,7 @@ export const consoleAction = async () => {
     tui.requestRender(true)
 
     pendingUpdates = updates
-  }).catch(() => {/* silent fail */})
+  }).catch(() => { /* silent fail */ })
 
   // Track user interactions for memory save decision
   let userMessageCount = 0
@@ -635,22 +602,17 @@ RULES:
     // While processing, handle side-chat messages
     if (isProcessing) {
       chatLog.addUser(input)
-      const elapsed = currentTaskStartedAt
-        ? formatElapsedTime(currentTaskStartedAt)
-        : 'a moment'
+      const elapsed = currentTaskStartedAt ? formatElapsedTime(currentTaskStartedAt) : 'a moment'
       const agent = currentDelegateAgent || 'The system'
 
       // Build a helpful status response
       let status = `⏳ ${agent} is still working (${elapsed} elapsed).`
       if (currentDelegateAgent === 'Cecil') {
-        status +=
-          ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
+        status += ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
       } else if (currentDelegateAgent === 'Tina') {
-        status +=
-          ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
+        status += ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
       } else if (currentDelegateAgent === 'Cid') {
-        status +=
-          ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.'
+        status += ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.'
       } else if (currentDelegateAgent === 'Figaro') {
         status += ' Checking server availability and preparing your options.'
       }
@@ -671,19 +633,19 @@ RULES:
       chatLog.clear()
       const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
-        provider = new OpenAIProvider(
-          config.api_key,
-          config.model,
-          newSystemPrompt,
-          callbacks,
-        )
+        provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+      } else if (config.provider === 'slv') {
+        let slvKey = ''
+        try {
+          const raw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
+          const yml = parse(raw) as Record<string, any>
+          slvKey = yml?.slv?.api_key || ''
+        } catch { /* */ }
+        if (slvKey) {
+          provider = new SLVProvider(slvKey, config.model, newSystemPrompt, callbacks)
+        }
       } else {
-        provider = new AnthropicProvider(
-          config.api_key,
-          config.model,
-          newSystemPrompt,
-          callbacks,
-        )
+        provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt, callbacks)
       }
       chatLog.addSystem('  Conversation cleared.')
       tui.requestRender()
@@ -716,12 +678,7 @@ RULES:
     isProcessing = true
 
     // Show loader
-    loader = new Loader(
-      tui,
-      (s: string) => green(s),
-      (s: string) => gray(s),
-      'Thinking...',
-    )
+    loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
     chatLog.addChild(loader)
     loader.start()
     tui.requestRender()
@@ -751,9 +708,7 @@ RULES:
 
       // Reset counter after 2 seconds
       if (ctrlCResetTimer) clearTimeout(ctrlCResetTimer)
-      ctrlCResetTimer = setTimeout(() => {
-        ctrlCCount = 0
-      }, 2000)
+      ctrlCResetTimer = setTimeout(() => { ctrlCCount = 0 }, 2000)
 
       if (ctrlCCount >= 2) {
         // Double Ctrl+C: force exit immediately no matter what
@@ -766,23 +721,11 @@ RULES:
       if (isProcessing) {
         // First Ctrl+C during processing: kill child process, show message
         killActiveProcess()
-        chatLog.addSystem(
-          '  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.',
-        )
+        chatLog.addSystem('  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
         isProcessing = false
-        if (loader) {
-          chatLog.removeChild(loader)
-          loader.stop()
-          loader = null
-        }
-        if (tipTimer) {
-          clearInterval(tipTimer)
-          tipTimer = null
-        }
-        if (tipText) {
-          chatLog.removeChild(tipText)
-          tipText = null
-        }
+        if (loader) { chatLog.removeChild(loader); loader.stop(); loader = null }
+        if (tipTimer) { clearInterval(tipTimer); tipTimer = null }
+        if (tipText) { chatLog.removeChild(tipText); tipText = null }
         currentDelegateAgent = null
         currentTaskDescription = ''
         currentTaskStartedAt = 0

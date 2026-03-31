@@ -139,7 +139,8 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
     // Derive the repo name from the archive (e.g. "solana-stream")
     const repoName = BOT_TEMP_REPO.split('/')[1]
     // tar filter path: <repo>-<branch>/temp-release/<dir>/
-    const tarFilter = `${repoName}-${BOT_TEMP_BRANCH}/temp-release/${tempDirName}/`
+    const tarFilter =
+      `${repoName}-${BOT_TEMP_BRANCH}/temp-release/${tempDirName}/`
 
     console.log(
       colors.gray(

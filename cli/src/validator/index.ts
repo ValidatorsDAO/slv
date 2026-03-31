@@ -17,6 +17,7 @@ import { configRoot } from '@cmn/constants/path.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
+import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -210,7 +211,6 @@ validatorCmd.command('build:solana')
   .action(async (options) => {
     await runBuildSolana(options)
   })
-
 validatorCmd.command('build:solana-cli')
   .description('🔁 Alias for build:solana')
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
@@ -575,3 +575,5 @@ validatorCmd.command('switch')
       return
     }
   })
+
+registerDoubleZeroCommands(validatorCmd, 'validator', 'testnet')
