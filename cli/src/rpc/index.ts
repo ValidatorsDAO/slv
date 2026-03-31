@@ -11,6 +11,7 @@ import { runAnsilbe } from '/lib/runAnsible.ts'
 import { deployRPCTestnet } from '/src/rpc/deploy/deployRPCTestnet.ts'
 import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
+import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 
 // rpc Command
 export const rpcCmd = new Command()
@@ -332,3 +333,5 @@ rpcCmd.command('update:allowed-ips')
     const inventoryType = options.network + '_rpcs' as InventoryType
     await updateAllowedIps(inventoryType)
   })
+
+registerDoubleZeroCommands(rpcCmd, 'rpc', 'mainnet')

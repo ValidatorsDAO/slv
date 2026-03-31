@@ -1,15 +1,24 @@
-import { z, extendZodWithOpenApi } from '@hono/zod-openapi'
+import { extendZodWithOpenApi, z } from '@hono/zod-openapi'
 import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 
 extendZodWithOpenApi(z)
 
-export const KeyDirTypeSchema = z.enum(['rpc', 'validator', 'relayer', 'shreadstream'])
+export const KeyDirTypeSchema = z.enum([
+  'rpc',
+  'validator',
+  'relayer',
+  'shreadstream',
+])
 export const NetworkTypeSchema = z.enum(['mainnet', 'testnet'])
 export const RpcTypeSchema = z.enum(['Geyser gRPC', 'Index RPC', 'SendTx RPC'])
 export const RpcTypeArray = RpcTypeSchema.options
 export const ValidatorTestnetTypeSchema = z.enum(SolanaNodeTypes)
 export const ValidatorMainnetTypeSchema = ValidatorTestnetTypeSchema
-export const InventoryTypeSchema = z.enum(['testnet_validators', 'mainnet_validators', 'mainnet_rpcs'])
+export const InventoryTypeSchema = z.enum([
+  'testnet_validators',
+  'mainnet_validators',
+  'mainnet_rpcs',
+])
 
 const CmnAccessListSchema = z.object({
   allowed_ssh_ips: z.array(z.string()),
@@ -61,6 +70,7 @@ const AnsibleHostSchema = z.object({
 const HostIdentitySchema = AnsibleHostSchema.extend({
   name: z.string(),
   identity_account: z.string(),
+  doublezero_address: z.string().optional(),
 })
 
 const ValidatorAccountSchema = HostIdentitySchema.extend({
@@ -106,4 +116,7 @@ export const MainnetRpcConfigSchema = HostIdentitySchema.extend({
   shredstream_address: z.string(),
 })
 
-export const MainnetRPCInventorySchema = z.record(z.string(), MainnetRpcConfigSchema)
+export const MainnetRPCInventorySchema = z.record(
+  z.string(),
+  MainnetRpcConfigSchema,
+)
