@@ -389,17 +389,15 @@ Session history and important notes.
   console.log(
     colors.white(`  Agent:    ${colors.bold(agentName)}`),
   )
-  if (provider !== 'skip') {
-    console.log(
-      colors.green('◇  AI configuration saved to ~/.slv/api.yml'),
-    )
-  }
+  console.log(
+    colors.green('◇  AI configuration saved to ~/.slv/api.yml'),
+  )
   console.log(
     colors.bold.rgb24('│', 0x14f195),
   )
   console.log(
     colors.rgb24(
-      `└  ${provider !== 'skip' ? 'Run `slv c` to start the AI console.' : 'Run `slv onboard` again to configure AI provider.'}\n`,
+      `└  Run \`slv c\` to start the AI console.\n`,
       0x14f195,
     ),
   )
