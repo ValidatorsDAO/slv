@@ -5,8 +5,7 @@ import { slvAA } from '/lib/slvAA.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import {
   type AiProvider,
-  ANTHROPIC_MODELS,
-  OPENAI_MODELS,
+  // ANTHROPIC_MODELS and OPENAI_MODELS available via manual ~/.slv/api.yml config
   writeAiConfig,
 } from '@/ai/config.ts'
 import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
@@ -156,58 +155,15 @@ export const onboardAction = async () => {
     }
   }
 
-  const provider: string = await Select.prompt({
-    message: 'Model/auth provider',
-    options: [
-      { name: 'OpenAI', value: 'openai' },
-      { name: 'Anthropic', value: 'anthropic' },
-      { name: 'Skip for now', value: 'skip' },
-    ],
+  // Default to SLV AI — no provider selection needed
+  // Users can manually configure OpenAI/Anthropic in ~/.slv/api.yml if desired
+  console.log(colors.green('  ✔ Using SLV AI (powered by your SLV API Key).\n'))
+
+  await writeAiConfig({
+    provider: 'slv' as AiProvider,
+    api_key: '',
+    model: 'SLV AI',
   })
-
-  if (provider === 'skip') {
-    console.log(
-      colors.yellow(
-        '\n  AI provider skipped. You can configure it later with `slv onboard`.\n',
-      ),
-    )
-  } else {
-    const models = provider === 'openai' ? OPENAI_MODELS : ANTHROPIC_MODELS
-    const providerLabel = provider === 'openai' ? 'OpenAI' : 'Anthropic'
-
-    const apiKey = await Secret.prompt({
-      message: `${providerLabel} API Key`,
-      validate: (value) => {
-        if (!value || value.trim().length === 0) {
-          return 'API key is required'
-        }
-        return true
-      },
-    })
-
-    let model = await Select.prompt({
-      message: 'Default model',
-      options: models,
-    })
-
-    if (model === 'Custom (enter model name)') {
-      model = await Input.prompt({
-      message: 'Enter custom model name',
-      validate: (value) => {
-        if (!value || value.trim().length === 0) {
-          return 'Model name is required'
-        }
-        return true
-      },
-    })
-    }
-
-    await writeAiConfig({
-      provider: provider as AiProvider,
-      api_key: apiKey,
-      model,
-    })
-  }
 
   // --- Agent setup ---
   console.log(

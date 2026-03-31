@@ -17,6 +17,7 @@ import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
+import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
 import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess } from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
@@ -219,10 +220,10 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
 }
 
 export const consoleAction = async () => {
-  const config = await readAiConfig()
+  let config = await readAiConfig()
   if (!config) {
-    console.log('\n  AI not configured. Run `slv onboard` first.\n')
-    return
+    // Default to SLV AI — works with just the SLV API Key
+    config = { provider: 'slv', api_key: '', model: 'SLV AI' }
   }
 
   // Check dependencies before TUI init
@@ -274,7 +275,11 @@ export const consoleAction = async () => {
   }
 
   const systemPrompt = await buildSystemPrompt(userContext || undefined)
-  const providerLabel = config.provider === 'openai' ? 'OpenAI' : 'Anthropic'
+  const providerLabel = config.provider === 'openai'
+    ? 'OpenAI'
+    : config.provider === 'slv'
+    ? 'SLV AI'
+    : 'Anthropic'
 
   // TUI init
   const terminal = new ProcessTerminal()
@@ -287,7 +292,7 @@ export const consoleAction = async () => {
   // Header
   chatLog.addChild(new Spacer(1))
   chatLog.addChild(new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1))
-  chatLog.addChild(new Text(white(`  Provider: ${providerLabel} | Model: ${config.model}`), 1))
+  chatLog.addChild(new Text(white(config.provider === 'slv' ? `  Provider: ${providerLabel}` : `  Provider: ${providerLabel} | Model: ${config.model}`), 1))
   chatLog.addChild(new Text(gray('  Type /exit to quit, /clear to reset. Press Enter to send.'), 1))
   chatLog.addChild(new Spacer(1))
 
@@ -362,7 +367,7 @@ export const consoleAction = async () => {
   } catch { /* default: auto-execute on */ }
 
   // Provider init with callbacks
-  let provider: OpenAIProvider | AnthropicProvider
+  let provider: OpenAIProvider | AnthropicProvider | SLVProvider
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -488,6 +493,19 @@ export const consoleAction = async () => {
 
   if (config.provider === 'openai') {
     provider = new OpenAIProvider(config.api_key, config.model, systemPrompt, callbacks)
+  } else if (config.provider === 'slv') {
+    // SLV AI uses slv.api_key from ~/.slv/api.yml (not ai.api_key)
+    let slvApiKey = ''
+    try {
+      const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
+      const apiYml = parse(apiYmlRaw) as Record<string, any>
+      slvApiKey = apiYml?.slv?.api_key || ''
+    } catch { /* */ }
+    if (!slvApiKey) {
+      console.log('\n  SLV API Key not found. Run `slv login` first.\n')
+      return
+    }
+    provider = new SLVProvider(slvApiKey, config.model, systemPrompt, callbacks)
   } else {
     provider = new AnthropicProvider(config.api_key, config.model, systemPrompt, callbacks)
   }
@@ -616,6 +634,16 @@ RULES:
       const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
         provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+      } else if (config.provider === 'slv') {
+        let slvKey = ''
+        try {
+          const raw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
+          const yml = parse(raw) as Record<string, any>
+          slvKey = yml?.slv?.api_key || ''
+        } catch { /* */ }
+        if (slvKey) {
+          provider = new SLVProvider(slvKey, config.model, newSystemPrompt, callbacks)
+        }
       } else {
         provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt, callbacks)
       }
