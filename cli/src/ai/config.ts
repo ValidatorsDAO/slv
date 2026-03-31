@@ -2,7 +2,7 @@ import { parse, stringify } from '@std/yaml'
 import { dirname } from '@std/path'
 import { colors } from '@cliffy/colors'
 
-export type AiProvider = 'openai' | 'anthropic'
+export type AiProvider = 'openai' | 'anthropic' | 'slv'
 
 export type AiConfig = {
   provider: AiProvider
@@ -73,4 +73,8 @@ export const ANTHROPIC_MODELS: string[] = [
   'claude-sonnet-4-20250514',
   'claude-haiku-4-5-20251001',
   'Custom (enter model name)',
+]
+
+export const SLV_AI_MODELS: string[] = [
+  'SLV AI',
 ]

@@ -26,6 +26,49 @@ jinja/
   cmn/           — Shared templates
 ```
 
+## Benchmarking Notes
+
+### Planned CLI shape
+A natural future command shape is:
+
+```bash
+slv check geyserbench <options>
+```
+
+This would mirror the existing `slv check grpc` / `slv check shreds` style by passing arguments through to the installed benchmark binary.
+
+### `geyserbench` config generation
+For `shredstream` and `grpc` benchmark flows, the agent should be able to generate `config.toml` from:
+- benchmark type
+- two endpoint URLs
+- ERPC API key from `~/.slv/api.yml`
+
+If `~/.slv/api.yml` does not contain the required ERPC API key, instruct the user to get a free key and configure it first.
+
+Example config:
+
+```toml
+[config]
+region = "frankfurt"
+erpc_url = "https://edge.erpc.global"
+erpc_api_key = "api-key"
+transactions = 10000
+account = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+commitment = "processed"
+
+[[endpoint]]
+name = "http://shreds-fra6-1.erpc.global"
+url = "http://shreds-fra6-1.erpc.global"
+kind = "shredstream"
+
+[[endpoint]]
+name = "http://shreds-turbo-fra-1.erpc.global"
+url = "http://shreds-turbo-fra-1.erpc.global"
+kind = "shredstream"
+```
+
+For gRPC benchmarks, use the same structure but set the endpoint `kind` to the appropriate gRPC-compatible type.
+
 ## CLI Command ↔ Playbook Mapping
 
 The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc`, `testnet-rpc`, or `devnet-rpc`.

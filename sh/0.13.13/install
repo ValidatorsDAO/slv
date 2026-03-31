@@ -2,12 +2,10 @@
 
 set -e
 
-VERSION="0.13.13"
+VERSION="0.9.961"
 BASE_URL="https://storage.slv.dev/slv"
 GRPC_TEST_URL_LINUX="https://storage.elsoul.nl/grpc_test"
 GRPC_TEST_URL_MAC="https://storage.elsoul.nl/grpc_test_mac"
-GEYSERBENCH_URL_LINUX="https://storage.elsoul.nl/geyserbench"
-GEYSERBENCH_URL_MAC="https://storage.elsoul.nl/geyserbench_mac"
 SHREDS_TEST_URL_LINUX="https://storage.elsoul.nl/bin/latest/deshred"
 SHREDS_TEST_URL_MAC="https://storage.elsoul.nl/bin/latest/deshred_mac"
 
@@ -119,31 +117,6 @@ install_grpc_test() {
   echo "gRPC test binary installed in $HOME/.slv/bin/grpc_test"
 }
 
-# Install the geyserbench binary
-install_geyserbench() {
-  # Check if the geyserbench binary is already installed
-  if [ -f "$HOME/.slv/bin/geyserbench" ]; then
-    echo "geyserbench binary already installed!"
-    return
-  fi
-  # Download the appropriate geyserbench binary based on the platform
-  echo "Downloading geyserbench binary for $osfamily..."
-  mkdir -p "$HOME/.slv/bin"
-
-  if [ "$osfamily" = "darwin" ]; then
-    curl -fSL --progress-bar "$GEYSERBENCH_URL_MAC" -o "$HOME/.slv/bin/geyserbench"
-  elif [ "$osfamily" = "linux" ]; then
-    curl -fSL --progress-bar "$GEYSERBENCH_URL_LINUX" -o "$HOME/.slv/bin/geyserbench"
-  else
-    echo "Warning: geyserbench binary is not available for $osfamily."
-    return
-  fi
-
-  chmod +x "$HOME/.slv/bin/geyserbench"
-
-  echo "geyserbench binary installed in $HOME/.slv/bin/geyserbench"
-}
-
 # Install the shreds test binary
 install_shreds_test() {
   # Check if the shreds test binary is already installed
@@ -169,29 +142,6 @@ install_shreds_test() {
   echo "Shreds test binary installed in $HOME/.slv/bin/shreds_test"
 }
 
-# Install AI agent skills from GitHub
-install_skills() {
-  echo "Installing AI agent skills..."
-  mkdir -p "$HOME/.slv/skills"
-  
-  SKILLS_TEMP=$(mktemp -d)
-  REPO_TAR="https://github.com/ValidatorsDAO/slv/archive/refs/heads/main.tar.gz"
-  
-  curl -fSL --progress-bar "$REPO_TAR" -o "$SKILLS_TEMP/slv.tar.gz"
-  tar -xzf "$SKILLS_TEMP/slv.tar.gz" -C "$SKILLS_TEMP" --strip-components=1 "slv-main/dist/oss-skills"
-  
-  for skill in slv-validator slv-rpc slv-grpc-geyser slv-benchmark slv-app slv-server-procurement; do
-    if [ -d "$SKILLS_TEMP/dist/oss-skills/$skill" ]; then
-      rm -rf "$HOME/.slv/skills/$skill"
-      cp -r "$SKILLS_TEMP/dist/oss-skills/$skill" "$HOME/.slv/skills/$skill"
-      echo "  ✅ $skill installed"
-    fi
-  done
-  
-  rm -rf "$SKILLS_TEMP"
-  echo "AI agent skills installed in $HOME/.slv/skills/"
-}
-
 # Main installation process
 main() {
   echo "Detecting platform..."
@@ -214,9 +164,6 @@ main() {
   
   # Install gRPC test binary and wrapper
   install_grpc_test
-
-  # Install geyserbench binary
-  install_geyserbench
   
   # Install shreds test binary
   install_shreds_test
@@ -232,17 +179,15 @@ main() {
     echo "Windows users, add $INSTALL_DIR to your PATH manually."
   fi
 
-  # Install AI agent skills from GitHub
-  install_skills
-  
   slv upgrade:settings
+  
 
   # Optional: Test the installed 'slv'
   echo "Testing slv installation... 🔨"
   slv -P || true
   
-  echo "You can now use 'slv onboard' to get started with the AI Console."
-  echo "Example: slv onboard"
+  echo "You can now use 'slv check grpc' to run gRPC latency tests:"
+  echo "Example: slv check grpc"
 }
 
 # Run the main function
