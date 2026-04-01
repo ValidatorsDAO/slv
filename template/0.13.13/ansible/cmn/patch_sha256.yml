@@ -1,0 +1,161 @@
+---
+- name: Patch Solana Validator with optimized SHA256 (no restart)
+  hosts: all
+  become: yes
+  gather_facts: false
+
+  vars:
+    solana_version: "v3.1.10-jito"
+    solana_repo_url: >-
+      {{
+        'https://github.com/jito-foundation/jito-solana.git'
+        if 'jito' in (validator_type | default(''))
+        else 'https://github.com/anza-xyz/agave.git'
+      }}
+    solana_src_dir: >-
+      {{
+        '/home/solv/jito-solana-sha256'
+        if 'jito' in (validator_type | default(''))
+        else '/home/solv/agave-sha256'
+      }}
+    optimized_repo_dir: "{{ solana_src_dir }}/optimized_sha256"
+    solana_release_dir: "/home/solv/.local/share/solana/install/active_release"
+    solana_bin_dir: "{{ solana_release_dir }}/bin"
+    solana_bin_path: "{{ solana_bin_dir }}/agave-validator"
+    patched_binary_path: "{{ solana_src_dir }}/target/release/agave-validator"
+    service_name: "{{ 'firedancer' if 'firedancer' in (validator_type | default('')) else 'solv' }}"
+    patch_logged_at: "{{ lookup('pipe', 'date -Iseconds') }}"
+
+  pre_tasks:
+    - name: Check SSH reachability
+      wait_for_connection:
+        timeout: 30
+      register: conn_check
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Report SSH failure clearly
+      fail:
+        msg: "Unable to connect to {{ inventory_hostname }} over SSH"
+      when: conn_check.unreachable | default(false) or conn_check.failed | default(false)
+
+  tasks:
+    - name: Install build dependencies
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - libclang-dev
+          - clang
+          - cmake
+          - protobuf-compiler
+          - git
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Check if Rust is installed
+      become: no
+      ansible.builtin.shell: command -v rustc
+      register: rust_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Rust (if not exists)
+      become: no
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+      args:
+        executable: /bin/bash
+      when: rust_check.rc != 0
+
+    - name: Clone Solana repository
+      become: no
+      ansible.builtin.git:
+        repo: "{{ solana_repo_url }}"
+        dest: "{{ solana_src_dir }}"
+        version: "{{ solana_version }}"
+        force: yes
+
+    - name: Clone optimized SHA256 repo
+      become: no
+      ansible.builtin.git:
+        repo: https://github.com/kagren/solana-sha256-hasher-optimized
+        dest: "{{ optimized_repo_dir }}"
+        force: yes
+
+    - name: Inject optimized sha256 dependency into solana-core Cargo.toml
+      ansible.builtin.blockinfile:
+        path: "{{ solana_src_dir }}/core/Cargo.toml"
+        marker: "# {mark} ANSIBLE SHA256 PATCH"
+        insertafter: '^\[dependencies\]$'
+        block: |
+          optimized_sha256 = { path = "../optimized_sha256" }
+
+    - name: Patch PoH hashing logic
+      ansible.builtin.replace:
+        path: "{{ solana_src_dir }}/core/src/poh_service.rs"
+        regexp: 'hashv\(\&\[&hash,\s*&data\]\)'
+        replace: 'optimized_sha256::hash(&[&hash, &data])'
+
+    - name: Build patched agave-validator binary
+      become: no
+      ansible.builtin.shell: |
+        set -e
+        source $HOME/.cargo/env
+        cd {{ solana_src_dir }}
+        ./scripts/cargo-install-all.sh .
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "/home/solv/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        RUSTFLAGS: "-C target-cpu=native"
+
+    - name: Resolve active agave-validator path
+      ansible.builtin.command: readlink -f "{{ solana_bin_path }}"
+      register: active_agave_validator_path
+      changed_when: false
+      failed_when: false
+
+    - name: Determine deploy path for agave-validator
+      ansible.builtin.set_fact:
+        deploy_binary_path: >-
+          {{
+            active_agave_validator_path.stdout
+            if (active_agave_validator_path.stdout | default('') | length) > 0
+            else solana_bin_path
+          }}
+
+    - name: Backup existing agave-validator binary
+      ansible.builtin.copy:
+        src: "{{ deploy_binary_path }}"
+        dest: "{{ deploy_binary_path }}.backup"
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: Deploy patched agave-validator binary
+      ansible.builtin.copy:
+        src: "{{ patched_binary_path }}"
+        dest: "{{ deploy_binary_path }}"
+        mode: "0755"
+        owner: solv
+        group: solv
+        remote_src: yes
+
+    - name: Show restart instruction
+      ansible.builtin.debug:
+        msg: |
+          ✅ Patched agave-validator has been deployed to {{ deploy_binary_path }}.
+          ⚠️ Please restart the validator manually when ready:
+          systemctl restart {{ service_name }}
+
+    - name: Log restart instruction to file
+      ansible.builtin.copy:
+        content: |
+          [INFO] agave-validator binary updated at {{ patch_logged_at }}
+          Please restart manually:
+          systemctl restart {{ service_name }}
+        dest: /var/log/solana-validator-patch.log
