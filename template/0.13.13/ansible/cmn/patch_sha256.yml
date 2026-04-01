@@ -6,16 +6,21 @@
 
   vars:
     solana_version: "v3.1.10-jito"
+    is_jito_based: >-
+      {{
+        'jito' in (validator_type | default(''))
+        or (validator_type | default('')) == 'firedancer'
+      }}
     solana_repo_url: >-
       {{
         'https://github.com/jito-foundation/jito-solana.git'
-        if 'jito' in (validator_type | default(''))
+        if is_jito_based
         else 'https://github.com/anza-xyz/agave.git'
       }}
     solana_src_dir: >-
       {{
         '/home/solv/jito-solana-sha256'
-        if 'jito' in (validator_type | default(''))
+        if is_jito_based
         else '/home/solv/agave-sha256'
       }}
     optimized_repo_dir: "{{ solana_src_dir }}/optimized_sha256"
@@ -87,19 +92,51 @@
         dest: "{{ optimized_repo_dir }}"
         force: yes
 
+    - name: Register optimized_sha256 in workspace members
+      ansible.builtin.lineinfile:
+        path: "{{ solana_src_dir }}/Cargo.toml"
+        insertafter: '^members = \[$'
+        line: '    "optimized_sha256",'
+        state: present
+      when: is_jito_based
+
     - name: Inject optimized sha256 dependency into solana-core Cargo.toml
       ansible.builtin.blockinfile:
-        path: "{{ solana_src_dir }}/core/Cargo.toml"
+        path: >-
+          {{
+            solana_src_dir ~ '/entry/Cargo.toml'
+            if is_jito_based
+            else solana_src_dir ~ '/core/Cargo.toml'
+          }}
         marker: "# {mark} ANSIBLE SHA256 PATCH"
         insertafter: '^\[dependencies\]$'
-        block: |
-          optimized_sha256 = { path = "../optimized_sha256" }
+        block: >-
+          {{
+            'optimized_sha256 = { path = "../optimized_sha256", package = "solana-sha256-hasher" }'
+            if is_jito_based
+            else 'optimized_sha256 = { path = "../optimized_sha256" }'
+          }}
 
     - name: Patch PoH hashing logic
       ansible.builtin.replace:
-        path: "{{ solana_src_dir }}/core/src/poh_service.rs"
-        regexp: 'hashv\(\&\[&hash,\s*&data\]\)'
-        replace: 'optimized_sha256::hash(&[&hash, &data])'
+        path: >-
+          {{
+            solana_src_dir ~ '/entry/src/poh.rs'
+            if is_jito_based
+            else solana_src_dir ~ '/core/src/poh_service.rs'
+          }}
+        regexp: >-
+          {{
+            'hashv\(&\[self\.hash\.as_ref\(\),\s*mixin\.as_ref\(\)\]\)'
+            if is_jito_based
+            else 'hashv\(\&\[&hash,\s*&data\]\)'
+          }}
+        replace: >-
+          {{
+            'optimized_sha256::hashv(&[self.hash.as_ref(), mixin.as_ref()])'
+            if is_jito_based
+            else 'optimized_sha256::hash(&[&hash, &data])'
+          }}
 
     - name: Build patched agave-validator binary
       become: no
