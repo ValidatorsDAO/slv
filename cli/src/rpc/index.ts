@@ -12,6 +12,7 @@ import { deployRPCTestnet } from '/src/rpc/deploy/deployRPCTestnet.ts'
 import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
+import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 
 // rpc Command
 export const rpcCmd = new Command()
@@ -335,3 +336,4 @@ rpcCmd.command('update:allowed-ips')
   })
 
 registerDoubleZeroCommands(rpcCmd, 'rpc', 'mainnet')
+registerSha256PatchCommands(rpcCmd, 'rpc', 'mainnet')

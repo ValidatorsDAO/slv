@@ -490,12 +490,32 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
     } catch { /* gRPC skill not installed */ }
   }
 
+  // Read deployment mode from config.yml
+  let deployMode = 'remote'
+  try {
+    const configRaw = await Deno.readTextFile(`${home}/.slv/agent/config.yml`)
+    const configData = parse(configRaw) as Record<string, unknown>
+    deployMode = (configData.mode as string) || 'remote'
+  } catch { /* default to remote */ }
+
+  const modeInstruction = deployMode === 'local'
+    ? `
+## DEPLOYMENT MODE: LOCAL
+This user operates in LOCAL mode. All deployments target THIS machine (localhost).
+- Do NOT ask for server IP or SSH credentials.
+- Use \`--localhost\` flag for ALL init/deploy commands.
+- Examples: \`slv v init --localhost\`, \`slv v deploy --localhost\`, \`slv r init --localhost\`, \`slv r deploy --localhost\`
+- Ansible runs locally with \`ansible_connection: local\`.
+- Skip SSH connectivity checks entirely.
+`
+    : ''
+
   const subSystemPrompt = `You are ${effectiveName}, a backend specialist sub-agent for SLV.
 You do NOT talk to the user directly. You report back to the main agent only.
 
 ${agentMd ? agentMd + '\n' : ''}
 ${skillMd ? skillMd + '\n' : ''}
-
+${modeInstruction}
 ## Working Environment
 - Home directory: ${home}
 - SLV CLI binary: \`slv\` (or \`${home}/slv\` if not in PATH)

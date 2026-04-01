@@ -18,6 +18,7 @@ import denoJson from '/deno.json' with { type: 'json' }
 import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
+import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -577,3 +578,4 @@ validatorCmd.command('switch')
   })
 
 registerDoubleZeroCommands(validatorCmd, 'validator', 'testnet')
+registerSha256PatchCommands(validatorCmd, 'validator', 'testnet')

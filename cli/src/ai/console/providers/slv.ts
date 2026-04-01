@@ -70,6 +70,16 @@ export class SLVProvider {
 
       if (!response.ok) {
         const errorText = await response.text()
+
+        // 529 = overloaded / token quota exhausted
+        if (response.status === 529) {
+          throw new Error(
+            'AI tokens may be insufficient. Please consider upgrading your plan or purchasing additional tokens.\n' +
+            '  Run `slv ai usage`   — check your remaining token balance\n' +
+            '  Run `slv ai product` — view plans and purchase options',
+          )
+        }
+
         throw new Error(`SLV AI API error (${response.status}): ${errorText}`)
       }
 
