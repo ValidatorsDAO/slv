@@ -22,10 +22,16 @@ export function setAutoExecute(auto: boolean) {
 let onCommandOutput: ((line: string) => void) | null = null
 let activeChildProcess: Deno.ChildProcess | null = null
 let onCommandComplete: (() => void) | null = null
+let onAnsibleTaskUpdate: ((taskName: string) => void) | null = null
 
-export function setCommandOutputCallback(cb: ((line: string) => void) | null, completeCb?: (() => void) | null) {
+export function setCommandOutputCallback(
+  cb: ((line: string) => void) | null,
+  completeCb?: (() => void) | null,
+  ansibleTaskCb?: ((taskName: string) => void) | null,
+) {
   onCommandOutput = cb
   onCommandComplete = completeCb ?? null
+  onAnsibleTaskUpdate = ansibleTaskCb ?? null
 }
 
 export function killActiveProcess() {
@@ -263,6 +269,9 @@ async function executeRunCommand(command: string): Promise<string> {
     // Store child process so it can be killed on Ctrl+C
     activeChildProcess = child
 
+    // Detect ansible commands to use task-title spinner mode
+    const isAnsibleCommand = command.includes('ansible-playbook') || command.includes('ansible ')
+
     // Stream stdout lines to TUI in real-time
     const stdoutChunks: string[] = []
     const stderrChunks: string[] = []
@@ -278,17 +287,32 @@ async function executeRunCommand(command: string): Promise<string> {
         buffer += text
         chunks.push(text)
 
-        // Stream lines to TUI callback
-        if (isStdout && onCommandOutput) {
+        if (isStdout) {
           const lines = buffer.split('\n')
           buffer = lines.pop() || ''
           for (const line of lines) {
-            if (line.trim()) onCommandOutput(line.trim())
+            const trimmed = line.trim()
+            if (!trimmed) continue
+
+            if (isAnsibleCommand && onAnsibleTaskUpdate) {
+              // In ansible mode: only extract TASK titles for spinner
+              const taskMatch = trimmed.match(/^TASK \[(.+?)\]/)
+              if (taskMatch) {
+                onAnsibleTaskUpdate(taskMatch[1])
+              }
+              if (trimmed.startsWith('PLAY RECAP')) {
+                onAnsibleTaskUpdate('Finishing up...')
+              }
+              // Don't stream raw ansible output to TUI
+            } else if (onCommandOutput) {
+              // Normal mode: stream all output
+              onCommandOutput(trimmed)
+            }
           }
         }
       }
       // Flush remaining buffer
-      if (isStdout && onCommandOutput && buffer.trim()) {
+      if (isStdout && !isAnsibleCommand && onCommandOutput && buffer.trim()) {
         onCommandOutput(buffer.trim())
       }
     }
