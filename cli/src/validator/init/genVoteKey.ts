@@ -4,6 +4,8 @@ import { colors } from '@cliffy/colors'
 import { join } from '@std/path'
 import { configRoot } from '@cmn/constants/path.ts'
 import { createVoteAccount } from '/src/validator/init/createVoteAccount.ts'
+import { airdropAction } from '@/airdrop/airdropAction.ts'
+import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 
 const genVoteKey = async (identityAccount: string): Promise<{
   voteAccount: string
@@ -55,13 +57,28 @@ const genVoteKey = async (identityAccount: string): Promise<{
 
   if (isNewVoteAccount) {
     // Airdrop to the Identity Account
-    const home = Deno.env.get('HOME')
-    const result = await spawnSync(
-      `solana airdrop 1 --url https://api.testnet.solana.com --keypair ${home}/.slv/keys/${identityAccount}.json`,
-    )
-    if (!result.success) {
-      // Get 1 SOL to Validators DAO's Discord Channel if airdrop fails
-      const msg = `Failed to airdrop to identity account: ${identityAccount}
+    let airdropSuccess = false
+
+    // Try slv airdrop first (ERPC-based, more reliable)
+    const apiKey = await getApiKeyFromYml(true)
+    if (apiKey) {
+      console.log(colors.white('💰 Requesting Testnet SOL via ERPC airdrop...'))
+      try {
+        await airdropAction(identityAccount)
+        airdropSuccess = true
+      } catch (_e) {
+        console.log(colors.yellow('⚠️ ERPC airdrop failed, trying solana airdrop...'))
+      }
+    }
+
+    // Fallback to solana airdrop if ERPC airdrop was not attempted or failed
+    if (!airdropSuccess) {
+      const home = Deno.env.get('HOME')
+      const result = await spawnSync(
+        `solana airdrop 1 --url https://api.testnet.solana.com --keypair ${home}/.slv/keys/${identityAccount}.json`,
+      )
+      if (!result.success) {
+        const msg = `Failed to airdrop to identity account: ${identityAccount}
 Add Some SOL to Your Identity Account: ${identityAccount}
 
 And Then, Create a Vote Account with the command:
@@ -69,9 +86,11 @@ And Then, Create a Vote Account with the command:
 ${colors.white('$ slv v gen:vote-account')}
 
 If you don't have SOL, ask for it in the Validators DAO's Discord Channel: https://discord.gg/VX38HynP7Y`
-      console.log(colors.yellow(msg))
-      return { voteAccount, authAccount }
+        console.log(colors.yellow(msg))
+        return { voteAccount, authAccount }
+      }
     }
+
     await createVoteAccount(identityAccount, voteAccount, authAccount)
   }
 

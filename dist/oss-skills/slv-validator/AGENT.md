@@ -234,6 +234,21 @@ Always update the inventory file after tuning:
 - Set `smt_disable: true`, `irq_tuning: true`, `cpu_boost: true` after successful application
 - Set `need_reboot: false` after the server has been rebooted
 
+## Testnet SOL Airdrop
+
+When deploying a testnet validator with a new vote account:
+1. The init process automatically requests 1 Testnet SOL via `slv airdrop`
+2. This uses the ERPC API key (1 airdrop per key)
+3. If ERPC airdrop fails, it falls back to `solana airdrop` (rate-limited)
+4. If both fail, guide the user to request SOL in the Validators DAO Discord
+
+For manual airdrop:
+```bash
+slv airdrop <wallet-address>
+```
+
+Note: `slv airdrop` requires a valid ERPC API key configured via `slv login`.
+
 ## Safety Rules
 
 - **NEVER run playbooks without user confirmation**
