@@ -18,6 +18,7 @@ import { migrateCmd } from '@/migrate/index.ts'
 import { storageCmd } from '@/storage/index.ts'
 import { backupCmd } from '@/backup/index.ts'
 import { aiCmd, onboardCmd } from '@/ai/index.ts'
+import { authCmd } from '@/auth/index.ts'
 import { airdropCmd } from '@/airdrop/index.ts'
 import { prepareLocalDb } from '@db/dbInit.ts'
 
@@ -104,6 +105,9 @@ program
 
 program
   .command('onboard', onboardCmd)
+
+program
+  .command('auth', authCmd)
 
 program
   .command('airdrop', airdropCmd)
