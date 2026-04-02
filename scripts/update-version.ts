@@ -66,13 +66,14 @@ async function updateVersion() {
   )
   console.log(`✅ Updated ${cliDenoJsonPath}`)
 
-  // 2. Update upload:template task in root deno.json
+  // 2. Update template-related tasks in root deno.json
   const rootDenoJsonPath = './deno.json'
   const rootDenoJson = JSON.parse(await Deno.readTextFile(rootDenoJsonPath))
 
-  // Update upload:template task
+  rootDenoJson.tasks['create:template'] =
+    `tar -czf dist/template.tar.gz ./template/${VERSION}`
   rootDenoJson.tasks['upload:template'] =
-    `tar -czf dist/template.tar.gz ./template/${VERSION} && deno run -A cli/uploadTemplate.ts`
+    'deno run -A cli/uploadTemplate.ts'
   await Deno.writeTextFile(
     rootDenoJsonPath,
     JSON.stringify(rootDenoJson, null, 2),

@@ -107,6 +107,46 @@ const uploadExe = async () => {
       // Continue with other targets even if one fails
     }
   }
+
+  // Upload SHA256SUMS file after binaries.
+  const checksumsPath = './dist/SHA256SUMS'
+  try {
+    await Deno.stat(checksumsPath)
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      throw new Error(`SHA256SUMS file not found at ${checksumsPath}. Run 'deno task generate:checksums' first.`)
+    }
+    throw error
+  }
+
+  console.log(`Reading file: ${checksumsPath}`)
+  const checksumsContent = await Deno.readFile(checksumsPath)
+
+  const bucketName = 'slv'
+  const objectKey = `slv/${version}/SHA256SUMS`
+  const url =
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${bucketName}/objects/${objectKey}`
+
+  console.log(`Uploading SHA256SUMS to: ${url}`)
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      ...authHeaders,
+      'Content-Type': 'text/plain',
+    },
+    body: checksumsContent,
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(
+      `Failed to upload SHA256SUMS: ${response.status} ${response.statusText} - ${errorText}`,
+    )
+  }
+
+  console.log(
+    `✅ Successfully uploaded SHA256SUMS to ${SLV_STORAGE_URL}/slv/${version}/SHA256SUMS`,
+  )
 }
 
 await uploadExe()

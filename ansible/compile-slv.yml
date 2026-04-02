@@ -189,6 +189,22 @@
         dest: '{{ artifacts_dir }}/slv-x86_64-apple-darwin-exe.tar.gz'
         remote_src: yes
 
+    - name: Create template archive
+      shell: |
+        cd {{ build_dir }} && tar -czf dist/template.tar.gz ./template/{{ version }}
+      args:
+        executable: /bin/bash
+      become_user: '{{ build_user }}'
+
+    - name: Generate SHA256 checksums
+      shell: |
+        export DENO_INSTALL="{{ deno_install_dir }}"
+        export PATH="$DENO_INSTALL/bin:$PATH"
+        cd {{ build_dir }} && deno run -A cli/generateChecksums.ts
+      args:
+        executable: /bin/bash
+      become_user: '{{ build_user }}'
+
     - name: Upload Linux executable
       shell: |
         export DENO_INSTALL="{{ deno_install_dir }}"
@@ -198,13 +214,6 @@
         export CLOUDFLARE_API_KEY="{{ cloudflare_api_key }}"
         export CLOUDFLARE_EMAIL="{{ cloudflare_email }}"
         cd {{ build_dir }} && deno run -A cli/uploadExe.ts
-      args:
-        executable: /bin/bash
-      become_user: '{{ build_user }}'
-
-    - name: Create template archive
-      shell: |
-        cd {{ build_dir }} && tar -czf dist/template.tar.gz ./template/{{ version }}
       args:
         executable: /bin/bash
       become_user: '{{ build_user }}'
@@ -278,5 +287,11 @@
     - name: Copy Mac artifacts back to local dist directory
       fetch:
         src: '{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe.tar.gz'
+        dest: ./dist/
+        flat: yes
+
+    - name: Copy SHA256SUMS back to local dist directory
+      fetch:
+        src: '{{ build_dir }}/dist/SHA256SUMS'
         dest: ./dist/
         flat: yes
