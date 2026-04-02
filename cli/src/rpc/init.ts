@@ -3,7 +3,7 @@ import { colors } from '@cliffy/colors'
 import { listAction } from '/src/metal/list/listAction.ts'
 import { configRoot } from '@cmn/constants/path.ts'
 import denoJson from '/deno.json' with { type: 'json' }
-import { copy } from '@std/fs'
+import { copy, exists } from '@std/fs'
 import { join } from '@std/path'
 import { mainnetInitRpc } from '/src/rpc/init/mainnetInitRpc.ts'
 import { devnetInitRpc } from '/src/rpc/init/devnetInitRpc.ts'
@@ -13,6 +13,18 @@ import { getLocalConnection } from '@cmn/prompt/localConnection.ts'
 
 export async function copyTemplateDirs() {
   const templateBase = join(configRoot, 'template', denoJson.version, 'jinja')
+
+  // Skip if template directory does not exist (e.g. templates not yet downloaded)
+  if (!await exists(templateBase)) {
+    console.log(
+      colors.yellow(
+        `⚠️ Template directory not found: ${templateBase}\n` +
+        `   Run \`slv upgrade\` to download the latest templates.`,
+      ),
+    )
+    return
+  }
+
   const pairs = [
     ['testnet-rpc', 'testnet-rpc'],
     ['testnet-validator', 'testnet-validator'],
@@ -32,7 +44,7 @@ export async function copyTemplateDirs() {
       copy(
         join(templateBase, srcName),
         join(configRoot, destName),
-        { overwrite: true }, // 上書き許可（元コードのcp -r相当の期待値）
+        { overwrite: true },
       )
     ),
   )
