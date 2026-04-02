@@ -261,7 +261,7 @@ main() {
     echo "Windows users, add $INSTALL_DIR to your PATH manually."
   fi
 
-  slv upgrade:settings
+  slv upgrade:settings || echo "⚠️ upgrade:settings encountered an error (non-fatal, templates may need re-download via 'slv upgrade')"
 
   # Optional: Test the installed 'slv'
   echo "Testing slv installation... 🔨"
