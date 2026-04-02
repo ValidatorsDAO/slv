@@ -16,7 +16,7 @@ const selectModel = async (provider: AiProvider): Promise<string> => {
 
   const model = await Select.prompt({
     message: 'Select default model',
-    options: models.map((m) => ({ name: m, value: m })),
+    options: models,
   })
 
   if (model === CUSTOM_OPTION) {
@@ -30,7 +30,8 @@ const selectModel = async (provider: AiProvider): Promise<string> => {
 }
 
 const maskKey = (key: string): string => {
-  if (key.length <= 8) return key
+  if (key.length <= 4) return '****'
+  if (key.length <= 8) return key.slice(0, 4) + '****'
   return key.slice(0, 8) + '...'
 }
 
@@ -70,10 +71,24 @@ export const authCmd = new Command()
     let provider: AiProvider
     let apiKey: string
 
+    // Exclusive flag check
+    if (options.anthropic && options.openai) {
+      console.error(colors.red('Error: --anthropic and --openai cannot be used together'))
+      Deno.exit(1)
+    }
+
     if (options.anthropic) {
+      if (options.anthropic.trim().length === 0) {
+        console.error(colors.red('Error: API key cannot be empty'))
+        Deno.exit(1)
+      }
       provider = 'anthropic'
       apiKey = options.anthropic
     } else if (options.openai) {
+      if (options.openai.trim().length === 0) {
+        console.error(colors.red('Error: API key cannot be empty'))
+        Deno.exit(1)
+      }
       provider = 'openai'
       apiKey = options.openai
     } else {
