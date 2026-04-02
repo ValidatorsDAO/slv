@@ -375,6 +375,11 @@ export const consoleAction = async () => {
     cmdOutputLines = []
     cmdOutputText = null
     cmdTotalLineCount = 0
+  }, (taskName: string) => {
+    // Ansible task-title spinner mode: update the loader message
+    if (loader) {
+      loader.setMessage(taskName)
+    }
   })
 
   // Read auto-execute setting from agent config
