@@ -14,134 +14,125 @@
   </a>
 </p>
 
-# SLV — AI-Powered Solana Node Deployment
+# SLV — Solana Node Manager with AI Console
 
-**Deploy Solana validators, RPC nodes, and gRPC streaming infrastructure through natural conversation with AI agents.**
+**Deploy and manage Solana validators, RPC nodes, and gRPC streaming in 3 commands.**
 
-SLV provides Ansible playbooks, Jinja2 templates, and AI agent skills that let you deploy and manage Solana nodes by simply describing what you need. No manual configuration files, no memorizing commands — just tell your AI agent what to do.
+SLV is a CLI tool that handles the full lifecycle of Solana infrastructure — from bare metal to running node. The built-in AI Console lets you deploy and operate nodes through natural conversation.
 
 <a href="https://solana.com/">
   <img src="https://storage.slv.dev/PoweredBySolana.svg" alt="Powered By Solana" width="200px" height="95px">
 </a>
 
-## Quick Start — Deploy with AI
+## 🆕 What's New
 
-> **🚀 Just want to deploy?** Run `slv onboard` then `slv c` — see [SLV CLI](#slv-cli--the-fastest-way-to-get-started) below.
+- **🟢 DoubleZero support** — First-class integration with the [DoubleZero](https://doublezero.xyz/) low-latency network
+- **AI Console** — Deploy nodes through conversation with specialist AI agents
+- **Performance tuning** — Automated CPU governor, IRQ pinning, and kernel optimization
+- **Multi-region snapshots** — 7 global snapshot endpoints for fast node bootstrapping
 
-### 1. Install a Skill
+## Quick Start
 
-SLV skills work with **any AI coding agent** — OpenClaw, Claude Code, Codex, Cursor, Windsurf, and more. Pick the method that fits your setup:
-
-#### OpenClaw (via ClawHub)
 ```bash
-npx clawhub install slv-validator
+# 1. Install SLV
+curl -fsSL https://storage.slv.dev/slv/install | sh
+
+# 2. Configure your environment (AI provider, SSH keys, API keys)
+slv onboard
+
+# 3. Launch the AI Console
+slv c
 ```
 
-#### Claude Code
-```bash
-# Copy skill into your project
-cp -r dist/oss-skills/slv-validator /your/project/.claude/skills/
-```
-
-#### Codex / Cursor / Other AI Agents
-```bash
-# Add SKILL.md to your agent's context
-cp dist/oss-skills/slv-validator/SKILL.md /your/project/AGENTS.md
-# Or reference it in your agent's config
-```
-
-#### Direct from GitHub
-```bash
-# Clone just the skill you need
-git clone --depth 1 https://github.com/ValidatorsDAO/slv.git
-cp -r slv/dist/oss-skills/slv-validator ./my-skill
-```
-
-Skills are just Markdown files (SKILL.md + AGENT.md) with Ansible playbooks — any AI that can read files and run commands can use them.
-
-### 2. Talk to Your Agent
+That's it. The AI Console guides you through everything:
 
 ```
 You: Deploy a mainnet Jito validator on 203.0.113.10
 
-Agent: I'll set up a mainnet Jito validator. Let me walk you through the configuration:
-       - Server IP: 203.0.113.10
-       - What SSH user should I use? (default: solv)
-       - Do you have existing validator identity and vote account keys,
-         or should we generate new ones?
-       ...
+Agent: I'll set up a mainnet Jito validator. Let me walk you through:
+       - Checking SSH connectivity...
+       - Generating validator identity and vote keys...
+       - Building Solana from source...
+       - Downloading snapshot from nearest region...
+       - Starting validator and monitoring slot sync...
 ```
 
-The AI agent guides you through the entire process interactively:
+## What Can SLV Do?
 
-1. **Collects configuration** — server details, validator type, keys, network settings
-2. **Validates inputs** — checks SSH connectivity, key formats, version compatibility
-3. **Generates inventory** — creates Ansible inventory from your responses
-4. **Offers dry-run** — shows what will happen before executing
-5. **Deploys** — runs the appropriate Ansible playbooks
-6. **Monitors** — tracks startup progress and slot sync
+| Task | Command |
+|---|---|
+| **Install SLV** | `curl -fsSL https://storage.slv.dev/slv/install \| sh` |
+| **Initial setup** | `slv onboard` |
+| **AI Console** (interactive) | `slv c` |
+| **Check node status** | `slv check` |
+| **Update Solana version** | `slv update` |
+| **Server health** | `slv check grpc` / `slv check shreds` |
 
-### 3. Manage Your Nodes
+### Supported Node Types
 
-```
-You: Restart the validator on 203.0.113.10
-You: Update Solana to v3.1.8 on my RPC node
-You: What's the slot sync status?
-You: Switch validator identity with zero downtime
-```
+- **Validators** — Jito, Agave, Firedancer (mainnet & testnet)
+- **RPC Nodes** — Standard, Index, Geyser gRPC, Index+gRPC
+- **gRPC Geyser Streaming** — Yellowstone, Richat
 
-## Available Skills
+## AI Console Agents
 
-| Skill | ClawHub | What It Does |
-|---|---|---|
-| **[slv-validator](dist/oss-skills/slv-validator/)** | `npx clawhub install slv-validator` | Deploy & manage mainnet/testnet validators (Jito, Agave, Firedancer) |
-| **[slv-rpc](dist/oss-skills/slv-rpc/)** | `npx clawhub install slv-rpc` | Deploy & manage RPC nodes (Standard, Index, Geyser gRPC, Index+gRPC) |
-| **[slv-grpc-geyser](dist/oss-skills/slv-grpc-geyser/)** | `npx clawhub install slv-grpc-geyser` | Deploy & manage gRPC Geyser streaming (Yellowstone, Richat) |
+The AI Console (`slv c`) includes specialist agents for different tasks:
 
-Each skill includes:
-- **SKILL.md** — Complete playbook knowledge for the AI agent (works with any AI)
-- **AGENT.md** — Interactive deployment flows and behavior rules
-- **scripts/setup.sh** — Auto-install prerequisites (ansible-core, SSH, solana-cli)
-- **ansible/** — Ansible playbooks (can also be used standalone)
-- **examples/** — Sample inventory files
+| Agent | Role |
+|---|---|
+| **Cecil** | Validator deployments (Jito, Agave, Firedancer) |
+| **Tina** | RPC & gRPC Geyser deployments |
+| **Figaro** | Server procurement and pricing |
+| **Setzer** | Trading bots and Solana apps |
 
-> **No lock-in.** Skills are plain Markdown + Ansible. Use them with any AI agent, or run the playbooks directly without AI.
-
-## Prerequisites
-
-- **ansible-core** >= 2.15 (`pip install ansible-core`)
-- **SSH access** to target servers (key-based authentication)
-- **solana-cli** (optional, for local key generation)
-
-Run the setup script to auto-install:
-```bash
-bash scripts/setup.sh
-```
+Just describe what you need in plain language. The agent handles SSH, keys, builds, snapshots, firewall, and monitoring.
 
 ## How It Works
 
-SLV uses **Ansible playbooks** and **Jinja2 templates** to deploy Solana nodes. The AI agent skills wrap this infrastructure with conversational interfaces:
+SLV uses **Ansible playbooks** and **Jinja2 templates** under the hood:
 
 ```
-User request → AI Agent (SKILL.md knowledge) → Ansible playbooks → Target server
+Your request → AI Agent → Ansible playbooks → Target server
 ```
 
-**Key design principles:**
-- **Remote-only** — all configuration from your local machine, no direct node logins
-- **Dummy key start** — validators always start with an unstaked identity, then switch
-- **Source builds** — Solana binaries built from GitHub source (no pre-built downloads)
-- **Firewall-first** — SSH IP restrictions and nftables configured during init
+**Design principles:**
+- **Remote-only** — manage everything from your local machine, no SSH into nodes
+- **Dummy key start** — validators start with unstaked identity, then hot-switch
+- **Source builds** — Solana binaries built from GitHub source
+- **Firewall-first** — SSH restrictions and nftables from day one
+- **DoubleZero ready** — opt-in low-latency networking for validators and RPC
+
+## Using AI Agent Skills (Advanced)
+
+SLV also provides standalone AI agent skills that work with **any AI coding agent** — OpenClaw, Claude Code, Codex, Cursor, Windsurf, and more.
+
+| Skill | What It Does |
+|---|---|
+| **[slv-validator](dist/oss-skills/slv-validator/)** | Deploy & manage validators |
+| **[slv-rpc](dist/oss-skills/slv-rpc/)** | Deploy & manage RPC nodes |
+| **[slv-grpc-geyser](dist/oss-skills/slv-grpc-geyser/)** | Deploy & manage gRPC Geyser streaming |
+
+```bash
+# OpenClaw (via ClawHub)
+npx clawhub install slv-validator
+
+# Claude Code — copy skill into your project
+cp -r dist/oss-skills/slv-validator /your/project/.claude/skills/
+
+# Any agent — add SKILL.md to your agent's context
+cp dist/oss-skills/slv-validator/SKILL.md /your/project/AGENTS.md
+```
+
+Each skill includes SKILL.md (AI knowledge), Ansible playbooks, setup scripts, and example inventories. No lock-in — they're plain Markdown + Ansible.
 
 ## Using Without AI (Direct Ansible)
-
-You can also use the playbooks directly:
 
 ```bash
 cd dist/oss-skills/slv-validator/ansible/
 
 # Deploy a mainnet Jito validator
 ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"v3.1.8-jito","snapshot_url":"https://..."}'
+  -e '{"validator_type":"jito","solana_version":"v3.1.8-jito"}'
 
 # Restart a validator
 ansible-playbook -i inventory.yml mainnet-validator/restart_node.yml
@@ -151,44 +142,27 @@ ansible-playbook -i inventory.yml cmn/build_solana.yml \
   -e '{"solana_version":"v3.1.8"}'
 ```
 
-## SLV CLI — The Fastest Way to Get Started
-
-Install the CLI and launch the AI Console in 3 commands:
-
-```bash
-curl -fsSL https://storage.slv.dev/slv/install | sh
-slv onboard    # Configure AI provider, API keys, and agent settings
-slv c          # Launch AI Console — deploy nodes through conversation
-```
-
-The AI Console (`slv c`) gives you a rich terminal UI where specialist agents handle everything:
-- **Cecil** — Validator deployments (Jito, Agave, Firedancer)
-- **Tina** — RPC & gRPC Geyser deployments
-- **Figaro** — Server procurement and pricing
-- **Setzer** — Trading bots and Solana apps
-
-Just describe what you need. The agent handles SSH setup, key generation, inventory creation, builds, snapshot download, and monitoring.
-
-See [slv.dev](https://slv.dev/) for full documentation.
-
 ## ERPC Network Benefits
 
-Servers purchased through [erpc.global](https://erpc.global/en/) automatically get:
-- **Dedicated snapshot endpoints** — 7 global regions for fast node bootstrapping
-- **Internal routing** — dramatically lower bandwidth costs
-- **Auto-detection** — SLV automatically finds the nearest snapshot server via ping
+Servers from [erpc.global](https://erpc.global/en/) automatically get:
+- **Dedicated snapshot endpoints** — 7 global regions
+- **Internal routing** — lower bandwidth costs
+- **Auto-detection** — SLV finds the nearest snapshot server via ping
+
+## Prerequisites
+
+- **ansible-core** >= 2.15 (`pip install ansible-core`)
+- **SSH access** to target servers (key-based auth)
+- **solana-cli** (optional, for local key generation)
+
+`slv onboard` handles most of this automatically.
 
 ## For Developers
 
 ```bash
-# Clone and run locally
 git clone https://github.com/ValidatorsDAO/slv.git
 deno task dev --help
-
-# Build
 deno task build
-
-# Test
 deno test -A
 ```
 
