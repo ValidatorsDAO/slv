@@ -266,11 +266,9 @@ main() {
   echo "Testing slv installation... 🔨"
   slv -P || true
 
-  echo "Try 'slv storage' to manage cloud storage (upload, download, snapshots):"
-  echo "  slv storage upload    — Upload a file"
-  echo "  slv storage download  — Download a file"
-  echo "  slv storage list      — List stored files"
-  echo "  slv storage usage     — Check quota"
+  echo "Try 'slv backup' to protect your node environment:"
+  echo "  slv backup create   — Create a backup of the current node"
+  echo "  slv backup list     — List available backups and snapshots"
 }
 
 # Run the main function
