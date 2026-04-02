@@ -1,0 +1,26 @@
+---
+# SMT (Hyper-Threading) disable
+# Adds nosmt to GRUB kernel command line. Effective after reboot.
+
+- name: Check if nosmt is already in GRUB
+  shell: grep -q 'nosmt' /etc/default/grub
+  register: nosmt_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Append nosmt to GRUB_CMDLINE_LINUX_DEFAULT
+  replace:
+    path: /etc/default/grub
+    regexp: '^(GRUB_CMDLINE_LINUX_DEFAULT=".*)"$'
+    replace: '\1 nosmt"'
+  when: nosmt_check.rc != 0
+  register: grub_updated
+
+- name: Update GRUB
+  command: update-grub
+  when: grub_updated is changed
+
+- name: Set need_reboot flag
+  set_fact:
+    need_reboot: true
+  when: grub_updated is changed

@@ -1,0 +1,26 @@
+---
+# IRQ tuning — NIC IRQ pinning + RPS/XPS optimization
+# Deploys vs2-irq-tune as a systemd oneshot service.
+
+- name: Deploy vs2-irq-tune.sh
+  copy:
+    src: "{{ playbook_dir }}/cmn/files/vs2-irq-tune.sh"
+    dest: /usr/local/bin/vs2-irq-tune.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy vs2-irq-tune.service
+  copy:
+    src: "{{ playbook_dir }}/cmn/files/vs2-irq-tune.service"
+    dest: /etc/systemd/system/vs2-irq-tune.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable and start vs2-irq-tune service
+  systemd:
+    name: vs2-irq-tune
+    enabled: true
+    state: started
+    daemon_reload: true

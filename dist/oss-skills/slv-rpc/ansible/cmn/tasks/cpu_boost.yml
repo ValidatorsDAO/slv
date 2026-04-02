@@ -1,0 +1,90 @@
+---
+# CPU boost — HWE kernel, GRUB tuning, and vs2-cpu-boost service
+# For AMD Ryzen/EPYC systems with amd_pstate driver.
+
+# --- HWE Kernel ---
+- name: Get current kernel version
+  command: uname -r
+  register: current_kernel
+  changed_when: false
+
+- name: Check if HWE kernel is installed
+  shell: dpkg -l | grep -q linux-generic-hwe
+  register: hwe_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Install HWE kernel
+  apt:
+    name: linux-generic-hwe-{{ ansible_distribution_version }}
+    state: present
+    update_cache: true
+  when: hwe_check.rc != 0
+  register: hwe_installed
+
+- name: Set need_reboot for HWE kernel
+  set_fact:
+    need_reboot: true
+  when: hwe_installed is changed
+
+# --- GRUB parameters ---
+- name: Check if processor.max_cstate=0 is in GRUB
+  shell: grep -q 'processor.max_cstate=0' /etc/default/grub
+  register: cstate_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Append processor.max_cstate=0 to GRUB
+  replace:
+    path: /etc/default/grub
+    regexp: '^(GRUB_CMDLINE_LINUX_DEFAULT=".*)"$'
+    replace: '\1 processor.max_cstate=0"'
+  when: cstate_check.rc != 0
+  register: grub_cstate
+
+- name: Check if amd_pstate=active is in GRUB
+  shell: grep -q 'amd_pstate=active' /etc/default/grub
+  register: pstate_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Append amd_pstate=active to GRUB
+  replace:
+    path: /etc/default/grub
+    regexp: '^(GRUB_CMDLINE_LINUX_DEFAULT=".*)"$'
+    replace: '\1 amd_pstate=active"'
+  when: pstate_check.rc != 0
+  register: grub_pstate
+
+- name: Update GRUB
+  command: update-grub
+  when: grub_cstate is changed or grub_pstate is changed
+
+- name: Set need_reboot for GRUB changes
+  set_fact:
+    need_reboot: true
+  when: grub_cstate is changed or grub_pstate is changed
+
+# --- CPU boost service ---
+- name: Deploy vs2-cpu-boost.sh
+  copy:
+    src: "{{ playbook_dir }}/cmn/files/vs2-cpu-boost.sh"
+    dest: /usr/local/bin/vs2-cpu-boost.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy vs2-cpu-boost.service
+  copy:
+    src: "{{ playbook_dir }}/cmn/files/vs2-cpu-boost.service"
+    dest: /etc/systemd/system/vs2-cpu-boost.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable and start vs2-cpu-boost service
+  systemd:
+    name: vs2-cpu-boost
+    enabled: true
+    state: started
+    daemon_reload: true
