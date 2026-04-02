@@ -10,7 +10,7 @@
     "dev": "deno run -A --watch cli/src/index.ts",
     "update:version": "deno run -A scripts/update-version.ts",
     "create:release": "deno run -A scripts/create-release.ts",
-    "build:all": "deno task build && deno task upload:script && deno task upload:exe && deno task upload:template && deno task purge:cache",
+    "build:all": "deno task build && deno task create:template && deno task generate:checksums && deno task upload:script && deno task upload:exe && deno task upload:template && deno task purge:cache",
     "build": "deno task build:linux && deno task build:mac",
     "build:linux": "deno compile -A --target x86_64-unknown-linux-gnu --no-check --output dist/slv-x86_64-unknown-linux-gnu-exe cli/src/index.ts && tar -czvf dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz dist/slv-x86_64-unknown-linux-gnu-exe",
     "build:mac": "deno compile -A --target x86_64-apple-darwin --no-check --output dist/slv-x86_64-apple-darwin-exe cli/src/index.ts && tar -czvf dist/slv-x86_64-apple-darwin-exe.tar.gz dist/slv-x86_64-apple-darwin-exe",
@@ -18,7 +18,9 @@
     "docker:rm": "bash scripts/docker-systemd-rm.sh",
     "upload:script": "deno run -A cli/uploadScript.ts",
     "upload:exe": "deno run -A cli/uploadExe.ts",
-    "upload:template": "tar -czf dist/template.tar.gz ./template/0.13.13 && deno run -A cli/uploadTemplate.ts",
+    "create:template": "tar -czf dist/template.tar.gz ./template/0.13.13",
+    "generate:checksums": "deno run -A cli/generateChecksums.ts",
+    "upload:template": "deno run -A cli/uploadTemplate.ts",
     "purge:cache": "deno run -A cmn/lib/purgeR2Cache.ts"
   },
   "imports": {

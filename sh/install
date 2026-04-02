@@ -46,6 +46,34 @@ install_slv() {
   # Use --progress-bar to show download progress
   curl -fSL --progress-bar "$DOWNLOAD_URL" -o "$TEMP_DIR/slv.tar.gz"
 
+  # SHA256 checksum verification
+  CHECKSUM_URL="${BASE_URL}/${VERSION}/SHA256SUMS"
+  echo "Verifying binary integrity..."
+  if ! curl -fsSL "$CHECKSUM_URL" -o "$TEMP_DIR/SHA256SUMS"; then
+    echo "❌ ERROR: Failed to download checksums. Aborting."
+    exit 1
+  fi
+
+  EXPECTED_FILE="${platform}-exe.tar.gz"
+  cp "$TEMP_DIR/slv.tar.gz" "$TEMP_DIR/$EXPECTED_FILE"
+
+  if command -v sha256sum &>/dev/null; then
+    VERIFY_CMD="sha256sum"
+  elif command -v shasum &>/dev/null; then
+    VERIFY_CMD="shasum -a 256"
+  else
+    echo "❌ ERROR: sha256sum/shasum not found. Cannot verify."
+    exit 1
+  fi
+
+  cd "$TEMP_DIR"
+  if ! $VERIFY_CMD -c --ignore-missing SHA256SUMS; then
+    echo "❌ FATAL: Checksum verification FAILED!"
+    echo "The binary may be compromised. Aborting."
+    exit 1
+  fi
+  echo "✅ Binary integrity verified."
+
   echo "Downloading templates from $TEMPLATE_URL..."
   curl -fSL --progress-bar "$TEMPLATE_URL" -o "$HOME/.slv/template.tar.gz"
 
