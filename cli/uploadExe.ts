@@ -10,6 +10,8 @@ const uploadExe = async () => {
   const compileTargets = [
     'x86_64-apple-darwin',
     'x86_64-unknown-linux-gnu',
+    'aarch64-apple-darwin',
+    'aarch64-unknown-linux-gnu',
   ]
   console.log(`Uploading slv v${version} to Cloudflare R2`)
 
