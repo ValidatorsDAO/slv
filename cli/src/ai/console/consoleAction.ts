@@ -98,17 +98,62 @@ class ChatLog extends Container {
   addTool(name: string, detail: string) {
     // Show user-friendly tool descriptions instead of raw JSON
     const friendlyNames: Record<string, string> = {
-      'run_command': '⚡ Running command...',
-      'read_file': '📄 Reading file...',
-      'write_file': '📝 Writing file...',
-      'list_files': '📂 Listing files...',
-      'call_mcp': '🔗 Calling SLV Cloud API...',
+      'run_command': '⚡ Running command',
+      'read_file': '📄 Reading file',
+      'write_file': '📝 Writing file',
+      'list_files': '📂 Listing files',
+      'call_mcp': '🔗 Calling SLV Cloud API',
       'delegate_to_agent': '', // handled separately
     }
     const friendly = friendlyNames[name]
     if (friendly === '') return // skip
-    const label = friendly || `⚡ ${name}...`
-    this.addChild(new Text(yellow(label), 1))
+    const label = friendly || `⚡ ${name}`
+
+    // For run_command, show the actual command being executed
+    if (name === 'run_command') {
+      let cmd = ''
+      try {
+        const parsed = JSON.parse(detail)
+        cmd = parsed.command || ''
+      } catch {
+        // detail might be the command string directly
+        cmd = detail
+      }
+      if (cmd) {
+        // Truncate very long commands for readability
+        const display = cmd.length > 120 ? cmd.slice(0, 117) + '...' : cmd
+        this.addChild(new Text(yellow(`${label}: `) + gray(`$ ${display}`), 1))
+        return
+      }
+    }
+
+    // For read_file/write_file, show the file path
+    if (name === 'read_file' || name === 'write_file') {
+      let path = ''
+      try {
+        const parsed = JSON.parse(detail)
+        path = parsed.path || parsed.file_path || ''
+      } catch { /* ignore */ }
+      if (path) {
+        this.addChild(new Text(yellow(`${label}: `) + gray(path), 1))
+        return
+      }
+    }
+
+    // For call_mcp, show the tool name
+    if (name === 'call_mcp') {
+      let toolName = ''
+      try {
+        const parsed = JSON.parse(detail)
+        toolName = parsed.tool || ''
+      } catch { /* ignore */ }
+      if (toolName) {
+        this.addChild(new Text(yellow(`${label}: `) + gray(toolName), 1))
+        return
+      }
+    }
+
+    this.addChild(new Text(yellow(label + '...'), 1))
   }
 }
 
@@ -245,12 +290,97 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
         })
         await cmd.output()
       } else {
-        const cmd = new Deno.Command('pip3', {
-          args: ['install', '--user', 'ansible-core'],
-          stdout: 'inherit',
-          stderr: 'inherit',
-        })
-        await cmd.output()
+        // Ensure python3 and pip3 are available (clean Ubuntu servers may lack them)
+        let hasPip3 = false
+        try {
+          const check = new Deno.Command('pip3', { args: ['--version'], stdout: 'piped', stderr: 'piped' })
+          const { success } = await check.output()
+          hasPip3 = success
+        } catch { /* not found */ }
+
+        if (!hasPip3) {
+          console.log(green('  Installing python3-pip...'))
+          // Try apt-get first (Debian/Ubuntu)
+          let aptSuccess = false
+          try {
+            const update = new Deno.Command('sudo', {
+              args: ['apt-get', 'update', '-qq'],
+              stdout: 'inherit',
+              stderr: 'inherit',
+            })
+            await update.output()
+            const install = new Deno.Command('sudo', {
+              args: ['apt-get', 'install', '-y', 'python3-pip'],
+              stdout: 'inherit',
+              stderr: 'inherit',
+            })
+            const result = await install.output()
+            aptSuccess = result.success
+          } catch { /* apt-get not available */ }
+
+          if (!aptSuccess) {
+            // Try dnf (Fedora/RHEL)
+            try {
+              const install = new Deno.Command('sudo', {
+                args: ['dnf', 'install', '-y', 'python3-pip'],
+                stdout: 'inherit',
+                stderr: 'inherit',
+              })
+              await install.output()
+            } catch {
+              console.log(red('  ✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip'))
+            }
+          }
+        }
+
+        // Try apt install first (avoids PEP 668 on Ubuntu 24.04+)
+        let ansibleInstalled = false
+        try {
+          const aptInstall = new Deno.Command('sudo', {
+            args: ['apt-get', 'install', '-y', 'ansible-core'],
+            stdout: 'inherit',
+            stderr: 'inherit',
+          })
+          const aptResult = await aptInstall.output()
+          ansibleInstalled = aptResult.success
+        } catch { /* apt-get not available */ }
+
+        // Fallback: pip3 with --break-system-packages
+        if (!ansibleInstalled) {
+          const isRoot = Deno.uid?.() === 0
+          const pipArgs = isRoot
+            ? ['install', '--break-system-packages', 'ansible-core']
+            : ['install', '--user', '--break-system-packages', 'ansible-core']
+          try {
+            const cmd = new Deno.Command('pip3', {
+              args: pipArgs,
+              stdout: 'inherit',
+              stderr: 'inherit',
+            })
+            await cmd.output()
+          } catch {
+            // Last resort: try without --break-system-packages (older distros)
+            const fallbackArgs = isRoot
+              ? ['install', 'ansible-core']
+              : ['install', '--user', 'ansible-core']
+            const cmd = new Deno.Command('pip3', {
+              args: fallbackArgs,
+              stdout: 'inherit',
+              stderr: 'inherit',
+            })
+            await cmd.output()
+          }
+
+          // Ensure ~/.local/bin is in PATH for --user installs
+          if (!isRoot) {
+            const home = Deno.env.get('HOME') || ''
+            const currentPath = Deno.env.get('PATH') || ''
+            const localBin = `${home}/.local/bin`
+            if (!currentPath.includes(localBin)) {
+              Deno.env.set('PATH', `${localBin}:${currentPath}`)
+            }
+          }
+        }
       }
       console.log(green('  ✓ ansible-core installed'))
     }
