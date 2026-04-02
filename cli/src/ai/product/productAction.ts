@@ -29,11 +29,13 @@ async function callMcp(apiKey: string, toolName: string, args: Record<string, un
 
 type Product = {
   name?: string
+  product?: string
   description?: string
   price?: string | number
   tokens?: string | number
   currency?: string
   interval?: string
+  paymentLink?: string
   [key: string]: unknown
 }
 
@@ -58,7 +60,8 @@ export const aiProductAction = async () => {
     let products: Product[] | null = null
     try {
       const parsed = JSON.parse(raw)
-      products = Array.isArray(parsed) ? parsed : (parsed.products ?? parsed.items ?? null)
+      products = Array.isArray(parsed) ? parsed : (parsed.products ?? parsed.items ?? parsed.message ?? null)
+      if (products && !Array.isArray(products)) products = null
     } catch {
       // Not JSON
     }
@@ -68,7 +71,7 @@ export const aiProductAction = async () => {
         const table = new Table()
         const rows: Row[] = []
 
-        const name = product.name ?? 'Unknown'
+        const name = product.name ?? product.product ?? 'Unknown'
         rows.push(new Row(colors.blue('Plan'), colors.bold(colors.white(String(name)))).border(true))
 
         if (product.description) {
@@ -78,9 +81,12 @@ export const aiProductAction = async () => {
           rows.push(new Row(colors.blue('Tokens'), colors.white(Number(product.tokens).toLocaleString())).border(true))
         }
         if (product.price !== undefined) {
-          const currency = product.currency ?? 'USD'
+          const currency = product.currency ?? 'EUR'
           const interval = product.interval ? `/${product.interval}` : ''
           rows.push(new Row(colors.blue('Price'), colors.white(`${product.price} ${currency}${interval}`)).border(true))
+        }
+        if (product.paymentLink) {
+          rows.push(new Row(colors.blue('Purchase'), colors.cyan(String(product.paymentLink))).border(true))
         }
 
         table.body(rows)

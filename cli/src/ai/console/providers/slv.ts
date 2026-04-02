@@ -77,17 +77,17 @@ export class SLVProvider {
         ) {
           throw new Error(
             'Your SLV AI token limit has been reached.\n' +
-            'Please upgrade your plan or add more tokens in this channel:\n' +
-            'https://discord.com/channels/1278625724248494120/1488527495639601233',
+            '  Run `slv ai usage`   \u2014 check your remaining token balance\n' +
+            '  Run `slv ai product` \u2014 view plans and purchase options',
           )
         }
 
         // 529 = overloaded / token quota exhausted
         if (response.status === 529) {
           throw new Error(
-            'SLV AI is temporarily unavailable or your token balance may be exhausted.\n' +
-            'Please upgrade your plan or add more tokens in this channel:\n' +
-            'https://discord.com/channels/1278625724248494120/1488527495639601233',
+            'AI tokens may be insufficient. Please consider upgrading your plan or purchasing additional tokens.\n' +
+            '  Run `slv ai usage`   \u2014 check your remaining token balance\n' +
+            '  Run `slv ai product` \u2014 view plans and purchase options',
           )
         }
 
