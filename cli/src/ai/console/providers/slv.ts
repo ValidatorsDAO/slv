@@ -43,7 +43,7 @@ export class SLVProvider {
   constructor(apiKey: string, model: string, systemPrompt: string, callbacks: ChatCallbacks) {
     this.apiKey = apiKey
     // "SLV AI" maps to the default model on the server side
-    this.model = model === 'SLV AI' ? 'claude-sonnet-4-6' : model
+    this.model = model === 'SLV AI' ? 'claude-opus-4-6' : model
     this.systemPrompt = systemPrompt
     this.callbacks = callbacks
   }
