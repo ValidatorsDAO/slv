@@ -6,7 +6,7 @@ import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 const USER_API_URL = 'https://user-api.erpc.global/v3/ai/airdrop'
 const BASE58_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 
-export const airdropAction = async (walletAddress?: string) => {
+export const airdropAction = async (walletAddress?: string): Promise<boolean> => {
   const apiKey = await getApiKeyFromYml()
 
   if (!walletAddress) {
@@ -17,7 +17,7 @@ export const airdropAction = async (walletAddress?: string) => {
 
   if (!BASE58_REGEX.test(walletAddress)) {
     console.log(colors.red('\n  ❌ Invalid Solana wallet address format\n'))
-    return
+    return false
   }
 
   const spinner = new Kia(colors.cyan('Requesting Testnet SOL airdrop...'))
@@ -51,7 +51,7 @@ export const airdropAction = async (walletAddress?: string) => {
         const msg = (data?.message as string) ?? `HTTP ${response.status}`
         console.log(colors.red(`\n  ${msg}\n`))
       }
-      return
+      return false
     }
 
     spinner.succeed('Airdrop successful!')
@@ -68,8 +68,10 @@ export const airdropAction = async (walletAddress?: string) => {
         ),
       )
     }
+    return true
   } catch (error) {
     spinner.fail('Airdrop failed')
     console.log(colors.red(`\n  ${(error as Error).message}\n`))
+    return false
   }
 }

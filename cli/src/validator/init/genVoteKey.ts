@@ -64,9 +64,11 @@ const genVoteKey = async (identityAccount: string): Promise<{
     if (apiKey) {
       console.log(colors.white('💰 Requesting Testnet SOL via ERPC airdrop...'))
       try {
-        await airdropAction(identityAccount)
-        airdropSuccess = true
+        airdropSuccess = await airdropAction(identityAccount)
       } catch (_e) {
+        airdropSuccess = false
+      }
+      if (!airdropSuccess) {
         console.log(colors.yellow('⚠️ ERPC airdrop failed, trying solana airdrop...'))
       }
     }
