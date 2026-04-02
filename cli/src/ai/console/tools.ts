@@ -344,11 +344,74 @@ async function executeRunCommand(command: string): Promise<string> {
     const stdout = stdoutChunks.join('')
     const stderr = stderrChunks.join('')
 
+    // Save full ansible output to log file for debugging
+    if (isAnsibleCommand) {
+      try {
+        const logDir = `${Deno.env.get('HOME') || '/tmp'}/.slv/logs`
+        await Deno.mkdir(logDir, { recursive: true })
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+        const logPath = `${logDir}/ansible-${timestamp}.log`
+        const logContent = `Command: ${command}\nExit code: ${status.code}\nTimestamp: ${new Date().toISOString()}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`
+        await Deno.writeTextFile(logPath, logContent)
+        // Rotate: keep only the last 10 log files
+        const entries: string[] = []
+        for await (const entry of Deno.readDir(logDir)) {
+          if (entry.isFile && entry.name.startsWith('ansible-') && entry.name.endsWith('.log')) {
+            entries.push(entry.name)
+          }
+        }
+        entries.sort()
+        while (entries.length > 10) {
+          const oldest = entries.shift()!
+          await Deno.remove(`${logDir}/${oldest}`).catch(() => {})
+        }
+      } catch { /* non-fatal: log saving should never break the flow */ }
+    }
+
     if (!status.success) {
+      if (isAnsibleCommand) {
+        // For ansible failures: return only the last portion of output + full stderr
+        // to keep token usage reasonable while preserving error context
+        const logHint = `\nFull log saved to ~/.slv/logs/ for detailed debugging.`
+        const lastStdout = stdout.slice(-3000)
+        const lastStderr = stderr.slice(-2000)
+        return `Command failed (exit code ${status.code}):\nstdout (last 3000 chars):\n${lastStdout}\nstderr (last 2000 chars):\n${lastStderr}${logHint}`
+      }
       return `Command failed (exit code ${status.code}):\nstdout:\n${stdout}\nstderr:\n${stderr}`
     }
     activeChildProcess = null
     if (onCommandComplete) onCommandComplete()
+
+    if (isAnsibleCommand) {
+      // For successful ansible runs: return a compact summary instead of full output
+      // to avoid sending thousands of lines (tens of thousands of tokens) to the AI
+      const lines = stdout.split('\n')
+      const taskLines = lines.filter((l: string) => {
+        const t = l.trim()
+        return t.startsWith('TASK [') ||
+          t.startsWith('PLAY [') ||
+          t.startsWith('PLAY RECAP') ||
+          t.startsWith('ok=') ||
+          t.includes('changed=') ||
+          t.includes('failed=') ||
+          t.includes('unreachable=') ||
+          t.startsWith('fatal:') ||
+          t.startsWith('ERROR') ||
+          t.startsWith('FAILED') ||
+          t.includes('...ignoring')
+      })
+      // Also include the PLAY RECAP summary lines (host status lines)
+      const recapIdx = lines.findIndex((l: string) => l.trim().startsWith('PLAY RECAP'))
+      const recapLines = recapIdx >= 0 ? lines.slice(recapIdx, recapIdx + 20).filter((l: string) => l.trim()) : []
+      const summary = [...new Set([...taskLines, ...recapLines])].join('\n')
+      const logNote = '\nFull log saved to ~/.slv/logs/ for detailed debugging.'
+      return (summary || 'Ansible playbook completed successfully.') + logNote
+    }
+
+    // Cap non-ansible output to avoid excessive token usage on unexpectedly large outputs
+    if (stdout.length > 10000) {
+      return stdout.slice(-10000) + '\n... (output truncated to last 10000 chars)'
+    }
     return stdout || '(no output)'
   } catch (error) {
     activeChildProcess = null
