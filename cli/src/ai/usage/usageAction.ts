@@ -34,12 +34,18 @@ export const aiUsageAction = async () => {
 
     const aiPlan = msg.ai_plan ?? 'unknown'
     const maxTokens = Number(msg.max_tokens ?? 0)
-    const consumedTokens = Number(msg.consumedTokens ?? 0)
+    const rawConsumed = Number(msg.consumedTokens ?? msg.consumed_tokens ?? 0)
     const remainingTokens = Number(msg.remaining_tokens ?? 0)
     const inputTokens = Number(msg.input_tokens ?? 0)
     const outputTokens = Number(msg.output_tokens ?? 0)
     const cacheCreation = Number(msg.cache_creation_input_tokens ?? 0)
     const cacheRead = Number(msg.cache_read_input_tokens ?? 0)
+
+    // Use max - remaining as consumed when the API field is stale/zero
+    const derivedConsumed = maxTokens > 0 && remainingTokens >= 0
+      ? maxTokens - remainingTokens
+      : 0
+    const consumedTokens = rawConsumed > 0 ? rawConsumed : derivedConsumed
 
     const usagePercent = maxTokens > 0
       ? ((consumedTokens / maxTokens) * 100).toFixed(1)
