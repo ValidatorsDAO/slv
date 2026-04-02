@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="0.9.962"
+VERSION="2026.4.2.0910"
 BASE_URL="https://storage.slv.dev/slv"
 GRPC_TEST_URL_LINUX="https://storage.elsoul.nl/grpc_test"
 GRPC_TEST_URL_MAC="https://storage.elsoul.nl/grpc_test_mac"
@@ -11,24 +11,22 @@ GEYSERBENCH_URL_MAC="https://storage.elsoul.nl/geyserbench_mac"
 SHREDS_TEST_URL_LINUX="https://storage.elsoul.nl/bin/latest/deshred"
 SHREDS_TEST_URL_MAC="https://storage.elsoul.nl/bin/latest/deshred_mac"
 
-# Detect the platform (Linux/macOS/Windows) based on 'uname'
+# Detect the platform (Linux/macOS/Windows) and architecture based on 'uname'
 detect_platform() {
   uname_out="$(uname -s)"
-  case "${uname_out}" in
-    Linux*)     platform="x86_64-unknown-linux-gnu"; osfamily="linux";;
-    Darwin*)    platform="x86_64-apple-darwin"; osfamily="darwin";;
-    CYGWIN*|MINGW*|MSYS*|Windows*) platform="x86_64-pc-windows-msvc"; osfamily="windows";;
-    *)          echo "Unsupported platform: ${uname_out}" && exit 1;;
+  arch_out="$(uname -m)"
+
+  case "${arch_out}" in
+    x86_64|amd64)   arch="x86_64";;
+    arm64|aarch64)  arch="aarch64";;
+    *)              echo "Unsupported architecture: ${arch_out}" && exit 1;;
   esac
 
-  # Detect architecture
-  arch_out="$(uname -m)"
-  case "${arch_out}" in
-    x86_64)     arch="x86_64";;
-    amd64)      arch="x86_64";;
-    arm64)      arch="arm64";;
-    aarch64)    arch="arm64";;
-    *)          arch="unknown";;
+  case "${uname_out}" in
+    Linux*)     platform="${arch}-unknown-linux-gnu"; osfamily="linux";;
+    Darwin*)    platform="${arch}-apple-darwin"; osfamily="darwin";;
+    CYGWIN*|MINGW*|MSYS*|Windows*) platform="x86_64-pc-windows-msvc"; osfamily="windows";;
+    *)          echo "Unsupported platform: ${uname_out}" && exit 1;;
   esac
 }
 
@@ -46,6 +44,39 @@ install_slv() {
   # Use --progress-bar to show download progress
   curl -fSL --progress-bar "$DOWNLOAD_URL" -o "$TEMP_DIR/slv.tar.gz"
 
+  # SHA256 checksum verification
+  CHECKSUM_URL="${BASE_URL}/${VERSION}/SHA256SUMS"
+  echo "Verifying binary integrity..."
+  if ! curl -fsSL "$CHECKSUM_URL" -o "$TEMP_DIR/SHA256SUMS"; then
+    echo "❌ ERROR: Failed to download checksums. Aborting."
+    exit 1
+  fi
+
+  EXPECTED_FILE="${platform}-exe.tar.gz"
+  cp "$TEMP_DIR/slv.tar.gz" "$TEMP_DIR/$EXPECTED_FILE"
+
+  if command -v sha256sum &>/dev/null; then
+    VERIFY_CMD="sha256sum"
+  elif command -v shasum &>/dev/null; then
+    VERIFY_CMD="shasum -a 256"
+  else
+    echo "❌ ERROR: sha256sum/shasum not found. Cannot verify."
+    exit 1
+  fi
+
+  cd "$TEMP_DIR"
+  grep "${platform}-exe.tar.gz" "$TEMP_DIR/SHA256SUMS" > "$TEMP_DIR/SHA256SUMS.check"
+  if [ ! -s "$TEMP_DIR/SHA256SUMS.check" ]; then
+    echo "❌ FATAL: No checksum entry found for ${platform}-exe.tar.gz"
+    exit 1
+  fi
+  if ! $VERIFY_CMD -c SHA256SUMS.check; then
+    echo "❌ FATAL: Checksum verification FAILED!"
+    echo "The binary may be compromised. Aborting."
+    exit 1
+  fi
+  echo "✅ Binary integrity verified."
+
   echo "Downloading templates from $TEMPLATE_URL..."
   curl -fSL --progress-bar "$TEMPLATE_URL" -o "$HOME/.slv/template.tar.gz"
 
@@ -58,15 +89,10 @@ install_slv() {
   echo "Copying templates to $HOME/.slv/template"
 
   # Determine the correct executable filename for the current platform
-  if [ "$platform" = "x86_64-apple-darwin" ]; then
-      SLV_FILE="$TEMP_DIR/slv-x86_64-apple-darwin-exe"
-  elif [ "$platform" = "x86_64-unknown-linux-gnu" ]; then
-      SLV_FILE="$TEMP_DIR/slv-x86_64-unknown-linux-gnu-exe"
-  elif [ "$platform" = "x86_64-pc-windows-msvc" ]; then
+  if [ "$platform" = "x86_64-pc-windows-msvc" ]; then
       SLV_FILE="$TEMP_DIR/slv-x86_64-pc-windows-msvc.exe"
   else
-      echo "Error: Unsupported platform $platform"
-      exit 1
+      SLV_FILE="$TEMP_DIR/slv-${platform}-exe"
   fi
 
   # Check if the extracted file exists
@@ -95,78 +121,76 @@ install_slv() {
 }
 
 # Install the gRPC test binary
-install_grpc_test() {
-  # Check if the gRPC test binary is already installed
-  if [ -f "$HOME/.slv/bin/grpc_test" ]; then
-    echo "gRPC test binary already installed!"
-    return
+# Download a binary only if the remote version is newer than the local copy.
+# Uses curl -z (If-Modified-Since) so the server returns 304 when unchanged.
+download_if_changed() {
+  local url="$1"
+  local dest="$2"
+  local name
+  name="$(basename "$dest")"
+
+  mkdir -p "$(dirname "$dest")"
+
+  if [ -f "$dest" ]; then
+    echo "Checking for $name updates..."
+    # -z sends If-Modified-Since based on the local file timestamp.
+    # curl exits 0 with HTTP 304 (no body written) when unchanged.
+    http_code=$(curl -fSL -z "$dest" -o "$dest.tmp" -w '%{http_code}' "$url" 2>/dev/null || true)
+    if [ "$http_code" = "304" ] || [ ! -s "$dest.tmp" ]; then
+      rm -f "$dest.tmp"
+      echo "$name is already up to date."
+      return
+    fi
+    mv -f "$dest.tmp" "$dest"
+    chmod +x "$dest"
+    echo "$name updated."
+  else
+    echo "Downloading $name for $osfamily..."
+    curl -fSL --progress-bar "$url" -o "$dest"
+    chmod +x "$dest"
+    echo "$name installed in $dest"
   fi
-  # Download the appropriate gRPC test binary based on the platform
-  echo "Downloading gRPC test binary for $osfamily..."
+}
+
+install_grpc_test() {
   mkdir -p "$HOME/.slv/bin"
 
   if [ "$osfamily" = "darwin" ]; then
-    curl -fSL --progress-bar "$GRPC_TEST_URL_MAC" -o "$HOME/.slv/bin/grpc_test"
+    download_if_changed "$GRPC_TEST_URL_MAC" "$HOME/.slv/bin/grpc_test"
   elif [ "$osfamily" = "linux" ]; then
-    curl -fSL --progress-bar "$GRPC_TEST_URL_LINUX" -o "$HOME/.slv/bin/grpc_test"
+    download_if_changed "$GRPC_TEST_URL_LINUX" "$HOME/.slv/bin/grpc_test"
   else
     echo "Warning: gRPC test binary is not available for $osfamily."
     return
   fi
-
-  chmod +x "$HOME/.slv/bin/grpc_test"
-
-  echo "gRPC test binary installed in $HOME/.slv/bin/grpc_test"
 }
 
 # Install the geyserbench binary
 install_geyserbench() {
-  # Check if the geyserbench binary is already installed
-  if [ -f "$HOME/.slv/bin/geyserbench" ]; then
-    echo "geyserbench binary already installed!"
-    return
-  fi
-  # Download the appropriate geyserbench binary based on the platform
-  echo "Downloading geyserbench binary for $osfamily..."
   mkdir -p "$HOME/.slv/bin"
 
   if [ "$osfamily" = "darwin" ]; then
-    curl -fSL --progress-bar "$GEYSERBENCH_URL_MAC" -o "$HOME/.slv/bin/geyserbench"
+    download_if_changed "$GEYSERBENCH_URL_MAC" "$HOME/.slv/bin/geyserbench"
   elif [ "$osfamily" = "linux" ]; then
-    curl -fSL --progress-bar "$GEYSERBENCH_URL_LINUX" -o "$HOME/.slv/bin/geyserbench"
+    download_if_changed "$GEYSERBENCH_URL_LINUX" "$HOME/.slv/bin/geyserbench"
   else
     echo "Warning: geyserbench binary is not available for $osfamily."
     return
   fi
-
-  chmod +x "$HOME/.slv/bin/geyserbench"
-
-  echo "geyserbench binary installed in $HOME/.slv/bin/geyserbench"
 }
 
 # Install the shreds test binary
 install_shreds_test() {
-  # Check if the shreds test binary is already installed
-  if [ -f "$HOME/.slv/bin/shreds_test" ]; then
-    echo "Shreds test binary already installed!"
-    return
-  fi
-  # Download the appropriate shreds test binary based on the platform
-  echo "Downloading shreds test binary for $osfamily..."
   mkdir -p "$HOME/.slv/bin"
 
   if [ "$osfamily" = "darwin" ]; then
-    curl -fSL --progress-bar "$SHREDS_TEST_URL_MAC" -o "$HOME/.slv/bin/shreds_test"
+    download_if_changed "$SHREDS_TEST_URL_MAC" "$HOME/.slv/bin/shreds_test"
   elif [ "$osfamily" = "linux" ]; then
-    curl -fSL --progress-bar "$SHREDS_TEST_URL_LINUX" -o "$HOME/.slv/bin/shreds_test"
+    download_if_changed "$SHREDS_TEST_URL_LINUX" "$HOME/.slv/bin/shreds_test"
   else
     echo "Warning: Shreds test binary is not available for $osfamily."
     return
   fi
-
-  chmod +x "$HOME/.slv/bin/shreds_test"
-
-  echo "Shreds test binary installed in $HOME/.slv/bin/shreds_test"
 }
 
 install_skills() {
@@ -226,6 +250,7 @@ main() {
 
   # Clean up
   echo "✨ Cleaning up..."
+  cd "$HOME" || cd /
   rm -rf "$TEMP_DIR"
   rm -f "$HOME/.slv/template.tar.gz"
 
@@ -235,14 +260,15 @@ main() {
     echo "Windows users, add $INSTALL_DIR to your PATH manually."
   fi
 
-  slv upgrade:settings
+  slv upgrade:settings || echo "⚠️ upgrade:settings encountered an error (non-fatal, templates may need re-download via 'slv upgrade')"
 
   # Optional: Test the installed 'slv'
   echo "Testing slv installation... 🔨"
   slv -P || true
 
-  echo "You can now use 'slv check grpc' to run gRPC latency tests:"
-  echo "Example: slv check grpc"
+  echo "Try 'slv backup' to protect your node environment:"
+  echo "  slv backup create   — Create a backup of the current node"
+  echo "  slv backup list     — List available backups and snapshots"
 }
 
 # Run the main function

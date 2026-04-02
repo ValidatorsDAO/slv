@@ -48,7 +48,7 @@ jobs:
           fi
 
   build-mac:
-    name: Build macOS Binary
+    name: Build macOS Binaries (x86_64 + arm64)
     needs: [check-version-tag]
     if: |
       always() && (
@@ -75,17 +75,25 @@ jobs:
         with:
           deno-version: v2.6.5
 
-      - name: Build macOS executable
+      - name: Build macOS executables (x86_64 and arm64)
         run: |
           deno install --allow-scripts=npm:protobufjs@7.4.0
           deno i
           deno task build:mac
+          deno task build:mac-arm64
 
-      - name: Upload macOS artifact
+      - name: Upload macOS x86_64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: slv-macos-binary
           path: dist/slv-x86_64-apple-darwin-exe.tar.gz
+          retention-days: 1
+
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slv-macos-arm64-binary
+          path: dist/slv-aarch64-apple-darwin-exe.tar.gz
           retention-days: 1
 
   test:
@@ -216,10 +224,16 @@ jobs:
       - name: Create artifacts directory
         run: mkdir -p artifacts dist renamed_files
 
-      - name: Download macOS artifact from build-mac job
+      - name: Download macOS x86_64 artifact from build-mac job
         uses: actions/download-artifact@v4
         with:
           name: slv-macos-binary
+          path: dist/
+
+      - name: Download macOS arm64 artifact from build-mac job
+        uses: actions/download-artifact@v4
+        with:
+          name: slv-macos-arm64-binary
           path: dist/
 
       - name: Compile SLV on remote server
@@ -245,28 +259,40 @@ jobs:
           echo "Current working directory:"
           pwd
 
-      - name: Ensure Linux binary in dist
+      - name: Ensure Linux binaries in dist
         run: |
-          if [ ! -f "dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ] && [ -f "/opt/slv-build/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ]; then
-            cp /opt/slv-build/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz dist/
-            echo "Copied Linux binary from build dir"
-          fi
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            if [ ! -f "dist/slv-${target}-exe.tar.gz" ] && [ -f "/opt/slv-build/dist/slv-${target}-exe.tar.gz" ]; then
+              cp "/opt/slv-build/dist/slv-${target}-exe.tar.gz" dist/
+              echo "Copied ${target} binary from build dir"
+            fi
+          done
           echo "dist/ contents:" && ls -la dist/
+
+      - name: Copy SHA256SUMS from build directory
+        run: |
+          if [ ! -f "dist/SHA256SUMS" ] && [ -f "/opt/slv-build/dist/SHA256SUMS" ]; then
+            cp /opt/slv-build/dist/SHA256SUMS dist/
+            echo "Copied SHA256SUMS from build dir"
+          fi
+          if [ -f "dist/SHA256SUMS" ]; then
+            echo "SHA256SUMS contents:"
+            cat dist/SHA256SUMS
+          else
+            echo "❌ FATAL: SHA256SUMS not found in dist/"
+            exit 1
+          fi
 
       - name: Rename files to match download script expectations
         run: |
-          if [ -f "dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz" ]; then
-            cp dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz renamed_files/x86_64-unknown-linux-gnu-exe.tar.gz
-            echo "Renamed Linux executable for GitHub release"
-          else
-            echo "Linux executable not found in dist directory"
-          fi
-          if [ -f "dist/slv-x86_64-apple-darwin-exe.tar.gz" ]; then
-            cp dist/slv-x86_64-apple-darwin-exe.tar.gz renamed_files/x86_64-apple-darwin-exe.tar.gz
-            echo "Renamed Mac executable for GitHub release"
-          else
-            echo "Mac executable not found in dist directory"
-          fi
+          for target in x86_64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin aarch64-unknown-linux-gnu; do
+            if [ -f "dist/slv-${target}-exe.tar.gz" ]; then
+              cp "dist/slv-${target}-exe.tar.gz" "renamed_files/${target}-exe.tar.gz"
+              echo "Renamed ${target} executable for GitHub release"
+            else
+              echo "${target} executable not found in dist directory"
+            fi
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -276,8 +302,9 @@ jobs:
           files: |
             dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz
             dist/slv-x86_64-apple-darwin-exe.tar.gz
-            renamed_files/x86_64-unknown-linux-gnu-exe.tar.gz
-            renamed_files/x86_64-apple-darwin-exe.tar.gz
+            dist/slv-aarch64-apple-darwin-exe.tar.gz
+            dist/slv-aarch64-unknown-linux-gnu-exe.tar.gz
+            dist/SHA256SUMS
           body: |
             SLV v${{ env.VERSION }} Release (Remote Build)
 

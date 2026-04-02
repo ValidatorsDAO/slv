@@ -1,30 +1,41 @@
 # SLV Benchmark Skill
 
-Benchmark and connectivity workflows for SLV.
+Benchmark and connectivity workflows for SLV using `slv check` commands.
 
-## Supported benchmark types
+## `slv check` subcommands
+
+| Subcommand | Description | Options |
+|---|---|---|
+| `rpc` | RPC endpoint latency | `--endpoint <url>` |
+| `grpc` | gRPC endpoint latency | `--endpoint <url> --token <token>` |
+| `shreds` | ShredStream endpoint check | `--endpoint <url>` |
+| `geyserbench` | Full benchmark (side-by-side comparison) | `--kind --region --endpoint (repeatable) --transactions` |
+| `ip` | Show public IP | _(none)_ |
+
+## Supported benchmark types (geyserbench)
 
 - `shredstream`
 - `grpc`
 - `rpc`
 
-## Input collection order
+## Input collection order (geyserbench)
 
-For benchmark requests, collect inputs in this order:
-1. benchmark type
-2. region
-3. endpoint URLs
-
-Region should be collected before execution because `--region` gives more accurate measurements for feed comparison.
+1. benchmark type (`--kind`)
+2. region (`--region`) — required for accurate measurement
+3. endpoint URLs (`--endpoint`, at least 2)
+4. transactions (`--transactions`, default 10000)
 
 ## `geyserbench` config generation
 
-Use:
-- `~/.slv/api.yml` for the ERPC API key when available
-- `https://edge.erpc.global` as `erpc_url`
-- two endpoint URLs for side-by-side comparison
+`slv check geyserbench` auto-generates `~/.slv/check/geyserbench/config.toml` from the CLI options.
 
-Example config:
+Under the hood it uses:
+- `~/.slv/api.yml` for the ERPC API key
+- `https://edge.erpc.global` as `erpc_url`
+- Default account: `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA`
+- Default commitment: `processed`
+
+Example generated config:
 
 ```toml
 [config]
@@ -46,16 +57,12 @@ url = "http://shreds-turbo-fra-1.erpc.global"
 kind = "shredstream"
 ```
 
-## Planned CLI shape
-
-A natural future command shape is:
-
-```bash
-slv check geyserbench <options>
-```
-
-This should mirror the current `slv check grpc` / `slv check shreds` style by passing arguments through to the installed benchmark binary.
-
 ## API key handling
 
 If `~/.slv/api.yml` does not contain the required ERPC API key, instruct the user to get a free API key and configure it first.
+
+## Binary installation
+
+Benchmark binaries (`grpc_test`, `geyserbench`, `shreds_test`) are installed to `~/.slv/bin/` by `slv install` (or `curl -fsSL https://storage.slv.dev/slv/install | sh`).
+
+The install script uses `If-Modified-Since` headers so re-running only downloads when the remote binary has been updated.

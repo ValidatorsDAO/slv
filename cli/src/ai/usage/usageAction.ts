@@ -41,37 +41,49 @@ export const aiUsageAction = async () => {
     const cacheCreation = Number(msg.cache_creation_input_tokens ?? 0)
     const cacheRead = Number(msg.cache_read_input_tokens ?? 0)
 
+    const usagePercent = maxTokens > 0
+      ? ((consumedTokens / maxTokens) * 100).toFixed(1)
+      : '0'
+    const remainingColor = remainingTokens <= 0 ? colors.red : colors.white
+
     const table = new Table()
     const rows: Row[] = [
-      new Row(colors.blue('Plan'), colors.white(String(aiPlan))).border(true),
       new Row(
-        colors.blue('Token Limit'),
-        colors.white(maxTokens.toLocaleString()),
-      ).border(true),
-      new Row(
-        colors.blue('Tokens Used'),
-        colors.white(consumedTokens.toLocaleString()),
-      ).border(true),
-      new Row(
-        colors.blue('Remaining'),
-        colors.white(remainingTokens.toLocaleString()),
-      ).border(true),
-      new Row(colors.blue(''), colors.gray('── Breakdown ──')).border(true),
-      new Row(
-        colors.blue('  Input Tokens'),
+        colors.blue('Input Tokens'),
         colors.white(inputTokens.toLocaleString()),
       ).border(true),
       new Row(
-        colors.blue('  Output Tokens'),
+        colors.blue('Output Tokens'),
         colors.white(outputTokens.toLocaleString()),
       ).border(true),
       new Row(
-        colors.blue('  Cache Creation'),
+        colors.blue('Cache Creation Tokens'),
         colors.white(cacheCreation.toLocaleString()),
       ).border(true),
       new Row(
-        colors.blue('  Cache Read'),
+        colors.blue('Cache Read Tokens'),
         colors.white(cacheRead.toLocaleString()),
+      ).border(true),
+      new Row(colors.gray('─────────────────────'), colors.gray('─────────────────')).border(true),
+      new Row(
+        colors.blue('Consumed Tokens'),
+        colors.white(consumedTokens.toLocaleString()),
+      ).border(true),
+      new Row(
+        colors.blue('Max Tokens'),
+        colors.white(maxTokens.toLocaleString()),
+      ).border(true),
+      new Row(
+        colors.blue('Remaining'),
+        remainingColor(remainingTokens.toLocaleString()),
+      ).border(true),
+      new Row(
+        colors.blue('Usage'),
+        colors.white(`${usagePercent}%`),
+      ).border(true),
+      new Row(
+        colors.blue('Plan'),
+        colors.white(String(aiPlan)),
       ).border(true),
     ]
 

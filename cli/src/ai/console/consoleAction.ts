@@ -112,6 +112,69 @@ class ChatLog extends Container {
   }
 }
 
+async function buildLocalGreeting(home: string): Promise<string> {
+  const agentDir = `${home}/.slv/agent`
+
+  // Extract agent name from SOUL.md
+  let agentName = 'your SLV assistant'
+  try {
+    const soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`)
+    const nameMatch = soulMd.match(/name:\s*([^\n]+)/i)
+    if (nameMatch) agentName = nameMatch[1].trim()
+  } catch { /* not configured */ }
+
+  // Extract user's preferred name from USER.md
+  let userName = ''
+  try {
+    const userMd = await Deno.readTextFile(`${agentDir}/USER.md`)
+    const nameMatch = userMd.match(/preferred_name:\s*([^\n]+)/i)
+    if (nameMatch) userName = nameMatch[1].trim()
+  } catch { /* not configured */ }
+
+  // Read enabled agents from config.yml
+  let enabledAgents: string[] = []
+  try {
+    const raw = await Deno.readTextFile(`${agentDir}/config.yml`)
+    const agentConfig = parse(raw) as Record<string, unknown>
+    const skills = (agentConfig.skills || []) as Array<{ name: string; enabled: boolean; agent: string }>
+    enabledAgents = skills.filter((s) => s.enabled).map((s) => s.agent)
+  } catch { /* not configured */ }
+
+  // Figaro should be visible when the skill is installed, even if older configs
+  // predate the Server Procurement toggle.
+  try {
+    await Deno.stat(`${home}/.slv/skills/slv-server-procurement/SKILL.md`)
+    enabledAgents.push('Figaro')
+  } catch {
+    // skill not installed
+  }
+
+  const greetLine = userName ? `Hey ${userName}! 👋` : 'Hey there! 👋'
+
+  const introLine = agentName !== 'your SLV assistant'
+    ? `I'm ${agentName}, your SLV commander.`
+    : `I'm your SLV assistant.`
+
+  const agentDescriptions: Record<string, string> = {
+    'Cecil': 'Solana Validator deployments & management',
+    'Tina': 'RPC nodes (Index RPC, gRPC Geyser, combos)',
+    'Setzer': 'Trading bots & Solana apps',
+    'Figaro': 'Find optimized Solana server resources',
+    'Cid': 'Benchmarks & connectivity testing',
+  }
+
+  const preferredOrder = ['Cecil', 'Tina', 'Setzer', 'Figaro', 'Cid']
+  const crew = preferredOrder.filter((agent) => enabledAgents.includes(agent))
+  let crewSection = ''
+  if (crew.length > 0) {
+    crewSection = ` Here's my crew:\n\n${crew.map((a) => `- ${a} — ${agentDescriptions[a]}`).join('\n')}\n\n`
+  } else {
+    crewSection = ' '
+  }
+
+  return `${greetLine}\n\n${introLine}${crewSection}What would you like to work on today?`
+}
+
 async function checkDependencies(): Promise<string[]> {
   const missing: string[] = []
 
@@ -232,49 +295,7 @@ export const consoleAction = async () => {
     await promptInstallDependencies(missing)
   }
 
-  // Pre-fetch user context from MCP and inventory files (silent, non-blocking)
-  let userContext = ''
-  try {
-    const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
-    const apiYml = parse(apiYmlRaw) as Record<string, any>
-    const slvApiKey = apiYml?.slv?.api_key || ''
-
-    if (slvApiKey) {
-      const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${slvApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'tools/call',
-          params: { name: 'get_user_get', arguments: {} },
-        }),
-      })
-      const data = await res.json()
-      userContext += `\n## User Account (from MCP)\n${data.result?.content?.[0]?.text || 'Unable to fetch'}\n`
-    }
-  } catch {
-    /* silent */
-  }
-
-  // Read inventory files
-  for (const inv of [
-    'inventory.testnet.validators.yml',
-    'inventory.mainnet.validators.yml',
-    'inventory.mainnet.rpcs.yml',
-  ]) {
-    try {
-      const content = await Deno.readTextFile(`${resolveHome()}/.slv/${inv}`)
-      userContext += `\n## ${inv}\n${content}\n`
-    } catch {
-      /* doesn't exist */
-    }
-  }
-
-  const systemPrompt = await buildSystemPrompt(userContext || undefined)
+  const systemPrompt = await buildSystemPrompt()
   const providerLabel = config.provider === 'openai'
     ? 'OpenAI'
     : config.provider === 'slv'
@@ -354,6 +375,11 @@ export const consoleAction = async () => {
     cmdOutputLines = []
     cmdOutputText = null
     cmdTotalLineCount = 0
+  }, (taskName: string) => {
+    // Ansible task-title spinner mode: update the loader message
+    if (loader) {
+      loader.setMessage(taskName)
+    }
   })
 
   // Read auto-execute setting from agent config
@@ -368,6 +394,8 @@ export const consoleAction = async () => {
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider | SLVProvider
+  let slvApiKey = ''  // stored for lazy provider rebuild
+  let userContextLoaded = false
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -495,7 +523,6 @@ export const consoleAction = async () => {
     provider = new OpenAIProvider(config.api_key, config.model, systemPrompt, callbacks)
   } else if (config.provider === 'slv') {
     // SLV AI uses slv.api_key from ~/.slv/api.yml (not ai.api_key)
-    let slvApiKey = ''
     try {
       const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
       const apiYml = parse(apiYmlRaw) as Record<string, any>
@@ -510,28 +537,20 @@ export const consoleAction = async () => {
     provider = new AnthropicProvider(config.api_key, config.model, systemPrompt, callbacks)
   }
 
-  // Auto-greet
-  chatLog.addSystem('  Starting session...')
   tui.start()
 
-  // Show loader during greet
-  loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
-  chatLog.addChild(loader)
-  loader.start()
-  tui.requestRender()
-
-  try {
-    await provider.chat(
-      'Session started. Follow the "First Session Greeting" instructions in your system prompt. Do NOT use any tools for this greeting — just respond directly.',
-    )
-  } catch { /* ignore greeting errors */ }
-
-  if (loader) {
-    chatLog.removeChild(loader)
-    loader.stop()
-    loader = null
+  // Local greeting — no API call, typewriter effect
+  {
+    const greetingText = await buildLocalGreeting(resolveHome())
+    const words = greetingText.split(' ')
+    let revealed = ''
+    for (let i = 0; i < words.length; i++) {
+      revealed += (i === 0 ? '' : ' ') + words[i]
+      chatLog.updateStreaming(revealed)
+      tui.requestRender()
+      await new Promise((r) => setTimeout(r, 40))
+    }
   }
-  tui.requestRender()
 
   // Background version check (non-blocking)
   let pendingUpdates: VersionUpdate[] | null = null
@@ -682,6 +701,42 @@ RULES:
     chatLog.addChild(loader)
     loader.start()
     tui.requestRender()
+
+    // Lazy-load user context before the first real API call
+    if (!userContextLoaded) {
+      userContextLoaded = true
+      let lazyContext = ''
+      try {
+        const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
+        const apiYml = parse(apiYmlRaw) as Record<string, any>
+        const key = apiYml?.slv?.api_key || ''
+        if (key) {
+          const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_user_get', arguments: {} } }),
+          })
+          const data = await res.json()
+          lazyContext += `\n## User Account (from MCP)\n${data.result?.content?.[0]?.text || 'Unable to fetch'}\n`
+        }
+      } catch { /* silent */ }
+      for (const inv of ['inventory.testnet.validators.yml', 'inventory.mainnet.validators.yml', 'inventory.mainnet.rpcs.yml']) {
+        try {
+          const content = await Deno.readTextFile(`${resolveHome()}/.slv/${inv}`)
+          lazyContext += `\n## ${inv}\n${content}\n`
+        } catch { /* doesn't exist */ }
+      }
+      if (lazyContext) {
+        const newSystemPrompt = await buildSystemPrompt(lazyContext)
+        if (config.provider === 'openai') {
+          provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+        } else if (config.provider === 'slv') {
+          if (slvApiKey) provider = new SLVProvider(slvApiKey, config.model, newSystemPrompt, callbacks)
+        } else {
+          provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+        }
+      }
+    }
 
     try {
       await provider.chat(input)

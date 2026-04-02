@@ -157,19 +157,20 @@
         owner: '{{ build_user }}'
         group: '{{ build_group }}'
 
-    - name: Build for Linux
+    - name: Build for Linux (x86_64 and arm64)
       shell: |
         cd {{ build_dir }}
         mkdir -p dist
         deno install --allow-scripts=npm:protobufjs@7.4.0
         deno i
         deno task build:linux
+        deno task build:linux-arm64
       args:
         executable: /bin/bash
       environment: "{{ deno_env }}"
       become_user: '{{ build_user }}'
 
-    - name: Copy macOS artifact from Actions into build dist
+    - name: Copy macOS x86_64 artifact from Actions into build dist
       copy:
         src: '{{ playbook_dir }}/../dist/slv-x86_64-apple-darwin-exe.tar.gz'
         dest: '{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe.tar.gz'
@@ -177,17 +178,53 @@
         owner: '{{ build_user }}'
         group: '{{ build_group }}'
 
-    - name: Copy Linux artifacts
+    - name: Copy macOS arm64 artifact from Actions into build dist
+      copy:
+        src: '{{ playbook_dir }}/../dist/slv-aarch64-apple-darwin-exe.tar.gz'
+        dest: '{{ build_dir }}/dist/slv-aarch64-apple-darwin-exe.tar.gz'
+        remote_src: yes
+        owner: '{{ build_user }}'
+        group: '{{ build_group }}'
+
+    - name: Copy Linux x86_64 artifacts
       copy:
         src: '{{ build_dir }}/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz'
         dest: '{{ artifacts_dir }}/slv-x86_64-unknown-linux-gnu-exe.tar.gz'
         remote_src: yes
 
-    - name: Copy Mac artifacts
+    - name: Copy Linux arm64 artifacts
+      copy:
+        src: '{{ build_dir }}/dist/slv-aarch64-unknown-linux-gnu-exe.tar.gz'
+        dest: '{{ artifacts_dir }}/slv-aarch64-unknown-linux-gnu-exe.tar.gz'
+        remote_src: yes
+
+    - name: Copy Mac x86_64 artifacts
       copy:
         src: '{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe.tar.gz'
         dest: '{{ artifacts_dir }}/slv-x86_64-apple-darwin-exe.tar.gz'
         remote_src: yes
+
+    - name: Copy Mac arm64 artifacts
+      copy:
+        src: '{{ build_dir }}/dist/slv-aarch64-apple-darwin-exe.tar.gz'
+        dest: '{{ artifacts_dir }}/slv-aarch64-apple-darwin-exe.tar.gz'
+        remote_src: yes
+
+    - name: Create template archive
+      shell: |
+        cd {{ build_dir }} && tar -czf dist/template.tar.gz ./template/{{ version }}
+      args:
+        executable: /bin/bash
+      become_user: '{{ build_user }}'
+
+    - name: Generate SHA256 checksums
+      shell: |
+        export DENO_INSTALL="{{ deno_install_dir }}"
+        export PATH="$DENO_INSTALL/bin:$PATH"
+        cd {{ build_dir }} && deno run -A cli/generateChecksums.ts
+      args:
+        executable: /bin/bash
+      become_user: '{{ build_user }}'
 
     - name: Upload Linux executable
       shell: |
@@ -198,13 +235,6 @@
         export CLOUDFLARE_API_KEY="{{ cloudflare_api_key }}"
         export CLOUDFLARE_EMAIL="{{ cloudflare_email }}"
         cd {{ build_dir }} && deno run -A cli/uploadExe.ts
-      args:
-        executable: /bin/bash
-      become_user: '{{ build_user }}'
-
-    - name: Create template archive
-      shell: |
-        cd {{ build_dir }} && tar -czf dist/template.tar.gz ./template/{{ version }}
       args:
         executable: /bin/bash
       become_user: '{{ build_user }}'
@@ -248,18 +278,11 @@
         executable: /bin/bash
       become_user: '{{ build_user }}'
 
-    - name: Copy Linux artifacts to dist directory
-      copy:
-        src: '{{ build_dir }}/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz'
-        dest: '{{ artifacts_dir }}/slv-x86_64-unknown-linux-gnu-exe.tar.gz'
-        remote_src: yes
-
     - name: Debug artifact paths
       debug:
         msg:
           - 'Build directory: {{ build_dir }}'
           - 'Artifacts directory: {{ artifacts_dir }}'
-          - 'Checking for file: {{ build_dir }}/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz'
 
     - name: List files in build dist directory
       shell: ls -la {{ build_dir }}/dist/
@@ -269,14 +292,32 @@
       debug:
         msg: '{{ build_dist_files.stdout_lines }}'
 
-    - name: Copy Linux artifacts back to local dist directory
+    - name: Copy Linux x86_64 artifacts back to local dist directory
       fetch:
         src: '{{ build_dir }}/dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz'
         dest: ./dist/
         flat: yes
 
-    - name: Copy Mac artifacts back to local dist directory
+    - name: Copy Linux arm64 artifacts back to local dist directory
+      fetch:
+        src: '{{ build_dir }}/dist/slv-aarch64-unknown-linux-gnu-exe.tar.gz'
+        dest: ./dist/
+        flat: yes
+
+    - name: Copy Mac x86_64 artifacts back to local dist directory
       fetch:
         src: '{{ build_dir }}/dist/slv-x86_64-apple-darwin-exe.tar.gz'
+        dest: ./dist/
+        flat: yes
+
+    - name: Copy Mac arm64 artifacts back to local dist directory
+      fetch:
+        src: '{{ build_dir }}/dist/slv-aarch64-apple-darwin-exe.tar.gz'
+        dest: ./dist/
+        flat: yes
+
+    - name: Copy SHA256SUMS back to local dist directory
+      fetch:
+        src: '{{ build_dir }}/dist/SHA256SUMS'
         dest: ./dist/
         flat: yes

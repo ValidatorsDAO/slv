@@ -4,7 +4,15 @@ import { VERSION } from '../cmn/constants/version.ts'
 import { join } from '@std/path'
 import { copy, ensureDir, ensureSymlink } from '@std/fs'
 
-const VERSION_DIR_REGEX = /^\d+\.\d+\.\d+$/
+// CalVer format validation
+const CALVER_REGEX = /^\d{4}\.\d{1,2}\.\d{1,2}\.\d{4}$/
+if (!CALVER_REGEX.test(VERSION)) {
+  console.error(`❌ Invalid version format: ${VERSION}`)
+  console.error(`   Expected CalVer format: YYYY.M.D.HHmm (e.g., 2026.4.2.0910)`)
+  Deno.exit(1)
+}
+
+const VERSION_DIR_REGEX = /^\d+\.\d+\.\d+(\.\d+)?$/
 const KEEP_VERSIONS = 3
 
 const listVersionDirs = async (root: string) => {
@@ -66,13 +74,14 @@ async function updateVersion() {
   )
   console.log(`✅ Updated ${cliDenoJsonPath}`)
 
-  // 2. Update upload:template task in root deno.json
+  // 2. Update template-related tasks in root deno.json
   const rootDenoJsonPath = './deno.json'
   const rootDenoJson = JSON.parse(await Deno.readTextFile(rootDenoJsonPath))
 
-  // Update upload:template task
+  rootDenoJson.tasks['create:template'] =
+    `tar -czf dist/template.tar.gz ./template/${VERSION}`
   rootDenoJson.tasks['upload:template'] =
-    `tar -czf dist/template.tar.gz ./template/${VERSION} && deno run -A cli/uploadTemplate.ts`
+    'deno run -A cli/uploadTemplate.ts'
   await Deno.writeTextFile(
     rootDenoJsonPath,
     JSON.stringify(rootDenoJson, null, 2),

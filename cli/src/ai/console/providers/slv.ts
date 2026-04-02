@@ -71,12 +71,23 @@ export class SLVProvider {
       if (!response.ok) {
         const errorText = await response.text()
 
+        if (
+          response.status === 403 &&
+          errorText.includes('ai_token_limit_reached')
+        ) {
+          throw new Error(
+            'Your SLV AI token limit has been reached.\n' +
+            '  Run `slv ai usage`   \u2014 check your remaining token balance\n' +
+            '  Run `slv ai product` \u2014 view plans and purchase options',
+          )
+        }
+
         // 529 = overloaded / token quota exhausted
         if (response.status === 529) {
           throw new Error(
             'AI tokens may be insufficient. Please consider upgrading your plan or purchasing additional tokens.\n' +
-            '  Run `slv ai usage`   — check your remaining token balance\n' +
-            '  Run `slv ai product` — view plans and purchase options',
+            '  Run `slv ai usage`   \u2014 check your remaining token balance\n' +
+            '  Run `slv ai product` \u2014 view plans and purchase options',
           )
         }
 
