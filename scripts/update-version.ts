@@ -4,7 +4,15 @@ import { VERSION } from '../cmn/constants/version.ts'
 import { join } from '@std/path'
 import { copy, ensureDir, ensureSymlink } from '@std/fs'
 
-const VERSION_DIR_REGEX = /^\d+\.\d+\.\d+$/
+// CalVer format validation
+const CALVER_REGEX = /^\d{4}\.\d{1,2}\.\d{1,2}\.\d{4}$/
+if (!CALVER_REGEX.test(VERSION)) {
+  console.error(`❌ Invalid version format: ${VERSION}`)
+  console.error(`   Expected CalVer format: YYYY.M.D.HHmm (e.g., 2026.4.2.0910)`)
+  Deno.exit(1)
+}
+
+const VERSION_DIR_REGEX = /^\d+\.\d+\.\d+(\.\d+)?$/
 const KEEP_VERSIONS = 3
 
 const listVersionDirs = async (root: string) => {
