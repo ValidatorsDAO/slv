@@ -11,6 +11,55 @@ import {
 
 const CUSTOM_OPTION = 'Custom (enter model name)'
 
+/**
+ * Validate an API key by making a lightweight request to the provider.
+ * Returns true if the key is valid, false otherwise.
+ */
+const validateApiKey = async (
+  provider: AiProvider,
+  apiKey: string,
+): Promise<{ valid: boolean; error?: string }> => {
+  try {
+    if (provider === 'anthropic') {
+      // Use messages API with minimal request to validate
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      })
+      if (res.status === 401) {
+        return { valid: false, error: 'Invalid API key' }
+      }
+      if (res.status === 403) {
+        const body = await res.json().catch(() => ({}))
+        return { valid: false, error: (body as Record<string, Record<string, string>>)?.error?.message || 'Access denied' }
+      }
+      // 200 or 429 (rate limit) or 400 all mean the key itself is valid
+      return { valid: true }
+    } else if (provider === 'openai') {
+      // Use models list endpoint — lightweight and doesn't consume tokens
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      })
+      if (res.status === 401) {
+        return { valid: false, error: 'Invalid API key' }
+      }
+      return { valid: true }
+    }
+    return { valid: true }
+  } catch (e) {
+    return { valid: false, error: `Connection error: ${(e as Error).message}` }
+  }
+}
+
 const selectModel = async (provider: AiProvider): Promise<string> => {
   const models = provider === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS
 
@@ -107,6 +156,16 @@ export const authCmd = new Command()
         validate: (v) => v.trim().length > 0 || 'API key is required',
       })
     }
+
+    // Validate API key before saving
+    console.log(colors.gray('\n  Validating API key...'))
+    const validation = await validateApiKey(provider, apiKey)
+    if (!validation.valid) {
+      console.error(colors.red(`\n  ✗ ${validation.error || 'Invalid API key'}`))
+      console.error(colors.gray('  Please check your API key and try again.\n'))
+      Deno.exit(1)
+    }
+    console.log(colors.green('  ✔ API key is valid\n'))
 
     const model = await selectModel(provider)
     await saveAndSummarize(provider, apiKey, model)

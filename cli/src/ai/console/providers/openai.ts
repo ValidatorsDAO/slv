@@ -114,7 +114,7 @@ export class OpenAIProvider {
           })
           continue
         }
-        this.callbacks.onToolCall(tc.name, JSON.stringify(args).slice(0, 100))
+        this.callbacks.onToolCall(tc.name, JSON.stringify(args).slice(0, 200))
         const result = await executeTool(tc.name, args)
         this.messages.push({
           role: 'tool',

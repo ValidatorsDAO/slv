@@ -83,7 +83,7 @@ export class AnthropicProvider {
       // Execute tools and add results
       const toolResults: ToolResultBlockParam[] = []
       for (const tb of toolUseBlocks) {
-        this.callbacks.onToolCall(tb.name, JSON.stringify(tb.input).slice(0, 100))
+        this.callbacks.onToolCall(tb.name, JSON.stringify(tb.input).slice(0, 200))
         const result = await executeTool(tb.name, tb.input)
         toolResults.push({
           type: 'tool_result',
