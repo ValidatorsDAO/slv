@@ -1,0 +1,11 @@
+[Unit]
+Description=VS2 CPU Performance Boost
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vs2-cpu-boost.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

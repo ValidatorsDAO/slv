@@ -1,0 +1,39 @@
+---
+- name: Performance tuning for Solana nodes
+  hosts: all
+  become: true
+  vars:
+    smt_disable: "{{ smt_disable | default(false) }}"
+    irq_tuning: "{{ irq_tuning | default(false) }}"
+    cpu_boost: "{{ cpu_boost | default(false) }}"
+    need_reboot: "{{ need_reboot | default(false) }}"
+  tasks:
+    - name: SMT disable
+      include_tasks: tasks/smt_disable.yml
+      when: not smt_disable | bool
+
+    - name: IRQ tuning
+      include_tasks: tasks/irq_tuning.yml
+      when: not irq_tuning | bool
+
+    - name: CPU boost
+      include_tasks: tasks/cpu_boost.yml
+      when: not cpu_boost | bool
+
+    - name: Report reboot status
+      debug:
+        msg: >-
+          {% if need_reboot | bool %}
+          ⚠️ REBOOT REQUIRED: Performance tuning has been applied but requires a reboot.
+          Please reboot the server and re-run the deployment.
+          {% else %}
+          ✅ Performance tuning applied. No reboot required.
+          {% endif %}
+
+    - name: Fail if reboot needed (to stop deployment)
+      fail:
+        msg: |
+          Reboot required to apply performance tuning.
+          Please reboot the server and re-run deployment.
+          After reboot, smt_disable/irq_tuning/cpu_boost will be true and these steps will be skipped.
+      when: need_reboot | bool
