@@ -124,10 +124,11 @@ export const usageAction = async (options?: { region?: StorageRegion }) => {
     return true
   } catch (error) {
     spinner.fail('Failed to get usage')
-    if (error instanceof StorageApiError) {
-      console.log(colors.red(`\n${error.message}`))
-    } else {
-      console.log(colors.red(String(error)))
+    const msg = error instanceof StorageApiError ? error.message : String(error)
+    console.log(colors.red(`\n  ${msg}`))
+    if (msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('no active')) {
+      console.log(colors.gray('\n  No storage subscription found.'))
+      console.log(colors.gray('  Run `slv st product` to browse available storage plans.\n'))
     }
     return false
   }

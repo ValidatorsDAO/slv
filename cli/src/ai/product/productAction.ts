@@ -75,7 +75,15 @@ export const aiProductAction = async () => {
         rows.push(new Row(colors.blue('Plan'), colors.bold(colors.white(String(name)))).border(true))
 
         if (product.description) {
-          rows.push(new Row(colors.blue('Description'), colors.white(String(product.description))).border(true))
+          // Enhance description for Secure Authorization
+          let desc = String(product.description)
+          if (name.toLowerCase().includes('secure authorization')) {
+            desc = 'Identity verification (KYC) via Stripe.\n' +
+              'Unlocks: free RPC tokens, free AI tokens,\n' +
+              'and a 1-day free trial of shared services\n' +
+              '(Direct Shreds, gRPC, ERPC).'
+          }
+          rows.push(new Row(colors.blue('Description'), colors.white(desc)).border(true))
         }
         if (product.tokens !== undefined) {
           rows.push(new Row(colors.blue('Tokens'), colors.white(Number(product.tokens).toLocaleString())).border(true))
