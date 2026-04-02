@@ -277,3 +277,44 @@ cd /path/to/slv-rpc/ansible/
 ansible-playbook -i inventory.yml {network}-rpc/init.yml \
   -e '{"rpc_type":"<type>","solana_version":"<version>"}'
 ```
+
+## Performance Tuning
+
+The `init.yml` playbook automatically applies performance tuning during first deployment:
+
+| Tuning | Description |
+|---|---|
+| SMT Disable | Disables Hyper-Threading via GRUB `nosmt` for better single-thread performance |
+| IRQ Tuning | NIC IRQ 1:1 pinning + RPS/XPS optimization for balanced network interrupt distribution |
+| CPU Boost | HWE kernel + AMD performance governor + boost + C-state optimization |
+
+### Inventory Fields (auto-managed)
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `smt_disable` | bool | `false` | Set to `true` after SMT disable is applied |
+| `irq_tuning` | bool | `false` | Set to `true` after IRQ tuning is applied |
+| `cpu_boost` | bool | `false` | Set to `true` after CPU boost is applied |
+| `need_reboot` | bool | `false` | Set to `true` when reboot is required |
+
+### Reboot Flow
+
+If performance tuning requires a reboot (kernel update, GRUB changes):
+1. Deployment pauses with a message: "Reboot required"
+2. User reboots the server
+3. User re-runs `slv r deploy` (or `slv v deploy`)
+4. Tuning steps are skipped (already applied), deployment continues
+
+### Standalone Usage
+
+Performance tuning can also be run independently:
+```bash
+ansible-playbook -i inventory.yml cmn/performance_tune.yml
+```
+
+### CLI Command Mapping
+
+| CLI Command | Playbook |
+|---|---|
+| `slv r deploy` | `{net}/init.yml` (includes performance_tune.yml) |
+| *(standalone)* | `cmn/performance_tune.yml` |

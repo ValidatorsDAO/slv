@@ -50,3 +50,9 @@ all:
     # expected_shred_version: ""
     # expected_bank_hash: ""
     # wait_for_supermajority: ""
+
+    # --- Performance Tuning (auto-managed by init) ---
+    smt_disable: false
+    irq_tuning: false
+    cpu_boost: false
+    need_reboot: false

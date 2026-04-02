@@ -27,6 +27,7 @@
 - import_playbook: ../cmn/disable_swap.yml
 - import_playbook: ../cmn/mount_disks.yml
 - import_playbook: ../cmn/optimize_system.yml
+- import_playbook: ../cmn/performance_tune.yml
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
 - import_playbook: ../cmn/build_solana.yml
