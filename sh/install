@@ -216,6 +216,93 @@ install_skills() {
   echo "AI agent skills installed in $SKILLS_DIR"
 }
 
+# Install system prerequisites (Linux only)
+install_prerequisites() {
+  if [ "$osfamily" != "linux" ]; then
+    return
+  fi
+
+  echo "Checking system prerequisites..."
+  local need_apt_update=false
+  local pkgs_to_install=""
+
+  # curl (should exist if we got here, but just in case)
+  if ! command -v curl &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install curl"
+  fi
+
+  # python3
+  if ! command -v python3 &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install python3"
+  fi
+
+  # pip3 (needed for ansible-core)
+  if ! command -v pip3 &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install python3-pip"
+  fi
+
+  # gcc / build essentials (sometimes needed for pip packages)
+  if ! command -v gcc &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install build-essential"
+  fi
+
+  if [ -n "$pkgs_to_install" ]; then
+    echo "Installing system packages:$pkgs_to_install"
+    if command -v apt-get &>/dev/null; then
+      sudo apt-get update -qq
+      sudo apt-get install -y $pkgs_to_install
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y $pkgs_to_install
+    elif command -v yum &>/dev/null; then
+      sudo yum install -y $pkgs_to_install
+    else
+      echo "⚠️  Could not auto-install: $pkgs_to_install"
+      echo "   Please install them manually before running 'slv c'."
+    fi
+  else
+    echo "✅ System prerequisites OK"
+  fi
+
+  # Install ansible-core if not present
+  if ! command -v ansible-playbook &>/dev/null; then
+    echo "Installing ansible-core..."
+    local installed=false
+
+    # Method 1: Try apt install (works on Ubuntu 24.04+ without PEP 668 issues)
+    if command -v apt-get &>/dev/null; then
+      if sudo apt-get install -y ansible-core 2>/dev/null; then
+        installed=true
+      fi
+    fi
+
+    # Method 2: Try dnf
+    if [ "$installed" = false ] && command -v dnf &>/dev/null; then
+      if sudo dnf install -y ansible-core 2>/dev/null; then
+        installed=true
+      fi
+    fi
+
+    # Method 3: pip3 with --break-system-packages (fallback for older distros)
+    if [ "$installed" = false ] && command -v pip3 &>/dev/null; then
+      if [ "$(id -u)" -eq 0 ]; then
+        pip3 install --break-system-packages ansible-core 2>/dev/null || pip3 install ansible-core 2>/dev/null || true
+      else
+        pip3 install --user --break-system-packages ansible-core 2>/dev/null || pip3 install --user ansible-core 2>/dev/null || true
+        export PATH="$HOME/.local/bin:$PATH"
+      fi
+      command -v ansible-playbook &>/dev/null && installed=true
+    fi
+
+    if [ "$installed" = true ] || command -v ansible-playbook &>/dev/null; then
+      echo "✅ ansible-core installed"
+    else
+      echo "⚠️  Could not auto-install ansible-core. Install manually: sudo apt install ansible-core"
+    fi
+  else
+    echo "✅ ansible-core already installed"
+  fi
+}
+
 # Main installation process
 main() {
   echo "Detecting platform..."
@@ -228,6 +315,9 @@ main() {
     INSTALL_DIR="$HOME/.local/bin"
     mkdir -p "$INSTALL_DIR"
   fi
+
+  # Install system prerequisites before anything else
+  install_prerequisites
 
   # Create temporary directory
   TEMP_DIR=$(mktemp -d)
