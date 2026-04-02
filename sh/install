@@ -250,6 +250,7 @@ main() {
 
   # Clean up
   echo "✨ Cleaning up..."
+  cd "$HOME" || cd /
   rm -rf "$TEMP_DIR"
   rm -f "$HOME/.slv/template.tar.gz"
 
@@ -265,8 +266,11 @@ main() {
   echo "Testing slv installation... 🔨"
   slv -P || true
 
-  echo "You can now use 'slv check grpc' to run gRPC latency tests:"
-  echo "Example: slv check grpc"
+  echo "Try 'slv storage' to manage cloud storage (upload, download, snapshots):"
+  echo "  slv storage upload    — Upload a file"
+  echo "  slv storage download  — Download a file"
+  echo "  slv storage list      — List stored files"
+  echo "  slv storage usage     — Check quota"
 }
 
 # Run the main function
