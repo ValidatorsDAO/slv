@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  ./generate_configs.sh [--jobs N] [--mode car|filecoin] [--out-dir DIR] [--base-url URL] <EPOCH|A-B> [<EPOCH|A-B> ...]
+
+Examples:
+  ./generate_configs.sh 899
+  ./generate_configs.sh 898 899
+  ./generate_configs.sh 0-899
+  ./generate_configs.sh --jobs 5 0-899
+  ./generate_configs.sh --mode filecoin --jobs 5 898-899
+
+Options:
+  --jobs N            Max concurrent requests/processes (default: 5)
+  --mode car|filecoin Default: car
+  --out-dir DIR       Default: ./configs
+  --base-url URL      Default: https://files.old-faithful.net
+USAGE
+}
+
+JOBS=5
+MODE="car"
+OUT_DIR="configs"
+BASE_URL={{ faithful_of1_base_url | default("https://files.old-faithful.net") }}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --jobs) JOBS="${2:-}"; shift 2 ;;
+    --mode) MODE="${2:-}"; shift 2 ;;
+    --out-dir) OUT_DIR="${2:-}"; shift 2 ;;
+    --base-url) BASE_URL="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+    *) break ;;
+  esac
+done
+
+if [[ "$MODE" != "car" && "$MODE" != "filecoin" ]]; then
+  echo "Error: --mode must be 'car' or 'filecoin' (got: $MODE)" >&2
+  exit 1
+fi
+
+if [[ $# -lt 1 ]]; then
+  usage >&2
+  exit 1
+fi
+
+command -v curl >/dev/null 2>&1 || { echo "Error: curl not found" >&2; exit 1; }
+command -v xargs >/dev/null 2>&1 || { echo "Error: xargs not found" >&2; exit 1; }
+
+mkdir -p "$OUT_DIR"
+
+# --- expand epochs (supports A-B) ---
+EPOCHS=()
+for arg in "$@"; do
+  if [[ "$arg" =~ ^[0-9]+-[0-9]+$ ]]; then
+    start="${arg%-*}"
+    end="${arg#*-}"
+    if (( start > end )); then
+      echo "Error: invalid range '$arg' (start > end)" >&2
+      exit 1
+    fi
+    for ((e=start; e<=end; e++)); do
+      EPOCHS+=("$e")
+    done
+  elif [[ "$arg" =~ ^[0-9]+$ ]]; then
+    EPOCHS+=("$arg")
+  else
+    echo "Error: invalid epoch argument '$arg' (use N or A-B)" >&2
+    exit 1
+  fi
+done
+
+fetch_epoch_cid() {
+  local epoch="$1"
+  local cid_url="${BASE_URL}/${epoch}/epoch-${epoch}.cid"
+  curl -fsSL --retry 5 --retry-all-errors --connect-timeout 10 --max-time 30 \
+    "$cid_url" | tr -d '[:space:]'
+}
+
+process_epoch() {
+  set -euo pipefail
+  local epoch="$1"
+  local root_cid out
+
+  root_cid="$(fetch_epoch_cid "$epoch" || true)"
+  if [[ -z "$root_cid" ]]; then
+    echo "✖ epoch ${epoch}: failed to fetch epoch-${epoch}.cid" >&2
+    return 0
+  fi
+
+  out="${OUT_DIR}/config-epoch${epoch}.yaml"
+
+  if [[ "$MODE" == "car" ]]; then
+    cat > "$out" <<EOF
+# Old Faithful RPC config for epoch ${epoch} (CAR mode, OF1 files)
+
+version: 1
+epoch: ${epoch}
+
+data:
+  car:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}.car"
+  filecoin:
+    enable: false
+
+indexes:
+  cid_to_offset_and_size:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-cid-to-offset-and-size.index"
+  slot_to_cid:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-slot-to-cid.index"
+  sig_to_cid:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-sig-to-cid.index"
+  sig_exists:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-sig-exists.index"
+  slot_to_blocktime:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-slot-to-blocktime.index"
+EOF
+  else
+    cat > "$out" <<EOF
+# Old Faithful RPC config for epoch ${epoch} (Filecoin mode, OF1 indexes)
+
+version: 1
+epoch: ${epoch}
+
+data:
+  filecoin:
+    enable: true
+    root_cid: ${root_cid}
+
+indexes:
+  slot_to_cid:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-slot-to-cid.index"
+  sig_to_cid:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-sig-to-cid.index"
+  sig_exists:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-sig-exists.index"
+  slot_to_blocktime:
+    uri: "${BASE_URL}/${epoch}/epoch-${epoch}-${root_cid}-mainnet-slot-to-blocktime.index"
+EOF
+  fi
+
+  echo "✓ epoch ${epoch}: generated ${out}"
+}
+
+export -f fetch_epoch_cid process_epoch
+export BASE_URL OUT_DIR MODE
+
+# ---- Max 5 concurrent jobs (requests) ----
+# xargs:
+#   -P/--max-procs : parallelism
+#   -n 1           : one epoch per invocation (recommended with -P)
+printf '%s\n' "${EPOCHS[@]}" \
+  | xargs -n 1 -P "$JOBS" bash -c 'process_epoch "$1"' _
+
+echo "All done."
