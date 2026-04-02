@@ -305,10 +305,6 @@ jobs:
             dist/slv-aarch64-apple-darwin-exe.tar.gz
             dist/slv-aarch64-unknown-linux-gnu-exe.tar.gz
             dist/SHA256SUMS
-            renamed_files/x86_64-unknown-linux-gnu-exe.tar.gz
-            renamed_files/x86_64-apple-darwin-exe.tar.gz
-            renamed_files/aarch64-apple-darwin-exe.tar.gz
-            renamed_files/aarch64-unknown-linux-gnu-exe.tar.gz
           body: |
             SLV v${{ env.VERSION }} Release (Remote Build)
 

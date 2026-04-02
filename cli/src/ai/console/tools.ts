@@ -153,7 +153,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'delegate_to_agent',
     description:
-      'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for ALL RPC tasks (Index RPC, gRPC Geyser, combo), Cid for benchmark/connectivity testing, Setzer for app/bot tasks, Figaro for server procurement.',
+      'Delegate a task to a specialist sub-agent. Use Cecil for validator tasks, Tina for ALL RPC tasks (Index RPC, gRPC Geyser, combo), Cid for benchmark/connectivity testing (geyserbench for Geyser gRPC benchmarking, grpc_test, shreds_test), Setzer for app/bot tasks, Figaro for server procurement.',
     parameters: {
       type: 'object',
       properties: {
@@ -548,7 +548,8 @@ ${modeInstruction}
   1. benchmark type (shredstream / grpc / rpc)
   2. region to measure with \`--region\`
   3. endpoint or endpoints to test
-- For shredstream or grpc benchmarks, prefer using the local \`geyserbench\` binary if it is available on the machine.
+- For shredstream or grpc benchmarks, prefer using the local \`geyserbench\` binary — it is the PRIMARY tool for Geyser gRPC benchmarking (throughput, latency, slot delivery).
+- geyserbench binary location: \`${home}/.slv/bin/geyserbench\` (kept up-to-date by \`slv upgrade\`).
 - If \`geyserbench\` is available, run it and return the benchmark output directly so the main agent can show the user the result with minimal rewriting.
 - If \`geyserbench\` is not available, clearly report that and suggest the next best local SLV check command.
 - For benchmark tasks, optimize for fast execution and direct result display, not long advisory explanations.

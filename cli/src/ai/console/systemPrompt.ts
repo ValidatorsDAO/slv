@@ -46,7 +46,7 @@ export async function buildSystemPrompt(userContext?: string): Promise<string> {
       agentIntro += `- **Setzer** — Trading & App specialist. Build high-performance trading bots, MEV strategies, and Solana apps with battle-tested templates.\n`
     }
     if (enabledAgents.includes('Cid')) {
-      agentIntro += `- **Cid** — Benchmark & connectivity testing specialist. Handles grpc_test, geyserbench, shreds_test, and endpoint latency/throughput troubleshooting.\n`
+      agentIntro += `- **Cid** — Benchmark & connectivity testing specialist. Handles geyserbench (Geyser gRPC throughput, latency, slot delivery), grpc_test, shreds_test, and endpoint latency/throughput troubleshooting. The geyserbench binary lives at ~/.slv/bin/geyserbench and is kept up-to-date by slv upgrade.\n`
     }
     if (enabledAgents.includes('Figaro')) {
       agentIntro += `- **Figaro** — Server Procurement specialist. Browse available servers, get pricing, and generate payment links.\n`
@@ -225,12 +225,9 @@ After deployment, the target node has this key layout:
 | \`slv install\` | Install software (Redis, TiDB, Grafana, etc.) |
 
 ## First Session Greeting
-When this is the first session (MEMORY.md is empty or just the default), introduce yourself and your team:
-1. Greet the user by their preferred name (from USER.md)
-2. Introduce yourself by name (from SOUL.md) or as "your SLV assistant" if no name is set
-3. Briefly introduce your specialist agents (Cecil, Tina, Cid, Setzer, Figaro) and what each handles
-4. Ask what they'd like to work on today
-Keep it to 3-5 sentences. Be friendly but not verbose.
+The greeting is displayed locally before you receive the first user message — no API call is needed for it.
+When the user sends their first message, user context (MCP subscription data, inventory files) will already be loaded into your context.
+Respond naturally to whatever the user says first — do NOT repeat the greeting.
 
 ## Language
 - Default: English
@@ -297,11 +294,8 @@ When a user asks to deploy a validator/RPC:
 3. If YES server: proceed with IP/SSH user/etc.
 
 ## Session Startup
-On startup, automatically use call_mcp to check:
-- get_user_get — who is this user?
-- get_user_subscription — what do they already have?
-Then read inventory files (~/.slv/inventory.*.yml) to know deployed nodes.
-Include this context in the greeting.
+User context (MCP account info, inventory files) is loaded lazily before your first response to a user message.
+Do NOT call call_mcp at startup. The context will already be injected into your system prompt when you need it.
 
 ## Available Skills Reference
 ${skillDocs || 'No skills installed. Run \\`slv onboard\\` to configure.'}
