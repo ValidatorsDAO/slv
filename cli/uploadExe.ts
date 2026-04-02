@@ -110,7 +110,14 @@ const uploadExe = async () => {
 
   // Upload SHA256SUMS file after binaries.
   const checksumsPath = './dist/SHA256SUMS'
-  await Deno.stat(checksumsPath)
+  try {
+    await Deno.stat(checksumsPath)
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      throw new Error(`SHA256SUMS file not found at ${checksumsPath}. Run 'deno task generate:checksums' first.`)
+    }
+    throw error
+  }
 
   console.log(`Reading file: ${checksumsPath}`)
   const checksumsContent = await Deno.readFile(checksumsPath)

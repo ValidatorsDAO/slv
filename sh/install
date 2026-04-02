@@ -67,7 +67,12 @@ install_slv() {
   fi
 
   cd "$TEMP_DIR"
-  if ! $VERIFY_CMD -c --ignore-missing SHA256SUMS; then
+  grep "${platform}-exe.tar.gz" "$TEMP_DIR/SHA256SUMS" > "$TEMP_DIR/SHA256SUMS.check"
+  if [ ! -s "$TEMP_DIR/SHA256SUMS.check" ]; then
+    echo "❌ FATAL: No checksum entry found for ${platform}-exe.tar.gz"
+    exit 1
+  fi
+  if ! $VERIFY_CMD -c SHA256SUMS.check; then
     echo "❌ FATAL: Checksum verification FAILED!"
     echo "The binary may be compromised. Aborting."
     exit 1

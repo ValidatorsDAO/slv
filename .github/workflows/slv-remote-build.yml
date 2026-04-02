@@ -263,7 +263,8 @@ jobs:
             echo "SHA256SUMS contents:"
             cat dist/SHA256SUMS
           else
-            echo "Warning: SHA256SUMS not found"
+            echo "❌ FATAL: SHA256SUMS not found in dist/"
+            exit 1
           fi
 
       - name: Rename files to match download script expectations
