@@ -1,0 +1,23 @@
+---
+- name: Deploy start-validator script dynamically
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure /home/solv exists
+      file:
+        path: /home/solv
+        state: directory
+        owner: solv
+        group: solv
+        mode: '0755'
+
+    - name: Generate start-validator.sh from template
+      template:
+        src: ~/.slv/devnet-rpc/start-validator.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: '0755'
+        owner: solv
+        group: solv
+    # Make sure if solv user has permission for /mnt directory
+    - name: Ensure /mnt directory belongs to solv
+      shell: sudo chown -R solv:solv /mnt && sudo chmod -R 700 /mnt
