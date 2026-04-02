@@ -140,6 +140,15 @@ async function buildLocalGreeting(home: string): Promise<string> {
     enabledAgents = skills.filter((s) => s.enabled).map((s) => s.agent)
   } catch { /* not configured */ }
 
+  // Figaro should be visible when the skill is installed, even if older configs
+  // predate the Server Procurement toggle.
+  try {
+    await Deno.stat(`${home}/.slv/skills/slv-server-procurement/SKILL.md`)
+    enabledAgents.push('Figaro')
+  } catch {
+    // skill not installed
+  }
+
   const greetLine = userName ? `Hey ${userName}! 👋` : 'Hey there! 👋'
 
   const introLine = agentName !== 'your SLV assistant'
@@ -149,12 +158,13 @@ async function buildLocalGreeting(home: string): Promise<string> {
   const agentDescriptions: Record<string, string> = {
     'Cecil': 'Solana Validator deployments & management',
     'Tina': 'RPC nodes (Index RPC, gRPC Geyser, combos)',
-    'Cid': 'Benchmarks & connectivity testing',
     'Setzer': 'Trading bots & Solana apps',
-    'Figaro': 'Server procurement',
+    'Figaro': 'Find optimized Solana server resources',
+    'Cid': 'Benchmarks & connectivity testing',
   }
 
-  const crew = enabledAgents.filter((a) => agentDescriptions[a])
+  const preferredOrder = ['Cecil', 'Tina', 'Setzer', 'Figaro', 'Cid']
+  const crew = preferredOrder.filter((agent) => enabledAgents.includes(agent))
   let crewSection = ''
   if (crew.length > 0) {
     crewSection = ` Here's my crew:\n\n${crew.map((a) => `- ${a} — ${agentDescriptions[a]}`).join('\n')}\n\n`

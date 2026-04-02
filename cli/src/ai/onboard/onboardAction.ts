@@ -193,6 +193,7 @@ export const onboardAction = async () => {
       { name: 'gRPC Geyser Streaming', value: 'gRPC Geyser Streaming', checked: true },
       { name: 'Benchmark & Connectivity Testing', value: 'Benchmark & Connectivity Testing', checked: true },
       { name: 'Solana App Development (Trade Bot)', value: 'Solana App Development' },
+      { name: 'Server Procurement', value: 'Server Procurement', checked: true },
     ],
   })
 
