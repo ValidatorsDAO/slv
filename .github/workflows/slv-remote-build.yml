@@ -33,7 +33,7 @@ jobs:
       - name: Check and create version tag
         id: check_tag
         run: |
-          VERSION=$(grep -oP "VERSION = '\K[0-9]+\.[0-9]+\.[0-9]+" cmn/constants/version.ts)
+          VERSION=$(grep -oP "VERSION = '\K[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" cmn/constants/version.ts)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           if ! git tag -l "v$VERSION" | grep -q .; then
             git config user.name "github-actions[bot]"
