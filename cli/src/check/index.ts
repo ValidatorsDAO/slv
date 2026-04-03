@@ -84,44 +84,58 @@ async function ensureGeyserbenchConfig(options: {
 }
 
 
-function summarizeGeyserbenchOutput(output: string): string[] {
-  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  const important = lines.filter((line) =>
-    line.includes('Loaded configuration') ||
-    line.includes('Region filter') ||
-    line.includes('Ping results') ||
-    line.includes('Finished test results') ||
-    line.includes('Detailed test results') ||
-    line.includes('Not enough data') ||
-    line.includes('matching_slots') ||
-    line.includes('total_slots') ||
-    line.includes('WrongSize') ||
-    line.includes('Error:') ||
-    line.includes('Region:') ||
-    line.includes('Get an upgrade on ERPC Global') ||
-    line.startsWith('🌍') ||
-    line.startsWith('🔗') ||
-    /\) \d+\.\d+ms$/.test(line)
-  )
-  return important.slice(-40)
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+function startSpinner(message: string): { stop: () => void } {
+  let frameIndex = 0
+  const startTime = Date.now()
+  const encoder = new TextEncoder()
+
+  const intervalId = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000)
+    const frame = SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length]
+    const text = `\r${frame} ${message} ${elapsed}s`
+    Deno.stdout.writeSync(encoder.encode(text))
+    frameIndex++
+  }, 80)
+
+  return {
+    stop() {
+      clearInterval(intervalId)
+      Deno.stdout.writeSync(encoder.encode('\r' + ' '.repeat(60) + '\r'))
+    },
+  }
 }
 
 async function runGeyserbenchCommand(commandArgs: string[]): Promise<void> {
-  const proc = new Deno.Command(commandArgs[0], {
-    args: commandArgs.slice(1),
-    stdout: 'piped',
-    stderr: 'piped',
-  })
-  const { code, stdout, stderr } = await proc.output()
-  const combined = `${new TextDecoder().decode(stdout)}\n${new TextDecoder().decode(stderr)}`
-  const summary = summarizeGeyserbenchOutput(combined)
+  const spinner = startSpinner('Running geyserbench...')
 
-  if (summary.length > 0) {
-    console.log(summary.join('\n'))
-  }
+  try {
+    const proc = new Deno.Command(commandArgs[0], {
+      args: commandArgs.slice(1),
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+    const { code, stdout, stderr } = await proc.output()
 
-  if (code !== 0) {
-    throw new Error(`geyserbench exited with code ${code}`)
+    spinner.stop()
+
+    const stdoutText = new TextDecoder().decode(stdout)
+    const stderrText = new TextDecoder().decode(stderr)
+
+    if (stdoutText.trim()) {
+      console.log(stdoutText.trimEnd())
+    }
+    if (stderrText.trim()) {
+      console.error(stderrText)
+    }
+
+    if (code !== 0) {
+      throw new Error(`geyserbench exited with code ${code}`)
+    }
+  } catch (error) {
+    spinner.stop()
+    throw error
   }
 }
 
