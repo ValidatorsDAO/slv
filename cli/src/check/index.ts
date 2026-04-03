@@ -124,7 +124,7 @@ async function runGeyserbenchCommand(commandArgs: string[]): Promise<void> {
     const stderrText = new TextDecoder().decode(stderr)
 
     if (stdoutText.trim()) {
-      console.log(stdoutText)
+      console.log(stdoutText.trimEnd())
     }
     if (stderrText.trim()) {
       console.error(stderrText)
