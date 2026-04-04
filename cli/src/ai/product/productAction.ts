@@ -67,6 +67,14 @@ export const aiProductAction = async () => {
     }
 
     if (products && products.length > 0) {
+      // Detect terminal width for responsive layout
+      let termWidth = 80
+      try {
+        termWidth = Deno.consoleSize().columns
+      } catch {
+        // Default to 80 if not available (e.g. piped output)
+      }
+
       for (const product of products) {
         const table = new Table()
         const rows: Row[] = []
@@ -93,13 +101,21 @@ export const aiProductAction = async () => {
           const interval = product.interval ? `/${product.interval}` : ''
           rows.push(new Row(colors.blue('Price'), colors.white(`${product.price} ${currency}${interval}`)).border(true))
         }
-        if (product.paymentLink) {
-          rows.push(new Row(colors.blue('Purchase'), colors.cyan(String(product.paymentLink))).border(true))
+
+        // For narrow terminals, show Purchase URL below the table
+        const purchaseUrl = product.paymentLink ? String(product.paymentLink) : ''
+        if (purchaseUrl && termWidth >= 100) {
+          rows.push(new Row(colors.blue('Purchase'), colors.cyan(purchaseUrl)).border(true))
         }
 
         table.body(rows)
         console.log('')
         table.render()
+
+        // On narrow terminals, show the URL on its own line
+        if (purchaseUrl && termWidth < 100) {
+          console.log(`  ${colors.blue('Purchase:')} ${colors.cyan(purchaseUrl)}`)
+        }
       }
     } else if (raw) {
       // Show raw response if not parseable as product list
