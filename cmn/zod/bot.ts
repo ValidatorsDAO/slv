@@ -6,12 +6,14 @@ export type BotTempType =
   | 'shreds-ts'
   | 'geyser-rust'
   | 'shreds-udp-rust'
+  | 'trade-app'
 export const BotTempTypeSchema = z.enum([
   'geyser-ts',
   'geyser-rust',
   'shreds-ts',
   'shreds-rust',
   'shreds-udp-rust',
+  'trade-app',
 ])
 export const BotTempTypeArray = BotTempTypeSchema.options
 
@@ -32,6 +34,7 @@ export const BotTempDirMap: Record<BotTempType, string> = {
   'shreds-rust': 'shreds-rs',
   'shreds-ts': 'shreds-ts',
   'shreds-udp-rust': 'shreds-udp-rs',
+  'trade-app': 'trade-app',
 }
 
 /**
