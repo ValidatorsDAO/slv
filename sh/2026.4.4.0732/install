@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="2026.4.2.0909"
+VERSION="2026.4.4.0732"
 BASE_URL="https://storage.slv.dev/slv"
 GRPC_TEST_URL_LINUX="https://storage.elsoul.nl/grpc_test"
 GRPC_TEST_URL_MAC="https://storage.elsoul.nl/grpc_test_mac"
@@ -121,78 +121,76 @@ install_slv() {
 }
 
 # Install the gRPC test binary
-install_grpc_test() {
-  # Check if the gRPC test binary is already installed
-  if [ -f "$HOME/.slv/bin/grpc_test" ]; then
-    echo "gRPC test binary already installed!"
-    return
+# Download a binary only if the remote version is newer than the local copy.
+# Uses curl -z (If-Modified-Since) so the server returns 304 when unchanged.
+download_if_changed() {
+  local url="$1"
+  local dest="$2"
+  local name
+  name="$(basename "$dest")"
+
+  mkdir -p "$(dirname "$dest")"
+
+  if [ -f "$dest" ]; then
+    echo "Checking for $name updates..."
+    # -z sends If-Modified-Since based on the local file timestamp.
+    # curl exits 0 with HTTP 304 (no body written) when unchanged.
+    http_code=$(curl -fSL -z "$dest" -o "$dest.tmp" -w '%{http_code}' "$url" 2>/dev/null || true)
+    if [ "$http_code" = "304" ] || [ ! -s "$dest.tmp" ]; then
+      rm -f "$dest.tmp"
+      echo "$name is already up to date."
+      return
+    fi
+    mv -f "$dest.tmp" "$dest"
+    chmod +x "$dest"
+    echo "$name updated."
+  else
+    echo "Downloading $name for $osfamily..."
+    curl -fSL --progress-bar "$url" -o "$dest"
+    chmod +x "$dest"
+    echo "$name installed in $dest"
   fi
-  # Download the appropriate gRPC test binary based on the platform
-  echo "Downloading gRPC test binary for $osfamily..."
+}
+
+install_grpc_test() {
   mkdir -p "$HOME/.slv/bin"
 
   if [ "$osfamily" = "darwin" ]; then
-    curl -fSL --progress-bar "$GRPC_TEST_URL_MAC" -o "$HOME/.slv/bin/grpc_test"
+    download_if_changed "$GRPC_TEST_URL_MAC" "$HOME/.slv/bin/grpc_test"
   elif [ "$osfamily" = "linux" ]; then
-    curl -fSL --progress-bar "$GRPC_TEST_URL_LINUX" -o "$HOME/.slv/bin/grpc_test"
+    download_if_changed "$GRPC_TEST_URL_LINUX" "$HOME/.slv/bin/grpc_test"
   else
     echo "Warning: gRPC test binary is not available for $osfamily."
     return
   fi
-
-  chmod +x "$HOME/.slv/bin/grpc_test"
-
-  echo "gRPC test binary installed in $HOME/.slv/bin/grpc_test"
 }
 
 # Install the geyserbench binary
 install_geyserbench() {
-  # Check if the geyserbench binary is already installed
-  if [ -f "$HOME/.slv/bin/geyserbench" ]; then
-    echo "geyserbench binary already installed!"
-    return
-  fi
-  # Download the appropriate geyserbench binary based on the platform
-  echo "Downloading geyserbench binary for $osfamily..."
   mkdir -p "$HOME/.slv/bin"
 
   if [ "$osfamily" = "darwin" ]; then
-    curl -fSL --progress-bar "$GEYSERBENCH_URL_MAC" -o "$HOME/.slv/bin/geyserbench"
+    download_if_changed "$GEYSERBENCH_URL_MAC" "$HOME/.slv/bin/geyserbench"
   elif [ "$osfamily" = "linux" ]; then
-    curl -fSL --progress-bar "$GEYSERBENCH_URL_LINUX" -o "$HOME/.slv/bin/geyserbench"
+    download_if_changed "$GEYSERBENCH_URL_LINUX" "$HOME/.slv/bin/geyserbench"
   else
     echo "Warning: geyserbench binary is not available for $osfamily."
     return
   fi
-
-  chmod +x "$HOME/.slv/bin/geyserbench"
-
-  echo "geyserbench binary installed in $HOME/.slv/bin/geyserbench"
 }
 
 # Install the shreds test binary
 install_shreds_test() {
-  # Check if the shreds test binary is already installed
-  if [ -f "$HOME/.slv/bin/shreds_test" ]; then
-    echo "Shreds test binary already installed!"
-    return
-  fi
-  # Download the appropriate shreds test binary based on the platform
-  echo "Downloading shreds test binary for $osfamily..."
   mkdir -p "$HOME/.slv/bin"
 
   if [ "$osfamily" = "darwin" ]; then
-    curl -fSL --progress-bar "$SHREDS_TEST_URL_MAC" -o "$HOME/.slv/bin/shreds_test"
+    download_if_changed "$SHREDS_TEST_URL_MAC" "$HOME/.slv/bin/shreds_test"
   elif [ "$osfamily" = "linux" ]; then
-    curl -fSL --progress-bar "$SHREDS_TEST_URL_LINUX" -o "$HOME/.slv/bin/shreds_test"
+    download_if_changed "$SHREDS_TEST_URL_LINUX" "$HOME/.slv/bin/shreds_test"
   else
     echo "Warning: Shreds test binary is not available for $osfamily."
     return
   fi
-
-  chmod +x "$HOME/.slv/bin/shreds_test"
-
-  echo "Shreds test binary installed in $HOME/.slv/bin/shreds_test"
 }
 
 install_skills() {
@@ -218,6 +216,93 @@ install_skills() {
   echo "AI agent skills installed in $SKILLS_DIR"
 }
 
+# Install system prerequisites (Linux only)
+install_prerequisites() {
+  if [ "$osfamily" != "linux" ]; then
+    return
+  fi
+
+  echo "Checking system prerequisites..."
+  local need_apt_update=false
+  local pkgs_to_install=""
+
+  # curl (should exist if we got here, but just in case)
+  if ! command -v curl &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install curl"
+  fi
+
+  # python3
+  if ! command -v python3 &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install python3"
+  fi
+
+  # pip3 (needed for ansible-core)
+  if ! command -v pip3 &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install python3-pip"
+  fi
+
+  # gcc / build essentials (sometimes needed for pip packages)
+  if ! command -v gcc &>/dev/null; then
+    pkgs_to_install="$pkgs_to_install build-essential"
+  fi
+
+  if [ -n "$pkgs_to_install" ]; then
+    echo "Installing system packages:$pkgs_to_install"
+    if command -v apt-get &>/dev/null; then
+      sudo apt-get update -qq
+      sudo apt-get install -y $pkgs_to_install
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y $pkgs_to_install
+    elif command -v yum &>/dev/null; then
+      sudo yum install -y $pkgs_to_install
+    else
+      echo "⚠️  Could not auto-install: $pkgs_to_install"
+      echo "   Please install them manually before running 'slv c'."
+    fi
+  else
+    echo "✅ System prerequisites OK"
+  fi
+
+  # Install ansible-core if not present
+  if ! command -v ansible-playbook &>/dev/null; then
+    echo "Installing ansible-core..."
+    local installed=false
+
+    # Method 1: Try apt install (works on Ubuntu 24.04+ without PEP 668 issues)
+    if command -v apt-get &>/dev/null; then
+      if sudo apt-get install -y ansible-core 2>/dev/null; then
+        installed=true
+      fi
+    fi
+
+    # Method 2: Try dnf
+    if [ "$installed" = false ] && command -v dnf &>/dev/null; then
+      if sudo dnf install -y ansible-core 2>/dev/null; then
+        installed=true
+      fi
+    fi
+
+    # Method 3: pip3 with --break-system-packages (fallback for older distros)
+    if [ "$installed" = false ] && command -v pip3 &>/dev/null; then
+      if [ "$(id -u)" -eq 0 ]; then
+        pip3 install --break-system-packages ansible-core 2>/dev/null || pip3 install ansible-core 2>/dev/null || true
+      else
+        pip3 install --user --break-system-packages ansible-core 2>/dev/null || pip3 install --user ansible-core 2>/dev/null || true
+        export PATH="$HOME/.local/bin:$PATH"
+      fi
+      command -v ansible-playbook &>/dev/null && installed=true
+    fi
+
+    if [ "$installed" = true ] || command -v ansible-playbook &>/dev/null; then
+      echo "✅ ansible-core installed"
+    else
+      echo "⚠️  Could not auto-install ansible-core. Install manually: sudo apt install ansible-core"
+    fi
+  else
+    echo "✅ ansible-core already installed"
+  fi
+}
+
 # Main installation process
 main() {
   echo "Detecting platform..."
@@ -230,6 +315,9 @@ main() {
     INSTALL_DIR="$HOME/.local/bin"
     mkdir -p "$INSTALL_DIR"
   fi
+
+  # Install system prerequisites before anything else
+  install_prerequisites
 
   # Create temporary directory
   TEMP_DIR=$(mktemp -d)
@@ -252,6 +340,7 @@ main() {
 
   # Clean up
   echo "✨ Cleaning up..."
+  cd "$HOME" || cd /
   rm -rf "$TEMP_DIR"
   rm -f "$HOME/.slv/template.tar.gz"
 
@@ -261,14 +350,15 @@ main() {
     echo "Windows users, add $INSTALL_DIR to your PATH manually."
   fi
 
-  slv upgrade:settings
+  slv upgrade:settings || echo "⚠️ upgrade:settings encountered an error (non-fatal, templates may need re-download via 'slv upgrade')"
 
   # Optional: Test the installed 'slv'
   echo "Testing slv installation... 🔨"
   slv -P || true
 
-  echo "You can now use 'slv check grpc' to run gRPC latency tests:"
-  echo "Example: slv check grpc"
+  echo "Try 'slv backup' to protect your node environment:"
+  echo "  slv backup create   — Create a backup of the current node"
+  echo "  slv backup list     — List available backups and snapshots"
 }
 
 # Run the main function
