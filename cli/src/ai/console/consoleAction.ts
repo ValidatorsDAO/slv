@@ -19,7 +19,7 @@ import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
-import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess } from '@/ai/console/tools.ts'
+import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess, resetActiveTools } from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
 import { checkSolanaReleases, applyVersionUpdates, type VersionUpdate } from '@/ai/console/checkRelease.ts'
@@ -100,6 +100,7 @@ class ChatLog extends Container {
     const friendlyNames: Record<string, string> = {
       'run_command': '⚡ Running command',
       'read_file': '📄 Reading file',
+      'enable_tools': '🧰 Enabling tools',
       'write_file': '📝 Writing file',
       'list_files': '📂 Listing files',
       'call_mcp': '🔗 Calling SLV Cloud API',
@@ -413,6 +414,9 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
 }
 
 export const consoleAction = async () => {
+  // Reset lazy-loaded tools at session start
+  resetActiveTools()
+
   let config = await readAiConfig()
   if (!config) {
     // Default to SLV AI — works with just the SLV API Key
@@ -780,6 +784,7 @@ RULES:
 
     if (input === '/clear') {
       chatLog.clear()
+      resetActiveTools()
       const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
         provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)

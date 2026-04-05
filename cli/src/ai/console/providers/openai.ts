@@ -1,7 +1,7 @@
 import OpenAI from 'openai'
 import {
   executeTool,
-  TOOL_DEFINITIONS,
+  getActiveTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
@@ -43,7 +43,7 @@ export class OpenAIProvider {
       const stream = await this.client.chat.completions.create({
         model: this.model,
         messages: this.messages,
-        tools: toOpenAITools(TOOL_DEFINITIONS),
+        tools: toOpenAITools(getActiveTools()),
         stream: true,
       })
 

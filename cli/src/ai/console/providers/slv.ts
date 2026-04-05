@@ -1,6 +1,6 @@
 import {
   executeTool,
-  TOOL_DEFINITIONS,
+  getActiveTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
@@ -63,7 +63,7 @@ export class SLVProvider {
           max_tokens: DEFAULT_MAX_TOKENS,
           system: this.systemPrompt,
           messages: this.messages,
-          tools: toAnthropicTools(TOOL_DEFINITIONS),
+          tools: toAnthropicTools(getActiveTools()),
         }),
         signal: AbortSignal.timeout(120_000),
       })

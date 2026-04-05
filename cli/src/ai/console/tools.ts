@@ -56,7 +56,8 @@ const AGENT_SKILL_MAP: Record<string, string> = {
   'Figaro': 'slv-server-procurement',
 }
 
-export const TOOL_DEFINITIONS: ToolDefinition[] = [
+// Core tools — always sent to the API (minimal token footprint)
+export const CORE_TOOLS: ToolDefinition[] = [
   {
     name: 'run_command',
     description:
@@ -87,6 +88,29 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['path'],
     },
   },
+  {
+    name: 'enable_tools',
+    description:
+      'Enable additional tools when needed. Available extended tools: write_file, list_files, call_mcp, send_notification, delegate_to_agent. Call this to activate them before use.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tools: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['write_file', 'list_files', 'call_mcp', 'send_notification', 'delegate_to_agent'],
+          },
+          description: 'Tool names to enable',
+        },
+      },
+      required: ['tools'],
+    },
+  },
+]
+
+// Extended tools — loaded on demand via enable_tools
+export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'list_files',
     description:
@@ -177,9 +201,28 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ]
 
-// Tools available to sub-agents (no delegate_to_agent to prevent recursion)
+// Mutable set of currently active extended tools
+let activeExtendedTools: Set<string> = new Set()
+
+// Get the current active tool set (core + enabled extended tools)
+export function getActiveTools(): ToolDefinition[] {
+  const extended = EXTENDED_TOOLS.filter((t) => activeExtendedTools.has(t.name))
+  return [...CORE_TOOLS, ...extended]
+}
+
+// Reset active extended tools (call at session start)
+export function resetActiveTools(): void {
+  activeExtendedTools = new Set()
+}
+
+// Legacy export for backward compatibility (all tools)
+export const TOOL_DEFINITIONS: ToolDefinition[] = [...CORE_TOOLS, ...EXTENDED_TOOLS]
+
+// Tools available to sub-agents (no delegation or lazy-enable meta-tool needed)
 export const SUB_AGENT_TOOL_DEFINITIONS: ToolDefinition[] =
-  TOOL_DEFINITIONS.filter((t) => t.name !== 'delegate_to_agent')
+  TOOL_DEFINITIONS.filter((t) =>
+    t.name !== 'delegate_to_agent' && t.name !== 'enable_tools'
+  )
 
 export async function executeTool(
   name: string,
@@ -190,6 +233,26 @@ export async function executeTool(
       return await executeRunCommand(String(args.command || ''))
     case 'read_file':
       return await executeReadFile(String(args.path || ''))
+    case 'enable_tools': {
+      const requested = (args.tools as string[]) || []
+      const validNames = new Set(EXTENDED_TOOLS.map((t) => t.name))
+      const enabled: string[] = []
+      const invalid: string[] = []
+      for (const toolName of requested) {
+        if (validNames.has(toolName)) {
+          activeExtendedTools.add(toolName)
+          enabled.push(toolName)
+        } else {
+          invalid.push(toolName)
+        }
+      }
+      let msg = `Enabled tools: ${enabled.join(', ') || '(none)'}.`
+      if (invalid.length > 0) {
+        msg += ` Unknown tools ignored: ${invalid.join(', ')}.`
+      }
+      msg += ` You can now use them in this session.`
+      return msg
+    }
     case 'list_files':
       return await executeListFiles(String(args.path || ''))
     case 'write_file':

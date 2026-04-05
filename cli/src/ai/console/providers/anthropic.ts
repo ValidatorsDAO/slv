@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import {
   executeTool,
-  TOOL_DEFINITIONS,
+  getActiveTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
@@ -43,7 +43,7 @@ export class AnthropicProvider {
         max_tokens: DEFAULT_MAX_TOKENS,
         system: this.systemPrompt,
         messages: this.messages,
-        tools: toAnthropicTools(TOOL_DEFINITIONS),
+        tools: toAnthropicTools(getActiveTools()),
       })
 
       let assistantText = ''
