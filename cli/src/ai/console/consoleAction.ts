@@ -1,28 +1,45 @@
 import { getTipsForAgent, pickRandomTip } from '@/ai/console/tips.ts'
 import {
-  TUI,
-  Container,
-  Text,
-  Markdown,
-  Editor,
-  Spacer,
-  Loader,
-  ProcessTerminal,
-  matchesKey,
-  type MarkdownTheme,
-  type EditorTheme,
   type Component,
+  Container,
+  Editor,
+  type EditorTheme,
+  Loader,
+  Markdown,
+  type MarkdownTheme,
+  matchesKey,
+  ProcessTerminal,
+  Spacer,
+  Text,
+  TUI,
 } from '@mariozechner/pi-tui'
 import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
-import { buildSystemPrompt, resetContextModules } from '@/ai/console/systemPrompt.ts'
-import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess, resetActiveTools } from '@/ai/console/tools.ts'
+import {
+  buildSystemPrompt,
+  getIntentPrimer,
+  primeIntentContext,
+  resetContextModules,
+} from '@/ai/console/systemPrompt.ts'
+import {
+  activateExtendedTools,
+  killActiveProcess,
+  resetActiveTools,
+  resetSessionCaches,
+  setAutoExecute,
+  setCommandOutputCallback,
+  setTuiInstance,
+} from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
-import { checkSolanaReleases, applyVersionUpdates, type VersionUpdate } from '@/ai/console/checkRelease.ts'
+import {
+  applyVersionUpdates,
+  checkSolanaReleases,
+  type VersionUpdate,
+} from '@/ai/console/checkRelease.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
 export type ChatCallbacks = {
@@ -182,7 +199,9 @@ async function buildLocalGreeting(home: string): Promise<string> {
   try {
     const raw = await Deno.readTextFile(`${agentDir}/config.yml`)
     const agentConfig = parse(raw) as Record<string, unknown>
-    const skills = (agentConfig.skills || []) as Array<{ name: string; enabled: boolean; agent: string }>
+    const skills = (agentConfig.skills || []) as Array<
+      { name: string; enabled: boolean; agent: string }
+    >
     enabledAgents = skills.filter((s) => s.enabled).map((s) => s.agent)
   } catch { /* not configured */ }
 
@@ -213,7 +232,9 @@ async function buildLocalGreeting(home: string): Promise<string> {
   const crew = preferredOrder.filter((agent) => enabledAgents.includes(agent))
   let crewSection = ''
   if (crew.length > 0) {
-    crewSection = ` Here's my crew:\n\n${crew.map((a) => `- ${a} — ${agentDescriptions[a]}`).join('\n')}\n\n`
+    crewSection = ` Here's my crew:\n\n${
+      crew.map((a) => `- ${a} — ${agentDescriptions[a]}`).join('\n')
+    }\n\n`
   } else {
     crewSection = ' '
   }
@@ -294,7 +315,11 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
         // Ensure python3 and pip3 are available (clean Ubuntu servers may lack them)
         let hasPip3 = false
         try {
-          const check = new Deno.Command('pip3', { args: ['--version'], stdout: 'piped', stderr: 'piped' })
+          const check = new Deno.Command('pip3', {
+            args: ['--version'],
+            stdout: 'piped',
+            stderr: 'piped',
+          })
           const { success } = await check.output()
           hasPip3 = success
         } catch { /* not found */ }
@@ -329,7 +354,11 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
               })
               await install.output()
             } catch {
-              console.log(red('  ✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip'))
+              console.log(
+                red(
+                  '  ✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip',
+                ),
+              )
             }
           }
         }
@@ -414,9 +443,10 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
 }
 
 export const consoleAction = async () => {
-  // Reset lazy-loaded tools and context modules at session start
+  // Reset lazy-loaded tools, context modules, and demand-driven caches at session start
   resetActiveTools()
   resetContextModules()
+  resetSessionCaches()
 
   let config = await readAiConfig()
   if (!config) {
@@ -447,9 +477,25 @@ export const consoleAction = async () => {
 
   // Header
   chatLog.addChild(new Spacer(1))
-  chatLog.addChild(new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1))
-  chatLog.addChild(new Text(white(config.provider === 'slv' ? `  Provider: ${providerLabel}` : `  Provider: ${providerLabel} | Model: ${config.model}`), 1))
-  chatLog.addChild(new Text(gray('  Type /exit to quit, /clear to reset. Press Enter to send.'), 1))
+  chatLog.addChild(
+    new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1),
+  )
+  chatLog.addChild(
+    new Text(
+      white(
+        config.provider === 'slv'
+          ? `  Provider: ${providerLabel}`
+          : `  Provider: ${providerLabel} | Model: ${config.model}`,
+      ),
+      1,
+    ),
+  )
+  chatLog.addChild(
+    new Text(
+      gray('  Type /exit to quit, /clear to reset. Press Enter to send.'),
+      1,
+    ),
+  )
   chatLog.addChild(new Spacer(1))
 
   tui.addChild(chatLog)
@@ -473,7 +519,9 @@ export const consoleAction = async () => {
     // Show last N lines as a rolling window so the user always sees progress
     const visible = cmdOutputLines.slice(-MAX_CMD_VISIBLE_LINES)
     const hiddenCount = cmdTotalLineCount - visible.length
-    const header = hiddenCount > 0 ? `  ... (${hiddenCount} earlier lines hidden)\n` : ''
+    const header = hiddenCount > 0
+      ? `  ... (${hiddenCount} earlier lines hidden)\n`
+      : ''
     const combined = header + visible.join('\n')
     if (cmdOutputText) {
       // Update text in-place — no remove/add cycle, no layout thrash, no scrollbar flicker
@@ -491,7 +539,10 @@ export const consoleAction = async () => {
     // Skip empty or whitespace-only lines
     if (!line.trim()) return
 
-    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(/\s+/g, ' ').trim()
+    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(
+      /\s+/g,
+      ' ',
+    ).trim()
     if (!cleaned) return
     cmdTotalLineCount++
     cmdOutputLines.push(`  ${cleaned}`)
@@ -505,7 +556,10 @@ export const consoleAction = async () => {
     cmdFlushTimer = setTimeout(flushCmdOutput, 300)
   }, () => {
     // Flush remaining on command complete
-    if (cmdFlushTimer) { clearTimeout(cmdFlushTimer); cmdFlushTimer = null }
+    if (cmdFlushTimer) {
+      clearTimeout(cmdFlushTimer)
+      cmdFlushTimer = null
+    }
     flushCmdOutput()
     cmdOutputLines = []
     cmdOutputText = null
@@ -529,8 +583,7 @@ export const consoleAction = async () => {
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider | SLVProvider
-  let slvApiKey = ''  // stored for lazy provider rebuild
-  let userContextLoaded = false
+  let slvApiKey = ''
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -587,8 +640,14 @@ export const consoleAction = async () => {
           'Cid': 'Cid is running benchmark and connectivity checks...',
           'Setzer': 'Setzer is crafting your app...',
         }
-        const loaderMsg = loaderMessages[agentName] || `${agentName} is working...`
-        loader = new Loader(tui, (s: string) => chalk.hex('#14f195')(s), (s: string) => chalk.gray(s), loaderMsg)
+        const loaderMsg = loaderMessages[agentName] ||
+          `${agentName} is working...`
+        loader = new Loader(
+          tui,
+          (s: string) => chalk.hex('#14f195')(s),
+          (s: string) => chalk.gray(s),
+          loaderMsg,
+        )
         chatLog.addChild(loader)
         loader.start()
         tui.requestRender()
@@ -655,7 +714,12 @@ export const consoleAction = async () => {
   }
 
   if (config.provider === 'openai') {
-    provider = new OpenAIProvider(config.api_key, config.model, systemPrompt, callbacks)
+    provider = new OpenAIProvider(
+      config.api_key,
+      config.model,
+      systemPrompt,
+      callbacks,
+    )
   } else if (config.provider === 'slv') {
     // SLV AI uses slv.api_key from ~/.slv/api.yml (not ai.api_key)
     try {
@@ -669,7 +733,12 @@ export const consoleAction = async () => {
     }
     provider = new SLVProvider(slvApiKey, config.model, systemPrompt, callbacks)
   } else {
-    provider = new AnthropicProvider(config.api_key, config.model, systemPrompt, callbacks)
+    provider = new AnthropicProvider(
+      config.api_key,
+      config.model,
+      systemPrompt,
+      callbacks,
+    )
   }
 
   tui.start()
@@ -707,7 +776,7 @@ export const consoleAction = async () => {
     tui.requestRender(true)
 
     pendingUpdates = updates
-  }).catch(() => { /* silent fail */ })
+  }).catch(() => {/* silent fail */})
 
   // Track user interactions for memory save decision
   let userMessageCount = 0
@@ -756,17 +825,22 @@ RULES:
     // While processing, handle side-chat messages
     if (isProcessing) {
       chatLog.addUser(input)
-      const elapsed = currentTaskStartedAt ? formatElapsedTime(currentTaskStartedAt) : 'a moment'
+      const elapsed = currentTaskStartedAt
+        ? formatElapsedTime(currentTaskStartedAt)
+        : 'a moment'
       const agent = currentDelegateAgent || 'The system'
 
       // Build a helpful status response
       let status = `⏳ ${agent} is still working (${elapsed} elapsed).`
       if (currentDelegateAgent === 'Cecil') {
-        status += ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
+        status +=
+          ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
       } else if (currentDelegateAgent === 'Tina') {
-        status += ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
+        status +=
+          ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
       } else if (currentDelegateAgent === 'Cid') {
-        status += ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.'
+        status +=
+          ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.'
       } else if (currentDelegateAgent === 'Figaro') {
         status += ' Checking server availability and preparing your options.'
       }
@@ -787,9 +861,15 @@ RULES:
       chatLog.clear()
       resetActiveTools()
       resetContextModules()
+      resetSessionCaches()
       const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
-        provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+        provider = new OpenAIProvider(
+          config.api_key,
+          config.model,
+          newSystemPrompt,
+          callbacks,
+        )
       } else if (config.provider === 'slv') {
         let slvKey = ''
         try {
@@ -798,10 +878,20 @@ RULES:
           slvKey = yml?.slv?.api_key || ''
         } catch { /* */ }
         if (slvKey) {
-          provider = new SLVProvider(slvKey, config.model, newSystemPrompt, callbacks)
+          provider = new SLVProvider(
+            slvKey,
+            config.model,
+            newSystemPrompt,
+            callbacks,
+          )
         }
       } else {
-        provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt, callbacks)
+        provider = new AnthropicProvider(
+          config.api_key,
+          config.model,
+          newSystemPrompt,
+          callbacks,
+        )
       }
       chatLog.addSystem('  Conversation cleared.')
       tui.requestRender()
@@ -824,14 +914,21 @@ RULES:
       chatLog.addSystem('  /exit, /quit — Exit')
       chatLog.addSystem('  /clear — Clear conversation')
       chatLog.addSystem('  /update — Apply pending version updates')
-      chatLog.addSystem('  /<command> — Execute shell command directly (e.g. /slv ai usage)')
+      chatLog.addSystem(
+        '  /<command> — Execute shell command directly (e.g. /slv ai usage)',
+      )
       chatLog.addSystem('  /help — Show this help')
       tui.requestRender()
       return
     }
 
     // Direct CLI execution: input starting with / (but not a known command) runs as shell command
-    if (input.startsWith('/') && !['/exit', '/quit', '/clear', '/update', '/help'].includes(input.split(' ')[0])) {
+    if (
+      input.startsWith('/') &&
+      !['/exit', '/quit', '/clear', '/update', '/help'].includes(
+        input.split(' ')[0],
+      )
+    ) {
       const shellCommand = input.slice(1).trim()
       if (!shellCommand) return
 
@@ -848,7 +945,9 @@ RULES:
         })
         const child = proc.spawn()
 
-        const readStream = async (stream: ReadableStream<Uint8Array>): Promise<string> => {
+        const readStream = async (
+          stream: ReadableStream<Uint8Array>,
+        ): Promise<string> => {
           const reader = stream.getReader()
           const decoder = new TextDecoder()
           const chunks: string[] = []
@@ -889,45 +988,25 @@ RULES:
     isProcessing = true
 
     // Show loader
-    loader = new Loader(tui, (s: string) => green(s), (s: string) => gray(s), 'Thinking...')
+    loader = new Loader(
+      tui,
+      (s: string) => green(s),
+      (s: string) => gray(s),
+      'Thinking...',
+    )
     chatLog.addChild(loader)
     loader.start()
     tui.requestRender()
 
-    // Lazy-load user context before the first real API call
-    if (!userContextLoaded) {
-      userContextLoaded = true
-      let lazyContext = ''
-      try {
-        const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
-        const apiYml = parse(apiYmlRaw) as Record<string, any>
-        const key = apiYml?.slv?.api_key || ''
-        if (key) {
-          const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_user_get', arguments: {} } }),
-          })
-          const data = await res.json()
-          lazyContext += `\n## User Account (from MCP)\n${data.result?.content?.[0]?.text || 'Unable to fetch'}\n`
-        }
-      } catch { /* silent */ }
-      for (const inv of ['inventory.testnet.validators.yml', 'inventory.mainnet.validators.yml', 'inventory.mainnet.rpcs.yml']) {
-        try {
-          const content = await Deno.readTextFile(`${resolveHome()}/.slv/${inv}`)
-          lazyContext += `\n## ${inv}\n${content}\n`
-        } catch { /* doesn't exist */ }
-      }
-      if (lazyContext) {
-        const newSystemPrompt = await buildSystemPrompt(lazyContext)
-        if (config.provider === 'openai') {
-          provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)
-        } else if (config.provider === 'slv') {
-          if (slvApiKey) provider = new SLVProvider(slvApiKey, config.model, newSystemPrompt, callbacks)
-        } else {
-          provider = new AnthropicProvider(config.api_key, config.model, newSystemPrompt, callbacks)
-        }
-      }
+    const primer = getIntentPrimer(input)
+    const autoTools: string[] = []
+    if (primer.agents.length > 0) autoTools.push('delegate_to_agent')
+    if (primer.modules.includes('mcp_reference')) autoTools.push('call_mcp')
+    if (autoTools.length > 0) {
+      activateExtendedTools(autoTools)
+    }
+    if (primer.modules.length > 0 || primer.agents.length > 0) {
+      await primeIntentContext(input)
     }
 
     try {
@@ -955,7 +1034,9 @@ RULES:
 
       // Reset counter after 2 seconds
       if (ctrlCResetTimer) clearTimeout(ctrlCResetTimer)
-      ctrlCResetTimer = setTimeout(() => { ctrlCCount = 0 }, 2000)
+      ctrlCResetTimer = setTimeout(() => {
+        ctrlCCount = 0
+      }, 2000)
 
       if (ctrlCCount >= 2) {
         // Double Ctrl+C: force exit immediately no matter what
@@ -968,11 +1049,23 @@ RULES:
       if (isProcessing) {
         // First Ctrl+C during processing: kill child process, show message
         killActiveProcess()
-        chatLog.addSystem('  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
+        chatLog.addSystem(
+          '  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.',
+        )
         isProcessing = false
-        if (loader) { chatLog.removeChild(loader); loader.stop(); loader = null }
-        if (tipTimer) { clearInterval(tipTimer); tipTimer = null }
-        if (tipText) { chatLog.removeChild(tipText); tipText = null }
+        if (loader) {
+          chatLog.removeChild(loader)
+          loader.stop()
+          loader = null
+        }
+        if (tipTimer) {
+          clearInterval(tipTimer)
+          tipTimer = null
+        }
+        if (tipText) {
+          chatLog.removeChild(tipText)
+          tipText = null
+        }
         currentDelegateAgent = null
         currentTaskDescription = ''
         currentTaskStartedAt = 0

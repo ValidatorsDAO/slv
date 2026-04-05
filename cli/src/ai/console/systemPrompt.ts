@@ -1,5 +1,6 @@
 import { parse } from '@std/yaml'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { VERSION } from '@cmn/constants/version.ts'
 
 // --- Context module state management ---
 
@@ -24,17 +25,39 @@ export function loadContextModules(modules: string[]): string {
     : 'All requested modules already loaded.'
 }
 
-// --- Lazy-loaded skill docs cache ---
+// --- Lazy-loaded skill docs registry/cache ---
 let skillDocsCache: Record<string, string> = {}
+let skillDocSources: Record<string, string[]> = {}
 
-async function cacheSkillDocs(skillsDir: string, skills: Array<{ name: string; enabled: boolean; agent: string }>) {
+function registerSkillDocSource(agent: string, path: string) {
+  if (!skillDocSources[agent]) skillDocSources[agent] = []
+  if (!skillDocSources[agent].includes(path)) {
+    skillDocSources[agent].push(path)
+  }
+}
+
+function skillSectionTitle(path: string): string {
+  const parts = path.split('/')
+  const maybeSkillName = parts.at(-2) || 'skill'
+  return `## Skill: ${maybeSkillName}`
+}
+
+async function cacheSkillDocs(
+  skillsDir: string,
+  skills: Array<{ name: string; enabled: boolean; agent: string }>,
+) {
   skillDocsCache = {}
+  skillDocSources = {}
+
   for (const skill of skills) {
     if (!skill.enabled) continue
-    try {
-      const skillMd = await Deno.readTextFile(`${skillsDir}/${skill.name}/SKILL.md`)
-      skillDocsCache[skill.agent] = (skillDocsCache[skill.agent] || '') + `\n\n## Skill: ${skill.name}\n${skillMd}`
-    } catch { /* not installed */ }
+    registerSkillDocSource(skill.agent, `${skillsDir}/${skill.name}/SKILL.md`)
+  }
+
+  // Tina and Cid also benefit from the gRPC Geyser skill when that skill exists,
+  // but we still register it lazily instead of reading it at startup.
+  for (const agent of ['Tina', 'Cid']) {
+    registerSkillDocSource(agent, `${skillsDir}/slv-grpc-geyser/SKILL.md`)
   }
 }
 
@@ -42,17 +65,147 @@ export function getSkillDocsForAgent(agent: string): string {
   return skillDocsCache[agent] || ''
 }
 
-export function injectSkillDocs(agent: string): void {
+export async function injectSkillDocs(agent: string): Promise<void> {
+  if (loadedModules.has(`skill_${agent}`)) return
+
+  if (!skillDocsCache[agent]) {
+    const docs: string[] = []
+    for (const path of skillDocSources[agent] || []) {
+      try {
+        const skillMd = await Deno.readTextFile(path)
+        docs.push(`${skillSectionTitle(path)}\n${skillMd}`)
+      } catch {
+        // ignore missing/uninstalled skill files
+      }
+    }
+    skillDocsCache[agent] = docs.join('\n\n')
+  }
+
   const docs = skillDocsCache[agent]
-  if (docs && !loadedModules.has(`skill_${agent}`)) {
+  if (docs) {
     loadedModules.add(`skill_${agent}`)
-    moduleContent += docs
+    moduleContent += `\n\n${docs}`
   }
 }
 
 export function resetContextModules() {
   loadedModules.clear()
   moduleContent = ''
+}
+
+export type IntentPrimer = {
+  modules: string[]
+  agents: string[]
+}
+
+const DEPLOY_RE =
+  /\b(deploy|deployment|init|initialize|setup|set up|launch|bring up|provision)\b/i
+
+function hasPattern(input: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(input))
+}
+
+export function getIntentPrimer(input: string): IntentPrimer {
+  const text = input.toLowerCase()
+  const primer: IntentPrimer = { modules: [], agents: [] }
+
+  const addModule = (module: string) => {
+    if (!primer.modules.includes(module)) primer.modules.push(module)
+  }
+  const addAgent = (agent: string) => {
+    if (!primer.agents.includes(agent)) primer.agents.push(agent)
+  }
+
+  const validatorIntent = hasPattern(text, [
+    /\bvalidator\b/i,
+    /\bvote\b/i,
+    /\bvote account\b/i,
+    /\bidentity\b/i,
+  ])
+  const rpcIntent = hasPattern(text, [
+    /\brpc\b/i,
+    /\bgeyser\b/i,
+    /\bgrpc\b/i,
+    /\bindex\b/i,
+  ])
+  const benchmarkIntent = hasPattern(text, [
+    /\bbenchmark\b/i,
+    /\bthroughput\b/i,
+    /\blatency\b/i,
+    /\bgrpc_test\b/i,
+    /\bshreds?\b/i,
+    /\bgeyserbench\b/i,
+  ])
+  const serverIntent = hasPattern(text, [
+    /\bbare metal\b/i,
+    /\bserver\b/i,
+    /\bbuy\b/i,
+    /\bpurchase\b/i,
+    /\bpricing\b/i,
+    /\bpayment link\b/i,
+  ])
+  const accountIntent = hasPattern(text, [
+    /\bsubscription\b/i,
+    /\busage\b/i,
+    /\bbilling\b/i,
+    /\baccount\b/i,
+    /\bdashboard\b/i,
+    /\binvoice\b/i,
+  ])
+  const appIntent = hasPattern(text, [
+    /\bbot\b/i,
+    /\bapp\b/i,
+    /\btrade\b/i,
+    /\btrading\b/i,
+    /\bmev\b/i,
+  ])
+  const deployIntent = DEPLOY_RE.test(text)
+
+  if (validatorIntent) {
+    addModule('delegation')
+    addModule('validator')
+    if (deployIntent) addModule('deploy')
+    addAgent('Cecil')
+  }
+
+  if (rpcIntent) {
+    addModule('delegation')
+    if (deployIntent) addModule('deploy')
+    addAgent('Tina')
+  }
+
+  if (benchmarkIntent) {
+    addModule('delegation')
+    addAgent('Cid')
+  }
+
+  if (serverIntent) {
+    addModule('delegation')
+    addModule('mcp_reference')
+    addAgent('Figaro')
+  }
+
+  if (accountIntent) {
+    addModule('mcp_reference')
+  }
+
+  if (appIntent) {
+    addModule('delegation')
+    addAgent('Setzer')
+  }
+
+  return primer
+}
+
+export async function primeIntentContext(input: string): Promise<IntentPrimer> {
+  const primer = getIntentPrimer(input)
+  if (primer.modules.length > 0) {
+    loadContextModules(primer.modules)
+  }
+  for (const agent of primer.agents) {
+    await injectSkillDocs(agent)
+  }
+  return primer
 }
 
 export function isModuleLoaded(name: string): boolean {
@@ -145,7 +298,8 @@ After deployment, the target node has this key layout:
 - To switch to staked identity (mainnet): \`slv v set:identity\`
 - The file "staked-identity.json" does NOT exist. Never reference it.`,
 
-  cli_reference: `## SLV CLI Reference (you already know this — do NOT run slv --help)
+  cli_reference:
+    `## SLV CLI Reference (you already know this — do NOT run slv --help)
 
 ### Validator commands (\`slv v\` or \`slv validator\`)
 | Command | Description |
@@ -233,11 +387,30 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
   const agentDir = `${home}/.slv/agent`
   const skillsDir = `${home}/.slv/skills`
 
+  const osName = Deno.build.os === 'darwin'
+    ? 'macOS'
+    : Deno.build.os === 'windows'
+    ? 'Windows'
+    : 'Linux'
+
+  let hostname = 'unknown-host'
+  try {
+    hostname = Deno.hostname()
+  } catch {
+    // ignore
+  }
+
   // Read agent files
   let soulMd = '', userMd = '', memoryMd = ''
-  try { soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`) } catch { /* not configured */ }
-  try { userMd = await Deno.readTextFile(`${agentDir}/USER.md`) } catch { /* not configured */ }
-  try { memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`) } catch { /* not configured */ }
+  try {
+    soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`)
+  } catch { /* not configured */ }
+  try {
+    userMd = await Deno.readTextFile(`${agentDir}/USER.md`)
+  } catch { /* not configured */ }
+  try {
+    memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`)
+  } catch { /* not configured */ }
 
   // Read config to get enabled skills and mode
   let configYml: Record<string, unknown> = { skills: [] }
@@ -246,34 +419,65 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     configYml = parse(raw) as Record<string, unknown>
   } catch { /* not configured */ }
 
-  // Build sub-agent team list (concise)
-  const skills = (configYml.skills || []) as Array<{ name: string; enabled: boolean; agent: string }>
+  // Build sub-agent team list (keep it tiny)
+  const skills = (configYml.skills || []) as Array<
+    { name: string; enabled: boolean; agent: string }
+  >
   const enabledAgents: string[] = []
   for (const skill of skills) {
     if (skill.enabled) enabledAgents.push(skill.agent)
   }
 
-  let agentIntro = ''
-  if (enabledAgents.length > 0) {
-    agentIntro = `\n## Your Team\nYou have specialist sub-agents:\n`
-    if (enabledAgents.includes('Cecil')) {
-      agentIntro += `- **Cecil** — Solana Validator specialist. Handles validator init, deploy, start/stop, identity migration, builds (Jito/Agave/Firedancer).\n`
-    }
-    if (enabledAgents.includes('Tina') || enabledAgents.includes('Cloud')) {
-      agentIntro += `- **Tina** — Solana RPC specialist. Handles ALL RPC types: Index RPC, gRPC Geyser (Yellowstone/Richat), and Index RPC + gRPC combo. Deploy, Geyser plugins, builds, Old Faithful.\n`
-    }
-    if (enabledAgents.includes('Setzer')) {
-      agentIntro += `- **Setzer** — Trading & App specialist. Build high-performance trading bots, MEV strategies, and Solana apps with battle-tested templates.\n`
-    }
-    if (enabledAgents.includes('Cid')) {
-      agentIntro += `- **Cid** — Benchmark & connectivity testing specialist. Handles geyserbench (Geyser gRPC throughput, latency, slot delivery), grpc_test, shreds_test, and endpoint latency/throughput troubleshooting. The geyserbench binary lives at ~/.slv/bin/geyserbench and is kept up-to-date by slv upgrade.\n`
-    }
-    if (enabledAgents.includes('Figaro')) {
-      agentIntro += `- **Figaro** — Server Procurement specialist. Browse available servers, get pricing, and generate payment links.\n`
-    }
+  const agentLabels: Record<string, string> = {
+    'Cecil': 'validator',
+    'Tina': 'rpc',
+    'Cid': 'benchmark',
+    'Setzer': 'app',
+    'Figaro': 'server-procurement',
+    'Cloud': 'grpc',
   }
+  const teamSummary = enabledAgents
+    .filter((agent, index, all) => all.indexOf(agent) === index)
+    .map((agent) => `${agent} (${agentLabels[agent] || 'specialist'})`)
+    .join(', ')
 
   const mode = (configYml.mode as string) || 'remote'
+
+  const inventoryFiles = [
+    `${home}/.slv/inventory.testnet.validators.yml`,
+    `${home}/.slv/inventory.mainnet.validators.yml`,
+    `${home}/.slv/inventory.mainnet.rpcs.yml`,
+  ]
+
+  const configPresence = {
+    api: false,
+    agent: false,
+    inventory: false,
+  }
+
+  try {
+    await Deno.stat(`${home}/.slv/api.yml`)
+    configPresence.api = true
+  } catch {
+    // ignore
+  }
+
+  try {
+    await Deno.stat(`${agentDir}/config.yml`)
+    configPresence.agent = true
+  } catch {
+    // ignore
+  }
+
+  for (const inventoryFile of inventoryFiles) {
+    try {
+      await Deno.stat(inventoryFile)
+      configPresence.inventory = true
+      break
+    } catch {
+      // keep checking
+    }
+  }
 
   const modeSection = mode === 'local'
     ? `
@@ -295,94 +499,75 @@ This user operates in REMOTE mode. Deployments target remote servers via SSH.
   // Cache skill docs for lazy loading (not included in prompt)
   await cacheSkillDocs(skillsDir, skills)
   const enabledSkillSummary = skills
-    .filter(s => s.enabled)
-    .map(s => `${s.name} (${s.agent})`)
+    .filter((s) => s.enabled)
+    .map((s) => `${s.name} (${s.agent})`)
     .join(', ')
 
-  return `You are the main agent for SLV — a toolkit for Solana node operators.
-You are the user's primary point of contact. Your name is defined in SOUL.md (if configured). If no name is set, introduce yourself as "your SLV assistant".
+  return `You are the main SLV assistant for Solana node operators.
+You are the user's only visible point of contact.
+If SOUL.md defines a name, use it. Otherwise introduce yourself as "your SLV assistant".
 
-${soulMd ? `## Your Identity\n${soulMd}\n` : ''}
-${userMd ? `## About the User\n${userMd}\n` : ''}
-${memoryMd ? `## Memory (from previous sessions)\n${memoryMd}\n` : ''}
-${agentIntro}
+${soulMd ? `## Identity\n${soulMd}\n` : ''}
+${userMd ? `## User\n${userMd}\n` : ''}
+${memoryMd ? `## Memory\n${memoryMd}\n` : ''}
 ${modeSection}
 
-## Your Role
-- You are the ONLY agent the user talks to. Sub-agents work silently in the background.
-- When you need specialist knowledge, delegate to a sub-agent. They report back to YOU, not the user.
-- YOU then relay the information to the user in a friendly, concise way.
-- **ALWAYS delegate** for these topics (do NOT answer yourself):
-  • Validator tasks (deploy, config, identity, builds) → Cecil
-  • RPC tasks (Index RPC, gRPC Geyser, deploy) → Tina
-  • Benchmark/connectivity (geyserbench, grpc_test, shreds_test) → Cid
-  • App/bot tasks (trading bots, templates) → Setzer
-  • Server procurement (buy/browse servers) → Figaro
-- Load the delegation context module first: call load_context with ["delegation"] before delegating.
-
-## Key rules for user interaction
-- Ask the user ONE question at a time. Never dump multiple questions.
-- Keep messages SHORT (2-4 sentences).
-- When waiting for a sub-agent, tell the user (e.g. "Checking with Cecil...")
-- You already know the SLV CLI commands — do NOT run \`slv --help\` to discover them.
-- Do NOT use markdown tables. Use bullet points with bold labels.
-- For payment/purchase links: show the FULL URL on its own line (never truncate or modify). Put a label like "Purchase here:" on the line above.
-- Example bullet points:
-  • **Server:** 151.244.92.66
-  • **Network:** Testnet
-
-## Memory Management
-- MEMORY.md is your persistent memory across sessions. Keep it SMALL and useful.
-- Only record: server IPs deployed, deploy outcomes, config changes, key decisions, errors encountered.
-- Do NOT record: greetings, questions asked, help commands, general conversation.
-- Each entry: 1-2 lines max. Use format: \`YYYY-MM-DD: <what happened>\`
-- MEMORY.md must stay under 50 lines. If it would exceed 50 lines, remove the OLDEST entries first.
-
-## Working Environment
-- Home directory: ${home}
-- Agent files: ${agentDir}/
-- Skills: ${skillsDir}/
-- MEMORY.md: ${agentDir}/MEMORY.md
-- When reading/writing files, ALWAYS use absolute paths starting with ${home}.
-
-## Language
-- Default: English
+## Core Rules
+- Keep replies short, practical, and natural.
+- Ask one question at a time.
+- Do not run \`slv --help\` or wander the filesystem.
+- Use bullet points instead of markdown tables.
+- Show payment or purchase links as the full URL on its own line.
+- Warn before destructive actions.
 - Respond in Japanese only if the user writes in Japanese.
 
-## First Session Greeting
-The greeting is displayed locally before you receive the first user message — no API call is needed for it.
-When the user sends their first message, user context (MCP subscription data, inventory files) will already be loaded into your context.
-Respond naturally to whatever the user says first — do NOT repeat the greeting.
+## Routing
+- Validator / vote / identity / validator deploy → Cecil
+- RPC / geyser / index / gRPC → Tina
+- Benchmark / shreds / latency / throughput → Cid
+- App / bot / trading / MEV → Setzer
+- Server purchase / bare metal / pricing → Figaro
+- For specialist work, delegate and then relay the result briefly.
 
-## Additional Context (load on demand)
-You have context modules available via load_context tool:
-- ssh_check: SSH connection check & solv user setup. Load before ANY server connection.
-- delegation: Sub-agent routing rules. Load before delegating to Cecil/Tina/Cid/Setzer/Figaro.
-- deploy: Deployment flow, template paths, deployment rules. Load before ANY deployment.
-- validator: Identity key structure. Load for validator key management.
-- cli_reference: Full SLV CLI command table. Load if you need detailed command info.
-- mcp_reference: SLV Cloud MCP API tools. Load before using call_mcp.
+## Working Environment
+- Home: ${home}
+- Agent dir: ${agentDir}/
+- Skills dir: ${skillsDir}/
+- Memory file: ${agentDir}/MEMORY.md
+- Always use absolute paths under ${home} when reading or writing files.
 
-IMPORTANT: Always load relevant context BEFORE specialized tasks. Use load_context tool.
+## Startup Facts
+- Hostname: ${hostname}
+- OS: ${osName}
+- slv version: ${VERSION}
+- Mode: ${mode}
+- Config presence: api.yml=${
+    configPresence.api ? 'yes' : 'no'
+  }, agent/config.yml=${configPresence.agent ? 'yes' : 'no'}, inventory=${
+    configPresence.inventory ? 'yes' : 'no'
+  }
+- Team: ${teamSummary || 'none configured'}
 
-## Guidelines
-- Be concise and practical. Keep responses SHORT (3-5 sentences).
-- When delegating, just say "Handing this to Cecil" — one sentence, then delegate.
-- Do NOT repeat or summarize what the sub-agent says. The user can already see it.
-- For destructive operations, always warn the user.
-- Do NOT explore the filesystem or run help commands — you already know everything.
-- Default language: English. Only use Japanese if the user writes in Japanese.
-- Never mix Japanese and English (no Japanese in parentheses).
+## Demand-Driven Context
+Startup is intentionally thin.
+- Do not preload inventory contents, subscription data, or skill docs.
+- Read local SLV files only when the active task needs them.
+- Use focused \`read_file\` reads for large files.
+- MCP responses and targeted file reads are cached for the session unless refreshed.
+- Specialist skill docs are loaded only when the user's intent clearly points to that domain or when you delegate.
 
-## Session Startup
-User context (MCP account info, inventory files) is loaded lazily before your first response to a user message.
-Do NOT call call_mcp at startup. The context will already be injected into your system prompt when you need it.
+## Session Notes
+- The local greeting is already shown before the first message. Do not repeat it.
+- Context modules are available through \`load_context\` when needed.
+- Some domain context may already be preloaded automatically when intent is obvious.
 
 ${userContext ? `## User Context (live data)\n${userContext}\n` : ''}
 
-## Available Skills
-${enabledSkillSummary || 'No skills installed. Run \\`slv onboard\\` to configure.'}
-Detailed skill documentation is loaded automatically when you delegate to a sub-agent via delegate_to_agent.
+## Skills
+${
+    enabledSkillSummary ||
+    'No skills installed. Run \\`slv onboard\\` to configure.'
+  }
 `
 }
 

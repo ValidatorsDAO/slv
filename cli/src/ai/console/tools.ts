@@ -2,14 +2,18 @@ import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import { readAiConfig, DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
+import { DEFAULT_MAX_TOKENS, readAiConfig } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
 import type { TUI } from '@mariozechner/pi-tui'
-import { loadContextModules, isModuleLoaded, injectSkillDocs } from '@/ai/console/systemPrompt.ts'
+import {
+  injectSkillDocs,
+  isModuleLoaded,
+  loadContextModules,
+} from '@/ai/console/systemPrompt.ts'
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
-let autoExecuteCommands = true  // Default: auto-execute without confirmation
+let autoExecuteCommands = true // Default: auto-execute without confirmation
 
 export function setTuiInstance(tui: TUI | null) {
   tuiInstance = tui
@@ -37,7 +41,9 @@ export function setCommandOutputCallback(
 
 export function killActiveProcess() {
   if (activeChildProcess) {
-    try { activeChildProcess.kill('SIGTERM') } catch { /* ignore */ }
+    try {
+      activeChildProcess.kill('SIGTERM')
+    } catch { /* ignore */ }
     activeChildProcess = null
   }
 }
@@ -77,13 +83,27 @@ export const CORE_TOOLS: ToolDefinition[] = [
   {
     name: 'read_file',
     description:
-      'Read the contents of a file. Use this to inspect configuration files, logs, keys, etc.',
+      'Read the contents of a file. Use this to inspect configuration files, logs, keys, etc. Prefer focused reads for large files by using offset/limit.',
     parameters: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
           description: 'Absolute path to the file to read',
+        },
+        offset: {
+          type: 'number',
+          description:
+            'Optional 1-based starting line number for a focused read',
+        },
+        limit: {
+          type: 'number',
+          description: 'Optional maximum number of lines to return',
+        },
+        refresh: {
+          type: 'boolean',
+          description:
+            'Optional bypass for the session cache. Set true to force a fresh read.',
         },
       },
       required: ['path'],
@@ -100,7 +120,13 @@ export const CORE_TOOLS: ToolDefinition[] = [
           type: 'array',
           items: {
             type: 'string',
-            enum: ['write_file', 'list_files', 'call_mcp', 'send_notification', 'delegate_to_agent'],
+            enum: [
+              'write_file',
+              'list_files',
+              'call_mcp',
+              'send_notification',
+              'delegate_to_agent',
+            ],
           },
           description: 'Tool names to enable',
         },
@@ -119,7 +145,14 @@ export const CORE_TOOLS: ToolDefinition[] = [
           type: 'array',
           items: {
             type: 'string',
-            enum: ['ssh_check', 'delegation', 'deploy', 'validator', 'cli_reference', 'mcp_reference'],
+            enum: [
+              'ssh_check',
+              'delegation',
+              'deploy',
+              'validator',
+              'cli_reference',
+              'mcp_reference',
+            ],
           },
           description: 'Context module names to load',
         },
@@ -181,6 +214,11 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
           type: 'object',
           description: 'Arguments to pass to the MCP tool',
         },
+        refresh: {
+          type: 'boolean',
+          description:
+            'Optional bypass for the session cache on cacheable read-only MCP calls.',
+        },
       },
       required: ['tool_name'],
     },
@@ -224,6 +262,37 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
 // Mutable set of currently active extended tools
 let activeExtendedTools: Set<string> = new Set()
 
+// Session cache for demand-driven reads/API calls
+let readFileCache: Map<string, string> = new Map()
+let mcpResponseCache: Map<string, string> = new Map()
+
+function invalidateReadFileCache(): void {
+  readFileCache = new Map()
+}
+
+function invalidateMcpCache(): void {
+  mcpResponseCache = new Map()
+}
+
+function isCacheableMcpTool(toolName: string): boolean {
+  return toolName.startsWith('get_')
+}
+
+function buildReadFileCacheKey(
+  path: string,
+  offset?: number,
+  limit?: number,
+): string {
+  return JSON.stringify({ path, offset: offset ?? null, limit: limit ?? null })
+}
+
+function buildMcpCacheKey(
+  toolName: string,
+  args: Record<string, unknown>,
+): string {
+  return JSON.stringify({ toolName, args })
+}
+
 // Get the current active tool set (core + enabled extended tools)
 export function getActiveTools(): ToolDefinition[] {
   const extended = EXTENDED_TOOLS.filter((t) => activeExtendedTools.has(t.name))
@@ -235,14 +304,32 @@ export function resetActiveTools(): void {
   activeExtendedTools = new Set()
 }
 
+export function activateExtendedTools(tools: string[]): string[] {
+  const validNames = new Set(EXTENDED_TOOLS.map((t) => t.name))
+  const enabled: string[] = []
+  for (const toolName of tools) {
+    if (validNames.has(toolName)) {
+      activeExtendedTools.add(toolName)
+      enabled.push(toolName)
+    }
+  }
+  return enabled
+}
+
+export function resetSessionCaches(): void {
+  invalidateReadFileCache()
+  invalidateMcpCache()
+}
+
 // Legacy export for backward compatibility (all tools)
-export const TOOL_DEFINITIONS: ToolDefinition[] = [...CORE_TOOLS, ...EXTENDED_TOOLS]
+export const TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...CORE_TOOLS,
+  ...EXTENDED_TOOLS,
+]
 
 // Tools available to sub-agents (no delegation or lazy-enable meta-tool needed)
-export const SUB_AGENT_TOOL_DEFINITIONS: ToolDefinition[] =
-  TOOL_DEFINITIONS.filter((t) =>
-    t.name !== 'delegate_to_agent' && t.name !== 'enable_tools'
-  )
+export const SUB_AGENT_TOOL_DEFINITIONS: ToolDefinition[] = TOOL_DEFINITIONS
+  .filter((t) => t.name !== 'delegate_to_agent' && t.name !== 'enable_tools')
 
 export async function executeTool(
   name: string,
@@ -252,20 +339,17 @@ export async function executeTool(
     case 'run_command':
       return await executeRunCommand(String(args.command || ''))
     case 'read_file':
-      return await executeReadFile(String(args.path || ''))
+      return await executeReadFile(
+        String(args.path || ''),
+        Number.isFinite(Number(args.offset)) ? Number(args.offset) : undefined,
+        Number.isFinite(Number(args.limit)) ? Number(args.limit) : undefined,
+        args.refresh === true,
+      )
     case 'enable_tools': {
       const requested = (args.tools as string[]) || []
       const validNames = new Set(EXTENDED_TOOLS.map((t) => t.name))
-      const enabled: string[] = []
-      const invalid: string[] = []
-      for (const toolName of requested) {
-        if (validNames.has(toolName)) {
-          activeExtendedTools.add(toolName)
-          enabled.push(toolName)
-        } else {
-          invalid.push(toolName)
-        }
-      }
+      const enabled = activateExtendedTools(requested)
+      const invalid = requested.filter((toolName) => !validNames.has(toolName))
       let msg = `Enabled tools: ${enabled.join(', ') || '(none)'}.`
       if (invalid.length > 0) {
         msg += ` Unknown tools ignored: ${invalid.join(', ')}.`
@@ -280,7 +364,10 @@ export async function executeTool(
     case 'list_files':
       return await executeListFiles(String(args.path || ''))
     case 'write_file':
-      return await executeWriteFile(String(args.path || ''), String(args.content || ''))
+      return await executeWriteFile(
+        String(args.path || ''),
+        String(args.content || ''),
+      )
     case 'call_mcp': {
       // Auto-load MCP reference context if not loaded
       if (!isModuleLoaded('mcp_reference')) {
@@ -289,6 +376,7 @@ export async function executeTool(
       return await executeCallMcp(
         String(args.tool_name || ''),
         (args.arguments as Record<string, unknown>) || {},
+        args.refresh === true,
       )
     }
     case 'send_notification':
@@ -300,7 +388,7 @@ export async function executeTool(
       }
       // Auto-inject skill docs for the target agent
       const agentName = String(args.agent || '')
-      injectSkillDocs(agentName)
+      await injectSkillDocs(agentName)
       return await executeDelegateToAgent(agentName, String(args.task || ''))
     }
     default:
@@ -353,7 +441,8 @@ async function executeRunCommand(command: string): Promise<string> {
     const env: Record<string, string> = {
       ...Object.fromEntries(Object.entries(Deno.env.toObject())),
       ANSIBLE_HOST_KEY_CHECKING: 'False',
-      ANSIBLE_SSH_ARGS: '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no',
+      ANSIBLE_SSH_ARGS:
+        '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no',
       ANSIBLE_STDOUT_CALLBACK: 'default',
       ANSIBLE_DISPLAY_ARGS_TO_STDOUT: 'False',
       PYTHONUNBUFFERED: '1',
@@ -370,13 +459,18 @@ async function executeRunCommand(command: string): Promise<string> {
     activeChildProcess = child
 
     // Detect ansible commands to use task-title spinner mode
-    const isAnsibleCommand = command.includes('ansible-playbook') || command.includes('ansible ')
+    const isAnsibleCommand = command.includes('ansible-playbook') ||
+      command.includes('ansible ')
 
     // Stream stdout lines to TUI in real-time
     const stdoutChunks: string[] = []
     const stderrChunks: string[] = []
 
-    const readStream = async (stream: ReadableStream<Uint8Array>, chunks: string[], isStdout: boolean) => {
+    const readStream = async (
+      stream: ReadableStream<Uint8Array>,
+      chunks: string[],
+      isStdout: boolean,
+    ) => {
       const reader = stream.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -420,7 +514,7 @@ async function executeRunCommand(command: string): Promise<string> {
     // Race between command completion and timeout (60 minutes — builds and snapshots can take a while)
     const COMMAND_TIMEOUT_MS = 3_600_000
     const timeoutPromise = new Promise<'timeout'>((resolve) =>
-      setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS),
+      setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS)
     )
 
     const commandPromise = (async () => {
@@ -434,10 +528,14 @@ async function executeRunCommand(command: string): Promise<string> {
     const result = await Promise.race([commandPromise, timeoutPromise])
 
     if (result === 'timeout') {
-      try { child.kill('SIGTERM') } catch { /* ignore */ }
+      try {
+        child.kill('SIGTERM')
+      } catch { /* ignore */ }
       if (onCommandComplete) onCommandComplete()
       const stdout = stdoutChunks.join('')
-      return `Command timed out after 60 minutes.\nPartial output:\n${stdout.slice(-2000)}`
+      return `Command timed out after 60 minutes.\nPartial output:\n${
+        stdout.slice(-2000)
+      }`
     }
 
     const status = result
@@ -451,12 +549,18 @@ async function executeRunCommand(command: string): Promise<string> {
         await Deno.mkdir(logDir, { recursive: true })
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
         const logPath = `${logDir}/ansible-${timestamp}.log`
-        const logContent = `Command: ${command}\nExit code: ${status.code}\nTimestamp: ${new Date().toISOString()}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`
+        const logContent =
+          `Command: ${command}\nExit code: ${status.code}\nTimestamp: ${
+            new Date().toISOString()
+          }\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`
         await Deno.writeTextFile(logPath, logContent)
         // Rotate: keep only the last 10 log files
         const entries: string[] = []
         for await (const entry of Deno.readDir(logDir)) {
-          if (entry.isFile && entry.name.startsWith('ansible-') && entry.name.endsWith('.log')) {
+          if (
+            entry.isFile && entry.name.startsWith('ansible-') &&
+            entry.name.endsWith('.log')
+          ) {
             entries.push(entry.name)
           }
         }
@@ -472,7 +576,8 @@ async function executeRunCommand(command: string): Promise<string> {
       if (isAnsibleCommand) {
         // For ansible failures: return only the last portion of output + full stderr
         // to keep token usage reasonable while preserving error context
-        const logHint = `\nFull log saved to ~/.slv/logs/ for detailed debugging.`
+        const logHint =
+          `\nFull log saved to ~/.slv/logs/ for detailed debugging.`
         const lastStdout = stdout.slice(-3000)
         const lastStderr = stderr.slice(-2000)
         return `Command failed (exit code ${status.code}):\nstdout (last 3000 chars):\n${lastStdout}\nstderr (last 2000 chars):\n${lastStderr}${logHint}`
@@ -481,6 +586,8 @@ async function executeRunCommand(command: string): Promise<string> {
     }
     activeChildProcess = null
     if (onCommandComplete) onCommandComplete()
+    invalidateReadFileCache()
+    invalidateMcpCache()
 
     if (isAnsibleCommand) {
       // For successful ansible runs: return a compact summary instead of full output
@@ -501,8 +608,12 @@ async function executeRunCommand(command: string): Promise<string> {
           t.includes('...ignoring')
       })
       // Also include the PLAY RECAP summary lines (host status lines)
-      const recapIdx = lines.findIndex((l: string) => l.trim().startsWith('PLAY RECAP'))
-      const recapLines = recapIdx >= 0 ? lines.slice(recapIdx, recapIdx + 20).filter((l: string) => l.trim()) : []
+      const recapIdx = lines.findIndex((l: string) =>
+        l.trim().startsWith('PLAY RECAP')
+      )
+      const recapLines = recapIdx >= 0
+        ? lines.slice(recapIdx, recapIdx + 20).filter((l: string) => l.trim())
+        : []
       const summary = [...new Set([...taskLines, ...recapLines])].join('\n')
       const logNote = '\nFull log saved to ~/.slv/logs/ for detailed debugging.'
       return (summary || 'Ansible playbook completed successfully.') + logNote
@@ -510,7 +621,8 @@ async function executeRunCommand(command: string): Promise<string> {
 
     // Cap non-ansible output to avoid excessive token usage on unexpectedly large outputs
     if (stdout.length > 10000) {
-      return stdout.slice(-10000) + '\n... (output truncated to last 10000 chars)'
+      return stdout.slice(-10000) +
+        '\n... (output truncated to last 10000 chars)'
     }
     return stdout || '(no output)'
   } catch (error) {
@@ -520,15 +632,42 @@ async function executeRunCommand(command: string): Promise<string> {
   }
 }
 
-async function executeReadFile(path: string): Promise<string> {
+async function executeReadFile(
+  path: string,
+  offset?: number,
+  limit?: number,
+  refresh = false,
+): Promise<string> {
+  const cacheKey = buildReadFileCacheKey(path, offset, limit)
+  if (!refresh) {
+    const cached = readFileCache.get(cacheKey)
+    if (cached) return `${cached}\n\n[session cache hit]`
+  }
+
   try {
     const content = await Deno.readTextFile(path)
     const lines = content.split('\n')
-    if (lines.length > 200) {
-      return lines.slice(0, 200).join('\n') +
-        `\n\n... (truncated, ${lines.length} total lines)`
+    const totalLines = lines.length
+    const startLine = Number.isFinite(offset) && offset && offset > 0
+      ? Math.floor(offset)
+      : 1
+    const maxLines = Number.isFinite(limit) && limit && limit > 0
+      ? Math.floor(limit)
+      : 200
+    const endLine = Math.min(totalLines, startLine + maxLines - 1)
+    const slice = lines.slice(startLine - 1, endLine)
+    const body = slice.join('\n')
+
+    let result = body
+    if (startLine > 1 || endLine < totalLines) {
+      result =
+        `Showing ${startLine}-${endLine} of ${totalLines} lines from ${path}\n${body}`
+    } else if (totalLines > maxLines) {
+      result = body + `\n\n... (truncated, ${totalLines} total lines)`
     }
-    return content
+
+    readFileCache.set(cacheKey, result)
+    return result
   } catch (error) {
     return `Error reading file: ${(error as Error).message}`
   }
@@ -548,7 +687,10 @@ async function executeListFiles(path: string): Promise<string> {
   }
 }
 
-async function executeWriteFile(path: string, content: string): Promise<string> {
+async function executeWriteFile(
+  path: string,
+  content: string,
+): Promise<string> {
   const home = resolveHome()
   const slvDir = `${home}/.slv/`
   if (!path.startsWith(slvDir)) {
@@ -562,6 +704,7 @@ async function executeWriteFile(path: string, content: string): Promise<string> 
       await Deno.mkdir(parentDir, { recursive: true })
     }
     await Deno.writeTextFile(path, content)
+    invalidateReadFileCache()
     return `Successfully wrote to ${path}`
   } catch (error) {
     return `Error writing file: ${(error as Error).message}`
@@ -573,7 +716,15 @@ const MCP_MAX_RESPONSE_CHARS = 5000
 async function executeCallMcp(
   toolName: string,
   args: Record<string, unknown>,
+  refresh = false,
 ): Promise<string> {
+  const cacheable = isCacheableMcpTool(toolName)
+  const cacheKey = buildMcpCacheKey(toolName, args)
+  if (cacheable && !refresh) {
+    const cached = mcpResponseCache.get(cacheKey)
+    if (cached) return `${cached}\n\n[session cache hit]`
+  }
+
   const home = resolveHome()
   // Read SLV API key from api.yml
   let apiKey = ''
@@ -608,12 +759,15 @@ async function executeCallMcp(
     const data = await response.json()
     if (data.error) return `MCP Error: ${JSON.stringify(data.error)}`
 
-    const content =
-      data.result?.content?.[0]?.text || JSON.stringify(data.result)
-    if (content.length > MCP_MAX_RESPONSE_CHARS) {
-      return content.slice(0, MCP_MAX_RESPONSE_CHARS) + '\n... (truncated)'
+    const content = data.result?.content?.[0]?.text ||
+      JSON.stringify(data.result)
+    const result = content.length > MCP_MAX_RESPONSE_CHARS
+      ? content.slice(0, MCP_MAX_RESPONSE_CHARS) + '\n... (truncated)'
+      : content
+    if (cacheable) {
+      mcpResponseCache.set(cacheKey, result)
     }
-    return content
+    return result
   } catch (error) {
     return `MCP request failed: ${(error as Error).message}`
   }
@@ -624,7 +778,9 @@ async function executeSendNotification(message: string): Promise<string> {
   try {
     const raw = await Deno.readTextFile(`${home}/.slv/agent/config.yml`)
     const config = parse(raw) as Record<string, unknown>
-    const notifications = config.notifications as Record<string, string> | undefined
+    const notifications = config.notifications as
+      | Record<string, string>
+      | undefined
     const webhook = notifications?.discord_webhook
 
     if (!webhook) {
@@ -648,7 +804,10 @@ async function executeSendNotification(message: string): Promise<string> {
   }
 }
 
-async function executeDelegateToAgent(agentName: string, task: string): Promise<string> {
+async function executeDelegateToAgent(
+  agentName: string,
+  task: string,
+): Promise<string> {
   // Cloud is now handled by Tina (RPC specialist covers all RPC types including gRPC)
   const effectiveName = agentName === 'Cloud' ? 'Tina' : agentName
   const skillName = AGENT_SKILL_MAP[effectiveName]
@@ -672,7 +831,9 @@ async function executeDelegateToAgent(agentName: string, task: string): Promise<
   // Tina and Cid also read gRPC Geyser skill for comprehensive RPC/stream testing knowledge
   if (effectiveName === 'Tina' || effectiveName === 'Cid') {
     try {
-      const grpcSkill = await Deno.readTextFile(`${skillsDir}/slv-grpc-geyser/SKILL.md`)
+      const grpcSkill = await Deno.readTextFile(
+        `${skillsDir}/slv-grpc-geyser/SKILL.md`,
+      )
       skillMd += `\n\n## Additional Skill: gRPC Geyser\n${grpcSkill}`
     } catch { /* gRPC skill not installed */ }
   }
@@ -697,7 +858,8 @@ This user operates in LOCAL mode. All deployments target THIS machine (localhost
 `
     : ''
 
-  const subSystemPrompt = `You are ${effectiveName}, a backend specialist sub-agent for SLV.
+  const subSystemPrompt =
+    `You are ${effectiveName}, a backend specialist sub-agent for SLV.
 You do NOT talk to the user directly. You report back to the main agent only.
 
 ${agentMd ? agentMd + '\n' : ''}
@@ -893,9 +1055,19 @@ When running ansible-playbook or slv commands that connect to servers:
 
   try {
     if (config.provider === 'anthropic') {
-      return await runAnthropicSubAgent(config.api_key, config.model, subSystemPrompt, task)
+      return await runAnthropicSubAgent(
+        config.api_key,
+        config.model,
+        subSystemPrompt,
+        task,
+      )
     } else {
-      return await runOpenAISubAgent(config.api_key, config.model, subSystemPrompt, task)
+      return await runOpenAISubAgent(
+        config.api_key,
+        config.model,
+        subSystemPrompt,
+        task,
+      )
     }
   } catch (error) {
     return `Sub-agent ${agentName} error: ${(error as Error).message}`
@@ -931,7 +1103,11 @@ async function runAnthropicSubAgent(
 
     // Collect text and tool_use blocks
     let textContent = ''
-    const toolUseBlocks: { id: string; name: string; input: Record<string, unknown> }[] = []
+    const toolUseBlocks: {
+      id: string
+      name: string
+      input: Record<string, unknown>
+    }[] = []
     for (const block of response.content) {
       if (block.type === 'text') {
         textContent += block.text
@@ -974,7 +1150,9 @@ async function runOpenAISubAgent(
   task: string,
 ): Promise<string> {
   const client = new OpenAI({ apiKey })
-  const tools: OpenAI.ChatCompletionTool[] = SUB_AGENT_TOOL_DEFINITIONS.map((t) => ({
+  const tools: OpenAI.ChatCompletionTool[] = SUB_AGENT_TOOL_DEFINITIONS.map((
+    t,
+  ) => ({
     type: 'function' as const,
     function: {
       name: t.name,
@@ -1003,7 +1181,9 @@ async function runOpenAISubAgent(
     const assistantMessage = choice.message
     messages.push(assistantMessage as Message)
 
-    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
+    if (
+      !assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0
+    ) {
       return assistantMessage.content || '(no response from sub-agent)'
     }
 
