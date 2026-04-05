@@ -75,19 +75,47 @@ export class SLVProvider {
           response.status === 403 &&
           errorText.includes('ai_token_limit_reached')
         ) {
+          // Try to parse estimated_tokens and remaining_tokens from the API response
+          let tokenInfo = ''
+          try {
+            const errJson = JSON.parse(errorText)
+            const estimated = errJson.estimated_tokens
+            const remaining = errJson.remaining_tokens
+            if (estimated != null && remaining != null) {
+              tokenInfo = `  Estimated cost: ~${Number(estimated).toLocaleString()} tokens | Your balance: ${Number(remaining).toLocaleString()} tokens\n\n`
+            }
+          } catch { /* response may not be JSON */ }
+
           throw new Error(
-            'Your SLV AI token limit has been reached.\n' +
-            '  Run `slv ai usage`   \u2014 check your remaining token balance\n' +
-            '  Run `slv ai product` \u2014 view plans and purchase options',
+            '\u26a0\ufe0f Insufficient tokens for this request.\n' +
+            tokenInfo +
+            '\ud83d\udca1 Options:\n' +
+            '  \u2022 Run /slv ai product to view plans and purchase tokens\n' +
+            '  \u2022 Run /slv ai usage to check your current balance\n' +
+            '  \u2022 Secure Authorization (\u20ac5) includes 100,000 AI tokens',
           )
         }
 
         // 529 = overloaded / token quota exhausted
         if (response.status === 529) {
+          // Try to parse token info from 529 response as well
+          let tokenInfo = ''
+          try {
+            const errJson = JSON.parse(errorText)
+            const estimated = errJson.estimated_tokens
+            const remaining = errJson.remaining_tokens
+            if (estimated != null && remaining != null) {
+              tokenInfo = `  Estimated cost: ~${Number(estimated).toLocaleString()} tokens | Your balance: ${Number(remaining).toLocaleString()} tokens\n\n`
+            }
+          } catch { /* response may not be JSON */ }
+
           throw new Error(
-            'AI tokens may be insufficient. Please consider upgrading your plan or purchasing additional tokens.\n' +
-            '  Run `slv ai usage`   \u2014 check your remaining token balance\n' +
-            '  Run `slv ai product` \u2014 view plans and purchase options',
+            '\u26a0\ufe0f Insufficient tokens for this request.\n' +
+            tokenInfo +
+            '\ud83d\udca1 Options:\n' +
+            '  \u2022 Run /slv ai product to view plans and purchase tokens\n' +
+            '  \u2022 Run /slv ai usage to check your current balance\n' +
+            '  \u2022 Secure Authorization (\u20ac5) includes 100,000 AI tokens',
           )
         }
 

@@ -817,7 +817,62 @@ RULES:
       chatLog.addSystem('  /exit, /quit — Exit')
       chatLog.addSystem('  /clear — Clear conversation')
       chatLog.addSystem('  /update — Apply pending version updates')
+      chatLog.addSystem('  /<command> — Execute shell command directly (e.g. /slv ai usage)')
       chatLog.addSystem('  /help — Show this help')
+      tui.requestRender()
+      return
+    }
+
+    // Direct CLI execution: input starting with / (but not a known command) runs as shell command
+    if (input.startsWith('/') && !['/exit', '/quit', '/clear', '/update', '/help'].includes(input.split(' ')[0])) {
+      const shellCommand = input.slice(1).trim()
+      if (!shellCommand) return
+
+      chatLog.addUser(input)
+      chatLog.addSystem(`  ⚡ $ ${shellCommand}`)
+      tui.requestRender()
+
+      try {
+        const proc = new Deno.Command('bash', {
+          args: ['-c', shellCommand],
+          stdin: 'null',
+          stdout: 'piped',
+          stderr: 'piped',
+        })
+        const child = proc.spawn()
+
+        const readStream = async (stream: ReadableStream<Uint8Array>): Promise<string> => {
+          const reader = stream.getReader()
+          const decoder = new TextDecoder()
+          const chunks: string[] = []
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            chunks.push(decoder.decode(value, { stream: true }))
+          }
+          return chunks.join('')
+        }
+
+        const [stdout, stderr] = await Promise.all([
+          readStream(child.stdout),
+          readStream(child.stderr),
+        ])
+        const status = await child.status
+
+        const output = (stdout + stderr).trim()
+        if (output) {
+          // Show output line by line in TUI
+          for (const line of output.split('\n')) {
+            chatLog.addSystem(`  ${line}`)
+          }
+        }
+        if (!status.success) {
+          chatLog.addSystem(red(`  (exit code ${status.code})`))
+        }
+      } catch (error) {
+        chatLog.addSystem(red(`  Error: ${(error as Error).message}`))
+      }
+
       tui.requestRender()
       return
     }
