@@ -5,7 +5,7 @@ import OpenAI from 'openai'
 import { readAiConfig, DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
 import type { TUI } from '@mariozechner/pi-tui'
-import { loadContextModules, isModuleLoaded } from '@/ai/console/systemPrompt.ts'
+import { loadContextModules, isModuleLoaded, injectSkillDocs } from '@/ai/console/systemPrompt.ts'
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
@@ -298,7 +298,10 @@ export async function executeTool(
       if (!isModuleLoaded('delegation')) {
         loadContextModules(['delegation'])
       }
-      return await executeDelegateToAgent(String(args.agent || ''), String(args.task || ''))
+      // Auto-inject skill docs for the target agent
+      const agentName = String(args.agent || '')
+      injectSkillDocs(agentName)
+      return await executeDelegateToAgent(agentName, String(args.task || ''))
     }
     default:
       return `Unknown tool: ${name}`

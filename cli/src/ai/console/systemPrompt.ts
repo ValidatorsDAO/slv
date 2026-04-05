@@ -24,6 +24,32 @@ export function loadContextModules(modules: string[]): string {
     : 'All requested modules already loaded.'
 }
 
+// --- Lazy-loaded skill docs cache ---
+let skillDocsCache: Record<string, string> = {}
+
+async function cacheSkillDocs(skillsDir: string, skills: Array<{ name: string; enabled: boolean; agent: string }>) {
+  skillDocsCache = {}
+  for (const skill of skills) {
+    if (!skill.enabled) continue
+    try {
+      const skillMd = await Deno.readTextFile(`${skillsDir}/${skill.name}/SKILL.md`)
+      skillDocsCache[skill.agent] = (skillDocsCache[skill.agent] || '') + `\n\n## Skill: ${skill.name}\n${skillMd}`
+    } catch { /* not installed */ }
+  }
+}
+
+export function getSkillDocsForAgent(agent: string): string {
+  return skillDocsCache[agent] || ''
+}
+
+export function injectSkillDocs(agent: string): void {
+  const docs = skillDocsCache[agent]
+  if (docs && !loadedModules.has(`skill_${agent}`)) {
+    loadedModules.add(`skill_${agent}`)
+    moduleContent += docs
+  }
+}
+
 export function resetContextModules() {
   loadedModules.clear()
   moduleContent = ''
@@ -266,15 +292,12 @@ This user operates in REMOTE mode. Deployments target remote servers via SSH.
 - Standard SSH-based deployment flow.
 `
 
-  // Read enabled skill SKILL.md files for the skills reference at the end
-  let skillDocs = ''
-  for (const skill of skills) {
-    if (!skill.enabled) continue
-    try {
-      const skillMd = await Deno.readTextFile(`${skillsDir}/${skill.name}/SKILL.md`)
-      skillDocs += `\n\n## Skill: ${skill.name} (Agent: ${skill.agent})\n${skillMd}`
-    } catch { /* skill not installed */ }
-  }
+  // Cache skill docs for lazy loading (not included in prompt)
+  await cacheSkillDocs(skillsDir, skills)
+  const enabledSkillSummary = skills
+    .filter(s => s.enabled)
+    .map(s => `${s.name} (${s.agent})`)
+    .join(', ')
 
   return `You are the main agent for SLV — a toolkit for Solana node operators.
 You are the user's primary point of contact. Your name is defined in SOUL.md (if configured). If no name is set, introduce yourself as "your SLV assistant".
@@ -350,8 +373,9 @@ Do NOT call call_mcp at startup. The context will already be injected into your 
 
 ${userContext ? `## User Context (live data)\n${userContext}\n` : ''}
 
-## Available Skills Reference
-${skillDocs || 'No skills installed. Run \\`slv onboard\\` to configure.'}
+## Available Skills
+${enabledSkillSummary || 'No skills installed. Run \\`slv onboard\\` to configure.'}
+Detailed skill documentation is loaded automatically when you delegate to a sub-agent via delegate_to_agent.
 `
 }
 
