@@ -1,0 +1,22 @@
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--vote-account {{ vote_account }} \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--entrypoint entrypoint.testnet.solana.com:8001 \
+--entrypoint entrypoint2.testnet.solana.com:8001 \
+--entrypoint entrypoint3.testnet.solana.com:8001 \
+--known-validator 5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on \
+--only-known-rpc \
+--expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+--dynamic-port-range {{ dynamic_port_range | default("8000-8025") }} \
+--rpc-port {{ port_rpc | default(8899, true) }} \
+--wal-recovery-mode skip_any_corrupted_record \
+--wait-for-supermajority {{ wait_for_supermajority | default("383520372") }} \
+--expected-shred-version {{ expected_shred_version | default("27350") }} \
+--expected-bank-hash {{ expected_bank_hash | default("3zk4WMwk6wCTVJXu9UAk2dYWMedCKooDs15XL5u6FkvE") }} \
+--limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
+--no-port-check \
+--rpc-bind-address 0.0.0.0

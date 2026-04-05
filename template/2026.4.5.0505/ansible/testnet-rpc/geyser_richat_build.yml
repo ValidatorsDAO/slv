@@ -1,0 +1,106 @@
+---
+- name: Build Richat Geyser plugin from source
+  hosts: all
+  vars_files:
+    - ~/.slv/versions.yml
+  become: true
+  vars:
+    working_dir: "/home/solv"
+    repo_url: "https://github.com/lamports-dev/richat.git"
+    richat_src_dir: "/home/solv/richat-src"
+    richat_install_root: "/home/solv/richat-geyser"
+    richat_current_link: "{{ richat_install_root }}/current"
+    richat_lib_name: "librichat_plugin_agave.so"
+    richat_symlink_path: "/home/solv/{{ richat_lib_name }}"
+    richat_config_template: "~/.slv/testnet-rpc/geyser-richat.json.j2"
+    richat_config_path: "/home/solv/geyser.json"
+  tasks:
+    - name: Resolve richat plugin version (overridable via -e richat_version=)
+      set_fact:
+        richat_version_resolved: "{{ richat_version | default(testnet_rpcs.richat_version | default('', true), true) }}"
+
+    - name: Ensure richat_version is provided
+      assert:
+        that:
+          - richat_version_resolved != ''
+        fail_msg: "richat_version must be provided (via -e richat_version= or testnet_rpcs.richat_version in ~/.slv/versions.yml)"
+
+    - name: Set paths for Richat plugin release
+      set_fact:
+        richat_release_dir: "{{ richat_install_root }}/releases/{{ richat_version_resolved }}"
+
+    - name: Clone or update the Richat repository with specific tag
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ richat_src_dir }}"
+        version: "{{ richat_version_resolved }}"
+        update: yes
+        force: yes
+      become_user: solv
+
+    - name: Build Richat plugin-agave using Cargo
+      shell: |
+        source ~/.profile
+        cargo build --release -p richat-plugin-agave
+      args:
+        chdir: "{{ richat_src_dir }}"
+        executable: /bin/bash
+      become_user: solv
+
+    - name: Verify built plugin shared object exists
+      stat:
+        path: "{{ richat_src_dir }}/target/release/{{ richat_lib_name }}"
+      register: richat_so_stat
+
+    - name: Fail if plugin shared object was not built
+      assert:
+        that:
+          - richat_so_stat.stat.exists
+        fail_msg: "Build failed: {{ richat_src_dir }}/target/release/{{ richat_lib_name }} not found"
+
+    - name: Ensure directories exist for Richat plugin
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      loop:
+        - "{{ richat_install_root }}"
+        - "{{ richat_install_root }}/releases"
+        - "{{ richat_release_dir }}"
+
+    - name: Copy built plugin to release directory
+      copy:
+        src: "{{ richat_src_dir }}/target/release/{{ richat_lib_name }}"
+        dest: "{{ richat_release_dir }}/{{ richat_lib_name }}"
+        remote_src: yes
+        owner: solv
+        group: solv
+        mode: "0644"
+
+    - name: Point 'current' symlink to this Richat release
+      file:
+        src: "{{ richat_release_dir }}"
+        dest: "{{ richat_current_link }}"
+        state: link
+        force: yes
+        owner: solv
+        group: solv
+
+    - name: Symlink Richat plugin to stable path for geyser
+      file:
+        src: "{{ richat_release_dir }}/{{ richat_lib_name }}"
+        dest: "{{ richat_symlink_path }}"
+        state: link
+        force: yes
+        owner: solv
+        group: solv
+
+    - name: Copy the geyser.json configuration file for Richat
+      template:
+        src: "{{ richat_config_template }}"
+        dest: "{{ richat_config_path }}"
+        owner: solv
+        group: solv
+        mode: "0644"

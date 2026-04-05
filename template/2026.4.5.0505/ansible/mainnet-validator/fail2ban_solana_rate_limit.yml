@@ -1,0 +1,43 @@
+- name: Configure Fail2Ban for Solana rate-limit with nftables
+  hosts: all
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Create Solana rate-limit filter
+      copy:
+        dest: /etc/fail2ban/filter.d/solana_rate_limit.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Definition]
+          failregex = .*Reject connection from <HOST>:\d+ -- rate limiting exceeded
+          ignoreregex =
+
+      notify:
+        - restart fail2ban
+
+    - name: Create Solana jail config
+      copy:
+        dest: /etc/fail2ban/jail.d/solana.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [solana-rate-limit]
+          enabled   = true
+          filter    = solana_rate_limit
+          logpath   = /home/solv/solana-validator.log
+          maxretry  = 1        ;
+          findtime  = 10       ;
+          bantime   = 604800   ;
+          action    = iptables[name=SOLANA, port=all, protocol=all]
+      notify:
+        - restart fail2ban
+
+  handlers:
+    - name: restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted

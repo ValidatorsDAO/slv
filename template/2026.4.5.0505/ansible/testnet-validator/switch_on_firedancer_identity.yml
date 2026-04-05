@@ -1,0 +1,24 @@
+---
+- name: Switch On Firedancer Identity
+  hosts: "{{ on_host }}"
+  become: true
+  become_user: solv
+  gather_facts: no
+  tasks:
+    - name: Upload Tower File
+      ansible.builtin.copy:
+        src: ~/.slv/tower/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+        dest: /mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+
+    - name: Set Identity to Testnet Validator Key
+      shell: |
+        . ~/.profile
+        sudo fdctl set-identity --config /home/solv/firedancer-config.toml /home/solv/testnet-validator-keypair.json
+      args:
+        executable: /bin/bash
+
+    - name: Add Authorized Voter
+      shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/testnet-validator-keypair.json
+      args:
+        executable: /bin/bash
+      failed_when: false
