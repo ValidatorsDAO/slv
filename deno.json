@@ -9,6 +9,7 @@
     "s": "deno run -A cli/src/index.ts",
     "dev": "deno run -A --watch cli/src/index.ts",
     "update:version": "deno run -A scripts/update-version.ts",
+    "check:version-sync": "deno run -A scripts/check-version-sync.ts",
     "create:release": "deno run -A scripts/create-release.ts",
     "build:all": "deno task build && deno task create:template && deno task generate:checksums && deno task upload:script && deno task upload:exe && deno task upload:template && deno task purge:cache",
     "build": "deno task build:linux && deno task build:mac && deno task build:linux-arm64 && deno task build:mac-arm64",
@@ -20,7 +21,7 @@
     "docker:rm": "bash scripts/docker-systemd-rm.sh",
     "upload:script": "deno run -A cli/uploadScript.ts",
     "upload:exe": "deno run -A cli/uploadExe.ts",
-    "create:template": "tar -czf dist/template.tar.gz ./template/2026.4.5.0154",
+    "create:template": "tar -czf dist/template.tar.gz ./template/2026.4.5.0314",
     "generate:checksums": "deno run -A cli/generateChecksums.ts",
     "upload:template": "deno run -A cli/uploadTemplate.ts",
     "purge:cache": "deno run -A cmn/lib/purgeR2Cache.ts"

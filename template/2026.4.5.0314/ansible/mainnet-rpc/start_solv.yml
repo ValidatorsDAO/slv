@@ -1,0 +1,14 @@
+---
+- name: Run Command
+  hosts: all
+  become: true
+  become_user: solv
+  gather_facts: no
+  tasks:
+    - name: Start Solv
+      shell: . ~/.profile && sudo systemctl start solv
+      register: command_output
+
+    - name: Display Command output
+      debug:
+        msg: 'Start Solv: {{ command_output.stdout }}'

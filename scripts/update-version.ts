@@ -4,16 +4,17 @@ import { VERSION } from '../cmn/constants/version.ts'
 import { join } from '@std/path'
 import { copy, ensureDir, ensureSymlink } from '@std/fs'
 
-// CalVer format validation
 const CALVER_REGEX = /^\d{4}\.\d{1,2}\.\d{1,2}\.\d{4}$/
-if (!CALVER_REGEX.test(VERSION)) {
-  console.error(`❌ Invalid version format: ${VERSION}`)
-  console.error(`   Expected CalVer format: YYYY.M.D.HHmm (e.g., 2026.4.2.0910)`)
-  Deno.exit(1)
-}
-
 const VERSION_DIR_REGEX = /^\d+\.\d+\.\d+(\.\d+)?$/
 const KEEP_VERSIONS = 3
+
+if (!CALVER_REGEX.test(VERSION)) {
+  console.error(`❌ Invalid version format: ${VERSION}`)
+  console.error(
+    '   Expected CalVer format: YYYY.M.D.HHmm (e.g., 2026.4.2.0910)',
+  )
+  Deno.exit(1)
+}
 
 const listVersionDirs = async (root: string) => {
   const versions: string[] = []
@@ -25,9 +26,12 @@ const listVersionDirs = async (root: string) => {
   versions.sort((a, b) => {
     const aParts = a.split('.').map(Number)
     const bParts = b.split('.').map(Number)
-    for (let i = 0; i < 3; i += 1) {
-      if (aParts[i] !== bParts[i]) {
-        return bParts[i] - aParts[i]
+    const maxLength = Math.max(aParts.length, bParts.length)
+    for (let i = 0; i < maxLength; i += 1) {
+      const aPart = aParts[i] ?? 0
+      const bPart = bParts[i] ?? 0
+      if (aPart !== bPart) {
+        return bPart - aPart
       }
     }
     return 0
@@ -54,7 +58,7 @@ const pruneOldVersions = async (root: string) => {
  * Updates all version references in the project
  * This script:
  * 1. Updates cli/deno.json version
- * 2. Updates upload:template task in root deno.json
+ * 2. Updates create:template task in root deno.json
  * 3. Updates version in sh/install
  * 4. Creates a new version directory in sh/ and copies the install file
  * 5. Creates a new version directory in template/ and copies the template files
@@ -80,8 +84,7 @@ async function updateVersion() {
 
   rootDenoJson.tasks['create:template'] =
     `tar -czf dist/template.tar.gz ./template/${VERSION}`
-  rootDenoJson.tasks['upload:template'] =
-    'deno run -A cli/uploadTemplate.ts'
+  rootDenoJson.tasks['upload:template'] = 'deno run -A cli/uploadTemplate.ts'
   await Deno.writeTextFile(
     rootDenoJsonPath,
     JSON.stringify(rootDenoJson, null, 2),
@@ -105,23 +108,33 @@ async function updateVersion() {
   console.log(`✅ Created ${shVersionDir}/install`)
 
   // 5. Create a new version directory in template/ and copy the template files
-  // First, find the latest version directory in template/
   const templateDirs = await listVersionDirs('./template')
-  const latestTemplateDir = templateDirs[0]
+  const latestTemplateSource = templateDirs.find((dir) => dir !== VERSION)
   const newTemplateDir = `./template/${VERSION}`
 
-  // Copy the latest template directory to the new version
-  await ensureDir(newTemplateDir)
-  
-  // Skip copy if source and destination are the same
-  if (latestTemplateDir !== VERSION) {
-    await copy(`./template/${latestTemplateDir}`, newTemplateDir, {
-      overwrite: true,
-    })
-    console.log(`✅ Created ${newTemplateDir} from template/${latestTemplateDir}`)
-  } else {
-    console.log(`✅ Template directory ${newTemplateDir} already exists, skipping copy`)
+  if (!latestTemplateSource) {
+    console.error(
+      `❌ Could not find a template source directory other than ${VERSION}`,
+    )
+    Deno.exit(1)
   }
+
+  try {
+    await Deno.remove(newTemplateDir, { recursive: true })
+    console.log(`🧹 Removed existing ${newTemplateDir} before refresh`)
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) {
+      throw error
+    }
+  }
+
+  await ensureDir(newTemplateDir)
+  await copy(`./template/${latestTemplateSource}`, newTemplateDir, {
+    overwrite: true,
+  })
+  console.log(
+    `✅ Refreshed ${newTemplateDir} from template/${latestTemplateSource}`,
+  )
 
   // 5.5. Build self-contained skill directories
   const skills = ['validator', 'rpc', 'grpc-geyser']
@@ -171,12 +184,10 @@ async function updateVersion() {
     }
   }
 
-  // Create the symlink
-  // Use absolute paths to avoid path resolution issues
-  const absNewTemplateDir = await Deno.realPath(newTemplateDir)
+  // Create the symlink using a relative target so the repo stays portable.
   const absLatestPath = join(Deno.cwd(), 'template', 'latest')
-  
-  await ensureSymlink(absNewTemplateDir, absLatestPath)
+
+  await ensureSymlink(VERSION, absLatestPath)
   console.log(
     `✅ Updated template/latest symlink to point to ${newTemplateDir}`,
   )
