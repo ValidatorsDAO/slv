@@ -5,6 +5,7 @@ import {
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
+import { getModuleContent } from '@/ai/console/systemPrompt.ts'
 
 type Message = OpenAI.ChatCompletionMessageParam
 
@@ -25,12 +26,14 @@ export class OpenAIProvider {
   private client: OpenAI
   private model: string
   private messages: Message[] = []
+  private systemPrompt: string
   private callbacks: ChatCallbacks
 
   constructor(apiKey: string, model: string, systemPrompt: string, callbacks: ChatCallbacks) {
     this.client = new OpenAI({ apiKey })
     this.model = model
     this.callbacks = callbacks
+    this.systemPrompt = systemPrompt
     this.messages = [
       { role: 'system', content: systemPrompt },
     ]
@@ -40,6 +43,9 @@ export class OpenAIProvider {
     this.messages.push({ role: 'user', content: userMessage })
 
     while (true) {
+      // Update system message with any newly loaded context modules
+      this.messages[0] = { role: 'system', content: this.systemPrompt + getModuleContent() }
+
       const stream = await this.client.chat.completions.create({
         model: this.model,
         messages: this.messages,

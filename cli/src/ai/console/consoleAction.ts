@@ -18,7 +18,7 @@ import { readAiConfig } from '@/ai/config.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
-import { buildSystemPrompt } from '@/ai/console/systemPrompt.ts'
+import { buildSystemPrompt, resetContextModules } from '@/ai/console/systemPrompt.ts'
 import { setTuiInstance, setAutoExecute, setCommandOutputCallback, killActiveProcess, resetActiveTools } from '@/ai/console/tools.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
@@ -414,8 +414,9 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
 }
 
 export const consoleAction = async () => {
-  // Reset lazy-loaded tools at session start
+  // Reset lazy-loaded tools and context modules at session start
   resetActiveTools()
+  resetContextModules()
 
   let config = await readAiConfig()
   if (!config) {
@@ -785,6 +786,7 @@ RULES:
     if (input === '/clear') {
       chatLog.clear()
       resetActiveTools()
+      resetContextModules()
       const newSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
         provider = new OpenAIProvider(config.api_key, config.model, newSystemPrompt, callbacks)

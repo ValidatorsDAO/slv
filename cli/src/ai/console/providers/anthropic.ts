@@ -6,6 +6,7 @@ import {
 } from '@/ai/console/tools.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
+import { getModuleContent } from '@/ai/console/systemPrompt.ts'
 
 type MessageParam = Anthropic.MessageParam
 type ToolResultBlockParam = Anthropic.ToolResultBlockParam
@@ -41,7 +42,7 @@ export class AnthropicProvider {
       const stream = this.client.messages.stream({
         model: this.model,
         max_tokens: DEFAULT_MAX_TOKENS,
-        system: this.systemPrompt,
+        system: this.systemPrompt + getModuleContent(),
         messages: this.messages,
         tools: toAnthropicTools(getActiveTools()),
       })

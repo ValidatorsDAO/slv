@@ -5,6 +5,7 @@ import OpenAI from 'openai'
 import { readAiConfig, DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
 import type { TUI } from '@mariozechner/pi-tui'
+import { loadContextModules, isModuleLoaded } from '@/ai/console/systemPrompt.ts'
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
@@ -105,6 +106,25 @@ export const CORE_TOOLS: ToolDefinition[] = [
         },
       },
       required: ['tools'],
+    },
+  },
+  {
+    name: 'load_context',
+    description:
+      'Load additional context modules into your knowledge. Available: ssh_check, delegation, deploy, validator, cli_reference, mcp_reference. Call this BEFORE performing tasks that need specialized knowledge.',
+    parameters: {
+      type: 'object',
+      properties: {
+        modules: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['ssh_check', 'delegation', 'deploy', 'validator', 'cli_reference', 'mcp_reference'],
+          },
+          description: 'Context module names to load',
+        },
+      },
+      required: ['modules'],
     },
   },
 ]
@@ -253,19 +273,33 @@ export async function executeTool(
       msg += ` You can now use them in this session.`
       return msg
     }
+    case 'load_context': {
+      const modules = (args.modules as string[]) || []
+      return loadContextModules(modules)
+    }
     case 'list_files':
       return await executeListFiles(String(args.path || ''))
     case 'write_file':
       return await executeWriteFile(String(args.path || ''), String(args.content || ''))
-    case 'call_mcp':
+    case 'call_mcp': {
+      // Auto-load MCP reference context if not loaded
+      if (!isModuleLoaded('mcp_reference')) {
+        loadContextModules(['mcp_reference'])
+      }
       return await executeCallMcp(
         String(args.tool_name || ''),
         (args.arguments as Record<string, unknown>) || {},
       )
+    }
     case 'send_notification':
       return await executeSendNotification(String(args.message || ''))
-    case 'delegate_to_agent':
+    case 'delegate_to_agent': {
+      // Auto-load delegation context if not loaded
+      if (!isModuleLoaded('delegation')) {
+        loadContextModules(['delegation'])
+      }
       return await executeDelegateToAgent(String(args.agent || ''), String(args.task || ''))
+    }
     default:
       return `Unknown tool: ${name}`
   }
