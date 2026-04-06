@@ -837,8 +837,10 @@ export const consoleAction = async () => {
     enabledSpecialists = []
   }
 
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
   const renderStage = (message: string) => {
-    chatLog.addChild(new Text(white(`  ${message}`), 1))
+    chatLog.addChild(new Text(white(`  ${message}`), 1, 0))
     tui.requestRender()
   }
 
@@ -951,6 +953,7 @@ RULES:
 
   const applyIntentBootstrap = async (input: string) => {
     renderStage('👂 Understanding your request…')
+    await delay(150)
     const plan = await classifyIntent(
       {
         provider: config.provider,
@@ -966,21 +969,24 @@ RULES:
     )
 
     renderStage(`🎓 Intent detected: ${describeIntent(plan.intent)}`)
+    await delay(150)
 
     if (plan.toolsToEnable.length > 0) {
       const enabled = activateExtendedTools(plan.toolsToEnable)
       if (enabled.length > 0) {
         renderStage(`🧰 Enabling tools: ${enabled.join(', ')}`)
+        await delay(150)
       }
     }
 
     if (plan.contextModulesToLoad.length > 0) {
       renderStage(`📚 Loading context: ${plan.contextModulesToLoad.join(', ')}`)
+      await delay(150)
       loadContextModules(plan.contextModulesToLoad)
     }
 
     if (plan.delegateAgent) {
-      renderStage(`📚 Loading specialist context: ${plan.delegateAgent}`)
+      renderStage(`🤖 Loading specialist: ${plan.delegateAgent}`)
       await injectSkillDocs(plan.delegateAgent)
     }
 
