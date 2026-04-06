@@ -93,121 +93,6 @@ export function resetContextModules() {
   moduleContent = ''
 }
 
-export type IntentPrimer = {
-  modules: string[]
-  agents: string[]
-}
-
-const DEPLOY_RE =
-  /\b(deploy|deployment|init|initialize|setup|set up|launch|bring up|provision)\b/i
-
-function hasPattern(input: string, patterns: RegExp[]): boolean {
-  return patterns.some((pattern) => pattern.test(input))
-}
-
-export function getIntentPrimer(input: string): IntentPrimer {
-  const text = input.toLowerCase()
-  const primer: IntentPrimer = { modules: [], agents: [] }
-
-  const addModule = (module: string) => {
-    if (!primer.modules.includes(module)) primer.modules.push(module)
-  }
-  const addAgent = (agent: string) => {
-    if (!primer.agents.includes(agent)) primer.agents.push(agent)
-  }
-
-  const validatorIntent = hasPattern(text, [
-    /\bvalidator\b/i,
-    /\bvote\b/i,
-    /\bvote account\b/i,
-    /\bidentity\b/i,
-  ])
-  const rpcIntent = hasPattern(text, [
-    /\brpc\b/i,
-    /\bgeyser\b/i,
-    /\bgrpc\b/i,
-    /\bindex\b/i,
-  ])
-  const benchmarkIntent = hasPattern(text, [
-    /\bbenchmark\b/i,
-    /\bthroughput\b/i,
-    /\blatency\b/i,
-    /\bgrpc_test\b/i,
-    /\bshreds?\b/i,
-    /\bgeyserbench\b/i,
-  ])
-  const serverIntent = hasPattern(text, [
-    /\bbare metal\b/i,
-    /\bserver\b/i,
-    /\bbuy\b/i,
-    /\bpurchase\b/i,
-    /\bpricing\b/i,
-    /\bpayment link\b/i,
-  ])
-  const accountIntent = hasPattern(text, [
-    /\bsubscription\b/i,
-    /\busage\b/i,
-    /\bbilling\b/i,
-    /\baccount\b/i,
-    /\bdashboard\b/i,
-    /\binvoice\b/i,
-  ])
-  const appIntent = hasPattern(text, [
-    /\bbot\b/i,
-    /\bapp\b/i,
-    /\btrade\b/i,
-    /\btrading\b/i,
-    /\bmev\b/i,
-  ])
-  const deployIntent = DEPLOY_RE.test(text)
-
-  if (validatorIntent) {
-    addModule('delegation')
-    addModule('validator')
-    if (deployIntent) addModule('deploy')
-    addAgent('Cecil')
-  }
-
-  if (rpcIntent) {
-    addModule('delegation')
-    if (deployIntent) addModule('deploy')
-    addAgent('Tina')
-  }
-
-  if (benchmarkIntent) {
-    addModule('delegation')
-    addAgent('Cid')
-  }
-
-  if (serverIntent) {
-    addModule('delegation')
-    addModule('mcp_reference')
-    addAgent('Figaro')
-  }
-
-  if (accountIntent) {
-    addModule('mcp_reference')
-  }
-
-  if (appIntent) {
-    addModule('delegation')
-    addAgent('Setzer')
-  }
-
-  return primer
-}
-
-export async function primeIntentContext(input: string): Promise<IntentPrimer> {
-  const primer = getIntentPrimer(input)
-  if (primer.modules.length > 0) {
-    loadContextModules(primer.modules)
-  }
-  for (const agent of primer.agents) {
-    await injectSkillDocs(agent)
-  }
-  return primer
-}
-
 export function isModuleLoaded(name: string): boolean {
   return loadedModules.has(name)
 }
@@ -522,12 +407,14 @@ ${modeSection}
 - Respond in Japanese only if the user writes in Japanese.
 
 ## Routing
-- Validator / vote / identity / validator deploy → Cecil
-- RPC / geyser / index / gRPC → Tina
-- Benchmark / shreds / latency / throughput → Cid
-- App / bot / trading / MEV → Setzer
-- Server purchase / bare metal / pricing → Figaro
-- For specialist work, delegate and then relay the result briefly.
+- Intent bootstrap already ran before this turn. Respect the staged tools/context that were enabled.
+- Do not rely on keyword heuristics as your main router.
+- When specialist work is clearly needed, delegate and then relay the result briefly.
+- Validator work usually maps to Cecil.
+- RPC / gRPC / indexer work usually maps to Tina.
+- Benchmark / connectivity work usually maps to Cid.
+- App / bot work usually maps to Setzer.
+- Server procurement work usually maps to Figaro.
 
 ## Working Environment
 - Home: ${home}
@@ -559,7 +446,8 @@ Startup is intentionally thin.
 ## Session Notes
 - The local greeting is already shown before the first message. Do not repeat it.
 - Context modules are available through \`load_context\` when needed.
-- Some domain context may already be preloaded automatically when intent is obvious.
+- Use explicit staged loading before pulling heavy context or enabling side-effect tools.
+- Do not assume hidden startup preloads already happened for the current request.
 
 ${userContext ? `## User Context (live data)\n${userContext}\n` : ''}
 

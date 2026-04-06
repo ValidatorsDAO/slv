@@ -219,7 +219,6 @@ export const aiProductAction = async () => {
         'Complete Authorization (€5) to receive 100,000 free AI tokens.',
       )
     }
-
     console.log(formatBulletList(footerItems, width))
 
     if (

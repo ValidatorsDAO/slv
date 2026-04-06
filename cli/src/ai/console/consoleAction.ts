@@ -20,8 +20,8 @@ import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import {
   buildSystemPrompt,
-  getIntentPrimer,
-  primeIntentContext,
+  injectSkillDocs,
+  loadContextModules,
   resetContextModules,
 } from '@/ai/console/systemPrompt.ts'
 import {
@@ -33,6 +33,13 @@ import {
   setCommandOutputCallback,
   setTuiInstance,
 } from '@/ai/console/tools.ts'
+import {
+  classifyIntent,
+  type DeploymentMode,
+  describeIntent,
+  describeUserContextKind,
+  type UserContextKind,
+} from '@/ai/console/intentClassifier.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse } from '@std/yaml'
 import {
@@ -160,6 +167,8 @@ class ChatLog extends Container {
         )
         : []
       const whyMap: Record<string, string> = {
+        'run_command': 'inspect or operate the local/remote SLV environment',
+        'read_file': 'inspect focused local SLV files',
         'call_mcp': 'check subscriptions or fetch SLV Cloud data',
         'write_file': 'save configuration or update memory',
         'list_files': 'inspect available files before acting',
@@ -478,7 +487,7 @@ export const consoleAction = async () => {
     await promptInstallDependencies(missing)
   }
 
-  const systemPrompt = await buildSystemPrompt()
+  let currentSystemPrompt = await buildSystemPrompt()
   const providerLabel = config.provider === 'openai'
     ? 'OpenAI'
     : config.provider === 'slv'
@@ -601,8 +610,7 @@ export const consoleAction = async () => {
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider | SLVProvider
-  let slvApiKey = '' // stored for lazy provider rebuild
-  let userContextLoaded = false
+  let slvApiKey = ''
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -736,7 +744,7 @@ export const consoleAction = async () => {
     provider = new OpenAIProvider(
       config.api_key,
       config.model,
-      systemPrompt,
+      currentSystemPrompt,
       callbacks,
     )
   } else if (config.provider === 'slv') {
@@ -750,12 +758,17 @@ export const consoleAction = async () => {
       console.log('\n  SLV API Key not found. Run `slv login` first.\n')
       return
     }
-    provider = new SLVProvider(slvApiKey, config.model, systemPrompt, callbacks)
+    provider = new SLVProvider(
+      slvApiKey,
+      config.model,
+      currentSystemPrompt,
+      callbacks,
+    )
   } else {
     provider = new AnthropicProvider(
       config.api_key,
       config.model,
-      systemPrompt,
+      currentSystemPrompt,
       callbacks,
     )
   }
@@ -802,6 +815,107 @@ export const consoleAction = async () => {
   let isProcessing = false
   let currentTaskDescription = '' // What the main agent is currently doing
   let currentTaskStartedAt = 0
+  let deploymentMode: DeploymentMode = 'remote'
+  let enabledSpecialists: string[] = []
+  const hydratedUserContextKinds = new Set<UserContextKind>()
+  const hydratedUserContextBlocks = new Map<UserContextKind, string>()
+
+  try {
+    const raw = await Deno.readTextFile(
+      `${resolveHome()}/.slv/agent/config.yml`,
+    )
+    const agentConfig = parse(raw) as Record<string, unknown>
+    deploymentMode =
+      ((agentConfig.mode as string) || 'remote') as DeploymentMode
+    enabledSpecialists =
+      ((agentConfig.skills as Array<Record<string, unknown>> | undefined) || [])
+        .filter((skill) => skill?.enabled)
+        .map((skill) => String(skill.agent || ''))
+        .filter(Boolean)
+  } catch {
+    deploymentMode = 'remote'
+    enabledSpecialists = []
+  }
+
+  const renderStage = (message: string) => {
+    chatLog.addSystem(`  ${message}`)
+    tui.requestRender()
+  }
+
+  const refreshSystemPrompt = async () => {
+    const userContext = Array.from(hydratedUserContextBlocks.values()).join(
+      '\n\n',
+    )
+    currentSystemPrompt = await buildSystemPrompt(userContext || undefined)
+    provider.setSystemPrompt(currentSystemPrompt)
+  }
+
+  const hydrateUserContextKind = async (kind: UserContextKind) => {
+    if (hydratedUserContextKinds.has(kind)) return
+
+    if (kind === 'mcp_user_account') {
+      renderStage(`Loading ${describeUserContextKind(kind)}…`)
+      try {
+        if (!slvApiKey) {
+          const apiYmlRaw = await Deno.readTextFile(
+            `${resolveHome()}/.slv/api.yml`,
+          )
+          const apiYml = parse(apiYmlRaw) as Record<string, any>
+          slvApiKey = apiYml?.slv?.api_key || ''
+        }
+        if (slvApiKey) {
+          const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${slvApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'tools/call',
+              params: { name: 'get_user_get', arguments: {} },
+            }),
+          })
+          const data = await res.json()
+          hydratedUserContextBlocks.set(
+            kind,
+            `## User Account (from MCP)\n${
+              data.result?.content?.[0]?.text || 'Unable to fetch'
+            }`,
+          )
+          hydratedUserContextKinds.add(kind)
+        }
+      } catch {
+        // leave unset on failure
+      }
+      return
+    }
+
+    const inventoryMap: Record<
+      Exclude<UserContextKind, 'mcp_user_account'>,
+      string
+    > = {
+      inventory_testnet_validators: 'inventory.testnet.validators.yml',
+      inventory_mainnet_validators: 'inventory.mainnet.validators.yml',
+      inventory_mainnet_rpcs: 'inventory.mainnet.rpcs.yml',
+    }
+
+    const inventoryFile =
+      inventoryMap[kind as Exclude<UserContextKind, 'mcp_user_account'>]
+    if (!inventoryFile) return
+
+    renderStage(`Loading ${describeUserContextKind(kind)}…`)
+    try {
+      const content = await Deno.readTextFile(
+        `${resolveHome()}/.slv/${inventoryFile}`,
+      )
+      hydratedUserContextBlocks.set(kind, `## ${inventoryFile}\n${content}`)
+      hydratedUserContextKinds.add(kind)
+    } catch {
+      // inventory file may not exist yet
+    }
+  }
 
   const saveMemoryAndExit = async () => {
     if (userMessageCount > 0) {
@@ -833,6 +947,52 @@ RULES:
     const minutes = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${minutes}m ${secs}s`
+  }
+
+  const applyIntentBootstrap = async (input: string) => {
+    renderStage('Understanding your request…')
+    const plan = await classifyIntent(
+      {
+        provider: config.provider,
+        apiKey: config.api_key,
+        model: config.model,
+        slvApiKey,
+      },
+      {
+        message: input,
+        deploymentMode,
+        enabledSpecialists,
+      },
+    )
+
+    renderStage(`Intent detected: ${describeIntent(plan.intent)}`)
+
+    if (plan.toolsToEnable.length > 0) {
+      const enabled = activateExtendedTools(plan.toolsToEnable)
+      if (enabled.length > 0) {
+        renderStage(`Enabling tools: ${enabled.join(', ')}`)
+      }
+    }
+
+    if (plan.contextModulesToLoad.length > 0) {
+      renderStage(`Loading context: ${plan.contextModulesToLoad.join(', ')}`)
+      loadContextModules(plan.contextModulesToLoad)
+    }
+
+    if (plan.delegateAgent) {
+      renderStage(`Loading specialist context: ${plan.delegateAgent}`)
+      await injectSkillDocs(plan.delegateAgent)
+    }
+
+    for (const kind of plan.userContextKindsToHydrate) {
+      await hydrateUserContextKind(kind)
+    }
+
+    if (plan.userContextKindsToHydrate.length > 0) {
+      await refreshSystemPrompt()
+    }
+
+    return plan
   }
 
   editor.onSubmit = async (text: string) => {
@@ -881,12 +1041,14 @@ RULES:
       resetActiveTools()
       resetContextModules()
       resetSessionCaches()
-      const newSystemPrompt = await buildSystemPrompt()
+      hydratedUserContextKinds.clear()
+      hydratedUserContextBlocks.clear()
+      currentSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
         provider = new OpenAIProvider(
           config.api_key,
           config.model,
-          newSystemPrompt,
+          currentSystemPrompt,
           callbacks,
         )
       } else if (config.provider === 'slv') {
@@ -897,10 +1059,11 @@ RULES:
           slvKey = yml?.slv?.api_key || ''
         } catch { /* */ }
         if (slvKey) {
+          slvApiKey = slvKey
           provider = new SLVProvider(
             slvKey,
             config.model,
-            newSystemPrompt,
+            currentSystemPrompt,
             callbacks,
           )
         }
@@ -908,7 +1071,7 @@ RULES:
         provider = new AnthropicProvider(
           config.api_key,
           config.model,
-          newSystemPrompt,
+          currentSystemPrompt,
           callbacks,
         )
       }
@@ -1012,94 +1175,24 @@ RULES:
       tui,
       (s: string) => green(s),
       (s: string) => gray(s),
-      'Thinking...',
+      'Understanding your request...',
     )
     chatLog.addChild(loader)
     loader.start()
     tui.requestRender()
 
-    const primer = getIntentPrimer(input)
-    const autoTools: string[] = []
-    if (primer.agents.length > 0) autoTools.push('delegate_to_agent')
-    if (primer.modules.includes('mcp_reference')) autoTools.push('call_mcp')
-    if (autoTools.length > 0) {
-      activateExtendedTools(autoTools)
-    }
-    if (primer.modules.length > 0 || primer.agents.length > 0) {
-      await primeIntentContext(input)
-    }
+    const plan = await applyIntentBootstrap(input)
 
-    // Lazy-load user context before the first real API call
-    if (!userContextLoaded) {
-      userContextLoaded = true
-      let lazyContext = ''
-      try {
-        const apiYmlRaw = await Deno.readTextFile(
-          `${resolveHome()}/.slv/api.yml`,
-        )
-        const apiYml = parse(apiYmlRaw) as Record<string, any>
-        const key = apiYml?.slv?.api_key || ''
-        if (key) {
-          const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'tools/call',
-              params: { name: 'get_user_get', arguments: {} },
-            }),
-          })
-          const data = await res.json()
-          lazyContext += `\n## User Account (from MCP)\n${
-            data.result?.content?.[0]?.text || 'Unable to fetch'
-          }\n`
-        }
-      } catch { /* silent */ }
-      for (
-        const inv of [
-          'inventory.testnet.validators.yml',
-          'inventory.mainnet.validators.yml',
-          'inventory.mainnet.rpcs.yml',
-        ]
-      ) {
-        try {
-          const content = await Deno.readTextFile(
-            `${resolveHome()}/.slv/${inv}`,
-          )
-          lazyContext += `\n## ${inv}\n${content}\n`
-        } catch { /* doesn't exist */ }
+    if (plan.askClarify && plan.intent === 'unknown') {
+      if (loader) {
+        chatLog.removeChild(loader)
+        loader.stop()
+        loader = null
       }
-      if (lazyContext) {
-        const newSystemPrompt = await buildSystemPrompt(lazyContext)
-        if (config.provider === 'openai') {
-          provider = new OpenAIProvider(
-            config.api_key,
-            config.model,
-            newSystemPrompt,
-            callbacks,
-          )
-        } else if (config.provider === 'slv') {
-          if (slvApiKey) {
-            provider = new SLVProvider(
-              slvApiKey,
-              config.model,
-              newSystemPrompt,
-              callbacks,
-            )
-          }
-        } else {
-          provider = new AnthropicProvider(
-            config.api_key,
-            config.model,
-            newSystemPrompt,
-            callbacks,
-          )
-        }
-      }
+      chatLog.addAssistant(plan.askClarify)
+      isProcessing = false
+      tui.requestRender()
+      return
     }
 
     try {

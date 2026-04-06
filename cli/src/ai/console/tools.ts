@@ -63,8 +63,65 @@ const AGENT_SKILL_MAP: Record<string, string> = {
   'Figaro': 'slv-server-procurement',
 }
 
-// Core tools — always sent to the API (minimal token footprint)
+// Core tools — safe orchestration helpers available after bootstrap
 export const CORE_TOOLS: ToolDefinition[] = [
+  {
+    name: 'enable_tools',
+    description:
+      'Enable additional tools when needed. Available extended tools: run_command, read_file, write_file, list_files, call_mcp, send_notification, delegate_to_agent. Call this to activate them before use.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tools: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'run_command',
+              'read_file',
+              'write_file',
+              'list_files',
+              'call_mcp',
+              'send_notification',
+              'delegate_to_agent',
+            ],
+          },
+          description: 'Tool names to enable',
+        },
+      },
+      required: ['tools'],
+    },
+  },
+  {
+    name: 'load_context',
+    description:
+      'Load additional context modules into your knowledge. Available: ssh_check, delegation, deploy, validator, cli_reference, mcp_reference. Call this BEFORE performing tasks that need specialized knowledge.',
+    parameters: {
+      type: 'object',
+      properties: {
+        modules: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'ssh_check',
+              'delegation',
+              'deploy',
+              'validator',
+              'cli_reference',
+              'mcp_reference',
+            ],
+          },
+          description: 'Context module names to load',
+        },
+      },
+      required: ['modules'],
+    },
+  },
+]
+
+// Extended tools — loaded on demand via enable_tools
+export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'run_command',
     description:
@@ -109,61 +166,6 @@ export const CORE_TOOLS: ToolDefinition[] = [
       required: ['path'],
     },
   },
-  {
-    name: 'enable_tools',
-    description:
-      'Enable additional tools when needed. Available extended tools: write_file, list_files, call_mcp, send_notification, delegate_to_agent. Call this to activate them before use.',
-    parameters: {
-      type: 'object',
-      properties: {
-        tools: {
-          type: 'array',
-          items: {
-            type: 'string',
-            enum: [
-              'write_file',
-              'list_files',
-              'call_mcp',
-              'send_notification',
-              'delegate_to_agent',
-            ],
-          },
-          description: 'Tool names to enable',
-        },
-      },
-      required: ['tools'],
-    },
-  },
-  {
-    name: 'load_context',
-    description:
-      'Load additional context modules into your knowledge. Available: ssh_check, delegation, deploy, validator, cli_reference, mcp_reference. Call this BEFORE performing tasks that need specialized knowledge.',
-    parameters: {
-      type: 'object',
-      properties: {
-        modules: {
-          type: 'array',
-          items: {
-            type: 'string',
-            enum: [
-              'ssh_check',
-              'delegation',
-              'deploy',
-              'validator',
-              'cli_reference',
-              'mcp_reference',
-            ],
-          },
-          description: 'Context module names to load',
-        },
-      },
-      required: ['modules'],
-    },
-  },
-]
-
-// Extended tools — loaded on demand via enable_tools
-export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'list_files',
     description:
