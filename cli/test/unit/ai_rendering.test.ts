@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from '@std/assert'
+import { stripColor } from 'https://deno.land/std@0.185.0/fmt/colors.ts'
 
 import { formatLink, wrapText } from '@/ai/rendering.ts'
 
@@ -25,6 +26,6 @@ Deno.test('formatLink keeps actionable URLs on their own intact line', () => {
   const lines = formatted.split('\n')
 
   assertEquals(lines.length, 2)
-  assertStringIncludes(lines[0], 'Purchase:')
+  assertStringIncludes(stripColor(lines[0]), 'Purchase:')
   assertEquals(lines[1], `    ${url}`)
 })
