@@ -64,7 +64,7 @@ export const aiUsageAction = async () => {
         {
           label: 'Remaining',
           value: remainingTokens <= 0
-            ? colors.red(remainingDisplay)
+            ? colors.yellow(remainingDisplay)
             : remainingDisplay,
         },
         { label: 'Max Tokens', value: maxTokens.toLocaleString() },
