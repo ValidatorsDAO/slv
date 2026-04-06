@@ -1,6 +1,5 @@
 import { getTipsForAgent, pickRandomTip } from '@/ai/console/tips.ts'
 import {
-  type Component,
   Container,
   Editor,
   type EditorTheme,
@@ -91,25 +90,7 @@ const editorTheme: EditorTheme = {
   },
 }
 
-/**
- * NoWrapText: a minimal Component that renders text without word-wrapping.
- * Long lines (e.g. URLs) extend past the terminal width instead of breaking,
- * keeping them clickable/copyable.
- */
-class NoWrapText implements Component {
-  private text: string
-  private paddingX: number
-  constructor(text: string, paddingX = 1) {
-    this.text = text
-    this.paddingX = paddingX
-  }
-  invalidate() {}
-  render(_width: number): string[] {
-    if (!this.text) return []
-    const left = ' '.repeat(this.paddingX)
-    return this.text.split('\n').map((line) => left + line)
-  }
-}
+
 
 /**
  * ChatLog: scrollable container for messages
@@ -1181,24 +1162,7 @@ RULES:
             .map((line: string) => `  ${line}`)
             .join('\n')
           if (filtered) {
-            // Split output so URL lines use NoWrapText (no word-wrapping)
-            const lines = filtered.split('\n')
-            let batch: string[] = []
-            const flushBatch = () => {
-              if (batch.length > 0) {
-                chatLog.addChild(new Text(batch.join('\n'), 1, 0))
-                batch = []
-              }
-            }
-            for (const line of lines) {
-              if (/https?:\/\//.test(line)) {
-                flushBatch()
-                chatLog.addChild(new NoWrapText(line, 0))
-              } else {
-                batch.push(line)
-              }
-            }
-            flushBatch()
+            chatLog.addChild(new Text(filtered, 1, 0))
           }
         }
         if (!status.success) {
@@ -1244,7 +1208,9 @@ RULES:
     try {
       await provider.chat(input)
     } catch (error) {
-      chatLog.addSystem(red(`  Error: ${(error as Error).message}`))
+      const msg = (error as Error).message
+      const color = /[Ii]nsufficient.*token|token.*limit/i.test(msg) ? yellow : red
+      chatLog.addSystem(color(`  Error: ${msg}`))
     }
 
     if (loader) {

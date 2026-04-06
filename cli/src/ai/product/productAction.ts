@@ -119,7 +119,7 @@ export const aiProductAction = async () => {
     if (!raw) {
       spinner.fail('Failed to fetch products')
       console.log(colors.red('  Could not retrieve product information.'))
-      console.log(colors.gray('  Visit https://slv.dev for plan details.'))
+      console.log('  Visit https://slv.dev for plan details.')
       return
     }
 
@@ -209,14 +209,12 @@ export const aiProductAction = async () => {
     }
 
     console.log(
-      colors.gray(
-        '\n  You can also purchase from Discord: https://discord.com/channels/1278625724248494120/1488527495639601233',
-      ),
+      '\n  You can also purchase from Discord: https://discord.com/channels/1278625724248494120/1488527495639601233',
     )
     console.log()
   } catch (error) {
     spinner.fail('Failed to fetch AI products')
     console.log(colors.red(`  ${(error as Error).message}`))
-    console.log(colors.gray('  Visit https://slv.dev for plan details.'))
+    console.log('  Visit https://slv.dev for plan details.')
   }
 }
