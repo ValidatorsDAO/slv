@@ -1,0 +1,28 @@
+---
+- name: Run restarter.sh
+  hosts: all
+  become: true
+  become_user: solv
+  gather_facts: no
+
+  tasks:
+    - name: Launch restarter.sh asynchronously
+      shell: . ~/.profile && /home/solv/restarter.sh
+      args:
+        executable: /bin/bash
+      async: 7200
+      poll: 0
+      register: restarter_async
+
+    - name: Wait for restarter.sh to finish
+      async_status:
+        jid: "{{ restarter_async.ansible_job_id }}"
+      register: restarter_job
+      until: restarter_job.finished
+      retries: 480
+      delay: 15
+      failed_when: restarter_job.rc not in [0, None]
+
+    - name: Show restarter.sh result
+      debug:
+        var: restarter_job
