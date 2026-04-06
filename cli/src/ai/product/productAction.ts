@@ -1,7 +1,19 @@
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
-import { Row, Table } from '@cliffy/table'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
+import {
+  divider,
+  formatBulletList,
+  formatKeyValueFields,
+  formatLink,
+  getTerminalWidth,
+  type KeyValueField,
+  wrapText,
+} from '@/ai/rendering.ts'
+import {
+  type AuthorizationStatus,
+  fetchAuthorizationStatus,
+} from '@/ai/authorization.ts'
 
 type McpResponse = {
   result?: {
@@ -9,7 +21,27 @@ type McpResponse = {
   }
 }
 
-async function callMcp(apiKey: string, toolName: string, args: Record<string, unknown> = {}): Promise<string> {
+type Product = {
+  name?: string
+  product?: string
+  description?: string
+  price?: string | number
+  tokens?: string | number
+  currency?: string
+  interval?: string
+  paymentLink?: string
+  authorizationLink?: string
+  authorizationUrl?: string
+  authLink?: string
+  authUrl?: string
+  [key: string]: unknown
+}
+
+async function callMcp(
+  apiKey: string,
+  toolName: string,
+  args: Record<string, unknown> = {},
+): Promise<string> {
   const response = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
     method: 'POST',
     headers: {
@@ -27,16 +59,49 @@ async function callMcp(apiKey: string, toolName: string, args: Record<string, un
   return data.result?.content?.[0]?.text || ''
 }
 
-type Product = {
-  name?: string
-  product?: string
-  description?: string
-  price?: string | number
-  tokens?: string | number
-  currency?: string
-  interval?: string
-  paymentLink?: string
-  [key: string]: unknown
+function getAuthorizationLink(product: Product): string {
+  return String(
+    product.authorizationLink ?? product.authorizationUrl ??
+      product.authLink ?? product.authUrl ??
+      product.paymentLink ??
+      '',
+  )
+}
+
+function isSecureAuthorizationProduct(product: Product): boolean {
+  const name = String(product.name ?? product.product ?? '').toLowerCase()
+  return name.includes('secure authorization') || name.includes('authorization')
+}
+
+function normalizeDescription(product: Product): string {
+  const name = String(product.name ?? product.product ?? '').toLowerCase()
+  if (!isSecureAuthorizationProduct(product)) {
+    return String(product.description ?? '').trim()
+  }
+
+  if (name.includes('secure authorization')) {
+    return 'Complete Authorization to receive 100,000 free AI tokens and unlock additional shared SLV services.'
+  }
+
+  return String(product.description ?? '').trim()
+}
+
+function getAuthorizationCtaLink(
+  authorizationStatus: AuthorizationStatus,
+  products: Product[],
+): string | null {
+  if (authorizationStatus.authorizationLink) {
+    return authorizationStatus.authorizationLink
+  }
+
+  const authorizationProduct = products.find((product) =>
+    isSecureAuthorizationProduct(product)
+  )
+
+  if (!authorizationProduct) return null
+
+  const link = getAuthorizationLink(authorizationProduct)
+  return link || null
 }
 
 export const aiProductAction = async () => {
@@ -46,86 +111,122 @@ export const aiProductAction = async () => {
   spinner.start()
 
   try {
-    const raw = await callMcp(apiKey, 'get_ai_product_list')
+    const [raw, authorizationStatus] = await Promise.all([
+      callMcp(apiKey, 'get_ai_product_list'),
+      fetchAuthorizationStatus(apiKey),
+    ])
+
     if (!raw) {
       spinner.fail('Failed to fetch products')
-      console.log(colors.red('\n  Could not retrieve product information.'))
-      console.log(colors.gray('  Visit https://slv.dev for plan details.\n'))
+      console.log(colors.red('  Could not retrieve product information.'))
+      console.log(colors.gray('  Visit https://slv.dev for plan details.'))
       return
     }
 
     spinner.succeed('AI Plans & Products')
 
-    // Try to parse as JSON
     let products: Product[] | null = null
     try {
       const parsed = JSON.parse(raw)
-      products = Array.isArray(parsed) ? parsed : (parsed.products ?? parsed.items ?? parsed.message ?? null)
+      products = Array.isArray(parsed)
+        ? parsed
+        : (parsed.products ?? parsed.items ?? parsed.message ?? null)
       if (products && !Array.isArray(products)) products = null
     } catch {
       // Not JSON
     }
 
-    if (products && products.length > 0) {
-      // Detect terminal width for responsive layout
-      let termWidth = 80
-      try {
-        termWidth = Deno.consoleSize().columns
-      } catch {
-        // Default to 80 if not available (e.g. piped output)
-      }
-
-      for (const product of products) {
-        const table = new Table()
-        const rows: Row[] = []
-
-        const name = product.name ?? product.product ?? 'Unknown'
-        rows.push(new Row(colors.blue('Plan'), colors.bold(colors.white(String(name)))).border(true))
-
-        if (product.description) {
-          // Enhance description for Secure Authorization
-          let desc = String(product.description)
-          if (name.toLowerCase().includes('secure authorization')) {
-            desc = 'Identity verification (KYC) via Stripe.\n' +
-              'Unlocks: free RPC tokens, free AI tokens,\n' +
-              'and a 1-day free trial of shared services\n' +
-              '(Direct Shreds, gRPC, ERPC).'
-          }
-          rows.push(new Row(colors.blue('Description'), colors.white(desc)).border(true))
-        }
-        if (product.tokens !== undefined) {
-          rows.push(new Row(colors.blue('Tokens'), colors.white(Number(product.tokens).toLocaleString())).border(true))
-        }
-        if (product.price !== undefined) {
-          const currency = product.currency ?? 'EUR'
-          const interval = product.interval ? `/${product.interval}` : ''
-          rows.push(new Row(colors.blue('Price'), colors.white(`${product.price} ${currency}${interval}`)).border(true))
-        }
-
-        // For narrow terminals, show Purchase URL below the table
-        const purchaseUrl = product.paymentLink ? String(product.paymentLink) : ''
-        if (purchaseUrl && termWidth >= 100) {
-          rows.push(new Row(colors.blue('Purchase'), colors.cyan(purchaseUrl)).border(true))
-        }
-
-        table.body(rows)
-        console.log('')
-        table.render()
-
-        // On narrow terminals, show the URL on its own line
-        if (purchaseUrl && termWidth < 100) {
-          console.log(`  ${colors.blue('Purchase:')} ${colors.cyan(purchaseUrl)}`)
-        }
-      }
-    } else if (raw) {
-      // Show raw response if not parseable as product list
-      console.log(colors.white(`\n${raw}`))
+    if (!products || products.length === 0) {
+      console.log(colors.white(wrapText(raw, getTerminalWidth(), '  ', '  ')))
+      return
     }
 
-    console.log(colors.gray('\n  Run `slv ai usage` to check your current token balance.\n'))
+    const width = getTerminalWidth()
+    const visibleProducts = products.filter((product) => {
+      if (authorizationStatus.state !== 'authorized') return true
+      return !isSecureAuthorizationProduct(product)
+    })
+    const authorizationCtaLink = getAuthorizationCtaLink(
+      authorizationStatus,
+      products,
+    )
+
+    console.log(colors.bold('\nAI Plans & Products'))
+
+    if (visibleProducts.length === 0) {
+      console.log(
+        formatBulletList([
+          'No purchasable AI products are currently available for this account.',
+        ], width),
+      )
+      return
+    }
+
+    for (const [index, product] of visibleProducts.entries()) {
+      const name = String(product.name ?? product.product ?? 'Unknown')
+      const description = normalizeDescription(product)
+      const fields: KeyValueField[] = [{ label: 'Plan', value: name }]
+
+      if (description) {
+        fields.push({ label: 'Description', value: description })
+      }
+      if (product.tokens !== undefined) {
+        fields.push({
+          label: 'Tokens',
+          value: Number(product.tokens).toLocaleString(),
+        })
+      }
+      if (product.price !== undefined) {
+        const currency = product.currency ?? 'EUR'
+        const interval = product.interval ? `/${product.interval}` : ''
+        fields.push({
+          label: 'Price',
+          value: `${product.price} ${currency}${interval}`,
+        })
+      }
+
+      console.log(formatKeyValueFields(fields, width))
+
+      const purchaseUrl = product.paymentLink ? String(product.paymentLink) : ''
+      if (purchaseUrl && !isSecureAuthorizationProduct(product)) {
+        console.log(formatLink('Purchase', purchaseUrl, width))
+      }
+
+      if (
+        isSecureAuthorizationProduct(product) &&
+        authorizationStatus.state === 'unauthorized'
+      ) {
+        if (authorizationCtaLink) {
+          console.log(formatLink('Authorization', authorizationCtaLink, width))
+        }
+      }
+
+      if (index < visibleProducts.length - 1) {
+        console.log(divider(width))
+      }
+    }
+
+    const footerItems = [
+      'Run `slv ai usage` to check your current token balance.',
+    ]
+
+    if (authorizationStatus.state === 'authorized') {
+      footerItems.unshift(
+        'Authorization already completed on this account. Use the purchase links above or run `slv ai product` again anytime to buy more AI tokens and products.',
+      )
+    } else if (authorizationStatus.state === 'unauthorized') {
+      footerItems.unshift(
+        'Complete Authorization (€5) to receive 100,000 free AI tokens.',
+      )
+      if (authorizationCtaLink) {
+        footerItems.splice(1, 0, `Authorization link: ${authorizationCtaLink}`)
+      }
+    }
+
+    console.log(formatBulletList(footerItems, width))
   } catch (error) {
     spinner.fail('Failed to fetch AI products')
-    console.log(colors.red(`\n  ${(error as Error).message}`))
-    console.log(colors.gray('  Visit https://slv.dev for plan details.\n'))
+    console.log(colors.red(`  ${(error as Error).message}`))
+    console.log(colors.gray('  Visit https://slv.dev for plan details.'))
   }
 }

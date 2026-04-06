@@ -127,18 +127,17 @@ class ChatLog extends Container {
     if (friendly === '') return // skip
     const label = friendly || `⚡ ${name}`
 
+    let parsed: Record<string, unknown> | null = null
+    try {
+      parsed = JSON.parse(detail) as Record<string, unknown>
+    } catch {
+      parsed = null
+    }
+
     // For run_command, show the actual command being executed
     if (name === 'run_command') {
-      let cmd = ''
-      try {
-        const parsed = JSON.parse(detail)
-        cmd = parsed.command || ''
-      } catch {
-        // detail might be the command string directly
-        cmd = detail
-      }
+      const cmd = String(parsed?.command ?? detail ?? '')
       if (cmd) {
-        // Truncate very long commands for readability
         const display = cmd.length > 120 ? cmd.slice(0, 117) + '...' : cmd
         this.addChild(new Text(yellow(`${label}: `) + gray(`$ ${display}`), 1))
         return
@@ -147,24 +146,43 @@ class ChatLog extends Container {
 
     // For read_file/write_file, show the file path
     if (name === 'read_file' || name === 'write_file') {
-      let path = ''
-      try {
-        const parsed = JSON.parse(detail)
-        path = parsed.path || parsed.file_path || ''
-      } catch { /* ignore */ }
+      const path = String(parsed?.path ?? parsed?.file_path ?? '')
       if (path) {
         this.addChild(new Text(yellow(`${label}: `) + gray(path), 1))
         return
       }
     }
 
+    if (name === 'enable_tools') {
+      const tools = Array.isArray(parsed?.tools)
+        ? (parsed?.tools as unknown[]).map((tool) => String(tool)).filter(
+          Boolean,
+        )
+        : []
+      const whyMap: Record<string, string> = {
+        'call_mcp': 'check subscriptions or fetch SLV Cloud data',
+        'write_file': 'save configuration or update memory',
+        'list_files': 'inspect available files before acting',
+        'send_notification': 'notify you when a long task finishes',
+        'delegate_to_agent': 'hand work to a specialist agent',
+      }
+      if (tools.length > 0) {
+        const why = tools
+          .map((tool) => whyMap[tool])
+          .filter((reason, index, reasons) =>
+            reason && reasons.indexOf(reason) === index
+          )
+        const message = why.length > 0
+          ? `${label}: ${tools.join(', ')} — ${why.join('; ')}`
+          : `${label}: ${tools.join(', ')}`
+        this.addChild(new Text(yellow(message), 1))
+        return
+      }
+    }
+
     // For call_mcp, show the tool name
     if (name === 'call_mcp') {
-      let toolName = ''
-      try {
-        const parsed = JSON.parse(detail)
-        toolName = parsed.tool || ''
-      } catch { /* ignore */ }
+      const toolName = String(parsed?.tool_name ?? parsed?.tool ?? '')
       if (toolName) {
         this.addChild(new Text(yellow(`${label}: `) + gray(toolName), 1))
         return
@@ -583,7 +601,8 @@ export const consoleAction = async () => {
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider | SLVProvider
-  let slvApiKey = ''
+  let slvApiKey = '' // stored for lazy provider rebuild
+  let userContextLoaded = false
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -969,6 +988,7 @@ RULES:
         if (output) {
           // Show output line by line in TUI
           for (const line of output.split('\n')) {
+            if (!line.trim()) continue
             chatLog.addSystem(`  ${line}`)
           }
         }
@@ -1007,6 +1027,79 @@ RULES:
     }
     if (primer.modules.length > 0 || primer.agents.length > 0) {
       await primeIntentContext(input)
+    }
+
+    // Lazy-load user context before the first real API call
+    if (!userContextLoaded) {
+      userContextLoaded = true
+      let lazyContext = ''
+      try {
+        const apiYmlRaw = await Deno.readTextFile(
+          `${resolveHome()}/.slv/api.yml`,
+        )
+        const apiYml = parse(apiYmlRaw) as Record<string, any>
+        const key = apiYml?.slv?.api_key || ''
+        if (key) {
+          const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'tools/call',
+              params: { name: 'get_user_get', arguments: {} },
+            }),
+          })
+          const data = await res.json()
+          lazyContext += `\n## User Account (from MCP)\n${
+            data.result?.content?.[0]?.text || 'Unable to fetch'
+          }\n`
+        }
+      } catch { /* silent */ }
+      for (
+        const inv of [
+          'inventory.testnet.validators.yml',
+          'inventory.mainnet.validators.yml',
+          'inventory.mainnet.rpcs.yml',
+        ]
+      ) {
+        try {
+          const content = await Deno.readTextFile(
+            `${resolveHome()}/.slv/${inv}`,
+          )
+          lazyContext += `\n## ${inv}\n${content}\n`
+        } catch { /* doesn't exist */ }
+      }
+      if (lazyContext) {
+        const newSystemPrompt = await buildSystemPrompt(lazyContext)
+        if (config.provider === 'openai') {
+          provider = new OpenAIProvider(
+            config.api_key,
+            config.model,
+            newSystemPrompt,
+            callbacks,
+          )
+        } else if (config.provider === 'slv') {
+          if (slvApiKey) {
+            provider = new SLVProvider(
+              slvApiKey,
+              config.model,
+              newSystemPrompt,
+              callbacks,
+            )
+          }
+        } else {
+          provider = new AnthropicProvider(
+            config.api_key,
+            config.model,
+            newSystemPrompt,
+            callbacks,
+          )
+        }
+      }
     }
 
     try {
