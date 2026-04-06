@@ -40,6 +40,12 @@ export function wrapText(
       continue
     }
 
+    // Never wrap lines that look like URLs — breaking them makes them unclickable
+    if (/^https?:\/\//.test(line)) {
+      wrapped.push(indent + line)
+      continue
+    }
+
     let remaining = line
     let prefix = indent
 

@@ -208,31 +208,9 @@ export const aiProductAction = async () => {
       }
     }
 
-    const footerItems = [
-      'Run `slv ai usage` to check your current token balance.',
-    ]
-
-    if (authorizationStatus.state === 'authorized') {
-      footerItems.unshift(
-        'Authorization already completed on this account. Use the purchase links above or run `slv ai product` again anytime to buy more AI tokens and products.',
-      )
-    } else if (authorizationStatus.state === 'unauthorized') {
-      footerItems.unshift(
-        'Complete Authorization (€5) to receive 100,000 free AI tokens.',
-      )
-    }
-    console.log('\n' + formatBulletList(footerItems, width))
-
-    if (
-      authorizationStatus.state === 'unauthorized' &&
-      authorizationCtaLink
-    ) {
-      console.log(formatLink('Authorization', authorizationCtaLink, width))
-    }
-
     console.log(
       colors.gray(
-        '  You can also purchase from Discord: https://discord.com/channels/1278625724248494120/1488527495639601233',
+        '\n  You can also purchase from Discord: https://discord.com/channels/1278625724248494120/1488527495639601233',
       ),
     )
     console.log()
