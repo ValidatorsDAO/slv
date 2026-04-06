@@ -218,12 +218,16 @@ export const aiProductAction = async () => {
       footerItems.unshift(
         'Complete Authorization (€5) to receive 100,000 free AI tokens.',
       )
-      if (authorizationCtaLink) {
-        footerItems.splice(1, 0, `Authorization link: ${authorizationCtaLink}`)
-      }
     }
 
     console.log(formatBulletList(footerItems, width))
+
+    if (
+      authorizationStatus.state === 'unauthorized' &&
+      authorizationCtaLink
+    ) {
+      console.log(formatLink('Authorization', authorizationCtaLink, width))
+    }
   } catch (error) {
     spinner.fail('Failed to fetch AI products')
     console.log(colors.red(`  ${(error as Error).message}`))

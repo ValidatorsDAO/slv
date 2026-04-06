@@ -96,6 +96,13 @@ export function divider(width: number): string {
   return colors.gray('  ' + '─'.repeat(Math.max(Math.min(width - 2, 48), 16)))
 }
 
-export function formatLink(label: string, url: string, width: number): string {
-  return wrapText(url, Math.min(width, 88), `  ${colors.blue(label)}: `, '    ')
+export function formatLink(label: string, url: string, _width: number): string {
+  const normalizedUrl = String(url).trim()
+  const labelLine = `  ${colors.blue(label)}:`
+
+  if (!normalizedUrl) {
+    return labelLine
+  }
+
+  return `${labelLine}\n    ${normalizedUrl}`
 }
