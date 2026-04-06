@@ -151,7 +151,7 @@ export const aiProductAction = async () => {
       products,
     )
 
-    console.log(colors.bold('\nAI Plans & Products'))
+    console.log(colors.bold('\nAI Plans & Products\n'))
 
     if (visibleProducts.length === 0) {
       console.log(
@@ -185,11 +185,11 @@ export const aiProductAction = async () => {
         })
       }
 
-      console.log(formatKeyValueFields(fields, width))
+      const lines: string[] = [formatKeyValueFields(fields, width)]
 
       const purchaseUrl = product.paymentLink ? String(product.paymentLink) : ''
       if (purchaseUrl && !isSecureAuthorizationProduct(product)) {
-        console.log(formatLink('Purchase', purchaseUrl, width))
+        lines.push(formatLink('Purchase', purchaseUrl, width))
       }
 
       if (
@@ -197,9 +197,11 @@ export const aiProductAction = async () => {
         authorizationStatus.state === 'unauthorized'
       ) {
         if (authorizationCtaLink) {
-          console.log(formatLink('Authorization', authorizationCtaLink, width))
+          lines.push(formatLink('Authorization', authorizationCtaLink, width))
         }
       }
+
+      console.log(lines.join('\n'))
 
       if (index < visibleProducts.length - 1) {
         console.log(divider(width))
@@ -219,7 +221,7 @@ export const aiProductAction = async () => {
         'Complete Authorization (€5) to receive 100,000 free AI tokens.',
       )
     }
-    console.log(formatBulletList(footerItems, width))
+    console.log('\n' + formatBulletList(footerItems, width))
 
     if (
       authorizationStatus.state === 'unauthorized' &&
@@ -227,6 +229,13 @@ export const aiProductAction = async () => {
     ) {
       console.log(formatLink('Authorization', authorizationCtaLink, width))
     }
+
+    console.log(
+      colors.gray(
+        '  You can also purchase from Discord: https://discord.com/channels/1278625724248494120/1488527495639601233',
+      ),
+    )
+    console.log()
   } catch (error) {
     spinner.fail('Failed to fetch AI products')
     console.log(colors.red(`  ${(error as Error).message}`))

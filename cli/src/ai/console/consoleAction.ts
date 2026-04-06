@@ -838,7 +838,7 @@ export const consoleAction = async () => {
   }
 
   const renderStage = (message: string) => {
-    chatLog.addSystem(`  ${message}`)
+    chatLog.addChild(new Text(white(`  ${message}`), 1))
     tui.requestRender()
   }
 
@@ -854,7 +854,7 @@ export const consoleAction = async () => {
     if (hydratedUserContextKinds.has(kind)) return
 
     if (kind === 'mcp_user_account') {
-      renderStage(`Loading ${describeUserContextKind(kind)}…`)
+      renderStage(`📚 Loading ${describeUserContextKind(kind)}…`)
       try {
         if (!slvApiKey) {
           const apiYmlRaw = await Deno.readTextFile(
@@ -905,7 +905,7 @@ export const consoleAction = async () => {
       inventoryMap[kind as Exclude<UserContextKind, 'mcp_user_account'>]
     if (!inventoryFile) return
 
-    renderStage(`Loading ${describeUserContextKind(kind)}…`)
+    renderStage(`📚 Loading ${describeUserContextKind(kind)}…`)
     try {
       const content = await Deno.readTextFile(
         `${resolveHome()}/.slv/${inventoryFile}`,
@@ -950,7 +950,7 @@ RULES:
   }
 
   const applyIntentBootstrap = async (input: string) => {
-    renderStage('Understanding your request…')
+    renderStage('👂 Understanding your request…')
     const plan = await classifyIntent(
       {
         provider: config.provider,
@@ -965,22 +965,22 @@ RULES:
       },
     )
 
-    renderStage(`Intent detected: ${describeIntent(plan.intent)}`)
+    renderStage(`🎓 Intent detected: ${describeIntent(plan.intent)}`)
 
     if (plan.toolsToEnable.length > 0) {
       const enabled = activateExtendedTools(plan.toolsToEnable)
       if (enabled.length > 0) {
-        renderStage(`Enabling tools: ${enabled.join(', ')}`)
+        renderStage(`🧰 Enabling tools: ${enabled.join(', ')}`)
       }
     }
 
     if (plan.contextModulesToLoad.length > 0) {
-      renderStage(`Loading context: ${plan.contextModulesToLoad.join(', ')}`)
+      renderStage(`📚 Loading context: ${plan.contextModulesToLoad.join(', ')}`)
       loadContextModules(plan.contextModulesToLoad)
     }
 
     if (plan.delegateAgent) {
-      renderStage(`Loading specialist context: ${plan.delegateAgent}`)
+      renderStage(`📚 Loading specialist context: ${plan.delegateAgent}`)
       await injectSkillDocs(plan.delegateAgent)
     }
 
