@@ -82,7 +82,7 @@ const printSecurityWarning = () => {
 const SKILL_MAP: Record<string, { name: string; agent: string }> = {
   'Solana Validator Operations': { name: 'slv-validator', agent: 'Cecil' },
   'Index RPC Node Operations': { name: 'slv-rpc', agent: 'Tina' },
-  'gRPC Geyser Streaming': { name: 'slv-grpc-geyser', agent: 'Cloud' },
+  'gRPC Geyser Streaming': { name: 'slv-grpc-geyser', agent: 'Tina' },
   'Benchmark & Connectivity Testing': { name: 'slv-benchmark', agent: 'Cid' },
   'Solana App Development': { name: 'slv-app', agent: 'Setzer' },
   'Server Procurement': { name: 'slv-server-procurement', agent: 'Figaro' },
@@ -254,11 +254,9 @@ Session history and important notes.
     enabled: selectedOps.includes(key),
     agent: SKILL_MAP[key].agent,
   }))
-  skills.push({
-    name: 'slv-rpc',
-    enabled: hasBenchmarkOps(selectedOps),
-    agent: 'Cid',
-  })
+  // Cid reads slv-rpc SKILL.md as additional context for benchmarks,
+  // but this is handled in tools.ts (injectSkillDocs), not via config.yml.
+  // Do NOT add a duplicate slv-rpc entry for Cid here.
   const configData = {
     skills,
     auto_execute: true,  // Commands execute without confirmation by default
