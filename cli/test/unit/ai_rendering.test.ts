@@ -25,6 +25,8 @@ Deno.test('formatLink keeps actionable URLs on their own intact line', () => {
   const lines = formatted.split('\n')
 
   assertEquals(lines.length, 2)
-  assertStringIncludes(lines[0], 'Purchase:')
+  // Label may contain ANSI colour codes; strip them before checking
+  const plain = lines[0].replace(/\x1b\[[0-9;]*m/g, '')
+  assertStringIncludes(plain, 'Purchase:')
   assertEquals(lines[1], `    ${url}`)
 })
