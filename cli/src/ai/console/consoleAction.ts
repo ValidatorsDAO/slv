@@ -1161,7 +1161,7 @@ RULES:
             .map((line: string) => `  ${line}`)
             .join('\n')
           if (filtered) {
-            chatLog.addSystem(filtered)
+            chatLog.addChild(new Text(filtered, 1))
           }
         }
         if (!status.success) {
