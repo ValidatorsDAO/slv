@@ -29,7 +29,12 @@ export class OpenAIProvider {
   private systemPrompt: string
   private callbacks: ChatCallbacks
 
-  constructor(apiKey: string, model: string, systemPrompt: string, callbacks: ChatCallbacks) {
+  constructor(
+    apiKey: string,
+    model: string,
+    systemPrompt: string,
+    callbacks: ChatCallbacks,
+  ) {
     this.client = new OpenAI({ apiKey })
     this.model = model
     this.callbacks = callbacks
@@ -39,12 +44,23 @@ export class OpenAIProvider {
     ]
   }
 
+  setSystemPrompt(systemPrompt: string): void {
+    this.systemPrompt = systemPrompt
+    this.messages[0] = {
+      role: 'system',
+      content: systemPrompt + getModuleContent(),
+    }
+  }
+
   async chat(userMessage: string): Promise<void> {
     this.messages.push({ role: 'user', content: userMessage })
 
     while (true) {
       // Update system message with any newly loaded context modules
-      this.messages[0] = { role: 'system', content: this.systemPrompt + getModuleContent() }
+      this.messages[0] = {
+        role: 'system',
+        content: this.systemPrompt + getModuleContent(),
+      }
 
       const stream = await this.client.chat.completions.create({
         model: this.model,
@@ -112,7 +128,9 @@ export class OpenAIProvider {
         try {
           args = JSON.parse(tc.arguments)
         } catch (e) {
-          const errMsg = `Failed to parse tool arguments: ${(e as Error).message}`
+          const errMsg = `Failed to parse tool arguments: ${
+            (e as Error).message
+          }`
           this.messages.push({
             role: 'tool',
             tool_call_id: tc.id,

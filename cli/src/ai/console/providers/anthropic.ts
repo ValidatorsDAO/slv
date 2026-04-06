@@ -28,11 +28,20 @@ export class AnthropicProvider {
   private systemPrompt: string
   private callbacks: ChatCallbacks
 
-  constructor(apiKey: string, model: string, systemPrompt: string, callbacks: ChatCallbacks) {
+  constructor(
+    apiKey: string,
+    model: string,
+    systemPrompt: string,
+    callbacks: ChatCallbacks,
+  ) {
     this.client = new Anthropic({ apiKey })
     this.model = model
     this.systemPrompt = systemPrompt
     this.callbacks = callbacks
+  }
+
+  setSystemPrompt(systemPrompt: string): void {
+    this.systemPrompt = systemPrompt
   }
 
   async chat(userMessage: string): Promise<void> {
@@ -84,7 +93,10 @@ export class AnthropicProvider {
       // Execute tools and add results
       const toolResults: ToolResultBlockParam[] = []
       for (const tb of toolUseBlocks) {
-        this.callbacks.onToolCall(tb.name, JSON.stringify(tb.input).slice(0, 200))
+        this.callbacks.onToolCall(
+          tb.name,
+          JSON.stringify(tb.input).slice(0, 200),
+        )
         const result = await executeTool(tb.name, tb.input)
         toolResults.push({
           type: 'tool_result',

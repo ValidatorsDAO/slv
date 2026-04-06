@@ -170,6 +170,10 @@ export class SLVProvider {
     this.callbacks = callbacks
   }
 
+  setSystemPrompt(systemPrompt: string): void {
+    this.systemPrompt = systemPrompt
+  }
+
   async chat(userMessage: string): Promise<void> {
     this.messages.push({ role: 'user', content: userMessage })
 

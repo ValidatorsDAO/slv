@@ -7,11 +7,18 @@ const RELEASE_SOURCES = [
     repo: 'anza-xyz/agave',
     // mainnet = latest stable (no pre-release), testnet = latest (including pre-release)
     fields: {
-      mainnet: ['mainnet_validators.version_agave', 'mainnet_rpcs.version_agave'],
-      testnet: ['testnet_validators.version_agave', 'testnet_rpcs.version_agave'],
+      mainnet: [
+        'mainnet_validators.version_agave',
+        'mainnet_rpcs.version_agave',
+      ],
+      testnet: [
+        'testnet_validators.version_agave',
+        'testnet_rpcs.version_agave',
+      ],
     },
     parseVersion: (tag: string) => tag.replace(/^v/, ''),
-    isStable: (tag: string) => !tag.includes('beta') && !tag.includes('rc') && !tag.includes('alpha'),
+    isStable: (tag: string) =>
+      !tag.includes('beta') && !tag.includes('rc') && !tag.includes('alpha'),
   },
   {
     repo: 'jito-foundation/jito-solana',
@@ -38,7 +45,11 @@ const RELEASE_SOURCES = [
   {
     repo: 'lamports-dev/richat',
     fields: {
-      all: ['mainnet_rpcs.richat_version', 'devnet_rpcs.richat_version', 'testnet_rpcs.richat_version'],
+      all: [
+        'mainnet_rpcs.richat_version',
+        'devnet_rpcs.richat_version',
+        'testnet_rpcs.richat_version',
+      ],
     },
     parseVersion: (tag: string) => tag, // keep as-is (richat-v8.2.3)
     filter: (tag: string) => tag.startsWith('richat-'),
@@ -55,12 +66,12 @@ const RELEASE_SOURCES = [
 ]
 
 export type VersionUpdate = {
-  component: string    // e.g. "Agave"
-  repo: string         // e.g. "anza-xyz/agave"
-  current: string      // current version in versions.yml
-  latest: string       // latest version from GitHub
-  network: string      // mainnet / testnet / all
-  field: string        // versions.yml field path
+  component: string // e.g. "Agave"
+  repo: string // e.g. "anza-xyz/agave"
+  current: string // current version in versions.yml
+  latest: string // latest version from GitHub
+  network: string // mainnet / testnet / all
+  field: string // versions.yml field path
 }
 
 export async function checkSolanaReleases(): Promise<VersionUpdate[]> {
@@ -80,12 +91,17 @@ export async function checkSolanaReleases(): Promise<VersionUpdate[]> {
   // Check each repo using GitHub API (unauthenticated, rate-limited to 60/hr)
   for (const source of RELEASE_SOURCES) {
     try {
-      const res = await fetch(`https://api.github.com/repos/${source.repo}/releases?per_page=10`, {
-        headers: { 'Accept': 'application/vnd.github.v3+json' },
-      })
+      const res = await fetch(
+        `https://api.github.com/repos/${source.repo}/releases?per_page=10`,
+        {
+          headers: { 'Accept': 'application/vnd.github.v3+json' },
+        },
+      )
       if (!res.ok) continue
 
-      const releases = await res.json() as Array<{ tag_name: string; prerelease: boolean }>
+      const releases = await res.json() as Array<
+        { tag_name: string; prerelease: boolean }
+      >
 
       // Find latest stable (mainnet) and latest overall (testnet)
       let latestStable = ''
@@ -118,7 +134,9 @@ export async function checkSolanaReleases(): Promise<VersionUpdate[]> {
       const componentName = source.repo.split('/')[1] || source.repo
 
       if ('fields' in source) {
-        const fields = source.fields as Record<string, string[]>
+        const fields = source.fields as unknown as Partial<
+          Record<string, string[]>
+        >
 
         if (fields.mainnet) {
           for (const fieldPath of fields.mainnet) {
@@ -180,7 +198,9 @@ export async function checkSolanaReleases(): Promise<VersionUpdate[]> {
 }
 
 // Apply updates to versions.yml
-export async function applyVersionUpdates(updates: VersionUpdate[]): Promise<void> {
+export async function applyVersionUpdates(
+  updates: VersionUpdate[],
+): Promise<void> {
   const home = resolveHome()
   const versionsPath = `${home}/.slv/versions.yml`
 
@@ -188,7 +208,9 @@ export async function applyVersionUpdates(updates: VersionUpdate[]): Promise<voi
   try {
     const raw = await Deno.readTextFile(versionsPath)
     versions = parse(raw) as Record<string, any>
-  } catch { return }
+  } catch {
+    return
+  }
 
   for (const update of updates) {
     setNestedValue(versions, update.field, update.latest)
@@ -207,7 +229,11 @@ function getNestedValue(obj: Record<string, any>, path: string): unknown {
   return current
 }
 
-function setNestedValue(obj: Record<string, any>, path: string, value: unknown): void {
+function setNestedValue(
+  obj: Record<string, any>,
+  path: string,
+  value: unknown,
+): void {
   const parts = path.split('.')
   let current: any = obj
   for (let i = 0; i < parts.length - 1; i++) {
