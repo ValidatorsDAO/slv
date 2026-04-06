@@ -1155,10 +1155,13 @@ RULES:
 
         const output = (stdout + stderr).trim()
         if (output) {
-          // Show output line by line in TUI
-          for (const line of output.split('\n')) {
-            if (!line.trim()) continue
-            chatLog.addSystem(`  ${line}`)
+          // Batch output into a single widget to avoid per-line padding
+          const filtered = output.split('\n')
+            .filter((line: string) => line.trim())
+            .map((line: string) => `  ${line}`)
+            .join('\n')
+          if (filtered) {
+            chatLog.addSystem(filtered)
           }
         }
         if (!status.success) {

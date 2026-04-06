@@ -86,7 +86,7 @@ export function formatKeyValueFields(
     return wrapText(
       value,
       width,
-      `${indent}${colors.blue(labelText)}`,
+      `${indent}${colors.white(labelText)}`,
       `${indent}${' '.repeat(labelText.length)}`,
     )
   }).join('\n')
@@ -98,7 +98,7 @@ export function divider(width: number): string {
 
 export function formatLink(label: string, url: string, _width: number): string {
   const normalizedUrl = String(url).trim()
-  const labelLine = `  ${colors.blue(label)}:`
+  const labelLine = `  ${colors.white(label)}:`
 
   if (!normalizedUrl) {
     return labelLine
