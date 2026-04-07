@@ -4,6 +4,7 @@ import { colors } from '@cliffy/colors'
 import { exec, spawnSync } from '@elsoul/child-process'
 import { join } from '@std/path'
 import { parse } from '@std/yaml'
+import { checkRpcEndpoint, sanitizeEndpointForDisplay } from '@/check/rpc.ts'
 
 const userBinDir = join(Deno.env.get('HOME') || '', '.slv', 'bin')
 const slvDir = join(Deno.env.get('HOME') || '', '.slv')
@@ -83,7 +84,6 @@ async function ensureGeyserbenchConfig(options: {
   return configPath
 }
 
-
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 function startSpinner(message: string): { stop: () => void } {
@@ -147,9 +147,16 @@ export const checkCmd = new Command()
 
 checkCmd.command('rpc')
   .description('Check RPC endpoint')
-  .option('--endpoint <endpoint:string>', 'RPC endpoint URL')
+  .option('--url <url:string>', 'RPC endpoint URL')
+  .option(
+    '--endpoint <endpoint:string>',
+    'RPC endpoint URL (deprecated, use --url)',
+  )
+  .option('--timeout <timeout:number>', 'Timeout in milliseconds', {
+    default: 10000,
+  })
   .action(async (options) => {
-    let endpoint = options.endpoint
+    let endpoint = options.url || options.endpoint
     if (!endpoint) {
       endpoint = await Input.prompt({
         message: 'Enter RPC endpoint URL:',
@@ -157,24 +164,36 @@ checkCmd.command('rpc')
       })
     }
 
-    console.log(colors.blue(`Checking RPC endpoint: ${endpoint}`))
+    const displayEndpoint = sanitizeEndpointForDisplay(endpoint)
+    console.log(colors.blue(`Checking RPC endpoint: ${displayEndpoint}`))
 
     try {
-      const formattedEndpoint = endpoint.trim()
-      const command =
-        `curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getEpochInfo","params":[]}' -w "Total time: %{time_total}s" -o /dev/null -s ${formattedEndpoint}`
-
-      const process = await exec(command)
-      const output = process.message
-      const timeMatch = output.match(/Total time: (\d+\.\d+)s/)
-      if (timeMatch) {
-        const time = parseFloat(timeMatch[1])
-        const timeColor = time < 1 ? colors.green : colors.red
-        console.log(timeColor(`Total time: ${time}s`))
+      const result = await checkRpcEndpoint(
+        endpoint,
+        Number(options.timeout || 10000),
+      )
+      if (result.details?.length) {
+        for (const detail of result.details) {
+          console.log(colors.gray(detail))
+        }
       }
+
+      if (result.ok) {
+        console.log(colors.green(result.summary))
+        console.log(colors.green('✅ working'))
+        return
+      }
+
+      console.error(colors.red(result.summary))
+      console.error(colors.red('❌ not working'))
+      Deno.exitCode = 1
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error(colors.red('Error executing curl command:'), errorMessage)
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error)
+      console.error(colors.red(errorMessage))
+      console.error(colors.red('❌ not working'))
+      Deno.exitCode = 1
     }
   })
 
@@ -199,7 +218,9 @@ checkCmd.command('grpc')
       const command = `env TOKEN=${token} ENDPOINT=${endpoint} ${grpcTestPath}`
       await spawnSync(command)
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error)
       console.error(colors.red('Error executing gRPC test:'), errorMessage)
     }
   })
@@ -220,7 +241,9 @@ checkCmd.command('shreds')
       const command = `${shredsTestPath} ${endpoint}`
       await spawnSync(command)
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error)
       console.error(colors.red('Error executing Shreds test:'), errorMessage)
     }
   })
@@ -228,13 +251,24 @@ checkCmd.command('shreds')
 checkCmd.command('geyserbench')
   .description('Run geyserbench with generated config')
   .option('--kind <kind:string>', 'Benchmark kind: shredstream | grpc | rpc')
-  .option('--region <region:string>', 'Benchmark region for region-aware measurement')
-  .option('--endpoint <endpoint:string>', 'Endpoint URL to compare', { collect: true })
-  .option('--transactions <transactions:number>', 'Transaction sample size', { default: DEFAULT_TRANSACTIONS })
+  .option(
+    '--region <region:string>',
+    'Benchmark region for region-aware measurement',
+  )
+  .option('--endpoint <endpoint:string>', 'Endpoint URL to compare', {
+    collect: true,
+  })
+  .option('--transactions <transactions:number>', 'Transaction sample size', {
+    default: DEFAULT_TRANSACTIONS,
+  })
   .action(async (options) => {
     let kind = options.kind
     let region = options.region
-    const endpoints = Array.isArray(options.endpoint) ? [...options.endpoint] : options.endpoint ? [options.endpoint] : []
+    const endpoints = Array.isArray(options.endpoint)
+      ? [...options.endpoint]
+      : options.endpoint
+      ? [options.endpoint]
+      : []
     const transactions = Number(options.transactions || DEFAULT_TRANSACTIONS)
 
     if (!kind) {
@@ -250,7 +284,9 @@ checkCmd.command('geyserbench')
       })
     }
     while (endpoints.length < 2) {
-      const label = endpoints.length === 0 ? 'First endpoint URL:' : 'Next endpoint URL:'
+      const label = endpoints.length === 0
+        ? 'First endpoint URL:'
+        : 'Next endpoint URL:'
       endpoints.push(await Input.prompt({ message: label }))
     }
 
@@ -258,7 +294,9 @@ checkCmd.command('geyserbench')
     try {
       await Deno.stat(geyserbenchPath)
     } catch {
-      console.error(colors.red('geyserbench is not installed. Run slv install first.'))
+      console.error(
+        colors.red('geyserbench is not installed. Run slv install first.'),
+      )
       return
     }
 
@@ -266,23 +304,43 @@ checkCmd.command('geyserbench')
       const configPath = await ensureGeyserbenchConfig({
         kind: String(kind).trim(),
         region: String(region).trim(),
-        endpoints: endpoints.map((endpoint) => String(endpoint).trim()).filter(Boolean),
+        endpoints: endpoints.map((endpoint) => String(endpoint).trim()).filter(
+          Boolean,
+        ),
         transactions,
       })
 
       const normalizedKind = String(kind).trim().toLowerCase()
       const normalizedRegion = String(region).trim()
       if (!normalizedRegion) {
-        throw new Error('Region is required for accurate benchmark measurement.')
+        throw new Error(
+          'Region is required for accurate benchmark measurement.',
+        )
       }
-      console.log(colors.blue(`Running geyserbench (${normalizedKind}) in region ${normalizedRegion}`))
+      console.log(
+        colors.blue(
+          `Running geyserbench (${normalizedKind}) in region ${normalizedRegion}`,
+        ),
+      )
       console.log(colors.gray(`Config: ${configPath}`))
-      await runGeyserbenchCommand([geyserbenchPath, '--config', configPath, '--region', normalizedRegion])
+      await runGeyserbenchCommand([
+        geyserbenchPath,
+        '--config',
+        configPath,
+        '--region',
+        normalizedRegion,
+      ])
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error)
       console.error(colors.red('Error executing geyserbench:'), errorMessage)
       if (errorMessage.includes('No SLV API key found')) {
-        console.log(colors.yellow('Get a free API key and configure ~/.slv/api.yml, then run this command again.'))
+        console.log(
+          colors.yellow(
+            'Get a free API key and configure ~/.slv/api.yml, then run this command again.',
+          ),
+        )
       }
     }
   })
@@ -295,7 +353,9 @@ checkCmd.command('ip')
       const ip = await exec(cmd)
       console.log(colors.white(`${ip.message.trim()}`))
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error)
       console.error(colors.red('Error fetching IP address:'), errorMessage)
     }
   })

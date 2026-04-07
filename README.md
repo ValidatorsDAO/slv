@@ -66,7 +66,7 @@ Agent: I'll set up a mainnet Jito validator. Let me walk you through:
 | **AI Console** (interactive) | `slv c` |
 | **Check node status** | `slv check` |
 | **Update Solana version** | `slv update` |
-| **Server health** | `slv check grpc` / `slv check shreds` |
+| **Server health** | `slv check rpc` / `slv check grpc` / `slv check shreds` |
 
 ### Supported Node Types
 
