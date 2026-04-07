@@ -363,6 +363,7 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     api: false,
     agent: false,
     inventory: false,
+    discordWebhook: false,
   }
 
   try {
@@ -384,6 +385,34 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
       await Deno.stat(inventoryFile)
       configPresence.inventory = true
       break
+    } catch {
+      // keep checking
+    }
+  }
+
+  // Detect whether a Discord webhook is configured so the main agent can
+  // proactively offer to push long outputs (payment links, benchmark
+  // summaries, deploy results) to Discord. Only the presence flag is
+  // surfaced — the URL itself never enters the prompt context.
+  // Primary location is ~/.slv/api.yml (written by `slv onboard`); the
+  // legacy ~/.slv/agent/config.yml location is also checked for older
+  // installs. Inlined here (rather than imported from tools.ts) to avoid
+  // a circular import between systemPrompt.ts and tools.ts.
+  const webhookCandidates = [
+    `${home}/.slv/api.yml`,
+    `${agentDir}/config.yml`,
+  ]
+  for (const path of webhookCandidates) {
+    try {
+      const raw = await Deno.readTextFile(path)
+      const parsed = parse(raw) as Record<string, unknown> | null
+      const notifications = parsed?.notifications as
+        | Record<string, string>
+        | undefined
+      if (notifications?.discord_webhook?.trim()) {
+        configPresence.discordWebhook = true
+        break
+      }
     } catch {
       // keep checking
     }
@@ -430,6 +459,11 @@ ${modeSection}
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
 - Respond in Japanese only if the user writes in Japanese.
+${
+    configPresence.discordWebhook
+      ? `- A Discord webhook is configured (\`notifications.discord_webhook\` in ~/.slv/api.yml). When you produce content the user is likely to save or share — payment links, benchmark summaries, deployment results, important URLs — proactively ask whether to post it to Discord and use \`send_notification\` when they confirm. Do not send silently, and do not read or display the webhook URL itself.`
+      : `- No Discord webhook is configured. If the user asks to send something to Discord, tell them they can set one up with \`slv onboard\`. Do not ask for a webhook URL in chat.`
+  }
 
 ## Routing
 - Intent bootstrap already ran before this turn. Respect the staged tools/context that were enabled.
@@ -465,7 +499,7 @@ ${modeSection}
     configPresence.api ? 'yes' : 'no'
   }, agent/config.yml=${configPresence.agent ? 'yes' : 'no'}, inventory=${
     configPresence.inventory ? 'yes' : 'no'
-  }
+  }, discord_webhook=${configPresence.discordWebhook ? 'yes' : 'no'}
 - Team: ${teamSummary || 'none configured'}
 
 ## Demand-Driven Context
