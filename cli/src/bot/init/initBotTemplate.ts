@@ -154,8 +154,9 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       console.log(
         colors.blue('📥 Downloading latest template from GitHub...'),
       )
+      const dlCmd = `curl -fsSL "${BOT_TEMP_ARCHIVE_URL}" | tar -xz -C "${appDir}" --strip-components=3 "${tarFilter}"`
       const dlResult = await exec(
-        `curl -fsSL "${BOT_TEMP_ARCHIVE_URL}" | tar -xz -C "${appDir}" --strip-components=3 "${tarFilter}"`,
+        `sh -c ${JSON.stringify(dlCmd)}`,
       )
 
       if (!dlResult.success) {
@@ -179,7 +180,8 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
         colors.green(`✅ Template downloaded (${entries.length} items)`),
       )
 
-      const isRust = templateType.includes('rust')
+      const isRust = templateType.includes('rust') ||
+        templateType === 'trade-app'
       console.log(colors.blue('🔧 Initializing git repository...'))
       await exec(`cd ${appDir} && git init`)
       try {
@@ -195,13 +197,14 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       )
 
       const msg = isRust
-        ? `$ cargo build\n$ cargo run`
+        ? `$ cargo build -r\n$ ./target/release/${appName}`
         : `$ pnpm install\n$ pnpm dev`
       console.log(
         colors.white(`
 To get started with your new application, run the following commands:
-  
+
 $ cd ${appName}
+$ cp .env.sample .env
 ${msg}
   `),
       )
