@@ -125,6 +125,9 @@ async function buildInsufficientTokenMessage(
   lines.push(
     '  • Run /slv ai product to browse AI products and purchase more tokens',
   )
+  lines.push(
+    '  • Or purchase tokens on Discord: https://discord.com/channels/1278625724248494120/1488527495639601233',
+  )
 
   if (authState === 'unauthorized') {
     lines.push(

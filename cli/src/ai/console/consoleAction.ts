@@ -791,8 +791,22 @@ export const consoleAction = async () => {
 
   // Background version check (non-blocking)
   let pendingUpdates: VersionUpdate[] | null = null
+  const versionCheckLoader = new Loader(
+    tui,
+    white,
+    white,
+    'Checking for new versions…',
+  )
+  chatLog.addChild(versionCheckLoader)
+  tui.requestRender()
   checkSolanaReleases().then((updates) => {
-    if (updates.length === 0) return
+    versionCheckLoader.stop()
+    chatLog.removeChild(versionCheckLoader)
+
+    if (updates.length === 0) {
+      tui.requestRender(true)
+      return
+    }
 
     // Deduplicate for display only (all updates are applied)
     const seen = new Set<string>()
@@ -809,7 +823,12 @@ export const consoleAction = async () => {
     tui.requestRender(true)
 
     pendingUpdates = updates
-  }).catch(() => {/* silent fail */})
+  }).catch(() => {
+    // silent fail — still clear the loader
+    versionCheckLoader.stop()
+    chatLog.removeChild(versionCheckLoader)
+    tui.requestRender(true)
+  })
 
   // Track user interactions for memory save decision
   let userMessageCount = 0
