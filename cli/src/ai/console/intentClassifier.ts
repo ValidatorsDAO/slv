@@ -66,6 +66,8 @@ type ClassifierInput = {
   message: string
   deploymentMode: DeploymentMode
   enabledSpecialists: string[]
+  currentIntent?: IntentType | null
+  currentSpecialist?: SpecialistAgent | null
 }
 
 const ALLOWED_INTENTS: IntentType[] = [
@@ -189,6 +191,10 @@ Rules:
 - If ambiguous, use intent="unknown" and set askClarify.
 - Only emit tools/context that are justified for the next staged step.
 - Do not enable side-effect tools unless the request clearly needs them.
+- Server availability, bare metal inventory, server procurement, and validator hardware recommendation/sizing should route to Figaro.
+- RPC, gRPC, geyser, and cloud node work should route to Tina.
+- Benchmark or connectivity test work should route to Cid only.
+- If currentSpecialist/currentIntent are present and the new message is a short follow-up that clearly continues the same topic, prefer keeping that specialist and intent family unless the user materially changes topic.
 
 Return this exact shape:
 {
@@ -208,6 +214,8 @@ function buildClassifierUserPrompt(input: ClassifierInput): string {
     message: input.message,
     deploymentMode: input.deploymentMode,
     enabledSpecialists: input.enabledSpecialists,
+    currentIntent: input.currentIntent ?? null,
+    currentSpecialist: input.currentSpecialist ?? null,
     allowedIntentTaxonomy: ALLOWED_INTENTS,
     allowedTools: ALLOWED_TOOLS,
     allowedContextModules: ALLOWED_CONTEXT_MODULES,
@@ -293,6 +301,110 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
   const specialistSet = new Set(input.enabledSpecialists)
   const canDelegate = (agent: SpecialistAgent) => specialistSet.has(agent)
 
+  const mentionsServerDomain = has(
+    'server',
+    'servers',
+    'bare metal',
+    'inventory',
+    'availability',
+    'pricing',
+    'purchase',
+    'buy',
+    'hardware',
+    'spec',
+    'specs',
+    'ram',
+    'cpu',
+    'storage',
+    'validator hardware',
+    'validator server',
+    'validator servers',
+    'validator spec',
+    'validator specs',
+    'validator machine',
+    'shinobi',
+    'performance pool',
+    'stake pool',
+    'サーバ',
+    '在庫',
+    '購入',
+    '価格',
+    '見積',
+    '調達',
+    'ハードウェア',
+    'スペック',
+    'メタル',
+    '物理',
+    'shinobi pool',
+  )
+  const mentionsProcurement = has(
+    'buy',
+    'purchase',
+    'pricing',
+    'quote',
+    'recommend',
+    'recommendation',
+    'which one',
+    'best server',
+    'need to buy',
+    '購入',
+    '価格',
+    '見積',
+    '注文',
+    '調達',
+    'おすすめ',
+    'どれがいい',
+  )
+
+  if (mentionsServerDomain) {
+    return buildPlan({
+      intent: mentionsProcurement ? 'server_procurement' : 'server_availability',
+      confidence: 0.48,
+      language: detectLanguageFallback(input.message),
+      toolsToEnable: [],
+      contextModulesToLoad: [],
+      userContextKindsToHydrate: [],
+      delegateAgent: canDelegate('Figaro') ? 'Figaro' : null,
+      askClarify: null,
+    }, input)
+  }
+
+  if (has('rpc', 'geyser', 'grpc', 'index', 'cloud', 'ジーザー', 'インデックス')) {
+    return buildPlan({
+      intent: has(
+          'deploy',
+          'init',
+          'setup',
+          'provision',
+          'デプロイ',
+          '構築',
+          'セットアップ',
+        )
+        ? 'rpc_deploy'
+        : 'rpc_ops',
+      confidence: 0.45,
+      language: detectLanguageFallback(input.message),
+      toolsToEnable: [],
+      contextModulesToLoad: [],
+      userContextKindsToHydrate: [],
+      delegateAgent: canDelegate('Tina') ? 'Tina' : null,
+      askClarify: null,
+    }, input)
+  }
+
+  if (has('benchmark', 'latency', 'throughput', 'grpc_test', 'geyserbench', 'shreds_test', 'ベンチ', '速度計測')) {
+    return buildPlan({
+      intent: 'benchmark',
+      confidence: 0.45,
+      language: detectLanguageFallback(input.message),
+      toolsToEnable: [],
+      contextModulesToLoad: [],
+      userContextKindsToHydrate: [],
+      delegateAgent: canDelegate('Cid') ? 'Cid' : null,
+      askClarify: null,
+    }, input)
+  }
+
   if (
     has(
       'validator',
@@ -325,61 +437,20 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
     }, input)
   }
 
-  if (has('rpc', 'geyser', 'grpc', 'index', 'ジーザー', 'インデックス')) {
-    return buildPlan({
-      intent: has(
-          'deploy',
-          'init',
-          'setup',
-          'provision',
-          'デプロイ',
-          '構築',
-          'セットアップ',
-        )
-        ? 'rpc_deploy'
-        : 'rpc_ops',
-      confidence: 0.45,
-      language: detectLanguageFallback(input.message),
-      toolsToEnable: [],
-      contextModulesToLoad: [],
-      userContextKindsToHydrate: [],
-      delegateAgent: canDelegate('Tina') ? 'Tina' : null,
-      askClarify: null,
-    }, input)
-  }
-
+  const continuationPrefix = /^(it|that|this|those|these|then|and|also|what about|how about|which|so|じゃあ|では|それ|その|ちなみに|なら|おすすめ|どっち)/i
   if (
-    has(
-      'server',
-      'bare metal',
-      'pricing',
-      'purchase',
-      'buy',
-      'サーバ',
-      '在庫',
-      '購入',
-      '価格',
-    )
+    input.currentIntent &&
+    input.currentSpecialist &&
+    (input.message.trim().length <= 80 || continuationPrefix.test(input.message.trim()))
   ) {
     return buildPlan({
-      intent: has(
-          'buy',
-          'purchase',
-          'pricing',
-          '購入',
-          '価格',
-          '見積',
-          '注文',
-          '調達',
-        )
-        ? 'server_procurement'
-        : 'server_availability',
-      confidence: 0.4,
+      intent: input.currentIntent,
+      confidence: 0.34,
       language: detectLanguageFallback(input.message),
       toolsToEnable: [],
       contextModulesToLoad: [],
       userContextKindsToHydrate: [],
-      delegateAgent: canDelegate('Figaro') ? 'Figaro' : null,
+      delegateAgent: canDelegate(input.currentSpecialist) ? input.currentSpecialist : null,
       askClarify: null,
     }, input)
   }
@@ -506,6 +577,21 @@ function buildPlan(
       break
   }
 
+  const preferredDelegateByIntent: Partial<Record<IntentType, SpecialistAgent>> = {
+    server_availability: 'Figaro',
+    server_procurement: 'Figaro',
+    validator_deploy: 'Cecil',
+    validator_ops: 'Cecil',
+    rpc_deploy: 'Tina',
+    rpc_ops: 'Tina',
+    benchmark: 'Cid',
+    app_builder: 'Setzer',
+  }
+  const preferredDelegate = preferredDelegateByIntent[intent]
+  const resolvedDelegateAgent = preferredDelegate && enabledSpecialists.has(preferredDelegate)
+    ? preferredDelegate
+    : delegateAgent
+
   const plan: IntentClassification = {
     intent,
     confidence: clampConfidence(
@@ -516,7 +602,7 @@ function buildPlan(
     toolsToEnable: tools,
     contextModulesToLoad: modules,
     userContextKindsToHydrate: contextKinds,
-    delegateAgent,
+    delegateAgent: resolvedDelegateAgent,
     askClarify:
       typeof partial.askClarify === 'string' && partial.askClarify.trim()
         ? partial.askClarify.trim()

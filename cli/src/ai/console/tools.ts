@@ -10,6 +10,7 @@ import {
   isModuleLoaded,
   loadContextModules,
 } from '@/ai/console/systemPrompt.ts'
+import { DISCORD_LINK } from '@cmn/constants/url.ts'
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
@@ -310,10 +311,9 @@ export function activateExtendedTools(tools: string[]): string[] {
   const validNames = new Set(EXTENDED_TOOLS.map((t) => t.name))
   const enabled: string[] = []
   for (const toolName of tools) {
-    if (validNames.has(toolName)) {
-      activeExtendedTools.add(toolName)
-      enabled.push(toolName)
-    }
+    if (!validNames.has(toolName) || activeExtendedTools.has(toolName)) continue
+    activeExtendedTools.add(toolName)
+    enabled.push(toolName)
   }
   return enabled
 }
@@ -860,6 +860,19 @@ This user operates in LOCAL mode. All deployments target THIS machine (localhost
 `
     : ''
 
+  const specialistGuidance = effectiveName === 'Figaro'
+    ? `
+## Figaro Routing Notes
+- Server availability, bare metal inventory, server procurement, and validator hardware recommendations belong to Figaro.
+- If the user mentions Shinobi pool, Shinobi stake pool, or a performance pool, do NOT default to the cheapest generic validator.
+- Explain that at least 5th gen validator hardware is required.
+- Explain that these are limited resources with limited availability.
+- Explain that performance pools are not something every generic server can join automatically.
+- Direct the main agent to send the user to Discord for availability or matching:
+  ${DISCORD_LINK}
+`
+    : ''
+
   const subSystemPrompt =
     `You are ${effectiveName}, a backend specialist sub-agent for SLV.
 You do NOT talk to the user directly. You report back to the main agent only.
@@ -867,6 +880,7 @@ You do NOT talk to the user directly. You report back to the main agent only.
 ${agentMd ? agentMd + '\n' : ''}
 ${skillMd ? skillMd + '\n' : ''}
 ${modeInstruction}
+${specialistGuidance}
 ## Working Environment
 - Home directory: ${home}
 - SLV CLI binary: \`slv\` (or \`${home}/slv\` if not in PATH)
