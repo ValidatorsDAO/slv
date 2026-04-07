@@ -21,6 +21,7 @@ import { aiCmd, onboardCmd } from '@/ai/index.ts'
 import { authCmd } from '@/auth/index.ts'
 import { airdropCmd } from '@/airdrop/index.ts'
 import { disableCmd } from '@/disable/index.ts'
+import { addSshCmd } from '@/addSsh/index.ts'
 import { prepareLocalDb } from '@db/dbInit.ts'
 
 const program = new Command()
@@ -115,5 +116,8 @@ program
 
 program
   .command('disable', disableCmd)
+
+program
+  .command('add:ssh', addSshCmd)
 
 await program.parse(Deno.args)
