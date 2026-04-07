@@ -229,7 +229,7 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'send_notification',
     description:
-      'Send a notification to the user via Discord webhook (if configured in ~/.slv/agent/config.yml). Use after completing long-running tasks like deployments.',
+      'Send a notification to the user via Discord webhook (configured under `notifications.discord_webhook` in ~/.slv/api.yml via `slv onboard`). Use after completing long-running tasks like deployments, and whenever the user asks you to push content — payment links, benchmark summaries, deploy results — to Discord.',
     parameters: {
       type: 'object',
       properties: {
@@ -777,15 +777,45 @@ async function executeCallMcp(
   }
 }
 
-async function executeSendNotification(message: string): Promise<string> {
+async function readDiscordWebhook(): Promise<string | undefined> {
   const home = resolveHome()
+  // Primary location: ~/.slv/api.yml (written by `slv onboard`).
+  // Legacy fallback: ~/.slv/agent/config.yml (older installs).
+  const candidatePaths = [
+    `${home}/.slv/api.yml`,
+    `${home}/.slv/agent/config.yml`,
+  ]
+
+  for (const path of candidatePaths) {
+    try {
+      const raw = await Deno.readTextFile(path)
+      const config = parse(raw) as Record<string, unknown> | null
+      const notifications = config?.notifications as
+        | Record<string, string>
+        | undefined
+      const webhook = notifications?.discord_webhook?.trim()
+      if (webhook) return webhook
+    } catch {
+      // file missing or unreadable — try the next candidate
+    }
+  }
+  return undefined
+}
+
+/**
+ * Report whether a Discord webhook is configured without exposing the URL.
+ * The system-prompt builder uses this so the main agent can proactively
+ * offer Discord delivery of long outputs (payment links, benchmark
+ * summaries, deploy results) without ever seeing the webhook URL itself.
+ */
+export async function hasDiscordWebhookConfigured(): Promise<boolean> {
+  const webhook = await readDiscordWebhook()
+  return Boolean(webhook)
+}
+
+async function executeSendNotification(message: string): Promise<string> {
   try {
-    const raw = await Deno.readTextFile(`${home}/.slv/agent/config.yml`)
-    const config = parse(raw) as Record<string, unknown>
-    const notifications = config.notifications as
-      | Record<string, string>
-      | undefined
-    const webhook = notifications?.discord_webhook
+    const webhook = await readDiscordWebhook()
 
     if (!webhook) {
       return 'No Discord webhook configured. Notification skipped. (Set it up with `slv onboard`)'
