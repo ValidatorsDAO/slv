@@ -31,9 +31,9 @@ The `trade-app` template is a Rust application for PumpSwap (Pump.fun AMM) tradi
 
 ### 1. Create the project
 ```bash
-slv bot init
-# Select "trade-app"
+slv bot init -t trade-app -n solana-trade-bot -y
 ```
+Options: `-t` template type, `-n` app name, `-y` overwrite without asking.
 
 ### 2. Configure environment
 ```bash
@@ -53,17 +53,30 @@ Linux:
 cargo build -r
 ```
 
-### 4. Run
+### 4. Run (background — it's a long-running server)
 ```bash
-./target/release/trade-app
+cd ~/slv/solana-trade-bot
+RUST_LOG=info nohup ./target/release/trade-app > trade-app.log 2>&1 &
+sleep 2 && curl -s http://localhost:3000/api/wallet
 ```
 - `wallet.json` is auto-generated on first start
-- API docs available at `http://localhost:3000/docs`
+- API docs: `http://localhost:3000/docs`
+- **NEVER run with `run_command` directly** — it blocks forever. Always background it.
 
 ### 5. Fund wallet and start trading
 ```bash
-# Send SOL to the wallet pubkey shown on startup (min 0.013 SOL)
+# Check wallet pubkey
+curl -s http://localhost:3000/api/wallet
+# Send SOL to the wallet pubkey (min 0.013 SOL)
+# Then start trading:
 curl -X POST http://localhost:3000/api/trade/start
+# Check status:
+curl -s http://localhost:3000/api/trade/status
+```
+
+### Stop the bot
+```bash
+pkill -f trade-app
 ```
 
 ### 6. Deploy to VPS

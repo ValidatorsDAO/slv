@@ -483,7 +483,7 @@ async function executeRunCommand(command: string): Promise<string> {
         buffer += text
         chunks.push(text)
 
-        if (isStdout) {
+        {
           const lines = buffer.split('\n')
           buffer = lines.pop() || ''
           for (const line of lines) {
@@ -492,23 +492,25 @@ async function executeRunCommand(command: string): Promise<string> {
 
             if (isAnsibleCommand && onAnsibleTaskUpdate) {
               // In ansible mode: only extract TASK titles for spinner
-              const taskMatch = trimmed.match(/^TASK \[(.+?)\]/)
-              if (taskMatch) {
-                onAnsibleTaskUpdate(taskMatch[1])
-              }
-              if (trimmed.startsWith('PLAY RECAP')) {
-                onAnsibleTaskUpdate('Finishing up...')
+              if (isStdout) {
+                const taskMatch = trimmed.match(/^TASK \[(.+?)\]/)
+                if (taskMatch) {
+                  onAnsibleTaskUpdate(taskMatch[1])
+                }
+                if (trimmed.startsWith('PLAY RECAP')) {
+                  onAnsibleTaskUpdate('Finishing up...')
+                }
               }
               // Don't stream raw ansible output to TUI
             } else if (onCommandOutput) {
-              // Normal mode: stream all output
+              // Normal mode: stream both stdout and stderr
               onCommandOutput(trimmed)
             }
           }
         }
       }
       // Flush remaining buffer
-      if (isStdout && !isAnsibleCommand && onCommandOutput && buffer.trim()) {
+      if (!isAnsibleCommand && onCommandOutput && buffer.trim()) {
         onCommandOutput(buffer.trim())
       }
     }

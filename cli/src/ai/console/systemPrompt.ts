@@ -258,11 +258,31 @@ You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
 ### Storage
 - call_mcp(tool_name="get_storage_usage") — Storage usage
 
-### Services
-- call_mcp(tool_name="get_grpc_status") — gRPC service status
-- call_mcp(tool_name="get_geyser_grpc_status") — Geyser gRPC status
+### Services — Status
+- call_mcp(tool_name="get_grpc_status") — Shared gRPC status (shows registered IPs and endpoints)
+- call_mcp(tool_name="get_geyser_grpc_status") — Dedicated Geyser gRPC status
 - call_mcp(tool_name="get_rpc_index_status") — RPC Index status
-- call_mcp(tool_name="get_shreds_shared_status") — Shreds status`,
+- call_mcp(tool_name="get_shreds_shared_status") — Shared Shreds status
+- call_mcp(tool_name="get_shreds_dedicated_status") — Dedicated Shreds status
+
+### Services — Product Lists
+- call_mcp(tool_name="get_v3_grpc_list") — Shared gRPC product plans + payment links
+- call_mcp(tool_name="get_v3_dedicated_list") — Dedicated gRPC product plans
+- call_mcp(tool_name="get_v3_shreds_shared_list") — Shared Shredstream product plans
+- call_mcp(tool_name="get_v3_shreds_dedicated_list") — Dedicated Shredstream product plans
+- call_mcp(tool_name="get_v3_storage_product_list") — Storage/backup products
+
+### Services — IP Registration (after purchase)
+- call_mcp(tool_name="post_v3_grpc_register_ip_grpc", arguments={ip: "1.2.3.4"}) — Register IPv4 to activate shared gRPC endpoint
+- call_mcp(tool_name="post_v3_grpc_remove_ip_grpc", arguments={ip: "1.2.3.4"}) — Remove registered IP from shared gRPC
+  - ip is REQUIRED (must be an IPv4 address string)
+  - After registration, call get_grpc_status to see the activated endpoint
+
+### Services — Flow
+1. Check existing subscriptions: get_grpc_status (if slots show "available", user already has a plan)
+2. If no plan: get_v3_grpc_list → show payment link → user purchases
+3. Register IP: post_v3_grpc_register_ip_grpc with {ip: "x.x.x.x"}
+4. Verify: get_grpc_status → shows endpoint URL and token`,
 }
 
 // --- Core prompt builder (small footprint, ~3KB) ---
