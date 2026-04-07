@@ -18,7 +18,7 @@ import {
  * @returns Promise<boolean> indicating success or failure
  */
 
-export const initBotTemplate = async (options: { queue: boolean }) => {
+export const initBotTemplate = async (options: { queue: boolean; template?: string; name?: string; yes?: boolean }) => {
   try {
     // Create a directory for the bot if it doesn't exist
     const botConfigDir = join(configRoot, 'bot')
@@ -28,39 +28,54 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       await Deno.mkdir(botConfigDir, { recursive: true })
     }
 
-    // Select template type
-    const { templateType } = await prompt([
-      {
-        name: 'templateType',
-        message: 'Select Bot Template Type',
-        type: Select,
-        options: BotTempTypeArray,
-      },
-    ])
+    // Select template type (skip prompt if provided via -t)
+    let templateType = options.template
+    if (!templateType) {
+      const result = await prompt([
+        {
+          name: 'templateType',
+          message: 'Select Bot Template Type',
+          type: Select,
+          options: BotTempTypeArray,
+        },
+      ])
+      templateType = result.templateType
+    }
 
     if (!templateType) {
       console.log(colors.yellow('⚠️ No template type selected'))
       return false
     }
 
-    // Create a directory for the new bot application
-    const { appName } = await prompt([
-      {
-        type: Input,
-        name: 'appName',
-        message: 'Enter your bot application name',
-        default: 'solana-trade-bot',
-        validate: (value: string) => {
-          if (!value.trim()) {
-            return 'App name cannot be empty'
-          }
-          if (!/^[a-zA-Z0-9-_]+$/.test(value)) {
-            return 'App name can only contain letters, numbers, hyphens, and underscores'
-          }
-          return true
+    // Validate template type
+    if (!BotTempTypeArray.includes(templateType as typeof BotTempTypeArray[number])) {
+      console.log(colors.red(`❌ Invalid template type: ${templateType}`))
+      console.log(colors.white(`Available types: ${BotTempTypeArray.join(', ')}`))
+      return false
+    }
+
+    // App name (skip prompt if provided via -n)
+    let appName = options.name
+    if (!appName) {
+      const result = await prompt([
+        {
+          type: Input,
+          name: 'appName',
+          message: 'Enter your bot application name',
+          default: 'solana-trade-bot',
+          validate: (value: string) => {
+            if (!value.trim()) {
+              return 'App name cannot be empty'
+            }
+            if (!/^[a-zA-Z0-9-_]+$/.test(value)) {
+              return 'App name can only contain letters, numbers, hyphens, and underscores'
+            }
+            return true
+          },
         },
-      },
-    ])
+      ])
+      appName = result.appName
+    }
 
     if (!appName) {
       console.log(colors.yellow('⚠️ No app name provided'))
@@ -84,24 +99,29 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
     try {
       await Deno.stat(appDir)
       console.log(colors.yellow(`⚠️ Directory ${appDir} already exists`))
-      const { overwrite } = await prompt([
-        {
-          name: 'overwrite',
-          message: 'Directory already exists. Overwrite?',
-          type: Select,
-          options: [
-            { name: 'Yes', value: 'yes' },
-            { name: 'No', value: 'no' },
-          ],
-          default: 'no',
-        },
-      ])
 
-      if (overwrite !== 'yes') {
-        console.log(colors.yellow('⚠️ Operation cancelled'))
-        return false
+      if (options.yes) {
+        shouldOverwrite = true
+      } else {
+        const { overwrite } = await prompt([
+          {
+            name: 'overwrite',
+            message: 'Directory already exists. Overwrite?',
+            type: Select,
+            options: [
+              { name: 'Yes', value: 'yes' },
+              { name: 'No', value: 'no' },
+            ],
+            default: 'no',
+          },
+        ])
+
+        if (overwrite !== 'yes') {
+          console.log(colors.yellow('⚠️ Operation cancelled'))
+          return false
+        }
+        shouldOverwrite = true
       }
-      shouldOverwrite = true
     } catch (_error) {
       // Directory doesn't exist, which is fine
     }
@@ -154,8 +174,9 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       console.log(
         colors.blue('📥 Downloading latest template from GitHub...'),
       )
+      const dlCmd = `curl -fsSL "${BOT_TEMP_ARCHIVE_URL}" | tar -xz -C "${appDir}" --strip-components=3 "${tarFilter}"`
       const dlResult = await exec(
-        `curl -fsSL "${BOT_TEMP_ARCHIVE_URL}" | tar -xz -C "${appDir}" --strip-components=3 "${tarFilter}"`,
+        `sh -c ${JSON.stringify(dlCmd)}`,
       )
 
       if (!dlResult.success) {
@@ -179,7 +200,8 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
         colors.green(`✅ Template downloaded (${entries.length} items)`),
       )
 
-      const isRust = templateType.includes('rust')
+      const isRust = templateType.includes('rust') ||
+        templateType === 'trade-app'
       console.log(colors.blue('🔧 Initializing git repository...'))
       await exec(`cd ${appDir} && git init`)
       try {
@@ -195,13 +217,14 @@ export const initBotTemplate = async (options: { queue: boolean }) => {
       )
 
       const msg = isRust
-        ? `$ cargo build\n$ cargo run`
+        ? `$ cargo build -r\n$ ./target/release/${appName}`
         : `$ pnpm install\n$ pnpm dev`
       console.log(
         colors.white(`
 To get started with your new application, run the following commands:
-  
+
 $ cd ${appName}
+$ cp .env.sample .env
 ${msg}
   `),
       )

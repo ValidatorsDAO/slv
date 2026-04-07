@@ -24,7 +24,10 @@ Available Bot Templates:
 botCmd.command('init')
   .description('Initialize the bot template')
   .option('-q, --queue', 'Use queue mode', { default: false })
-  .action(async (options: { queue: boolean }) => {
+  .option('-t, --template <template:string>', 'Template type (e.g. trade-app)')
+  .option('-n, --name <name:string>', 'App name (e.g. solana-trade-bot)')
+  .option('-y, --yes', 'Overwrite existing directory without asking', { default: false })
+  .action(async (options: { queue: boolean; template?: string; name?: string; yes?: boolean }) => {
     console.log('Initializing the bot...')
     await initBotTemplate(options)
   })
