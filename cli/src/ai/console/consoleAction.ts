@@ -1212,7 +1212,11 @@ RULES:
 
     const plan = await applyIntentBootstrap(input)
 
-    if (plan.askClarify && plan.intent === 'unknown') {
+    // Only ask for clarification on the very first message.
+    // On follow-up messages the AI already has conversation context
+    // and can interpret short replies (e.g. an IP address answering
+    // a previous question) correctly.
+    if (plan.askClarify && plan.intent === 'unknown' && userMessageCount <= 1) {
       if (loader) {
         chatLog.removeChild(loader)
         loader.stop()
