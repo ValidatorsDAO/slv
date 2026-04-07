@@ -19,6 +19,7 @@ import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import {
   buildSystemPrompt,
+  filterUnloadedContextModules,
   injectSkillDocs,
   loadContextModules,
   resetContextModules,
@@ -37,6 +38,8 @@ import {
   type DeploymentMode,
   describeIntent,
   describeUserContextKind,
+  type IntentType,
+  type SpecialistAgent,
   type UserContextKind,
 } from '@/ai/console/intentClassifier.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
@@ -708,7 +711,21 @@ export const consoleAction = async () => {
           loader = null
         }
       }
-      chatLog.addTool(name, detail)
+
+      if (name === 'enable_tools') {
+        try {
+          const parsed = JSON.parse(detail) as { tools?: string[] }
+          const requested = Array.isArray(parsed.tools) ? parsed.tools : []
+          const newTools = requested.filter((tool) => !announcedEnabledTools.has(tool))
+          if (newTools.length === 0) return
+          newTools.forEach((tool) => announcedEnabledTools.add(tool))
+          chatLog.addTool(name, JSON.stringify({ tools: newTools }))
+        } catch {
+          chatLog.addTool(name, detail)
+        }
+      } else {
+        chatLog.addTool(name, detail)
+      }
       // Track what's running for side-chat status
       if (name === 'run_command') {
         currentTaskDescription = 'Running a command'
@@ -835,8 +852,11 @@ export const consoleAction = async () => {
   let isProcessing = false
   let currentTaskDescription = '' // What the main agent is currently doing
   let currentTaskStartedAt = 0
+  const announcedEnabledTools = new Set<string>()
   let deploymentMode: DeploymentMode = 'remote'
   let enabledSpecialists: string[] = []
+  let currentIntent: IntentType | null = null
+  let currentSpecialist: SpecialistAgent | null = null
   const hydratedUserContextKinds = new Set<UserContextKind>()
   const hydratedUserContextBlocks = new Map<UserContextKind, string>()
 
@@ -971,10 +991,42 @@ RULES:
     return `${minutes}m ${secs}s`
   }
 
+  const intentDomain = (intent: IntentType | null) => {
+    switch (intent) {
+      case 'server_availability':
+      case 'server_procurement':
+        return 'server'
+      case 'validator_deploy':
+      case 'validator_ops':
+        return 'validator'
+      case 'rpc_deploy':
+      case 'rpc_ops':
+        return 'rpc'
+      case 'benchmark':
+        return 'benchmark'
+      case 'app_builder':
+        return 'app'
+      case 'account_billing':
+        return 'account'
+      case 'command_execution':
+        return 'command'
+      case 'general_chat':
+        return 'chat'
+      default:
+        return 'unknown'
+    }
+  }
+
+  const isLikelyFollowUp = (input: string) => {
+    const trimmed = input.trim()
+    if (!trimmed) return false
+    return trimmed.length <= 80 || /^(it|that|this|those|these|then|and|also|what about|how about|which|so|じゃあ|では|それ|その|ちなみに|なら|おすすめ|どっち)/i.test(trimmed)
+  }
+
   const applyIntentBootstrap = async (input: string) => {
     renderStage('👂 Understanding your request…')
     await delay(150)
-    const plan = await classifyIntent(
+    let plan = await classifyIntent(
       {
         provider: config.provider,
         apiKey: config.api_key,
@@ -985,8 +1037,24 @@ RULES:
         message: input,
         deploymentMode,
         enabledSpecialists,
+        currentIntent,
+        currentSpecialist,
       },
     )
+
+    if (
+      !plan.delegateAgent &&
+      currentSpecialist &&
+      currentIntent &&
+      isLikelyFollowUp(input) &&
+      (plan.intent === 'unknown' || intentDomain(plan.intent) === intentDomain(currentIntent))
+    ) {
+      plan = {
+        ...plan,
+        intent: plan.intent === 'unknown' ? currentIntent : plan.intent,
+        delegateAgent: currentSpecialist,
+      }
+    }
 
     renderStage(`🎓 Intent detected: ${describeIntent(plan.intent)}`)
     await delay(150)
@@ -999,15 +1067,19 @@ RULES:
       }
     }
 
-    if (plan.contextModulesToLoad.length > 0) {
-      renderStage(`📚 Loading context: ${plan.contextModulesToLoad.join(', ')}`)
+    const newlyLoadedModules = filterUnloadedContextModules(plan.contextModulesToLoad)
+    if (newlyLoadedModules.length > 0) {
+      renderStage(`📚 Loading context: ${newlyLoadedModules.join(', ')}`)
       await delay(150)
-      loadContextModules(plan.contextModulesToLoad)
+      loadContextModules(newlyLoadedModules)
     }
 
-    if (plan.delegateAgent) {
+    if (plan.delegateAgent && plan.delegateAgent !== currentSpecialist) {
       renderStage(`🤖 Loading specialist: ${plan.delegateAgent}`)
       await injectSkillDocs(plan.delegateAgent)
+      currentSpecialist = plan.delegateAgent
+    } else if (!plan.delegateAgent && plan.confidence >= 0.7 && intentDomain(plan.intent) !== intentDomain(currentIntent)) {
+      currentSpecialist = null
     }
 
     for (const kind of plan.userContextKindsToHydrate) {
@@ -1017,6 +1089,8 @@ RULES:
     if (plan.userContextKindsToHydrate.length > 0) {
       await refreshSystemPrompt()
     }
+
+    if (plan.intent !== 'unknown') currentIntent = plan.intent
 
     return plan
   }
@@ -1067,8 +1141,11 @@ RULES:
       resetActiveTools()
       resetContextModules()
       resetSessionCaches()
+      announcedEnabledTools.clear()
       hydratedUserContextKinds.clear()
       hydratedUserContextBlocks.clear()
+      currentIntent = null
+      currentSpecialist = null
       currentSystemPrompt = await buildSystemPrompt()
       if (config.provider === 'openai') {
         provider = new OpenAIProvider(

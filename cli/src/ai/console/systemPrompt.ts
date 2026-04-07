@@ -1,6 +1,7 @@
 import { parse } from '@std/yaml'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { VERSION } from '@cmn/constants/version.ts'
+import { DISCORD_LINK } from '@cmn/constants/url.ts'
 
 // --- Context module state management ---
 
@@ -23,6 +24,10 @@ export function loadContextModules(modules: string[]): string {
   return newlyLoaded.length > 0
     ? `Loaded context modules: ${newlyLoaded.join(', ')}`
     : 'All requested modules already loaded.'
+}
+
+export function filterUnloadedContextModules(modules: string[]): string[] {
+  return modules.filter((mod) => CONTEXT_MODULES[mod] && !loadedModules.has(mod))
 }
 
 // --- Lazy-loaded skill docs registry/cache ---
@@ -115,7 +120,7 @@ export const CONTEXT_MODULES: Record<string, string> = {
 - For ALL RPC deployment/operations tasks (Index RPC, gRPC Geyser, Index+gRPC) → delegate_to_agent with agent="Tina"
 - For benchmark/connectivity test tasks (grpc_test, geyserbench, shreds_test, endpoint latency/throughput checks) → delegate_to_agent with agent="Cid"
 - For Solana app/bot tasks (trade bot, app templates) → delegate_to_agent with agent="Setzer"
-- For server procurement (buy/browse servers) → delegate_to_agent with agent="Figaro"
+- For server procurement, bare metal inventory, server availability, and validator hardware sizing/recommendation → delegate_to_agent with agent="Figaro"
 
 ### Deployment question flow (STRICT ORDER)
 1. **First**: "Do you already have a server? (yes / no / I need to buy one)"
@@ -434,7 +439,15 @@ ${modeSection}
 - RPC / gRPC / indexer work usually maps to Tina.
 - Benchmark / connectivity work usually maps to Cid.
 - App / bot work usually maps to Setzer.
-- Server procurement work usually maps to Figaro.
+- Server procurement, bare metal inventory, server availability, and validator hardware recommendation work usually map to Figaro.
+
+## Product Guidance
+- If the user mentions Shinobi pool, Shinobi stake pool, or a performance pool with limited matching, do NOT default to the cheapest generic validator.
+- Explain that Shinobi/performance-pool style participation requires at least 5th gen validator hardware.
+- Explain that these servers are limited resources with limited availability.
+- Explain that performance pools are not open to every generic server automatically, matching or approval may be required.
+- Direct the user to ask in Discord for availability or matching:
+  ${DISCORD_LINK}
 
 ## Working Environment
 - Home: ${home}

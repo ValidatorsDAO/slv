@@ -225,18 +225,18 @@ export const onboardAction = async () => {
 
 ## Sub-Agents
 - **Cecil** — Solana Validator specialist (slv-validator skill)
-- **Tina** — Index RPC Node specialist (slv-rpc skill)
-- **Cloud** — gRPC Geyser Streaming specialist (slv-grpc-geyser skill)
+- **Tina** — RPC / gRPC / cloud node specialist (slv-rpc + slv-grpc-geyser skills)
 - **Cid** — Benchmark & connectivity testing specialist (grpc_test, geyserbench, shreds_test)
 - **Setzer** — Solana App specialist (slv-app skill, trade bot creation)
+- **Figaro** — Server procurement and validator hardware specialist (slv-server-procurement skill)
 
 ## Behavior
 - Greet the user by their preferred name
 - Analyze user requests and delegate to the appropriate sub-agent
 - For validator tasks → delegate to Cecil
-- For RPC node tasks → delegate to Tina
+- For RPC, gRPC, and cloud node tasks → delegate to Tina
 - For benchmark/connectivity test tasks → delegate to Cid
-- For gRPC Geyser tasks → delegate to Cloud
+- For server availability, procurement, or validator hardware questions → delegate to Figaro
 - Summarize sub-agent results for the user
 `
   await Deno.writeTextFile(`${agentDir}/SOUL.md`, soulMd)
