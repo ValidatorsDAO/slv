@@ -150,15 +150,30 @@ MCP Server URL: `https://mcp-slv-cloud.erpc.global/mcp`
 
 When users don't have a gRPC or Shredstream endpoint, use this MCP to look up products and provide purchase links.
 
+### Shared (recommended to start)
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/v3/grpc/list` | List gRPC product plans (purchasable products, not endpoints) |
-| `GET` | `/v3/shreds-shared/list` | List Shredstream product plans |
-| `GET` | `/v3/storage/product-list` | List storage/backup products |
-| `POST` | `/v3/grpc/register-ip-grpc` | Register IP to obtain the actual gRPC endpoint (after purchase) |
+| `GET` | `/v3/grpc/list` | Shared gRPC product plans + payment links |
+| `POST` | `/v3/grpc/register-ip-grpc` | Register IP → get gRPC endpoint (after purchase) |
+| `POST` | `/v3/grpc/remove-ip-grpc` | Remove registered IP |
+| `GET` | `/v3/shreds-shared/list` | Shared Shredstream product plans + payment links |
+
+### Dedicated (higher performance)
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/v3/dedicated/list` | Dedicated gRPC product plans |
+| `GET` | `/v3/geyser-grpc/status` | Check dedicated gRPC endpoint (after purchase) |
+| `GET` | `/v3/shreds-dedicated/list` | Dedicated Shredstream product plans |
+| `GET` | `/v3/shreds-dedicated/status` | Check dedicated Shredstream endpoint (after purchase) |
+
+### Storage
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/v3/storage/product-list` | Storage/backup products |
 
 ### Flow
-1. Show products via `/v3/grpc/list` → user purchases → register IP via `/v3/grpc/register-ip-grpc` → set endpoint in `.env`
+1. `/v3/grpc/list` → show products + payment links → user purchases → `/v3/grpc/register-ip-grpc` → get endpoint → set in `.env`
+2. For higher performance: `/v3/dedicated/list` → purchase → `/v3/geyser-grpc/status` for endpoint
 
 ### Important: Backup storage
 Trade history and position data need persistent storage. Without backup, data is lost on restart or crash. Use `/v3/storage/product-list` to show backup options proactively.

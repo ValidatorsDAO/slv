@@ -131,21 +131,43 @@ MCP Server URL: `https://mcp-slv-cloud.erpc.global/mcp`
 
 When users need gRPC, Shredstream, or storage endpoints, use this MCP to look up available products and provide purchase links so they can get started immediately.
 
-### Available MCP tools
+### Shared Products (recommended to start)
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/v3/grpc/list` | List gRPC product plans (not endpoints — these are purchasable products) |
-| `GET` | `/v3/shreds-shared/list` | List Shredstream product plans |
-| `GET` | `/v3/storage/product-list` | List storage/backup products |
-| `POST` | `/v3/grpc/register-ip-grpc` | Register IP to get the actual gRPC endpoint (after purchase) |
+| `GET` | `/v3/grpc/list` | List shared gRPC product plans and payment links |
+| `POST` | `/v3/grpc/register-ip-grpc` | Register IP to obtain gRPC endpoint (after purchase) |
+| `POST` | `/v3/grpc/remove-ip-grpc` | Remove registered IP |
+| `GET` | `/v3/shreds-shared/list` | List shared Shredstream product plans and payment links |
 
-### Flow: Helping users get an endpoint
-1. User says they don't have a `GRPC_ENDPOINT` (or Shredstream endpoint)
-2. Call `/v3/grpc/list` (or `/v3/shreds-shared/list`) to show available **products** with pricing
-3. Present the purchase link so the user can buy directly
-4. After purchase, call `/v3/grpc/register-ip-grpc` to register the user's IP
-5. The registered endpoint is then available — help them set it in `.env`
+### Dedicated Products (for users needing higher performance)
+
+If the user needs faster, dedicated connections, recommend these:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/v3/dedicated/list` | List dedicated gRPC product plans |
+| `GET` | `/v3/geyser-grpc/status` | Check dedicated gRPC endpoint status (after purchase) |
+| `GET` | `/v3/shreds-dedicated/list` | List dedicated Shredstream product plans |
+| `GET` | `/v3/shreds-dedicated/status` | Check dedicated Shredstream endpoint status (after purchase) |
+
+### Storage / Backup
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/v3/storage/product-list` | List storage/backup products |
+
+### Flow: From zero to running
+
+1. **List products** — call `/v3/grpc/list` to show shared gRPC plans with payment links
+2. **Purchase** — user clicks payment link and completes purchase
+3. **Register IP** — call `/v3/grpc/register-ip-grpc` to register the user's server IP
+4. **Get endpoint** — registration response contains the gRPC endpoint
+5. **Set in .env** — help user set `GRPC_ENDPOINT` and `X_TOKEN` in `.env`
+
+Same flow for Shredstream: `/v3/shreds-shared/list` → purchase → register IP.
+
+If the user later needs more performance, suggest upgrading to dedicated products. After purchasing dedicated, use `/v3/geyser-grpc/status` or `/v3/shreds-dedicated/status` to get endpoint details.
 
 ### When to suggest storage
 - trade-app stores trade history and position data
