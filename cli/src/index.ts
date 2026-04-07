@@ -20,6 +20,7 @@ import { backupCmd } from '@/backup/index.ts'
 import { aiCmd, onboardCmd } from '@/ai/index.ts'
 import { authCmd } from '@/auth/index.ts'
 import { airdropCmd } from '@/airdrop/index.ts'
+import { disableCmd } from '@/disable/index.ts'
 import { prepareLocalDb } from '@db/dbInit.ts'
 
 const program = new Command()
@@ -111,5 +112,8 @@ program
 
 program
   .command('airdrop', airdropCmd)
+
+program
+  .command('disable', disableCmd)
 
 await program.parse(Deno.args)

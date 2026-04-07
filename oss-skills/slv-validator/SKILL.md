@@ -44,6 +44,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
 | `slv v get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv v cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |
+| `slv disable pwd-login` | `cmn/disable_pwd_login.yml` | Disable SSH password authentication |
 | `slv v switch` | `{net}/nodowntime_migrate.yml` | Zero-downtime identity migration |
 | `slv v list` | *(no playbook)* | List validators (CLI only) |
 | `slv v gen:vote-account` | *(no playbook)* | Create vote account (solana CLI) |
@@ -144,6 +145,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `mount_disks.yml` | Mount and format disks |
 | `optimize_system.yml` | Optimize system settings (sysctl, limits) |
 | `disable_swap.yml` | Disable swap |
+| `disable_pwd_login.yml` | Disable SSH password authentication and restart sshd |
 | `setup_logrotate.yml` | Configure log rotation |
 | `setup_node_exporter.yml` | Setup Prometheus node exporter |
 | `setup_norestart.yml` | Disable auto-restart |

@@ -87,6 +87,7 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `slv r update:geyser` | `{net}/update_geyser.yml` | Update Geyser plugin |
 | `slv r get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv r cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |
+| `slv disable pwd-login` | `cmn/disable_pwd_login.yml` | Disable SSH password authentication |
 | `slv r list` | *(no playbook)* | List RPC nodes (CLI only) |
 | `slv r update:allowed-ips` | *(no playbook)* | Update allowed IPs (CLI only) |
 | `slv r init` | *(no playbook)* | Interactive wizard (CLI only) |
@@ -185,6 +186,7 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `mount_disks.yml` / `mount-disks.yml` | Mount and format disks |
 | `optimize_system.yml` | Optimize system settings |
 | `disable_swap.yml` | Disable swap |
+| `disable_pwd_login.yml` | Disable SSH password authentication and restart sshd |
 | `setup_logrotate.yml` | Configure log rotation |
 | `setup_node_exporter.yml` | Setup Prometheus node exporter |
 | `setup_norestart.yml` | Disable auto-restart |
