@@ -131,24 +131,26 @@ MCP Server URL: `https://mcp-slv-cloud.erpc.global/mcp`
 
 When users need gRPC, Shredstream, or storage endpoints, use this MCP to look up available products and provide purchase links so they can get started immediately.
 
-### Available API endpoints (via MCP)
+### Available MCP tools
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/v3/grpc/list` | List available Geyser gRPC endpoints and plans |
-| `GET` | `/v3/shreds-shared/list` | List available Shredstream shared endpoints and plans |
+| `GET` | `/v3/grpc/list` | List gRPC product plans (not endpoints — these are purchasable products) |
+| `GET` | `/v3/shreds-shared/list` | List Shredstream product plans |
 | `GET` | `/v3/storage/product-list` | List storage/backup products |
+| `POST` | `/v3/grpc/register-ip-grpc` | Register IP to get the actual gRPC endpoint (after purchase) |
 
-### When to use
-- **Step 2 (.env setup)**: If the user says they don't have a `GRPC_ENDPOINT`, call `/v3/grpc/list` to show available plans with purchase links
-- **Shredstream templates**: If the user selects a shreds template and needs an endpoint, call `/v3/shreds-shared/list`
-- **Storage/Backup**: When the app needs persistent data (trade history, state), remind the user that without backup storage, data can be lost on restart or crash. Call `/v3/storage/product-list` to show backup options
+### Flow: Helping users get an endpoint
+1. User says they don't have a `GRPC_ENDPOINT` (or Shredstream endpoint)
+2. Call `/v3/grpc/list` (or `/v3/shreds-shared/list`) to show available **products** with pricing
+3. Present the purchase link so the user can buy directly
+4. After purchase, call `/v3/grpc/register-ip-grpc` to register the user's IP
+5. The registered endpoint is then available — help them set it in `.env`
 
-### How to guide
-1. Call the relevant MCP endpoint to get the product list
-2. Present the options clearly with pricing
-3. Provide the purchase link so the user can buy directly
-4. Once purchased, help them set the endpoint in `.env`
+### When to suggest storage
+- trade-app stores trade history and position data
+- Without backup storage, **data is lost on restart or crash**
+- Proactively call `/v3/storage/product-list` to show backup options when the user is setting up persistence
 
 ## Behavior
 1. Guide users **one step at a time** — confirm success before moving on

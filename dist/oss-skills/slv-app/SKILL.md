@@ -152,12 +152,16 @@ When users don't have a gRPC or Shredstream endpoint, use this MCP to look up pr
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/v3/grpc/list` | Available Geyser gRPC endpoints and plans |
-| `GET` | `/v3/shreds-shared/list` | Available Shredstream shared endpoints and plans |
-| `GET` | `/v3/storage/product-list` | Storage/backup products |
+| `GET` | `/v3/grpc/list` | List gRPC product plans (purchasable products, not endpoints) |
+| `GET` | `/v3/shreds-shared/list` | List Shredstream product plans |
+| `GET` | `/v3/storage/product-list` | List storage/backup products |
+| `POST` | `/v3/grpc/register-ip-grpc` | Register IP to obtain the actual gRPC endpoint (after purchase) |
+
+### Flow
+1. Show products via `/v3/grpc/list` → user purchases → register IP via `/v3/grpc/register-ip-grpc` → set endpoint in `.env`
 
 ### Important: Backup storage
-As users build their app, trade history and position data need persistent storage. Without backup, data is lost on restart or crash. Use `/v3/storage/product-list` to show backup options proactively.
+Trade history and position data need persistent storage. Without backup, data is lost on restart or crash. Use `/v3/storage/product-list` to show backup options proactively.
 
 ## Operator Notes
 - `wallet.json` contains a private key — never commit it
