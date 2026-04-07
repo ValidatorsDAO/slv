@@ -8,7 +8,6 @@ export type SpecialistAgent =
   | 'Cid'
   | 'Setzer'
   | 'Figaro'
-  | 'Cloud'
 export type IntentToolName =
   | 'run_command'
   | 'read_file'
@@ -117,7 +116,6 @@ const ALLOWED_SPECIALISTS: SpecialistAgent[] = [
   'Cid',
   'Setzer',
   'Figaro',
-  'Cloud',
 ]
 
 function unique<T>(values: T[]): T[] {
