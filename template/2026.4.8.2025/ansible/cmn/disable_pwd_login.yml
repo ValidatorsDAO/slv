@@ -1,0 +1,36 @@
+---
+- name: Disable SSH password authentication
+  hosts: all
+  become: true
+  tasks:
+    - name: Disable PasswordAuthentication in sshd_config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication\s+.*'
+        line: 'PasswordAuthentication no'
+        state: present
+        backup: true
+
+    - name: Disable KbdInteractiveAuthentication in sshd_config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?KbdInteractiveAuthentication\s+.*'
+        line: 'KbdInteractiveAuthentication no'
+        state: present
+        backup: true
+
+    - name: Disable ChallengeResponseAuthentication in sshd_config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ChallengeResponseAuthentication\s+.*'
+        line: 'ChallengeResponseAuthentication no'
+        state: present
+        backup: true
+
+    - name: Validate sshd configuration
+      command: sshd -t
+
+    - name: Reload SSH service
+      systemd:
+        name: ssh
+        state: reloaded
