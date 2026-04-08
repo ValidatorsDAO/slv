@@ -1,0 +1,38 @@
+---
+- name: Publish shreds via DoubleZero multicast
+  hosts: all
+  become: yes
+  gather_facts: false
+
+  vars:
+    doublezero_connect_provider: 'ibrl'
+    doublezero_publish_feed: 'edge-solana-shreds'
+
+  pre_tasks:
+    - name: Check SSH reachability
+      wait_for_connection:
+        timeout: 10
+      register: conn_check
+      ignore_errors: true
+      ignore_unreachable: true
+
+    - meta: end_host
+      when: conn_check.unreachable | default(false) or conn_check.failed | default(false)
+
+  tasks:
+    - name: Ensure doublezerod is running
+      ansible.builtin.systemd:
+        name: doublezerod
+        state: started
+
+    - name: Connect to provider and publish multicast feed
+      ansible.builtin.shell: >-
+        doublezero connect {{ doublezero_connect_provider }}
+        && doublezero connect multicast --publish {{ doublezero_publish_feed }}
+      register: dz_publish
+      changed_when: dz_publish.rc == 0
+      failed_when: dz_publish.rc != 0
+
+    - name: Show publish result
+      ansible.builtin.debug:
+        msg: '{{ dz_publish.stdout_lines | default(["(no output)"]) }}'
