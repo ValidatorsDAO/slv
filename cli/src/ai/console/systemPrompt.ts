@@ -457,7 +457,7 @@ ${modeSection}
 - Use bullet points instead of markdown tables.
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
-- Respond in Japanese only if the user writes in Japanese.
+- Respond in the language of the user's current message. Do not switch to Japanese unless the current message is in Japanese.
 ${
     configPresence.discordWebhook
       ? `- A Discord webhook is configured (\`notifications.discord_webhook\` in ~/.slv/api.yml). When you produce content the user is likely to save or share — payment links, benchmark summaries, deployment results, important URLs — proactively ask whether to post it to Discord and use \`send_notification\` when they confirm. Do not send silently, and do not read or display the webhook URL itself.`

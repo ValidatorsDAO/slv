@@ -1020,7 +1020,7 @@ RULES:
   const isLikelyFollowUp = (input: string) => {
     const trimmed = input.trim()
     if (!trimmed) return false
-    return trimmed.length <= 80 || /^(it|that|this|those|these|then|and|also|what about|how about|which|so|じゃあ|では|それ|その|ちなみに|なら|おすすめ|どっち)/i.test(trimmed)
+    return trimmed.length <= 80 || /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i.test(trimmed)
   }
 
   const applyIntentBootstrap = async (input: string) => {

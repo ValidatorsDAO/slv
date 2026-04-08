@@ -141,9 +141,11 @@ function sanitizeArray<T extends string>(
 }
 
 function normalizeLanguage(value: unknown, fallbackMessage: string): string {
-  const language = String(value || '').trim()
-  if (language) return language
-  return detectLanguageFallback(fallbackMessage)
+  const detected = detectLanguageFallback(fallbackMessage)
+  const language = String(value || '').trim().toLowerCase()
+  if (!language) return detected
+  if (detected === 'en' && language !== 'en') return detected
+  return language
 }
 
 function detectLanguageFallback(message: string): string {
@@ -193,6 +195,7 @@ Rules:
 - RPC, gRPC, geyser, and cloud node work should route to Tina.
 - Benchmark or connectivity test work should route to Cid only.
 - If currentSpecialist/currentIntent are present and the new message is a short follow-up that clearly continues the same topic, prefer keeping that specialist and intent family unless the user materially changes topic.
+- The language field must reflect the user's current message only. Do not inherit a previous turn's language.
 
 Return this exact shape:
 {
@@ -435,7 +438,7 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
     }, input)
   }
 
-  const continuationPrefix = /^(it|that|this|those|these|then|and|also|what about|how about|which|so|じゃあ|では|それ|その|ちなみに|なら|おすすめ|どっち)/i
+  const continuationPrefix = /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i
   if (
     input.currentIntent &&
     input.currentSpecialist &&
