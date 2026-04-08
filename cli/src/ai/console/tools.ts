@@ -58,7 +58,6 @@ export type ToolDefinition = {
 const AGENT_SKILL_MAP: Record<string, string> = {
   'Cecil': 'slv-validator',
   'Tina': 'slv-rpc',
-  'Cloud': 'slv-grpc-geyser',
   'Cid': 'slv-benchmark',
   'Setzer': 'slv-app',
   'Figaro': 'slv-server-procurement',
@@ -842,7 +841,9 @@ async function executeDelegateToAgent(
   agentName: string,
   task: string,
 ): Promise<string> {
-  // Cloud is now handled by Tina (RPC specialist covers all RPC types including gRPC)
+  // Tina covers all RPC types including gRPC Geyser streaming nodes.
+  // Older agent configs may still reference the legacy "Cloud" label —
+  // map it to Tina so those configs keep working after an upgrade.
   const effectiveName = agentName === 'Cloud' ? 'Tina' : agentName
   const skillName = AGENT_SKILL_MAP[effectiveName]
   if (!skillName) {

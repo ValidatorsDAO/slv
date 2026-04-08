@@ -344,7 +344,6 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     'Cid': 'benchmark',
     'Setzer': 'app',
     'Figaro': 'server-procurement',
-    'Cloud': 'grpc',
   }
   const teamSummary = enabledAgents
     .filter((agent, index, all) => all.indexOf(agent) === index)
