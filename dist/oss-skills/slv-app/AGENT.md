@@ -39,6 +39,23 @@ cp .env.sample .env
 ```
 Help the user edit `.env` with their values. See SKILL.md for the full env var reference. At minimum, `GRPC_ENDPOINT` is required.
 
+**Reuse the user's Discord webhook automatically.** `WEBHOOK_URL` in
+`.env` is optional but enables trade notifications. If the user already
+set a Discord webhook during `slv onboard`, it lives at
+`notifications.discord_webhook` in `~/.slv/api.yml`. Before asking the
+user for a webhook URL:
+
+1. Read `~/.slv/api.yml` and look for `notifications.discord_webhook`.
+2. If it is set, write that same URL into the bot's `.env` as
+   `WEBHOOK_URL=...`. Tell the user which webhook you reused so they can
+   override it if they want a dedicated channel for the bot.
+3. If it is not set, leave `WEBHOOK_URL` empty and let the user know
+   they can add one later by editing `.env` or re-running `slv onboard`.
+
+Never ask the user to paste a webhook URL into the chat when one is
+already configured, and never echo the URL back — say "reused your
+existing webhook" instead.
+
 ### Step 4: Install prerequisites
 - **Rust**: if not installed, `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 - **LLVM** (macOS only): `brew install llvm`
