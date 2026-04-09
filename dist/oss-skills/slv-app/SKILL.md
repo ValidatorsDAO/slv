@@ -39,7 +39,7 @@ Options: `-t` template type, `-n` app name, `-y` overwrite without asking.
 ```bash
 cd ~/slv/solana-trade-bot
 cp .env.sample .env
-# Edit .env — set at minimum: GRPC_ENDPOINT
+# Edit .env — set at minimum: GRPC_ENDPOINT (leave optional fields blank unless needed)
 ```
 
 ### 3. Build
@@ -95,13 +95,15 @@ Builds, uploads via SCP, creates systemd service on the remote server.
 ### Optional
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `X_TOKEN` | — | gRPC auth token |
-| `SOLANA_RPC_ENDPOINT` | `https://api.mainnet-beta.solana.com` | RPC for reads |
-| `SOLANA_SEND_RPC_ENDPOINT` | same as read RPC | RPC for sending TXs |
+| `X_TOKEN` | — | Optional gRPC auth token, only needed when the endpoint requires it |
+| `SOLANA_RPC_ENDPOINT` | `https://edge.erpc.global?api-key=<API_KEY>` | RPC for reads. Reuse the API key from `~/.slv/api.yml` automatically when available |
+| `SOLANA_SEND_RPC_ENDPOINT` | same as read RPC | RPC for sending TXs. Reuse the same ERPC endpoint automatically when available |
 | `API_PORT` | `3000` | HTTP API port |
 | `API_TOKEN` | — | Bearer token for API auth |
-| `WEBHOOK_URL` | — | Discord Webhook URL |
-| `REDIS_URL` | — | Redis URL for trade history (install: `slv install -i localhost`, select Redis) |
+| `WEBHOOK_URL` | — | Discord Webhook URL. If `notifications.discord_webhook` exists in `~/.slv/api.yml`, reuse it automatically |
+| `REDIS_URL` | — | Redis URL for trade history. For non-engineer users, prefer installing Redis locally and configuring this automatically instead of asking up front |
+
+When setting up `.env`, prefer automatic configuration over user questions whenever possible. Reuse existing local configuration automatically when available, especially the SLV API key from `~/.slv/api.yml` for `https://edge.erpc.global?api-key=<API_KEY>` RPC defaults, and `notifications.discord_webhook` from `~/.slv/api.yml` for `WEBHOOK_URL`. For non-engineer users, prefer installing and wiring Redis automatically when local persistence is useful.
 | `CONFIG_PATH` | `config.jsonc` | Geyser filter config file |
 
 ## Trade Configuration (via API)
