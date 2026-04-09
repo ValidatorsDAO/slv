@@ -29,7 +29,7 @@ If the user does not have a `GRPC_ENDPOINT`:
 4. **Register IP** — call `post_v3_grpc_register_ip_grpc` with `{ip: "x.x.x.x"}` (must be IPv4)
    - Get the user's public IP first: `curl -4 -s ifconfig.me` (use `-4` to force IPv4)
 5. **Verify** — call `get_grpc_status` to see the activated endpoint URL and token
-6. Help user set `GRPC_ENDPOINT` and `X_TOKEN` in `.env`
+6. Help user set `GRPC_ENDPOINT` in `.env`. Set `X_TOKEN` only if the endpoint actually requires it.
 7. If user needs higher performance later, suggest dedicated products (see SKILL.md)
 
 ### Step 3: Set up environment
@@ -37,7 +37,7 @@ If the user does not have a `GRPC_ENDPOINT`:
 cd ~/slv/solana-trade-bot
 cp .env.sample .env
 ```
-Help the user edit `.env` with their values. See SKILL.md for the full env var reference. At minimum, `GRPC_ENDPOINT` is required.
+Help the user edit `.env` with the minimum required values first. See SKILL.md for the full env var reference. At minimum, `GRPC_ENDPOINT` is required. Treat `X_TOKEN` as optional unless the provisioned endpoint explicitly requires it.
 
 **Reuse the user's Discord webhook automatically.** `WEBHOOK_URL` in
 `.env` is optional but enables trade notifications. If the user already
@@ -47,14 +47,16 @@ user for a webhook URL:
 
 1. Read `~/.slv/api.yml` and look for `notifications.discord_webhook`.
 2. If it is set, write that same URL into the bot's `.env` as
-   `WEBHOOK_URL=...`. Tell the user which webhook you reused so they can
-   override it if they want a dedicated channel for the bot.
-3. If it is not set, leave `WEBHOOK_URL` empty and let the user know
-   they can add one later by editing `.env` or re-running `slv onboard`.
+   `WEBHOOK_URL=...` automatically. Tell the user that you reused their
+   existing webhook, and mention that they can override it later if they
+   want a dedicated channel for the bot.
+3. If it is not set, leave `WEBHOOK_URL` empty and continue. Mention briefly that they can add one later by editing `.env` or re-running `slv onboard`.
 
 Never ask the user to paste a webhook URL into the chat when one is
-already configured, and never echo the URL back — say "reused your
+already configured, and never echo the URL back. Say "reused your
 existing webhook" instead.
+
+Keep questions to a minimum. Prefer filling sensible defaults, reusing existing local configuration automatically, leaving optional fields blank when unavailable, and moving to the next concrete step instead of asking the user to decide optional settings up front.
 
 ### Step 4: Install prerequisites
 - **Rust**: if not installed, `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
