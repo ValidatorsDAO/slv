@@ -21,7 +21,7 @@ export const deleteAction = async (
 
   // Prefix mode: bulk delete all files matching prefix
   if (options.prefix) {
-    return await deletByPrefix(apiKey, options.prefix, region, options.yes)
+    return await deleteByPrefix(apiKey, options.prefix, region, options.yes)
   }
 
   // Interactive: select file from list if path not provided
@@ -78,7 +78,7 @@ const deleteSingle = async (
   }
 }
 
-const deletByPrefix = async (
+const deleteByPrefix = async (
   apiKey: string,
   prefix: string,
   region?: StorageRegion,
