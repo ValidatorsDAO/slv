@@ -85,17 +85,19 @@ export const storageCmd = new Command()
       limit: options.limit,
     })
   })
-  .command('delete', 'Delete a file from cloud storage')
+  .command('delete', 'Delete files from cloud storage')
   .alias('rm')
   .arguments('[path:string]')
   .option(
     '-r, --region <region:string>',
     'Storage region',
   )
+  .option('-p, --prefix <prefix:string>', 'Delete all files matching prefix')
   .option('-y, --yes', 'Skip confirmation')
   .action(async (options, path?: string) => {
     await deleteAction(path, {
       region: validateRegion(options.region),
+      prefix: options.prefix,
       yes: options.yes,
     })
   })
