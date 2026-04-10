@@ -146,22 +146,28 @@ const deleteByPrefix = async (
 
   let succeeded = 0
   let failed = 0
-  const deleteSpinner = new Kia(colors.cyan(`Deleting ${allFiles.length} file(s)...`))
+  const total = allFiles.length
+  const concurrency = 10
+  const deleteSpinner = new Kia(colors.cyan(`Deleting ${total} file(s)...`))
   deleteSpinner.start()
 
-  for (const filePath of allFiles) {
-    try {
-      const result = await storageDelete(apiKey, filePath, region)
-      if (result.success) {
+  // Process in batches of `concurrency` for parallel deletion
+  for (let i = 0; i < total; i += concurrency) {
+    const batch = allFiles.slice(i, i + concurrency)
+    const results = await Promise.allSettled(
+      batch.map((filePath) =>
+        storageDelete(apiKey, filePath, region).then((r) => r.success)
+      ),
+    )
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) {
         succeeded++
       } else {
         failed++
       }
-    } catch {
-      failed++
     }
     deleteSpinner.set(
-      colors.cyan(`Deleting... (${succeeded + failed}/${allFiles.length})`),
+      colors.cyan(`Deleting... (${succeeded + failed}/${total})`),
     )
   }
 
