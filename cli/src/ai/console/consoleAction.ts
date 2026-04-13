@@ -15,6 +15,13 @@ import {
 import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
+import {
+  clearFocusOverride,
+  describeProfile,
+  detectProfile,
+  type PrimaryFocus,
+  writeFocusOverride,
+} from '@/ai/console/profile.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
@@ -273,9 +280,17 @@ async function buildLocalGreeting(home: string): Promise<string> {
     crewSection = ' '
   }
 
+  // Append a one-line profile hint so the user sees we've detected their
+  // primary focus. Failures are non-fatal — the greeting still works.
+  let profileLine = ''
+  try {
+    const profile = await detectProfile()
+    profileLine = `\n\n${describeProfile(profile)}`
+  } catch { /* profile detection is best-effort */ }
+
   return `${greetLine}\n\n${introLine}${crewSection}${
     t('What would you like to work on today?')
-  }`
+  }${profileLine}`
 }
 
 async function checkDependencies(): Promise<string[]> {
@@ -1280,6 +1295,9 @@ RULES:
       chatLog.addSystem('  /clear — Clear conversation')
       chatLog.addSystem('  /update — Apply pending version updates')
       chatLog.addSystem(
+        '  /focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent\'s primary focus',
+      )
+      chatLog.addSystem(
         '  /<command> — Execute shell command directly (e.g. /slv ai usage)',
       )
       chatLog.addSystem('  /help — Show this help')
@@ -1287,10 +1305,55 @@ RULES:
       return
     }
 
+    // /focus <role> — switch the main agent's routing bias. Persisted to
+    // ~/.slv/agent/focus so it carries across sessions. `/focus auto` clears
+    // the override and returns to heuristic detection.
+    if (input.startsWith('/focus')) {
+      const arg = input.slice('/focus'.length).trim().toLowerCase()
+      const valid: PrimaryFocus[] = ['validator', 'rpc', 'app', 'mixed']
+      if (!arg) {
+        const profile = await detectProfile()
+        chatLog.addSystem(
+          `  Current focus: ${profile.primary}${
+            profile.overridden ? ' (manual override)' : ' (auto)'
+          }`,
+        )
+        chatLog.addSystem(
+          '  Usage: /focus validator | rpc | app | mixed | auto',
+        )
+        tui.requestRender()
+        return
+      }
+      if (arg === 'auto' || arg === 'clear' || arg === 'reset') {
+        await clearFocusOverride()
+        const profile = await detectProfile()
+        chatLog.addSystem(
+          `  ◇ Focus override cleared. Auto-detected: ${profile.primary}.`,
+        )
+      } else if ((valid as string[]).includes(arg)) {
+        await writeFocusOverride(arg as PrimaryFocus)
+        chatLog.addSystem(`  ◇ Focus set to: ${arg}`)
+      } else {
+        chatLog.addSystem(
+          `  Unknown focus "${arg}". Use: validator | rpc | app | mixed | auto`,
+        )
+        tui.requestRender()
+        return
+      }
+      // Rebuild the system prompt so the new profile takes effect on the
+      // next user message without requiring a /clear.
+      currentSystemPrompt = await buildSystemPrompt()
+      provider.setSystemPrompt(currentSystemPrompt)
+      const refreshed = await detectProfile()
+      chatLog.addSystem(`  ${describeProfile(refreshed)}`)
+      tui.requestRender()
+      return
+    }
+
     // Direct CLI execution: input starting with / (but not a known command) runs as shell command
     if (
       input.startsWith('/') &&
-      !['/exit', '/quit', '/clear', '/update', '/help'].includes(
+      !['/exit', '/quit', '/clear', '/update', '/help', '/focus'].includes(
         input.split(' ')[0],
       )
     ) {

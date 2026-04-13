@@ -3,6 +3,7 @@ import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { VERSION } from '@cmn/constants/version.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { readLang } from '@/ai/config.ts'
+import { detectProfile, profilePromptBlock } from '@/ai/console/profile.ts'
 
 // --- Context module state management ---
 
@@ -335,6 +336,12 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     )
   } catch { /* skill not synced yet — Core Rules line still applies */ }
 
+  // Detect the user's primary focus (validator / rpc / app / mixed) so the
+  // main agent can bias its proactive suggestions. See profile.ts for the
+  // exact signal hierarchy.
+  const userProfile = await detectProfile().catch(() => null)
+  const profileBlock = userProfile ? profilePromptBlock(userProfile) : ''
+
   // Read config to get enabled skills and mode
   let configYml: Record<string, unknown> = { skills: [] }
   try {
@@ -467,7 +474,7 @@ ${soulMd ? `## Identity\n${soulMd}\n` : ''}
 ${userMd ? `## User\n${userMd}\n` : ''}
 ${memoryMd ? `## Memory\n${memoryMd}\n` : ''}
 ${modeSection}
-
+${profileBlock ? `\n${profileBlock}\n` : ''}
 ## Core Rules
 - Keep replies short, practical, and natural.
 - Ask one question at a time.
@@ -475,6 +482,7 @@ ${modeSection}
 - Use bullet points instead of markdown tables.
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
+- **Proactive backup reminders**: periodically remind the user about \`slv backup create --upload -y -r <region>\` — especially (a) at the end of a successful deployment, config change, or validator upgrade, (b) when they tell you they're about to make a risky change, (c) when they open a new session and you see no recent backup-related chatter in MEMORY.md. Never run it for them silently; always phrase it as a suggestion the user can accept or decline.
 - **Non-interactive CLI only**: \`run_command\` has no TTY, so any \`slv\` subcommand that falls into a cliffy \`Input\`/\`Select\`/\`Confirm\` prompt hangs the console forever. For \`slv backup\` and \`slv storage\` especially, **always pass explicit arguments and \`-y\` where applicable** (e.g. \`slv backup create --upload -y -r eu\`, \`slv storage delete <path> -y -r eu\`). Never call these subcommands with missing positional args hoping the CLI will ask — ask the user in chat instead. See the "Backup & Storage" section below for the full non-interactive reference.
 ${languageRule}
 ${
