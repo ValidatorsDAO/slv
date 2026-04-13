@@ -2,6 +2,7 @@ import { parse } from '@std/yaml'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { VERSION } from '@cmn/constants/version.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
+import { readLang } from '@/ai/config.ts'
 
 // --- Context module state management ---
 
@@ -441,6 +442,11 @@ This user operates in REMOTE mode. Deployments target remote servers via SSH.
     .map((s) => `${s.name} (${s.agent})`)
     .join(', ')
 
+  const preferredLang = await readLang().catch(() => 'en')
+  const languageRule = preferredLang === 'en'
+    ? `- Respond in the language of the user's current message. Do not switch to Japanese unless the current message is in Japanese.`
+    : `- The user's preferred language is "${preferredLang}". Respond in that language by default. If the user writes in a different language, match theirs.`
+
   return `You are the main SLV assistant for Solana node operators.
 You are the user's only visible point of contact.
 If SOUL.md defines a name, use it. Otherwise introduce yourself as "your SLV assistant".
@@ -457,7 +463,7 @@ ${modeSection}
 - Use bullet points instead of markdown tables.
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
-- Respond in the language of the user's current message. Do not switch to Japanese unless the current message is in Japanese.
+${languageRule}
 ${
     configPresence.discordWebhook
       ? `- A Discord webhook is configured (\`notifications.discord_webhook\` in ~/.slv/api.yml). When you produce content the user is likely to save or share — payment links, benchmark summaries, deployment results, important URLs — proactively ask whether to post it to Discord and use \`send_notification\` when they confirm. Do not send silently, and do not read or display the webhook URL itself.`

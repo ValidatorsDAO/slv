@@ -14,6 +14,7 @@ import {
 } from '@mariozechner/pi-tui'
 import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
+import { initI18n, t } from '@/ai/i18n/index.ts'
 import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
 import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
@@ -245,32 +246,36 @@ async function buildLocalGreeting(home: string): Promise<string> {
     // skill not installed
   }
 
-  const greetLine = userName ? `Hey ${userName}! 👋` : 'Hey there! 👋'
+  const greetLine = userName
+    ? t('Hey {name}! 👋').replace('{name}', userName)
+    : t('Hey there! 👋')
 
   const introLine = agentName !== 'your SLV assistant'
-    ? `I'm ${agentName}, your SLV commander.`
-    : `I'm your SLV assistant.`
+    ? t("I'm {agent}, your SLV commander.").replace('{agent}', agentName)
+    : t("I'm your SLV assistant.")
 
   const agentDescriptions: Record<string, string> = {
-    'Cecil': 'Solana Validator deployments & management',
-    'Tina': 'RPC nodes (Index RPC, gRPC Geyser, combos)',
-    'Setzer': 'Trading bots & Solana apps',
-    'Figaro': 'Find optimized Solana server resources',
-    'Cid': 'Benchmarks & connectivity testing',
+    'Cecil': t('Solana Validator deployments & management'),
+    'Tina': t('RPC nodes (Index RPC, gRPC Geyser, combos)'),
+    'Setzer': t('Trading bots & Solana apps'),
+    'Figaro': t('Find optimized Solana server resources'),
+    'Cid': t('Benchmarks & connectivity testing'),
   }
 
   const preferredOrder = ['Cecil', 'Tina', 'Setzer', 'Figaro', 'Cid']
   const crew = preferredOrder.filter((agent) => enabledAgents.includes(agent))
   let crewSection = ''
   if (crew.length > 0) {
-    crewSection = ` Here's my crew:\n\n${
+    crewSection = ` ${t("Here's my crew:")}\n\n${
       crew.map((a) => `- ${a} — ${agentDescriptions[a]}`).join('\n')
     }\n\n`
   } else {
     crewSection = ' '
   }
 
-  return `${greetLine}\n\n${introLine}${crewSection}What would you like to work on today?`
+  return `${greetLine}\n\n${introLine}${crewSection}${
+    t('What would you like to work on today?')
+  }`
 }
 
 async function checkDependencies(): Promise<string[]> {
@@ -474,6 +479,7 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
 }
 
 export const consoleAction = async () => {
+  await initI18n()
   // Reset lazy-loaded tools, context modules, and demand-driven caches at session start
   resetActiveTools()
   resetContextModules()
@@ -509,21 +515,26 @@ export const consoleAction = async () => {
   // Header
   chatLog.addChild(new Spacer(1))
   chatLog.addChild(
-    new Text(greenBold(`  SLV AI Console v${denoJson.version}`), 1),
+    new Text(
+      greenBold(`  ${t('SLV AI Console')} v${denoJson.version}`),
+      1,
+    ),
   )
   chatLog.addChild(
     new Text(
       white(
         config.provider === 'slv'
-          ? `  Provider: ${providerLabel}`
-          : `  Provider: ${providerLabel} | Model: ${config.model}`,
+          ? `  ${t('Provider:')} ${providerLabel}`
+          : `  ${t('Provider:')} ${providerLabel} | ${t('Model:')} ${config.model}`,
       ),
       1,
     ),
   )
   chatLog.addChild(
     new Text(
-      gray('  Type /exit to quit, /clear to reset. Press Enter to send.'),
+      gray(
+        `  ${t('Type /exit to quit, /clear to reset. Press Enter to send.')}`,
+      ),
       1,
     ),
   )
@@ -979,7 +990,7 @@ RULES:
     }
     tui.stop()
     await terminal.drainInput()
-    console.log('\n  Goodbye!\n')
+    console.log(`\n  ${t('Goodbye!')}\n`)
     Deno.exit(0)
   }
 

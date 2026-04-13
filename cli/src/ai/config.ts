@@ -13,6 +13,8 @@ export type AiConfig = {
 type ApiYml = {
   slv: { api_key: string | null }
   ai?: AiConfig
+  lang?: string
+  agreed_slv_init_bot?: boolean
 }
 
 const getApiYmlPath = (): string => {
@@ -65,6 +67,39 @@ export const writeAiConfig = async (config: AiConfig): Promise<void> => {
     yml.ai = config
     await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
   }
+  await Deno.chmod(path, 0o600)
+}
+
+export const readLang = async (): Promise<string> => {
+  const yml = await readApiYml()
+  return yml.lang && yml.lang.trim().length > 0 ? yml.lang.trim() : 'en'
+}
+
+export const hasLangSet = async (): Promise<boolean> => {
+  const yml = await readApiYml()
+  return typeof yml.lang === 'string' && yml.lang.trim().length > 0
+}
+
+export const writeLang = async (lang: string): Promise<void> => {
+  const path = getApiYmlPath()
+  await Deno.mkdir(dirname(path), { recursive: true })
+  const yml = await readApiYml()
+  yml.lang = lang
+  await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
+  await Deno.chmod(path, 0o600)
+}
+
+export const readBotAgreement = async (): Promise<boolean> => {
+  const yml = await readApiYml()
+  return yml.agreed_slv_init_bot === true
+}
+
+export const writeBotAgreement = async (agreed: boolean): Promise<void> => {
+  const path = getApiYmlPath()
+  await Deno.mkdir(dirname(path), { recursive: true })
+  const yml = await readApiYml()
+  yml.agreed_slv_init_bot = agreed
+  await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
   await Deno.chmod(path, 0o600)
 }
 
