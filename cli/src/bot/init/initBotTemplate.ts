@@ -19,7 +19,11 @@ import { initI18n, t } from '@/ai/i18n/index.ts'
 // directory is touched, they are rescued to a temp path and both a live copy
 // and a timestamped .bak.<ts> are restored afterward. .bak files are also
 // rescued so the user's recovery trail is never destroyed.
-const PROTECTED_FILE_NAMES = ['wallet.json', '.env']
+// `.discord-init-notified` is a marker the Setzer agent writes after it has
+// sent the first-start Discord welcome message. Preserving it across re-inits
+// stops the agent from spamming the user with a fresh welcome every time the
+// app is rebuilt or the template is refreshed.
+const PROTECTED_FILE_NAMES = ['wallet.json', '.env', '.discord-init-notified']
 const PROTECTED_BAK_PATTERN = /^(wallet\.json|\.env)\.bak\.\d+$/
 
 type RescuedFile = { relPath: string; content: Uint8Array }

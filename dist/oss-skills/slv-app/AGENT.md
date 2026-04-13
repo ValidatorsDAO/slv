@@ -172,23 +172,87 @@ sleep 2 && curl -s http://localhost:3000/api/wallet | head -20
 
 If the wallet endpoint responds, the bot is running. **On first start, the bot auto-generates `wallet.json`. On every subsequent start, it loads the existing `wallet.json` — never let any command overwrite or delete it.**
 
+### Step 6.5: Resolve the public URL (every start)
+
+`curl localhost:3000/*` is how you *probe* the API from the same host — the
+bot is running on this box so localhost always works. But `localhost` is
+**not** what you should show the user. If you send `http://localhost:3000/docs`
+in chat or to Discord, the user cannot click it from their phone or another
+machine.
+
+Capture the node's public IPv4 once and reuse it everywhere you display a
+URL:
+
+```bash
+PUBLIC_IP=$(curl -4 -fsS --max-time 5 ifconfig.me 2>/dev/null || echo "")
+if [ -z "$PUBLIC_IP" ]; then
+  # Fallback: primary interface on this box. Works for LAN-only dev machines.
+  if command -v ipconfig >/dev/null 2>&1; then
+    PUBLIC_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "")
+  fi
+fi
+[ -z "$PUBLIC_IP" ] && PUBLIC_IP="localhost"
+PUBLIC_URL="http://$PUBLIC_IP:3000"
+echo "PUBLIC_URL=$PUBLIC_URL"
+```
+
+Rules for URL display:
+- **All probes / curls run by you** → use `http://localhost:3000/...` (fast, always works from the same host).
+- **All URLs you show to the user in chat** → use `$PUBLIC_URL/...` so they are clickable from anywhere.
+- **All URLs you send to Discord** → use `$PUBLIC_URL/...`.
+- If `PUBLIC_IP` fell back to `localhost`, mention to the user that the bot is LAN-only and the docs URL only works from this machine.
+
+Also remind the user once that **port 3000 must be reachable** (open in the VPS firewall / security group) for the links to work from outside. If you detect `PUBLIC_IP` is a public address and the user is on a VPS, suggest they verify with ``curl -fsS $PUBLIC_URL/api/wallet`` from their local machine.
+
+### Step 6.6: First-start Discord notification (fresh installs only)
+
+If this was a **fresh install** (in the Preflight you observed `NO_DIR` or `DIR_EXISTS + NO_WALLET` — i.e. the bot just generated its `wallet.json` for the first time in this session) AND a Discord webhook is configured (`notifications.discord_webhook` in `~/.slv/api.yml`, as set up by `slv onboard`), send a one-time welcome notification so the user can reach the bot from their phone or another machine.
+
+Use the `send_notification` tool with a payload like:
+
+```
+🚀 Solana Trade Bot — Deployed & Running
+
+Wallet:   <pubkey from /api/wallet>
+Balance:  <SOL from /api/wallet>
+gRPC:     <GRPC_ENDPOINT from .env>
+API:      $PUBLIC_URL
+API Docs: $PUBLIC_URL/docs
+
+Next steps:
+1. Send SOL to the wallet (minimum 0.013 SOL)
+2. Start trading:  curl -X POST $PUBLIC_URL/api/trade/start
+3. Check status:   curl -s $PUBLIC_URL/api/trade/status
+4. Tune config:    GET / PUT $PUBLIC_URL/api/config
+```
+
+Then mark the notification as sent so you do not spam the user on restarts:
+
+```bash
+touch ~/slv/solana-trade-bot/.discord-init-notified
+```
+
+**Idempotency**: before sending, check `[ -f ~/slv/solana-trade-bot/.discord-init-notified ] && echo SKIP_NOTIFY`. If the marker exists, **do not send the notification again** — the user has already received it. This file must also survive re-inits because it lives inside the app directory, which means you should treat it the same way as `wallet.json` in the Preflight: if you ever re-init and the marker existed, preserve it via the same backup rule.
+
+If no Discord webhook is configured, skip this step entirely — do not ask the user for a webhook URL in chat. Mention briefly that they can set one up with `slv onboard` to get the docs URL pushed to their phone next time.
+
 ### Step 7: Explore the API and guide the user
 
-Once the bot is running, **you should operate it on behalf of the user** via the REST API:
+Once the bot is running, **you should operate it on behalf of the user** via the REST API. Remember the rule from Step 6.5: probe via `localhost`, display via `$PUBLIC_URL`.
 
-1. **Show wallet info** — `curl -s http://localhost:3000/api/wallet`
+1. **Show wallet info** — probe: `curl -s http://localhost:3000/api/wallet`
    - Tell the user the wallet pubkey and ask them to fund it with SOL
    - Minimum: 0.013 SOL (buy amount + ATA rent + fee reserve)
 
 2. **Show API docs link** — tell the user they can explore all endpoints at:
-   `http://localhost:3000/docs`
+   `$PUBLIC_URL/docs`  (substitute the actual resolved URL from Step 6.5)
 
 3. **Read the OpenAPI spec** to understand available endpoints:
    ```bash
    curl -s http://localhost:3000/docs | head -100
    ```
 
-4. **Show current config** — `curl -s http://localhost:3000/api/config`
+4. **Show current config** — probe: `curl -s http://localhost:3000/api/config`
    - Explain the current settings (buy amount, sell multiplier, etc.)
    - Ask if they want to adjust anything
 
@@ -196,7 +260,7 @@ Once the bot is running, **you should operate it on behalf of the user** via the
 
 ### Step 8: Start trading
 
-Once the wallet is funded:
+Once the wallet is funded, probe locally:
 ```bash
 curl -X POST http://localhost:3000/api/trade/start
 ```
@@ -204,6 +268,13 @@ curl -X POST http://localhost:3000/api/trade/start
 Then check status:
 ```bash
 curl -s http://localhost:3000/api/trade/status
+```
+
+When you **show** these commands to the user in chat, substitute `$PUBLIC_URL` so they can run them from their own machine:
+
+```
+curl -X POST $PUBLIC_URL/api/trade/start
+curl -s $PUBLIC_URL/api/trade/status
 ```
 
 Explain what's happening:
@@ -214,11 +285,13 @@ Explain what's happening:
 
 ### Step 9: Monitor and improve
 
-Keep interacting with the bot API to help the user:
+Keep interacting with the bot API to help the user (probe via localhost, display via `$PUBLIC_URL`):
 - `curl -s http://localhost:3000/api/trade/status` — check running state
 - `curl -s http://localhost:3000/api/logs` — view trade logs
 - `curl -s http://localhost:3000/api/trades/profit` — P&L summary
 - `curl -X PUT http://localhost:3000/api/config -H 'Content-Type: application/json' -d '{...}'` — adjust config
+
+When you hand these snippets to the user in chat, rewrite `http://localhost:3000` → `$PUBLIC_URL` so they are clickable/runnable from anywhere.
 
 **Ask the user what they'd like to improve** — e.g. buy amount, profit target, timeout, etc.
 
@@ -260,6 +333,8 @@ For dedicated upgrades and storage products, refer to SKILL.md for the full MCP 
 4. Before any operation that *could* touch `wallet.json`, snapshot it first: ``cp wallet.json wallet.json.bak.$(date +%s)``.
 5. Before launching the bot binary, verify it is not already running (`pgrep -f trade-app`) and port 3000 is not already answering. If the bot is up, use the REST API — never re-launch.
 6. If the app directory already exists with a wallet and binary, **skip `slv bot init` entirely**. There is nothing to download; running init would only risk the wallet.
+6a. **Display URLs use `$PUBLIC_URL`, probe URLs use `localhost`.** Every URL you put in chat text, a user-facing example, or a Discord notification MUST be the node's public IP (resolved per Step 6.5). Localhost is reserved for your own `curl` probes running on the same host. The user cannot click `http://localhost:3000/*` from their phone.
+6b. **Send the first-start Discord welcome exactly once.** When a fresh `wallet.json` is generated AND `notifications.discord_webhook` is configured, call `send_notification` with the payload from Step 6.6 and create `.discord-init-notified` in the app directory. Do not notify again on restarts.
 7. Guide users **one step at a time** — confirm success before moving on
 8. When a build fails, diagnose the error (check SKILL.md for known issues)
 9. Explain what each env var does in simple terms when asked
