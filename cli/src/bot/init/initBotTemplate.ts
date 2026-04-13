@@ -10,6 +10,47 @@ import {
   BotTempDirMap,
   BotTempTypeArray,
 } from '@cmn/zod/bot.ts'
+import { readBotAgreement, writeBotAgreement } from '@/ai/config.ts'
+import { initI18n, t } from '@/ai/i18n/index.ts'
+
+const confirmBotInitAgreement = async (): Promise<boolean> => {
+  if (await readBotAgreement()) return true
+  await initI18n()
+
+  console.log()
+  console.log(
+    colors.bold.yellow(`⚠ ${t('slv bot init — trade-app is an example only')}`),
+  )
+  console.log()
+  console.log(
+    colors.white(
+      t(
+        'The trade-app template is only an example of Solana on-chain transaction detection and submission. When the app starts, a wallet.json is created; trading begins once you deposit SOL into it, and your assets may decrease. Use this sample as a base for your own AI-assisted improvements — it can greatly reduce the effort of building Solana apps, but it is powerful and may cause financial loss in some cases.',
+      ),
+    ),
+  )
+  console.log()
+
+  const accepted = await Select.prompt({
+    message: t('I understand the above and will use it at my own risk.'),
+    options: [
+      { name: t('Yes'), value: 'yes' },
+      { name: t('No'), value: 'no' },
+    ],
+  })
+
+  if (accepted !== 'yes') {
+    console.log(
+      colors.yellow(
+        `\n⚠ ${t('bot init cancelled. You can run `slv bot init` again when ready.')}\n`,
+      ),
+    )
+    return false
+  }
+
+  await writeBotAgreement(true)
+  return true
+}
 
 /**
  * Initialize a new Solana trade bot application by downloading the template
@@ -20,6 +61,9 @@ import {
 
 export const initBotTemplate = async (options: { queue: boolean; template?: string; name?: string; yes?: boolean }) => {
   try {
+    if (!(await confirmBotInitAgreement())) {
+      return false
+    }
     // Create a directory for the bot if it doesn't exist
     const botConfigDir = join(configRoot, 'bot')
     try {
