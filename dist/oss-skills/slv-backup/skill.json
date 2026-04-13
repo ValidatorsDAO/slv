@@ -1,0 +1,14 @@
+{
+  "name": "slv-backup",
+  "displayName": "SLV Backup & Storage",
+  "version": "0.1.0",
+  "description": "Non-interactive command patterns for slv backup and slv storage. Loaded into the main SLV assistant so it can run backup, restore, upload, download, list, and delete operations safely via run_command without triggering TTY prompts.",
+  "author": "ValidatorsDAO",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ValidatorsDAO/slv",
+  "repository": "https://github.com/ValidatorsDAO/slv",
+  "tags": ["backup", "storage", "slv", "non-interactive"],
+  "files": {
+    "skill": "SKILL.md"
+  }
+}
