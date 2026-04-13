@@ -142,7 +142,7 @@ Build warnings about unused variables are normal and can be ignored. If `librock
 
 ### Step 6: Start the bot
 
-**IMPORTANT: trade-app is a long-running server process. NEVER run it with `run_command` directly — it will block forever.**
+**IMPORTANT: trade-app is a long-running server process. NEVER run it with `run_command` directly, and never launch it in a way that leaves the console waiting forever. Start it detached, persist the PID, then do a bounded readiness check.**
 
 **Pre-start checks — run these every time before launching:**
 ```bash
@@ -162,15 +162,25 @@ curl -sf http://localhost:3000/api/wallet >/dev/null && echo "API_UP" || echo "A
 - Only if the bot is truly not running AND the binary exists, proceed with launch:
 
 ```bash
-cd ~/slv/solana-trade-bot && RUST_LOG=info nohup ./target/release/trade-app > trade-app.log 2>&1 &
+cd ~/slv/solana-trade-bot
+mkdir -p .slv
+RUST_LOG=info nohup ./target/release/trade-app > trade-app.log 2>&1 & echo $! > .slv/trade-app.pid
 ```
 
-Then wait a moment and verify it started:
+Then verify startup with a short bounded check. Do not wait indefinitely:
 ```bash
-sleep 2 && curl -s http://localhost:3000/api/wallet | head -20
+for i in 1 2 3 4 5; do
+  if curl -fsS http://localhost:3000/api/wallet >/tmp/trade-app-wallet.json 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+cat /tmp/trade-app-wallet.json | head -20
 ```
 
-If the wallet endpoint responds, the bot is running. **On first start, the bot auto-generates `wallet.json`. On every subsequent start, it loads the existing `wallet.json` — never let any command overwrite or delete it.**
+If the wallet endpoint responds, the bot is running. Tell the user clearly that startup succeeded, that the API is ready at `http://localhost:3000`, and that the PID was saved to `~/slv/solana-trade-bot/.slv/trade-app.pid` so it can be stopped later. **On first start, the bot auto-generates `wallet.json`. On every subsequent start, it loads the existing `wallet.json` — never let any command overwrite or delete it.**
+
+If the readiness check does not pass, inspect `trade-app.log` and report the startup failure instead of waiting forever.
 
 ### Step 6.5: Resolve the public URL (every start)
 
@@ -303,6 +313,13 @@ slv bot deploy
 This builds, uploads via SCP, creates a systemd service, and starts the bot on the remote server.
 
 ### Stopping the bot locally
+Prefer the saved PID file:
+```bash
+cd ~/slv/solana-trade-bot
+kill "$(cat .slv/trade-app.pid)" && rm -f .slv/trade-app.pid
+```
+
+If the PID file is missing or stale, fall back to a process search:
 ```bash
 pkill -f trade-app
 ```
