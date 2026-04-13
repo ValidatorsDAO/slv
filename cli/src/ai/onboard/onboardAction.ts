@@ -397,6 +397,11 @@ export const onboardAction = async () => {
     if (existing.enabledOps) return existing.enabledOps.includes(op)
     return firstRunDefault
   }
+  // First-run defaults: only the top option is pre-checked. This narrows the
+  // implied primary focus to Validator Operations (SLV's original flagship
+  // use-case) and stops the onboarding flow from dumping the user into a
+  // "you do everything" state. The user can still tick more with Space.
+  // Second-run: defaults come from the existing config (`existing.enabledOps`).
   const selectedOps: string[] = await Checkbox.prompt({
     message: t('What will you be doing? (↑↓ move, Space toggle, Enter confirm)'),
     options: [
@@ -408,17 +413,17 @@ export const onboardAction = async () => {
       {
         name: 'Index RPC Node Operations',
         value: 'Index RPC Node Operations',
-        checked: isChecked('Index RPC Node Operations', true),
+        checked: isChecked('Index RPC Node Operations', false),
       },
       {
         name: 'gRPC Geyser Streaming',
         value: 'gRPC Geyser Streaming',
-        checked: isChecked('gRPC Geyser Streaming', true),
+        checked: isChecked('gRPC Geyser Streaming', false),
       },
       {
         name: 'Benchmark & Connectivity Testing',
         value: 'Benchmark & Connectivity Testing',
-        checked: isChecked('Benchmark & Connectivity Testing', true),
+        checked: isChecked('Benchmark & Connectivity Testing', false),
       },
       {
         name: 'Solana App Development (Trade Bot)',
@@ -428,7 +433,7 @@ export const onboardAction = async () => {
       {
         name: 'Server Procurement',
         value: 'Server Procurement',
-        checked: isChecked('Server Procurement', true),
+        checked: isChecked('Server Procurement', false),
       },
     ],
   })

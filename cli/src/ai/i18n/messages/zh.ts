@@ -102,4 +102,17 @@ export const messages: Record<string, string> = {
     '寻找最优 Solana 服务器资源',
   'Benchmarks & connectivity testing': '基准测试与连通性测试',
   'Goodbye!': '再见！',
+
+  "Focused on Solana App Development. Say 'new trade bot' when you're ready.":
+    '专注于 Solana 应用开发。准备好后请说 "new trade bot"。',
+  'Focused on App Development. You have 1 trade app: {name}.':
+    '专注于应用开发。您有 1 个交易应用: {name}。',
+  'Focused on App Development. You have {count} trade apps in ~/slv/.':
+    '专注于应用开发。~/slv/ 中共有 {count} 个交易应用。',
+  'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.':
+    '专注于 Solana 验证者运维。可询问部署、健康检查或升级。',
+  'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.':
+    '专注于 RPC / gRPC 节点运维。可询问端点配置、健康或调优。',
+  'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
+    '混合焦点 — validator + app / rpc。使用 `/focus <validator|rpc|app>` 进行细分。',
 }

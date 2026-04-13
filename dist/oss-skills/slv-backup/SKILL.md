@@ -157,6 +157,44 @@ positional quantity — passing nothing hangs on `Input.prompt`.
 If you catch yourself about to run any of the above, **stop and ask the
 user** instead.
 
+## When to proactively suggest a backup
+
+The main agent should not wait for the user to ask. `slv backup create` is
+cheap, non-destructive, and the single biggest insurance policy against the
+kind of disasters a validator / RPC / trade-app operator actually
+experiences (disk failure, bad config push, accidental `rm`). Offer a
+backup — **as a suggestion, not a silent action** — at these moments:
+
+- **After a successful validator deployment or upgrade**: "Now's a good
+  time to snapshot this box with `slv backup create --upload -y -r <region>
+  --retention 7`. Want me to run it?"
+- **Before a risky change** the user just described: a restart, a config
+  rewrite, a package upgrade, a kernel reboot. "Before we do that, want me
+  to take a backup? It's a one-liner and saves you if something breaks."
+- **At the start of a session** when MEMORY.md shows no recent
+  backup-related activity and the host has clearly been in production (has
+  a validator or RPC or trade-app). "Quick check — when did you last back
+  this box up? Happy to run `slv backup create` now."
+- **After the user asks "how do I protect against X?"** — almost any
+  answer includes backup.
+- **Periodically during long sessions**: once per session is plenty. Don't
+  nag; once the user declines, drop it for the session.
+
+Do NOT run `slv backup create` silently. Always phrase it as a suggestion,
+show the exact command you would run, and wait for explicit consent. The
+user decides. If they decline, respect it and move on.
+
+When the user agrees, use the non-interactive form from the reference
+above:
+
+```bash
+slv backup create --upload -y -r <region> --retention 7
+```
+
+Substitute `<region>` with the user's preferred region if known (check
+`SLV_STORAGE_REGION` env or their onboard config); otherwise ask once in
+chat before running.
+
 ## Env var shortcuts
 
 - `SLV_STORAGE_REGION` — default region for `slv storage` subcommands when `-r` is omitted.
