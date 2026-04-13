@@ -13,6 +13,85 @@ import {
 import { readBotAgreement, writeBotAgreement } from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
 
+// Files that MUST NEVER be destroyed by `slv bot init`. A real incident
+// occurred where re-running `slv bot init -y` wiped a funded wallet.json and
+// the user lost SOL. These files are treated as sacred — before the target
+// directory is touched, they are rescued to a temp path and both a live copy
+// and a timestamped .bak.<ts> are restored afterward. .bak files are also
+// rescued so the user's recovery trail is never destroyed.
+const PROTECTED_FILE_NAMES = ['wallet.json', '.env']
+const PROTECTED_BAK_PATTERN = /^(wallet\.json|\.env)\.bak\.\d+$/
+
+type RescuedFile = { relPath: string; content: Uint8Array }
+
+const rescueProtectedFiles = async (
+  appDir: string,
+): Promise<RescuedFile[]> => {
+  const rescued: RescuedFile[] = []
+  // Top-level protected files
+  for (const name of PROTECTED_FILE_NAMES) {
+    try {
+      const content = await Deno.readFile(join(appDir, name))
+      rescued.push({ relPath: name, content })
+    } catch { /* absent */ }
+  }
+  // Existing backup files (never destroy the user's recovery trail)
+  try {
+    for await (const entry of Deno.readDir(appDir)) {
+      if (entry.isFile && PROTECTED_BAK_PATTERN.test(entry.name)) {
+        try {
+          const content = await Deno.readFile(join(appDir, entry.name))
+          rescued.push({ relPath: entry.name, content })
+        } catch { /* ignore unreadable */ }
+      }
+    }
+  } catch { /* dir missing */ }
+  return rescued
+}
+
+const restoreRescuedFiles = async (
+  appDir: string,
+  rescued: RescuedFile[],
+): Promise<string[]> => {
+  const restoredNames: string[] = []
+  const ts = Date.now()
+  for (const f of rescued) {
+    const target = join(appDir, f.relPath)
+    await Deno.writeFile(target, f.content)
+    restoredNames.push(f.relPath)
+    // For live protected files (not pre-existing .bak.* entries), also drop a
+    // fresh timestamped backup so there is always at least one .bak copy after
+    // a re-init, even if the user later edits the restored original.
+    if (PROTECTED_FILE_NAMES.includes(f.relPath)) {
+      const bakPath = join(appDir, `${f.relPath}.bak.${ts}`)
+      try {
+        await Deno.writeFile(bakPath, f.content)
+        restoredNames.push(`${f.relPath}.bak.${ts}`)
+      } catch { /* non-fatal */ }
+    }
+  }
+  return restoredNames
+}
+
+// Returns true if a trade-app process appears to be running from the given
+// appDir. We refuse to re-init while the bot is live so we don't race with an
+// active server.
+const isBotRunningFromDir = async (appDir: string): Promise<boolean> => {
+  try {
+    const p = new Deno.Command('pgrep', {
+      args: ['-af', 'target/release'],
+      stdout: 'piped',
+      stderr: 'null',
+    })
+    const out = await p.output()
+    if (!out.success) return false
+    const text = new TextDecoder().decode(out.stdout)
+    return text.split('\n').some((line) => line.includes(appDir))
+  } catch {
+    return false
+  }
+}
+
 // Show the sample-usage disclaimer once per user (first `slv bot init`), then
 // proceed automatically. This used to be an interactive Yes/No prompt, but it
 // blocked AI agents (e.g. Setzer) that invoke `slv bot init` as a subprocess.
@@ -124,8 +203,10 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
 
     // Check if app directory already exists
     let shouldOverwrite = false
+    let dirExists = false
     try {
       await Deno.stat(appDir)
+      dirExists = true
       console.log(colors.yellow(`⚠️ Directory ${appDir} already exists`))
 
       if (options.yes) {
@@ -154,8 +235,46 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
       // Directory doesn't exist, which is fine
     }
 
-    // Remove existing directory if overwriting
-    if (shouldOverwrite) {
+    // --- Overwrite safety layer ---
+    // When overwriting an existing directory, we MUST preserve any funded
+    // wallet.json / .env and existing .bak.* files. We also refuse to
+    // re-init while the bot binary is running from that directory.
+    let rescuedFiles: RescuedFile[] = []
+    if (shouldOverwrite && dirExists) {
+      if (await isBotRunningFromDir(appDir)) {
+        console.log(
+          colors.red(
+            `❌ Refusing to overwrite ${appDir}: a trade-app process is ` +
+              `currently running from this directory.`,
+          ),
+        )
+        console.log(
+          colors.white(
+            `   Stop it first with: pkill -f "${appDir}/target/release"`,
+          ),
+        )
+        return false
+      }
+
+      rescuedFiles = await rescueProtectedFiles(appDir)
+      if (rescuedFiles.length > 0) {
+        const walletFound = rescuedFiles.some((f) => f.relPath === 'wallet.json')
+        if (walletFound) {
+          console.log(
+            colors.bold.yellow(
+              `🛡  wallet.json detected — it will be preserved, not overwritten.`,
+            ),
+          )
+        }
+        console.log(
+          colors.yellow(
+            `   Rescuing ${rescuedFiles.length} protected file(s): ${
+              rescuedFiles.map((f) => f.relPath).join(', ')
+            }`,
+          ),
+        )
+      }
+
       console.log(colors.blue(`🗑️ Removing existing directory...`))
       await exec(`rm -rf "${appDir}"`)
     }
@@ -228,6 +347,20 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
         colors.green(`✅ Template downloaded (${entries.length} items)`),
       )
 
+      // Restore rescued protected files (wallet.json, .env, .bak.*) so a
+      // re-init never destroys a funded wallet. For live files we also write
+      // a fresh .bak.<ts> snapshot as an extra safety copy.
+      if (rescuedFiles.length > 0) {
+        const restored = await restoreRescuedFiles(appDir, rescuedFiles)
+        console.log(
+          colors.green(
+            `🛡  Restored ${restored.length} protected file(s): ${
+              restored.join(', ')
+            }`,
+          ),
+        )
+      }
+
       const isRust = templateType.includes('rust') ||
         templateType === 'trade-app'
       console.log(colors.blue('🔧 Initializing git repository...'))
@@ -261,6 +394,29 @@ ${msg}
         colors.red('❌ Failed to download or extract template:'),
         error,
       )
+      // The directory was wiped but extraction failed — restore rescued
+      // protected files so the user never loses wallet.json even on a
+      // crashed re-init. Recreate the directory first if needed.
+      if (rescuedFiles.length > 0) {
+        try {
+          await Deno.mkdir(appDir, { recursive: true })
+          const restored = await restoreRescuedFiles(appDir, rescuedFiles)
+          console.log(
+            colors.yellow(
+              `🛡  Restored ${restored.length} protected file(s) after ` +
+                `failed init: ${restored.join(', ')}`,
+            ),
+          )
+        } catch (restoreErr) {
+          console.error(
+            colors.red(
+              `❌ CRITICAL: failed to restore rescued files. ` +
+                `Contents were held in memory only and may be lost.`,
+            ),
+            restoreErr,
+          )
+        }
+      }
       return false
     }
     return true
