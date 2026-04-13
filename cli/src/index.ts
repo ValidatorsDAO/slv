@@ -1,6 +1,7 @@
 import { Command } from '@cliffy'
 import denoJson from '/deno.json' with { type: 'json' }
 import { botCmd } from '@/bot/index.ts'
+import { skillsCmd } from '@/skills/index.ts'
 import { appCmd } from '@/app/index.ts'
 import { validatorCmd } from '@/validator/index.ts'
 import { rpcCmd } from '@/rpc/index.ts'
@@ -59,6 +60,9 @@ program
 program
   .command('bot', botCmd)
   .alias('b')
+
+program
+  .command('skills', skillsCmd)
 
 program
   .command('app', appCmd)
