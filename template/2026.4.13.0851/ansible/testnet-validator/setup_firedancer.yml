@@ -1,0 +1,11 @@
+---
+- name: Setup Firedancer
+  hosts: all
+  become: yes
+  become_user: solv
+
+- import_playbook: setup_firedancer_jito.yml
+  when: validator_type in ['firedancer-jito']
+
+- import_playbook: setup_firedancer_agave.yml
+  when: validator_type in ['firedancer-agave']

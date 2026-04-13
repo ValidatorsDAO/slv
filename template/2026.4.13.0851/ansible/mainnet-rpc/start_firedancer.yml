@@ -1,0 +1,17 @@
+---
+- name: Run Command
+  hosts: all
+  become: true
+  gather_facts: no
+  become_user: solv
+  tasks:
+    - name: Start Firedancer
+      shell: . ~/.profile && sudo systemctl start firedancer
+      register: command_output
+      retries: 3
+      delay: 10
+      failed_when: false
+
+    - name: Display Command output
+      debug:
+        msg: 'Start Firedancer: {{ command_output.stdout }}'
