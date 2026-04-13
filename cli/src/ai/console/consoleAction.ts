@@ -556,6 +556,59 @@ export const consoleAction = async () => {
   let cmdFlushTimer: ReturnType<typeof setTimeout> | null = null
   let cmdTotalLineCount = 0
 
+  // Activity spinner shown while `run_command` executes. Long commands
+  // (cargo build, curl downloads, ansible plays) can produce little or no
+  // output for a while, so we show a rotating spinner with elapsed time so
+  // the user knows work is in progress.
+  let commandLoader: Loader | null = null
+  let commandStartedAt = 0
+  let commandLabel = ''
+  let commandTimer: ReturnType<typeof setInterval> | null = null
+
+  const formatElapsed = (ms: number): string => {
+    const s = Math.floor(ms / 1000)
+    if (s < 60) return `${s}s`
+    const m = Math.floor(s / 60)
+    return `${m}m ${s % 60}s`
+  }
+
+  const startCommandLoader = (command: string) => {
+    stopCommandLoader() // guard against overlap
+    // Keep the label short so it fits on one line in narrow terminals.
+    const cleaned = command.replace(/\s+/g, ' ').trim()
+    commandLabel = cleaned.length > 56
+      ? cleaned.slice(0, 53) + '...'
+      : cleaned
+    commandStartedAt = Date.now()
+    commandLoader = new Loader(
+      tui,
+      (s: string) => chalk.hex('#14f195')(s),
+      (s: string) => chalk.gray(s),
+      `Running: ${commandLabel} (0s)`,
+    )
+    chatLog.addChild(commandLoader)
+    commandLoader.start()
+    commandTimer = setInterval(() => {
+      if (!commandLoader) return
+      const elapsed = formatElapsed(Date.now() - commandStartedAt)
+      commandLoader.setMessage(`Running: ${commandLabel} (${elapsed})`)
+      tui.requestRender()
+    }, 1000)
+    tui.requestRender()
+  }
+
+  const stopCommandLoader = () => {
+    if (commandTimer) {
+      clearInterval(commandTimer)
+      commandTimer = null
+    }
+    if (commandLoader) {
+      chatLog.removeChild(commandLoader)
+      commandLoader.stop()
+      commandLoader = null
+    }
+  }
+
   const flushCmdOutput = () => {
     if (cmdOutputLines.length === 0) return
     // Show last N lines as a rolling window so the user always sees progress
@@ -606,10 +659,15 @@ export const consoleAction = async () => {
     cmdOutputLines = []
     cmdOutputText = null
     cmdTotalLineCount = 0
+    stopCommandLoader()
   }, (taskName: string) => {
-    // Ansible task-title spinner mode: update the loader message
-    if (loader) {
-      loader.setMessage(taskName)
+    // Ansible task-title spinner mode: update the running-command loader with
+    // the current task name while keeping the elapsed-time counter.
+    if (commandLoader) {
+      const elapsed = formatElapsed(Date.now() - commandStartedAt)
+      commandLabel = taskName
+      commandLoader.setMessage(`Running: ${taskName} (${elapsed})`)
+      tui.requestRender()
     }
   })
 
@@ -741,6 +799,17 @@ export const consoleAction = async () => {
       if (name === 'run_command') {
         currentTaskDescription = 'Running a command'
         if (!currentTaskStartedAt) currentTaskStartedAt = Date.now()
+        // Parse the command out of the tool detail JSON so the spinner label
+        // reflects what's actually running (e.g. `cargo build --release`).
+        let cmd = ''
+        try {
+          const parsed = JSON.parse(detail) as { command?: string }
+          if (typeof parsed.command === 'string') cmd = parsed.command
+        } catch {
+          const m = detail.match(/"command"\s*:\s*"([^"]+)"/)
+          if (m) cmd = m[1]
+        }
+        if (cmd) startCommandLoader(cmd)
       } else if (name === 'call_mcp') {
         currentTaskDescription = 'Calling SLV Cloud API'
         if (!currentTaskStartedAt) currentTaskStartedAt = Date.now()
