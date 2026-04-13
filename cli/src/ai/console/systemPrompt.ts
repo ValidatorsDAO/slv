@@ -323,6 +323,18 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`)
   } catch { /* not configured */ }
 
+  // Always-on non-interactive command reference for `slv backup` and
+  // `slv storage`. Loaded directly into the main agent prompt so the
+  // console never hangs on a TTY prompt when users ask to back up or
+  // manage storage. Falls back silently if the skill hasn't been synced
+  // yet (the short Core Rules line below still covers that case).
+  let backupSkillMd = ''
+  try {
+    backupSkillMd = await Deno.readTextFile(
+      `${skillsDir}/slv-backup/SKILL.md`,
+    )
+  } catch { /* skill not synced yet — Core Rules line still applies */ }
+
   // Read config to get enabled skills and mode
   let configYml: Record<string, unknown> = { skills: [] }
   try {
@@ -463,6 +475,7 @@ ${modeSection}
 - Use bullet points instead of markdown tables.
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
+- **Non-interactive CLI only**: \`run_command\` has no TTY, so any \`slv\` subcommand that falls into a cliffy \`Input\`/\`Select\`/\`Confirm\` prompt hangs the console forever. For \`slv backup\` and \`slv storage\` especially, **always pass explicit arguments and \`-y\` where applicable** (e.g. \`slv backup create --upload -y -r eu\`, \`slv storage delete <path> -y -r eu\`). Never call these subcommands with missing positional args hoping the CLI will ask — ask the user in chat instead. See the "Backup & Storage" section below for the full non-interactive reference.
 ${languageRule}
 ${
     configPresence.discordWebhook
@@ -488,6 +501,7 @@ ${
 - Direct the user to ask in Discord for availability or matching:
   ${DISCORD_LINK}
 
+${backupSkillMd ? `## Backup & Storage (non-interactive reference)\n${backupSkillMd}\n` : ''}
 ## Working Environment
 - Home: ${home}
 - Agent dir: ${agentDir}/

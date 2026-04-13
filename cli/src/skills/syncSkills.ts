@@ -10,6 +10,7 @@ export const SKILL_NAMES = [
   'slv-benchmark',
   'slv-app',
   'slv-server-procurement',
+  'slv-backup',
 ] as const
 
 // Top-level files fetched for every skill. These are the files the AI console

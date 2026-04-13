@@ -296,20 +296,33 @@ export const importAction = async (
     }
   }
 
-  // Root filesystem overwrite confirmation — ALWAYS prompt, even with --yes
+  // Root filesystem overwrite warning. This is destructive (tar -xf over /),
+  // so we always print a loud banner. The confirmation itself is skipped when
+  // the caller explicitly passes --yes, so AI agents and automation can run
+  // restores end-to-end without hanging on a TTY prompt they cannot answer.
+  // If you are running interactively and want the safety net, simply omit
+  // --yes and the original Confirm prompt still fires.
   {
-    const { Confirm } = await import('@cliffy/prompt')
     console.log(colors.red('\n⚠️  WARNING: This will extract files over the root filesystem (/).'))
     console.log(colors.red('   Existing files WILL be overwritten.'))
     console.log(colors.red('   A reboot is required after import.\n'))
 
-    const proceed = await Confirm.prompt({
-      message: 'Are you SURE you want to overwrite the root filesystem?',
-      default: false,
-    })
-    if (!proceed) {
-      console.log(colors.yellow('Import cancelled.'))
-      return
+    if (!options.yes) {
+      const { Confirm } = await import('@cliffy/prompt')
+      const proceed = await Confirm.prompt({
+        message: 'Are you SURE you want to overwrite the root filesystem?',
+        default: false,
+      })
+      if (!proceed) {
+        console.log(colors.yellow('Import cancelled.'))
+        return
+      }
+    } else {
+      console.log(
+        colors.yellow(
+          '   --yes provided — proceeding without interactive confirmation.',
+        ),
+      )
     }
   }
 
