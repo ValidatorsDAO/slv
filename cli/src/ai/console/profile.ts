@@ -56,23 +56,46 @@ const parseFocusValue = (raw: string): PrimaryFocus | null => {
   return null
 }
 
-const readFocusOverride = async (): Promise<PrimaryFocus | null> => {
+// Discriminated result from readFocusOverride so detectProfile can tell the
+// difference between "no override file" (ignore silently) and "override file
+// exists but contents are garbage" (mention it in signals so the user can
+// spot their typo).
+type FocusReadResult =
+  | { kind: 'none' }
+  | { kind: 'valid'; focus: PrimaryFocus }
+  | { kind: 'invalid'; raw: string; path: string }
+
+const tryReadFocusFile = async (
+  path: string,
+): Promise<string | null> => {
   try {
-    const raw = await Deno.readTextFile(focusFilePath())
-    return parseFocusValue(raw)
+    return await Deno.readTextFile(path)
   } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) throw err
+    if (err instanceof Deno.errors.NotFound) return null
+    throw err
+  }
+}
+
+const readFocusOverride = async (): Promise<FocusReadResult> => {
+  const primary = await tryReadFocusFile(focusFilePath())
+  if (primary !== null) {
+    const parsed = parseFocusValue(primary)
+    if (parsed) return { kind: 'valid', focus: parsed }
+    return { kind: 'invalid', raw: primary.trim(), path: focusFilePath() }
   }
   // Fall back to the legacy location so existing users don't lose their
-  // override after this release. We do not auto-migrate here — writeFocusOverride
-  // handles that on the next set.
-  try {
-    const raw = await Deno.readTextFile(legacyFocusFilePath())
-    return parseFocusValue(raw)
-  } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) throw err
+  // override after this release. writeFocusOverride migrates on next set.
+  const legacy = await tryReadFocusFile(legacyFocusFilePath())
+  if (legacy !== null) {
+    const parsed = parseFocusValue(legacy)
+    if (parsed) return { kind: 'valid', focus: parsed }
+    return {
+      kind: 'invalid',
+      raw: legacy.trim(),
+      path: legacyFocusFilePath(),
+    }
   }
-  return null
+  return { kind: 'none' }
 }
 
 export const writeFocusOverride = async (
@@ -103,6 +126,10 @@ export const clearFocusOverride = async (): Promise<void> => {
 }
 
 const scanTradeApps = async (): Promise<TradeAppInventory[]> => {
+  // NOTE: `~/slv/` holds user-scaffolded bot projects (created by
+  // `slv bot init`). It is NOT the same as `~/.slv/`, which holds the SLV
+  // CLI config (agent/, skills/, api.yml, …). The two are adjacent in the
+  // home dir and the name similarity is a trap for future maintainers.
   const slvRoot = join(requireHome(), 'slv')
   const apps: TradeAppInventory[] = []
   try {
@@ -144,10 +171,17 @@ const readEnabledSkills = async (): Promise<ConfigSkill[]> => {
   return []
 }
 
+// `mixed` is a derived classification — never a direct signal source — so
+// the scoring map only holds the three concrete roles.
+type ScoredRole = Exclude<PrimaryFocus, 'mixed'>
+const SCORED_ROLES: readonly ScoredRole[] = ['validator', 'rpc', 'app']
+
 // Classify the user into one of the three primary roles.
 //
 // Priority (highest to lowest):
-//   1. Manual override via `/focus <role>` (persisted in ~/.slv/agent/focus)
+//   1. Manual override via `/focus <role>` (persisted in
+//      ~/.slv/agent/focus.txt). An invalid file is ignored but surfaced in
+//      signals so the user can spot their typo.
 //   2. Live trade apps under ~/slv/ — if the user has a real trade-bot with
 //      binary+wallet, they're clearly in app-dev mode regardless of what they
 //      picked during onboard.
@@ -156,29 +190,39 @@ const readEnabledSkills = async (): Promise<ConfigSkill[]> => {
 //
 // Multiple strong signals across different roles → `mixed`.
 export const detectProfile = async (): Promise<UserProfile> => {
-  const override = await readFocusOverride()
+  const overrideResult = await readFocusOverride()
   const apps = await scanTradeApps()
   const enabled = await readEnabledSkills()
 
-  if (override) {
+  if (overrideResult.kind === 'valid') {
     return {
-      primary: override,
+      primary: overrideResult.focus,
       overridden: true,
       apps,
       signals: [
-        `Manual focus override: ${override} (set via /focus)`,
+        `Manual focus override: ${overrideResult.focus} (set via /focus)`,
       ],
     }
   }
 
   const signals: string[] = []
 
-  const hasLiveTradeApp = apps.some((a) => a.hasBinary || a.hasWallet)
+  // If the override file exists but has a garbage value, surface it so the
+  // user can spot the typo and fix it — but continue to auto-detection so
+  // the session isn't blocked by a bad edit.
+  if (overrideResult.kind === 'invalid') {
+    signals.push(
+      `Invalid focus override in ${overrideResult.path}: ${
+        JSON.stringify(overrideResult.raw)
+      } — expected one of validator / rpc / app / mixed. Ignoring.`,
+    )
+  }
+
+  const liveApps = apps.filter((a) => a.hasBinary || a.hasWallet)
+  const hasLiveTradeApp = liveApps.length > 0
   if (hasLiveTradeApp) {
     signals.push(
-      `Trade app(s) in ~/slv: ${
-        apps.filter((a) => a.hasBinary || a.hasWallet).map((a) => a.name).join(', ')
-      }`,
+      `Trade app(s) in ~/slv: ${liveApps.map((a) => a.name).join(', ')}`,
     )
   }
 
@@ -188,7 +232,7 @@ export const detectProfile = async (): Promise<UserProfile> => {
     enabledNames.has('slv-grpc-geyser')
   const hasAppSkill = enabledNames.has('slv-app')
 
-  const roleScore = {
+  const roleScore: Record<ScoredRole, number> = {
     validator: 0,
     rpc: 0,
     app: 0,
@@ -203,16 +247,14 @@ export const detectProfile = async (): Promise<UserProfile> => {
   if (hasRpcSkill) signals.push('RPC / gRPC skill enabled')
   if (hasAppSkill && !hasLiveTradeApp) signals.push('App skill enabled')
 
-  const max = Math.max(roleScore.validator, roleScore.rpc, roleScore.app)
+  const max = Math.max(...SCORED_ROLES.map((r) => roleScore[r]))
 
   let primary: PrimaryFocus
   if (max === 0) {
     primary = 'validator' // fallback — original SLV focus
     signals.push('No strong signal — defaulting to validator')
   } else {
-    const leaders = (Object.entries(roleScore) as [PrimaryFocus, number][])
-      .filter(([k, v]) => k !== 'mixed' && v === max)
-      .map(([k]) => k)
+    const leaders = SCORED_ROLES.filter((r) => roleScore[r] === max)
     if (leaders.length === 1) {
       primary = leaders[0]
     } else {

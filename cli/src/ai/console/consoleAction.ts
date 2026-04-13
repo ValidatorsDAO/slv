@@ -1314,13 +1314,22 @@ RULES:
     if (firstToken === '/focus') {
       const rest = input.slice(firstToken.length).trim().toLowerCase()
       const valid: PrimaryFocus[] = ['validator', 'rpc', 'app', 'mixed']
+
+      // /focus with no argument — show current state and usage. detectProfile
+      // failures are logged but never crash the input loop.
       if (!rest) {
-        const profile = await detectProfile()
-        chatLog.addSystem(
-          `  Current focus: ${profile.primary}${
-            profile.overridden ? ' (manual override)' : ' (auto)'
-          }`,
-        )
+        try {
+          const profile = await detectProfile()
+          chatLog.addSystem(
+            `  Current focus: ${profile.primary}${
+              profile.overridden ? ' (manual override)' : ' (auto)'
+            }`,
+          )
+        } catch (err) {
+          chatLog.addSystem(
+            `  ⚠ Could not detect current focus: ${(err as Error).message}`,
+          )
+        }
         chatLog.addSystem(
           '  Usage: /focus validator | rpc | app | mixed | auto',
         )
@@ -1364,12 +1373,18 @@ RULES:
       }
 
       // Rebuild the system prompt so the new profile takes effect on the
-      // next user message without requiring a /clear. Single detectProfile
-      // call — describeProfile is the only user-facing summary we show.
-      currentSystemPrompt = await buildSystemPrompt()
-      provider.setSystemPrompt(currentSystemPrompt)
-      const refreshed = await detectProfile()
-      chatLog.addSystem(`  ${describeProfile(refreshed)}`)
+      // next user message without requiring a /clear. Wrap in try/catch so
+      // a best-effort profile refresh failure doesn't crash the input loop.
+      try {
+        currentSystemPrompt = await buildSystemPrompt()
+        provider.setSystemPrompt(currentSystemPrompt)
+        const refreshed = await detectProfile()
+        chatLog.addSystem(`  ${describeProfile(refreshed)}`)
+      } catch (err) {
+        chatLog.addSystem(
+          `  ⚠ Profile refresh failed: ${(err as Error).message}`,
+        )
+      }
       tui.requestRender()
       return
     }
