@@ -126,10 +126,18 @@ export const clearFocusOverride = async (): Promise<void> => {
 }
 
 const scanTradeApps = async (): Promise<TradeAppInventory[]> => {
-  // NOTE: `~/slv/` holds user-scaffolded bot projects (created by
-  // `slv bot init`). It is NOT the same as `~/.slv/`, which holds the SLV
-  // CLI config (agent/, skills/, api.yml, …). The two are adjacent in the
-  // home dir and the name similarity is a trap for future maintainers.
+  // NOTE: Do NOT confuse `~/slv/` and `~/.slv/` — they have completely
+  // different purposes even though the names look alike.
+  //
+  //   ~/slv/   → user application development code. Each subdirectory is
+  //              a bot / app project scaffolded by `slv bot init` (source
+  //              tree, Cargo.toml, wallet.json, target/, .env, …). These
+  //              are what this function enumerates.
+  //
+  //   ~/.slv/  → SLV CLI infrastructure: agent/ (SOUL.md, USER.md, config.yml,
+  //              MEMORY.md, focus.txt), skills/ (AGENT.md / SKILL.md per skill),
+  //              templates, api.yml, keys, logs, and other SLV-owned state.
+  //              Never scanned here.
   const slvRoot = join(requireHome(), 'slv')
   const apps: TradeAppInventory[] = []
   try {
