@@ -13,8 +13,12 @@ import {
 import { readBotAgreement, writeBotAgreement } from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
 
-const confirmBotInitAgreement = async (): Promise<boolean> => {
-  if (await readBotAgreement()) return true
+// Show the sample-usage disclaimer once per user (first `slv bot init`), then
+// proceed automatically. This used to be an interactive Yes/No prompt, but it
+// blocked AI agents (e.g. Setzer) that invoke `slv bot init` as a subprocess.
+// Now it's a one-time informational notice — no blocking, no prompts.
+const showBotInitNoticeOnce = async (): Promise<void> => {
+  if (await readBotAgreement()) return
   await initI18n()
 
   console.log()
@@ -31,25 +35,7 @@ const confirmBotInitAgreement = async (): Promise<boolean> => {
   )
   console.log()
 
-  const accepted = await Select.prompt({
-    message: t('I understand the above and will use it at my own risk.'),
-    options: [
-      { name: t('Yes'), value: 'yes' },
-      { name: t('No'), value: 'no' },
-    ],
-  })
-
-  if (accepted !== 'yes') {
-    console.log(
-      colors.yellow(
-        `\n⚠ ${t('bot init cancelled. You can run `slv bot init` again when ready.')}\n`,
-      ),
-    )
-    return false
-  }
-
   await writeBotAgreement(true)
-  return true
 }
 
 /**
@@ -61,9 +47,7 @@ const confirmBotInitAgreement = async (): Promise<boolean> => {
 
 export const initBotTemplate = async (options: { queue: boolean; template?: string; name?: string; yes?: boolean }) => {
   try {
-    if (!(await confirmBotInitAgreement())) {
-      return false
-    }
+    await showBotInitNoticeOnce()
     // Create a directory for the bot if it doesn't exist
     const botConfigDir = join(configRoot, 'bot')
     try {
