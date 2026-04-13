@@ -107,4 +107,17 @@ export const messages: Record<string, string> = {
   'Benchmarks & connectivity testing':
     'Бенчмарки и тестирование соединения',
   'Goodbye!': 'До свидания!',
+
+  "Focused on Solana App Development. Say 'new trade bot' when you're ready.":
+    'Фокус на разработке Solana-приложений. Скажите "new trade bot", когда будете готовы.',
+  'Focused on App Development. You have 1 trade app: {name}.':
+    'Фокус на разработке приложений. У вас 1 торговое приложение: {name}.',
+  'Focused on App Development. You have {count} trade apps in ~/slv/.':
+    'Фокус на разработке приложений. В ~/slv/ находится {count} торговых приложений.',
+  'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.':
+    'Фокус на эксплуатации Solana-валидаторов. Спрашивайте о развёртываниях, здоровье и обновлениях.',
+  'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.':
+    'Фокус на эксплуатации RPC / gRPC узлов. Спрашивайте о настройке эндпоинтов, здоровье и тюнинге.',
+  'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
+    'Смешанный фокус — validator + app / rpc. Используйте `/focus <validator|rpc|app>`, чтобы сузить.',
 }

@@ -107,4 +107,17 @@ export const messages: Record<string, string> = {
   'Benchmarks & connectivity testing':
     'Kiểm thử hiệu năng & kết nối',
   'Goodbye!': 'Tạm biệt!',
+
+  "Focused on Solana App Development. Say 'new trade bot' when you're ready.":
+    'Đang tập trung vào phát triển ứng dụng Solana. Nói "new trade bot" khi bạn đã sẵn sàng.',
+  'Focused on App Development. You have 1 trade app: {name}.':
+    'Đang tập trung vào phát triển ứng dụng. Bạn có 1 trade app: {name}.',
+  'Focused on App Development. You have {count} trade apps in ~/slv/.':
+    'Đang tập trung vào phát triển ứng dụng. Bạn có {count} trade app trong ~/slv/.',
+  'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.':
+    'Đang tập trung vào vận hành Solana Validator. Hỏi tôi về triển khai, health hoặc upgrade.',
+  'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.':
+    'Đang tập trung vào vận hành node RPC / gRPC. Hỏi tôi về cấu hình endpoint, health hoặc tinh chỉnh.',
+  'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
+    'Focus hỗn hợp — validator + app / rpc. Dùng `/focus <validator|rpc|app>` để thu hẹp.',
 }

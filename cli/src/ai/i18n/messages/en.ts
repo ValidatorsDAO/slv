@@ -112,4 +112,18 @@ export const messages: Record<string, string> = {
     'Find optimized Solana server resources',
   'Benchmarks & connectivity testing': 'Benchmarks & connectivity testing',
   'Goodbye!': 'Goodbye!',
+
+  // --- User profile (role detection) ---
+  "Focused on Solana App Development. Say 'new trade bot' when you're ready.":
+    "Focused on Solana App Development. Say 'new trade bot' when you're ready.",
+  'Focused on App Development. You have 1 trade app: {name}.':
+    'Focused on App Development. You have 1 trade app: {name}.',
+  'Focused on App Development. You have {count} trade apps in ~/slv/.':
+    'Focused on App Development. You have {count} trade apps in ~/slv/.',
+  'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.':
+    'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.',
+  'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.':
+    'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.',
+  'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
+    'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.',
 }

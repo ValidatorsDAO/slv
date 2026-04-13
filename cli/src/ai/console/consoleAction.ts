@@ -1306,12 +1306,15 @@ RULES:
     }
 
     // /focus <role> — switch the main agent's routing bias. Persisted to
-    // ~/.slv/agent/focus so it carries across sessions. `/focus auto` clears
-    // the override and returns to heuristic detection.
-    if (input.startsWith('/focus')) {
-      const arg = input.slice('/focus'.length).trim().toLowerCase()
+    // ~/.slv/agent/focus.txt so it carries across sessions. `/focus auto`
+    // clears the override and returns to heuristic detection.
+    // Exact-token match so `/focuses`, `/focusapp`, etc. fall through to the
+    // shell-command path below instead of silently being interpreted.
+    const firstToken = input.split(/\s+/)[0]
+    if (firstToken === '/focus') {
+      const rest = input.slice(firstToken.length).trim().toLowerCase()
       const valid: PrimaryFocus[] = ['validator', 'rpc', 'app', 'mixed']
-      if (!arg) {
+      if (!rest) {
         const profile = await detectProfile()
         chatLog.addSystem(
           `  Current focus: ${profile.primary}${
@@ -1324,24 +1327,45 @@ RULES:
         tui.requestRender()
         return
       }
-      if (arg === 'auto' || arg === 'clear' || arg === 'reset') {
-        await clearFocusOverride()
-        const profile = await detectProfile()
+
+      let handled = false
+      if (rest === 'auto' || rest === 'clear' || rest === 'reset') {
+        try {
+          await clearFocusOverride()
+          chatLog.addSystem('  ◇ Focus override cleared.')
+          handled = true
+        } catch (err) {
+          chatLog.addSystem(
+            `  ⚠ Failed to clear focus override: ${(err as Error).message}`,
+          )
+          tui.requestRender()
+          return
+        }
+      } else if ((valid as string[]).includes(rest)) {
+        try {
+          await writeFocusOverride(rest as PrimaryFocus)
+          chatLog.addSystem(`  ◇ Focus set to: ${rest}`)
+          handled = true
+        } catch (err) {
+          chatLog.addSystem(
+            `  ⚠ Failed to set focus: ${(err as Error).message}`,
+          )
+          tui.requestRender()
+          return
+        }
+      }
+
+      if (!handled) {
         chatLog.addSystem(
-          `  ◇ Focus override cleared. Auto-detected: ${profile.primary}.`,
-        )
-      } else if ((valid as string[]).includes(arg)) {
-        await writeFocusOverride(arg as PrimaryFocus)
-        chatLog.addSystem(`  ◇ Focus set to: ${arg}`)
-      } else {
-        chatLog.addSystem(
-          `  Unknown focus "${arg}". Use: validator | rpc | app | mixed | auto`,
+          `  Unknown focus "${rest}". Use: validator | rpc | app | mixed | auto`,
         )
         tui.requestRender()
         return
       }
+
       // Rebuild the system prompt so the new profile takes effect on the
-      // next user message without requiring a /clear.
+      // next user message without requiring a /clear. Single detectProfile
+      // call — describeProfile is the only user-facing summary we show.
       currentSystemPrompt = await buildSystemPrompt()
       provider.setSystemPrompt(currentSystemPrompt)
       const refreshed = await detectProfile()
@@ -1354,7 +1378,7 @@ RULES:
     if (
       input.startsWith('/') &&
       !['/exit', '/quit', '/clear', '/update', '/help', '/focus'].includes(
-        input.split(' ')[0],
+        firstToken,
       )
     ) {
       const shellCommand = input.slice(1).trim()

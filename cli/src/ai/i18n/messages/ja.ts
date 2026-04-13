@@ -106,4 +106,17 @@ export const messages: Record<string, string> = {
     '最適な Solana サーバーリソースの調達',
   'Benchmarks & connectivity testing': 'ベンチマークと接続性テスト',
   'Goodbye!': 'さようなら！',
+
+  "Focused on Solana App Development. Say 'new trade bot' when you're ready.":
+    'Solana アプリ開発にフォーカス中。準備ができたら「new trade bot」と言ってください。',
+  'Focused on App Development. You have 1 trade app: {name}.':
+    'アプリ開発にフォーカス中。トレードアプリが 1 つあります: {name}。',
+  'Focused on App Development. You have {count} trade apps in ~/slv/.':
+    'アプリ開発にフォーカス中。~/slv/ にトレードアプリが {count} 個あります。',
+  'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.':
+    'Solana バリデータ運用にフォーカス中。デプロイ、ヘルスチェック、アップグレードなどご相談ください。',
+  'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.':
+    'RPC / gRPC ノード運用にフォーカス中。エンドポイント設定、ヘルス、チューニングなどご相談ください。',
+  'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
+    '複数の役割にフォーカス中 — validator + app / rpc。`/focus <validator|rpc|app>` で絞り込めます。',
 }

@@ -1,4 +1,6 @@
 import { parse } from '@std/yaml'
+import { dirname, join } from '@std/path'
+import { t } from '@/ai/i18n/index.ts'
 
 // Three primary user archetypes the main agent tailors its behaviour for.
 // `mixed` is the fallback when signals point in several directions at once
@@ -24,57 +26,106 @@ export type UserProfile = {
   overridden: boolean
 }
 
-const FOCUS_FILE = '.slv/agent/focus'
+// Location of the manual /focus override, relative to $HOME.
+// `focus.txt` is explicit about being a plain-text single-value marker and
+// sits alongside the other agent files (SOUL.md, USER.md, MEMORY.md,
+// config.yml). The older location `focus` (no extension) is still read for
+// one release so users mid-session don't lose their override after upgrade.
+const FOCUS_FILE_REL = '.slv/agent/focus.txt'
+const LEGACY_FOCUS_FILE_REL = '.slv/agent/focus'
 
-const home = (): string => Deno.env.get('HOME') || ''
+const requireHome = (): string => {
+  const h = Deno.env.get('HOME')
+  if (!h) {
+    throw new Error(
+      'HOME environment variable is not set — cannot locate ~/.slv',
+    )
+  }
+  return h
+}
+
+const focusFilePath = (): string => join(requireHome(), FOCUS_FILE_REL)
+const legacyFocusFilePath = (): string =>
+  join(requireHome(), LEGACY_FOCUS_FILE_REL)
+
+const parseFocusValue = (raw: string): PrimaryFocus | null => {
+  const v = raw.trim().toLowerCase()
+  if (v === 'validator' || v === 'rpc' || v === 'app' || v === 'mixed') {
+    return v
+  }
+  return null
+}
 
 const readFocusOverride = async (): Promise<PrimaryFocus | null> => {
   try {
-    const raw = await Deno.readTextFile(`${home()}/${FOCUS_FILE}`)
-    const v = raw.trim().toLowerCase()
-    if (v === 'validator' || v === 'rpc' || v === 'app' || v === 'mixed') {
-      return v
-    }
-  } catch { /* absent */ }
+    const raw = await Deno.readTextFile(focusFilePath())
+    return parseFocusValue(raw)
+  } catch (err) {
+    if (!(err instanceof Deno.errors.NotFound)) throw err
+  }
+  // Fall back to the legacy location so existing users don't lose their
+  // override after this release. We do not auto-migrate here — writeFocusOverride
+  // handles that on the next set.
+  try {
+    const raw = await Deno.readTextFile(legacyFocusFilePath())
+    return parseFocusValue(raw)
+  } catch (err) {
+    if (!(err instanceof Deno.errors.NotFound)) throw err
+  }
   return null
 }
 
 export const writeFocusOverride = async (
   focus: PrimaryFocus,
 ): Promise<void> => {
-  const path = `${home()}/${FOCUS_FILE}`
-  await Deno.mkdir(path.replace(/\/focus$/, ''), { recursive: true }).catch(
-    () => {},
-  )
+  const path = focusFilePath()
+  await Deno.mkdir(dirname(path), { recursive: true })
   await Deno.writeTextFile(path, focus + '\n')
+  // Remove the legacy location so readFocusOverride's fallback never wins
+  // after a successful migration. Missing is fine; anything else bubbles.
+  try {
+    await Deno.remove(legacyFocusFilePath())
+  } catch (err) {
+    if (!(err instanceof Deno.errors.NotFound)) throw err
+  }
 }
 
 export const clearFocusOverride = async (): Promise<void> => {
-  try {
-    await Deno.remove(`${home()}/${FOCUS_FILE}`)
-  } catch { /* absent */ }
+  for (const p of [focusFilePath(), legacyFocusFilePath()]) {
+    try {
+      await Deno.remove(p)
+    } catch (err) {
+      // Only swallow NotFound — permission errors or other issues should
+      // surface so the caller knows the override is still in place.
+      if (!(err instanceof Deno.errors.NotFound)) throw err
+    }
+  }
 }
 
 const scanTradeApps = async (): Promise<TradeAppInventory[]> => {
-  const slvRoot = `${home()}/slv`
+  const slvRoot = join(requireHome(), 'slv')
   const apps: TradeAppInventory[] = []
   try {
     for await (const entry of Deno.readDir(slvRoot)) {
       if (!entry.isDirectory || entry.name.startsWith('.')) continue
-      const dir = `${slvRoot}/${entry.name}`
+      const dir = join(slvRoot, entry.name)
       let hasBinary = false
       let hasWallet = false
       try {
-        await Deno.stat(`${dir}/target/release/trade-app`)
+        await Deno.stat(join(dir, 'target/release/trade-app'))
         hasBinary = true
       } catch { /* no binary */ }
       try {
-        await Deno.stat(`${dir}/wallet.json`)
+        await Deno.stat(join(dir, 'wallet.json'))
         hasWallet = true
       } catch { /* no wallet */ }
       apps.push({ name: entry.name, hasBinary, hasWallet })
     }
-  } catch { /* ~/slv doesn't exist */ }
+  } catch (err) {
+    // Only swallow NotFound — other errors (permission, etc.) should bubble
+    // so the top-level catch in detectProfile() can log them cleanly.
+    if (!(err instanceof Deno.errors.NotFound)) throw err
+  }
   return apps
 }
 
@@ -83,11 +134,13 @@ type ConfigSkill = { name: string; enabled: boolean; agent?: string }
 const readEnabledSkills = async (): Promise<ConfigSkill[]> => {
   try {
     const raw = await Deno.readTextFile(
-      `${home()}/.slv/agent/config.yml`,
+      join(requireHome(), '.slv/agent/config.yml'),
     )
     const cfg = parse(raw) as { skills?: ConfigSkill[] } | null
     return (cfg?.skills || []).filter((s) => s && s.enabled)
-  } catch { /* not configured */ }
+  } catch (err) {
+    if (!(err instanceof Deno.errors.NotFound)) throw err
+  }
   return []
 }
 
@@ -172,37 +225,52 @@ export const detectProfile = async (): Promise<UserProfile> => {
 }
 
 // Short human-readable summary for the opening greeting. One line only.
+// Uses the i18n dictionary so non-English users see this in their language.
+// The translations for each key live in cli/src/ai/i18n/messages/<lang>.ts.
 export const describeProfile = (profile: UserProfile): string => {
   const { primary, apps } = profile
-  const appCount = apps.filter((a) => a.hasBinary || a.hasWallet).length
+  const liveApps = apps.filter((a) => a.hasBinary || a.hasWallet)
+  const appCount = liveApps.length
 
   switch (primary) {
     case 'app': {
       if (appCount === 0) {
-        return "Focused on Solana App Development. Say 'new trade bot' when you're ready."
+        return t(
+          "Focused on Solana App Development. Say 'new trade bot' when you're ready.",
+        )
       }
       if (appCount === 1) {
-        const a = apps.find((x) => x.hasBinary || x.hasWallet)!
-        return `Focused on App Development. You have 1 trade app: ${a.name}.`
+        return t('Focused on App Development. You have 1 trade app: {name}.')
+          .replace('{name}', liveApps[0].name)
       }
-      return `Focused on App Development. You have ${appCount} trade apps in ~/slv/.`
+      return t(
+        'Focused on App Development. You have {count} trade apps in ~/slv/.',
+      ).replace('{count}', String(appCount))
     }
     case 'validator':
-      return 'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.'
+      return t(
+        'Focused on Solana Validator Operations. Ask me about deploys, health, or upgrades.',
+      )
     case 'rpc':
-      return 'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.'
+      return t(
+        'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.',
+      )
     case 'mixed':
-      return 'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.'
+      return t(
+        'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.',
+      )
   }
 }
 
 // Human-readable prompt-context block inserted into the main system prompt.
-// Kept short to avoid bloating every turn.
+// Kept short to avoid bloating every turn. The content is English regardless
+// of `lang` because the model reasons in English internally — translation is
+// only applied to user-facing output.
 export const profilePromptBlock = (profile: UserProfile): string => {
   const { primary, apps, signals, overridden } = profile
-  const appCount = apps.filter((a) => a.hasBinary || a.hasWallet).length
-  const appList = apps
-    .filter((a) => a.hasBinary || a.hasWallet)
+  const liveApps = apps.filter((a) => a.hasBinary || a.hasWallet)
+  const appCount = liveApps.length
+  const appList = liveApps
     .map((a) => `- ${a.name} (binary=${a.hasBinary}, wallet=${a.hasWallet})`)
     .join('\n')
 
@@ -217,13 +285,24 @@ export const profilePromptBlock = (profile: UserProfile): string => {
       'The user spans multiple roles. Listen for intent before proactively suggesting anything; offer options rather than picking one role.',
   }
 
-  return `## User Profile
-
-- **Primary focus:** ${primary}${overridden ? ' (manual /focus override)' : ''}
-- **Signals:** ${signals.join('; ') || 'none'}
-${appCount > 0 ? `- **Trade apps in ~/slv:** ${appCount}\n${appList}\n` : ''}
-### Routing preference
-${roleGuidance[primary]}
-
-The user can override this at any time with \`/focus validator\`, \`/focus rpc\`, \`/focus app\`, or \`/focus mixed\`. Always honor an explicit intent over the profile — the profile is a prior, not a gate.`
+  const lines: string[] = [
+    '## User Profile',
+    '',
+    `- **Primary focus:** ${primary}${
+      overridden ? ' (manual /focus override)' : ''
+    }`,
+    `- **Signals:** ${signals.join('; ') || 'none'}`,
+  ]
+  if (appCount > 0) {
+    lines.push(`- **Trade apps in ~/slv:** ${appCount}`)
+    lines.push(appList)
+  }
+  lines.push('')
+  lines.push('### Routing preference')
+  lines.push(roleGuidance[primary])
+  lines.push('')
+  lines.push(
+    "The user can override this at any time with `/focus validator`, `/focus rpc`, `/focus app`, or `/focus mixed`. Always honor an explicit intent over the profile — the profile is a prior, not a gate.",
+  )
+  return lines.join('\n')
 }
