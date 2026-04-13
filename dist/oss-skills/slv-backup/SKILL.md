@@ -54,14 +54,20 @@ Both are fully non-interactive. No `-y` needed.
 ```bash
 slv backup restore <remote-file-or-snapshot-id> -y -r eu
 ```
-- The positional `<file>` is **required**. If you do not pass it, the
-  command enters an interactive file selector and hangs. Ask the user
-  for the exact filename (`slv backup list` first) before restoring.
+- The positional `<file>` is **required under `-y`**. Without a file and
+  with `-y`, the CLI now refuses with
+  `❌ --yes was passed but no backup file was specified` — it no longer
+  drops into a `Select` prompt that hangs the agent. Always run
+  `slv backup list -r <region>` first, show the user the options, and
+  ask them to pick a filename before invoking restore.
 - `-y` is **required** for agents. It prints the root-filesystem warning
   banner and proceeds without a TTY confirmation. Since this extracts tar
   over `/` and requires a reboot, **always show the user the target file
   name in chat and ask them to confirm in words** before you execute.
 - `-r <region>` — region where the backup lives.
+- When both `-y` and restic are available, the CLI defaults to the tar
+  path. To restore from a restic snapshot, pass the snapshot id
+  explicitly as the positional argument.
 
 ### Schedule a cron backup
 ```bash
@@ -119,7 +125,7 @@ Alias: `slv storage rm`.
 slv storage usage                # all regions with data
 slv storage usage -r eu          # single region
 slv storage product              # show available storage products
-slv storage upgrade 5            # buy 5 GB more (positional arg required)
+slv storage upgrade 5 -y         # upgrade to 5 GB (positional arg + -y required)
 slv storage sync -r eu           # reconcile local usage cache with cloud
 ```
 `product`, `usage`, `sync` have no prompts. `upgrade` **requires** the
@@ -140,7 +146,7 @@ positional quantity — passing nothing hangs on `Input.prompt`.
 | "delete file X from storage" | Confirm in chat → `slv storage delete X -y -r <region>` |
 | "clean up old backups" | Confirm prefix in chat → `slv storage delete -p <prefix> -y -r <region>` |
 | "how much storage am I using" | `slv storage usage` |
-| "buy more storage" | Ask quantity in chat → `slv storage upgrade <n>` |
+| "buy more storage" | Ask quantity in chat → `slv storage upgrade <n> -y` |
 
 ## Forbidden patterns (will hang the console)
 
@@ -151,7 +157,7 @@ positional quantity — passing nothing hangs on `Input.prompt`.
 - `slv storage download` without a positional remote path
 - `slv storage delete` without `-y`
 - `slv storage delete -p <prefix>` without `-y`
-- `slv storage upgrade` without a quantity
+- `slv storage upgrade` without a quantity, or without `-y`
 - Any subcommand with an ambiguous region when the user has not chosen one — ask in chat first, do not let the CLI prompt.
 
 If you catch yourself about to run any of the above, **stop and ask the

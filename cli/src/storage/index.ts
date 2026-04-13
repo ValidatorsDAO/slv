@@ -112,8 +112,9 @@ export const storageCmd = new Command()
   })
   .command('upgrade', 'Change storage capacity (upgrade or downgrade)')
   .arguments('[quantity:number]')
-  .action(async (_options, quantity?: number) => {
-    await upgradeAction(quantity)
+  .option('-y, --yes', 'Skip confirmation prompts (non-interactive)')
+  .action(async (options, quantity?: number) => {
+    await upgradeAction(quantity, { yes: options.yes })
   })
   .command('sync', 'Reconcile storage usage with actual cloud data')
   .option('-r, --region <region:string>', 'Storage region')

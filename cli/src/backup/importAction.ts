@@ -144,8 +144,12 @@ export const importAction = async (
     return
   }
 
-  // If no argument provided and restic is available, offer choice between restic and tar
-  if (!file && await hasRestic()) {
+  // If no argument provided and restic is available, offer choice between
+  // restic and tar. Under --yes (non-interactive / agent-driven), skip the
+  // Select and default to tar — the same path a machine without restic
+  // installed would take. Agents that explicitly want restic should pass
+  // a snapshot id as the positional argument.
+  if (!file && await hasRestic() && !options.yes) {
     try {
       const mode = await Select.prompt({
         message: 'Restore from:',
@@ -201,8 +205,24 @@ export const importAction = async (
     if (file) {
       // Treat as remote path
       remotePath = file.startsWith('backups/') ? file : `backups/${file}`
+    } else if (options.yes) {
+      // Non-interactive mode with no file specified — refuse rather than
+      // falling into the interactive Select, which would hang run_command.
+      // Agents must pass an explicit filename (use `slv backup list` to
+      // discover it first).
+      console.log(
+        colors.red(
+          '\n❌ --yes was passed but no backup file was specified.',
+        ),
+      )
+      console.log(
+        colors.white(
+          '   Run `slv backup list` first, then `slv backup restore <filename> -y`.\n',
+        ),
+      )
+      return
     } else {
-      // Interactive selection
+      // Interactive selection (TTY users only)
       remotePath = await selectRemoteBackup(apiKey, region)
     }
 
