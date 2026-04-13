@@ -53,15 +53,21 @@ Linux:
 cargo build -r
 ```
 
-### 4. Run (background — it's a long-running server)
+### 4. Run (background, with PID file and bounded readiness check)
 ```bash
 cd ~/slv/solana-trade-bot
-RUST_LOG=info nohup ./target/release/trade-app > trade-app.log 2>&1 &
-sleep 2 && curl -s http://localhost:3000/api/wallet
+mkdir -p .slv
+RUST_LOG=info nohup ./target/release/trade-app > trade-app.log 2>&1 & echo $! > .slv/trade-app.pid
+for i in 1 2 3 4 5; do
+  curl -fsS http://localhost:3000/api/wallet && break
+  sleep 1
+done
 ```
+- Save the PID to `.slv/trade-app.pid` so the process can be stopped cleanly later
+- If readiness fails, inspect `trade-app.log` instead of waiting forever
 - `wallet.json` is auto-generated on first start
 - API docs: `http://localhost:3000/docs`
-- **NEVER run with `run_command` directly** — it blocks forever. Always background it.
+- **NEVER run with `run_command` directly** or in a way that waits on the backgrounded process forever
 
 ### 5. Fund wallet and start trading
 ```bash
@@ -75,6 +81,12 @@ curl -s http://localhost:3000/api/trade/status
 ```
 
 ### Stop the bot
+Preferred:
+```bash
+cd ~/slv/solana-trade-bot
+kill "$(cat .slv/trade-app.pid)" && rm -f .slv/trade-app.pid
+```
+Fallback:
 ```bash
 pkill -f trade-app
 ```
