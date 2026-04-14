@@ -10,7 +10,10 @@ import {
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 
-export const upgradeAction = async (quantity?: number) => {
+export const upgradeAction = async (
+  quantity?: number,
+  options: { yes?: boolean } = {},
+) => {
   const apiKey = await getApiKeyFromYml()
 
   const spinner = new Kia(colors.cyan('Fetching current storage info...'))
@@ -48,6 +51,20 @@ export const upgradeAction = async (quantity?: number) => {
     let newGB: number
     if (quantity !== undefined) {
       newGB = quantity
+    } else if (options.yes) {
+      // Non-interactive mode — refuse rather than falling into Input.prompt,
+      // which would hang run_command. Agents must pass the quantity.
+      console.log(
+        colors.red(
+          '\n❌ --yes was passed but no capacity was specified.',
+        ),
+      )
+      console.log(
+        colors.white(
+          `   Usage: slv storage upgrade <GB> -y   (multiples of ${GB_PER_UNIT})\n`,
+        ),
+      )
+      return false
     } else {
       const input = await Input.prompt({
         message: `New storage capacity in GB (multiples of ${GB_PER_UNIT}, e.g. 5, 10, 15)`,
@@ -90,15 +107,27 @@ export const upgradeAction = async (quantity?: number) => {
       ),
     )
 
-    // Confirm
-    const confirmed = await Confirm.prompt({
-      message: `Proceed with ${action}?`,
-      default: true,
-    })
+    // Confirm (skipped under --yes so agents can run this end-to-end).
+    if (!options.yes) {
+      const confirmed = await Confirm.prompt({
+        message: `Proceed with ${action}?`,
+        default: true,
+      })
 
-    if (!confirmed) {
-      console.log(colors.yellow(`\n${action.charAt(0).toUpperCase() + action.slice(1)} cancelled.`))
-      return false
+      if (!confirmed) {
+        console.log(
+          colors.yellow(
+            `\n${action.charAt(0).toUpperCase() + action.slice(1)} cancelled.`,
+          ),
+        )
+        return false
+      }
+    } else {
+      console.log(
+        colors.yellow(
+          `   --yes provided — proceeding with ${action} without confirmation.`,
+        ),
+      )
     }
 
     const upgradeSpinner = new Kia(colors.cyan('Updating storage plan...'))
