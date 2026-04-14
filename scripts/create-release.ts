@@ -6,7 +6,7 @@ const CALVER_REGEX = /^\d{4}\.\d{1,2}\.\d{1,2}\.\d{4}$/
 
 /**
  * Creates a new release PR by:
- * 1. Updating the version in cmn/constants/version.ts
+ * 1. Updating the version in cmn/constants/version.ts and synchronizing generated release assets
  * 2. Running the update-version.ts script
  * 3. Verifying every version reference is synchronized
  * 4. Committing the changes
