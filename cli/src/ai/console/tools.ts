@@ -2,7 +2,7 @@ import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import { DEFAULT_MAX_TOKENS, readAiConfig } from '@/ai/config.ts'
+import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
 import type { TUI } from '@mariozechner/pi-tui'
 import {
@@ -447,6 +447,7 @@ async function executeRunCommand(command: string): Promise<string> {
       ANSIBLE_STDOUT_CALLBACK: 'default',
       ANSIBLE_DISPLAY_ARGS_TO_STDOUT: 'False',
       PYTHONUNBUFFERED: '1',
+      TRADE_APP_LANG: await readLang(),
     }
     const proc = new Deno.Command('bash', {
       args: ['-c', command],
