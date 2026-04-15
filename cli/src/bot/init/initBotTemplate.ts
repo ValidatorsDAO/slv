@@ -68,10 +68,25 @@ const persistProtectedFiles = async (
 ): Promise<{ rescueDir: string; files: string[] } | null> => {
   const files = await listProtectedFiles(src)
   if (files.length === 0) return null
-  const rescueDir = join(walletRescueRoot(), `${ts}-${appName}`)
+  // wallet.json holds a private key — harden the rescue tree regardless of
+  // the caller's umask. chmod is a no-op on Windows and harmless if the
+  // paths already have the right bits.
+  const root = walletRescueRoot()
+  await Deno.mkdir(root, { recursive: true })
+  try {
+    await Deno.chmod(root, 0o700)
+  } catch { /* non-fatal on platforms without POSIX perms */ }
+  const rescueDir = join(root, `${ts}-${appName}`)
   await Deno.mkdir(rescueDir, { recursive: true })
+  try {
+    await Deno.chmod(rescueDir, 0o700)
+  } catch { /* non-fatal */ }
   for (const name of files) {
-    await Deno.copyFile(join(src, name), join(rescueDir, name))
+    const dst = join(rescueDir, name)
+    await Deno.copyFile(join(src, name), dst)
+    try {
+      await Deno.chmod(dst, 0o600)
+    } catch { /* non-fatal */ }
   }
   return { rescueDir, files }
 }
