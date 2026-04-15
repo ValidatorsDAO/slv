@@ -15,10 +15,10 @@ import { initI18n, t } from '@/ai/i18n/index.ts'
 
 // Files that MUST NEVER be destroyed by `slv bot init`. A real incident
 // occurred where re-running `slv bot init -y` wiped a funded wallet.json and
-// the user lost SOL. These files are treated as sacred — before the target
-// directory is touched, they are rescued to a temp path and both a live copy
-// and a timestamped .bak.<ts> are restored afterward. .bak files are also
-// rescued so the user's recovery trail is never destroyed.
+// the user lost SOL. These files are treated as sacred — they are copied to
+// a persistent ~/.slv/wallet-rescue/ tree BEFORE any destructive operation,
+// merged into the fresh template in a staging directory, and the live app
+// directory is only replaced via an atomic rename (never rm'd in place).
 // `.discord-init-notified` is a marker the Setzer agent writes after it has
 // sent the first-start Discord welcome message. Preserving it across re-inits
 // stops the agent from spamming the user with a fresh welcome every time the
@@ -26,55 +26,93 @@ import { initI18n, t } from '@/ai/i18n/index.ts'
 const PROTECTED_FILE_NAMES = ['wallet.json', '.env', '.discord-init-notified']
 const PROTECTED_BAK_PATTERN = /^(wallet\.json|\.env)\.bak\.\d+$/
 
-type RescuedFile = { relPath: string; content: Uint8Array }
+// Persistent rescue root. Every slv bot init that finds protected files drops
+// a timestamped copy here and NEVER cleans it up — this is the user's
+// permanent recovery trail, outside the bot directory, outside any rm target.
+const walletRescueRoot = (): string => {
+  const home = Deno.env.get('HOME') || '/home/solv'
+  return join(home, '.slv', 'wallet-rescue')
+}
 
-const rescueProtectedFiles = async (
-  appDir: string,
-): Promise<RescuedFile[]> => {
-  const rescued: RescuedFile[] = []
-  // Top-level protected files
+// List the top-level protected files (and existing .bak.* snapshots) that
+// currently exist in `dir`. Missing dir or missing files are not errors.
+const listProtectedFiles = async (dir: string): Promise<string[]> => {
+  const found: string[] = []
   for (const name of PROTECTED_FILE_NAMES) {
     try {
-      const content = await Deno.readFile(join(appDir, name))
-      rescued.push({ relPath: name, content })
+      const st = await Deno.stat(join(dir, name))
+      if (st.isFile) found.push(name)
     } catch { /* absent */ }
   }
-  // Existing backup files (never destroy the user's recovery trail)
   try {
-    for await (const entry of Deno.readDir(appDir)) {
+    for await (const entry of Deno.readDir(dir)) {
       if (entry.isFile && PROTECTED_BAK_PATTERN.test(entry.name)) {
-        try {
-          const content = await Deno.readFile(join(appDir, entry.name))
-          rescued.push({ relPath: entry.name, content })
-        } catch { /* ignore unreadable */ }
+        found.push(entry.name)
       }
     }
   } catch { /* dir missing */ }
-  return rescued
+  return found
 }
 
-const restoreRescuedFiles = async (
-  appDir: string,
-  rescued: RescuedFile[],
+// Copy protected files from `src` into ~/.slv/wallet-rescue/<ts>-<appName>/.
+// This is the disk-persisted recovery trail: it is done BEFORE the atomic
+// swap, so even a SIGKILL / crash / power loss between rescue and swap
+// leaves wallet.json recoverable outside the bot directory. Returns the
+// rescue directory path, or null if there was nothing protected to rescue.
+// Throws if persisting any file fails — we would rather abort init than
+// proceed with an incomplete rescue.
+const persistProtectedFiles = async (
+  src: string,
+  appName: string,
+  ts: number,
+): Promise<{ rescueDir: string; files: string[] } | null> => {
+  const files = await listProtectedFiles(src)
+  if (files.length === 0) return null
+  // wallet.json holds a private key — harden the rescue tree regardless of
+  // the caller's umask. chmod is a no-op on Windows and harmless if the
+  // paths already have the right bits.
+  const root = walletRescueRoot()
+  await Deno.mkdir(root, { recursive: true })
+  try {
+    await Deno.chmod(root, 0o700)
+  } catch { /* non-fatal on platforms without POSIX perms */ }
+  const rescueDir = join(root, `${ts}-${appName}`)
+  await Deno.mkdir(rescueDir, { recursive: true })
+  try {
+    await Deno.chmod(rescueDir, 0o700)
+  } catch { /* non-fatal */ }
+  for (const name of files) {
+    const dst = join(rescueDir, name)
+    await Deno.copyFile(join(src, name), dst)
+    try {
+      await Deno.chmod(dst, 0o600)
+    } catch { /* non-fatal */ }
+  }
+  return { rescueDir, files }
+}
+
+// Merge protected files from the live `src` app dir into the freshly extracted
+// `dst` staging dir. For each live protected file we also drop a fresh
+// .bak.<ts> snapshot in the staging dir, so the new app directory always has
+// an in-tree recovery copy the moment the swap completes.
+const mergeProtectedFilesInto = async (
+  src: string,
+  dst: string,
+  ts: number,
 ): Promise<string[]> => {
-  const restoredNames: string[] = []
-  const ts = Date.now()
-  for (const f of rescued) {
-    const target = join(appDir, f.relPath)
-    await Deno.writeFile(target, f.content)
-    restoredNames.push(f.relPath)
-    // For live protected files (not pre-existing .bak.* entries), also drop a
-    // fresh timestamped backup so there is always at least one .bak copy after
-    // a re-init, even if the user later edits the restored original.
-    if (PROTECTED_FILE_NAMES.includes(f.relPath)) {
-      const bakPath = join(appDir, `${f.relPath}.bak.${ts}`)
+  const copied: string[] = []
+  const files = await listProtectedFiles(src)
+  for (const name of files) {
+    await Deno.copyFile(join(src, name), join(dst, name))
+    copied.push(name)
+    if (PROTECTED_FILE_NAMES.includes(name)) {
       try {
-        await Deno.writeFile(bakPath, f.content)
-        restoredNames.push(`${f.relPath}.bak.${ts}`)
+        await Deno.copyFile(join(src, name), join(dst, `${name}.bak.${ts}`))
+        copied.push(`${name}.bak.${ts}`)
       } catch { /* non-fatal */ }
     }
   }
-  return restoredNames
+  return copied
 }
 
 // Returns true if a trade-app process appears to be running from the given
@@ -240,10 +278,11 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
     }
 
     // --- Overwrite safety layer ---
-    // When overwriting an existing directory, we MUST preserve any funded
-    // wallet.json / .env and existing .bak.* files. We also refuse to
-    // re-init while the bot binary is running from that directory.
-    let rescuedFiles: RescuedFile[] = []
+    // When overwriting an existing directory, we refuse to proceed while the
+    // bot binary is running from that directory. The actual wallet rescue
+    // happens AFTER the template has been successfully extracted into a
+    // staging dir — only then do we touch the live appDir, and only via
+    // atomic rename. The live appDir is never rm'd in place.
     if (shouldOverwrite && dirExists) {
       if (await isBotRunningFromDir(appDir)) {
         console.log(
@@ -259,33 +298,17 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
         )
         return false
       }
-
-      rescuedFiles = await rescueProtectedFiles(appDir)
-      if (rescuedFiles.length > 0) {
-        const walletFound = rescuedFiles.some((f) => f.relPath === 'wallet.json')
-        if (walletFound) {
-          console.log(
-            colors.bold.yellow(
-              `🛡  wallet.json detected — it will be preserved, not overwritten.`,
-            ),
-          )
-        }
-        console.log(
-          colors.yellow(
-            `   Rescuing ${rescuedFiles.length} protected file(s): ${
-              rescuedFiles.map((f) => f.relPath).join(', ')
-            }`,
-          ),
-        )
-      }
-
-      console.log(colors.blue(`🗑️ Removing existing directory...`))
-      await exec(`rm -rf "${appDir}"`)
     }
 
-    // Create the app directory
-    console.log(colors.blue(`📁 Creating directory ${appDir}`))
-    await Deno.mkdir(appDir, { recursive: true })
+    // Prepare staging directory. The template is always extracted here
+    // first; the live appDir (if any) is only touched at the very end via
+    // atomic rename, after protected files have been persisted to disk
+    // rescue and merged into the staging dir. This removes every window
+    // where wallet.json lives only in memory.
+    const swapTs = Date.now()
+    const stagingDir = `${appDir}.new.${swapTs}`
+    console.log(colors.blue(`📁 Preparing staging directory ${stagingDir}`))
+    await Deno.mkdir(stagingDir, { recursive: true })
 
     // Download and extract template
     console.log(colors.blue(`📦 Downloading ${templateType} template...`))
@@ -320,12 +343,16 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
     )
     console.log(colors.gray(`Template: temp-release/${tempDirName}`))
 
+    let rescueInfo: { rescueDir: string; files: string[] } | null = null
     try {
-      // Download the GitHub archive and extract only the target template directory
+      // Download the GitHub archive and extract only the target template
+      // directory INTO the staging dir. A failure here leaves the live appDir
+      // completely untouched.
       console.log(
         colors.blue('📥 Downloading latest template from GitHub...'),
       )
-      const dlCmd = `curl -fsSL "${BOT_TEMP_ARCHIVE_URL}" | tar -xz -C "${appDir}" --strip-components=3 "${tarFilter}"`
+      const dlCmd =
+        `curl -fsSL "${BOT_TEMP_ARCHIVE_URL}" | tar -xz -C "${stagingDir}" --strip-components=3 "${tarFilter}"`
       const dlResult = await exec(
         `sh -c ${JSON.stringify(dlCmd)}`,
       )
@@ -338,7 +365,7 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
 
       // Verify extraction produced files
       const entries: string[] = []
-      for await (const entry of Deno.readDir(appDir)) {
+      for await (const entry of Deno.readDir(stagingDir)) {
         entries.push(entry.name)
       }
       if (entries.length === 0) {
@@ -351,18 +378,63 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
         colors.green(`✅ Template downloaded (${entries.length} items)`),
       )
 
-      // Restore rescued protected files (wallet.json, .env, .bak.*) so a
-      // re-init never destroys a funded wallet. For live files we also write
-      // a fresh .bak.<ts> snapshot as an extra safety copy.
-      if (rescuedFiles.length > 0) {
-        const restored = await restoreRescuedFiles(appDir, rescuedFiles)
-        console.log(
-          colors.green(
-            `🛡  Restored ${restored.length} protected file(s): ${
-              restored.join(', ')
-            }`,
-          ),
-        )
+      // Rescue & merge protected files (wallet.json, .env, .bak.*) from the
+      // live appDir into the staging dir. We persist to ~/.slv/wallet-rescue
+      // FIRST so that even if the process dies between here and the swap,
+      // wallet.json exists on disk outside the bot tree.
+      if (dirExists) {
+        rescueInfo = await persistProtectedFiles(appDir, appName, swapTs)
+        if (rescueInfo) {
+          if (rescueInfo.files.includes('wallet.json')) {
+            console.log(
+              colors.bold.yellow(
+                `🛡  wallet.json persisted to ${rescueInfo.rescueDir} — kept permanently as recovery trail.`,
+              ),
+            )
+          }
+          console.log(
+            colors.yellow(
+              `   Persisted ${rescueInfo.files.length} protected file(s): ${
+                rescueInfo.files.join(', ')
+              }`,
+            ),
+          )
+        }
+        const merged = await mergeProtectedFilesInto(appDir, stagingDir, swapTs)
+        if (merged.length > 0) {
+          console.log(
+            colors.green(
+              `🛡  Merged ${merged.length} protected file(s) into new template: ${
+                merged.join(', ')
+              }`,
+            ),
+          )
+        }
+      }
+
+      // Atomic swap: appDir → trash, staging → appDir. The live appDir is
+      // never rm'd in place; only the trash dir (which contains an obsolete
+      // template copy — wallet is already preserved both in the new appDir
+      // and in ~/.slv/wallet-rescue) is removed, best-effort.
+      if (dirExists) {
+        const trashDir = `${appDir}.trash.${swapTs}`
+        await Deno.rename(appDir, trashDir)
+        try {
+          await Deno.rename(stagingDir, appDir)
+        } catch (swapErr) {
+          // Extremely unlikely (same parent dir, just renamed away), but if
+          // the forward rename fails, roll the trash back into place so the
+          // user is left with their original directory.
+          try {
+            await Deno.rename(trashDir, appDir)
+          } catch { /* wallet still safe in rescue dir */ }
+          throw swapErr
+        }
+        try {
+          await exec(`rm -rf "${trashDir}"`)
+        } catch { /* non-fatal */ }
+      } else {
+        await Deno.rename(stagingDir, appDir)
       }
 
       const isRust = templateType.includes('rust') ||
@@ -398,28 +470,19 @@ ${msg}
         colors.red('❌ Failed to download or extract template:'),
         error,
       )
-      // The directory was wiped but extraction failed — restore rescued
-      // protected files so the user never loses wallet.json even on a
-      // crashed re-init. Recreate the directory first if needed.
-      if (rescuedFiles.length > 0) {
-        try {
-          await Deno.mkdir(appDir, { recursive: true })
-          const restored = await restoreRescuedFiles(appDir, rescuedFiles)
-          console.log(
-            colors.yellow(
-              `🛡  Restored ${restored.length} protected file(s) after ` +
-                `failed init: ${restored.join(', ')}`,
-            ),
-          )
-        } catch (restoreErr) {
-          console.error(
-            colors.red(
-              `❌ CRITICAL: failed to restore rescued files. ` +
-                `Contents were held in memory only and may be lost.`,
-            ),
-            restoreErr,
-          )
-        }
+      // The live appDir is untouched — we only ever worked in stagingDir.
+      // Clean up the staging dir (best-effort) and bail. If we already
+      // persisted protected files to the rescue dir, leave them there as
+      // a recovery trail.
+      try {
+        await exec(`rm -rf "${stagingDir}"`)
+      } catch { /* non-fatal */ }
+      if (rescueInfo) {
+        console.log(
+          colors.yellow(
+            `🛡  Protected files remain at ${rescueInfo.rescueDir}`,
+          ),
+        )
       }
       return false
     }
