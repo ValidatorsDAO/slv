@@ -408,7 +408,56 @@ export async function executeSubAgentTool(
   return await executeTool(name, args)
 }
 
+// Hard guard against destructive operations on wallet.json, ~/.slv, and
+// ~/slv/<bot> project directories. This runs before any confirmation or spawn,
+// so it cannot be bypassed by auto-execute mode or by the agent rephrasing a
+// confirm dialog. Returns a reason string if the command must be blocked, or
+// null if it is allowed through.
+function checkWalletGuard(command: string): string | null {
+  const home = '(~|\\$HOME|/Users/[^/\\s\'"]+|/home/[^/\\s\'"]+)'
+  const rmFlags = '\\s+-[a-zA-Z]*[rRfF][a-zA-Z]*'
+  const patterns: { re: RegExp; reason: string }[] = [
+    {
+      re: /\brm\b[^\n]*\bwallet\.json\b/,
+      reason:
+        'refusing to delete wallet.json (contains the trading wallet private key)',
+    },
+    {
+      re: />\s*wallet\.json\b/,
+      reason: 'refusing to truncate or overwrite wallet.json via shell redirect',
+    },
+    {
+      re: new RegExp(`\\brm${rmFlags}\\s+[^\\n]*${home}/\\.slv(/|\\s|$|['"])`),
+      reason:
+        'refusing rm -rf on ~/.slv (holds api.yml, agent config, and credentials)',
+    },
+    {
+      re: new RegExp(
+        `\\brm${rmFlags}\\s+[^\\n]*${home}/slv(/[^\\s'"]+)?(\\s|$|['"])`,
+      ),
+      reason:
+        'refusing rm -rf on ~/slv or a ~/slv/<bot> directory (bot projects contain wallet.json). Delegate bot cleanup to Setzer, or use `slv bot init` which has a built-in wallet rescue layer.',
+    },
+  ]
+  for (const { re, reason } of patterns) {
+    if (re.test(command)) return reason
+  }
+  return null
+}
+
 async function executeRunCommand(command: string): Promise<string> {
+  const guardReason = checkWalletGuard(command)
+  if (guardReason !== null) {
+    const msg =
+      `Command blocked by wallet safety guard: ${guardReason}\n\n` +
+      `Command: ${command}\n\n` +
+      `This is a hard guard that runs before confirmation to protect wallet.json and ~/.slv from accidental deletion. Do not retry with a rephrased command — either delegate to the Setzer sub-agent (agent='Setzer') for bot/app work, or ask the user to run the command manually if they truly intend it.`
+    if (!tuiInstance) {
+      console.log(`  ✗ ${msg}`)
+    }
+    return msg
+  }
+
   let confirmed = true
 
   if (autoExecuteCommands) {
