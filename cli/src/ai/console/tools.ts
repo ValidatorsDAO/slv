@@ -1165,7 +1165,7 @@ When running ansible-playbook or slv commands that connect to servers:
       let slvApiKey = ''
       try {
         const raw = await Deno.readTextFile(`${home}/.slv/api.yml`)
-        const yml = (await import('@std/yaml')).parse(raw) as Record<
+        const yml = parse(raw) as Record<
           string,
           // deno-lint-ignore no-explicit-any
           any
