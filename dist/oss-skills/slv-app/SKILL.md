@@ -1,181 +1,65 @@
 # SLV App Skill
 
-Templates and tools for creating Solana bot and app projects.
+Router and safety reference for Solana bot and app projects created with
+`slv bot init`. This skill is template-agnostic — it covers the generic
+operations that apply to every template. Template-specific guides
+(trade-app, geyser-ts, shreds-rust, …) live in dedicated `slv-bot-*`
+skills loaded alongside this one.
 
 ## Available Template Types
-| Type | Description |
-|---|---|
-| Geyser Stream Client | Real-time Solana data streaming via gRPC Geyser |
-| Shreds Stream Client | Low-level shred stream templates |
-| `trade-app` | Rust PumpSwap auto-trading bot with buy/sell/close lifecycle |
 
-## trade-app Overview
+| `-t <type>` | Skill | Description |
+|---|---|---|
+| `trade-app` | `slv-bot-trade-app` | Rust PumpSwap auto-trading bot with buy/sell/close lifecycle |
+| `geyser-ts` | (future) | Real-time Solana data streaming via gRPC Geyser (TypeScript) |
+| `geyser-rust` | (future) | Real-time Solana data streaming via gRPC Geyser (Rust) |
+| `shreds-ts` | (future) | Low-level shred stream template (TypeScript) |
+| `shreds-rust` | (future) | Low-level shred stream template (Rust) |
+| `shreds-udp-rust` | (future) | UDP-based shred stream template (Rust) |
 
-The `trade-app` template is a Rust application for PumpSwap (Pump.fun AMM) trading automation.
+When the user picks a template, consult the matching sub-skill for its
+step-by-step guide, env var reference, and template-specific REST API or
+daemon behavior. This document provides the common layer those sub-skills
+build on top of.
 
-### Lifecycle
-`pool detected -> buy -> tx confirm -> sell monitor -> sell -> burn if needed -> ATA close -> notify`
+## `slv bot` CLI Commands
 
-### Main features
-- Real-time pool detection via Geyser gRPC
-- Automatic buy on matching new pool
-- Profit target selling with retry support
-- Timeout-based forced retreat
-- Liquidity collapse retreat
-- Dust burn and ATA close for rent recovery
-- Discord webhook notifications
-- Redis-backed trade history
-- REST API with OpenAPI docs at `/docs`
-
-## Quick Start (step-by-step)
-
-### 1. Create the project
-```bash
-slv bot init -t trade-app -n solana-trade-bot -y
-```
-Options: `-t` template type, `-n` app name, `-y` overwrite without asking.
-
-### 2. Configure environment
-```bash
-cd ~/slv/solana-trade-bot
-cp .env.sample .env
-# Edit .env — set at minimum: GRPC_ENDPOINT (leave optional fields blank unless needed)
-```
-
-### 3. Build
-macOS:
-```bash
-brew install llvm   # if not already installed
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib cargo build -r
-```
-Linux:
-```bash
-cargo build -r
-```
-
-### 4. Run (background, with PID file and bounded readiness check)
-```bash
-cd ~/slv/solana-trade-bot
-mkdir -p .slv
-RUST_LOG=info nohup ./target/release/trade-app > trade-app.log 2>&1 & echo $! > .slv/trade-app.pid
-for i in 1 2 3 4 5; do
-  curl -fsS http://localhost:3000/api/wallet && break
-  sleep 1
-done
-```
-- Save the PID to `.slv/trade-app.pid` so the process can be stopped cleanly later
-- If readiness fails, inspect `trade-app.log` instead of waiting forever
-- `wallet.json` is auto-generated on first start
-- API docs: `http://localhost:3000/docs`
-- **NEVER run with `run_command` directly** or in a way that waits on the backgrounded process forever
-
-### 5. Fund wallet and start trading
-```bash
-# Check wallet pubkey
-curl -s http://localhost:3000/api/wallet
-# Send SOL to the wallet pubkey (min 0.013 SOL)
-# Then start trading:
-curl -X POST http://localhost:3000/api/trade/start
-# Check status:
-curl -s http://localhost:3000/api/trade/status
-```
-
-### Stop the bot
-Preferred:
-```bash
-cd ~/slv/solana-trade-bot
-kill "$(cat .slv/trade-app.pid)" && rm -f .slv/trade-app.pid
-```
-Fallback:
-```bash
-pkill -f trade-app
-```
-
-### 6. Deploy to VPS
-```bash
-slv bot deploy
-```
-Builds, uploads via SCP, creates systemd service on the remote server.
-
-## Environment Variables (`.env`)
-
-### Required
-| Variable | Description |
-|----------|-------------|
-| `GRPC_ENDPOINT` | Geyser gRPC endpoint |
-
-### Optional
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `X_TOKEN` | — | Optional gRPC auth token, only needed when the endpoint requires it |
-| `SOLANA_RPC_ENDPOINT` | `https://edge.erpc.global?api-key=<API_KEY>` | RPC for reads. Reuse the API key from `~/.slv/api.yml` automatically when available |
-| `SOLANA_SEND_RPC_ENDPOINT` | same as read RPC | RPC for sending TXs. Reuse the same ERPC endpoint automatically when available |
-| `API_PORT` | `3000` | HTTP API port |
-| `API_TOKEN` | — | Bearer token for API auth |
-| `WEBHOOK_URL` | — | Discord Webhook URL. If `notifications.discord_webhook` exists in `~/.slv/api.yml`, reuse it automatically |
-| `REDIS_URL` | — | Redis URL for trade history. For non-engineer users, prefer installing Redis locally and configuring this automatically instead of asking up front |
-
-When setting up `.env`, prefer automatic configuration over user questions whenever possible. Reuse existing local configuration automatically when available, especially the SLV API key from `~/.slv/api.yml` for `https://edge.erpc.global?api-key=<API_KEY>` RPC defaults, and `notifications.discord_webhook` from `~/.slv/api.yml` for `WEBHOOK_URL`. For non-engineer users, prefer installing and wiring Redis automatically when local persistence is useful.
-| `CONFIG_PATH` | `config.jsonc` | Geyser filter config file |
-
-## Trade Configuration (via API)
-
-`GET /api/config` to read, `PUT /api/config` to update.
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `buy_amount_lamports` | `100000` (0.0001 SOL) | Amount to spend per buy |
-| `sell_multiplier` | `1.1` | Take profit at buy_price x this |
-| `slippage_bps` | `500` (5%) | Slippage tolerance |
-| `max_positions` | `1` | Max concurrent positions |
-| `min_pool_sol_lamports` | `100000` (0.0001 SOL) | Min pool liquidity to trigger buy |
-| `sell_timeout_secs` | `300` (5 min) | Force exit after timeout |
-| `exit_pool_sol_lamports` | `1000000` (0.001 SOL) | Retreat if pool WSOL drops below |
-
-## REST API
-
-Base URL: `http://localhost:3000` | OpenAPI docs: `http://localhost:3000/docs`
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/config` | Get current trade config |
-| `PUT` | `/api/config` | Partial update trade config |
-| `POST` | `/api/trade/start` | Start trading |
-| `POST` | `/api/trade/stop` | Stop trading |
-| `GET` | `/api/trade/status` | Running state, positions, balance |
-| `GET` | `/api/wallet` | Wallet pubkey and SOL balance |
-| `GET` | `/api/logs` | Trade logs |
-| `GET` | `/api/trades/history` | Trade history from Redis |
-| `GET` | `/api/trades/{id}` | Single trade by ID |
-| `GET` | `/api/trades/profit` | Buy-Sell pair P&L summary |
-| `POST` | `/api/grpc/start` | Start gRPC stream |
-| `POST` | `/api/grpc/stop` | Stop gRPC stream |
-
-## CLI Command -> Action Mapping
 | CLI | Action |
 |---|---|
-| `slv bot init` | Scaffold a bot/app project from template |
-| `slv bot deploy` | Build and deploy bot to VPS via SSH + systemd |
-| `slv bot` / `slv b` | Bot management menu |
+| `slv bot init -t <template> -n <name>` | Scaffold a bot/app project in `~/slv/<name>/` from the named template |
+| `slv bot deploy` | Build and deploy the current project to a VPS via SSH + systemd |
+| `slv bot list` / `slv b` | List / switch between deployed bots |
+| `slv bot log`, `slv bot restart`, `slv bot start`, `slv bot status`, `slv bot stop` | Operate a deployed bot on its remote VPS |
 
-## Common Build Issues
+### `slv bot init` safety notes
 
-### macOS: `libclang.dylib` not found
-```
-error: failed to run custom build command for `librocksdb-sys`
-dyld: Library not loaded: @rpath/libclang.dylib
-```
-**Fix:**
-```bash
-brew install llvm
-DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib cargo build -r
-```
+- `-y` forces `rm -rf` on the target directory before extracting the
+  template. **Never pass `-y` when `wallet.json` exists** in the target —
+  the private key will be destroyed. The CLI has a built-in
+  `~/.slv/wallet-rescue/` layer that persists `wallet.json`, `.env`, and
+  `*.bak.*` snapshots outside the bot dir before the atomic swap, but the
+  safest path is to never trigger the rescue in the first place.
+- Templates are fetched from
+  `https://github.com/ValidatorsDAO/solana-stream`. No network at init time
+  → template source must already be cached locally.
+
+## Wallet safety at a glance
+
+`wallet.json` in any `~/slv/<app>/` directory is a Solana secret key. Treat
+it like a seed phrase. The full preflight rules live in `AGENT.md` — the
+short version:
+
+1. Never delete `wallet.json` or `wallet.json.bak.*`.
+2. Never run `slv bot init -y` when `wallet.json` exists.
+3. Always snapshot `wallet.json` before any action that could touch the
+   app directory.
 
 ## ERPC Cloud MCP — Endpoint & Storage Provisioning
 
 MCP Server URL: `https://mcp-slv-cloud.erpc.global/mcp`
 
-When users don't have a gRPC or Shredstream endpoint, use this MCP to look up products and provide purchase links.
+When users don't have a gRPC or Shredstream endpoint, use this MCP to look
+up products and provide purchase links.
 
 ### Shared (recommended to start)
 | Method | Path | Purpose |
@@ -196,17 +80,24 @@ When users don't have a gRPC or Shredstream endpoint, use this MCP to look up pr
 ### Storage
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/v3/storage/product-list` | Storage/backup products |
+| `GET` | `/v3/storage/product-list` | Storage/backup products (trade history, position data) |
 
 ### Flow
-1. `/v3/grpc/list` → show products + payment links → user purchases → `/v3/grpc/register-ip-grpc` → get endpoint → set in `.env`
-2. For higher performance: `/v3/dedicated/list` → purchase → `/v3/geyser-grpc/status` for endpoint
+1. `/v3/grpc/list` → show products + payment links → user purchases →
+   `/v3/grpc/register-ip-grpc` → get endpoint → set in `.env`
+2. For higher performance: `/v3/dedicated/list` → purchase →
+   `/v3/geyser-grpc/status` for endpoint
 
 ### Important: Backup storage
-Trade history and position data need persistent storage. Without backup, data is lost on restart or crash. Use `/v3/storage/product-list` to show backup options proactively.
+Trade history and position data need persistent storage. Without backup,
+data is lost on restart or crash. Use `/v3/storage/product-list` to show
+backup options proactively.
 
 ## Operator Notes
-- `wallet.json` contains a private key — never commit it
-- Keep examples OSS-safe: placeholders only, never real tokens or private endpoints
-- After local testing succeeds, recommend `slv bot deploy` to deploy to a VPS
-- If user lacks gRPC/Shredstream endpoints, use ERPC Cloud MCP to show products and purchase links
+- `wallet.json` contains a private key — never commit it.
+- Keep examples OSS-safe: placeholders only, never real tokens or private
+  endpoints.
+- After local testing succeeds, recommend `slv bot deploy` to deploy to a
+  VPS.
+- If the user lacks gRPC/Shredstream endpoints, use ERPC Cloud MCP to show
+  products and purchase links.

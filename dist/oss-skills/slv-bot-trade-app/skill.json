@@ -1,0 +1,20 @@
+{
+  "name": "slv-bot-trade-app",
+  "displayName": "SLV Bot — trade-app template",
+  "version": "0.1.0",
+  "description": "Template-specific knowledge for the `slv bot init -t trade-app` PumpSwap auto-trading bot. Extends slv-app with the trade-app 10-step setup, REST API reference, and per-app playbook. Always loaded alongside slv-app for the Setzer agent.",
+  "author": "ValidatorsDAO",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ValidatorsDAO/slv",
+  "repository": "https://github.com/ValidatorsDAO/slv",
+  "tags": ["solana", "trade-bot", "pumpswap", "rust"],
+  "requirements": {
+    "system": ["rust>=1.70"],
+    "optional": ["solana-cli", "redis"]
+  },
+  "extends": "slv-app",
+  "files": {
+    "skill": "SKILL.md",
+    "agent": "AGENT.md"
+  }
+}
