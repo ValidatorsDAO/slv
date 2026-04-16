@@ -51,7 +51,8 @@ import {
   type UserContextKind,
 } from '@/ai/console/intentClassifier.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
-import { parse } from '@std/yaml'
+import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
+import { listAgentsByOrder } from '@/ai/agentConfig/registry.ts'
 import {
   applyVersionUpdates,
   checkSolanaReleases,
@@ -215,43 +216,10 @@ class ChatLog extends Container {
 }
 
 async function buildLocalGreeting(home: string): Promise<string> {
-  const agentDir = `${home}/.slv/agent`
+  const ctx = await loadAgentContext({ home })
 
-  // Extract agent name from SOUL.md
-  let agentName = 'your SLV assistant'
-  try {
-    const soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`)
-    const nameMatch = soulMd.match(/name:\s*([^\n]+)/i)
-    if (nameMatch) agentName = nameMatch[1].trim()
-  } catch { /* not configured */ }
-
-  // Extract user's preferred name from USER.md
-  let userName = ''
-  try {
-    const userMd = await Deno.readTextFile(`${agentDir}/USER.md`)
-    const nameMatch = userMd.match(/preferred_name:\s*([^\n]+)/i)
-    if (nameMatch) userName = nameMatch[1].trim()
-  } catch { /* not configured */ }
-
-  // Read enabled agents from config.yml
-  let enabledAgents: string[] = []
-  try {
-    const raw = await Deno.readTextFile(`${agentDir}/config.yml`)
-    const agentConfig = parse(raw) as Record<string, unknown>
-    const skills = (agentConfig.skills || []) as Array<
-      { name: string; enabled: boolean; agent: string }
-    >
-    enabledAgents = skills.filter((s) => s.enabled).map((s) => s.agent)
-  } catch { /* not configured */ }
-
-  // Figaro should be visible when the skill is installed, even if older configs
-  // predate the Server Procurement toggle.
-  try {
-    await Deno.stat(`${home}/.slv/skills/slv-server-procurement/SKILL.md`)
-    enabledAgents.push('Figaro')
-  } catch {
-    // skill not installed
-  }
+  const agentName = ctx.soul?.name ?? 'your SLV assistant'
+  const userName = ctx.user?.preferredName ?? ''
 
   const greetLine = userName
     ? t('Hey {name}! 👋').replace('{name}', userName)
@@ -261,24 +229,12 @@ async function buildLocalGreeting(home: string): Promise<string> {
     ? t("I'm {agent}, your SLV commander.").replace('{agent}', agentName)
     : t("I'm your SLV assistant.")
 
-  const agentDescriptions: Record<string, string> = {
-    'Cecil': t('Solana Validator deployments & management'),
-    'Tina': t('RPC nodes (Index RPC, gRPC Geyser, combos)'),
-    'Setzer': t('Trading bots & Solana apps'),
-    'Figaro': t('Find optimized Solana server resources'),
-    'Cid': t('Benchmarks & connectivity testing'),
-  }
-
-  const preferredOrder = ['Cecil', 'Tina', 'Setzer', 'Figaro', 'Cid']
-  const crew = preferredOrder.filter((agent) => enabledAgents.includes(agent))
-  let crewSection = ''
-  if (crew.length > 0) {
-    crewSection = ` ${t("Here's my crew:")}\n\n${
-      crew.map((a) => `- ${a} — ${agentDescriptions[a]}`).join('\n')
+  const crew = listAgentsByOrder(ctx.enabledAgents)
+  const crewSection = crew.length > 0
+    ? ` ${t("Here's my crew:")}\n\n${
+      crew.map((meta) => `- ${meta.id} — ${meta.description()}`).join('\n')
     }\n\n`
-  } else {
-    crewSection = ' '
-  }
+    : ' '
 
   // Append a one-line profile hint so the user sees we've detected their
   // primary focus. Failures are non-fatal — the greeting still works.
@@ -687,14 +643,10 @@ export const consoleAction = async () => {
   })
 
   // Read auto-execute setting from agent config
-  try {
-    const agentConfigPath = `${resolveHome()}/.slv/agent/config.yml`
-    const raw = await Deno.readTextFile(agentConfigPath)
-    const agentConfig = parse(raw) as Record<string, unknown>
-    if (agentConfig.auto_execute === false) {
-      setAutoExecute(false)
-    }
-  } catch { /* default: auto-execute on */ }
+  {
+    const ctx = await loadAgentContext()
+    if (!ctx.autoExecute) setAutoExecute(false)
+  }
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider | SLVProvider
@@ -862,11 +814,8 @@ export const consoleAction = async () => {
     )
   } else if (config.provider === 'slv') {
     // SLV AI uses slv.api_key from ~/.slv/api.yml (not ai.api_key)
-    try {
-      const apiYmlRaw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
-      const apiYml = parse(apiYmlRaw) as Record<string, any>
-      slvApiKey = apiYml?.slv?.api_key || ''
-    } catch { /* */ }
+    const ctx = await loadAgentContext()
+    slvApiKey = ctx.raw.api.slv.api_key ?? ''
     if (!slvApiKey) {
       console.log('\n  SLV API Key not found. Run `slv login` first.\n')
       return
@@ -955,21 +904,10 @@ export const consoleAction = async () => {
   const hydratedUserContextKinds = new Set<UserContextKind>()
   const hydratedUserContextBlocks = new Map<UserContextKind, string>()
 
-  try {
-    const raw = await Deno.readTextFile(
-      `${resolveHome()}/.slv/agent/config.yml`,
-    )
-    const agentConfig = parse(raw) as Record<string, unknown>
-    deploymentMode =
-      ((agentConfig.mode as string) || 'remote') as DeploymentMode
-    enabledSpecialists =
-      ((agentConfig.skills as Array<Record<string, unknown>> | undefined) || [])
-        .filter((skill) => skill?.enabled)
-        .map((skill) => String(skill.agent || ''))
-        .filter(Boolean)
-  } catch {
-    deploymentMode = 'remote'
-    enabledSpecialists = []
+  {
+    const ctx = await loadAgentContext()
+    deploymentMode = ctx.mode
+    enabledSpecialists = ctx.enabledAgents
   }
 
   const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -994,11 +932,8 @@ export const consoleAction = async () => {
       renderStage(`📚 Loading ${describeUserContextKind(kind)}…`)
       try {
         if (!slvApiKey) {
-          const apiYmlRaw = await Deno.readTextFile(
-            `${resolveHome()}/.slv/api.yml`,
-          )
-          const apiYml = parse(apiYmlRaw) as Record<string, any>
-          slvApiKey = apiYml?.slv?.api_key || ''
+          const ctx = await loadAgentContext()
+          slvApiKey = ctx.raw.api.slv.api_key ?? ''
         }
         if (slvApiKey) {
           const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
@@ -1250,12 +1185,8 @@ RULES:
           callbacks,
         )
       } else if (config.provider === 'slv') {
-        let slvKey = ''
-        try {
-          const raw = await Deno.readTextFile(`${resolveHome()}/.slv/api.yml`)
-          const yml = parse(raw) as Record<string, any>
-          slvKey = yml?.slv?.api_key || ''
-        } catch { /* */ }
+        const ctx = await loadAgentContext()
+        const slvKey = ctx.raw.api.slv.api_key ?? ''
         if (slvKey) {
           slvApiKey = slvKey
           provider = new SLVProvider(

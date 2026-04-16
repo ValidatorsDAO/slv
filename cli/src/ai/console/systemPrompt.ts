@@ -1,9 +1,17 @@
-import { parse } from '@std/yaml'
-import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { VERSION } from '@cmn/constants/version.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { readLang } from '@/ai/config.ts'
 import { detectProfile, profilePromptBlock } from '@/ai/console/profile.ts'
+import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
+import {
+  AGENT_REGISTRY,
+  type AgentId,
+  isKnownAgentId,
+} from '@/ai/agentConfig/registry.ts'
+import {
+  resolveApiYmlPath,
+  resolveSkillMdPath,
+} from '@/ai/agentConfig/paths.ts'
 
 // --- Context module state management ---
 
@@ -50,21 +58,19 @@ function skillSectionTitle(path: string): string {
 }
 
 async function cacheSkillDocs(
-  skillsDir: string,
-  skills: Array<{ name: string; enabled: boolean; agent: string }>,
+  home: string,
+  skillSourcesByAgent: Record<AgentId, string[]>,
 ) {
   skillDocsCache = {}
   skillDocSources = {}
 
-  for (const skill of skills) {
-    if (!skill.enabled) continue
-    registerSkillDocSource(skill.agent, `${skillsDir}/${skill.name}/SKILL.md`)
-  }
-
-  // Tina and Cid also benefit from the gRPC Geyser skill when that skill exists,
-  // but we still register it lazily instead of reading it at startup.
-  for (const agent of ['Tina', 'Cid']) {
-    registerSkillDocSource(agent, `${skillsDir}/slv-grpc-geyser/SKILL.md`)
+  // skillSourcesByAgent already merges registry-declared extraSkills (e.g.
+  // Tina/Cid → slv-grpc-geyser) with the config.yml entries and deduplicates,
+  // so each path is registered exactly once per agent.
+  for (const agent of Object.keys(skillSourcesByAgent) as AgentId[]) {
+    for (const skillName of skillSourcesByAgent[agent]) {
+      registerSkillDocSource(agent, resolveSkillMdPath(skillName, home))
+    }
   }
 }
 
@@ -295,9 +301,10 @@ You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
 // --- Core prompt builder (small footprint, ~3KB) ---
 
 async function buildCorePrompt(userContext?: string): Promise<string> {
-  const home = resolveHome()
+  const ctx = await loadAgentContext()
+  const home = ctx.home
   const agentDir = `${home}/.slv/agent`
-  const skillsDir = `${home}/.slv/skills`
+  const skillsDir = ctx.skillsDir
 
   const osName = Deno.build.os === 'darwin'
     ? 'macOS'
@@ -312,17 +319,9 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     // ignore
   }
 
-  // Read agent files
-  let soulMd = '', userMd = '', memoryMd = ''
-  try {
-    soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`)
-  } catch { /* not configured */ }
-  try {
-    userMd = await Deno.readTextFile(`${agentDir}/USER.md`)
-  } catch { /* not configured */ }
-  try {
-    memoryMd = await Deno.readTextFile(`${agentDir}/MEMORY.md`)
-  } catch { /* not configured */ }
+  const soulMd = ctx.soul?.raw ?? ''
+  const userMd = ctx.user?.raw ?? ''
+  const memoryMd = ctx.memory?.raw ?? ''
 
   // Always-on non-interactive command reference for `slv backup` and
   // `slv storage`. Loaded directly into the main agent prompt so the
@@ -332,7 +331,7 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
   let backupSkillMd = ''
   try {
     backupSkillMd = await Deno.readTextFile(
-      `${skillsDir}/slv-backup/SKILL.md`,
+      resolveSkillMdPath('slv-backup', home),
     )
   } catch { /* skill not synced yet — Core Rules line still applies */ }
 
@@ -342,35 +341,13 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
   const userProfile = await detectProfile().catch(() => null)
   const profileBlock = userProfile ? profilePromptBlock(userProfile) : ''
 
-  // Read config to get enabled skills and mode
-  let configYml: Record<string, unknown> = { skills: [] }
-  try {
-    const raw = await Deno.readTextFile(`${agentDir}/config.yml`)
-    configYml = parse(raw) as Record<string, unknown>
-  } catch { /* not configured */ }
-
-  // Build sub-agent team list (keep it tiny)
-  const skills = (configYml.skills || []) as Array<
-    { name: string; enabled: boolean; agent: string }
-  >
-  const enabledAgents: string[] = []
-  for (const skill of skills) {
-    if (skill.enabled) enabledAgents.push(skill.agent)
-  }
-
-  const agentLabels: Record<string, string> = {
-    'Cecil': 'validator',
-    'Tina': 'rpc',
-    'Cid': 'benchmark',
-    'Setzer': 'app',
-    'Figaro': 'server-procurement',
-  }
-  const teamSummary = enabledAgents
-    .filter((agent, index, all) => all.indexOf(agent) === index)
-    .map((agent) => `${agent} (${agentLabels[agent] || 'specialist'})`)
+  // Agent team list — already deduplicated + ordered by the loader.
+  const teamSummary = ctx.enabledAgents
+    .filter(isKnownAgentId)
+    .map((id) => `${id} (${AGENT_REGISTRY[id].label})`)
     .join(', ')
 
-  const mode = (configYml.mode as string) || 'remote'
+  const mode = ctx.mode
 
   const inventoryFiles = [
     `${home}/.slv/inventory.testnet.validators.yml`,
@@ -382,11 +359,11 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     api: false,
     agent: false,
     inventory: false,
-    discordWebhook: false,
+    discordWebhook: ctx.discordWebhookConfigured,
   }
 
   try {
-    await Deno.stat(`${home}/.slv/api.yml`)
+    await Deno.stat(resolveApiYmlPath(home))
     configPresence.api = true
   } catch {
     // ignore
@@ -404,34 +381,6 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
       await Deno.stat(inventoryFile)
       configPresence.inventory = true
       break
-    } catch {
-      // keep checking
-    }
-  }
-
-  // Detect whether a Discord webhook is configured so the main agent can
-  // proactively offer to push long outputs (payment links, benchmark
-  // summaries, deploy results) to Discord. Only the presence flag is
-  // surfaced — the URL itself never enters the prompt context.
-  // Primary location is ~/.slv/api.yml (written by `slv onboard`); the
-  // legacy ~/.slv/agent/config.yml location is also checked for older
-  // installs. Inlined here (rather than imported from tools.ts) to avoid
-  // a circular import between systemPrompt.ts and tools.ts.
-  const webhookCandidates = [
-    `${home}/.slv/api.yml`,
-    `${agentDir}/config.yml`,
-  ]
-  for (const path of webhookCandidates) {
-    try {
-      const raw = await Deno.readTextFile(path)
-      const parsed = parse(raw) as Record<string, unknown> | null
-      const notifications = parsed?.notifications as
-        | Record<string, string>
-        | undefined
-      if (notifications?.discord_webhook?.trim()) {
-        configPresence.discordWebhook = true
-        break
-      }
     } catch {
       // keep checking
     }
@@ -455,8 +404,8 @@ This user operates in REMOTE mode. Deployments target remote servers via SSH.
 `
 
   // Cache skill docs for lazy loading (not included in prompt)
-  await cacheSkillDocs(skillsDir, skills)
-  const enabledSkillSummary = skills
+  await cacheSkillDocs(home, ctx.skillSourcesByAgent)
+  const enabledSkillSummary = ctx.raw.config.skills
     .filter((s) => s.enabled)
     .map((s) => `${s.name} (${s.agent})`)
     .join(', ')
