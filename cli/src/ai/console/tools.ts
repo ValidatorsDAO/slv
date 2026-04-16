@@ -1160,6 +1160,27 @@ When running ansible-playbook or slv commands that connect to servers:
         subSystemPrompt,
         task,
       )
+    } else if (config.provider === 'slv') {
+      const home = resolveHome()
+      let slvApiKey = ''
+      try {
+        const raw = await Deno.readTextFile(`${home}/.slv/api.yml`)
+        const yml = parse(raw) as Record<
+          string,
+          // deno-lint-ignore no-explicit-any
+          any
+        >
+        slvApiKey = yml?.slv?.api_key || ''
+      } catch { /* */ }
+      if (!slvApiKey) {
+        return 'Error: SLV API Key not found. Run `slv login` first.'
+      }
+      return await runSlvSubAgent(
+        slvApiKey,
+        config.model,
+        subSystemPrompt,
+        task,
+      )
     } else {
       return await runOpenAISubAgent(
         config.api_key,
@@ -1227,6 +1248,98 @@ async function runAnthropicSubAgent(
 
     // Execute tools
     const toolResults: Anthropic.ToolResultBlockParam[] = []
+    for (const tb of toolUseBlocks) {
+      const result = await executeSubAgentTool(tb.name, tb.input)
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: tb.id,
+        content: result,
+      })
+    }
+    messages.push({ role: 'user', content: toolResults })
+  }
+
+  return '(sub-agent reached maximum iteration limit)'
+}
+
+// --- Sub-agent SLV AI implementation (fetch-based Anthropic proxy) ---
+const SLV_AI_CHAT_URL = 'https://user-api.erpc.global/v3/ai/chat'
+
+async function runSlvSubAgent(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  task: string,
+): Promise<string> {
+  const tools = SUB_AGENT_TOOL_DEFINITIONS.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters,
+  }))
+
+  // deno-lint-ignore no-explicit-any
+  const messages: any[] = [{ role: 'user', content: task }]
+
+  const MAX_ITERATIONS = 20
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const res = await fetch(SLV_AI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: DEFAULT_MAX_TOKENS,
+        system: systemPrompt,
+        messages,
+        tools,
+      }),
+      signal: AbortSignal.timeout(600_000),
+    })
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      throw new Error(`SLV AI API error (${res.status}): ${errText}`)
+    }
+
+    // deno-lint-ignore no-explicit-any
+    const data = await res.json() as any
+    if (!data || !Array.isArray(data.content)) {
+      throw new Error(
+        `SLV AI returned unexpected response: ${
+          JSON.stringify(data).slice(0, 200)
+        }`,
+      )
+    }
+
+    let textContent = ''
+    const toolUseBlocks: {
+      id: string
+      name: string
+      input: Record<string, unknown>
+    }[] = []
+    for (const block of data.content) {
+      if (block.type === 'text') {
+        textContent += block.text
+      } else if (block.type === 'tool_use') {
+        toolUseBlocks.push({
+          id: block.id,
+          name: block.name,
+          input: block.input as Record<string, unknown>,
+        })
+      }
+    }
+
+    messages.push({ role: 'assistant', content: data.content })
+
+    if (toolUseBlocks.length === 0 || data.stop_reason === 'end_turn') {
+      return textContent || '(no response from sub-agent)'
+    }
+
+    // Execute tools
+    // deno-lint-ignore no-explicit-any
+    const toolResults: any[] = []
     for (const tb of toolUseBlocks) {
       const result = await executeSubAgentTool(tb.name, tb.input)
       toolResults.push({

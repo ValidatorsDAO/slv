@@ -2,6 +2,12 @@ import { parse, stringify } from '@std/yaml'
 import { dirname } from '@std/path'
 import { colors } from '@cliffy/colors'
 
+import {
+  invalidateAgentContext,
+  loadAgentContext,
+} from '@/ai/agentConfig/loader.ts'
+import { resolveApiYmlPath } from '@/ai/agentConfig/paths.ts'
+
 export type AiProvider = 'openai' | 'anthropic' | 'slv'
 
 export type AiConfig = {
@@ -18,15 +24,19 @@ type ApiYml = {
 }
 
 const getApiYmlPath = (): string => {
-  const home = Deno.env.get('HOME')
-  if (!home) {
+  try {
+    return resolveApiYmlPath()
+  } catch {
     console.log(colors.red('HOME environment variable not found'))
     Deno.exit(1)
   }
-  return home + '/.slv/api.yml'
 }
 
-const readApiYml = async (): Promise<ApiYml> => {
+// Read side delegates to loadAgentContext so we parse api.yml once per session.
+// Write side reads+stringifies directly (the loader is read-only) and then
+// invalidates the cache so subsequent loads see the updated values.
+
+const readApiYmlForWrite = async (): Promise<ApiYml> => {
   const path = getApiYmlPath()
   try {
     await Deno.stat(path)
@@ -37,28 +47,34 @@ const readApiYml = async (): Promise<ApiYml> => {
   try {
     return parse(content) as ApiYml
   } catch {
-    console.warn(colors.yellow('Warning: Failed to parse api.yml, using defaults'))
+    console.warn(
+      colors.yellow('Warning: Failed to parse api.yml, using defaults'),
+    )
     return { slv: { api_key: null } }
   }
 }
 
 export const readAiConfig = async (): Promise<AiConfig | null> => {
-  const yml = await readApiYml()
-  if (!yml.ai) return null
+  const ctx = await loadAgentContext()
+  const ai = ctx.raw.api.ai
+  if (!ai) return null
   // Ensure api_key is always a string (may be omitted for provider: slv)
-  return { ...yml.ai, api_key: yml.ai.api_key ?? '' }
+  return {
+    provider: ai.provider,
+    api_key: ai.api_key ?? '',
+    model: ai.model,
+  }
 }
 
 export const writeAiConfig = async (config: AiConfig): Promise<void> => {
   const path = getApiYmlPath()
   await Deno.mkdir(dirname(path), { recursive: true })
-  const yml = await readApiYml()
+  const yml = await readApiYmlForWrite()
 
   // When provider is 'slv', omit api_key from the YAML (slv.api_key is used instead)
   if (config.provider === 'slv') {
     const { api_key: _unused, ...rest } = config
     yml.ai = { ...rest, api_key: '' } as AiConfig
-    // Write YAML without the ai.api_key field
     const ymlObj = yml as Record<string, unknown>
     const aiObj = ymlObj.ai as Record<string, unknown>
     delete aiObj.api_key
@@ -68,39 +84,44 @@ export const writeAiConfig = async (config: AiConfig): Promise<void> => {
     await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
   }
   await Deno.chmod(path, 0o600)
+  invalidateAgentContext()
 }
 
 export const readLang = async (): Promise<string> => {
-  const yml = await readApiYml()
-  return yml.lang && yml.lang.trim().length > 0 ? yml.lang.trim() : 'en'
+  const ctx = await loadAgentContext()
+  const lang = ctx.raw.api.lang
+  return lang && lang.trim().length > 0 ? lang.trim() : 'en'
 }
 
 export const hasLangSet = async (): Promise<boolean> => {
-  const yml = await readApiYml()
-  return typeof yml.lang === 'string' && yml.lang.trim().length > 0
+  const ctx = await loadAgentContext()
+  const lang = ctx.raw.api.lang
+  return typeof lang === 'string' && lang.trim().length > 0
 }
 
 export const writeLang = async (lang: string): Promise<void> => {
   const path = getApiYmlPath()
   await Deno.mkdir(dirname(path), { recursive: true })
-  const yml = await readApiYml()
+  const yml = await readApiYmlForWrite()
   yml.lang = lang
   await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
   await Deno.chmod(path, 0o600)
+  invalidateAgentContext()
 }
 
 export const readBotAgreement = async (): Promise<boolean> => {
-  const yml = await readApiYml()
-  return yml.agreed_slv_init_bot === true
+  const ctx = await loadAgentContext()
+  return ctx.raw.api.agreed_slv_init_bot === true
 }
 
 export const writeBotAgreement = async (agreed: boolean): Promise<void> => {
   const path = getApiYmlPath()
   await Deno.mkdir(dirname(path), { recursive: true })
-  const yml = await readApiYml()
+  const yml = await readApiYmlForWrite()
   yml.agreed_slv_init_bot = agreed
   await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
   await Deno.chmod(path, 0o600)
+  invalidateAgentContext()
 }
 
 export const DEFAULT_MAX_TOKENS = 8192
