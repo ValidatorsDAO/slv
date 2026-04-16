@@ -50,3 +50,17 @@ Deno.test('Figaro registry metadata enables auto-detect via skill presence', () 
     'slv-server-procurement',
   )
 })
+
+Deno.test('Setzer registry metadata bundles slv-bot-trade-app as an extra skill', () => {
+  // Template-specific trade-app playbook ships as a dedicated skill and is
+  // always loaded alongside slv-app for the Setzer sub-agent.
+  assertEquals(
+    AGENT_REGISTRY.Setzer.extraSkills,
+    ['slv-bot-trade-app'],
+  )
+})
+
+Deno.test('collectSkillNamesForAgent(Setzer) merges slv-app + slv-bot-trade-app', () => {
+  const skills = collectSkillNamesForAgent('Setzer', ['slv-app'])
+  assertEquals(skills.sort(), ['slv-app', 'slv-bot-trade-app'])
+})

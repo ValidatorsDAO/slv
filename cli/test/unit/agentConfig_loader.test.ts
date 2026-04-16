@@ -237,3 +237,49 @@ Deno.test('Tina and Cid always register the geyser extra skill', async () => {
   assert(ctx.skillSourcesByAgent.Tina.includes('slv-grpc-geyser'))
   assert(ctx.skillSourcesByAgent.Cid.includes('slv-grpc-geyser'))
 })
+
+Deno.test('Setzer always registers slv-bot-trade-app alongside slv-app', async () => {
+  reset()
+  const home = await makeHome({
+    configYml: [
+      'skills:',
+      '  - name: slv-app',
+      '    enabled: true',
+      '    agent: Setzer',
+    ].join('\n'),
+    skills: {
+      'slv-app': '# app',
+      'slv-bot-trade-app': '# trade-app',
+    },
+  })
+  const ctx = await loadAgentContext({ home, force: true })
+  assert(ctx.skillSourcesByAgent.Setzer.includes('slv-app'))
+  assert(ctx.skillSourcesByAgent.Setzer.includes('slv-bot-trade-app'))
+})
+
+Deno.test('Setzer emits a warning when slv-bot-trade-app is missing', async () => {
+  reset()
+  const home = await makeHome({
+    configYml: [
+      'skills:',
+      '  - name: slv-app',
+      '    enabled: true',
+      '    agent: Setzer',
+    ].join('\n'),
+    skills: { 'slv-app': '# app' }, // slv-bot-trade-app directory missing
+  })
+  const ctx = await loadAgentContext({ home, force: true })
+  // Setzer is still enabled; the extra skill is still registered, but the
+  // loader flags its absence so `slv skills sync` can heal it.
+  assert(ctx.enabledAgents.includes('Setzer'))
+  assert(ctx.skillSourcesByAgent.Setzer.includes('slv-bot-trade-app'))
+  const hasWarning = ctx.warnings.some((w) =>
+    w.source === 'skills' && w.message.includes('slv-bot-trade-app')
+  )
+  assert(
+    hasWarning,
+    `expected skill-missing warning for slv-bot-trade-app; got ${
+      JSON.stringify(ctx.warnings)
+    }`,
+  )
+})

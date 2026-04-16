@@ -51,6 +51,11 @@ export const AGENT_REGISTRY: Record<AgentId, AgentMeta> = {
     label: 'app',
     description: () => t('Trading bots & Solana apps'),
     order: 3,
+    // slv-bot-trade-app is the template-specific companion skill shipped
+    // alongside slv-app. It provides the trade-app 10-step guide, REST
+    // API reference, and per-app playbook. Future templates (geyser-ts,
+    // shreds-rust, …) should be added here the same way.
+    extraSkills: ['slv-bot-trade-app'],
   },
   Figaro: {
     id: 'Figaro',

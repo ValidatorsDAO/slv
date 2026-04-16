@@ -9,6 +9,7 @@ export const SKILL_NAMES = [
   'slv-grpc-geyser',
   'slv-benchmark',
   'slv-app',
+  'slv-bot-trade-app',
   'slv-server-procurement',
   'slv-backup',
 ] as const
