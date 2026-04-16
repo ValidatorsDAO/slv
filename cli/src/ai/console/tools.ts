@@ -11,6 +11,15 @@ import {
   loadContextModules,
 } from '@/ai/console/systemPrompt.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
+import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
+import {
+  isKnownAgentId,
+  ALL_AGENT_IDS,
+} from '@/ai/agentConfig/registry.ts'
+import {
+  resolveAgentMdPath,
+  resolveSkillMdPath,
+} from '@/ai/agentConfig/paths.ts'
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
@@ -55,13 +64,6 @@ export type ToolDefinition = {
   parameters: Record<string, unknown>
 }
 
-const AGENT_SKILL_MAP: Record<string, string> = {
-  'Cecil': 'slv-validator',
-  'Tina': 'slv-rpc',
-  'Cid': 'slv-benchmark',
-  'Setzer': 'slv-app',
-  'Figaro': 'slv-server-procurement',
-}
 
 // Core tools — safe orchestration helpers available after bootstrap
 export const CORE_TOOLS: ToolDefinition[] = [
@@ -778,17 +780,8 @@ async function executeCallMcp(
     if (cached) return `${cached}\n\n[session cache hit]`
   }
 
-  const home = resolveHome()
-  // Read SLV API key from api.yml
-  let apiKey = ''
-  try {
-    const raw = await Deno.readTextFile(`${home}/.slv/api.yml`)
-    const yml = parse(raw) as Record<string, any>
-    apiKey = yml?.slv?.api_key || ''
-  } catch {
-    return 'Error: Cannot read ~/.slv/api.yml'
-  }
-
+  const mcpCtx = await loadAgentContext()
+  const apiKey = mcpCtx.raw.api.slv.api_key ?? ''
   if (!apiKey) return 'Error: No SLV API key found. Run `slv login` first.'
 
   try {
@@ -895,41 +888,36 @@ async function executeDelegateToAgent(
   // Older agent configs may still reference the legacy "Cloud" label —
   // map it to Tina so those configs keep working after an upgrade.
   const effectiveName = agentName === 'Cloud' ? 'Tina' : agentName
-  const skillName = AGENT_SKILL_MAP[effectiveName]
-  if (!skillName) {
-    return `Unknown agent: ${agentName}. Available agents: Cecil, Tina, Cid, Setzer, Figaro`
+  if (!isKnownAgentId(effectiveName)) {
+    return `Unknown agent: ${agentName}. Available agents: ${
+      ALL_AGENT_IDS.join(', ')
+    }`
   }
 
-  const home = resolveHome()
-  const skillsDir = `${home}/.slv/skills`
+  const ctx = await loadAgentContext()
+  const home = ctx.home
+  const skillNames = ctx.skillSourcesByAgent[effectiveName] ?? []
 
-  // Read AGENT.md and SKILL.md
-  let agentMd = ''
-  let skillMd = ''
-  try {
-    agentMd = await Deno.readTextFile(`${skillsDir}/${skillName}/AGENT.md`)
-  } catch { /* agent file not found */ }
-  try {
-    skillMd = await Deno.readTextFile(`${skillsDir}/${skillName}/SKILL.md`)
-  } catch { /* skill file not found */ }
-
-  // Tina and Cid also read gRPC Geyser skill for comprehensive RPC/stream testing knowledge
-  if (effectiveName === 'Tina' || effectiveName === 'Cid') {
+  // Collect AGENT.md and SKILL.md bodies for every skill registered to
+  // this agent. Each block is section-headed with the skill name so the
+  // sub-agent can tell sources apart. Missing files are skipped silently
+  // (e.g. when the user has not run `slv skills sync` yet) — the loader
+  // already emitted a warning for these cases at startup.
+  const agentMdBlocks: string[] = []
+  const skillMdBlocks: string[] = []
+  for (const skillName of skillNames) {
     try {
-      const grpcSkill = await Deno.readTextFile(
-        `${skillsDir}/slv-grpc-geyser/SKILL.md`,
-      )
-      skillMd += `\n\n## Additional Skill: gRPC Geyser\n${grpcSkill}`
-    } catch { /* gRPC skill not installed */ }
+      const md = await Deno.readTextFile(resolveAgentMdPath(skillName, home))
+      agentMdBlocks.push(`## Agent doc: ${skillName}\n${md}`)
+    } catch { /* AGENT.md optional per skill */ }
+    try {
+      const md = await Deno.readTextFile(resolveSkillMdPath(skillName, home))
+      skillMdBlocks.push(`## Skill doc: ${skillName}\n${md}`)
+    } catch { /* SKILL.md optional per skill */ }
   }
-
-  // Read deployment mode from config.yml
-  let deployMode = 'remote'
-  try {
-    const configRaw = await Deno.readTextFile(`${home}/.slv/agent/config.yml`)
-    const configData = parse(configRaw) as Record<string, unknown>
-    deployMode = (configData.mode as string) || 'remote'
-  } catch { /* default to remote */ }
+  const agentMd = agentMdBlocks.join('\n\n')
+  const skillMd = skillMdBlocks.join('\n\n')
+  const deployMode = ctx.mode
 
   const modeInstruction = deployMode === 'local'
     ? `
@@ -1161,17 +1149,8 @@ When running ansible-playbook or slv commands that connect to servers:
         task,
       )
     } else if (config.provider === 'slv') {
-      const home = resolveHome()
-      let slvApiKey = ''
-      try {
-        const raw = await Deno.readTextFile(`${home}/.slv/api.yml`)
-        const yml = parse(raw) as Record<
-          string,
-          // deno-lint-ignore no-explicit-any
-          any
-        >
-        slvApiKey = yml?.slv?.api_key || ''
-      } catch { /* */ }
+      const subCtx = await loadAgentContext()
+      const slvApiKey = subCtx.raw.api.slv.api_key ?? ''
       if (!slvApiKey) {
         return 'Error: SLV API Key not found. Run `slv login` first.'
       }

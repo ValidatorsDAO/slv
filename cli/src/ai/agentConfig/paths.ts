@@ -35,3 +35,8 @@ export const resolveSkillMdPath = (
   skillName: string,
   home: string = resolveHome(),
 ): string => `${resolveSkillsDir(home)}/${skillName}/SKILL.md`
+
+export const resolveAgentMdPath = (
+  skillName: string,
+  home: string = resolveHome(),
+): string => `${resolveSkillsDir(home)}/${skillName}/AGENT.md`

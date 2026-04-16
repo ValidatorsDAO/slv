@@ -203,27 +203,30 @@ const resolveEnabledAgents = async (
     }
   }
 
-  // Warn if explicitly enabled but skill file missing.
-  for (const [id, skills] of configuredEnabled) {
-    for (const skill of skills) {
-      const present = await safeStat(resolveSkillMdPath(skill.name, home))
-      if (!present) {
-        warnings.push({
-          source: 'skills',
-          message: `Agent ${id} enabled via skill "${skill.name}" but ${
-            resolveSkillMdPath(skill.name, home)
-          } is missing`,
-        })
-      }
-    }
-  }
-
   const sources = {} as Record<AgentId, string[]>
   for (const id of ALL_AGENT_IDS) sources[id] = []
   for (const [id, skills] of configuredEnabled) {
     const set = new Set<string>(skills.map((s) => s.name))
     for (const extra of AGENT_REGISTRY[id].extraSkills ?? []) set.add(extra)
     sources[id] = [...set]
+  }
+
+  // Warn if any skill file (primary or registry-declared extra) is missing
+  // for an enabled agent. Users hit this mostly when they upgraded the CLI
+  // but haven't run `slv skills sync` yet — showing both kinds in the same
+  // channel makes the fix obvious.
+  for (const id of ALL_AGENT_IDS) {
+    for (const skillName of sources[id]) {
+      const present = await safeStat(resolveSkillMdPath(skillName, home))
+      if (!present) {
+        warnings.push({
+          source: 'skills',
+          message: `Agent ${id} enabled via skill "${skillName}" but ${
+            resolveSkillMdPath(skillName, home)
+          } is missing`,
+        })
+      }
+    }
   }
 
   const agents = listAgentsByOrder([...configuredEnabled.keys()]).map((m) =>
