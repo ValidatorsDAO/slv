@@ -1318,7 +1318,7 @@ RULES:
             `  ${
               t('⚠ Could not detect current focus: {error}').replace(
                 '{error}',
-                (err as Error).message,
+                () => (err as Error).message,
               )
             }`,
           )
@@ -1341,7 +1341,7 @@ RULES:
             `  ${
               t('⚠ Failed to clear focus override: {error}').replace(
                 '{error}',
-                (err as Error).message,
+                () => (err as Error).message,
               )
             }`,
           )
@@ -1360,7 +1360,7 @@ RULES:
             `  ${
               t('⚠ Failed to set focus: {error}').replace(
                 '{error}',
-                (err as Error).message,
+                () => (err as Error).message,
               )
             }`,
           )
@@ -1374,7 +1374,7 @@ RULES:
           `  ${
             t(
               'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto',
-            ).replace('{focus}', rest)
+            ).replace('{focus}', () => rest)
           }`,
         )
         tui.requestRender()
@@ -1394,7 +1394,7 @@ RULES:
           `  ${
             t('⚠ Profile refresh failed: {error}').replace(
               '{error}',
-              (err as Error).message,
+              () => (err as Error).message,
             )
           }`,
         )
@@ -1472,7 +1472,7 @@ RULES:
             `  ${
               t('Error: {message}').replace(
                 '{message}',
-                (error as Error).message,
+                () => (error as Error).message,
               )
             }`,
           ),
@@ -1522,7 +1522,7 @@ RULES:
       const msg = (error as Error).message
       const color = /[Ii]nsufficient.*token|token.*limit/i.test(msg) ? yellow : red
       chatLog.addSystem(
-        color(`  ${t('Error: {message}').replace('{message}', msg)}`),
+        color(`  ${t('Error: {message}').replace('{message}', () => msg)}`),
       )
     }
 
