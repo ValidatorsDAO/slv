@@ -135,12 +135,12 @@ class ChatLog extends Container {
   addTool(name: string, detail: string) {
     // Show user-friendly tool descriptions instead of raw JSON
     const friendlyNames: Record<string, string> = {
-      'run_command': '⚡ Running command',
-      'read_file': '📄 Reading file',
-      'enable_tools': '🧰 Enabling tools',
-      'write_file': '📝 Writing file',
-      'list_files': '📂 Listing files',
-      'call_mcp': '🔗 Calling SLV Cloud API',
+      'run_command': t('⚡ Running command'),
+      'read_file': t('📄 Reading file'),
+      'enable_tools': t('🧰 Enabling tools'),
+      'write_file': t('📝 Writing file'),
+      'list_files': t('📂 Listing files'),
+      'call_mcp': t('🔗 Calling SLV Cloud API'),
       'delegate_to_agent': '', // handled separately
     }
     const friendly = friendlyNames[name]
@@ -180,13 +180,13 @@ class ChatLog extends Container {
         )
         : []
       const whyMap: Record<string, string> = {
-        'run_command': 'inspect or operate the local/remote SLV environment',
-        'read_file': 'inspect focused local SLV files',
-        'call_mcp': 'check subscriptions or fetch SLV Cloud data',
-        'write_file': 'save configuration or update memory',
-        'list_files': 'inspect available files before acting',
-        'send_notification': 'notify you when a long task finishes',
-        'delegate_to_agent': 'hand work to a specialist agent',
+        'run_command': t('inspect or operate the local/remote SLV environment'),
+        'read_file': t('inspect focused local SLV files'),
+        'call_mcp': t('check subscriptions or fetch SLV Cloud data'),
+        'write_file': t('save configuration or update memory'),
+        'list_files': t('inspect available files before acting'),
+        'send_notification': t('notify you when a long task finishes'),
+        'delegate_to_agent': t('hand work to a specialist agent'),
       }
       if (tools.length > 0) {
         const why = tools
@@ -293,16 +293,25 @@ async function checkDependencies(): Promise<string[]> {
 
 async function promptInstallDependencies(missing: string[]): Promise<void> {
   console.log(
-    yellow(`\n  ⚠️  Missing dependencies: ${missing.join(', ')}`),
+    yellow(
+      `\n  ${
+        t('⚠️  Missing dependencies: {deps}').replace(
+          '{deps}',
+          missing.join(', '),
+        )
+      }`,
+    ),
   )
   const buf = new Uint8Array(1)
   Deno.stdout.writeSync(
-    new TextEncoder().encode('  Install now? (Y/n) '),
+    new TextEncoder().encode(`  ${t('Install now? (Y/n) ')}`),
   )
   await Deno.stdin.read(buf)
   const answer = new TextDecoder().decode(buf).trim().toLowerCase()
   if (answer === 'n') {
-    console.log(gray('  Skipping installation. Some features may not work.\n'))
+    console.log(
+      gray(`  ${t('Skipping installation. Some features may not work.')}\n`),
+    )
     return
   }
 
@@ -310,7 +319,7 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
 
   for (const dep of missing) {
     if (dep === 'ansible') {
-      console.log(green('  Installing ansible-core...'))
+      console.log(green(`  ${t('Installing ansible-core...')}`))
       if (os === 'darwin') {
         const cmd = new Deno.Command('brew', {
           args: ['install', 'ansible'],
@@ -332,7 +341,7 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
         } catch { /* not found */ }
 
         if (!hasPip3) {
-          console.log(green('  Installing python3-pip...'))
+          console.log(green(`  ${t('Installing python3-pip...')}`))
           // Try apt-get first (Debian/Ubuntu)
           let aptSuccess = false
           try {
@@ -363,7 +372,11 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
             } catch {
               console.log(
                 red(
-                  '  ✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip',
+                  `  ${
+                    t(
+                      '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip',
+                    )
+                  }`,
                 ),
               )
             }
@@ -419,11 +432,11 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
           }
         }
       }
-      console.log(green('  ✓ ansible-core installed'))
+      console.log(green(`  ${t('✓ ansible-core installed')}`))
     }
 
     if (dep === 'solana-cli') {
-      console.log(green('  Installing solana-cli (agave)...'))
+      console.log(green(`  ${t('Installing solana-cli (agave)...')}`))
       // Try to read agave version from versions.yml in ~/.slv
       let agaveVersion = 'stable'
       try {
@@ -443,7 +456,7 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
         stderr: 'inherit',
       })
       await cmd.output()
-      console.log(green('  ✓ solana-cli installed'))
+      console.log(green(`  ${t('✓ solana-cli installed')}`))
     }
   }
   console.log('')
@@ -817,7 +830,9 @@ export const consoleAction = async () => {
     const ctx = await loadAgentContext()
     slvApiKey = ctx.raw.api.slv.api_key ?? ''
     if (!slvApiKey) {
-      console.log('\n  SLV API Key not found. Run `slv login` first.\n')
+      console.log(
+        `\n  ${t('SLV API Key not found. Run `slv login` first.')}\n`,
+      )
       return
     }
     provider = new SLVProvider(
@@ -856,7 +871,7 @@ export const consoleAction = async () => {
     tui,
     white,
     white,
-    'Checking for new versions…',
+    t('Checking for new versions…'),
   )
   chatLog.addChild(versionCheckLoader)
   tui.requestRender()
@@ -871,14 +886,14 @@ export const consoleAction = async () => {
 
     // Deduplicate for display only (all updates are applied)
     const seen = new Set<string>()
-    let msg = '🔄 New versions available:\n'
+    let msg = `${t('🔄 New versions available:')}\n`
     for (const u of updates) {
       const displayKey = `${u.component}-${u.network}-${u.latest}`
       if (seen.has(displayKey)) continue
       seen.add(displayKey)
       msg += `  • ${u.component} (${u.network}): ${u.current} → ${u.latest}\n`
     }
-    msg += '\nType /update to apply, or ignore to keep current versions.'
+    msg += `\n${t('Type /update to apply, or ignore to keep current versions.')}`
 
     chatLog.addSystem(msg)
     tui.requestRender(true)
@@ -929,7 +944,12 @@ export const consoleAction = async () => {
     if (hydratedUserContextKinds.has(kind)) return
 
     if (kind === 'mcp_user_account') {
-      renderStage(`📚 Loading ${describeUserContextKind(kind)}…`)
+      renderStage(
+        t('📚 Loading {context}…').replace(
+          '{context}',
+          t(describeUserContextKind(kind)),
+        ),
+      )
       try {
         if (!slvApiKey) {
           const ctx = await loadAgentContext()
@@ -977,7 +997,12 @@ export const consoleAction = async () => {
       inventoryMap[kind as Exclude<UserContextKind, 'mcp_user_account'>]
     if (!inventoryFile) return
 
-    renderStage(`📚 Loading ${describeUserContextKind(kind)}…`)
+    renderStage(
+      t('📚 Loading {context}…').replace(
+        '{context}',
+        t(describeUserContextKind(kind)),
+      ),
+    )
     try {
       const content = await Deno.readTextFile(
         `${resolveHome()}/.slv/${inventoryFile}`,
@@ -991,7 +1016,7 @@ export const consoleAction = async () => {
 
   const saveMemoryAndExit = async () => {
     if (userMessageCount > 0) {
-      chatLog.addSystem('  Saving session memory...')
+      chatLog.addSystem(`  ${t('Saving session memory...')}`)
       tui.requestRender()
       try {
         await provider.chat(
@@ -1054,7 +1079,7 @@ RULES:
   }
 
   const applyIntentBootstrap = async (input: string) => {
-    renderStage('👂 Understanding your request…')
+    renderStage(t('👂 Understanding your request…'))
     await delay(150)
     let plan = await classifyIntent(
       {
@@ -1086,26 +1111,46 @@ RULES:
       }
     }
 
-    renderStage(`🎓 Intent detected: ${describeIntent(plan.intent)}`)
+    renderStage(
+      t('🎓 Intent detected: {intent}').replace(
+        '{intent}',
+        t(describeIntent(plan.intent)),
+      ),
+    )
     await delay(150)
 
     if (plan.toolsToEnable.length > 0) {
       const enabled = activateExtendedTools(plan.toolsToEnable)
       if (enabled.length > 0) {
-        renderStage(`🧰 Enabling tools: ${enabled.join(', ')}`)
+        renderStage(
+          t('🧰 Enabling tools: {tools}').replace(
+            '{tools}',
+            enabled.join(', '),
+          ),
+        )
         await delay(150)
       }
     }
 
     const newlyLoadedModules = filterUnloadedContextModules(plan.contextModulesToLoad)
     if (newlyLoadedModules.length > 0) {
-      renderStage(`📚 Loading context: ${newlyLoadedModules.join(', ')}`)
+      renderStage(
+        t('📚 Loading context: {modules}').replace(
+          '{modules}',
+          newlyLoadedModules.join(', '),
+        ),
+      )
       await delay(150)
       loadContextModules(newlyLoadedModules)
     }
 
     if (plan.delegateAgent && plan.delegateAgent !== currentSpecialist) {
-      renderStage(`🤖 Loading specialist: ${plan.delegateAgent}`)
+      renderStage(
+        t('🤖 Loading specialist: {specialist}').replace(
+          '{specialist}',
+          plan.delegateAgent,
+        ),
+      )
       await injectSkillDocs(plan.delegateAgent)
       currentSpecialist = plan.delegateAgent
     } else if (!plan.delegateAgent && plan.confidence >= 0.7 && intentDomain(plan.intent) !== intentDomain(currentIntent)) {
@@ -1136,24 +1181,29 @@ RULES:
       chatLog.addUser(input)
       const elapsed = currentTaskStartedAt
         ? formatElapsedTime(currentTaskStartedAt)
-        : 'a moment'
-      const agent = currentDelegateAgent || 'The system'
+        : t('a moment')
+      const agent = currentDelegateAgent || t('The system')
 
       // Build a helpful status response
-      let status = `⏳ ${agent} is still working (${elapsed} elapsed).`
+      let status = t('⏳ {agent} is still working ({elapsed} elapsed).')
+        .replace('{agent}', agent)
+        .replace('{elapsed}', elapsed)
       if (currentDelegateAgent === 'Cecil') {
-        status +=
-          ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.'
+        status += t(
+          ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.',
+        )
       } else if (currentDelegateAgent === 'Tina') {
-        status +=
-          ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.'
+        status += t(
+          ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.',
+        )
       } else if (currentDelegateAgent === 'Cid') {
-        status +=
-          ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.'
+        status += t(
+          ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.',
+        )
       } else if (currentDelegateAgent === 'Figaro') {
-        status += ' Checking server availability and preparing your options.'
+        status += t(' Checking server availability and preparing your options.')
       }
-      status += " I'll let you know as soon as it's done!"
+      status += t(" I'll let you know as soon as it's done!")
 
       chatLog.addSystem(status)
       tui.requestRender()
@@ -1204,7 +1254,7 @@ RULES:
           callbacks,
         )
       }
-      chatLog.addSystem('  Conversation cleared.')
+      chatLog.addSystem(`  ${t('Conversation cleared.')}`)
       tui.requestRender()
       return
     }
@@ -1212,26 +1262,32 @@ RULES:
     if (input === '/update') {
       if (pendingUpdates && pendingUpdates.length > 0) {
         await applyVersionUpdates(pendingUpdates)
-        chatLog.addSystem('  ✅ versions.yml updated successfully!')
+        chatLog.addSystem(`  ${t('✅ versions.yml updated successfully!')}`)
         pendingUpdates = null
       } else {
-        chatLog.addSystem('  No pending updates.')
+        chatLog.addSystem(`  ${t('No pending updates.')}`)
       }
       tui.requestRender(true)
       return
     }
 
     if (input === '/help') {
-      chatLog.addSystem('  /exit, /quit — Exit')
-      chatLog.addSystem('  /clear — Clear conversation')
-      chatLog.addSystem('  /update — Apply pending version updates')
+      chatLog.addSystem(`  ${t('/exit, /quit — Exit')}`)
+      chatLog.addSystem(`  ${t('/clear — Clear conversation')}`)
+      chatLog.addSystem(`  ${t('/update — Apply pending version updates')}`)
       chatLog.addSystem(
-        '  /focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent\'s primary focus',
+        `  ${
+          t(
+            '/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent\'s primary focus',
+          )
+        }`,
       )
       chatLog.addSystem(
-        '  /<command> — Execute shell command directly (e.g. /slv ai usage)',
+        `  ${
+          t('/<command> — Execute shell command directly (e.g. /slv ai usage)')
+        }`,
       )
-      chatLog.addSystem('  /help — Show this help')
+      chatLog.addSystem(`  ${t('/help — Show this help')}`)
       tui.requestRender()
       return
     }
@@ -1251,18 +1307,24 @@ RULES:
       if (!rest) {
         try {
           const profile = await detectProfile()
+          const focusKey = profile.overridden
+            ? 'Current focus: {focus} (manual override)'
+            : 'Current focus: {focus} (auto)'
           chatLog.addSystem(
-            `  Current focus: ${profile.primary}${
-              profile.overridden ? ' (manual override)' : ' (auto)'
-            }`,
+            `  ${t(focusKey).replace('{focus}', profile.primary)}`,
           )
         } catch (err) {
           chatLog.addSystem(
-            `  ⚠ Could not detect current focus: ${(err as Error).message}`,
+            `  ${
+              t('⚠ Could not detect current focus: {error}').replace(
+                '{error}',
+                (err as Error).message,
+              )
+            }`,
           )
         }
         chatLog.addSystem(
-          '  Usage: /focus validator | rpc | app | mixed | auto',
+          `  ${t('Usage: /focus validator | rpc | app | mixed | auto')}`,
         )
         tui.requestRender()
         return
@@ -1272,11 +1334,16 @@ RULES:
       if (rest === 'auto' || rest === 'clear' || rest === 'reset') {
         try {
           await clearFocusOverride()
-          chatLog.addSystem('  ◇ Focus override cleared.')
+          chatLog.addSystem(`  ${t('◇ Focus override cleared.')}`)
           handled = true
         } catch (err) {
           chatLog.addSystem(
-            `  ⚠ Failed to clear focus override: ${(err as Error).message}`,
+            `  ${
+              t('⚠ Failed to clear focus override: {error}').replace(
+                '{error}',
+                (err as Error).message,
+              )
+            }`,
           )
           tui.requestRender()
           return
@@ -1284,11 +1351,18 @@ RULES:
       } else if ((valid as string[]).includes(rest)) {
         try {
           await writeFocusOverride(rest as PrimaryFocus)
-          chatLog.addSystem(`  ◇ Focus set to: ${rest}`)
+          chatLog.addSystem(
+            `  ${t('◇ Focus set to: {focus}').replace('{focus}', rest)}`,
+          )
           handled = true
         } catch (err) {
           chatLog.addSystem(
-            `  ⚠ Failed to set focus: ${(err as Error).message}`,
+            `  ${
+              t('⚠ Failed to set focus: {error}').replace(
+                '{error}',
+                (err as Error).message,
+              )
+            }`,
           )
           tui.requestRender()
           return
@@ -1297,7 +1371,11 @@ RULES:
 
       if (!handled) {
         chatLog.addSystem(
-          `  Unknown focus "${rest}". Use: validator | rpc | app | mixed | auto`,
+          `  ${
+            t(
+              'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto',
+            ).replace('{focus}', rest)
+          }`,
         )
         tui.requestRender()
         return
@@ -1313,7 +1391,12 @@ RULES:
         chatLog.addSystem(`  ${describeProfile(refreshed)}`)
       } catch (err) {
         chatLog.addSystem(
-          `  ⚠ Profile refresh failed: ${(err as Error).message}`,
+          `  ${
+            t('⚠ Profile refresh failed: {error}').replace(
+              '{error}',
+              (err as Error).message,
+            )
+          }`,
         )
       }
       tui.requestRender()
@@ -1375,10 +1458,25 @@ RULES:
           }
         }
         if (!status.success) {
-          chatLog.addSystem(red(`  (exit code ${status.code})`))
+          chatLog.addSystem(
+            red(
+              `  ${
+                t('(exit code {code})').replace('{code}', String(status.code))
+              }`,
+            ),
+          )
         }
       } catch (error) {
-        chatLog.addSystem(red(`  Error: ${(error as Error).message}`))
+        chatLog.addSystem(
+          red(
+            `  ${
+              t('Error: {message}').replace(
+                '{message}',
+                (error as Error).message,
+              )
+            }`,
+          ),
+        )
       }
 
       tui.requestRender()
@@ -1394,7 +1492,7 @@ RULES:
       tui,
       (s: string) => green(s),
       (s: string) => gray(s),
-      'Understanding your request...',
+      t('Understanding your request...'),
     )
     chatLog.addChild(loader)
     loader.start()
@@ -1423,7 +1521,9 @@ RULES:
     } catch (error) {
       const msg = (error as Error).message
       const color = /[Ii]nsufficient.*token|token.*limit/i.test(msg) ? yellow : red
-      chatLog.addSystem(color(`  Error: ${msg}`))
+      chatLog.addSystem(
+        color(`  ${t('Error: {message}').replace('{message}', msg)}`),
+      )
     }
 
     if (loader) {
@@ -1453,7 +1553,7 @@ RULES:
         // Double Ctrl+C: force exit immediately no matter what
         killActiveProcess()
         tui.stop()
-        console.log('\n  Force exit.\n')
+        console.log(`\n  ${t('Force exit.')}\n`)
         Deno.exit(1)
       }
 
@@ -1461,7 +1561,9 @@ RULES:
         // First Ctrl+C during processing: kill child process, show message
         killActiveProcess()
         chatLog.addSystem(
-          '  ⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.',
+          `  ${
+            t('⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
+          }`,
         )
         isProcessing = false
         if (loader) {

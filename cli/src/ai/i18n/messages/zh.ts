@@ -115,4 +115,113 @@ export const messages: Record<string, string> = {
     '专注于 RPC / gRPC 节点运维。可询问端点配置、健康或调优。',
   'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
     '混合焦点 — validator + app / rpc。使用 `/focus <validator|rpc|app>` 进行细分。',
+
+  '👂 Understanding your request…': '👂 正在理解您的请求…',
+  'Understanding your request...': '正在理解您的请求...',
+  '🎓 Intent detected: {intent}': '🎓 已识别意图: {intent}',
+  '🧰 Enabling tools: {tools}': '🧰 正在启用工具: {tools}',
+  '📚 Loading context: {modules}': '📚 正在加载上下文: {modules}',
+  '🤖 Loading specialist: {specialist}': '🤖 正在加载专家: {specialist}',
+  '📚 Loading {context}…': '📚 正在加载{context}…',
+
+  'general conversation': '一般对话',
+  'server availability': '服务器可用性',
+  'server procurement': '服务器采购',
+  'account or billing': '账户或账单',
+  'validator deployment': '验证者部署',
+  'validator operations': '验证者运维',
+  'RPC deployment': 'RPC 部署',
+  'RPC operations': 'RPC 运维',
+  'benchmark or connectivity testing': '基准测试或连通性测试',
+  'app or bot development': '应用或机器人开发',
+  'CLI or file operation': 'CLI 或文件操作',
+  'needs clarification': '需要澄清',
+
+  'account availability': '账户信息',
+  'testnet validator inventory': 'testnet 验证者清单',
+  'mainnet validator inventory': 'mainnet 验证者清单',
+  'mainnet RPC inventory': 'mainnet RPC 清单',
+
+  'Saving session memory...': '正在保存会话记忆...',
+  'Conversation cleared.': '会话已清空。',
+  '✅ versions.yml updated successfully!': '✅ versions.yml 更新成功！',
+  'No pending updates.': '没有待应用的更新。',
+
+  '/exit, /quit — Exit': '/exit, /quit — 退出',
+  '/clear — Clear conversation': '/clear — 清空会话',
+  '/update — Apply pending version updates': '/update — 应用待处理的版本更新',
+  "/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent's primary focus":
+    '/focus <validator|rpc|app|mixed|auto> — 切换或重置主代理的主要焦点',
+  '/<command> — Execute shell command directly (e.g. /slv ai usage)':
+    '/<command> — 直接执行 shell 命令（例如 /slv ai usage）',
+  '/help — Show this help': '/help — 显示本帮助',
+
+  'Current focus: {focus} (manual override)': '当前焦点: {focus}（手动覆盖）',
+  'Current focus: {focus} (auto)': '当前焦点: {focus}（自动）',
+  '⚠ Could not detect current focus: {error}':
+    '⚠ 无法检测当前焦点: {error}',
+  'Usage: /focus validator | rpc | app | mixed | auto':
+    '用法: /focus validator | rpc | app | mixed | auto',
+  '◇ Focus override cleared.': '◇ 已清除焦点覆盖。',
+  '⚠ Failed to clear focus override: {error}': '⚠ 清除焦点覆盖失败: {error}',
+  '◇ Focus set to: {focus}': '◇ 焦点已设置为: {focus}',
+  '⚠ Failed to set focus: {error}': '⚠ 设置焦点失败: {error}',
+  'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto':
+    '未知焦点 "{focus}"。请使用: validator | rpc | app | mixed | auto',
+  '⚠ Profile refresh failed: {error}': '⚠ 配置刷新失败: {error}',
+
+  '⏳ {agent} is still working ({elapsed} elapsed).':
+    '⏳ {agent} 仍在工作中（已耗时 {elapsed}）。',
+  ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.':
+    ' 验证者部署可能需要 20-40 分钟 — 构建 Solana、下载快照以及配置节点。',
+  ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.':
+    ' RPC 部署可能需要 30-60 分钟 — 构建 Solana 并与集群同步。',
+  ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.':
+    ' 基准测试与连通性检查通常很快完成，但较大的吞吐测试仍可能需要数分钟。',
+  ' Checking server availability and preparing your options.':
+    ' 正在检查服务器可用性并准备候选方案。',
+  " I'll let you know as soon as it's done!": ' 完成后我会立即通知您！',
+  'The system': '系统',
+  'a moment': '片刻',
+
+  '⚠️  Missing dependencies: {deps}': '⚠️  缺少依赖: {deps}',
+  'Install now? (Y/n) ': '现在安装? (Y/n) ',
+  'Skipping installation. Some features may not work.':
+    '已跳过安装。部分功能可能无法使用。',
+  'Installing ansible-core...': '正在安装 ansible-core...',
+  'Installing python3-pip...': '正在安装 python3-pip...',
+  '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip':
+    '✗ 无法安装 python3-pip。请手动安装: sudo apt-get install -y python3-pip',
+  '✓ ansible-core installed': '✓ ansible-core 安装完成',
+  'Installing solana-cli (agave)...': '正在安装 solana-cli (agave)...',
+  '✓ solana-cli installed': '✓ solana-cli 安装完成',
+
+  'SLV API Key not found. Run `slv login` first.':
+    '未找到 SLV API 密钥。请先运行 `slv login`。',
+  'Checking for new versions…': '正在检查新版本…',
+  '🔄 New versions available:': '🔄 有新版本可用:',
+  'Type /update to apply, or ignore to keep current versions.':
+    '输入 /update 应用更新，或忽略以保持当前版本。',
+
+  '⚡ Running command': '⚡ 执行命令',
+  '📄 Reading file': '📄 读取文件',
+  '📝 Writing file': '📝 写入文件',
+  '📂 Listing files': '📂 列出文件',
+  '🔗 Calling SLV Cloud API': '🔗 调用 SLV Cloud API',
+  'inspect or operate the local/remote SLV environment':
+    '检查或操作本地 / 远程 SLV 环境',
+  'inspect focused local SLV files': '检查相关本地 SLV 文件',
+  'check subscriptions or fetch SLV Cloud data':
+    '检查订阅或获取 SLV Cloud 数据',
+  'save configuration or update memory': '保存配置或更新记忆',
+  'inspect available files before acting': '操作前检查可用文件',
+  'notify you when a long task finishes': '在长任务完成时通知您',
+  'hand work to a specialist agent': '移交工作给专家代理',
+
+  '(exit code {code})': '(退出码 {code})',
+  'Error: {message}': '错误: {message}',
+
+  'Force exit.': '强制退出。',
+  '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
+    '⚠️ 已中断。再次按 Ctrl+C 退出，或输入消息。',
 }

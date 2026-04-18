@@ -120,4 +120,123 @@ export const messages: Record<string, string> = {
     'Đang tập trung vào vận hành node RPC / gRPC. Hỏi tôi về cấu hình endpoint, health hoặc tinh chỉnh.',
   'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
     'Focus hỗn hợp — validator + app / rpc. Dùng `/focus <validator|rpc|app>` để thu hẹp.',
+
+  '👂 Understanding your request…': '👂 Đang hiểu yêu cầu của bạn…',
+  'Understanding your request...': 'Đang hiểu yêu cầu của bạn...',
+  '🎓 Intent detected: {intent}': '🎓 Đã phát hiện ý định: {intent}',
+  '🧰 Enabling tools: {tools}': '🧰 Đang bật công cụ: {tools}',
+  '📚 Loading context: {modules}': '📚 Đang tải ngữ cảnh: {modules}',
+  '🤖 Loading specialist: {specialist}':
+    '🤖 Đang tải chuyên gia: {specialist}',
+  '📚 Loading {context}…': '📚 Đang tải {context}…',
+
+  'general conversation': 'trò chuyện chung',
+  'server availability': 'tình trạng sẵn có của máy chủ',
+  'server procurement': 'mua sắm máy chủ',
+  'account or billing': 'tài khoản hoặc thanh toán',
+  'validator deployment': 'triển khai validator',
+  'validator operations': 'vận hành validator',
+  'RPC deployment': 'triển khai RPC',
+  'RPC operations': 'vận hành RPC',
+  'benchmark or connectivity testing': 'benchmark hoặc kiểm tra kết nối',
+  'app or bot development': 'phát triển ứng dụng hoặc bot',
+  'CLI or file operation': 'thao tác CLI hoặc tệp',
+  'needs clarification': 'cần làm rõ',
+
+  'account availability': 'thông tin tài khoản',
+  'testnet validator inventory': 'danh sách validator testnet',
+  'mainnet validator inventory': 'danh sách validator mainnet',
+  'mainnet RPC inventory': 'danh sách RPC mainnet',
+
+  'Saving session memory...': 'Đang lưu bộ nhớ phiên...',
+  'Conversation cleared.': 'Đã xóa cuộc hội thoại.',
+  '✅ versions.yml updated successfully!':
+    '✅ versions.yml đã được cập nhật thành công!',
+  'No pending updates.': 'Không có bản cập nhật chờ xử lý.',
+
+  '/exit, /quit — Exit': '/exit, /quit — Thoát',
+  '/clear — Clear conversation': '/clear — Xóa cuộc hội thoại',
+  '/update — Apply pending version updates':
+    '/update — Áp dụng bản cập nhật phiên bản đang chờ',
+  "/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent's primary focus":
+    '/focus <validator|rpc|app|mixed|auto> — Chuyển hoặc đặt lại focus chính của agent chính',
+  '/<command> — Execute shell command directly (e.g. /slv ai usage)':
+    '/<command> — Thực thi lệnh shell trực tiếp (ví dụ /slv ai usage)',
+  '/help — Show this help': '/help — Hiển thị trợ giúp này',
+
+  'Current focus: {focus} (manual override)':
+    'Focus hiện tại: {focus} (đặt thủ công)',
+  'Current focus: {focus} (auto)': 'Focus hiện tại: {focus} (tự động)',
+  '⚠ Could not detect current focus: {error}':
+    '⚠ Không thể phát hiện focus hiện tại: {error}',
+  'Usage: /focus validator | rpc | app | mixed | auto':
+    'Cách dùng: /focus validator | rpc | app | mixed | auto',
+  '◇ Focus override cleared.': '◇ Đã xóa focus đặt thủ công.',
+  '⚠ Failed to clear focus override: {error}':
+    '⚠ Không thể xóa focus đặt thủ công: {error}',
+  '◇ Focus set to: {focus}': '◇ Đã đặt focus thành: {focus}',
+  '⚠ Failed to set focus: {error}': '⚠ Không thể đặt focus: {error}',
+  'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto':
+    'Focus không xác định "{focus}". Dùng: validator | rpc | app | mixed | auto',
+  '⚠ Profile refresh failed: {error}':
+    '⚠ Làm mới hồ sơ thất bại: {error}',
+
+  '⏳ {agent} is still working ({elapsed} elapsed).':
+    '⏳ {agent} vẫn đang làm việc (đã trôi qua {elapsed}).',
+  ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.':
+    ' Triển khai validator có thể mất 20-40 phút — biên dịch Solana, tải snapshot và cấu hình node.',
+  ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.':
+    ' Triển khai RPC có thể mất 30-60 phút — biên dịch Solana và đồng bộ với cluster.',
+  ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.':
+    ' Benchmark và kiểm tra kết nối thường nhanh hơn, nhưng các bài kiểm tra throughput lớn vẫn có thể mất vài phút.',
+  ' Checking server availability and preparing your options.':
+    ' Đang kiểm tra máy chủ sẵn có và chuẩn bị lựa chọn cho bạn.',
+  " I'll let you know as soon as it's done!":
+    ' Tôi sẽ báo cho bạn ngay khi xong!',
+  'The system': 'Hệ thống',
+  'a moment': 'một lát',
+
+  '⚠️  Missing dependencies: {deps}': '⚠️  Thiếu phụ thuộc: {deps}',
+  'Install now? (Y/n) ': 'Cài đặt ngay? (Y/n) ',
+  'Skipping installation. Some features may not work.':
+    'Đã bỏ qua cài đặt. Một số tính năng có thể không hoạt động.',
+  'Installing ansible-core...': 'Đang cài đặt ansible-core...',
+  'Installing python3-pip...': 'Đang cài đặt python3-pip...',
+  '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip':
+    '✗ Không thể cài đặt python3-pip. Vui lòng cài đặt thủ công: sudo apt-get install -y python3-pip',
+  '✓ ansible-core installed': '✓ Đã cài đặt ansible-core',
+  'Installing solana-cli (agave)...': 'Đang cài đặt solana-cli (agave)...',
+  '✓ solana-cli installed': '✓ Đã cài đặt solana-cli',
+
+  'SLV API Key not found. Run `slv login` first.':
+    'Không tìm thấy khóa SLV API. Vui lòng chạy `slv login` trước.',
+  'Checking for new versions…': 'Đang kiểm tra phiên bản mới…',
+  '🔄 New versions available:': '🔄 Đã có phiên bản mới:',
+  'Type /update to apply, or ignore to keep current versions.':
+    'Gõ /update để áp dụng, hoặc bỏ qua để giữ phiên bản hiện tại.',
+
+  '⚡ Running command': '⚡ Đang chạy lệnh',
+  '📄 Reading file': '📄 Đang đọc tệp',
+  '📝 Writing file': '📝 Đang ghi tệp',
+  '📂 Listing files': '📂 Liệt kê tệp',
+  '🔗 Calling SLV Cloud API': '🔗 Đang gọi SLV Cloud API',
+  'inspect or operate the local/remote SLV environment':
+    'kiểm tra hoặc vận hành môi trường SLV cục bộ / từ xa',
+  'inspect focused local SLV files': 'kiểm tra tệp SLV cục bộ liên quan',
+  'check subscriptions or fetch SLV Cloud data':
+    'kiểm tra đăng ký hoặc lấy dữ liệu SLV Cloud',
+  'save configuration or update memory': 'lưu cấu hình hoặc cập nhật bộ nhớ',
+  'inspect available files before acting':
+    'kiểm tra tệp có sẵn trước khi thực hiện',
+  'notify you when a long task finishes':
+    'thông báo khi tác vụ dài hoàn tất',
+  'hand work to a specialist agent':
+    'chuyển công việc cho agent chuyên trách',
+
+  '(exit code {code})': '(mã thoát {code})',
+  'Error: {message}': 'Lỗi: {message}',
+
+  'Force exit.': 'Thoát bắt buộc.',
+  '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
+    '⚠️ Đã ngắt. Nhấn Ctrl+C lần nữa để thoát, hoặc nhập tin nhắn.',
 }
