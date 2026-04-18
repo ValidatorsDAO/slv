@@ -119,4 +119,117 @@ export const messages: Record<string, string> = {
     'RPC / gRPC ノード運用にフォーカス中。エンドポイント設定、ヘルス、チューニングなどご相談ください。',
   'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
     '複数の役割にフォーカス中 — validator + app / rpc。`/focus <validator|rpc|app>` で絞り込めます。',
+
+  '👂 Understanding your request…': '👂 ご依頼内容を確認しています…',
+  'Understanding your request...': 'ご依頼内容を確認しています...',
+  '🎓 Intent detected: {intent}': '🎓 意図を検出: {intent}',
+  '🧰 Enabling tools: {tools}': '🧰 ツールを有効化: {tools}',
+  '📚 Loading context: {modules}': '📚 コンテキストを読み込み中: {modules}',
+  '🤖 Loading specialist: {specialist}': '🤖 スペシャリストを起動中: {specialist}',
+  '📚 Loading {context}…': '📚 {context}を読み込み中…',
+
+  'general conversation': '一般的な会話',
+  'server availability': 'サーバー空き状況',
+  'server procurement': 'サーバー調達',
+  'account or billing': 'アカウント / 請求',
+  'validator deployment': 'バリデータのデプロイ',
+  'validator operations': 'バリデータ運用',
+  'RPC deployment': 'RPC デプロイ',
+  'RPC operations': 'RPC 運用',
+  'benchmark or connectivity testing': 'ベンチマーク / 接続テスト',
+  'app or bot development': 'アプリ / ボット開発',
+  'CLI or file operation': 'CLI / ファイル操作',
+  'needs clarification': '要確認',
+
+  'account availability': 'アカウント情報',
+  'testnet validator inventory': 'testnet バリデータ一覧',
+  'mainnet validator inventory': 'mainnet バリデータ一覧',
+  'mainnet RPC inventory': 'mainnet RPC 一覧',
+
+  'Saving session memory...': 'セッションメモリを保存中...',
+  'Conversation cleared.': '会話をクリアしました。',
+  '✅ versions.yml updated successfully!': '✅ versions.yml を更新しました！',
+  'No pending updates.': '適用可能なアップデートはありません。',
+
+  '/exit, /quit — Exit': '/exit, /quit — 終了',
+  '/clear — Clear conversation': '/clear — 会話をクリア',
+  '/update — Apply pending version updates':
+    '/update — 保留中のバージョン更新を適用',
+  "/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent's primary focus":
+    '/focus <validator|rpc|app|mixed|auto> — メインエージェントのフォーカスを切り替え / リセット',
+  '/<command> — Execute shell command directly (e.g. /slv ai usage)':
+    '/<command> — シェルコマンドを直接実行（例: /slv ai usage）',
+  '/help — Show this help': '/help — このヘルプを表示',
+
+  'Current focus: {focus} (manual override)':
+    '現在のフォーカス: {focus}（手動設定）',
+  'Current focus: {focus} (auto)': '現在のフォーカス: {focus}（自動検出）',
+  '⚠ Could not detect current focus: {error}':
+    '⚠ 現在のフォーカスを検出できませんでした: {error}',
+  'Usage: /focus validator | rpc | app | mixed | auto':
+    '使い方: /focus validator | rpc | app | mixed | auto',
+  '◇ Focus override cleared.': '◇ フォーカスの手動設定を解除しました。',
+  '⚠ Failed to clear focus override: {error}':
+    '⚠ フォーカス設定の解除に失敗しました: {error}',
+  '◇ Focus set to: {focus}': '◇ フォーカスを設定: {focus}',
+  '⚠ Failed to set focus: {error}': '⚠ フォーカス設定に失敗しました: {error}',
+  'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto':
+    '不明なフォーカス "{focus}"。次を使用してください: validator | rpc | app | mixed | auto',
+  '⚠ Profile refresh failed: {error}': '⚠ プロフィール再読み込みに失敗: {error}',
+
+  '⏳ {agent} is still working ({elapsed} elapsed).':
+    '⏳ {agent} は作業中です（経過: {elapsed}）。',
+  ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.':
+    ' バリデータのデプロイには 20〜40 分かかることがあります — Solana のビルド、スナップショットのダウンロード、ノードの設定を行います。',
+  ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.':
+    ' RPC のデプロイには 30〜60 分かかることがあります — Solana のビルドとクラスタ同期を行います。',
+  ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.':
+    ' ベンチマークや接続性テストは比較的すぐに終わりますが、大きめのスループットテストでは数分かかることがあります。',
+  ' Checking server availability and preparing your options.':
+    ' サーバー空き状況を確認し、候補を準備しています。',
+  " I'll let you know as soon as it's done!": ' 完了次第お知らせします！',
+  'The system': 'システム',
+  'a moment': '少し前',
+
+  '⚠️  Missing dependencies: {deps}': '⚠️  不足している依存関係: {deps}',
+  'Install now? (Y/n) ': '今すぐインストールしますか？ (Y/n) ',
+  'Skipping installation. Some features may not work.':
+    'インストールをスキップしました。一部機能が動作しないことがあります。',
+  'Installing ansible-core...': 'ansible-core をインストール中...',
+  'Installing python3-pip...': 'python3-pip をインストール中...',
+  '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip':
+    '✗ python3-pip をインストールできませんでした。手動でインストールしてください: sudo apt-get install -y python3-pip',
+  '✓ ansible-core installed': '✓ ansible-core をインストールしました',
+  'Installing solana-cli (agave)...': 'solana-cli (agave) をインストール中...',
+  '✓ solana-cli installed': '✓ solana-cli をインストールしました',
+
+  'SLV API Key not found. Run `slv login` first.':
+    'SLV API キーが見つかりません。先に `slv login` を実行してください。',
+  'Checking for new versions…': '新しいバージョンを確認中…',
+  '🔄 New versions available:': '🔄 新しいバージョンが利用可能です:',
+  'Type /update to apply, or ignore to keep current versions.':
+    '適用するには /update を入力、現在のバージョンを維持する場合は無視してください。',
+
+  '⚡ Running command': '⚡ コマンド実行',
+  '📄 Reading file': '📄 ファイル読み込み',
+  '📝 Writing file': '📝 ファイル書き込み',
+  '📂 Listing files': '📂 ファイル一覧',
+  '🔗 Calling SLV Cloud API': '🔗 SLV Cloud API 呼び出し',
+  'inspect or operate the local/remote SLV environment':
+    'ローカル / リモートの SLV 環境を確認・操作',
+  'inspect focused local SLV files': '関連するローカル SLV ファイルを確認',
+  'check subscriptions or fetch SLV Cloud data':
+    'サブスクリプションの確認や SLV Cloud データの取得',
+  'save configuration or update memory': '設定の保存やメモリの更新',
+  'inspect available files before acting': '実行前に対象ファイルを確認',
+  'notify you when a long task finishes':
+    '長時間タスクの完了をお知らせ',
+  'hand work to a specialist agent': 'スペシャリストエージェントへ引き継ぎ',
+
+  '(exit code {code})': '(終了コード {code})',
+  'Error: {message}': 'エラー: {message}',
+
+  'Force exit.': '強制終了します。',
+  '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
+    '⚠️ 中断しました。もう一度 Ctrl+C で終了、またはメッセージを入力してください。',
 }

@@ -126,4 +126,133 @@ export const messages: Record<string, string> = {
     'Focused on RPC / gRPC Node Operations. Ask me about endpoint setup, health, or tuning.',
   'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.':
     'Mixed focus — validator + app / rpc. Use /focus <validator|rpc|app> to narrow.',
+
+  // --- Console stages (shown after user input) ---
+  '👂 Understanding your request…': '👂 Understanding your request…',
+  'Understanding your request...': 'Understanding your request...',
+  '🎓 Intent detected: {intent}': '🎓 Intent detected: {intent}',
+  '🧰 Enabling tools: {tools}': '🧰 Enabling tools: {tools}',
+  '📚 Loading context: {modules}': '📚 Loading context: {modules}',
+  '🤖 Loading specialist: {specialist}': '🤖 Loading specialist: {specialist}',
+  '📚 Loading {context}…': '📚 Loading {context}…',
+
+  // --- Intent labels (used inside stage messages) ---
+  'general conversation': 'general conversation',
+  'server availability': 'server availability',
+  'server procurement': 'server procurement',
+  'account or billing': 'account or billing',
+  'validator deployment': 'validator deployment',
+  'validator operations': 'validator operations',
+  'RPC deployment': 'RPC deployment',
+  'RPC operations': 'RPC operations',
+  'benchmark or connectivity testing': 'benchmark or connectivity testing',
+  'app or bot development': 'app or bot development',
+  'CLI or file operation': 'CLI or file operation',
+  'needs clarification': 'needs clarification',
+
+  // --- User context kind labels (used inside stage messages) ---
+  'account availability': 'account availability',
+  'testnet validator inventory': 'testnet validator inventory',
+  'mainnet validator inventory': 'mainnet validator inventory',
+  'mainnet RPC inventory': 'mainnet RPC inventory',
+
+  // --- Console commands & status ---
+  'Saving session memory...': 'Saving session memory...',
+  'Conversation cleared.': 'Conversation cleared.',
+  '✅ versions.yml updated successfully!':
+    '✅ versions.yml updated successfully!',
+  'No pending updates.': 'No pending updates.',
+
+  // --- /help ---
+  '/exit, /quit — Exit': '/exit, /quit — Exit',
+  '/clear — Clear conversation': '/clear — Clear conversation',
+  '/update — Apply pending version updates':
+    '/update — Apply pending version updates',
+  "/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent's primary focus":
+    "/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent's primary focus",
+  '/<command> — Execute shell command directly (e.g. /slv ai usage)':
+    '/<command> — Execute shell command directly (e.g. /slv ai usage)',
+  '/help — Show this help': '/help — Show this help',
+
+  // --- /focus ---
+  'Current focus: {focus} (manual override)':
+    'Current focus: {focus} (manual override)',
+  'Current focus: {focus} (auto)': 'Current focus: {focus} (auto)',
+  '⚠ Could not detect current focus: {error}':
+    '⚠ Could not detect current focus: {error}',
+  'Usage: /focus validator | rpc | app | mixed | auto':
+    'Usage: /focus validator | rpc | app | mixed | auto',
+  '◇ Focus override cleared.': '◇ Focus override cleared.',
+  '⚠ Failed to clear focus override: {error}':
+    '⚠ Failed to clear focus override: {error}',
+  '◇ Focus set to: {focus}': '◇ Focus set to: {focus}',
+  '⚠ Failed to set focus: {error}': '⚠ Failed to set focus: {error}',
+  'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto':
+    'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto',
+  '⚠ Profile refresh failed: {error}': '⚠ Profile refresh failed: {error}',
+
+  // --- Side-chat agent status (shown while another task is running) ---
+  '⏳ {agent} is still working ({elapsed} elapsed).':
+    '⏳ {agent} is still working ({elapsed} elapsed).',
+  ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.':
+    ' Validator deployment can take 20-40 minutes — building Solana, downloading snapshots, and configuring the node.',
+  ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.':
+    ' RPC deployment can take 30-60 minutes — building Solana, syncing with the cluster.',
+  ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.':
+    ' Benchmark and connectivity checks usually finish faster, but larger throughput tests can still take a few minutes.',
+  ' Checking server availability and preparing your options.':
+    ' Checking server availability and preparing your options.',
+  " I'll let you know as soon as it's done!":
+    " I'll let you know as soon as it's done!",
+  'The system': 'The system',
+  'a moment': 'a moment',
+
+  // --- Dependency installation ---
+  '⚠️  Missing dependencies: {deps}': '⚠️  Missing dependencies: {deps}',
+  'Install now? (Y/n) ': 'Install now? (Y/n) ',
+  'Skipping installation. Some features may not work.':
+    'Skipping installation. Some features may not work.',
+  'Installing ansible-core...': 'Installing ansible-core...',
+  'Installing python3-pip...': 'Installing python3-pip...',
+  '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip':
+    '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip',
+  '✓ ansible-core installed': '✓ ansible-core installed',
+  'Installing solana-cli (agave)...': 'Installing solana-cli (agave)...',
+  '✓ solana-cli installed': '✓ solana-cli installed',
+
+  // --- Startup guard / version check ---
+  'SLV API Key not found. Run `slv login` first.':
+    'SLV API Key not found. Run `slv login` first.',
+  'Checking for new versions…': 'Checking for new versions…',
+  '🔄 New versions available:': '🔄 New versions available:',
+  'Type /update to apply, or ignore to keep current versions.':
+    'Type /update to apply, or ignore to keep current versions.',
+
+  // --- Tool call labels (addTool) ---
+  '⚡ Running command': '⚡ Running command',
+  '📄 Reading file': '📄 Reading file',
+  '📝 Writing file': '📝 Writing file',
+  '📂 Listing files': '📂 Listing files',
+  '🔗 Calling SLV Cloud API': '🔗 Calling SLV Cloud API',
+  'inspect or operate the local/remote SLV environment':
+    'inspect or operate the local/remote SLV environment',
+  'inspect focused local SLV files': 'inspect focused local SLV files',
+  'check subscriptions or fetch SLV Cloud data':
+    'check subscriptions or fetch SLV Cloud data',
+  'save configuration or update memory':
+    'save configuration or update memory',
+  'inspect available files before acting':
+    'inspect available files before acting',
+  'notify you when a long task finishes':
+    'notify you when a long task finishes',
+  'hand work to a specialist agent': 'hand work to a specialist agent',
+
+  // --- Shell execution / errors ---
+  '(exit code {code})': '(exit code {code})',
+  'Error: {message}': 'Error: {message}',
+
+  // --- Ctrl+C handler ---
+  'Force exit.': 'Force exit.',
+  '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
+    '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.',
 }
