@@ -1,6 +1,7 @@
 import { Command } from '@cliffy'
 import { initBotTemplate } from '/src/bot/init/initBotTemplate.ts'
 import { deployAction } from '/src/bot/deploy/deployAction.ts'
+import { buildAction } from '/src/bot/build/buildAction.ts'
 import { startAction } from '/src/bot/start/startAction.ts'
 import { stopAction } from '/src/bot/stop/stopAction.ts'
 import { restartAction } from '/src/bot/restart/restartAction.ts'
@@ -41,6 +42,17 @@ botCmd.command('deploy')
   })
   .action(async (options: { name?: string; localhost?: boolean }) => {
     await deployAction(options)
+  })
+
+// bot build subcommand
+botCmd.command('build')
+  .description(
+    'Build Rust bot binary locally and (on Linux) install a systemd service',
+  )
+  .option('-n, --name <name:string>', 'Bot app name')
+  .option('-p, --path <path:string>', 'Local Rust project path')
+  .action(async (options: { name?: string; path?: string }) => {
+    await buildAction(options)
   })
 
 // bot start subcommand

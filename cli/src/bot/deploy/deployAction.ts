@@ -9,26 +9,15 @@ import {
   shellQuote,
   sshExec,
 } from '/src/bot/sshUtil.ts'
+import { renderSystemdUnit } from '/src/bot/systemdUnit.ts'
 
-const SYSTEMD_UNIT_TEMPLATE = (config: BotConfig) =>
-  `[Unit]
-Description=SLV Bot - ${config.name}
-After=network.target
-
-[Service]
-Type=simple
-User=${config.username}
-WorkingDirectory=${config.remotePath}
-ExecStart=${config.remotePath}/${config.binaryName}
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=slv-${config.name}
-
-[Install]
-WantedBy=multi-user.target
-`
+const unitForConfig = (config: BotConfig): string =>
+  renderSystemdUnit({
+    name: config.name,
+    username: config.username,
+    workDir: config.remotePath,
+    execStart: `${config.remotePath}/${config.binaryName}`,
+  })
 
 const deployAction = async (options: { name?: string; localhost?: boolean }) => {
   // 1. App name
@@ -180,7 +169,7 @@ const deployAction = async (options: { name?: string; localhost?: boolean }) => 
 
     // 9. Create systemd unit via temp file + sudo mv
     console.log(colors.cyan('⚙️ Creating systemd service...'))
-    const unitContent = SYSTEMD_UNIT_TEMPLATE(config)
+    const unitContent = unitForConfig(config)
     const tmpPath = await Deno.makeTempFile({ suffix: '.service' })
     try {
       await Deno.writeTextFile(tmpPath, unitContent)
@@ -266,7 +255,7 @@ const deployAction = async (options: { name?: string; localhost?: boolean }) => 
 
     // 9. Create systemd unit via temp file + SCP
     console.log(colors.cyan('⚙️ Creating systemd service...'))
-    const unitContent = SYSTEMD_UNIT_TEMPLATE(config)
+    const unitContent = unitForConfig(config)
     const tmpLocal = await Deno.makeTempFile({ suffix: '.service' })
     try {
       await Deno.writeTextFile(tmpLocal, unitContent)

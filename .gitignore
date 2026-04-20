@@ -81,6 +81,8 @@ build
 !tsconfig.json
 !package.json
 !.eslintrc.json
+!cli/src/bot/build/
+!cli/src/bot/build/**
 
 .log
 .logs
