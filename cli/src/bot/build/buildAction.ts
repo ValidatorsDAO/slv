@@ -7,6 +7,18 @@ import { renderSystemdUnit, validateAppName } from '/src/bot/systemdUnit.ts'
 const errToString = (e: unknown): string =>
   e instanceof Error ? e.message : String(e)
 
+// True only when stdin is a real terminal the user can type into. When
+// `slv bot build` is spawned by `slv c`'s run_command tool (stdin: 'null'),
+// or piped from any automation, prompting would block forever — fail fast
+// with a usage hint instead. Deno.stdin.isTerminal was added in 1.40.
+const stdinIsInteractive = (): boolean => {
+  try {
+    return Deno.stdin.isTerminal()
+  } catch {
+    return false
+  }
+}
+
 const resolveAppName = async (provided?: string): Promise<string | null> => {
   if (provided) {
     const err = validateAppName(provided)
@@ -15,6 +27,15 @@ const resolveAppName = async (provided?: string): Promise<string | null> => {
       return null
     }
     return provided
+  }
+  if (!stdinIsInteractive()) {
+    console.log(
+      colors.red(
+        '❌ --name is required when stdin is not a terminal. ' +
+          'Re-run as: slv bot build -n <name> -p <path>',
+      ),
+    )
+    return null
   }
   const { appName } = await prompt([
     {
@@ -33,6 +54,11 @@ const resolveLocalPath = async (
 ): Promise<string | null> => {
   if (provided) return provided
   const homeDir = Deno.env.get('HOME') ?? '.'
+  if (!stdinIsInteractive()) {
+    // Non-interactive: use the conventional default silently instead of
+    // hanging on prompt. Callers that need a different path must pass -p.
+    return `${homeDir}/slv/${appName}`
+  }
   const { localPath } = await prompt([
     {
       name: 'localPath',
@@ -63,16 +89,28 @@ const installSystemdUnit = async (
 
   console.log(colors.cyan(`⚙️ Installing systemd unit at ${unitPath} ...`))
 
-  // Refresh the sudo credential cache once so mv/daemon-reload/enable below
-  // don't each trigger their own password prompt.
+  // Refresh the sudo credential cache so mv/daemon-reload/enable below don't
+  // each trigger their own password prompt. `-n` forces non-interactive
+  // mode: if the cache is empty and no NOPASSWD rule matches, sudo exits
+  // non-zero IMMEDIATELY instead of blocking on a password read — critical
+  // when invoked through `slv c`'s run_command (stdin: 'null'), which
+  // would otherwise hang forever.
   const primeSudo = new Deno.Command('sudo', {
-    args: ['-v'],
-    stdout: 'inherit',
-    stderr: 'inherit',
+    args: ['-n', '-v'],
+    stdout: 'piped',
+    stderr: 'piped',
   })
   const primed = await primeSudo.output()
   if (!primed.success) {
-    console.log(colors.red('❌ sudo authentication failed'))
+    const stderr = new TextDecoder().decode(primed.stderr).trim()
+    console.log(colors.red('❌ sudo authentication required'))
+    if (stderr) console.log(colors.yellow(stderr))
+    console.log(
+      colors.white(
+        '   Run `sudo -v` in a terminal to prime the credential cache, ' +
+          'or rerun `slv bot build` from a real TTY.',
+      ),
+    )
     return false
   }
 

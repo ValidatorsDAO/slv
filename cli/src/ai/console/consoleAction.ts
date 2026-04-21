@@ -36,6 +36,7 @@ import {
 } from '@/ai/console/systemPrompt.ts'
 import {
   activateExtendedTools,
+  clearAbort,
   killActiveProcess,
   resetActiveTools,
   resetSessionCaches,
@@ -1545,6 +1546,8 @@ RULES:
     chatLog.addUser(input)
     userMessageCount++
     isProcessing = true
+    // Clear any prior Ctrl+C abort state so this turn is not short-circuited.
+    clearAbort()
 
     // Show loader
     loader = new Loader(

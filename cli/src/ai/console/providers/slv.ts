@@ -1,6 +1,7 @@
 import {
   executeTool,
   getActiveTools,
+  isAborted,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
@@ -273,6 +274,13 @@ export class SLVProvider {
         })
       }
       this.messages.push({ role: 'user', content: toolResults })
+
+      // User pressed Ctrl+C during tool execution — stop here instead of
+      // requesting another turn so the user stays in control.
+      if (isAborted()) {
+        this.callbacks.onComplete()
+        break
+      }
 
       // Continue loop to let model respond after tool results
     }
