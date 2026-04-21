@@ -77,21 +77,20 @@ const resolveLocalPath = async (
   return localPath ?? null
 }
 
+type InstallResult =
+  | { state: 'installed' }
+  | { state: 'already_exists' }
+  | { state: 'needs_sudo'; stderr: string } // user must re-run from TTY
+  | { state: 'failed'; err: string }
+
 const installSystemdUnit = async (
   serviceName: string,
   unitContent: string,
-): Promise<boolean> => {
+): Promise<InstallResult> => {
   const unitPath = `/etc/systemd/system/${serviceName}.service`
   try {
     const st = await Deno.stat(unitPath)
-    if (st.isFile) {
-      console.log(
-        colors.cyan(
-          `ℹ️ Systemd unit already exists at ${unitPath} — keeping it`,
-        ),
-      )
-      return true
-    }
+    if (st.isFile) return { state: 'already_exists' }
   } catch { /* missing — install below */ }
 
   console.log(colors.cyan(`⚙️ Installing systemd unit at ${unitPath} ...`))
@@ -101,7 +100,9 @@ const installSystemdUnit = async (
   // mode: if the cache is empty and no NOPASSWD rule matches, sudo exits
   // non-zero IMMEDIATELY instead of blocking on a password read — critical
   // when invoked through `slv c`'s run_command (stdin: 'null'), which
-  // would otherwise hang forever.
+  // would otherwise hang forever. When this fails we report `needs_sudo`
+  // so the caller can still save the config + report a partial-but-usable
+  // build outcome.
   const primeSudo = new Deno.Command('sudo', {
     args: ['-n', '-v'],
     stdout: 'piped',
@@ -109,22 +110,10 @@ const installSystemdUnit = async (
   })
   const primed = await primeSudo.output()
   if (!primed.success) {
-    const stderr = new TextDecoder().decode(primed.stderr).trim()
-    console.log(colors.red('❌ sudo authentication required'))
-    if (stderr) console.log(colors.yellow(stderr))
-    // `requiretty` in sudoers surfaces as a different error; the fix is to
-    // run from a real shell, not to prime the cache.
-    const requiresTty = /\btty\b|\bterminal\b/i.test(stderr)
-    console.log(
-      colors.white(
-        requiresTty
-          ? '   sudoers requires a TTY. Run `slv bot build` from a real ' +
-            'terminal instead of via `slv c`.'
-          : '   Run `sudo -v` in a terminal to prime the credential cache, ' +
-            'then retry `slv bot build`.',
-      ),
-    )
-    return false
+    return {
+      state: 'needs_sudo',
+      stderr: new TextDecoder().decode(primed.stderr).trim(),
+    }
   }
 
   const tmpPath = await Deno.makeTempFile({ suffix: '.service' })
@@ -137,16 +126,15 @@ const installSystemdUnit = async (
     })
     const mvOut = await mv.output()
     if (!mvOut.success) {
-      const err = new TextDecoder().decode(mvOut.stderr).trim()
-      console.log(colors.red('❌ Failed to install systemd unit'))
-      if (err) console.log(colors.yellow(err))
-      return false
+      return {
+        state: 'failed',
+        err: `sudo mv ${tmpPath} ${unitPath}: ${
+          new TextDecoder().decode(mvOut.stderr).trim()
+        }`,
+      }
     }
   } catch (err) {
-    console.log(
-      colors.red(`❌ Failed to create systemd unit: ${errToString(err)}`),
-    )
-    return false
+    return { state: 'failed', err: errToString(err) }
   } finally {
     await Deno.remove(tmpPath).catch(() => {})
   }
@@ -158,10 +146,12 @@ const installSystemdUnit = async (
   })
   const reloadOut = await reload.output()
   if (!reloadOut.success) {
-    const err = new TextDecoder().decode(reloadOut.stderr).trim()
-    console.log(colors.red('❌ systemctl daemon-reload failed'))
-    if (err) console.log(colors.yellow(err))
-    return false
+    return {
+      state: 'failed',
+      err: `systemctl daemon-reload: ${
+        new TextDecoder().decode(reloadOut.stderr).trim()
+      }`,
+    }
   }
 
   const enable = new Deno.Command('sudo', {
@@ -171,14 +161,15 @@ const installSystemdUnit = async (
   })
   const enableOut = await enable.output()
   if (!enableOut.success) {
-    const err = new TextDecoder().decode(enableOut.stderr).trim()
-    console.log(colors.red('❌ systemctl enable failed'))
-    if (err) console.log(colors.yellow(err))
-    return false
+    return {
+      state: 'failed',
+      err: `systemctl enable: ${
+        new TextDecoder().decode(enableOut.stderr).trim()
+      }`,
+    }
   }
 
-  console.log(colors.green('✅ Systemd unit installed'))
-  return true
+  return { state: 'installed' }
 }
 
 const buildAction = async (
@@ -260,16 +251,65 @@ const buildAction = async (
     workDir: localPath,
     execStart: binaryPath,
   })
-  const ok = await installSystemdUnit(config.serviceName, unitContent)
-  if (!ok) return false
+  const install = await installSystemdUnit(config.serviceName, unitContent)
 
+  // Save the config regardless of systemd outcome — the binary IS built and
+  // usable. The config lets `slv bot start`/`stop` find it later.
   await saveBotConfig(config)
+
+  if (install.state === 'already_exists') {
+    console.log(
+      colors.cyan(
+        `ℹ️ Systemd unit already exists at /etc/systemd/system/${config.serviceName}.service — keeping it`,
+      ),
+    )
+    console.log(
+      colors.green(
+        `\n🎉 Build complete. Run: slv bot start -n ${config.name}`,
+      ),
+    )
+    return true
+  }
+
+  if (install.state === 'installed') {
+    console.log(colors.green('✅ Systemd unit installed'))
+    console.log(
+      colors.green(
+        `\n🎉 Build complete. Run: slv bot start -n ${config.name}`,
+      ),
+    )
+    return true
+  }
+
+  if (install.state === 'needs_sudo') {
+    // Partial success: binary built + config saved, but systemd install
+    // skipped because sudo couldn't authenticate non-interactively (likely
+    // invoked via `slv c` with no TTY). Tell the user exactly how to
+    // finish, and return true so the AI's run_command sees the build as
+    // a usable partial result rather than a hard failure.
+    console.log(colors.yellow('\n⚠️ Systemd unit install skipped.'))
+    if (install.stderr) console.log(colors.gray(`   ${install.stderr}`))
+    console.log(
+      colors.white(
+        '   sudo could not authenticate (no TTY under `slv c`). The binary\n' +
+          `   is built at ${binaryPath} and the config is saved.\n` +
+          '   To finish installing the systemd service, open a regular terminal and run:\n\n' +
+          `     slv bot build -n ${config.name} -p ${localPath}\n`,
+      ),
+    )
+    return true
+  }
+
+  // install.state === 'failed'
+  console.log(colors.red('❌ Failed to install systemd unit'))
+  console.log(colors.yellow(`   ${install.err}`))
   console.log(
-    colors.green(
-      `\n🎉 Build complete. Run: slv bot start -n ${config.name}`,
+    colors.white(
+      `   Binary is built at ${binaryPath} and config is saved.\n` +
+        '   You can retry systemd install by re-running `slv bot build`.',
     ),
   )
-  return true
+  return false
 }
 
 export { buildAction }

@@ -541,7 +541,13 @@ export const consoleAction = async () => {
   // Stream command output lines to TUI — filter out table borders and limit line count
   let cmdOutputLines: string[] = []
   let cmdOutputText: Text | null = null
-  const MAX_CMD_VISIBLE_LINES = 30
+  // Small fixed-size viewport to prevent the spinner from shifting as
+  // output arrives. OpenClaw-style: a stable "activity strip" of the most
+  // recent few lines, not a growing log. Progress detail and line count
+  // already live on the spinner label above (see commandLineCount /
+  // commandHint), so the window below only needs to show "what's happening
+  // right now".
+  const MAX_CMD_VISIBLE_LINES = 5
   let cmdFlushTimer: ReturnType<typeof setTimeout> | null = null
   let cmdTotalLineCount = 0
 
@@ -565,7 +571,12 @@ export const consoleAction = async () => {
     /\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g
   // deno-lint-ignore no-control-regex
   const JUNK_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g
-  const MAX_LINE_WIDTH = 200
+  // Cap the visible width per line at the terminal width minus a small
+  // margin for the leading "  " indent. This guarantees each output line
+  // fits in exactly one row, so the fixed-height output block's screen
+  // height matches MAX_CMD_VISIBLE_LINES exactly — no soft wraps that
+  // would push the editor/input down as lines arrive.
+  const maxLineWidth = Math.max(20, getTerminalWidth() - 4)
   const sanitizeTtyLine = (s: string): string => {
     const afterLastCR = s.includes('\r') ? (s.split('\r').pop() ?? s) : s
     const plain = afterLastCR
@@ -573,7 +584,7 @@ export const consoleAction = async () => {
       .replace(JUNK_RE, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-    return truncateToWidth(plain, MAX_LINE_WIDTH, '…')
+    return truncateToWidth(plain, maxLineWidth, '…')
   }
 
   // Activity spinner shown while `run_command` executes. Long commands
@@ -703,15 +714,18 @@ export const consoleAction = async () => {
 
   const flushCmdOutput = () => {
     if (cmdOutputLines.length === 0) return
-    // Show last N lines as a rolling window so the user always sees progress
+    // Fixed-height rolling window. We pad with empty lines when the real
+    // output hasn't filled the viewport yet so the block's row count is
+    // stable from the very first flush — the spinner below never moves.
+    // Once new lines arrive they rotate through in place via setText; the
+    // block's screen geometry doesn't change, so mobile terminals (where
+    // pi-tui's differential cursor moves fight with each line shift) stay
+    // glitch-free.
     const visible = cmdOutputLines.slice(-MAX_CMD_VISIBLE_LINES)
-    const hiddenCount = cmdTotalLineCount - visible.length
-    const header = hiddenCount > 0
-      ? `  ... (${hiddenCount} earlier lines hidden)\n`
-      : ''
-    const combined = header + visible.join('\n')
+    const padded = [...visible]
+    while (padded.length < MAX_CMD_VISIBLE_LINES) padded.push('')
+    const combined = padded.join('\n')
     if (cmdOutputText) {
-      // Update text in-place — no remove/add cycle, no layout thrash, no scrollbar flicker
       cmdOutputText.setText(gray(combined))
     } else {
       cmdOutputText = new Text(gray(combined), 1)
