@@ -540,11 +540,55 @@ export const consoleAction = async () => {
   let cmdFlushTimer: ReturnType<typeof setTimeout> | null = null
   let cmdTotalLineCount = 0
 
+  // Strip bytes that confuse pi-tui's differential renderer — ANSI colors,
+  // cursor/erase sequences, OSC hyperlinks, C0 controls, bell. Progress bars
+  // that rewrite the same line via CR are collapsed to their final state
+  // (what you'd see on a real terminal after all the rewrites). Lines are
+  // also capped to a sane width so pathological single-line output (e.g. a
+  // minified JSON blob from `curl`) doesn't blow the layout on mobile
+  // terminals like Terminus that wrap/truncate unpredictably.
+  // Order matters: the OSC arm (`\x1b]...ST`) must come before the
+  // single-char C1 arm `[@-Z\\-_]`, otherwise the bare `]` is matched as a
+  // 2-byte C1 sequence and the OSC body leaks through.
+  const ANSI_RE =
+    // deno-lint-ignore no-control-regex
+    /\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g
+  // deno-lint-ignore no-control-regex
+  const C0_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
+  const MAX_LINE_WIDTH = 200
+  const sanitizeTtyLine = (s: string): string => {
+    // Keep only what the terminal would show after all CR rewrites.
+    const afterLastCR = s.includes('\r') ? (s.split('\r').pop() ?? s) : s
+    const plain = afterLastCR.replace(ANSI_RE, '').replace(C0_RE, '')
+    return plain.length > MAX_LINE_WIDTH
+      ? plain.slice(0, MAX_LINE_WIDTH - 1) + '…'
+      : plain
+  }
+
   // Activity spinner shown while `run_command` executes. Long commands
   // (cargo build, curl downloads, ansible plays) can produce little or no
   // output for a while, so we show a rotating spinner with elapsed time so
   // the user knows work is in progress.
+  //
+  // "Lite" mode: on narrow terminals (< 60 cols) typical of mobile SSH apps
+  // like Termius/Terminus, or when SLV_TUI_LITE=1, we swap the animated
+  // Loader (80ms frame re-render in pi-tui) for a static Text node that
+  // only updates once per elapsed-time tick. The 80ms cadence + pi-tui's
+  // differential cursor-movement sequences are the main trigger for ghost
+  // characters and column-drift glitches on flaky mobile ANSI handling.
+  const detectLiteMode = (): boolean => {
+    if (Deno.env.get('SLV_TUI_LITE') === '1') return true
+    if (Deno.env.get('SLV_TUI_LITE') === '0') return false
+    try {
+      const { columns } = Deno.consoleSize()
+      if (columns > 0 && columns < 60) return true
+    } catch { /* not a TTY — fall through */ }
+    return false
+  }
+  const tuiLite = detectLiteMode()
+
   let commandLoader: Loader | null = null
+  let commandLiteText: Text | null = null
   let commandStartedAt = 0
   let commandLabel = ''
   let commandTimer: ReturnType<typeof setInterval> | null = null
@@ -556,6 +600,9 @@ export const consoleAction = async () => {
     return `${m}m ${s % 60}s`
   }
 
+  const renderRunningLabel = (elapsed: string): string =>
+    `${chalk.hex('#14f195')('▶')} ${chalk.gray(`Running: ${commandLabel} (${elapsed})`)}`
+
   const startCommandLoader = (command: string) => {
     stopCommandLoader() // guard against overlap
     // Keep the label short so it fits on one line in narrow terminals.
@@ -564,20 +611,32 @@ export const consoleAction = async () => {
       ? cleaned.slice(0, 53) + '...'
       : cleaned
     commandStartedAt = Date.now()
-    commandLoader = new Loader(
-      tui,
-      (s: string) => chalk.hex('#14f195')(s),
-      (s: string) => chalk.gray(s),
-      `Running: ${commandLabel} (0s)`,
-    )
-    chatLog.addChild(commandLoader)
-    commandLoader.start()
-    commandTimer = setInterval(() => {
-      if (!commandLoader) return
-      const elapsed = formatElapsed(Date.now() - commandStartedAt)
-      commandLoader.setMessage(`Running: ${commandLabel} (${elapsed})`)
-      tui.requestRender()
-    }, 1000)
+    const tickMs = tuiLite ? 2000 : 1000
+    if (tuiLite) {
+      commandLiteText = new Text(renderRunningLabel('0s'), 1)
+      chatLog.addChild(commandLiteText)
+      commandTimer = setInterval(() => {
+        if (!commandLiteText) return
+        const elapsed = formatElapsed(Date.now() - commandStartedAt)
+        commandLiteText.setText(renderRunningLabel(elapsed))
+        tui.requestRender()
+      }, tickMs)
+    } else {
+      commandLoader = new Loader(
+        tui,
+        (s: string) => chalk.hex('#14f195')(s),
+        (s: string) => chalk.gray(s),
+        `Running: ${commandLabel} (0s)`,
+      )
+      chatLog.addChild(commandLoader)
+      commandLoader.start()
+      commandTimer = setInterval(() => {
+        if (!commandLoader) return
+        const elapsed = formatElapsed(Date.now() - commandStartedAt)
+        commandLoader.setMessage(`Running: ${commandLabel} (${elapsed})`)
+        tui.requestRender()
+      }, tickMs)
+    }
     tui.requestRender()
   }
 
@@ -590,6 +649,10 @@ export const consoleAction = async () => {
       chatLog.removeChild(commandLoader)
       commandLoader.stop()
       commandLoader = null
+    }
+    if (commandLiteText) {
+      chatLog.removeChild(commandLiteText)
+      commandLiteText = null
     }
   }
 
@@ -613,15 +676,15 @@ export const consoleAction = async () => {
   }
 
   setCommandOutputCallback((line: string) => {
+    const sanitized = sanitizeTtyLine(line)
     // Skip table border lines that break TUI rendering
-    if (/^[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]+$/.test(line.trim())) return
-    // Skip empty or whitespace-only lines
-    if (!line.trim()) return
+    if (/^[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]+$/.test(sanitized.trim())) return
+    if (!sanitized.trim()) return
 
-    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(
-      /\s+/g,
+    const cleaned = sanitized.replace(
+      /[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g,
       ' ',
-    ).trim()
+    ).replace(/\s+/g, ' ').trim()
     if (!cleaned) return
     cmdTotalLineCount++
     cmdOutputLines.push(`  ${cleaned}`)
@@ -647,10 +710,13 @@ export const consoleAction = async () => {
   }, (taskName: string) => {
     // Ansible task-title spinner mode: update the running-command loader with
     // the current task name while keeping the elapsed-time counter.
+    commandLabel = taskName
+    const elapsed = formatElapsed(Date.now() - commandStartedAt)
     if (commandLoader) {
-      const elapsed = formatElapsed(Date.now() - commandStartedAt)
-      commandLabel = taskName
       commandLoader.setMessage(`Running: ${taskName} (${elapsed})`)
+      tui.requestRender()
+    } else if (commandLiteText) {
+      commandLiteText.setText(renderRunningLabel(elapsed))
       tui.requestRender()
     }
   })
