@@ -29,7 +29,7 @@ build on top of.
 | CLI | Action |
 |---|---|
 | `slv bot init -t <template> -n <name>` | Scaffold a bot/app project in `~/slv/<name>/` from the named template |
-| `slv bot build [-n <name>] [-p <path>]` | `cargo build --release` locally. On Linux, also install an idempotent systemd unit (`slv-<name>.service`) pointing `ExecStart` at the built binary; existing units are kept untouched. On macOS / non-Linux the systemd step is skipped |
+| `slv bot build [-n <name>] [-p <path>]` | Rust templates only (`trade-app`, `shreds-rust`, `geyser-rust`, `shreds-udp-rust`). Runs `cargo build --release` locally. On Linux, also installs an idempotent systemd unit (`slv-<name>.service`) pointing `ExecStart` at the built binary; existing units are kept untouched. On macOS / non-Linux the systemd step is skipped |
 | `slv bot deploy [-l\|--localhost] [-n <name>]` | Build + push to a VPS via SSH and install a systemd unit there. `-l` deploys to the current host instead (no SSH) |
 | `slv bot list` | List registered bots |
 | `slv bot start`, `slv bot stop`, `slv bot restart`, `slv bot status`, `slv bot log` | Lifecycle control. `log` accepts `-l/--lines <n>` (default 100) |
@@ -46,7 +46,7 @@ build on top of.
 
 ### Typical flows
 
-- **Dev on macOS**: `slv bot init` → `slv bot build -n <name>` → `slv bot start -n <name>` (runs under `nohup`; see logs in `~/.slv/bot/runtime/<name>.log`)
+- **Dev on macOS (Rust template)**: `slv bot init` → `slv bot build -n <name>` → `slv bot start -n <name>` (runs under `nohup`; see logs in `~/.slv/bot/runtime/<name>.log`). For TypeScript templates (`geyser-ts`, `shreds-ts`), skip `slv bot build` and run `pnpm dev` / the template's own script directly
 - **Prod on a VPS**: `slv bot init` → `slv bot deploy -n <name>` (SCP + systemd, `sudo` required on remote)
 - **Single-host Linux**: `slv bot init` → `slv bot deploy -l -n <name>` (no SSH; installs systemd locally)
 
