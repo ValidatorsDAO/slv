@@ -3,9 +3,7 @@ import { colors } from '@cliffy/colors'
 import { loadBotConfig, saveBotConfig } from '/src/bot/botConfig.ts'
 import type { BotConfig } from '@cmn/zod/bot.ts'
 import { renderSystemdUnit, validateAppName } from '/src/bot/systemdUnit.ts'
-
-const errToString = (e: unknown): string =>
-  e instanceof Error ? e.message : String(e)
+import { errToString } from '/lib/errToString.ts'
 
 // True only when stdin is a real terminal the user can type into. When
 // `slv bot build` is spawned by `slv c`'s run_command tool (stdin: 'null'),
@@ -55,9 +53,18 @@ const resolveLocalPath = async (
   if (provided) return provided
   const homeDir = Deno.env.get('HOME') ?? '.'
   if (!stdinIsInteractive()) {
-    // Non-interactive: use the conventional default silently instead of
-    // hanging on prompt. Callers that need a different path must pass -p.
-    return `${homeDir}/slv/${appName}`
+    // Non-interactive: fall back to the conventional default rather than
+    // hanging on prompt. Surface the choice so the user can see it in
+    // `slv c` output — silent defaults drift from the system-prompt rule
+    // that tells the AI to pass -p explicitly.
+    const fallback = `${homeDir}/slv/${appName}`
+    console.log(
+      colors.yellow(
+        `⚠️  --path not provided; using default ${fallback}. ` +
+          'Pass -p <path> to override.',
+      ),
+    )
+    return fallback
   }
   const { localPath } = await prompt([
     {
@@ -105,10 +112,16 @@ const installSystemdUnit = async (
     const stderr = new TextDecoder().decode(primed.stderr).trim()
     console.log(colors.red('❌ sudo authentication required'))
     if (stderr) console.log(colors.yellow(stderr))
+    // `requiretty` in sudoers surfaces as a different error; the fix is to
+    // run from a real shell, not to prime the cache.
+    const requiresTty = /\btty\b|\bterminal\b/i.test(stderr)
     console.log(
       colors.white(
-        '   Run `sudo -v` in a terminal to prime the credential cache, ' +
-          'or rerun `slv bot build` from a real TTY.',
+        requiresTty
+          ? '   sudoers requires a TTY. Run `slv bot build` from a real ' +
+            'terminal instead of via `slv c`.'
+          : '   Run `sudo -v` in a terminal to prime the credential cache, ' +
+            'then retry `slv bot build`.',
       ),
     )
     return false

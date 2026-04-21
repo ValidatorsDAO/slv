@@ -1,6 +1,7 @@
 import { join } from '@std/path'
 import { configRoot } from '@cmn/constants/path.ts'
 import type { BotConfig } from '@cmn/zod/bot.ts'
+import { errToString } from '/lib/errToString.ts'
 
 // Non-Linux localhost backend: the binary is started in the background via
 // `nohup`, its PID is written to <configRoot>/bot/runtime/<name>.pid, and
@@ -38,9 +39,6 @@ export const isAlive = (pid: number): boolean => {
     return false
   }
 }
-
-const errToString = (e: unknown): string =>
-  e instanceof Error ? e.message : String(e)
 
 export type StartResult =
   | { ok: true; pid: number }

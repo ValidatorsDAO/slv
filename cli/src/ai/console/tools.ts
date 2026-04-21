@@ -74,6 +74,21 @@ export function clearAbort() {
   aborted = false
 }
 
+/**
+ * Provider-loop helper. Call after pushing tool_results and before
+ * requesting another LLM turn. If the user aborted (Ctrl+C), fires the
+ * onComplete callback so the UI finalizes and returns true so the caller
+ * can `break` out of its tool-use loop. Every provider uses the same
+ * shape, so we keep the test + callback invocation in one place.
+ */
+export function shouldAbortAfterTools(
+  onComplete: () => void,
+): boolean {
+  if (!aborted) return false
+  onComplete()
+  return true
+}
+
 export type ToolDefinition = {
   name: string
   description: string
@@ -602,6 +617,11 @@ async function executeRunCommand(command: string): Promise<string> {
       try {
         child.kill('SIGTERM')
       } catch { /* ignore */ }
+      // Wait for the stream readers to settle so we don't keep pushing
+      // into stdoutChunks / firing onCommandOutput after the function
+      // returns — the child is killed, streams close fast.
+      await commandPromise.catch(() => {})
+      activeChildProcess = null
       if (onCommandComplete) onCommandComplete()
       const stdout = stdoutChunks.join('')
       return `Command timed out after 60 minutes.\nPartial output:\n${

@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import {
   executeTool,
   getActiveTools,
-  isAborted,
+  shouldAbortAfterTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
@@ -110,10 +110,7 @@ export class AnthropicProvider {
       // User pressed Ctrl+C during tool execution. The tool_result is still
       // appended (API contract requires it for every tool_use), but we do
       // NOT request another turn — the user wants control back.
-      if (isAborted()) {
-        this.callbacks.onComplete()
-        break
-      }
+      if (shouldAbortAfterTools(this.callbacks.onComplete)) break
 
       // Continue loop to let model respond after tool results
     }

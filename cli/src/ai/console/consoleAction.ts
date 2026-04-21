@@ -45,6 +45,7 @@ import {
   setCommandOutputCallback,
   setTuiInstance,
 } from '@/ai/console/tools.ts'
+import { errToString } from '/lib/errToString.ts'
 import {
   classifyIntent,
   type DeploymentMode,
@@ -1606,18 +1607,22 @@ RULES:
     isProcessing = false
     tui.requestRender()
 
-    // Drain one queued message (if any) via microtask so the stack
-    // doesn't grow with each chained turn. Ctrl+C drops the whole queue.
+    // Drain one queued message via microtask so the stack doesn't grow
+    // with each chained turn. Shift is INSIDE the microtask so a Ctrl+C
+    // that lands between this scheduling and the microtask firing still
+    // gets to clear the queue first — the microtask sees the cleared
+    // array and does nothing.
     if (pendingUserMessages.length > 0 && !isAborted()) {
-      const next = pendingUserMessages.shift()!
       queueMicrotask(() => {
+        if (isAborted() || pendingUserMessages.length === 0) return
+        const next = pendingUserMessages.shift()!
         handleSubmit(next).catch((e: unknown) => {
           chatLog.addSystem(
             red(
               `  ${
                 t('Queued message failed: {message}').replace(
                   '{message}',
-                  () => (e as Error).message,
+                  () => errToString(e),
                 )
               }`,
             ),
@@ -1635,7 +1640,7 @@ RULES:
           `  ${
             t('Input handler failed: {message}').replace(
               '{message}',
-              () => (e as Error).message,
+              () => errToString(e),
             )
           }`,
         ),
