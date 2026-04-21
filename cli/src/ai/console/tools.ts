@@ -39,12 +39,17 @@ let activeChildProcess: Deno.ChildProcess | null = null
 let onCommandComplete: (() => void) | null = null
 let onAnsibleTaskUpdate: ((taskName: string) => void) | null = null
 
-// Abort flag: set by Ctrl+C (killActiveProcess). Provider loops check
-// isAborted() after each tool call; if true they break out of the
-// tool-use loop instead of requesting another LLM turn, so the user
-// stays in control of the conversation. Cleared by clearAbort() at the
-// start of each new user turn.
-let aborted = false
+// Abort infrastructure. Ctrl+C aborts the AbortController, which:
+//   (a) cancels any in-flight LLM streaming HTTP request (provider.chat
+//       passes `signal` to the SDK), so a stalled Anthropic/OpenAI
+//       stream unblocks immediately instead of waiting for timeout;
+//   (b) fires SIGTERM at the active child process;
+//   (c) flips `signal.aborted` so the provider tool-use loop (via
+//       shouldAbortAfterTools) breaks instead of requesting another
+//       turn.
+// AbortController is single-shot — clearAbort() creates a fresh one at
+// the start of each new user turn.
+let abortController = new AbortController()
 
 export function setCommandOutputCallback(
   cb: ((line: string) => void) | null,
@@ -57,7 +62,7 @@ export function setCommandOutputCallback(
 }
 
 export function killActiveProcess() {
-  aborted = true
+  abortController.abort()
   if (activeChildProcess) {
     try {
       activeChildProcess.kill('SIGTERM')
@@ -67,11 +72,21 @@ export function killActiveProcess() {
 }
 
 export function isAborted(): boolean {
-  return aborted
+  return abortController.signal.aborted
+}
+
+/**
+ * AbortSignal to pass into LLM SDK calls (Anthropic `messages.stream`,
+ * OpenAI `chat.completions.create`). Aborting this signal cancels the
+ * in-flight HTTP stream so Ctrl+C is immediate even while the model is
+ * still generating its first token.
+ */
+export function getAbortSignal(): AbortSignal {
+  return abortController.signal
 }
 
 export function clearAbort() {
-  aborted = false
+  abortController = new AbortController()
 }
 
 /**
@@ -84,7 +99,7 @@ export function clearAbort() {
 export function shouldAbortAfterTools(
   onComplete: () => void,
 ): boolean {
-  if (!aborted) return false
+  if (!abortController.signal.aborted) return false
   onComplete()
   return true
 }
@@ -636,7 +651,7 @@ async function executeRunCommand(command: string): Promise<string> {
     // Aborted by user (Ctrl+C). Return a clear marker so the LLM knows the
     // command didn't complete — and the provider loop sees isAborted() and
     // stops requesting further turns.
-    if (aborted) {
+    if (abortController.signal.aborted) {
       activeChildProcess = null
       if (onCommandComplete) onCommandComplete()
       return `Command aborted by user (Ctrl+C).\nPartial stdout (last 1000 chars):\n${
