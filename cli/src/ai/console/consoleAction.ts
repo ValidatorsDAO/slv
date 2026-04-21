@@ -37,6 +37,7 @@ import {
 import {
   activateExtendedTools,
   clearAbort,
+  isAborted,
   killActiveProcess,
   resetActiveTools,
   resetSessionCaches,
@@ -969,6 +970,10 @@ export const consoleAction = async () => {
   // Track user interactions for memory save decision
   let userMessageCount = 0
   let isProcessing = false
+  // Messages the user typed while a previous turn was still running. Drained
+  // FIFO after each turn completes so long builds/deploys don't block the
+  // conversation — the user can queue follow-ups and walk away.
+  const pendingUserMessages: string[] = []
   let currentTaskDescription = '' // What the main agent is currently doing
   let currentTaskStartedAt = 0
   const announcedEnabledTools = new Set<string>()
@@ -1230,22 +1235,28 @@ RULES:
     return plan
   }
 
-  editor.onSubmit = async (text: string) => {
+  const handleSubmit = async (text: string): Promise<void> => {
     const input = text.trim()
     if (!input) return
 
     editor.setText('')
 
-    // While processing, handle side-chat messages
+    // While processing, queue the message instead of blocking it. It will
+    // be processed automatically once the current turn (and any earlier
+    // queued turns) finishes.
     if (isProcessing) {
       chatLog.addUser(input)
+      pendingUserMessages.push(input)
       const elapsed = currentTaskStartedAt
         ? formatElapsedTime(currentTaskStartedAt)
         : t('a moment')
       const agent = currentDelegateAgent || t('The system')
+      const position = pendingUserMessages.length
 
-      // Build a helpful status response
-      let status = t('⏳ {agent} is still working ({elapsed} elapsed).')
+      let status = t(
+        '📥 Queued (#{position}). {agent} is still working ({elapsed} elapsed) — I will process this right after.',
+      )
+        .replace('{position}', String(position))
         .replace('{agent}', agent)
         .replace('{elapsed}', elapsed)
       if (currentDelegateAgent === 'Cecil') {
@@ -1263,7 +1274,6 @@ RULES:
       } else if (currentDelegateAgent === 'Figaro') {
         status += t(' Checking server availability and preparing your options.')
       }
-      status += t(" I'll let you know as soon as it's done!")
 
       chatLog.addSystem(status)
       tui.requestRender()
@@ -1595,6 +1605,43 @@ RULES:
     }
     isProcessing = false
     tui.requestRender()
+
+    // Drain one queued message (if any) via microtask so the stack
+    // doesn't grow with each chained turn. Ctrl+C drops the whole queue.
+    if (pendingUserMessages.length > 0 && !isAborted()) {
+      const next = pendingUserMessages.shift()!
+      queueMicrotask(() => {
+        handleSubmit(next).catch((e: unknown) => {
+          chatLog.addSystem(
+            red(
+              `  ${
+                t('Queued message failed: {message}').replace(
+                  '{message}',
+                  () => (e as Error).message,
+                )
+              }`,
+            ),
+          )
+          tui.requestRender()
+        })
+      })
+    }
+  }
+
+  editor.onSubmit = (text: string) => {
+    handleSubmit(text).catch((e: unknown) => {
+      chatLog.addSystem(
+        red(
+          `  ${
+            t('Input handler failed: {message}').replace(
+              '{message}',
+              () => (e as Error).message,
+            )
+          }`,
+        ),
+      )
+      tui.requestRender()
+    })
   }
 
   // Global ctrl+c handler — always works, never hangs
@@ -1620,12 +1667,22 @@ RULES:
       }
 
       if (isProcessing) {
-        // First Ctrl+C during processing: kill child process, show message
+        // First Ctrl+C during processing: kill child process, drop queued
+        // messages (user wants to stop, not resume with stale intent).
         killActiveProcess()
+        const dropped = pendingUserMessages.length
+        pendingUserMessages.length = 0
         chatLog.addSystem(
           `  ${
             t('⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
-          }`,
+          }${dropped > 0
+            ? ` ${
+              t('({count} queued message(s) discarded.)').replace(
+                '{count}',
+                String(dropped),
+              )
+            }`
+            : ''}`,
         )
         isProcessing = false
         if (loader) {
