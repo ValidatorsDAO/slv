@@ -10,8 +10,10 @@ import {
   ProcessTerminal,
   Spacer,
   Text,
+  truncateToWidth,
   TUI,
 } from '@mariozechner/pi-tui'
+import { getTerminalWidth } from '@/ai/rendering.ts'
 import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
@@ -541,28 +543,34 @@ export const consoleAction = async () => {
   let cmdTotalLineCount = 0
 
   // Strip bytes that confuse pi-tui's differential renderer — ANSI colors,
-  // cursor/erase sequences, OSC hyperlinks, C0 controls, bell. Progress bars
-  // that rewrite the same line via CR are collapsed to their final state
-  // (what you'd see on a real terminal after all the rewrites). Lines are
-  // also capped to a sane width so pathological single-line output (e.g. a
-  // minified JSON blob from `curl`) doesn't blow the layout on mobile
+  // cursor/erase/OSC sequences, C0 controls, bell. Box-drawing chars are
+  // also collapsed (they are fine in a real terminal but wrap unpredictably
+  // when squeezed through pi-tui's column bookkeeping). Progress bars that
+  // rewrite the same line via CR are collapsed to the final state — what
+  // you'd actually see on a real terminal after all the rewrites. Lines
+  // are then capped to a sane visible width so pathological single-line
+  // blobs (e.g. minified JSON from `curl`) don't blow the layout on mobile
   // terminals like Terminus that wrap/truncate unpredictably.
-  // Order matters: the OSC arm (`\x1b]...ST`) must come before the
-  // single-char C1 arm `[@-Z\\-_]`, otherwise the bare `]` is matched as a
-  // 2-byte C1 sequence and the OSC body leaks through.
+  //
+  // Regex alternation order matters: the OSC arm (`\x1b]...ST`) must come
+  // before the single-char C1 arm `[@-Z\\-_]`, otherwise the bare `]` is
+  // matched as a 2-byte C1 sequence and the OSC body leaks through.
+  // ANSI is dropped outright (pure formatting); box-drawing and C0 controls
+  // become a space so they don't glue neighboring words together.
   const ANSI_RE =
     // deno-lint-ignore no-control-regex
     /\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g
   // deno-lint-ignore no-control-regex
-  const C0_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
+  const JUNK_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g
   const MAX_LINE_WIDTH = 200
   const sanitizeTtyLine = (s: string): string => {
-    // Keep only what the terminal would show after all CR rewrites.
     const afterLastCR = s.includes('\r') ? (s.split('\r').pop() ?? s) : s
-    const plain = afterLastCR.replace(ANSI_RE, '').replace(C0_RE, '')
-    return plain.length > MAX_LINE_WIDTH
-      ? plain.slice(0, MAX_LINE_WIDTH - 1) + '…'
-      : plain
+    const plain = afterLastCR
+      .replace(ANSI_RE, '')
+      .replace(JUNK_RE, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    return truncateToWidth(plain, MAX_LINE_WIDTH, '…')
   }
 
   // Activity spinner shown while `run_command` executes. Long commands
@@ -572,23 +580,22 @@ export const consoleAction = async () => {
   //
   // "Lite" mode: on narrow terminals (< 60 cols) typical of mobile SSH apps
   // like Termius/Terminus, or when SLV_TUI_LITE=1, we swap the animated
-  // Loader (80ms frame re-render in pi-tui) for a static Text node that
-  // only updates once per elapsed-time tick. The 80ms cadence + pi-tui's
-  // differential cursor-movement sequences are the main trigger for ghost
-  // characters and column-drift glitches on flaky mobile ANSI handling.
+  // Loader (80ms frame re-render in pi-tui) for a static Text node updated
+  // only on the elapsed-time tick. The 80ms cadence + pi-tui's differential
+  // cursor-movement sequences are the main trigger for ghost characters and
+  // column-drift on flaky mobile ANSI handling.
   const detectLiteMode = (): boolean => {
-    if (Deno.env.get('SLV_TUI_LITE') === '1') return true
-    if (Deno.env.get('SLV_TUI_LITE') === '0') return false
-    try {
-      const { columns } = Deno.consoleSize()
-      if (columns > 0 && columns < 60) return true
-    } catch { /* not a TTY — fall through */ }
-    return false
+    const flag = Deno.env.get('SLV_TUI_LITE')
+    if (flag === '1') return true
+    if (flag === '0') return false
+    return getTerminalWidth() < 60
   }
   const tuiLite = detectLiteMode()
 
-  let commandLoader: Loader | null = null
-  let commandLiteText: Text | null = null
+  // Single abstraction for the active "Running…" indicator — closures hide
+  // whether it's driven by an animated Loader or a static Text node.
+  let updateIndicator: ((elapsed: string) => void) | null = null
+  let disposeIndicator: (() => void) | null = null
   let commandStartedAt = 0
   let commandLabel = ''
   let commandTimer: ReturnType<typeof setInterval> | null = null
@@ -600,8 +607,13 @@ export const consoleAction = async () => {
     return `${m}m ${s % 60}s`
   }
 
-  const renderRunningLabel = (elapsed: string): string =>
-    `${chalk.hex('#14f195')('▶')} ${chalk.gray(`Running: ${commandLabel} (${elapsed})`)}`
+  // Lite mode has no animated glyph, so prepend a static ▶ to signal activity.
+  const liteIndicatorLabel = (elapsed: string): string =>
+    `${chalk.hex('#14f195')('▶')} ${
+      chalk.gray(`Running: ${commandLabel} (${elapsed})`)
+    }`
+  const fullIndicatorLabel = (elapsed: string): string =>
+    `Running: ${commandLabel} (${elapsed})`
 
   const startCommandLoader = (command: string) => {
     stopCommandLoader() // guard against overlap
@@ -611,32 +623,33 @@ export const consoleAction = async () => {
       ? cleaned.slice(0, 53) + '...'
       : cleaned
     commandStartedAt = Date.now()
-    const tickMs = tuiLite ? 2000 : 1000
+
     if (tuiLite) {
-      commandLiteText = new Text(renderRunningLabel('0s'), 1)
-      chatLog.addChild(commandLiteText)
-      commandTimer = setInterval(() => {
-        if (!commandLiteText) return
-        const elapsed = formatElapsed(Date.now() - commandStartedAt)
-        commandLiteText.setText(renderRunningLabel(elapsed))
-        tui.requestRender()
-      }, tickMs)
+      const node = new Text(liteIndicatorLabel('0s'), 1)
+      chatLog.addChild(node)
+      updateIndicator = (elapsed) => node.setText(liteIndicatorLabel(elapsed))
+      disposeIndicator = () => chatLog.removeChild(node)
     } else {
-      commandLoader = new Loader(
+      const node = new Loader(
         tui,
         (s: string) => chalk.hex('#14f195')(s),
         (s: string) => chalk.gray(s),
-        `Running: ${commandLabel} (0s)`,
+        fullIndicatorLabel('0s'),
       )
-      chatLog.addChild(commandLoader)
-      commandLoader.start()
-      commandTimer = setInterval(() => {
-        if (!commandLoader) return
-        const elapsed = formatElapsed(Date.now() - commandStartedAt)
-        commandLoader.setMessage(`Running: ${commandLabel} (${elapsed})`)
-        tui.requestRender()
-      }, tickMs)
+      chatLog.addChild(node)
+      node.start()
+      updateIndicator = (elapsed) => node.setMessage(fullIndicatorLabel(elapsed))
+      disposeIndicator = () => {
+        node.stop()
+        chatLog.removeChild(node)
+      }
     }
+
+    const tickMs = tuiLite ? 2000 : 1000
+    commandTimer = setInterval(() => {
+      updateIndicator?.(formatElapsed(Date.now() - commandStartedAt))
+      tui.requestRender()
+    }, tickMs)
     tui.requestRender()
   }
 
@@ -645,15 +658,9 @@ export const consoleAction = async () => {
       clearInterval(commandTimer)
       commandTimer = null
     }
-    if (commandLoader) {
-      chatLog.removeChild(commandLoader)
-      commandLoader.stop()
-      commandLoader = null
-    }
-    if (commandLiteText) {
-      chatLog.removeChild(commandLiteText)
-      commandLiteText = null
-    }
+    disposeIndicator?.()
+    disposeIndicator = null
+    updateIndicator = null
   }
 
   const flushCmdOutput = () => {
@@ -676,15 +683,7 @@ export const consoleAction = async () => {
   }
 
   setCommandOutputCallback((line: string) => {
-    const sanitized = sanitizeTtyLine(line)
-    // Skip table border lines that break TUI rendering
-    if (/^[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]+$/.test(sanitized.trim())) return
-    if (!sanitized.trim()) return
-
-    const cleaned = sanitized.replace(
-      /[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g,
-      ' ',
-    ).replace(/\s+/g, ' ').trim()
+    const cleaned = sanitizeTtyLine(line)
     if (!cleaned) return
     cmdTotalLineCount++
     cmdOutputLines.push(`  ${cleaned}`)
@@ -708,17 +707,11 @@ export const consoleAction = async () => {
     cmdTotalLineCount = 0
     stopCommandLoader()
   }, (taskName: string) => {
-    // Ansible task-title spinner mode: update the running-command loader with
-    // the current task name while keeping the elapsed-time counter.
+    // Ansible task-title spinner mode: swap the label to the current task
+    // name while keeping the elapsed-time counter running.
     commandLabel = taskName
-    const elapsed = formatElapsed(Date.now() - commandStartedAt)
-    if (commandLoader) {
-      commandLoader.setMessage(`Running: ${taskName} (${elapsed})`)
-      tui.requestRender()
-    } else if (commandLiteText) {
-      commandLiteText.setText(renderRunningLabel(elapsed))
-      tui.requestRender()
-    }
+    updateIndicator?.(formatElapsed(Date.now() - commandStartedAt))
+    tui.requestRender()
   })
 
   // Read auto-execute setting from agent config
