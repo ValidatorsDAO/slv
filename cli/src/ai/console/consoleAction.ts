@@ -10,8 +10,10 @@ import {
   ProcessTerminal,
   Spacer,
   Text,
+  truncateToWidth,
   TUI,
 } from '@mariozechner/pi-tui'
+import { getTerminalWidth } from '@/ai/rendering.ts'
 import chalk from 'chalk'
 import { readAiConfig } from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
@@ -540,11 +542,60 @@ export const consoleAction = async () => {
   let cmdFlushTimer: ReturnType<typeof setTimeout> | null = null
   let cmdTotalLineCount = 0
 
+  // Strip bytes that confuse pi-tui's differential renderer — ANSI colors,
+  // cursor/erase/OSC sequences, C0 controls, bell. Box-drawing chars are
+  // also collapsed (they are fine in a real terminal but wrap unpredictably
+  // when squeezed through pi-tui's column bookkeeping). Progress bars that
+  // rewrite the same line via CR are collapsed to the final state — what
+  // you'd actually see on a real terminal after all the rewrites. Lines
+  // are then capped to a sane visible width so pathological single-line
+  // blobs (e.g. minified JSON from `curl`) don't blow the layout on mobile
+  // terminals like Terminus that wrap/truncate unpredictably.
+  //
+  // Regex alternation order matters: the OSC arm (`\x1b]...ST`) must come
+  // before the single-char C1 arm `[@-Z\\-_]`, otherwise the bare `]` is
+  // matched as a 2-byte C1 sequence and the OSC body leaks through.
+  // ANSI is dropped outright (pure formatting); box-drawing and C0 controls
+  // become a space so they don't glue neighboring words together.
+  const ANSI_RE =
+    // deno-lint-ignore no-control-regex
+    /\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g
+  // deno-lint-ignore no-control-regex
+  const JUNK_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g
+  const MAX_LINE_WIDTH = 200
+  const sanitizeTtyLine = (s: string): string => {
+    const afterLastCR = s.includes('\r') ? (s.split('\r').pop() ?? s) : s
+    const plain = afterLastCR
+      .replace(ANSI_RE, '')
+      .replace(JUNK_RE, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    return truncateToWidth(plain, MAX_LINE_WIDTH, '…')
+  }
+
   // Activity spinner shown while `run_command` executes. Long commands
   // (cargo build, curl downloads, ansible plays) can produce little or no
   // output for a while, so we show a rotating spinner with elapsed time so
   // the user knows work is in progress.
-  let commandLoader: Loader | null = null
+  //
+  // "Lite" mode: on narrow terminals (< 60 cols) typical of mobile SSH apps
+  // like Termius/Terminus, or when SLV_TUI_LITE=1, we swap the animated
+  // Loader (80ms frame re-render in pi-tui) for a static Text node updated
+  // only on the elapsed-time tick. The 80ms cadence + pi-tui's differential
+  // cursor-movement sequences are the main trigger for ghost characters and
+  // column-drift on flaky mobile ANSI handling.
+  const detectLiteMode = (): boolean => {
+    const flag = Deno.env.get('SLV_TUI_LITE')
+    if (flag === '1') return true
+    if (flag === '0') return false
+    return getTerminalWidth() < 60
+  }
+  const tuiLite = detectLiteMode()
+
+  // Single abstraction for the active "Running…" indicator — closures hide
+  // whether it's driven by an animated Loader or a static Text node.
+  let updateIndicator: ((elapsed: string) => void) | null = null
+  let disposeIndicator: (() => void) | null = null
   let commandStartedAt = 0
   let commandLabel = ''
   let commandTimer: ReturnType<typeof setInterval> | null = null
@@ -556,6 +607,14 @@ export const consoleAction = async () => {
     return `${m}m ${s % 60}s`
   }
 
+  // Lite mode has no animated glyph, so prepend a static ▶ to signal activity.
+  const liteIndicatorLabel = (elapsed: string): string =>
+    `${chalk.hex('#14f195')('▶')} ${
+      chalk.gray(`Running: ${commandLabel} (${elapsed})`)
+    }`
+  const fullIndicatorLabel = (elapsed: string): string =>
+    `Running: ${commandLabel} (${elapsed})`
+
   const startCommandLoader = (command: string) => {
     stopCommandLoader() // guard against overlap
     // Keep the label short so it fits on one line in narrow terminals.
@@ -564,20 +623,33 @@ export const consoleAction = async () => {
       ? cleaned.slice(0, 53) + '...'
       : cleaned
     commandStartedAt = Date.now()
-    commandLoader = new Loader(
-      tui,
-      (s: string) => chalk.hex('#14f195')(s),
-      (s: string) => chalk.gray(s),
-      `Running: ${commandLabel} (0s)`,
-    )
-    chatLog.addChild(commandLoader)
-    commandLoader.start()
+
+    if (tuiLite) {
+      const node = new Text(liteIndicatorLabel('0s'), 1)
+      chatLog.addChild(node)
+      updateIndicator = (elapsed) => node.setText(liteIndicatorLabel(elapsed))
+      disposeIndicator = () => chatLog.removeChild(node)
+    } else {
+      const node = new Loader(
+        tui,
+        (s: string) => chalk.hex('#14f195')(s),
+        (s: string) => chalk.gray(s),
+        fullIndicatorLabel('0s'),
+      )
+      chatLog.addChild(node)
+      node.start()
+      updateIndicator = (elapsed) => node.setMessage(fullIndicatorLabel(elapsed))
+      disposeIndicator = () => {
+        node.stop()
+        chatLog.removeChild(node)
+      }
+    }
+
+    const tickMs = tuiLite ? 2000 : 1000
     commandTimer = setInterval(() => {
-      if (!commandLoader) return
-      const elapsed = formatElapsed(Date.now() - commandStartedAt)
-      commandLoader.setMessage(`Running: ${commandLabel} (${elapsed})`)
+      updateIndicator?.(formatElapsed(Date.now() - commandStartedAt))
       tui.requestRender()
-    }, 1000)
+    }, tickMs)
     tui.requestRender()
   }
 
@@ -586,11 +658,9 @@ export const consoleAction = async () => {
       clearInterval(commandTimer)
       commandTimer = null
     }
-    if (commandLoader) {
-      chatLog.removeChild(commandLoader)
-      commandLoader.stop()
-      commandLoader = null
-    }
+    disposeIndicator?.()
+    disposeIndicator = null
+    updateIndicator = null
   }
 
   const flushCmdOutput = () => {
@@ -613,15 +683,7 @@ export const consoleAction = async () => {
   }
 
   setCommandOutputCallback((line: string) => {
-    // Skip table border lines that break TUI rendering
-    if (/^[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]+$/.test(line.trim())) return
-    // Skip empty or whitespace-only lines
-    if (!line.trim()) return
-
-    const cleaned = line.replace(/[┌┐└┘├┤┬┴┼─│═╔╗╚╝╠╣╦╩╬]/g, ' ').replace(
-      /\s+/g,
-      ' ',
-    ).trim()
+    const cleaned = sanitizeTtyLine(line)
     if (!cleaned) return
     cmdTotalLineCount++
     cmdOutputLines.push(`  ${cleaned}`)
@@ -645,14 +707,11 @@ export const consoleAction = async () => {
     cmdTotalLineCount = 0
     stopCommandLoader()
   }, (taskName: string) => {
-    // Ansible task-title spinner mode: update the running-command loader with
-    // the current task name while keeping the elapsed-time counter.
-    if (commandLoader) {
-      const elapsed = formatElapsed(Date.now() - commandStartedAt)
-      commandLabel = taskName
-      commandLoader.setMessage(`Running: ${taskName} (${elapsed})`)
-      tui.requestRender()
-    }
+    // Ansible task-title spinner mode: swap the label to the current task
+    // name while keeping the elapsed-time counter running.
+    commandLabel = taskName
+    updateIndicator?.(formatElapsed(Date.now() - commandStartedAt))
+    tui.requestRender()
   })
 
   // Read auto-execute setting from agent config
