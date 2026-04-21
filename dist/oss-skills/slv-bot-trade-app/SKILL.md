@@ -115,14 +115,16 @@ Builds, uploads via SCP, creates systemd service on the remote server.
 | `WEBHOOK_URL` | — | Discord Webhook URL. If `notifications.discord_webhook` exists in `~/.slv/api.yml`, reuse it automatically |
 | `REDIS_URL` | — | Redis URL for trade history. For non-engineer users, prefer installing Redis locally and configuring this automatically instead of asking up front |
 | `CONFIG_PATH` | `config.jsonc` | Geyser filter config file |
+| `TRADE_APP_LANG` | `en` | Output / log language for the bot (supported: `en`, `ja`, `ru`, `vi`, `zh`). When launched from `slv c`, this is automatically inherited from `lang` in `~/.slv/api.yml` (set during `slv onboard`) — no need to add it to `.env` |
 
 When setting up `.env`, prefer automatic configuration over user questions
 whenever possible. Reuse existing local configuration automatically when
 available: the SLV API key from `~/.slv/api.yml` for
-`https://edge.erpc.global?api-key=<API_KEY>` RPC defaults, and
-`notifications.discord_webhook` from `~/.slv/api.yml` for `WEBHOOK_URL`. For
-non-engineer users, prefer installing and wiring Redis automatically when
-local persistence is useful.
+`https://edge.erpc.global?api-key=<API_KEY>` RPC defaults,
+`notifications.discord_webhook` for `WEBHOOK_URL`, and `lang` (injected
+into `TRADE_APP_LANG` by `slv c` at spawn time). For non-engineer users,
+prefer installing and wiring Redis automatically when local persistence is
+useful.
 
 ## Trade Configuration (via API)
 

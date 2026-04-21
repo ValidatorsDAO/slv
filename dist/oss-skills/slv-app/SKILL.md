@@ -24,12 +24,33 @@ build on top of.
 
 ## `slv bot` CLI Commands
 
+`slv b` is an alias for `slv bot`.
+
 | CLI | Action |
 |---|---|
 | `slv bot init -t <template> -n <name>` | Scaffold a bot/app project in `~/slv/<name>/` from the named template |
-| `slv bot deploy` | Build and deploy the current project to a VPS via SSH + systemd |
-| `slv bot list` / `slv b` | List / switch between deployed bots |
-| `slv bot log`, `slv bot restart`, `slv bot start`, `slv bot status`, `slv bot stop` | Operate a deployed bot on its remote VPS |
+| `slv bot build [-n <name>] [-p <path>]` | Rust templates only (`trade-app`, `shreds-rust`, `geyser-rust`, `shreds-udp-rust`). Runs `cargo build --release` locally. On Linux, also installs an idempotent systemd unit (`slv-<name>.service`) pointing `ExecStart` at the built binary; existing units are kept untouched. On macOS / non-Linux the systemd step is skipped |
+| `slv bot deploy [-l\|--localhost] [-n <name>]` | Build + push to a VPS via SSH and install a systemd unit there. `-l` deploys to the current host instead (no SSH) |
+| `slv bot list` | List registered bots |
+| `slv bot start`, `slv bot stop`, `slv bot restart`, `slv bot status`, `slv bot log` | Lifecycle control. `log` accepts `-l/--lines <n>` (default 100) |
+
+### Lifecycle backend (auto-selected)
+
+`start` / `stop` / `restart` / `status` / `log` dispatch to the right backend based on where the bot lives, so the same command works everywhere:
+
+| Bot location | Host OS | Backend |
+|---|---|---|
+| Remote (`deploy`) | Linux | `ssh … sudo systemctl …` / `journalctl` |
+| Local (`deploy -l` or `build`) | Linux | Local `sudo systemctl …` / `journalctl` |
+| Local (`build`) | macOS / non-Linux | `nohup` + PID file under `~/.slv/bot/runtime/<name>.{pid,log}`; `stop` sends SIGTERM, waits ~5 s, escalates to SIGKILL |
+
+### Typical flows
+
+- **Dev on macOS (Rust template)**: `slv bot init` → `slv bot build -n <name>` → `slv bot start -n <name>` (runs under `nohup`; see logs in `~/.slv/bot/runtime/<name>.log`). For TypeScript templates (`geyser-ts`, `shreds-ts`), skip `slv bot build` and run `pnpm dev` / the template's own script directly
+- **Prod on a VPS**: `slv bot init` → `slv bot deploy -n <name>` (SCP + systemd, `sudo` required on remote)
+- **Single-host Linux**: `slv bot init` → `slv bot deploy -l -n <name>` (no SSH; installs systemd locally)
+
+Bot config (`~/.slv/bot/<name>.yml`) is written by both `build` and `deploy`. Once registered, every lifecycle command works with just `-n <name>`.
 
 ### `slv bot init` safety notes
 
