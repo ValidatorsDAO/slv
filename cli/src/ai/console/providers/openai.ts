@@ -2,6 +2,7 @@ import OpenAI from 'openai'
 import {
   executeTool,
   getActiveTools,
+  shouldAbortAfterTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
@@ -146,6 +147,10 @@ export class OpenAIProvider {
           content: result,
         })
       }
+
+      // User pressed Ctrl+C during tool execution — stop here instead of
+      // requesting another turn so the user stays in control.
+      if (shouldAbortAfterTools(this.callbacks.onComplete)) break
 
       // Continue the loop to let the model respond after tool results
     }

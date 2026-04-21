@@ -52,7 +52,11 @@ botCmd.command('build')
   .option('-n, --name <name:string>', 'Bot app name')
   .option('-p, --path <path:string>', 'Local Rust project path')
   .action(async (options: { name?: string; path?: string }) => {
-    await buildAction(options)
+    // Propagate failure as a non-zero exit so scripts and the AI's
+    // run_command can detect it — Cliffy treats a plain `return false` as
+    // success.
+    const ok = await buildAction(options)
+    if (!ok) Deno.exit(1)
   })
 
 // bot start subcommand

@@ -39,6 +39,13 @@ let activeChildProcess: Deno.ChildProcess | null = null
 let onCommandComplete: (() => void) | null = null
 let onAnsibleTaskUpdate: ((taskName: string) => void) | null = null
 
+// Abort flag: set by Ctrl+C (killActiveProcess). Provider loops check
+// isAborted() after each tool call; if true they break out of the
+// tool-use loop instead of requesting another LLM turn, so the user
+// stays in control of the conversation. Cleared by clearAbort() at the
+// start of each new user turn.
+let aborted = false
+
 export function setCommandOutputCallback(
   cb: ((line: string) => void) | null,
   completeCb?: (() => void) | null,
@@ -50,12 +57,36 @@ export function setCommandOutputCallback(
 }
 
 export function killActiveProcess() {
+  aborted = true
   if (activeChildProcess) {
     try {
       activeChildProcess.kill('SIGTERM')
     } catch { /* ignore */ }
     activeChildProcess = null
   }
+}
+
+export function isAborted(): boolean {
+  return aborted
+}
+
+export function clearAbort() {
+  aborted = false
+}
+
+/**
+ * Provider-loop helper. Call after pushing tool_results and before
+ * requesting another LLM turn. If the user aborted (Ctrl+C), fires the
+ * onComplete callback so the UI finalizes and returns true so the caller
+ * can `break` out of its tool-use loop. Every provider uses the same
+ * shape, so we keep the test + callback invocation in one place.
+ */
+export function shouldAbortAfterTools(
+  onComplete: () => void,
+): boolean {
+  if (!aborted) return false
+  onComplete()
+  return true
 }
 
 export type ToolDefinition = {
@@ -586,6 +617,11 @@ async function executeRunCommand(command: string): Promise<string> {
       try {
         child.kill('SIGTERM')
       } catch { /* ignore */ }
+      // Wait for the stream readers to settle so we don't keep pushing
+      // into stdoutChunks / firing onCommandOutput after the function
+      // returns — the child is killed, streams close fast.
+      await commandPromise.catch(() => {})
+      activeChildProcess = null
       if (onCommandComplete) onCommandComplete()
       const stdout = stdoutChunks.join('')
       return `Command timed out after 60 minutes.\nPartial output:\n${
@@ -596,6 +632,17 @@ async function executeRunCommand(command: string): Promise<string> {
     const status = result
     const stdout = stdoutChunks.join('')
     const stderr = stderrChunks.join('')
+
+    // Aborted by user (Ctrl+C). Return a clear marker so the LLM knows the
+    // command didn't complete — and the provider loop sees isAborted() and
+    // stops requesting further turns.
+    if (aborted) {
+      activeChildProcess = null
+      if (onCommandComplete) onCommandComplete()
+      return `Command aborted by user (Ctrl+C).\nPartial stdout (last 1000 chars):\n${
+        stdout.slice(-1000)
+      }`
+    }
 
     // Save full ansible output to log file for debugging
     if (isAnsibleCommand) {

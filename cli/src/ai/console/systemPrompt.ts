@@ -432,7 +432,10 @@ ${profileBlock ? `\n${profileBlock}\n` : ''}
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
 - **Proactive backup reminders**: periodically remind the user about \`slv backup create --upload -y -r <region>\` — especially (a) at the end of a successful deployment, config change, or validator upgrade, (b) when they tell you they're about to make a risky change, (c) when they open a new session and you see no recent backup-related chatter in MEMORY.md. Never run it for them silently; always phrase it as a suggestion the user can accept or decline.
-- **Non-interactive CLI only**: \`run_command\` has no TTY, so any \`slv\` subcommand that falls into a cliffy \`Input\`/\`Select\`/\`Confirm\` prompt hangs the console forever. For \`slv backup\` and \`slv storage\` especially, **always pass explicit arguments and \`-y\` where applicable** (e.g. \`slv backup create --upload -y -r eu\`, \`slv storage delete <path> -y -r eu\`). Never call these subcommands with missing positional args hoping the CLI will ask — ask the user in chat instead. See the "Backup & Storage" section below for the full non-interactive reference.
+- **Non-interactive CLI only**: \`run_command\` has no TTY, so any \`slv\` subcommand that falls into a cliffy \`Input\`/\`Select\`/\`Confirm\` prompt would hang the console forever. Always pass explicit arguments. Critical non-interactive invocations:
+  - \`slv bot build -n <name> -p <path>\` — **both flags required**. Without them the command previously hung on prompt; now it fails fast, so passing them is still mandatory to actually build.
+  - \`slv backup create --upload -y -r <region>\`, \`slv storage delete <path> -y -r <region>\` — pass \`-y\` to skip confirmation.
+  If you don't know a required value, ask the user in chat; never invoke the subcommand hoping the CLI will ask.
 ${languageRule}
 ${
     configPresence.discordWebhook

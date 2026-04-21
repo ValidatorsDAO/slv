@@ -52,6 +52,8 @@ build on top of.
 
 Bot config (`~/.slv/bot/<name>.yml`) is written by both `build` and `deploy`. Once registered, every lifecycle command works with just `-n <name>`.
 
+> **When invoking from `slv c` (non-interactive `run_command`)**: `slv bot build` requires `-n <name> -p <path>` explicitly. Without them the command fails fast with a usage hint (it no longer hangs on prompt) — but the build still won't proceed until you pass the flags.
+
 ### `slv bot init` safety notes
 
 - `-y` forces `rm -rf` on the target directory before extracting the

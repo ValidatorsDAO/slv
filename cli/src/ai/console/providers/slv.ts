@@ -1,6 +1,7 @@
 import {
   executeTool,
   getActiveTools,
+  shouldAbortAfterTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
@@ -273,6 +274,10 @@ export class SLVProvider {
         })
       }
       this.messages.push({ role: 'user', content: toolResults })
+
+      // User pressed Ctrl+C during tool execution — stop here instead of
+      // requesting another turn so the user stays in control.
+      if (shouldAbortAfterTools(this.callbacks.onComplete)) break
 
       // Continue loop to let model respond after tool results
     }
