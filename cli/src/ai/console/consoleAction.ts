@@ -597,11 +597,22 @@ export const consoleAction = async () => {
 
   // Single abstraction for the active "Running…" indicator — closures hide
   // whether it's driven by an animated Loader or a static Text node.
-  let updateIndicator: ((elapsed: string) => void) | null = null
+  let updateIndicator: ((text: string) => void) | null = null
   let disposeIndicator: (() => void) | null = null
   let commandStartedAt = 0
   let commandLabel = ''
   let commandTimer: ReturnType<typeof setInterval> | null = null
+  // Progress annotations: keep the spinner informative during minute-plus
+  // commands. The latest "current step" hint (e.g. "Compiling solana-program"
+  // for cargo, "Downloading …" for brew) is extracted from output by
+  // tools.ts. `commandLineCount` is the running count of stream lines —
+  // a pure heartbeat that shows the command is producing output even when
+  // no hint matched. `lastOutputAt` drives the "idle Ns" suffix when no
+  // line has arrived in a while.
+  let commandHint: string | null = null
+  let commandLineCount = 0
+  let lastOutputAt = 0
+  const IDLE_HINT_THRESHOLD_MS = 30_000
 
   const formatElapsed = (ms: number): string => {
     const s = Math.floor(ms / 1000)
@@ -610,13 +621,33 @@ export const consoleAction = async () => {
     return `${m}m ${s % 60}s`
   }
 
+  // Build the full status line. Kept compact so it still fits on one line
+  // on a narrow (< 60 cols) mobile terminal — hint and idle marker are
+  // dropped first on lite mode.
+  const buildStatusLine = (elapsed: string): string => {
+    const parts: string[] = [elapsed]
+    if (commandLineCount > 0) parts.push(`${commandLineCount} lines`)
+    const idleFor = lastOutputAt > 0 ? Date.now() - lastOutputAt : 0
+    if (idleFor > IDLE_HINT_THRESHOLD_MS) {
+      parts.push(`idle ${formatElapsed(idleFor)}`)
+    }
+    const meta = parts.join(' · ')
+    if (tuiLite) {
+      // Mobile: keep only elapsed + hint to avoid wrapping.
+      return commandHint
+        ? `Running: ${commandLabel} (${elapsed}) — ${commandHint}`
+        : `Running: ${commandLabel} (${elapsed})`
+    }
+    return commandHint
+      ? `Running: ${commandLabel} (${meta}) — ${commandHint}`
+      : `Running: ${commandLabel} (${meta})`
+  }
+
   // Lite mode has no animated glyph, so prepend a static ▶ to signal activity.
   const liteIndicatorLabel = (elapsed: string): string =>
-    `${chalk.hex('#14f195')('▶')} ${
-      chalk.gray(`Running: ${commandLabel} (${elapsed})`)
-    }`
+    `${chalk.hex('#14f195')('▶')} ${chalk.gray(buildStatusLine(elapsed))}`
   const fullIndicatorLabel = (elapsed: string): string =>
-    `Running: ${commandLabel} (${elapsed})`
+    buildStatusLine(elapsed)
 
   const startCommandLoader = (command: string) => {
     stopCommandLoader() // guard against overlap
@@ -626,11 +657,14 @@ export const consoleAction = async () => {
       ? cleaned.slice(0, 53) + '...'
       : cleaned
     commandStartedAt = Date.now()
+    commandHint = null
+    commandLineCount = 0
+    lastOutputAt = 0
 
     if (tuiLite) {
       const node = new Text(liteIndicatorLabel('0s'), 1)
       chatLog.addChild(node)
-      updateIndicator = (elapsed) => node.setText(liteIndicatorLabel(elapsed))
+      updateIndicator = (text) => node.setText(text)
       disposeIndicator = () => chatLog.removeChild(node)
     } else {
       const node = new Loader(
@@ -641,7 +675,7 @@ export const consoleAction = async () => {
       )
       chatLog.addChild(node)
       node.start()
-      updateIndicator = (elapsed) => node.setMessage(fullIndicatorLabel(elapsed))
+      updateIndicator = (text) => node.setMessage(text)
       disposeIndicator = () => {
         node.stop()
         chatLog.removeChild(node)
@@ -650,7 +684,8 @@ export const consoleAction = async () => {
 
     const tickMs = tuiLite ? 2000 : 1000
     commandTimer = setInterval(() => {
-      updateIndicator?.(formatElapsed(Date.now() - commandStartedAt))
+      const elapsed = formatElapsed(Date.now() - commandStartedAt)
+      updateIndicator?.(tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed))
       tui.requestRender()
     }, tickMs)
     tui.requestRender()
@@ -685,10 +720,20 @@ export const consoleAction = async () => {
     tui.requestRender()
   }
 
+  const refreshIndicator = () => {
+    if (!updateIndicator) return
+    const elapsed = formatElapsed(Date.now() - commandStartedAt)
+    updateIndicator(tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed))
+  }
+
   setCommandOutputCallback((line: string) => {
     const cleaned = sanitizeTtyLine(line)
     if (!cleaned) return
     cmdTotalLineCount++
+    // Heartbeat on the spinner label so even commands that don't hit our
+    // progress patterns still show they're alive.
+    commandLineCount++
+    lastOutputAt = Date.now()
     cmdOutputLines.push(`  ${cleaned}`)
     // Keep buffer from growing unbounded — retain 2x visible window
     if (cmdOutputLines.length > MAX_CMD_VISIBLE_LINES * 2) {
@@ -713,7 +758,16 @@ export const consoleAction = async () => {
     // Ansible task-title spinner mode: swap the label to the current task
     // name while keeping the elapsed-time counter running.
     commandLabel = taskName
-    updateIndicator?.(formatElapsed(Date.now() - commandStartedAt))
+    lastOutputAt = Date.now()
+    refreshIndicator()
+    tui.requestRender()
+  }, (hint: string) => {
+    // Generic progress hint from non-ansible commands (cargo "Compiling X",
+    // brew "==> Pouring …", etc.). Shown on the spinner label so the user
+    // sees WHAT the command is doing right now during a minute-plus build.
+    commandHint = hint
+    lastOutputAt = Date.now()
+    refreshIndicator()
     tui.requestRender()
   })
 

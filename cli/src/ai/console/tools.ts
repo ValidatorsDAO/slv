@@ -38,6 +38,54 @@ let onCommandOutput: ((line: string) => void) | null = null
 let activeChildProcess: Deno.ChildProcess | null = null
 let onCommandComplete: (() => void) | null = null
 let onAnsibleTaskUpdate: ((taskName: string) => void) | null = null
+// Generic progress-hint callback. Fires whenever a streamed stdout/stderr
+// line matches a recognized "current step" pattern (cargo "Compiling X",
+// pip "Collecting foo", npm "added N packages", homebrew "==> pouring",
+// etc.). The TUI surfaces the latest hint on the spinner label so a
+// minute-plus cargo build doesn't look frozen.
+let onProgressHint: ((hint: string) => void) | null = null
+
+// Progress-hint extraction patterns. Order matters only for specificity —
+// the first match wins per line. Each capture group yields the hint shown
+// to the user. Keep patterns cheap (anchored, bounded lengths) since this
+// runs on every streamed line during a potentially 10k-lines-per-second
+// cargo build.
+// Pattern order matters: the more specific multi-word pip patterns must
+// come BEFORE the generic single-verb list, otherwise "Building wheel
+// for pandas" only yields "Building wheel" because `Building` alone
+// wins.
+const PROGRESS_PATTERNS: RegExp[] = [
+  // pip / uv (multi-word forms first)
+  /^\s*(Building wheel for|Preparing metadata for|Successfully installed|Requirement already satisfied)\s+([\w\-./@]+)/,
+  // pip / uv (single-word)
+  /^\s*(Collecting|Obtaining)\s+([\w\-./@]+)/,
+  // Cargo + generic verbs: "   Compiling solana-program v1.18.0"
+  /^\s*(Compiling|Checking|Finished|Building|Fresh|Running|Installing|Updating|Downloading|Fetching|Verifying|Compressing|Linking|Documenting)\s+([\w\-./@:]+)/,
+  // Homebrew: "==> Downloading https://..."
+  /^==>\s+(.{1,60})/,
+  // npm / pnpm / yarn
+  /^\s*(added|removed|changed)\s+\d+\s+packages?/,
+  /^\s*➜\s+(.{1,60})/,
+  // Docker: "Step 3/12 : COPY . /app"
+  /^Step\s+\d+\/\d+\s*:/,
+  // Make-style: "[ 45%] Building CXX object ..."
+  /^\[\s*\d+%\]\s+.{1,60}/,
+]
+
+const MAX_HINT_LEN = 60
+
+const extractProgressHint = (line: string): string | null => {
+  for (const re of PROGRESS_PATTERNS) {
+    const m = re.exec(line)
+    if (m) {
+      const hint = m[0].trim()
+      return hint.length > MAX_HINT_LEN
+        ? hint.slice(0, MAX_HINT_LEN - 1) + '…'
+        : hint
+    }
+  }
+  return null
+}
 
 // Abort flag: set by Ctrl+C (killActiveProcess). Provider loops check
 // isAborted() after each tool call; if true they break out of the
@@ -50,10 +98,12 @@ export function setCommandOutputCallback(
   cb: ((line: string) => void) | null,
   completeCb?: (() => void) | null,
   ansibleTaskCb?: ((taskName: string) => void) | null,
+  progressHintCb?: ((hint: string) => void) | null,
 ) {
   onCommandOutput = cb
   onCommandComplete = completeCb ?? null
   onAnsibleTaskUpdate = ansibleTaskCb ?? null
+  onProgressHint = progressHintCb ?? null
 }
 
 export function killActiveProcess() {
@@ -587,6 +637,14 @@ async function executeRunCommand(command: string): Promise<string> {
             } else if (onCommandOutput) {
               // Normal mode: stream both stdout and stderr
               onCommandOutput(trimmed)
+              // Extract a "current step" hint for the spinner label so the
+              // user can see WHAT the command is doing right now — during a
+              // 5-minute cargo build the static "Running: cargo build" label
+              // is indistinguishable from a hang.
+              if (onProgressHint) {
+                const hint = extractProgressHint(trimmed)
+                if (hint) onProgressHint(hint)
+              }
             }
           }
         }
