@@ -1,6 +1,6 @@
 import { colors } from '@cliffy/colors'
 import { selectBot } from '/src/bot/selectBot.ts'
-import { shellQuote, sshExec, testSSHConnection } from '/src/bot/sshUtil.ts'
+import { ensureConnectivity, runJournalctl } from '/src/bot/execUtil.ts'
 
 const logAction = async (options: { name?: string; lines?: number }) => {
   const config = await selectBot(options.name)
@@ -11,21 +11,9 @@ const logAction = async (options: { name?: string; lines?: number }) => {
     colors.cyan(`📜 Fetching logs: ${config.name} (last ${lines} lines)...`),
   )
 
-  // Test SSH connectivity first
-  const connected = await testSSHConnection(config)
-  if (!connected) {
-    console.log(
-      colors.red(
-        `❌ SSH connection failed to ${config.username}@${config.ip}`,
-      ),
-    )
-    return false
-  }
+  if (!(await ensureConnectivity(config))) return false
 
-  const result = await sshExec(
-    config,
-    `journalctl -u ${shellQuote(config.serviceName)} -n ${shellQuote(String(lines))} --no-pager`,
-  )
+  const result = await runJournalctl(config, lines)
 
   // journalctl may return non-zero if the unit has no logs yet — show output regardless
   const output = result.stdout || result.stderr
