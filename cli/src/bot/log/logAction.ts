@@ -1,6 +1,7 @@
 import { colors } from '@cliffy/colors'
 import { selectBot } from '/src/bot/selectBot.ts'
 import { ensureConnectivity, runJournalctl } from '/src/bot/execUtil.ts'
+import { isLocalNonSystemd, tailLocalLog } from '/src/bot/localProc.ts'
 
 const logAction = async (options: { name?: string; lines?: number }) => {
   const config = await selectBot(options.name)
@@ -10,6 +11,12 @@ const logAction = async (options: { name?: string; lines?: number }) => {
   console.log(
     colors.cyan(`📜 Fetching logs: ${config.name} (last ${lines} lines)...`),
   )
+
+  if (isLocalNonSystemd(config)) {
+    const text = await tailLocalLog(config, lines)
+    if (text) console.log(text)
+    return true
+  }
 
   if (!(await ensureConnectivity(config))) return false
 
