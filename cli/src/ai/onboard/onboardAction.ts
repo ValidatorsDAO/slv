@@ -10,7 +10,12 @@ import {
   readLang,
   writeAiConfig,
   writeLang,
+  writeSudoersInstalledAt,
 } from '@/ai/config.ts'
+import {
+  isSudoersTarget,
+  promptAndInstallSudoers,
+} from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
 import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
 
@@ -624,6 +629,38 @@ Session history and important notes.
     )
   } else {
     console.log(colors.rgb24(`  ${t('Skipped.')}\n`, 0x888888))
+  }
+
+  // Passwordless sudo for slv on a dev VPS. Skipped on macOS / non-
+  // systemd hosts. The installer itself detects prior installs via a
+  // magic marker in the drop-in file, so re-running `slv onboard`
+  // after `sudo rm /etc/sudoers.d/slv-<user>` correctly re-offers.
+  // We still record a timestamp for observability, but don't gate on it.
+  if (await isSudoersTarget()) {
+    const result = await promptAndInstallSudoers({ t })
+    if (result.state === 'installed' || result.state === 'already_installed') {
+      await writeSudoersInstalledAt(new Date().toISOString())
+    } else if (result.state === 'foreign_file_exists') {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${
+            t('Existing sudoers file at {path} was not installed by slv — leaving it alone.')
+              .replace('{path}', result.path)
+          }`,
+        ),
+      )
+    } else if (result.state === 'failed') {
+      console.log(
+        colors.red(`  ❌ ${t('Sudoers install failed:')} ${result.err}`),
+      )
+      console.log(
+        colors.white(
+          `    ${
+            t('You can continue without it; see the skill docs for manual setup.')
+          }`,
+        ),
+      )
+    }
   }
 
   console.log(

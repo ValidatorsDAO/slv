@@ -21,6 +21,9 @@ type ApiYml = {
   ai?: AiConfig
   lang?: string
   agreed_slv_init_bot?: boolean
+  // ISO timestamp of when `slv onboard` installed the NOPASSWD sudoers
+  // drop-in on this machine. Absent = never offered or user declined.
+  sudoers_nopasswd_installed_at?: string
 }
 
 const getApiYmlPath = (): string => {
@@ -119,6 +122,24 @@ export const writeBotAgreement = async (agreed: boolean): Promise<void> => {
   await Deno.mkdir(dirname(path), { recursive: true })
   const yml = await readApiYmlForWrite()
   yml.agreed_slv_init_bot = agreed
+  await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
+  await Deno.chmod(path, 0o600)
+  invalidateAgentContext()
+}
+
+export const readSudoersInstalledAt = async (): Promise<string | null> => {
+  const ctx = await loadAgentContext()
+  const ts = ctx.raw.api.sudoers_nopasswd_installed_at
+  return typeof ts === 'string' && ts.trim() ? ts : null
+}
+
+export const writeSudoersInstalledAt = async (
+  iso: string,
+): Promise<void> => {
+  const path = getApiYmlPath()
+  await Deno.mkdir(dirname(path), { recursive: true })
+  const yml = await readApiYmlForWrite()
+  yml.sudoers_nopasswd_installed_at = iso
   await Deno.writeTextFile(path, stringify(yml as Record<string, unknown>))
   await Deno.chmod(path, 0o600)
   invalidateAgentContext()

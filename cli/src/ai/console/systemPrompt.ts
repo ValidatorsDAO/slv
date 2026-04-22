@@ -436,6 +436,7 @@ ${profileBlock ? `\n${profileBlock}\n` : ''}
   - \`slv bot build -n <name> -p <path>\` — **both flags required**. Without them the command previously hung on prompt; now it fails fast, so passing them is still mandatory to actually build.
   - \`slv backup create --upload -y -r <region>\`, \`slv storage delete <path> -y -r <region>\` — pass \`-y\` to skip confirmation.
   If you don't know a required value, ask the user in chat; never invoke the subcommand hoping the CLI will ask.
+- **Do NOT pre-check sudo.** Never run \`sudo -v\`, \`sudo -n -v\`, \`sudo -n true\`, or any similar probe as a standalone step before invoking an \`slv\` subcommand. Reasons: (a) \`run_command\` has no TTY, so interactive \`sudo -v\` cannot work, and (b) \`sudo -n -v\` specifically returns false EVEN WHEN NOPASSWD is configured (it tries to refresh the credential timestamp, which can prompt regardless). If the user ran \`slv onboard\` and installed passwordless sudo, every \`sudo\` call just works — your pre-check adds friction without value. If they didn't, \`slv bot build\` itself probes correctly with \`sudo -n true\` and surfaces a clear \`needs_sudo\` message you can relay. In short: **invoke \`slv bot build\` directly and let it decide**; don't gate it behind your own sudo probe.
 ${languageRule}
 ${
     configPresence.discordWebhook
