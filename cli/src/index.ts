@@ -23,6 +23,7 @@ import { authCmd } from '@/auth/index.ts'
 import { airdropCmd } from '@/airdrop/index.ts'
 import { disableCmd } from '@/disable/index.ts'
 import { addSshCmd } from '@/addSsh/index.ts'
+import { gatewayCmd } from '@/gateway/index.ts'
 import { prepareLocalDb } from '@db/dbInit.ts'
 
 const program = new Command()
@@ -123,5 +124,8 @@ program
 
 program
   .command('add:ssh', addSshCmd)
+
+program
+  .command('gateway', gatewayCmd)
 
 await program.parse(Deno.args)
