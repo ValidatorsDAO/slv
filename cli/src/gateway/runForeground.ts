@@ -14,6 +14,7 @@ import {
   GATEWAY_PROTOCOL_VERSION,
   GATEWAY_SERVICE_ID,
 } from '/src/gateway/paths.ts'
+import { registerWsRoutes } from '/src/gateway/ws/server.ts'
 import { errToString } from '/lib/errToString.ts'
 
 // Exit codes align with sysexits.h so a future systemd unit can set
@@ -120,8 +121,12 @@ export const runGatewayForeground = async (): Promise<number> => {
     c.json({
       service: GATEWAY_SERVICE_ID,
       version: GATEWAY_PROTOCOL_VERSION,
-      note: 'WS endpoints arrive in Phase 1B',
+      ws: '/v1/session/ws',
     }))
+
+  // WebSocket endpoint: `/v1/session/ws`. Clients authenticate
+  // first-message via the token in ~/.slv/gateway/gateway.json.
+  registerWsRoutes(app, { token: config.token })
 
   // Bind loopback explicitly. Deno.serve defaults to 0.0.0.0 — a
   // serious footgun for a process that executes shell tools.
