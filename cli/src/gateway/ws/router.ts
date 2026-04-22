@@ -9,6 +9,7 @@ import { echoDriver, Session } from '/src/ai/core/session.ts'
 import { providerDriver } from '/src/ai/core/drivers/provider.ts'
 import { readAiConfig } from '/src/ai/config.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { loadAgentContext } from '/src/ai/agentConfig/loader.ts'
 
 /**
  * Per-connection state. Phase 2A: just auth. Phase 2B adds the
@@ -75,6 +76,24 @@ const methods: Record<string, MethodHandler> = {
     }
     state.authenticated = true
     return resOk(req, { authenticated: true })
+  },
+
+  /**
+   * Metadata the browser UI needs once per connection: the configured
+   * agent's display name + the AI provider/model in use. Kept out of
+   * gateway.hello so unauthenticated callers can't fingerprint the
+   * agent config; kept out of every event frame because it's a
+   * session constant, not per-message.
+   */
+  'session.info': async (req, state) => {
+    if (!state.authenticated) return resErr(req, 'not authenticated')
+    const ctx = await loadAgentContext()
+    const aiCfg = await readAiConfig().catch(() => null)
+    return resOk(req, {
+      agentName: ctx.soul?.name ?? 'Assistant',
+      provider: aiCfg?.provider ?? null,
+      model: aiCfg?.model ?? null,
+    })
   },
 
   /**
