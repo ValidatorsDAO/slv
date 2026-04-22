@@ -2,36 +2,52 @@ import type { ChatCallbacks } from '/src/ai/console/consoleAction.ts'
 import { errToString } from '/lib/errToString.ts'
 
 /**
- * Minimal WebSocket client that lets the TUI talk to a local
- * gateway's `session.send` as if it were a direct provider.
- *
- * Implements the same 4-method shape existing providers expose
- * (`constructor / setSystemPrompt / chat`) so `consoleAction.ts` can
+ * WebSocket client that lets the TUI talk to a local gateway's
+ * `session.send` as if it were a direct provider. Implements the
+ * same 4-method shape existing providers expose (`constructor` /
+ * `setSystemPrompt` / `chat` / `abort`) so `consoleAction.ts` can
  * swap this in at the provider-init site with no further TUI
- * changes. Under the hood it opens one WS per chat() turn (simple
- * and stateless; connection reuse is a future optimisation).
+ * changes.
  *
- * Translation from gateway events → existing ChatCallbacks:
+ * Phase 2D-v3: one persistent WebSocket per TUI session.
+ *
+ *   - `ensureConnected()` opens + authenticates lazily on first
+ *     chat(). Subsequent chat() calls reuse the socket, amortising
+ *     the handshake cost and — more importantly — making
+ *     `abort()` deliverable without opening a second connection.
+ *   - If the server drops us (gateway restart), the next chat()
+ *     transparently reopens.
+ *   - `abort()` fires `session.abort` over the live socket so the
+ *     gateway cancels the in-flight provider loop. The server emits
+ *     `aborted`, which chat()'s terminal promise resolves on.
+ *
+ * Translation from gateway events → ChatCallbacks:
  *
  *   - `text_delta` → accumulate and fire `onStream(fullText)` since
  *     providers are contractually cumulative.
  *   - `tool_use_start` → `onToolCall(name, argsJson)`.
+ *   - `tool_stdout` → `onToolStdout?(line)` — renders through the
+ *     TUI's existing progress viewport so cargo builds etc. feel
+ *     identical to the in-process path.
+ *   - `tool_progress` → `onToolProgress?(label)`.
  *   - `complete` / `aborted` → `onComplete()` and resolve.
- *   - `error` → resolve with an Error so the caller's catch fires.
- *
- * Notes for the Phase 2D-v1 surface:
- *
- *   - `systemPrompt` is accepted for API parity but NOT yet
- *     forwarded (gateway's session.send doesn't thread it today —
- *     tracked as a future enhancement).
- *   - Tool use will surface as `onToolCall` but the gateway's
- *     Session doesn't actually execute tools yet — that's Phase
- *     2D-v2. Users who rely on tools today should stay off
- *     `--via-gateway` until v2 lands.
+ *   - `error` → reject so the caller's try/catch fires.
  */
 export class GatewaySessionProvider {
   private systemPrompt: string
   private callbacks: ChatCallbacks
+  private ws: WebSocket | null = null
+  private pendingCalls = new Map<
+    string,
+    (res: { ok: boolean; payload?: unknown; error?: string }) => void
+  >()
+  private nextCallId = 0
+  // When a chat is in flight we store its event handlers here so
+  // message dispatch (which is WS-global) can route events to the
+  // right promise without juggling per-message listeners.
+  private activeChat: {
+    onEvent: (event: string, payload: Record<string, unknown>) => void
+  } | null = null
 
   constructor(
     private wsUrl: string,
@@ -48,35 +64,39 @@ export class GatewaySessionProvider {
     this.systemPrompt = systemPrompt
   }
 
-  async chat(userMessage: string): Promise<void> {
-    // Open a fresh WS per turn. Simpler than keeping a long-lived
-    // connection, and robust against the gateway restarting —
-    // each turn reconnects.
-    const ws = new WebSocket(this.wsUrl)
-    const opened = new Promise<void>((resolve, reject) => {
-      const onErr = () => reject(new Error('could not connect to gateway'))
-      ws.addEventListener('open', () => resolve(), { once: true })
-      ws.addEventListener('error', onErr, { once: true })
-    })
-    try {
-      await opened
-    } catch (err) {
-      throw new Error(
-        `can't reach the SLV background service: ${errToString(err)}`,
-      )
+  /** Close the socket and reject any pending calls. Called on TUI exit. */
+  dispose(): void {
+    this.pendingCalls.forEach((fn) =>
+      fn({ ok: false, error: 'client disposed' })
+    )
+    this.pendingCalls.clear()
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+      try {
+        this.ws.close()
+      } catch { /* ignore */ }
     }
+    this.ws = null
+  }
 
-    const pending = new Map<
-      string,
-      (f: { ok: boolean; payload?: unknown; error?: string }) => void
-    >()
-    let nextId = 0
-    const call = (method: string, params?: unknown) =>
-      new Promise<{ ok: boolean; payload?: unknown; error?: string }>((res) => {
-        const id = `c${++nextId}`
-        pending.set(id, res)
-        ws.send(JSON.stringify({ kind: 'req', id, method, params }))
-      })
+  /**
+   * Request the gateway cancel the in-flight session. Fire-and-
+   * forget: the server emits an `aborted` event which the in-flight
+   * `chat()` resolves on. Safe to call when nothing is running —
+   * the server returns `wasRunning: false`.
+   */
+  abort(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    try {
+      this.ws.send(JSON.stringify({
+        kind: 'req',
+        id: `a${++this.nextCallId}`,
+        method: 'session.abort',
+      }))
+    } catch { /* socket closing — nothing to do */ }
+  }
+
+  async chat(userMessage: string): Promise<void> {
+    await this.ensureConnected()
 
     let accumulated = ''
     let terminalResolve: (() => void) | null = null
@@ -86,108 +106,156 @@ export class GatewaySessionProvider {
       terminalReject = reject
     })
 
-    ws.addEventListener('message', (ev) => {
-      let f: {
-        kind: string
-        id?: string
-        ok?: boolean
-        payload?: unknown
-        error?: string
-        event?: string
-      }
-      try {
-        f = JSON.parse(String(ev.data))
-      } catch {
-        return
-      }
-      if (f.kind === 'res' && typeof f.id === 'string') {
-        const r = pending.get(f.id)
-        if (r) {
-          pending.delete(f.id)
-          r({ ok: !!f.ok, payload: f.payload, error: f.error })
+    this.activeChat = {
+      onEvent: (eventName, payload) => {
+        const type = payload.type as string | undefined
+        switch (type) {
+          case 'text_delta': {
+            const delta = (payload.text as string) ?? ''
+            accumulated += delta
+            this.callbacks.onStream(accumulated)
+            break
+          }
+          case 'tool_use_start': {
+            const name = (payload.name as string) ?? 'unknown'
+            const args = payload.args
+            const detail = typeof args === 'string'
+              ? args
+              : JSON.stringify(args ?? {})
+            this.callbacks.onToolCall(name, detail)
+            break
+          }
+          case 'tool_stdout': {
+            const text = (payload.text as string) ?? ''
+            this.callbacks.onToolStdout?.(text)
+            break
+          }
+          case 'tool_progress': {
+            const label = (payload.label as string) ?? ''
+            this.callbacks.onToolProgress?.(label)
+            break
+          }
+          case 'complete':
+          case 'aborted':
+            this.callbacks.onComplete()
+            terminalResolve?.()
+            break
+          case 'error': {
+            const msg = (payload.message as string) ?? 'unknown error'
+            terminalReject?.(new Error(msg))
+            break
+          }
         }
-        return
-      }
-      if (f.kind !== 'event') return
-      const payload = f.payload as { type?: string } | undefined
-      switch (payload?.type) {
-        case 'text_delta': {
-          const delta = (payload as { text?: string }).text ?? ''
-          accumulated += delta
-          this.callbacks.onStream(accumulated)
-          break
-        }
-        case 'tool_use_start': {
-          const p = payload as { name?: string; args?: unknown }
-          const name = p.name ?? 'unknown'
-          const detail = typeof p.args === 'string'
-            ? p.args
-            : JSON.stringify(p.args ?? {})
-          this.callbacks.onToolCall(name, detail)
-          break
-        }
-        case 'tool_stdout': {
-          const text = (payload as { text?: string }).text ?? ''
-          this.callbacks.onToolStdout?.(text)
-          break
-        }
-        case 'tool_progress': {
-          const label = (payload as { label?: string }).label ?? ''
-          this.callbacks.onToolProgress?.(label)
-          break
-        }
-        case 'complete':
-        case 'aborted':
-          this.callbacks.onComplete()
-          terminalResolve?.()
-          break
-        case 'error': {
-          const msg = (payload as { message?: string }).message ?? 'unknown error'
-          terminalReject?.(new Error(msg))
-          break
-        }
-      }
-    })
-
-    ws.addEventListener('close', () => {
-      // If close arrives before a terminal event, surface as an
-      // error so the TUI doesn't hang forever.
-      terminalReject?.(new Error('connection to SLV background service was lost'))
-    })
+        // Silence unused-param lint: server's `event` field mirrors
+        // payload.type today. Retained for debugging.
+        void eventName
+      },
+    }
 
     try {
-      const hello = await call('gateway.hello')
-      if (!hello.ok) throw new Error(`gateway rejected hello: ${hello.error}`)
-
-      const auth = await call('gateway.auth', { token: this.token })
-      if (!auth.ok) {
-        throw new Error(
-          `gateway rejected authentication — try deleting ~/.slv/gateway/gateway.json and rerunning`,
-        )
-      }
-
-      // Apply system prompt if we have one — the gateway ignores
-      // it today but this is where it'll land when wired.
-      if (this.systemPrompt) {
-        // params.systemPrompt is reserved for the future gateway
-        // upgrade; no-op today.
-      }
-
-      const sent = await call('session.send', { text: userMessage })
+      const sent = await this.call('session.send', { text: userMessage })
       if (!sent.ok) throw new Error(sent.error ?? 'session.send rejected')
-
+      // Also surface the system prompt the next time we're wired
+      // end-to-end; gateway currently ignores it.
+      void this.systemPrompt
       await terminal
     } finally {
-      try {
-        ws.close()
-      } catch { /* ignore */ }
+      this.activeChat = null
     }
   }
 
-  async abort(): Promise<void> {
-    // No-op for Phase 2D-v1: the per-turn WS client isn't persistent
-    // enough to route abort reliably. Ctrl+C still kills any child
-    // process via the TUI's existing handler. Session-level abort
-    // over WS arrives with connection reuse in Phase 2D-v2.
+  // ---- private plumbing ----
+
+  private async ensureConnected(): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return
+    this.ws = new WebSocket(this.wsUrl)
+    await new Promise<void>((resolve, reject) => {
+      this.ws!.addEventListener('open', () => resolve(), { once: true })
+      this.ws!.addEventListener('error', () => {
+        reject(new Error("can't reach the SLV background service"))
+      }, { once: true })
+    }).catch((err) => {
+      this.ws = null
+      throw new Error(errToString(err))
+    })
+
+    this.ws.addEventListener('message', (ev) => this.onMessage(ev))
+    this.ws.addEventListener('close', () => this.onClose())
+
+    const hello = await this.call('gateway.hello')
+    if (!hello.ok) throw new Error(`gateway rejected hello: ${hello.error}`)
+
+    const auth = await this.call('gateway.auth', { token: this.token })
+    if (!auth.ok) {
+      throw new Error(
+        'gateway rejected authentication — try deleting ~/.slv/gateway/gateway.json and rerunning',
+      )
+    }
+  }
+
+  private onMessage(ev: MessageEvent): void {
+    let f: {
+      kind: string
+      id?: string
+      ok?: boolean
+      payload?: unknown
+      error?: string
+      event?: string
+    }
+    try {
+      f = JSON.parse(String(ev.data))
+    } catch {
+      return
+    }
+    if (f.kind === 'res' && typeof f.id === 'string') {
+      const r = this.pendingCalls.get(f.id)
+      if (r) {
+        this.pendingCalls.delete(f.id)
+        r({ ok: !!f.ok, payload: f.payload, error: f.error })
+      }
+      return
+    }
+    if (f.kind === 'event' && this.activeChat) {
+      const payload = (f.payload ?? {}) as Record<string, unknown>
+      this.activeChat.onEvent(f.event ?? '', payload)
+    }
+  }
+
+  private onClose(): void {
+    // If a chat was in flight, surface a clean error so the caller
+    // isn't left waiting forever. The next chat() will transparently
+    // reconnect.
+    if (this.activeChat) {
+      // terminalReject isn't directly reachable here — route via a
+      // synthetic error event.
+      this.activeChat.onEvent('error', {
+        type: 'error',
+        message: 'connection to SLV background service was lost',
+      })
+      this.activeChat = null
+    }
+    // Reject any outstanding RPC calls too.
+    this.pendingCalls.forEach((fn) =>
+      fn({ ok: false, error: 'connection closed' })
+    )
+    this.pendingCalls.clear()
+    this.ws = null
+  }
+
+  private call(
+    method: string,
+    params?: unknown,
+  ): Promise<{ ok: boolean; payload?: unknown; error?: string }> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.resolve({
+        ok: false,
+        error: 'not connected to gateway',
+      })
+    }
+    return new Promise((resolve) => {
+      const id = `c${++this.nextCallId}`
+      this.pendingCalls.set(id, resolve)
+      this.ws!.send(JSON.stringify({ kind: 'req', id, method, params }))
+    })
   }
 }

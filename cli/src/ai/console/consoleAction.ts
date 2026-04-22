@@ -1237,6 +1237,14 @@ RULES:
         )
       } catch { /* ignore save errors */ }
     }
+    // If we're on the gateway-backed provider, close the WS cleanly.
+    // Duck-typed so this path doesn't hard-depend on the class.
+    const disposable = provider as unknown as { dispose?: () => void }
+    if (typeof disposable.dispose === 'function') {
+      try {
+        disposable.dispose()
+      } catch { /* ignore */ }
+    }
     tui.stop()
     await terminal.drainInput()
     console.log(`\n  ${t('Goodbye!')}\n`)
@@ -1802,8 +1810,23 @@ RULES:
         ctrlCCount = 0
       }, 2000)
 
+      // If the active provider is the gateway-backed WS client, it has
+      // an `abort()` method that sends `session.abort` over the live
+      // socket — letting the gateway cancel its in-flight tool loop.
+      // Structural check + cast keeps the Ctrl+C path ignorant of which
+      // concrete provider class is in use.
+      const gatewayAbort = (): void => {
+        const maybe = provider as unknown as { abort?: () => void }
+        if (typeof maybe.abort === 'function') {
+          try {
+            maybe.abort()
+          } catch { /* already gone */ }
+        }
+      }
+
       if (ctrlCCount >= 2) {
         // Double Ctrl+C: force exit immediately no matter what
+        gatewayAbort()
         killActiveProcess()
         tui.stop()
         console.log(`\n  ${t('Force exit.')}\n`)
@@ -1811,8 +1834,9 @@ RULES:
       }
 
       if (isProcessing) {
-        // First Ctrl+C during processing: kill child process, drop queued
-        // messages (user wants to stop, not resume with stale intent).
+        // First Ctrl+C during processing: kill child process, tell the
+        // gateway (if we have one) to cancel, drop queued messages.
+        gatewayAbort()
         killActiveProcess()
         const dropped = pendingUserMessages.length
         pendingUserMessages.length = 0
