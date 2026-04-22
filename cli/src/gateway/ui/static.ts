@@ -504,7 +504,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       // in both the visible DOM and the persisted history so the
       // user knows to retry.
       if (currentAssistantEntry) {
-        const note = '\n\n[disconnected — reply interrupted]'
+        const note = '\\n\\n[disconnected — reply interrupted]'
         currentAssistantEntry.text += note
         if (currentAssistantEl) currentAssistantEl.textContent += note
       }
