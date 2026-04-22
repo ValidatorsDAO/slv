@@ -160,12 +160,20 @@ export const runGatewayForeground = async (): Promise<number> => {
   // but an attacker with network access to the bound port can
   // already try every other endpoint anyway.
   const uiHandler = async (c: Context) => {
-    return c.html(
-      await renderChatHtml({
-        token: isLoopbackHost(c.req.header('host')) ? config.token : null,
-        mode: config.mode,
-      }),
-    )
+    try {
+      return c.html(
+        await renderChatHtml({
+          token: isLoopbackHost(c.req.header('host')) ? config.token : null,
+          mode: config.mode,
+        }),
+      )
+    } catch (err) {
+      console.error(colors.red(`/ui/ render failed: ${errToString(err)}`))
+      return c.text(
+        'SLV gateway: /ui/ is temporarily unavailable. Check the gateway logs.',
+        500,
+      )
+    }
   }
   app.get('/ui', uiHandler)
   app.get('/ui/', uiHandler)

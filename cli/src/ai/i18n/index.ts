@@ -18,6 +18,12 @@ export const BUILTIN_LANGS: Record<string, Record<string, string>> = {
 let loaded: Record<string, string> = en
 let currentLang = 'en'
 let initialized = false
+// Cache the in-flight init promise, not just the post-init bool.
+// Without this, concurrent callers during first startup (e.g. the
+// gateway's /ui/ handler serving several requests while
+// `translateViaSlvAi` is still running for a custom language) would
+// each fall through to the init path and race on global state.
+let initPromise: Promise<void> | null = null
 
 const cachePath = (lang: string): string => {
   const home = Deno.env.get('HOME') || ''
@@ -115,30 +121,34 @@ const translateViaSlvAi = async (
   }
 }
 
-export const initI18n = async (): Promise<void> => {
-  currentLang = await readLang()
-  if (BUILTIN_LANGS[currentLang]) {
-    loaded = BUILTIN_LANGS[currentLang]
+export const initI18n = (): Promise<void> => {
+  if (initPromise) return initPromise
+  initPromise = (async () => {
+    currentLang = await readLang()
+    if (BUILTIN_LANGS[currentLang]) {
+      loaded = BUILTIN_LANGS[currentLang]
+      initialized = true
+      return
+    }
+    // Non-builtin: try cache, then AI translation, else fall back to English.
+    const cached = await loadCache(currentLang)
+    if (cached) {
+      loaded = { ...en, ...cached }
+      initialized = true
+      return
+    }
+    const translated = await translateViaSlvAi(currentLang, en)
+    if (translated) {
+      await saveCache(currentLang, translated).catch(() => {})
+      loaded = translated
+      initialized = true
+      return
+    }
+    // Fallback: English.
+    loaded = en
     initialized = true
-    return
-  }
-  // Non-builtin: try cache, then AI translation, else fall back to English.
-  const cached = await loadCache(currentLang)
-  if (cached) {
-    loaded = { ...en, ...cached }
-    initialized = true
-    return
-  }
-  const translated = await translateViaSlvAi(currentLang, en)
-  if (translated) {
-    await saveCache(currentLang, translated).catch(() => {})
-    loaded = translated
-    initialized = true
-    return
-  }
-  // Fallback: English.
-  loaded = en
-  initialized = true
+  })()
+  return initPromise
 }
 
 export const t = (key: string): string => {
