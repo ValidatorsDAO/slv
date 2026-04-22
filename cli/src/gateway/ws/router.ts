@@ -9,6 +9,8 @@ import { echoDriver, Session } from '/src/ai/core/session.ts'
 import { providerDriver } from '/src/ai/core/drivers/provider.ts'
 import { readAiConfig } from '/src/ai/config.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { loadAgentContext } from '/src/ai/agentConfig/loader.ts'
+import { buildSystemPrompt } from '/src/ai/console/systemPrompt.ts'
 
 /**
  * Per-connection state. Phase 2A: just auth. Phase 2B adds the
@@ -75,6 +77,24 @@ const methods: Record<string, MethodHandler> = {
     }
     state.authenticated = true
     return resOk(req, { authenticated: true })
+  },
+
+  /**
+   * Metadata the browser UI needs once per connection: the configured
+   * agent's display name + the AI provider/model in use. Kept out of
+   * gateway.hello so unauthenticated callers can't fingerprint the
+   * agent config; kept out of every event frame because it's a
+   * session constant, not per-message.
+   */
+  'session.info': async (req, state) => {
+    if (!state.authenticated) return resErr(req, 'not authenticated')
+    const ctx = await loadAgentContext()
+    const aiCfg = await readAiConfig().catch(() => null)
+    return resOk(req, {
+      agentName: ctx.soul?.name ?? 'Assistant',
+      provider: aiCfg?.provider ?? null,
+      model: aiCfg?.model ?? null,
+    })
   },
 
   /**
@@ -169,11 +189,28 @@ const methods: Record<string, MethodHandler> = {
       }
     }
 
+    // Hydrate the same system prompt the TUI uses so browser chat has
+    // access to SOUL.md (agent identity), USER.md (user profile + name),
+    // MEMORY.md (persisted session notes), enabled skills, and the
+    // sub-agent team. Without this, `/ui/` just talks to a raw LLM with
+    // no context and the conversation feels disconnected from `slv c`.
+    // buildSystemPrompt memoizes via loadAgentContext, so the cost is a
+    // one-time FS read per process.
+    let systemPrompt = ''
+    try {
+      systemPrompt = await buildSystemPrompt()
+    } catch (err) {
+      return resErr(
+        req,
+        `failed to build system prompt: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+
     const driver = providerDriver({
       kind: aiCfg.provider,
       apiKey,
       model: aiCfg.model,
-      systemPrompt: '', // Phase 2C: empty system prompt; agent config integration later
+      systemPrompt,
     })
     state.session = new Session(driver)
     state.session.on((event) => ctx.emitEvent(event))

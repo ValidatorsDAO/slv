@@ -159,13 +159,21 @@ export const runGatewayForeground = async (): Promise<number> => {
   // `localhost`. Not bulletproof against a forged Host header,
   // but an attacker with network access to the bound port can
   // already try every other endpoint anyway.
-  const uiHandler = (c: Context) => {
-    return c.html(
-      renderChatHtml({
-        token: isLoopbackHost(c.req.header('host')) ? config.token : null,
-        mode: config.mode,
-      }),
-    )
+  const uiHandler = async (c: Context) => {
+    try {
+      return c.html(
+        await renderChatHtml({
+          token: isLoopbackHost(c.req.header('host')) ? config.token : null,
+          mode: config.mode,
+        }),
+      )
+    } catch (err) {
+      console.error(colors.red(`/ui/ render failed: ${errToString(err)}`))
+      return c.text(
+        'SLV gateway: /ui/ is temporarily unavailable. Check the gateway logs.',
+        500,
+      )
+    }
   }
   app.get('/ui', uiHandler)
   app.get('/ui/', uiHandler)
