@@ -54,6 +54,18 @@ Bot config (`~/.slv/bot/<name>.yml`) is written by both `build` and `deploy`. On
 
 > **When invoking from `slv c` (non-interactive `run_command`)**: `slv bot build` requires `-n <name> -p <path>` explicitly. Without them the command fails fast with a usage hint (it no longer hangs on prompt) — but the build still won't proceed until you pass the flags.
 
+### Passwordless sudo for `slv c` (dev VPS only)
+
+The systemd install step in `slv bot build` / `slv bot deploy -l` needs `sudo`, but `slv c`'s `run_command` has no TTY to type a password into. On a **dedicated single-user development VPS** (not shared / not production), `slv onboard` offers a one-time install of `/etc/sudoers.d/slv-<user>` containing:
+
+```
+<user> ALL=(ALL) NOPASSWD: ALL
+```
+
+After that, every sudo call from inside `slv c` works without prompting. Remove later with `sudo rm /etc/sudoers.d/slv-<user>`.
+
+Only accept this prompt on machines you fully own. Do NOT enable on shared hosts, staging, or production — the rule grants unrestricted passwordless sudo to your user.
+
 ### `slv bot init` safety notes
 
 - `-y` forces `rm -rf` on the target directory before extracting the

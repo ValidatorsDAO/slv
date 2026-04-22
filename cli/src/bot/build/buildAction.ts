@@ -112,16 +112,21 @@ const installSystemdUnit = async (
     const stderr = new TextDecoder().decode(primed.stderr).trim()
     console.log(colors.red('❌ sudo authentication required'))
     if (stderr) console.log(colors.yellow(stderr))
-    // `requiretty` in sudoers surfaces as a different error; the fix is to
-    // run from a real shell, not to prime the cache.
+    // `requiretty` in sudoers surfaces as a different error; the fix is
+    // to run from a real shell, not to prime the cache.
     const requiresTty = /\btty\b|\bterminal\b/i.test(stderr)
     console.log(
       colors.white(
         requiresTty
-          ? '   sudoers requires a TTY. Run `slv bot build` from a real ' +
-            'terminal instead of via `slv c`.'
-          : '   Run `sudo -v` in a terminal to prime the credential cache, ' +
-            'then retry `slv bot build`.',
+          ? '   sudoers requires a TTY. Run `slv bot build` from a real\n' +
+            '   terminal instead of via `slv c`.'
+          : '   Options:\n' +
+            '   • Run `slv onboard` once to install passwordless sudo on this\n' +
+            '     machine (recommended for dedicated dev VPS).\n' +
+            '   • Or run `sudo -v` in a terminal to prime the credential\n' +
+            '     cache, then retry.\n' +
+            '   • Or run `slv bot build` directly from a terminal (not via\n' +
+            '     `slv c`).',
       ),
     )
     return false

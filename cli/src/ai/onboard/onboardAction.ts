@@ -8,9 +8,15 @@ import {
   // ANTHROPIC_MODELS and OPENAI_MODELS available via manual ~/.slv/api.yml config
   hasLangSet,
   readLang,
+  readSudoersInstalledAt,
   writeAiConfig,
   writeLang,
+  writeSudoersInstalledAt,
 } from '@/ai/config.ts'
+import {
+  isSudoersTarget,
+  promptAndInstallSudoers,
+} from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
 import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
 
@@ -624,6 +630,27 @@ Session history and important notes.
     )
   } else {
     console.log(colors.rgb24(`  ${t('Skipped.')}\n`, 0x888888))
+  }
+
+  // Passwordless sudo for slv on a dev VPS. Skipped on macOS / non-systemd
+  // hosts. Only re-offered if the drop-in file isn't already present so
+  // subsequent `slv onboard` runs don't nag.
+  if (await isSudoersTarget() && !(await readSudoersInstalledAt())) {
+    const result = await promptAndInstallSudoers({ t })
+    if (result.state === 'installed' || result.state === 'already_installed') {
+      await writeSudoersInstalledAt(new Date().toISOString())
+    } else if (result.state === 'failed') {
+      console.log(
+        colors.red(`  ❌ ${t('Sudoers install failed:')} ${result.err}`),
+      )
+      console.log(
+        colors.white(
+          `    ${
+            t('You can continue without it; see the skill docs for manual setup.')
+          }`,
+        ),
+      )
+    }
   }
 
   console.log(

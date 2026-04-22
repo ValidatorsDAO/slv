@@ -50,6 +50,7 @@ export const ApiConfigSchema = z.object({
   ai: AiConfigSchema.optional(),
   lang: z.string().optional(),
   agreed_slv_init_bot: z.boolean().optional(),
+  sudoers_nopasswd_installed_at: z.string().optional(),
   notifications: z.object({
     discord_webhook: z.string().optional(),
   }).partial().passthrough().optional(),
