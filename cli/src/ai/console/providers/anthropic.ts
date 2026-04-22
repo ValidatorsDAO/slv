@@ -1,10 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk'
 import {
   executeTool,
+  getAbortSignal,
   getActiveTools,
   shouldAbortAfterTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
+import { isAbortLikeError } from '/lib/isAbortError.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
 import { getModuleContent } from '@/ai/console/systemPrompt.ts'
@@ -49,13 +51,18 @@ export class AnthropicProvider {
     this.messages.push({ role: 'user', content: userMessage })
 
     while (true) {
-      const stream = this.client.messages.stream({
-        model: this.model,
-        max_tokens: DEFAULT_MAX_TOKENS,
-        system: this.systemPrompt + getModuleContent(),
-        messages: this.messages,
-        tools: toAnthropicTools(getActiveTools()),
-      })
+      const stream = this.client.messages.stream(
+        {
+          model: this.model,
+          max_tokens: DEFAULT_MAX_TOKENS,
+          system: this.systemPrompt + getModuleContent(),
+          messages: this.messages,
+          tools: toAnthropicTools(getActiveTools()),
+        },
+        // Ctrl+C aborts this signal — cancels the in-flight HTTP stream
+        // immediately instead of waiting for the model's next token.
+        { signal: getAbortSignal() },
+      )
 
       let assistantText = ''
       const toolUseBlocks: {
@@ -70,7 +77,19 @@ export class AnthropicProvider {
         this.callbacks.onStream(assistantText)
       })
 
-      const response = await stream.finalMessage()
+      let response
+      try {
+        response = await stream.finalMessage()
+      } catch (err) {
+        // The SDK throws APIUserAbortError / AbortError when the signal
+        // fires. Exit the loop cleanly so the TUI returns to an input-
+        // ready state instead of surfacing the abort as a red error.
+        if (isAbortLikeError(err)) {
+          this.callbacks.onComplete()
+          return
+        }
+        throw err
+      }
 
       // Collect tool_use blocks from the final message
       for (const block of response.content) {

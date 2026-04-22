@@ -1,9 +1,11 @@
 import {
   executeTool,
+  getAbortSignal,
   getActiveTools,
   shouldAbortAfterTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
+import { isAbortLikeError } from '/lib/isAbortError.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import {
   fetchAuthorizationStatus,
@@ -182,21 +184,37 @@ export class SLVProvider {
     this.messages.push({ role: 'user', content: userMessage })
 
     while (true) {
-      const response = await fetch('https://user-api.erpc.global/v3/ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: DEFAULT_MAX_TOKENS,
-          system: this.systemPrompt + getModuleContent(),
-          messages: this.messages,
-          tools: toAnthropicTools(getActiveTools()),
-        }),
-        signal: AbortSignal.timeout(120_000),
-      })
+      // Combine the per-request 120s timeout with the user-abort signal
+      // so Ctrl+C cancels the HTTP call immediately instead of waiting
+      // for the timeout.
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(120_000),
+        getAbortSignal(),
+      ])
+      let response
+      try {
+        response = await fetch('https://user-api.erpc.global/v3/ai/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.model,
+            max_tokens: DEFAULT_MAX_TOKENS,
+            system: this.systemPrompt + getModuleContent(),
+            messages: this.messages,
+            tools: toAnthropicTools(getActiveTools()),
+          }),
+          signal,
+        })
+      } catch (err) {
+        if (isAbortLikeError(err)) {
+          this.callbacks.onComplete()
+          return
+        }
+        throw err
+      }
 
       if (!response.ok) {
         const errorText = await response.text()

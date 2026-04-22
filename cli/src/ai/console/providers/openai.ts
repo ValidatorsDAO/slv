@@ -1,10 +1,12 @@
 import OpenAI from 'openai'
 import {
   executeTool,
+  getAbortSignal,
   getActiveTools,
   shouldAbortAfterTools,
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
+import { isAbortLikeError } from '/lib/isAbortError.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
 import { getModuleContent } from '@/ai/console/systemPrompt.ts'
 
@@ -63,12 +65,25 @@ export class OpenAIProvider {
         content: this.systemPrompt + getModuleContent(),
       }
 
-      const stream = await this.client.chat.completions.create({
-        model: this.model,
-        messages: this.messages,
-        tools: toOpenAITools(getActiveTools()),
-        stream: true,
-      })
+      let stream
+      try {
+        stream = await this.client.chat.completions.create(
+          {
+            model: this.model,
+            messages: this.messages,
+            tools: toOpenAITools(getActiveTools()),
+            stream: true,
+          },
+          // Ctrl+C cancels the in-flight HTTP stream immediately.
+          { signal: getAbortSignal() },
+        )
+      } catch (err) {
+        if (isAbortLikeError(err)) {
+          this.callbacks.onComplete()
+          return
+        }
+        throw err
+      }
 
       let assistantContent = ''
       const toolCalls: {
@@ -77,31 +92,39 @@ export class OpenAIProvider {
         arguments: string
       }[] = []
 
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta
+      try {
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta
 
-        if (delta?.content) {
-          const text = delta.content
-          assistantContent += text
-          this.callbacks.onStream(assistantContent)
-        }
+          if (delta?.content) {
+            const text = delta.content
+            assistantContent += text
+            this.callbacks.onStream(assistantContent)
+          }
 
-        if (delta?.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            if (tc.index !== undefined) {
-              while (toolCalls.length <= tc.index) {
-                toolCalls.push({ id: '', name: '', arguments: '' })
-              }
-              if (tc.id) toolCalls[tc.index].id = tc.id
-              if (tc.function?.name) {
-                toolCalls[tc.index].name = tc.function.name
-              }
-              if (tc.function?.arguments) {
-                toolCalls[tc.index].arguments += tc.function.arguments
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              if (tc.index !== undefined) {
+                while (toolCalls.length <= tc.index) {
+                  toolCalls.push({ id: '', name: '', arguments: '' })
+                }
+                if (tc.id) toolCalls[tc.index].id = tc.id
+                if (tc.function?.name) {
+                  toolCalls[tc.index].name = tc.function.name
+                }
+                if (tc.function?.arguments) {
+                  toolCalls[tc.index].arguments += tc.function.arguments
+                }
               }
             }
           }
         }
+      } catch (err) {
+        if (isAbortLikeError(err)) {
+          this.callbacks.onComplete()
+          return
+        }
+        throw err
       }
 
       if (toolCalls.length === 0) {
