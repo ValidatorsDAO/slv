@@ -467,7 +467,10 @@ async function promptInstallDependencies(missing: string[]): Promise<void> {
   console.log('')
 }
 
-export const consoleAction = async () => {
+export type ConsoleOptions = { viaGateway?: boolean }
+
+export const consoleAction = async (options: ConsoleOptions = {}) => {
+  const viaGateway = options.viaGateway === true
   await initI18n()
   // Reset lazy-loaded tools, context modules, and demand-driven caches at session start
   resetActiveTools()
@@ -948,7 +951,60 @@ export const consoleAction = async () => {
     },
   }
 
-  if (config.provider === 'openai') {
+  // Gateway-backed provider (experimental opt-in via `slv c -g`).
+  // Bootstraps the local daemon if it isn't running yet — user-
+  // facing messages are plain-English ("background service"), no
+  // systemd/launchd jargon. On failure we fall back to the direct
+  // provider so the user still gets a working chat.
+  let gatewayBootstrap:
+    | { port: number; token: string }
+    | null = null
+  if (viaGateway) {
+    const { ensureGatewayRunning } = await import(
+      '/src/gateway/ensureRunning.ts'
+    )
+    const outcome = await ensureGatewayRunning()
+    if (!outcome.ok) {
+      console.log(
+        `\n  ${
+          t(
+            '⚠️  Running without the background service: {reason}',
+          ).replace('{reason}', () => outcome.reason)
+        }\n`,
+      )
+    } else {
+      gatewayBootstrap = { port: outcome.config.port, token: outcome.config.token }
+      if (outcome.bootstrapped) {
+        console.log(
+          `\n  ${
+            t(
+              '🌐 Background service is ready. You can now also connect SLV from a web browser later if you add one.',
+            )
+          }\n`,
+        )
+      }
+    }
+  }
+
+  if (gatewayBootstrap) {
+    // Swap in the WS-backed provider. SLV api key is still read
+    // because some code paths (authorization checks, token
+    // purchasing) reach for it.
+    if (config.provider === 'slv') {
+      const ctx = await loadAgentContext()
+      slvApiKey = ctx.raw.api.slv.api_key ?? ''
+    }
+    const { GatewaySessionProvider } = await import(
+      '/src/ai/core/sessionClient.ts'
+    )
+    provider = new GatewaySessionProvider(
+      `ws://127.0.0.1:${gatewayBootstrap.port}/v1/session/ws`,
+      gatewayBootstrap.token,
+      config.model,
+      currentSystemPrompt,
+      callbacks,
+    ) as unknown as SLVProvider // structurally compatible with the union
+  } else if (config.provider === 'openai') {
     provider = new OpenAIProvider(
       config.api_key,
       config.model,
