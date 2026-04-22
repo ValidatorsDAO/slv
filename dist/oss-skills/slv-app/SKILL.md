@@ -66,6 +66,8 @@ After that, every sudo call from inside `slv c` works without prompting. Remove 
 
 Only accept this prompt on machines you fully own. Do NOT enable on shared hosts, staging, or production — the rule grants unrestricted passwordless sudo to your user.
 
+**AI note:** never run `sudo -v` or `sudo -n -v` as a pre-check before invoking `slv bot build` / `slv bot deploy -l`. `sudo -n -v` returns false even when NOPASSWD is configured (it refreshes the credential timestamp, a separate operation from running commands), so the check is misleading. `slv bot build` already probes with `sudo -n true` internally and returns a clean `needs_sudo` state when it can't proceed — just invoke the build directly and surface its output.
+
 ### `slv bot init` safety notes
 
 - `-y` forces `rm -rf` on the target directory before extracting the
