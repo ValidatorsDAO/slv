@@ -1,6 +1,6 @@
 import { colors } from '@cliffy/colors'
 import { Confirm } from '@cliffy/prompt'
-import { errToString } from '/lib/errToString.ts'
+import { localExec } from '/src/bot/execUtil.ts'
 
 /**
  * Opt-in NOPASSWD sudoers installer for dev-VPS use.
@@ -19,36 +19,26 @@ import { errToString } from '/lib/errToString.ts'
 
 const SUDOERS_DROPIN_PREFIX = '/etc/sudoers.d/slv-'
 
-export type InstallStatus =
-  | { state: 'skipped'; reason: 'not_linux' | 'no_systemd' | 'declined' }
+// POSIX username validation. useradd enforces this regex on most Linux.
+// Rejecting anything that doesn't match closes off sudoers-directive
+// injection via a crafted `$USER` (e.g. "foo\nDefaults !authenticate").
+// We also reject "root" explicitly — root already has root, so the
+// drop-in is both pointless and a misleading footgun, AND reject empty
+// strings / the 'solv' fallback when no user env is set.
+const USERNAME_RE = /^[a-z_][a-z0-9_-]{0,31}$/
+
+type InstallStatusCore =
+  | { state: 'skipped'; reason: 'not_linux' | 'no_systemd' | 'declined' | 'bad_user' | 'root' }
   | { state: 'already_installed'; path: string }
+  | { state: 'foreign_file_exists'; path: string }
   | { state: 'installed'; path: string }
   | { state: 'failed'; err: string }
-
-const runAndCapture = async (
-  cmd: string,
-  args: string[],
-  stdin: 'null' | 'inherit' = 'null',
-): Promise<{ success: boolean; stdout: string; stderr: string }> => {
-  const c = new Deno.Command(cmd, {
-    args,
-    stdin,
-    stdout: 'piped',
-    stderr: 'piped',
-  })
-  const out = await c.output()
-  const decoder = new TextDecoder()
-  return {
-    success: out.success,
-    stdout: decoder.decode(out.stdout),
-    stderr: decoder.decode(out.stderr),
-  }
-}
+export type InstallStatus = InstallStatusCore
 
 /**
- * Quick platform gate. macOS has no /etc/sudoers.d convention the same way
- * (Homebrew + launchd, no systemd), and we only install sudoers when the
- * user will actually benefit — i.e. Linux with systemd present.
+ * Quick platform gate. macOS has no /etc/sudoers.d convention the same
+ * way (Homebrew + launchd, no systemd), and we only install sudoers
+ * when the user will actually benefit — i.e. Linux with systemd.
  */
 export const isSudoersTarget = async (): Promise<boolean> => {
   if (Deno.build.os !== 'linux') return false
@@ -60,38 +50,50 @@ export const isSudoersTarget = async (): Promise<boolean> => {
   }
 }
 
-const currentUsername = (): string =>
-  Deno.env.get('USER') || Deno.env.get('LOGNAME') || 'solv'
+const rawUsername = (): string =>
+  (Deno.env.get('USER') || Deno.env.get('LOGNAME') || '').trim()
 
 const sudoersPath = (user: string) => `${SUDOERS_DROPIN_PREFIX}${user}`
 
+// Stable marker embedded in every file we write. Presence on any line
+// of an existing drop-in marks it as "ours" — which lets us revise the
+// rest of the comment text in future versions without flipping existing
+// installs from 'ours' to 'foreign'.
+const SLV_MARKER = '# SLV-MANAGED-ONBOARD-NOPASSWD-V1'
+
 const sudoersContent = (user: string): string =>
-  // Trailing newline required — sudoers parser rejects files without one on
-  // some distros.
-  `# Installed by \`slv onboard\` — allow ${user} to run sudo without a\n` +
-  `# password on this machine. Intended for dedicated single-user dev VPS\n` +
-  `# only. Remove with: sudo rm ${sudoersPath(user)}\n` +
+  // Trailing newline required — sudoers parser rejects files without
+  // one on some distros.
+  `${SLV_MARKER}\n` +
+  `# Installed by \`slv onboard\` — allow ${user} to run sudo without\n` +
+  `# a password on this machine. Intended for dedicated single-user\n` +
+  `# dev VPS only. Remove with: sudo rm ${sudoersPath(user)}\n` +
   `${user} ALL=(ALL) NOPASSWD: ALL\n`
 
 /**
- * Test if our sudoers drop-in already exists with the expected contents.
- * If present + matching we skip the install prompt entirely — makes
- * re-running `slv onboard` idempotent.
+ * Returns 'ours' if a drop-in exists at our path AND contains our
+ * magic marker; 'foreign' if a file exists but lacks the marker
+ * (hand-edited or installed by another tool — we refuse to clobber);
+ * 'absent' if no file is there.
+ *
+ * The drop-in is 0440 root:root, so we read via `sudo -n cat`. If
+ * `sudo -n` itself fails (the user has no sudo access at all, or no
+ * prior cached ticket AND no matching NOPASSWD rule), we can't tell
+ * absent vs present — but we also can't proceed with the install, so
+ * returning 'absent' routes to the install flow which will itself
+ * prompt interactively.
  */
-const alreadyInstalled = async (user: string): Promise<boolean> => {
-  const path = sudoersPath(user)
-  // The file is 0440 root:root, so we can't read it as a normal user. Use
-  // `sudo -n cat` — if sudo is already set up via this file, -n succeeds
-  // silently. If it's not set up, -n fails and we treat that as "not
-  // installed" (the next step will write it).
-  const probe = await runAndCapture('sudo', ['-n', 'cat', path])
-  if (!probe.success) return false
-  return probe.stdout.includes(`${user} ALL=(ALL) NOPASSWD: ALL`)
+const inspectExisting = async (
+  user: string,
+): Promise<'ours' | 'foreign' | 'absent'> => {
+  const probe = await localExec('sudo', ['-n', 'cat', sudoersPath(user)])
+  if (!probe.success) return 'absent'
+  return probe.stdout.includes(SLV_MARKER) ? 'ours' : 'foreign'
 }
 
 /**
- * Interactive one-time install. Returns structured status so callers can
- * persist a timestamp to api.yml and decide whether to re-offer later.
+ * Interactive one-time install. Returns structured status so callers
+ * can persist a flag to api.yml and decide whether to re-offer later.
  */
 export const promptAndInstallSudoers = async (options: {
   t: (msg: string) => string
@@ -105,20 +107,33 @@ export const promptAndInstallSudoers = async (options: {
     return { state: 'skipped', reason: 'no_systemd' }
   }
 
-  const user = currentUsername()
+  const user = rawUsername()
+  if (user === 'root') {
+    // root already has root; the drop-in is pointless and would be a
+    // misleading artifact. Silently skip.
+    return { state: 'skipped', reason: 'root' }
+  }
+  if (!USERNAME_RE.test(user)) {
+    // Either empty ($USER/$LOGNAME unset, as in some containers) or a
+    // malformed value. Refuse to write anything derived from it.
+    return { state: 'skipped', reason: 'bad_user' }
+  }
 
-  if (await alreadyInstalled(user)) {
+  const existing = await inspectExisting(user)
+  if (existing === 'ours') {
     return { state: 'already_installed', path: sudoersPath(user) }
+  }
+  if (existing === 'foreign') {
+    // Something else is already at our target path. Surface a clear
+    // message and DON'T overwrite — the user may have tightened the
+    // rule manually.
+    return { state: 'foreign_file_exists', path: sudoersPath(user) }
   }
 
   console.log()
   console.log(
     colors.bold.yellow(
-      `  🔧 ${
-        t(
-          'Set up passwordless sudo for slv on this machine?',
-        )
-      }`,
+      `  🔧 ${t('Set up passwordless sudo for slv on this machine?')}`,
     ),
   )
   console.log()
@@ -154,9 +169,28 @@ export const promptAndInstallSudoers = async (options: {
     colors.white(
       `    ${
         t(
-          'Do NOT enable on shared hosts, staging, or production. Remove later with:',
+          'Real threat model: anything running as your user — a compromised',
         )
       }`,
+    ),
+  )
+  console.log(
+    colors.white(
+      `    ${
+        t(
+          'shell, browser extension, npm install script, or editor plugin —',
+        )
+      }`,
+    ),
+  )
+  console.log(
+    colors.white(
+      `    ${t('gains root without needing your password.')}`,
+    ),
+  )
+  console.log(
+    colors.white(
+      `    ${t('Remove later with:')}`,
     ),
   )
   console.log(colors.gray(`        sudo rm ${sudoersPath(user)}`))
@@ -169,82 +203,69 @@ export const promptAndInstallSudoers = async (options: {
   if (!ok) {
     console.log(
       colors.gray(
-        `  ${
-          t(
-            'Skipped. You can re-run `slv onboard` to set this up later.',
-          )
-        }`,
+        `  ${t('Skipped. You can re-run `slv onboard` to set this up later.')}`,
       ),
     )
     return { state: 'skipped', reason: 'declined' }
   }
 
-  // Write content to a staging file we control, validate with visudo, and
-  // hand off to `sudo mv` — this is the one interactive sudo in the flow
-  // (stdin inherited so the user can type their password).
+  // Use a 0700 tempdir so only the current user can reach the staging
+  // file. `install(8)` below does an atomic copy + owner + mode set, so
+  // no separate `sudo chmod` and no window between move + chmod.
+  let tmpDir: string
   let tmpPath: string
   try {
-    tmpPath = await Deno.makeTempFile({
-      prefix: 'slv-sudoers-',
-      suffix: '.tmp',
-    })
+    tmpDir = await Deno.makeTempDir({ prefix: 'slv-sudoers-' })
+    try {
+      await Deno.chmod(tmpDir, 0o700)
+    } catch { /* non-POSIX filesystems; harmless */ }
+    tmpPath = `${tmpDir}/slv-sudoers`
     await Deno.writeTextFile(tmpPath, sudoersContent(user))
     await Deno.chmod(tmpPath, 0o440).catch(() => {})
   } catch (err) {
     return {
       state: 'failed',
-      err: `staging file write failed: ${errToString(err)}`,
+      err: `staging file write failed: ${err instanceof Error ? err.message : String(err)}`,
     }
   }
 
   try {
-    const check = await runAndCapture('visudo', ['-cf', tmpPath])
+    const check = await localExec('visudo', ['-cf', tmpPath])
     if (!check.success) {
       return {
         state: 'failed',
-        err: `visudo validation failed: ${check.stderr.trim() || 'unknown'}`,
+        err: `visudo validation failed (visudo may not be installed): ${
+          check.stderr.trim() || 'unknown error'
+        }`,
       }
     }
 
-    // One interactive sudo. We intentionally inherit stdin so the TTY
-    // password prompt can reach the user. If we're somehow invoked with
-    // no TTY this will fail fast (not hang) because sudo detects
-    // isatty(0) and refuses to prompt.
+    // One interactive sudo. stdin is inherited so the TTY password
+    // prompt can reach the user. `install -o root -g root -m 0440`
+    // copies, sets ownership to root:root, and enforces exact mode
+    // atomically — eliminating both the mv-preserves-ownership bug
+    // and the between-mv-and-chmod race.
     const dest = sudoersPath(user)
     console.log(
       colors.cyan(`\n  🔐 ${t('sudo is about to ask for your password once.')}`),
     )
-    const install = await runAndCapture('sudo', ['mv', tmpPath, dest], 'inherit')
+    const install = await localExec(
+      'sudo',
+      ['install', '-o', 'root', '-g', 'root', '-m', '0440', tmpPath, dest],
+      { stdin: 'inherit' },
+    )
     if (!install.success) {
       return {
         state: 'failed',
-        err: `sudo mv failed: ${install.stderr.trim() || 'unknown'}`,
+        err: `sudo install failed: ${install.stderr.trim() || 'unknown error'}`,
       }
-    }
-    // sudoers requires exactly 0440; the previous chmod was on the tmp copy.
-    const chmod = await runAndCapture(
-      'sudo',
-      ['chmod', '0440', dest],
-      'inherit',
-    )
-    if (!chmod.success) {
-      // Non-fatal but unusual; surface it.
-      console.log(
-        colors.yellow(
-          `  ⚠ ${
-            t(
-              'Could not chmod 0440 on sudoers file. sudo may refuse to read it.',
-            )
-          }`,
-        ),
-      )
     }
     console.log(
       colors.green(`  ✅ ${t('Passwordless sudo installed at')} ${dest}`),
     )
     return { state: 'installed', path: dest }
   } finally {
-    // If anything failed above, the staging file might still exist.
-    await Deno.remove(tmpPath).catch(() => {})
+    // Clean up the whole staging dir regardless of outcome.
+    await Deno.remove(tmpDir, { recursive: true }).catch(() => {})
   }
 }

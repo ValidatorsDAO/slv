@@ -8,7 +8,6 @@ import {
   // ANTHROPIC_MODELS and OPENAI_MODELS available via manual ~/.slv/api.yml config
   hasLangSet,
   readLang,
-  readSudoersInstalledAt,
   writeAiConfig,
   writeLang,
   writeSudoersInstalledAt,
@@ -632,13 +631,24 @@ Session history and important notes.
     console.log(colors.rgb24(`  ${t('Skipped.')}\n`, 0x888888))
   }
 
-  // Passwordless sudo for slv on a dev VPS. Skipped on macOS / non-systemd
-  // hosts. Only re-offered if the drop-in file isn't already present so
-  // subsequent `slv onboard` runs don't nag.
-  if (await isSudoersTarget() && !(await readSudoersInstalledAt())) {
+  // Passwordless sudo for slv on a dev VPS. Skipped on macOS / non-
+  // systemd hosts. The installer itself detects prior installs via a
+  // magic marker in the drop-in file, so re-running `slv onboard`
+  // after `sudo rm /etc/sudoers.d/slv-<user>` correctly re-offers.
+  // We still record a timestamp for observability, but don't gate on it.
+  if (await isSudoersTarget()) {
     const result = await promptAndInstallSudoers({ t })
     if (result.state === 'installed' || result.state === 'already_installed') {
       await writeSudoersInstalledAt(new Date().toISOString())
+    } else if (result.state === 'foreign_file_exists') {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${
+            t('Existing sudoers file at {path} was not installed by slv — leaving it alone.')
+              .replace('{path}', result.path)
+          }`,
+        ),
+      )
     } else if (result.state === 'failed') {
       console.log(
         colors.red(`  ❌ ${t('Sudoers install failed:')} ${result.err}`),
