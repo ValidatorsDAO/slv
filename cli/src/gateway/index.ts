@@ -6,6 +6,7 @@ import { runLifecycle } from '/src/gateway/lifecycle.ts'
 import { statusAction } from '/src/gateway/status.ts'
 import { logsAction } from '/src/gateway/logs.ts'
 import { pingAction } from '/src/gateway/ping.ts'
+import { openUiAction } from '/src/gateway/ui/open.ts'
 
 export const gatewayCmd = new Command()
   .description(
@@ -91,5 +92,12 @@ gatewayCmd.command('ping')
   )
   .action(async () => {
     const ok = await pingAction()
+    if (!ok) Deno.exit(1)
+  })
+
+gatewayCmd.command('ui')
+  .description('Open the browser chat UI at http://127.0.0.1:<port>/ui/')
+  .action(async () => {
+    const ok = await openUiAction()
     if (!ok) Deno.exit(1)
   })
