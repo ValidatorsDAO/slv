@@ -31,7 +31,8 @@ export const renderChatHtml = (opts: RenderOptions): string => {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
 <title>SLV Chat</title>
 <style>
   :root {
@@ -45,6 +46,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     --tool: #d29922;
     --error: #f85149;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
   * { box-sizing: border-box; }
   html, body {
@@ -53,11 +55,13 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     background: var(--bg);
     color: var(--text);
     font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-text-size-adjust: 100%;
   }
   body { display: flex; flex-direction: column; }
   header {
     flex: 0 0 auto;
     padding: 10px 14px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
     border-bottom: 1px solid var(--border);
     background: var(--panel);
     display: flex;
@@ -73,6 +77,16 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     border-radius: 4px;
   }
   header .badge.lan { background: #3d3218; color: #ffdf7a; }
+  header #clear {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    font-weight: 400;
+    font-size: 12px;
+    min-height: 0;
+  }
+  header #clear:hover { color: var(--text); border-color: var(--muted); }
   header .status {
     margin-left: auto;
     font: 12px var(--mono);
@@ -84,12 +98,14 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     flex: 1 1 auto;
     overflow-y: auto;
     padding: 12px 14px;
+    -webkit-overflow-scrolling: touch;
   }
   footer {
     flex: 0 0 auto;
     border-top: 1px solid var(--border);
     background: var(--panel);
     padding: 10px 14px;
+    padding-bottom: calc(10px + var(--safe-bottom));
     display: flex;
     gap: 8px;
   }
@@ -100,9 +116,9 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 8px 10px;
-    font: 14px var(--mono);
+    font: 16px var(--mono);
     resize: none;
-    min-height: 36px;
+    min-height: 40px;
     max-height: 180px;
   }
   #input:focus { outline: 2px solid var(--accent); }
@@ -112,8 +128,11 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     border: 0;
     border-radius: 6px;
     padding: 0 14px;
+    min-height: 40px;
     font-weight: 600;
+    font-size: 14px;
     cursor: pointer;
+    touch-action: manipulation;
   }
   button:disabled { opacity: 0.5; cursor: default; }
   button.abort { background: var(--error); color: white; }
@@ -155,11 +174,11 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 8px 10px;
-    font: 13px var(--mono);
+    padding: 10px;
+    font: 16px var(--mono);
   }
   .token-gate input:focus { outline: 2px solid var(--accent); }
-  .token-gate button { padding: 8px 14px; margin-top: 10px; }
+  .token-gate button { padding: 10px 14px; margin-top: 10px; min-height: 44px; }
   .token-gate code {
     font: 12px var(--mono);
     background: var(--bg);
@@ -167,12 +186,25 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     border-radius: 4px;
     color: var(--text);
   }
+  @media (max-width: 640px) {
+    header { padding: 8px 10px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); gap: 6px; }
+    header .title { font-size: 13px; }
+    header .badge { font-size: 10px; }
+    header #clear { padding: 4px 8px; font-size: 11px; }
+    header .status { font-size: 11px; }
+    main { padding: 10px; }
+    footer { padding: 8px 10px; padding-bottom: calc(8px + var(--safe-bottom)); }
+    .token-gate { margin: 16px 10px; padding: 16px; }
+    button { padding: 0 12px; min-height: 44px; }
+    #input { min-height: 44px; }
+  }
 </style>
 </head>
 <body data-slv-token="${inlineToken}" data-slv-protocol="${GATEWAY_PROTOCOL_VERSION}">
 <header>
   <span class="title">🌐 SLV Chat</span>
   <span class="badge ${opts.mode}">${opts.mode}</span>
+  <button id="clear" type="button" title="Clear chat history">clear</button>
   <span id="status" class="status">connecting…</span>
 </header>
 <main id="log"></main>
@@ -193,6 +225,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
   const input = document.getElementById('input')
   const sendBtn = document.getElementById('send')
   const abortBtn = document.getElementById('abort')
+  const clearBtn = document.getElementById('clear')
   const statusEl = document.getElementById('status')
   const footerEl = document.getElementById('footer')
   const gateEl = document.getElementById('gate')
@@ -201,11 +234,20 @@ export const renderChatHtml = (opts: RenderOptions): string => {
 
   const inlineToken = document.body.dataset.slvToken || ''
   const storageKey = 'slv.gateway.token.' + location.host
+  const logKey     = 'slv.gateway.log.'   + location.host
 
+  // Client-side message history. Kept in memory and mirrored to
+  // localStorage so a reload rehydrates the visible transcript.
+  // Cap entries to keep localStorage under the ~5MB per-origin
+  // quota — a noisy session can otherwise run away.
+  const HISTORY_MAX = 500
+  let history = []
   let ws = null
   let nextId = 0
   const pending = new Map()
   let currentAssistantEl = null
+  let currentAssistantEntry = null
+  let assistantLabel = 'Assistant'
 
   const getToken = () => {
     if (inlineToken) return inlineToken
@@ -248,20 +290,71 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     if (e.key === 'Enter') tokenSubmit.click()
   })
 
-  const addMsg = (who, whoLabel, text) => {
+  const saveHistory = () => {
+    try {
+      localStorage.setItem(logKey, JSON.stringify(history))
+    } catch {
+      // Over quota or disabled — history still lives in memory.
+    }
+  }
+
+  const renderMsg = (entry) => {
     const div = document.createElement('div')
-    div.className = 'msg ' + who
+    div.className = 'msg ' + entry.who
     const label = document.createElement('div')
     label.className = 'who'
-    label.textContent = whoLabel
+    label.textContent = entry.label
     const pre = document.createElement('pre')
-    pre.textContent = text
+    pre.textContent = entry.text
     div.appendChild(label)
     div.appendChild(pre)
     log.appendChild(div)
-    log.scrollTop = log.scrollHeight
     return pre
   }
+
+  const addMsg = (who, whoLabel, text) => {
+    const entry = { who, label: whoLabel, text: text || '' }
+    history.push(entry)
+    if (history.length > HISTORY_MAX) {
+      const excess = history.length - HISTORY_MAX
+      history.splice(0, excess)
+      // Drop the corresponding leading DOM nodes. Only trims if we
+      // actually exceeded the cap, so the normal path is O(1).
+      for (let i = 0; i < excess && log.firstChild; i++) {
+        log.removeChild(log.firstChild)
+      }
+    }
+    const pre = renderMsg(entry)
+    log.scrollTop = log.scrollHeight
+    saveHistory()
+    return { pre, entry }
+  }
+
+  const restoreHistory = () => {
+    let raw
+    try {
+      raw = localStorage.getItem(logKey)
+    } catch {
+      return
+    }
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return
+      history = parsed.slice(-HISTORY_MAX)
+      for (const entry of history) renderMsg(entry)
+      log.scrollTop = log.scrollHeight
+    } catch {
+      // Corrupt JSON — drop it rather than wedge on every reload.
+      try { localStorage.removeItem(logKey) } catch { /* ignore */ }
+    }
+  }
+
+  clearBtn.addEventListener('click', () => {
+    history = []
+    log.innerHTML = ''
+    try { localStorage.removeItem(logKey) } catch { /* ignore */ }
+  })
 
   const call = (method, params) => new Promise((resolve) => {
     const id = 'w' + (++nextId)
@@ -292,6 +385,14 @@ export const renderChatHtml = (opts: RenderOptions): string => {
         return
       }
       setStatus('connected', 'connected')
+      // Surface the configured agent's display name. session.info is
+      // cheap (cached AgentContext) so the round-trip is noise-free.
+      try {
+        const info = await call('session.info')
+        if (info.ok && info.payload && typeof info.payload.agentName === 'string') {
+          assistantLabel = info.payload.agentName
+        }
+      } catch { /* fall back to default label */ }
       input.focus()
     }
     ws.onmessage = (ev) => {
@@ -306,9 +407,14 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       switch (p.type) {
         case 'text_delta':
           if (!currentAssistantEl) {
-            currentAssistantEl = addMsg('assistant', 'Assistant', '')
+            const added = addMsg('assistant', assistantLabel, '')
+            currentAssistantEl = added.pre
+            currentAssistantEntry = added.entry
           }
           currentAssistantEl.textContent += p.text
+          if (currentAssistantEntry) {
+            currentAssistantEntry.text = currentAssistantEl.textContent
+          }
           log.scrollTop = log.scrollHeight
           break
         case 'tool_use_start':
@@ -322,7 +428,9 @@ export const renderChatHtml = (opts: RenderOptions): string => {
           break
         case 'complete':
         case 'aborted':
+          saveHistory()
           currentAssistantEl = null
+          currentAssistantEntry = null
           sendBtn.disabled = false
           abortBtn.style.display = 'none'
           if (p.type === 'aborted') {
@@ -332,6 +440,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
         case 'error':
           addMsg('error', '❌ error', p.message || '')
           currentAssistantEl = null
+          currentAssistantEntry = null
           sendBtn.disabled = false
           abortBtn.style.display = 'none'
           break
@@ -350,6 +459,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     sendBtn.disabled = true
     abortBtn.style.display = 'inline-block'
     currentAssistantEl = null
+    currentAssistantEntry = null
     const res = await call('session.send', { text })
     if (!res.ok) {
       addMsg('error', '❌ error', res.error || 'session.send rejected')
@@ -363,8 +473,14 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     ws.send(JSON.stringify({ kind: 'req', id: 'a' + (++nextId), method: 'session.abort' }))
   })
+  // Guard against IME composition: Japanese / Chinese / Korean input
+  // methods use Enter to commit the composition, which would
+  // otherwise send a half-typed message and leave the composition
+  // buffer stuck in the textarea. keyCode 229 is the legacy signal
+  // some mobile browsers still rely on; isComposing is the modern
+  // one. Check both.
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault()
       sendMessage()
     }
@@ -373,6 +489,8 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     input.style.height = 'auto'
     input.style.height = Math.min(input.scrollHeight, 180) + 'px'
   })
+
+  restoreHistory()
 
   const initial = getToken()
   if (initial) {
