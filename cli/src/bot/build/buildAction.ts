@@ -96,24 +96,23 @@ const installSystemdUnit = async (
 
   console.log(colors.cyan(`⚙️ Installing systemd unit at ${unitPath} ...`))
 
-  // Refresh the sudo credential cache so mv/daemon-reload/enable below don't
-  // each trigger their own password prompt. `-n` forces non-interactive
-  // mode: if the cache is empty and no NOPASSWD rule matches, sudo exits
-  // non-zero IMMEDIATELY instead of blocking on a password read — critical
-  // when invoked through `slv c`'s run_command (stdin: 'null'), which
-  // would otherwise hang forever.
-  const primeSudo = new Deno.Command('sudo', {
-    args: ['-n', '-v'],
+  // Probe whether we can sudo non-interactively. We use `sudo -n true`
+  // (not `sudo -n -v`) — `-v` refreshes the credential cache and in some
+  // sudo builds still prompts even when a NOPASSWD rule exists for the
+  // user, so it fails FALSELY under `slv onboard`-installed NOPASSWD.
+  // `sudo -n true` just tests "can I run ANY command without a prompt"
+  // which is exactly what we need before the mv/daemon-reload/enable
+  // chain below.
+  const probeSudo = new Deno.Command('sudo', {
+    args: ['-n', 'true'],
     stdout: 'piped',
     stderr: 'piped',
   })
-  const primed = await primeSudo.output()
-  if (!primed.success) {
-    const stderr = new TextDecoder().decode(primed.stderr).trim()
+  const probed = await probeSudo.output()
+  if (!probed.success) {
+    const stderr = new TextDecoder().decode(probed.stderr).trim()
     console.log(colors.red('❌ sudo authentication required'))
     if (stderr) console.log(colors.yellow(stderr))
-    // `requiretty` in sudoers surfaces as a different error; the fix is
-    // to run from a real shell, not to prime the cache.
     const requiresTty = /\btty\b|\bterminal\b/i.test(stderr)
     console.log(
       colors.white(
