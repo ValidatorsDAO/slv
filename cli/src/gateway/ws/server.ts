@@ -4,10 +4,12 @@ import {
   parseFrame,
   resErr,
 } from '/src/gateway/ws/frames.ts'
+import type { EventFrame } from '/src/gateway/ws/frames.ts'
 import {
   dispatchRequest,
   newConnState,
 } from '/src/gateway/ws/router.ts'
+import type { SessionEvent } from '/src/ai/core/events.ts'
 
 /**
  * Register the `/v1/session/ws` WebSocket endpoint on the Hono app.
@@ -43,6 +45,21 @@ const upgradeWs = (
   const { socket, response } = Deno.upgradeWebSocket(c.req.raw)
   const state = newConnState()
   let preauthBad = 0
+
+  // Per-connection event pump: serializes each SessionEvent into an
+  // `event` frame with a monotonically-increasing `seq`. Clients
+  // that reconnect (Phase 3) will be able to resume from the last
+  // `seq` they saw; for now this at least gives them gap detection.
+  const emitEvent = (event: SessionEvent): void => {
+    if (socket.readyState !== WebSocket.OPEN) return
+    const frame: EventFrame = {
+      kind: 'event',
+      event: event.type,
+      payload: event,
+      seq: state.nextEventSeq++,
+    }
+    socket.send(encodeFrame(frame))
+  }
 
   socket.onopen = () => {
     // No server-initiated hello — spec says the client sends the
@@ -84,7 +101,10 @@ const upgradeWs = (
       return
     }
 
-    const res = await dispatchRequest(parsed, state, ctx)
+    const res = await dispatchRequest(parsed, state, {
+      token: ctx.token,
+      emitEvent,
+    })
     socket.send(encodeFrame(res))
     // Reset the bad-frame counter on any successful request (even
     // an unauthenticated hello) so a client that recovers after a
@@ -98,7 +118,10 @@ const upgradeWs = (
   }
 
   socket.onclose = () => {
-    // Future: clean up the session this conn was attached to.
+    // Abort any in-flight session so the echo driver (or future
+    // provider loop) stops burning cycles on events that can't be
+    // delivered. Idempotent: no-op if nothing is running.
+    state.session?.abort('client disconnected')
   }
 
   return response
