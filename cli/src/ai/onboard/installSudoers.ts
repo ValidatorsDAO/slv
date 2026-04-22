@@ -126,9 +126,8 @@ export const promptAndInstallSudoers = async (options: {
     colors.white(
       `    ${
         t(
-          'This installs /etc/sudoers.d/slv-' + user +
-            ' so `slv c` can run systemctl and file installs without',
-        )
+          'This installs {path} so `slv c` can run systemctl and file installs without',
+        ).replace('{path}', sudoersPath(user))
       }`,
     ),
   )
