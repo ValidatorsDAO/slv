@@ -1,21 +1,26 @@
 import { colors } from '@cliffy/colors'
 import { Hono } from '@hono/hono'
-import { loadOrInitGatewayConfig } from '/src/gateway/config.ts'
+import {
+  GatewayEnvPortError,
+  loadOrInitGatewayConfig,
+} from '/src/gateway/config.ts'
 import {
   acquireGatewayLock,
   releaseGatewayLock,
 } from '/src/gateway/lock.ts'
-import { gatewayConfigPath, gatewayPidPath } from '/src/gateway/paths.ts'
+import {
+  gatewayConfigPath,
+  gatewayPidPath,
+  GATEWAY_PROTOCOL_VERSION,
+  GATEWAY_SERVICE_ID,
+} from '/src/gateway/paths.ts'
+import { errToString } from '/lib/errToString.ts'
 
 // Exit codes align with sysexits.h so a future systemd unit can set
 // RestartPreventExitStatus=78 to avoid crash-looping on a bad config.
 const EX_CONFIG = 78
 const EX_TEMPFAIL = 75
 const EX_UNAVAILABLE = 69
-
-type RunOptions = {
-  force?: boolean // future: --force to evict a live holder
-}
 
 /**
  * Foreground gateway runner. Phase 1A scope: bind loopback HTTP with a
@@ -26,25 +31,9 @@ type RunOptions = {
  * process runs in the foreground, logs to stdout/stderr, and exits
  * cleanly on SIGTERM/SIGINT.
  */
-export const runGatewayForeground = async (
-  _options: RunOptions = {},
-): Promise<number> => {
-  let config
-  try {
-    config = await loadOrInitGatewayConfig()
-  } catch (err) {
-    console.error(
-      colors.red(
-        `❌ gateway config is invalid: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      ),
-    )
-    console.error(
-      colors.white(`   Fix or delete ${gatewayConfigPath()} and retry.`),
-    )
-    return EX_CONFIG
-  }
+export const runGatewayForeground = async (): Promise<number> => {
+  const config = await loadConfigOrFail()
+  if (typeof config === 'number') return config
 
   const lock = await acquireGatewayLock(config.port)
   if (lock.state === 'held') {
@@ -66,6 +55,46 @@ export const runGatewayForeground = async (
     return EX_UNAVAILABLE
   }
 
+  // Signal handlers MUST be in place before we spend time binding the
+  // HTTP listener — otherwise a SIGTERM during the bind window would
+  // hit Deno's default handler and exit without releasing the pidfile,
+  // stranding the lock. The `serverRef` box lets the handler observe
+  // whether the listener is live yet.
+  const serverRef: {
+    server:
+      | { shutdown: () => Promise<void>; finished: Promise<void> }
+      | null
+  } = { server: null }
+  let shuttingDown = false
+  const gracefulShutdown = (signal: string) => {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log(colors.yellow(`\n⏸  received ${signal}, shutting down...`))
+    // If the listener isn't up yet, release the lock directly. The
+    // main flow's bind attempt will see `shuttingDown` via the server
+    // ref and bail.
+    if (serverRef.server === null) {
+      releaseGatewayLock()
+        .catch(() => {})
+        .finally(() => Deno.exit(0))
+      return
+    }
+    // Listener is up — tell it to stop accepting. `finished` will
+    // resolve, the main flow reaches the releaseGatewayLock + return 0
+    // path naturally, and the process exits via program.parse
+    // settling.
+    serverRef.server.shutdown().catch(() => {})
+  }
+  Deno.addSignalListener('SIGTERM', () => gracefulShutdown('SIGTERM'))
+  Deno.addSignalListener('SIGINT', () => gracefulShutdown('SIGINT'))
+
+  if (shuttingDown) {
+    // A signal fired between addSignalListener calls and here.
+    // Release the lock and bail cleanly.
+    await releaseGatewayLock()
+    return 0
+  }
+
   const app = new Hono()
   app.get('/healthz', (c) =>
     c.json({
@@ -74,36 +103,25 @@ export const runGatewayForeground = async (
       port: config.port,
       startedAt: lock.record.startedAt,
     }))
-
-  // Root endpoint returns a stub so clients probing the port can tell
-  // this is an slv gateway (not some other service that happens to
-  // share 18789).
   app.get('/', (c) =>
     c.json({
-      service: 'slv-gateway',
-      version: '1',
+      service: GATEWAY_SERVICE_ID,
+      version: GATEWAY_PROTOCOL_VERSION,
       note: 'WS endpoints arrive in Phase 1B',
     }))
 
-  // Start listening on loopback explicitly. Deno.serve defaults to
-  // 0.0.0.0 — which would be a serious security footgun for a process
-  // that executes shell tools on the host.
-  let server: { shutdown: () => Promise<void>; finished: Promise<void> }
+  // Bind loopback explicitly. Deno.serve defaults to 0.0.0.0 — a
+  // serious footgun for a process that executes shell tools.
   try {
-    server = Deno.serve(
+    serverRef.server = Deno.serve(
       { port: config.port, hostname: '127.0.0.1' },
       app.fetch,
     )
   } catch (err) {
     await releaseGatewayLock()
-    // EADDRINUSE at the OS level — pidfile didn't know about whoever
-    // owns the port. Rare but possible (someone started a non-slv
-    // server on 18789). Surface clearly.
     console.error(
       colors.red(
-        `❌ failed to bind 127.0.0.1:${config.port}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `❌ failed to bind 127.0.0.1:${config.port}: ${errToString(err)}`,
       ),
     )
     return EX_TEMPFAIL
@@ -116,31 +134,38 @@ export const runGatewayForeground = async (
   )
   console.log(colors.gray(`   config:  ${gatewayConfigPath()}`))
   console.log(colors.gray(`   pidfile: ${gatewayPidPath()}`))
-  console.log(colors.gray(`   healthz: curl http://127.0.0.1:${config.port}/healthz`))
+  console.log(
+    colors.gray(`   healthz: curl http://127.0.0.1:${config.port}/healthz`),
+  )
 
-  // Graceful shutdown. We listen for both SIGTERM (service managers)
-  // and SIGINT (Ctrl+C in foreground). Either signal stops the HTTP
-  // listener, waits for the `finished` promise to settle, removes the
-  // pidfile, and exits 0. If the signal fires twice, the second one
-  // hits the Deno default handler which is an immediate exit.
-  let shuttingDown = false
-  const gracefulShutdown = async (signal: string) => {
-    if (shuttingDown) return
-    shuttingDown = true
-    console.log(
-      colors.yellow(`\n⏸  received ${signal}, shutting down...`),
-    )
-    try {
-      await server.shutdown()
-    } catch { /* ignore */ }
-    await releaseGatewayLock()
-    console.log(colors.green('✅ gateway stopped'))
-    Deno.exit(0)
-  }
-  Deno.addSignalListener('SIGTERM', () => void gracefulShutdown('SIGTERM'))
-  Deno.addSignalListener('SIGINT', () => void gracefulShutdown('SIGINT'))
-
-  await server.finished
+  await serverRef.server.finished
   await releaseGatewayLock()
+  console.log(colors.green('✅ gateway stopped'))
   return 0
+}
+
+/**
+ * Load the persisted config with focused error reporting:
+ * - Bad `SLV_GATEWAY_PORT` → targeted env-var message (don't blame
+ *   the file the user didn't touch).
+ * - Anything else → EX_CONFIG pointing at the real config file.
+ */
+const loadConfigOrFail = async (): Promise<
+  Awaited<ReturnType<typeof loadOrInitGatewayConfig>> | number
+> => {
+  try {
+    return await loadOrInitGatewayConfig()
+  } catch (err) {
+    if (err instanceof GatewayEnvPortError) {
+      console.error(colors.red(`❌ ${err.message}`))
+      return EX_CONFIG
+    }
+    console.error(
+      colors.red(`❌ gateway config is invalid: ${errToString(err)}`),
+    )
+    console.error(
+      colors.white(`   Fix or delete ${gatewayConfigPath()} and retry.`),
+    )
+    return EX_CONFIG
+  }
 }

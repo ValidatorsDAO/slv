@@ -1,21 +1,14 @@
 import { Command } from '@cliffy'
 import { runGatewayForeground } from '/src/gateway/runForeground.ts'
+import { GATEWAY_DEFAULT_PORT } from '/src/gateway/paths.ts'
 
-/**
- * `slv gateway` — WebSocket gateway daemon for the SLV AI stack.
- *
- * Phase 1A (this PR): `run` (foreground) only.
- * Phase 1B: `install` / `start` / `stop` / `restart` / `status` via
- *           launchd (macOS) or systemd --user (Linux).
- * Phase 2:  WS upgrade + session core + event protocol.
- */
 export const gatewayCmd = new Command()
   .description(
     `🌐 SLV Gateway — WebSocket daemon for the AI console and future web UI.
 
-Runs a loopback HTTP/WS server on 127.0.0.1:18789 (default) with a
-token-authed protocol shared by every UI adapter. Phase 1A ships the
-foreground runner only.`,
+Runs a loopback HTTP/WS server on 127.0.0.1:${GATEWAY_DEFAULT_PORT} (override with
+SLV_GATEWAY_PORT). Every UI adapter (TUI, future web UI) speaks the same
+token-authed protocol against this single gateway instance.`,
   )
   .action(() => {
     gatewayCmd.showHelp()
@@ -23,7 +16,7 @@ foreground runner only.`,
 
 gatewayCmd.command('run')
   .description(
-    'Run the gateway in the foreground (for manual testing or as systemd ExecStart)',
+    'Run the gateway in the foreground (for manual testing or as the systemd ExecStart)',
   )
   .action(async () => {
     const code = await runGatewayForeground()

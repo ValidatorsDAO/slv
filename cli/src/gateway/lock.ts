@@ -7,10 +7,12 @@ import { errToString } from '/lib/errToString.ts'
  *
  * The pidfile at ~/.slv/gateway/gateway.pid is opened with O_EXCL so two
  * concurrent `slv gateway run` invocations can't both claim the slot —
- * the second one sees AlreadyExists and has to decide whether to bail or
- * take over a stale lock. Stale detection combines:
+ * the second one sees AlreadyExists and has to decide whether to bail
+ * or take over a stale lock. Stale detection combines:
  *
- *   1. Is `pid` alive at all? (`Deno.kill(pid, 'SIGCONT')` probe)
+ *   1. Is `pid` alive at all? (probed via `Deno.kill(pid, 'SIGCONT')`,
+ *      with EPERM treated as "alive, owned by someone else" rather
+ *      than "dead" — see isProcessAlive below).
  *   2. On Linux, does `/proc/<pid>/stat`'s start time match what we
  *      recorded? — PID recycling is real on long-uptime dev VPSes.
  *
@@ -30,22 +32,34 @@ const readLinuxStartTime = async (pid: number): Promise<string | null> => {
   try {
     const stat = await Deno.readTextFile(`/proc/${pid}/stat`)
     // /proc/<pid>/stat fields are space-separated, but field 2 (comm)
-    // can contain spaces — strip it out by cutting between the last ')'
-    // and the rest. Field 22 (starttime) is then index 19 in the tail.
+    // can contain spaces and `)`, so cut at the LAST `)`. After that
+    // delimiter the layout is: state ppid pgrp ... starttime ...
+    // starttime is field 22, which is index 19 in the tail array
+    // (fields 3-22 = indices 0-19).
     const tailStart = stat.lastIndexOf(')')
     if (tailStart < 0) return null
-    const tail = stat.slice(tailStart + 2).split(/\s+/)
+    const tail = stat.slice(tailStart + 2).trim().split(/\s+/)
     return tail[19] ?? null
   } catch {
     return null
   }
 }
 
+/**
+ * True if a process with this PID exists and we can signal it.
+ * Important semantic: we DO treat `PermissionDenied` (EPERM) as alive
+ * rather than dead. EPERM means the PID exists but is owned by another
+ * user (e.g. a root-started gateway probed by an unprivileged user);
+ * treating it as dead would lead us to unlink that user's valid
+ * pidfile and claim the slot, only to fail with EADDRINUSE when we
+ * try to bind. Safer to refuse.
+ */
 const isProcessAlive = (pid: number): boolean => {
   try {
     Deno.kill(pid, 'SIGCONT')
     return true
-  } catch {
+  } catch (err) {
+    if (err instanceof Deno.errors.PermissionDenied) return true
     return false
   }
 }
@@ -112,23 +126,11 @@ export const acquireGatewayLock = async (
   const existing = await readExistingLock()
   if (existing === null) {
     // File exists but couldn't be parsed. Treat as stale and overwrite.
-    await Deno.remove(gatewayPidPath()).catch(() => {})
-    try {
-      await writeLock(record)
-      return { state: 'acquired', record }
-    } catch (err2) {
-      return { state: 'failed', err: errToString(err2) }
-    }
+    return await replaceStaleAndClaim(record)
   }
 
   if (!isProcessAlive(existing.pid)) {
-    await Deno.remove(gatewayPidPath()).catch(() => {})
-    try {
-      await writeLock(record)
-      return { state: 'acquired', record }
-    } catch (err2) {
-      return { state: 'failed', err: errToString(err2) }
-    }
+    return await replaceStaleAndClaim(record)
   }
 
   // PID is alive. If we have a Linux start time and it matches, it IS
@@ -137,13 +139,7 @@ export const acquireGatewayLock = async (
   if (existing.linuxStartTime) {
     const nowStart = await readLinuxStartTime(existing.pid)
     if (nowStart && nowStart !== existing.linuxStartTime) {
-      await Deno.remove(gatewayPidPath()).catch(() => {})
-      try {
-        await writeLock(record)
-        return { state: 'acquired', record }
-      } catch (err2) {
-        return { state: 'failed', err: errToString(err2) }
-      }
+      return await replaceStaleAndClaim(record)
     }
     return { state: 'held', holder: existing, reason: 'linux_start_time_match' }
   }
@@ -151,7 +147,31 @@ export const acquireGatewayLock = async (
   return { state: 'held', holder: existing, reason: 'alive' }
 }
 
-/** Best-effort cleanup on graceful shutdown. */
+const replaceStaleAndClaim = async (
+  record: LockRecord,
+): Promise<AcquireOutcome> => {
+  await Deno.remove(gatewayPidPath()).catch(() => {})
+  try {
+    await writeLock(record)
+    return { state: 'acquired', record }
+  } catch (err) {
+    // If a concurrent `slv gateway run` won the race for the stale
+    // slot, we land here. The real holder will succeed; we bail with
+    // a clear error so the caller can surface it.
+    return {
+      state: 'failed',
+      err: `lost race to claim stale lock: ${errToString(err)}`,
+    }
+  }
+}
+
+/**
+ * Release the pidfile ONLY if it still refers to us. Defends against
+ * removing a foreign daemon's lock if it somehow got swapped in
+ * underneath us.
+ */
 export const releaseGatewayLock = async (): Promise<void> => {
+  const existing = await readExistingLock()
+  if (!existing || existing.pid !== Deno.pid) return
   await Deno.remove(gatewayPidPath()).catch(() => {})
 }
