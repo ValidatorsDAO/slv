@@ -308,4 +308,35 @@ export const messages: Record<string, string> = {
     'Run `slv gateway start` manually to retry.',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Gateway running at http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': 'Gateway is already running.',
+  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
+    'Remote browser access (lan mode) — recommended for VPS, not laptops.',
+  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
+    "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.",
+  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
+    'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/',
+  'Enable lan mode now?': 'Enable lan mode now?',
+  'Gateway switched to lan mode and restarted.':
+    'Gateway switched to lan mode and restarted.',
+  'Failed to switch to lan mode:': 'Failed to switch to lan mode:',
+  'You can run `slv gateway config set-mode lan` later.':
+    'You can run `slv gateway config set-mode lan` later.',
+  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
+    'Kept local mode. Run `slv gateway config set-mode lan` later to change.',
+
+  // Discord completion webhook
+  'SLV AI setup complete!': 'SLV AI setup complete!',
+  'Open SLV in your browser:': 'Open SLV in your browser:',
+  'Gateway token (paste on first visit):':
+    'Gateway token (paste on first visit):',
+  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
+    'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:',
+  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
+    'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:',
+  'Sent browser UI link to your Discord webhook.':
+    'Sent browser UI link to your Discord webhook.',
+  'Discord webhook post returned': 'Discord webhook post returned',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    'Check the webhook URL in ~/.slv/api.yml.',
+  'Could not reach Discord webhook:': 'Could not reach Discord webhook:',
 }

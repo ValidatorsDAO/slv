@@ -294,4 +294,36 @@ export const messages: Record<string, string> = {
     'Chạy `slv gateway start` thủ công để thử lại.',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': 'Cổng đang chạy.',
+  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
+    'Truy cập trình duyệt từ xa (chế độ lan) — khuyến nghị cho VPS, không dành cho laptop.',
+  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
+    'Chế độ Local chỉ bind 127.0.0.1 (truy cập qua SSH tunnel). Chế độ Lan bind 0.0.0.0 để mọi thiết bị trong mạng có thể truy cập /ui/. Mọi thao tác chat vẫn được bảo vệ bằng token.',
+  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
+    'Trước khi bật chế độ lan trong môi trường production, hãy giới hạn truy cập bằng WireGuard: https://www.wireguard.com/quickstart/',
+  'Enable lan mode now?': 'Bật chế độ lan ngay?',
+  'Gateway switched to lan mode and restarted.':
+    'Cổng đã chuyển sang chế độ lan và khởi động lại.',
+  'Failed to switch to lan mode:': 'Không thể chuyển sang chế độ lan:',
+  'You can run `slv gateway config set-mode lan` later.':
+    'Bạn có thể chạy `slv gateway config set-mode lan` sau.',
+  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
+    'Giữ nguyên chế độ local. Chạy `slv gateway config set-mode lan` sau để thay đổi.',
+
+  // Thông báo hoàn tất qua Discord
+  'SLV AI setup complete!': 'Cài đặt SLV AI hoàn tất!',
+  'Open SLV in your browser:': 'Mở SLV trong trình duyệt:',
+  'Gateway token (paste on first visit):':
+    'Token cổng (dán khi truy cập lần đầu):',
+  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
+    'Bảo mật: URL này có thể truy cập từ internet công cộng. Giới hạn truy cập bằng WireGuard trước khi sử dụng thực tế:',
+  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
+    'Chế độ Local — chỉ truy cập được từ host này. Sử dụng SSH tunnel để mở URL từ nơi khác:',
+  'Sent browser UI link to your Discord webhook.':
+    'Đã gửi liên kết giao diện trình duyệt đến Discord webhook của bạn.',
+  'Discord webhook post returned': 'Phản hồi từ Discord webhook:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    'Kiểm tra URL webhook trong ~/.slv/api.yml.',
+  'Could not reach Discord webhook:':
+    'Không kết nối được Discord webhook:',
 }

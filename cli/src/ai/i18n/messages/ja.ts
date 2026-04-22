@@ -286,4 +286,35 @@ export const messages: Record<string, string> = {
     '`slv gateway start` を手動で実行して再試行してください。',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'ゲートウェイが http://127.0.0.1:{port}/ui/ で稼働中',
+  'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
+  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
+    'ブラウザからの外部アクセス（lan モード） — VPS 向けの設定です。ノート PC では推奨しません。',
+  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
+    'Local モードは 127.0.0.1 のみに bind（SSH トンネル経由でアクセス可能）。Lan モードは 0.0.0.0 に bind してネットワーク上のどのデバイスからも /ui/ に到達可能になります。チャットはすべてトークン認証でガードされます。',
+  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
+    '本番利用前に WireGuard でアクセスを制限することを強く推奨します: https://www.wireguard.com/quickstart/',
+  'Enable lan mode now?': '今すぐ lan モードを有効にしますか？',
+  'Gateway switched to lan mode and restarted.':
+    'ゲートウェイを lan モードに切り替えて再起動しました。',
+  'Failed to switch to lan mode:': 'lan モードへの切り替えに失敗しました:',
+  'You can run `slv gateway config set-mode lan` later.':
+    '後で `slv gateway config set-mode lan` を実行できます。',
+  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
+    'local モードのままにしました。後で変更したくなったら `slv gateway config set-mode lan` を実行してください。',
+
+  // Discord 完了通知
+  'SLV AI setup complete!': 'SLV AI セットアップ完了!',
+  'Open SLV in your browser:': 'ブラウザから SLV を開けます:',
+  'Gateway token (paste on first visit):':
+    'ゲートウェイトークン（初回アクセス時に貼り付け）:',
+  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
+    'セキュリティ: この URL は公開インターネットから到達可能です。本番利用前に WireGuard でアクセスを制限してください:',
+  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
+    'Local モード — このホストからのみアクセス可能です。外から開くには SSH トンネルを使ってください:',
+  'Sent browser UI link to your Discord webhook.':
+    'ブラウザ UI のリンクを Discord Webhook に送信しました。',
+  'Discord webhook post returned': 'Discord Webhook のレスポンス:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    '~/.slv/api.yml の Webhook URL を確認してください。',
+  'Could not reach Discord webhook:': 'Discord Webhook に到達できませんでした:',
 }

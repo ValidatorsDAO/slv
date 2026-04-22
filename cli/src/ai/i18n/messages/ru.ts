@@ -297,4 +297,35 @@ export const messages: Record<string, string> = {
     'Запустите `slv gateway start` вручную для повторной попытки.',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Шлюз работает по адресу http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': 'Шлюз уже работает.',
+  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
+    'Удалённый доступ через браузер (режим lan) — рекомендуется для VPS, не для ноутбуков.',
+  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
+    'Режим local привязан только к 127.0.0.1 (доступ через SSH туннель). Режим lan привязан к 0.0.0.0, поэтому любое устройство в сети может получить доступ к /ui/. Все действия чата по-прежнему защищены авторизацией токеном.',
+  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
+    'Перед включением режима lan в продакшене ограничьте доступ с помощью WireGuard: https://www.wireguard.com/quickstart/',
+  'Enable lan mode now?': 'Включить режим lan сейчас?',
+  'Gateway switched to lan mode and restarted.':
+    'Шлюз переключён в режим lan и перезапущен.',
+  'Failed to switch to lan mode:': 'Не удалось переключить в режим lan:',
+  'You can run `slv gateway config set-mode lan` later.':
+    'Вы можете позже выполнить `slv gateway config set-mode lan`.',
+  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
+    'Оставлен режим local. Для смены позже выполните `slv gateway config set-mode lan`.',
+
+  // Уведомление о завершении в Discord
+  'SLV AI setup complete!': 'Настройка SLV AI завершена!',
+  'Open SLV in your browser:': 'Откройте SLV в браузере:',
+  'Gateway token (paste on first visit):':
+    'Токен шлюза (вставьте при первом посещении):',
+  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
+    'Безопасность: этот URL доступен из публичного интернета. Ограничьте доступ через WireGuard перед реальным использованием:',
+  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
+    'Режим local — доступен только с этого хоста. Используйте SSH туннель для открытия URL из другого места:',
+  'Sent browser UI link to your Discord webhook.':
+    'Ссылка на браузерный UI отправлена в ваш Discord webhook.',
+  'Discord webhook post returned': 'Ответ Discord webhook:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    'Проверьте URL webhook в ~/.slv/api.yml.',
+  'Could not reach Discord webhook:': 'Не удалось связаться с Discord webhook:',
 }

@@ -278,4 +278,35 @@ export const messages: Record<string, string> = {
     '请手动运行 `slv gateway start` 重试。',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     '网关运行于 http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': '网关已在运行。',
+  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
+    '浏览器远程访问（lan 模式）— 推荐用于 VPS，不建议笔记本使用。',
+  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
+    'Local 模式仅绑定 127.0.0.1（需通过 SSH 隧道访问）。Lan 模式绑定 0.0.0.0，网络中任何设备都可访问 /ui/。所有聊天操作仍需令牌认证。',
+  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
+    '在生产环境启用 lan 模式前，强烈建议使用 WireGuard 限制访问: https://www.wireguard.com/quickstart/',
+  'Enable lan mode now?': '现在启用 lan 模式吗？',
+  'Gateway switched to lan mode and restarted.':
+    '网关已切换到 lan 模式并重启。',
+  'Failed to switch to lan mode:': '切换到 lan 模式失败:',
+  'You can run `slv gateway config set-mode lan` later.':
+    '稍后可运行 `slv gateway config set-mode lan`。',
+  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
+    '已保留 local 模式。稍后运行 `slv gateway config set-mode lan` 即可更改。',
+
+  // Discord 完成通知
+  'SLV AI setup complete!': 'SLV AI 设置完成!',
+  'Open SLV in your browser:': '在浏览器中打开 SLV:',
+  'Gateway token (paste on first visit):':
+    '网关令牌（首次访问时粘贴）:',
+  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
+    '安全提醒: 此 URL 可从公网访问。正式使用前请用 WireGuard 限制访问:',
+  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
+    'Local 模式 — 仅此主机可访问。从其他地方打开请使用 SSH 隧道:',
+  'Sent browser UI link to your Discord webhook.':
+    '已将浏览器 UI 链接发送到您的 Discord Webhook。',
+  'Discord webhook post returned': 'Discord Webhook 响应:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    '请检查 ~/.slv/api.yml 中的 Webhook URL。',
+  'Could not reach Discord webhook:': '无法连接 Discord Webhook:',
 }
