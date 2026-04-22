@@ -1,5 +1,6 @@
 import { GATEWAY_PROTOCOL_VERSION } from '/src/gateway/paths.ts'
 import type { GatewayMode } from '/src/gateway/config.ts'
+import { initI18n, t } from '/src/ai/i18n/index.ts'
 
 export type RenderOptions = {
   /**
@@ -25,8 +26,41 @@ export type RenderOptions = {
  *     /ui/; token NOT inlined — user pastes it once and we persist
  *     in localStorage keyed on origin.
  */
-export const renderChatHtml = (opts: RenderOptions): string => {
+export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
+  await initI18n()
   const inlineToken = opts.token ?? ''
+  // The client JS needs localized status/label strings too; bake
+  // them into a JSON object rather than round-tripping through t()
+  // on the browser (the browser has no access to the i18n dict).
+  const i18n = {
+    send: t('Send'),
+    stop: t('Stop'),
+    clear: t('clear'),
+    clearTitle: t('Clear chat history'),
+    connect: t('Connect'),
+    placeholderMessage: t('Type a message and press Enter'),
+    placeholderToken: t('64 hex characters'),
+    gateHeading: t('Paste your gateway token'),
+    gateBody: t(
+      "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.",
+    ),
+    you: t('You'),
+    assistant: t('Assistant'),
+    thinking: t('Thinking…'),
+    connecting: t('connecting…'),
+    reconnecting: t('reconnecting…'),
+    reconnectingIn: t('reconnecting in {secs}s…'),
+    connected: t('connected'),
+    disconnected: t('disconnected'),
+    connectionError: t('connection error'),
+    tokenRequired: t('token required'),
+    handshakeFailed: t('handshake failed'),
+    authFailed: t('auth failed — check token'),
+    aborted: t('⏸ aborted'),
+    errorLabel: t('❌ error'),
+    interrupted: t('[disconnected — reply interrupted]'),
+  }
+  const i18nJson = JSON.stringify(i18n)
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -158,6 +192,29 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     word-break: break-word;
   }
   .msg.assistant pre { background: transparent; border: 0; padding: 4px 0; }
+  .thinking {
+    margin: 0 0 12px 0;
+    padding: 6px 0;
+    color: var(--muted);
+    font-style: italic;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .thinking .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.2s infinite;
+  }
+  .thinking .dot:nth-child(2) { animation-delay: 0.2s; }
+  .thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse {
+    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1); }
+  }
   .token-gate {
     max-width: 520px;
     margin: 60px auto;
@@ -204,23 +261,25 @@ export const renderChatHtml = (opts: RenderOptions): string => {
 <header>
   <span class="title">🌐 SLV Chat</span>
   <span class="badge ${opts.mode}">${opts.mode}</span>
-  <button id="clear" type="button" title="Clear chat history">clear</button>
-  <span id="status" class="status">connecting…</span>
+  <button id="clear" type="button" title="${i18n.clearTitle}">${i18n.clear}</button>
+  <span id="status" class="status">${i18n.connecting}</span>
 </header>
 <main id="log"></main>
 <div id="gate" class="token-gate" style="display:none">
-  <h2>Paste your gateway token</h2>
-  <p>This browser is reaching the SLV gateway from a different host. Paste the <code>token</code> value from <code>~/.slv/gateway/gateway.json</code> on the gateway host to continue. It's saved in your browser's localStorage.</p>
-  <input id="token-input" type="password" autocomplete="off" placeholder="64 hex characters" />
-  <div><button id="token-submit">Connect</button></div>
+  <h2>${i18n.gateHeading}</h2>
+  <p>${i18n.gateBody}</p>
+  <input id="token-input" type="password" autocomplete="off" placeholder="${i18n.placeholderToken}" />
+  <div><button id="token-submit">${i18n.connect}</button></div>
 </div>
 <footer id="footer" style="display:none">
-  <textarea id="input" rows="1" placeholder="Type a message and press Enter"></textarea>
-  <button id="send">Send</button>
-  <button id="abort" class="abort" style="display:none">Stop</button>
+  <textarea id="input" rows="1" placeholder="${i18n.placeholderMessage}"></textarea>
+  <button id="send">${i18n.send}</button>
+  <button id="abort" class="abort" style="display:none">${i18n.stop}</button>
 </footer>
 <script>
 (function () {
+  const I18N = ${i18nJson}
+
   const log = document.getElementById('log')
   const input = document.getElementById('input')
   const sendBtn = document.getElementById('send')
@@ -247,7 +306,8 @@ export const renderChatHtml = (opts: RenderOptions): string => {
   const pending = new Map()
   let currentAssistantEl = null
   let currentAssistantEntry = null
-  let assistantLabel = 'Assistant'
+  let thinkingEl = null
+  let assistantLabel = I18N.assistant
 
   // Reconnect state: survives across connection lifetimes.
   // reconnectAttempt resets on a successful auth; backoff is
@@ -371,13 +431,35 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     pending.clear()
   }
 
+  const showThinking = () => {
+    if (thinkingEl) return
+    thinkingEl = document.createElement('div')
+    thinkingEl.className = 'thinking'
+    const label = document.createElement('span')
+    label.textContent = I18N.thinking
+    thinkingEl.appendChild(label)
+    for (let i = 0; i < 3; i++) {
+      const d = document.createElement('span')
+      d.className = 'dot'
+      thinkingEl.appendChild(d)
+    }
+    log.appendChild(thinkingEl)
+    log.scrollTop = log.scrollHeight
+  }
+
+  const hideThinking = () => {
+    if (!thinkingEl) return
+    thinkingEl.remove()
+    thinkingEl = null
+  }
+
   const scheduleReconnect = () => {
     if (!currentToken) return
     if (reconnectTimer !== null) return
     const base = Math.min(30000, 1000 * Math.pow(2, reconnectAttempt))
     const delay = base + Math.random() * 250
     const secs = Math.max(1, Math.round(delay / 1000))
-    setStatus('reconnecting in ' + secs + 's…', 'error')
+    setStatus(I18N.reconnectingIn.replace('{secs}', String(secs)), 'error')
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       reconnectAttempt++
@@ -394,7 +476,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
   const connect = (token) => {
     if (!token) {
       showGate()
-      setStatus('token required', 'error')
+      setStatus(I18N.tokenRequired, 'error')
       return
     }
     if (ws && (ws.readyState === 0 || ws.readyState === 1)) return
@@ -404,13 +486,13 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     }
     currentToken = token
     showChat()
-    setStatus(reconnectAttempt > 0 ? 'reconnecting…' : 'connecting…', '')
+    setStatus(reconnectAttempt > 0 ? I18N.reconnecting : I18N.connecting, '')
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     ws = new WebSocket(proto + '//' + location.host + '/v1/session/ws')
     ws.onopen = async () => {
       const hello = await call('gateway.hello')
       if (!hello.ok) {
-        setStatus('handshake failed', 'error')
+        setStatus(I18N.handshakeFailed, 'error')
         return
       }
       const auth = await call('gateway.auth', { token })
@@ -427,13 +509,13 @@ export const renderChatHtml = (opts: RenderOptions): string => {
           clearTimeout(reconnectTimer)
           reconnectTimer = null
         }
-        setStatus('auth failed — check token', 'error')
+        setStatus(I18N.authFailed, 'error')
         try { localStorage.removeItem(storageKey) } catch { /* ignore */ }
         showGate()
         return
       }
       reconnectAttempt = 0
-      setStatus('connected', 'connected')
+      setStatus(I18N.connected, 'connected')
       // Surface the configured agent's display name. session.info is
       // cheap (cached AgentContext) so the round-trip is noise-free.
       try {
@@ -453,6 +535,10 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       }
       if (f.kind !== 'event') return
       const p = f.payload || {}
+      // Any incoming event means the model is responding — drop the
+      // thinking indicator. Keeping it through text_delta would show
+      // dots next to the actual reply, which is noisy.
+      hideThinking()
       switch (p.type) {
         case 'text_delta':
           if (!currentAssistantEl) {
@@ -483,11 +569,11 @@ export const renderChatHtml = (opts: RenderOptions): string => {
           sendBtn.disabled = false
           abortBtn.style.display = 'none'
           if (p.type === 'aborted') {
-            addMsg('system', '⏸ aborted', p.reason || '')
+            addMsg('system', I18N.aborted, p.reason || '')
           }
           break
         case 'error':
-          addMsg('error', '❌ error', p.message || '')
+          addMsg('error', I18N.errorLabel, p.message || '')
           currentAssistantEl = null
           currentAssistantEntry = null
           sendBtn.disabled = false
@@ -497,6 +583,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     }
     ws.onclose = () => {
       ws = null
+      hideThinking()
       // Any outstanding req/res awaits would otherwise hang forever;
       // resolve them with a sentinel so callers return cleanly.
       rejectPending('disconnected')
@@ -504,7 +591,7 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       // in both the visible DOM and the persisted history so the
       // user knows to retry.
       if (currentAssistantEntry) {
-        const note = '\\n\\n[disconnected — reply interrupted]'
+        const note = '\\n\\n' + I18N.interrupted
         currentAssistantEntry.text += note
         if (currentAssistantEl) currentAssistantEl.textContent += note
       }
@@ -519,23 +606,25 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       // onerror always runs right before onclose, so leave the
       // real recovery logic (pending rejection, reconnect schedule)
       // in onclose to avoid double-trigger.
-      setStatus('connection error', 'error')
+      setStatus(I18N.connectionError, 'error')
     }
   }
 
   const sendMessage = async () => {
     const text = input.value.trim()
     if (!text || !ws || ws.readyState !== WebSocket.OPEN) return
-    addMsg('user', 'You', text)
+    addMsg('user', I18N.you, text)
     input.value = ''
     input.style.height = 'auto'
     sendBtn.disabled = true
     abortBtn.style.display = 'inline-block'
     currentAssistantEl = null
     currentAssistantEntry = null
+    showThinking()
     const res = await call('session.send', { text })
     if (!res.ok) {
-      addMsg('error', '❌ error', res.error || 'session.send rejected')
+      hideThinking()
+      addMsg('error', I18N.errorLabel, res.error || 'session.send rejected')
       sendBtn.disabled = false
       abortBtn.style.display = 'none'
     }

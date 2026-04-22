@@ -232,4 +232,31 @@ export const messages: Record<string, string> = {
   'Force exit.': '強制終了します。',
   '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
     '⚠️ 中断しました。もう一度 Ctrl+C で終了、またはメッセージを入力してください。',
+
+  // --- ゲートウェイのブラウザチャット UI ---
+  'Send': '送信',
+  'Stop': '停止',
+  'clear': 'クリア',
+  'Connect': '接続',
+  'Clear chat history': 'チャット履歴を消去',
+  'Paste your gateway token': 'ゲートウェイトークンを貼り付けてください',
+  "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.":
+    'このブラウザは別ホストから SLV ゲートウェイへアクセスしています。ゲートウェイホストの ~/.slv/gateway/gateway.json にある token の値を貼り付けて続行してください。ブラウザの localStorage に保存されます。',
+  'Type a message and press Enter': 'メッセージを入力して Enter で送信',
+  '64 hex characters': '64 文字の 16 進数',
+  'You': 'あなた',
+  'Assistant': 'アシスタント',
+  'Thinking…': '考えています…',
+  'connecting…': '接続中…',
+  'reconnecting…': '再接続中…',
+  'reconnecting in {secs}s…': '{secs} 秒後に再接続…',
+  'connected': '接続済み',
+  'disconnected': '切断されました',
+  'connection error': '接続エラー',
+  'token required': 'トークンが必要です',
+  'handshake failed': 'ハンドシェイクに失敗しました',
+  'auth failed — check token': '認証失敗 — トークンを確認してください',
+  '⏸ aborted': '⏸ 中断',
+  '❌ error': '❌ エラー',
+  '[disconnected — reply interrupted]': '[切断されました — 応答が中断されました]',
 }

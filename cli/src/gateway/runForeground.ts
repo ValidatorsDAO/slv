@@ -159,9 +159,9 @@ export const runGatewayForeground = async (): Promise<number> => {
   // `localhost`. Not bulletproof against a forged Host header,
   // but an attacker with network access to the bound port can
   // already try every other endpoint anyway.
-  const uiHandler = (c: Context) => {
+  const uiHandler = async (c: Context) => {
     return c.html(
-      renderChatHtml({
+      await renderChatHtml({
         token: isLoopbackHost(c.req.header('host')) ? config.token : null,
         mode: config.mode,
       }),

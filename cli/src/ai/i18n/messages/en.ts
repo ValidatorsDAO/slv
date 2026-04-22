@@ -255,4 +255,31 @@ export const messages: Record<string, string> = {
   'Force exit.': 'Force exit.',
   '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
     '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.',
+
+  // --- Gateway browser chat UI ---
+  'Send': 'Send',
+  'Stop': 'Stop',
+  'clear': 'clear',
+  'Connect': 'Connect',
+  'Clear chat history': 'Clear chat history',
+  'Paste your gateway token': 'Paste your gateway token',
+  "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.":
+    "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.",
+  'Type a message and press Enter': 'Type a message and press Enter',
+  '64 hex characters': '64 hex characters',
+  'You': 'You',
+  'Assistant': 'Assistant',
+  'Thinking…': 'Thinking…',
+  'connecting…': 'connecting…',
+  'reconnecting…': 'reconnecting…',
+  'reconnecting in {secs}s…': 'reconnecting in {secs}s…',
+  'connected': 'connected',
+  'disconnected': 'disconnected',
+  'connection error': 'connection error',
+  'token required': 'token required',
+  'handshake failed': 'handshake failed',
+  'auth failed — check token': 'auth failed — check token',
+  '⏸ aborted': '⏸ aborted',
+  '❌ error': '❌ error',
+  '[disconnected — reply interrupted]': '[disconnected — reply interrupted]',
 }

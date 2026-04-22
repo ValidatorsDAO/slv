@@ -224,4 +224,31 @@ export const messages: Record<string, string> = {
   'Force exit.': '强制退出。',
   '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
     '⚠️ 已中断。再次按 Ctrl+C 退出，或输入消息。',
+
+  // --- 网关浏览器聊天界面 ---
+  'Send': '发送',
+  'Stop': '停止',
+  'clear': '清除',
+  'Connect': '连接',
+  'Clear chat history': '清除聊天记录',
+  'Paste your gateway token': '粘贴网关令牌',
+  "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.":
+    '此浏览器正从其他主机访问 SLV 网关。请粘贴网关主机上 ~/.slv/gateway/gateway.json 中的 token 值以继续。将保存在浏览器的 localStorage 中。',
+  'Type a message and press Enter': '输入消息并按 Enter 发送',
+  '64 hex characters': '64 个十六进制字符',
+  'You': '你',
+  'Assistant': '助手',
+  'Thinking…': '思考中…',
+  'connecting…': '连接中…',
+  'reconnecting…': '重连中…',
+  'reconnecting in {secs}s…': '{secs} 秒后重连…',
+  'connected': '已连接',
+  'disconnected': '已断开',
+  'connection error': '连接错误',
+  'token required': '需要令牌',
+  'handshake failed': '握手失败',
+  'auth failed — check token': '认证失败 — 请检查令牌',
+  '⏸ aborted': '⏸ 已中止',
+  '❌ error': '❌ 错误',
+  '[disconnected — reply interrupted]': '[已断开 — 回复被中断]',
 }
