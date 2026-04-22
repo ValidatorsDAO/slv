@@ -6,6 +6,9 @@ import {
 } from '/src/gateway/paths.ts'
 import { PROTOCOL_VERSION } from '/src/gateway/ws/frames.ts'
 import { echoDriver, Session } from '/src/ai/core/session.ts'
+import { providerDriver } from '/src/ai/core/drivers/provider.ts'
+import { readAiConfig } from '/src/ai/config.ts'
+import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 
 /**
  * Per-connection state. Phase 2A: just auth. Phase 2B adds the
@@ -84,13 +87,10 @@ const methods: Record<string, MethodHandler> = {
   },
 
   /**
-   * Phase 2B loopback driver: echoes the input text back as a stream
-   * of `text_delta` events followed by `complete`. Purely a wire-
-   * validation tool — the real `session.send` arrives when the
-   * provider driver lands in the next PR. Using a separate method
-   * name now means the eventual `session.send` (backed by a real
-   * LLM) can be added without breaking callers that expect the
-   * deterministic echo behaviour.
+   * Deterministic loopback driver that echoes the input text back as
+   * a stream of `text_delta` events followed by `complete`. Kept
+   * alongside `session.send` (real LLM) because it's invaluable for
+   * wire-protocol tests + fresh-VPS smoke-testing without API keys.
    */
   'session.echo': (req, state, ctx) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
@@ -98,29 +98,95 @@ const methods: Record<string, MethodHandler> = {
     const text = p && typeof p.text === 'string' ? p.text : null
     if (text === null) return resErr(req, 'params.text must be a string')
 
-    // Lazily create the Session + wire our event-push callback the
-    // first time a session.* method is called on this connection.
-    if (!state.session) {
-      state.session = new Session(echoDriver)
-      state.session.on((event) => ctx.emitEvent(event))
-    }
-    if (state.session.isRunning) {
+    if (state.session?.isRunning) {
       return resErr(req, 'session is already running; call session.abort first')
     }
+    // Fresh session per turn so switching drivers between echo and
+    // send works cleanly. Previous-turn history is not preserved in
+    // Phase 2C; session persistence lands in a later PR.
+    state.session = new Session(echoDriver)
+    state.session.on((event) => ctx.emitEvent(event))
 
-    // Fire-and-forget — the driver emits events asynchronously.
-    // We return immediately so the client sees the req ack before
-    // the first event frame.
     state.session.send(text).catch(() => {
-      // Session.send never throws (it wraps everything into error
-      // events), so this catch is defensive only.
+      // Session.send swallows errors into `error` events; this
+      // catch is defensive only.
     })
     return resOk(req, { accepted: true })
   },
 
   /**
-   * Cancel the in-flight session.send/echo. Idempotent: no-op if
-   * nothing is running.
+   * Real LLM turn. Loads the configured provider from ~/.slv/api.yml
+   * (respecting the `ai.provider` + `ai.model` the user set via
+   * `slv onboard`) and runs one chat turn, streaming `text_delta`,
+   * `tool_use_start`, `complete` / `aborted` / `error` events.
+   *
+   * Single-session-per-gateway limitation: provider abort goes
+   * through the global abort flag in tools.ts, so starting a
+   * session.send while a TUI chat is running in the same process
+   * will share abort state. Acceptable for Phase 2C (one client at
+   * a time); full isolation needs a provider refactor.
+   */
+  'session.send': async (req, state, ctx) => {
+    if (!state.authenticated) return resErr(req, 'not authenticated')
+    const p = req.params as { text?: unknown } | undefined
+    const text = p && typeof p.text === 'string' ? p.text : null
+    if (text === null) return resErr(req, 'params.text must be a string')
+
+    if (state.session?.isRunning) {
+      return resErr(req, 'session is already running; call session.abort first')
+    }
+
+    let aiCfg
+    try {
+      aiCfg = await readAiConfig()
+    } catch (err) {
+      return resErr(req, `failed to read AI config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    if (!aiCfg) {
+      return resErr(
+        req,
+        'no AI provider configured — run `slv onboard` first',
+      )
+    }
+    // SLV provider reads its bearer from ~/.slv/api.yml's slv.api_key
+    // (not the ai.api_key field, which is used by anthropic/openai
+    // for their own API keys).
+    let apiKey = aiCfg.api_key
+    if (aiCfg.provider === 'slv') {
+      try {
+        apiKey = await getApiKeyFromYml(true)
+      } catch (err) {
+        return resErr(
+          req,
+          `failed to read SLV API key: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+      if (!apiKey) {
+        return resErr(
+          req,
+          'no SLV API key — run `slv signup` / `slv login` first',
+        )
+      }
+    }
+
+    const driver = providerDriver({
+      kind: aiCfg.provider,
+      apiKey,
+      model: aiCfg.model,
+      systemPrompt: '', // Phase 2C: empty system prompt; agent config integration later
+    })
+    state.session = new Session(driver)
+    state.session.on((event) => ctx.emitEvent(event))
+
+    state.session.send(text).catch(() => {
+      // Session.send swallows errors into `error` events.
+    })
+    return resOk(req, { accepted: true, provider: aiCfg.provider })
+  },
+
+  /**
+   * Cancel the in-flight session. Idempotent: no-op if nothing is
+   * running.
    */
   'session.abort': (req, state) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
