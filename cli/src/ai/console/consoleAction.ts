@@ -69,6 +69,13 @@ export type ChatCallbacks = {
   onStream: (fullText: string) => void
   onToolCall: (name: string, detail: string) => void
   onComplete: () => void
+  // Optional gateway-mode hooks: when the provider is the
+  // GatewaySessionProvider, tool execution happens in the daemon
+  // process and progress arrives over WS as events. These fire the
+  // same TUI progress UI that in-process tool execution does.
+  // Direct providers (Anthropic/OpenAI/SLV) do not call them.
+  onToolStdout?: (line: string) => void
+  onToolProgress?: (label: string) => void
 }
 
 const green = chalk.hex('#14f195')
@@ -743,25 +750,24 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     updateIndicator(tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed))
   }
 
-  setCommandOutputCallback((line: string) => {
+  // Named handlers so they can be called BOTH from in-process tool
+  // execution (via setCommandOutputCallback / tools.ts) AND from
+  // gateway-backed tool events received over WebSocket. Keeping a
+  // single implementation prevents the two paths from drifting.
+  const handleToolStdout = (line: string) => {
     const cleaned = sanitizeTtyLine(line)
     if (!cleaned) return
     cmdTotalLineCount++
-    // Heartbeat on the spinner label so even commands that don't hit our
-    // progress patterns still show they're alive.
     commandLineCount++
     lastOutputAt = Date.now()
     cmdOutputLines.push(`  ${cleaned}`)
-    // Keep buffer from growing unbounded — retain 2x visible window
     if (cmdOutputLines.length > MAX_CMD_VISIBLE_LINES * 2) {
       cmdOutputLines = cmdOutputLines.slice(-MAX_CMD_VISIBLE_LINES)
     }
-
-    // Debounce flush to batch rapid output
     if (cmdFlushTimer) clearTimeout(cmdFlushTimer)
     cmdFlushTimer = setTimeout(flushCmdOutput, 300)
-  }, () => {
-    // Flush remaining on command complete
+  }
+  const handleToolComplete = () => {
     if (cmdFlushTimer) {
       clearTimeout(cmdFlushTimer)
       cmdFlushTimer = null
@@ -771,22 +777,25 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     cmdOutputText = null
     cmdTotalLineCount = 0
     stopCommandLoader()
-  }, (taskName: string) => {
-    // Ansible task-title spinner mode: swap the label to the current task
-    // name while keeping the elapsed-time counter running.
+  }
+  const handleAnsibleTask = (taskName: string) => {
     commandLabel = taskName
     lastOutputAt = Date.now()
     refreshIndicator()
     tui.requestRender()
-  }, (hint: string) => {
-    // Generic progress hint from non-ansible commands (cargo "Compiling X",
-    // brew "==> Pouring …", etc.). Shown on the spinner label so the user
-    // sees WHAT the command is doing right now during a minute-plus build.
+  }
+  const handleToolProgress = (hint: string) => {
     commandHint = hint
     lastOutputAt = Date.now()
     refreshIndicator()
     tui.requestRender()
-  })
+  }
+  setCommandOutputCallback(
+    handleToolStdout,
+    handleToolComplete,
+    handleAnsibleTask,
+    handleToolProgress,
+  )
 
   // Read auto-execute setting from agent config
   {
@@ -949,6 +958,12 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       currentTaskStartedAt = 0
       tui.requestRender()
     },
+    // Gateway-mode hooks: tool output flowing back from the daemon
+    // as SessionEvents gets rendered through the same progress UI
+    // as in-process tool execution. Handlers defined above (also
+    // used by setCommandOutputCallback for the direct path).
+    onToolStdout: handleToolStdout,
+    onToolProgress: handleToolProgress,
   }
 
   // Gateway-backed provider (experimental opt-in via `slv c -g`).

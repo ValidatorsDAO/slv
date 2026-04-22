@@ -126,6 +126,16 @@ export class GatewaySessionProvider {
           this.callbacks.onToolCall(name, detail)
           break
         }
+        case 'tool_stdout': {
+          const text = (payload as { text?: string }).text ?? ''
+          this.callbacks.onToolStdout?.(text)
+          break
+        }
+        case 'tool_progress': {
+          const label = (payload as { label?: string }).label ?? ''
+          this.callbacks.onToolProgress?.(label)
+          break
+        }
         case 'complete':
         case 'aborted':
           this.callbacks.onComplete()
