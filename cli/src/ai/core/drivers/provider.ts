@@ -6,6 +6,7 @@ import { SLVProvider } from '/src/ai/console/providers/slv.ts'
 import {
   clearAbort,
   killActiveProcess,
+  setCommandOutputCallback,
 } from '/src/ai/console/tools.ts'
 import type { AiProvider } from '/src/ai/config.ts'
 import { errToString } from '/lib/errToString.ts'
@@ -120,6 +121,25 @@ export const providerDriver = (
     }
     signal.addEventListener('abort', onAbort, { once: true })
 
+    // Register tool-output callbacks so long-running shell commands
+    // (cargo build, apt install, ansible playbook) stream their
+    // progress back to the client as `tool_stdout` / `tool_progress`
+    // events. Without this, a 5-minute build looks frozen to the
+    // user. The TUI already has similar wiring via `consoleAction`;
+    // for the gateway process this is where it plugs in.
+    //
+    // Caveat: setCommandOutputCallback mutates module state in
+    // tools.ts. Concurrent sessions (same daemon) would race — fine
+    // for single-user dev-VPS deployments (our stated target), not
+    // safe for multi-tenant. Per-context callbacks are a future
+    // refactor.
+    setCommandOutputCallback(
+      (line: string) => emit({ type: 'tool_stdout', text: line }),
+      null,
+      (taskName: string) => emit({ type: 'tool_progress', label: taskName }),
+      (hint: string) => emit({ type: 'tool_progress', label: hint }),
+    )
+
     // Reset the global abort flag before starting so a previous
     // abort doesn't instantly short-circuit us.
     clearAbort()
@@ -137,6 +157,9 @@ export const providerDriver = (
       }
     } finally {
       signal.removeEventListener('abort', onAbort)
+      // Clear tool-output callbacks so a later in-process TUI call
+      // (or another session) doesn't inherit our emit function.
+      setCommandOutputCallback(null, null, null, null)
     }
   }
 }
