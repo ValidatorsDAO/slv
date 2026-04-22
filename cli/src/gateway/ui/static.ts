@@ -249,6 +249,14 @@ export const renderChatHtml = (opts: RenderOptions): string => {
   let currentAssistantEntry = null
   let assistantLabel = 'Assistant'
 
+  // Reconnect state: survives across connection lifetimes.
+  // reconnectAttempt resets on a successful auth; backoff is
+  // 1s → 2s → 4s → 8s → 16s → 30s (capped) with ±250ms jitter so
+  // a flaky network doesn't produce synchronized reconnect storms.
+  let currentToken = ''
+  let reconnectAttempt = 0
+  let reconnectTimer = null
+
   const getToken = () => {
     if (inlineToken) return inlineToken
     try {
@@ -356,6 +364,27 @@ export const renderChatHtml = (opts: RenderOptions): string => {
     try { localStorage.removeItem(logKey) } catch { /* ignore */ }
   })
 
+  const rejectPending = (reason) => {
+    for (const resolve of pending.values()) {
+      resolve({ ok: false, error: reason })
+    }
+    pending.clear()
+  }
+
+  const scheduleReconnect = () => {
+    if (!currentToken) return
+    if (reconnectTimer !== null) return
+    const base = Math.min(30000, 1000 * Math.pow(2, reconnectAttempt))
+    const delay = base + Math.random() * 250
+    const secs = Math.max(1, Math.round(delay / 1000))
+    setStatus('reconnecting in ' + secs + 's…', 'error')
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      reconnectAttempt++
+      connect(currentToken)
+    }, delay)
+  }
+
   const call = (method, params) => new Promise((resolve) => {
     const id = 'w' + (++nextId)
     pending.set(id, resolve)
@@ -368,7 +397,14 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       setStatus('token required', 'error')
       return
     }
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    currentToken = token
     showChat()
+    setStatus(reconnectAttempt > 0 ? 'reconnecting…' : 'connecting…', '')
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     ws = new WebSocket(proto + '//' + location.host + '/v1/session/ws')
     ws.onopen = async () => {
@@ -379,11 +415,20 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       }
       const auth = await call('gateway.auth', { token })
       if (!auth.ok) {
+        // Wrong token is terminal — don't loop. Clear both the
+        // saved token and any reconnect schedule so the gate is
+        // the clean entry point again.
+        currentToken = ''
+        if (reconnectTimer !== null) {
+          clearTimeout(reconnectTimer)
+          reconnectTimer = null
+        }
         setStatus('auth failed — check token', 'error')
         try { localStorage.removeItem(storageKey) } catch { /* ignore */ }
         showGate()
         return
       }
+      reconnectAttempt = 0
       setStatus('connected', 'connected')
       // Surface the configured agent's display name. session.info is
       // cheap (cached AgentContext) so the round-trip is noise-free.
@@ -446,8 +491,32 @@ export const renderChatHtml = (opts: RenderOptions): string => {
           break
       }
     }
-    ws.onclose = () => setStatus('disconnected', 'error')
-    ws.onerror = () => setStatus('connection error', 'error')
+    ws.onclose = () => {
+      ws = null
+      // Any outstanding req/res awaits would otherwise hang forever;
+      // resolve them with a sentinel so callers return cleanly.
+      rejectPending('disconnected')
+      // An in-flight assistant reply is lost on disconnect — mark it
+      // in both the visible DOM and the persisted history so the
+      // user knows to retry.
+      if (currentAssistantEntry) {
+        const note = '\n\n[disconnected — reply interrupted]'
+        currentAssistantEntry.text += note
+        if (currentAssistantEl) currentAssistantEl.textContent += note
+      }
+      currentAssistantEl = null
+      currentAssistantEntry = null
+      sendBtn.disabled = false
+      abortBtn.style.display = 'none'
+      saveHistory()
+      scheduleReconnect()
+    }
+    ws.onerror = () => {
+      // onerror always runs right before onclose, so leave the
+      // real recovery logic (pending rejection, reconnect schedule)
+      // in onclose to avoid double-trigger.
+      setStatus('connection error', 'error')
+    }
   }
 
   const sendMessage = async () => {
