@@ -259,4 +259,31 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ 中断',
   '❌ error': '❌ エラー',
   '[disconnected — reply interrupted]': '[切断されました — 応答が中断されました]',
+
+  // --- オンボード: Discord webhook ヘルプ + ゲートウェイインストール ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'Discord Webhook の作り方（30秒動画）: https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    '下の欄に Webhook URL を貼り付けてください。スキップするなら Enter を押してください。',
+  'Browser chat UI (optional)': 'ブラウザチャット UI（オプション）',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'バックグラウンドサービスをインストールして、ターミナルを開いたままにしなくてもブラウザから http://127.0.0.1:{port}/ui/ で SLV とチャットできるようにします。',
+  'Not supported on this platform — skipped.':
+    'このプラットフォームでは対応していません — スキップします。',
+  'Could not probe gateway status:': 'ゲートウェイの状態を取得できませんでした:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'ゲートウェイは既に http://127.0.0.1:{port}/ui/ で起動しています',
+  'Install and start the gateway now?':
+    'ゲートウェイを今すぐインストールして起動しますか？',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'スキップしました。ブラウザ UI を有効にしたくなったら `slv gateway install && slv gateway start` を実行してください。',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'ゲートウェイのインストールに失敗しました — `slv gateway install` を手動で実行して再試行してください。',
+  'Service unit already installed — starting it.':
+    'サービスユニットは既にインストール済み — 起動します。',
+  'Gateway start failed:': 'ゲートウェイの起動に失敗しました:',
+  'Run `slv gateway start` manually to retry.':
+    '`slv gateway start` を手動で実行して再試行してください。',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'ゲートウェイが http://127.0.0.1:{port}/ui/ で稼働中',
 }

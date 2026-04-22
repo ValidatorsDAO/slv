@@ -266,4 +266,32 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ đã hủy',
   '❌ error': '❌ lỗi',
   '[disconnected — reply interrupted]': '[đã ngắt kết nối — phản hồi bị gián đoạn]',
+
+  // --- Onboard: hướng dẫn Discord webhook + cài đặt cổng ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'Cách tạo Discord Webhook (video 30 giây): https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    'Dán URL webhook bên dưới, hoặc nhấn Enter để bỏ qua.',
+  'Browser chat UI (optional)': 'Giao diện chat trên trình duyệt (tùy chọn)',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Cài dịch vụ chạy nền để bạn có thể trò chuyện với SLV từ trình duyệt tại http://127.0.0.1:{port}/ui/ mà không cần mở terminal.',
+  'Not supported on this platform — skipped.':
+    'Không hỗ trợ trên nền tảng này — đã bỏ qua.',
+  'Could not probe gateway status:':
+    'Không kiểm tra được trạng thái cổng:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
+  'Install and start the gateway now?':
+    'Cài đặt và khởi động cổng ngay bây giờ?',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'Đã bỏ qua. Chạy `slv gateway install && slv gateway start` sau để bật giao diện trình duyệt.',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'Cài đặt cổng thất bại — chạy `slv gateway install` thủ công để thử lại.',
+  'Service unit already installed — starting it.':
+    'Đơn vị dịch vụ đã được cài — đang khởi động.',
+  'Gateway start failed:': 'Khởi động cổng thất bại:',
+  'Run `slv gateway start` manually to retry.':
+    'Chạy `slv gateway start` thủ công để thử lại.',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
 }

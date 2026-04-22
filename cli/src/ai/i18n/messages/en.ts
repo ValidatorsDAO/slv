@@ -282,4 +282,30 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ aborted',
   '❌ error': '❌ error',
   '[disconnected — reply interrupted]': '[disconnected — reply interrupted]',
+
+  // --- Onboard: Discord webhook help + gateway install ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    'Paste the webhook URL below, or press Enter to skip.',
+  'Browser chat UI (optional)': 'Browser chat UI (optional)',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
+  'Not supported on this platform — skipped.':
+    'Not supported on this platform — skipped.',
+  'Could not probe gateway status:': 'Could not probe gateway status:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'Gateway is already running at http://127.0.0.1:{port}/ui/',
+  'Install and start the gateway now?': 'Install and start the gateway now?',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'Gateway install failed — run `slv gateway install` manually to retry.',
+  'Service unit already installed — starting it.':
+    'Service unit already installed — starting it.',
+  'Gateway start failed:': 'Gateway start failed:',
+  'Run `slv gateway start` manually to retry.':
+    'Run `slv gateway start` manually to retry.',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'Gateway running at http://127.0.0.1:{port}/ui/',
 }

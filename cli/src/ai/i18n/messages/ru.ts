@@ -269,4 +269,32 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ прервано',
   '❌ error': '❌ ошибка',
   '[disconnected — reply interrupted]': '[отключено — ответ прерван]',
+
+  // --- Онбординг: помощь по Discord webhook + установка шлюза ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'Как создать Discord Webhook (30-сек видео): https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    'Вставьте URL webhook ниже или нажмите Enter, чтобы пропустить.',
+  'Browser chat UI (optional)': 'Браузерный чат (опционально)',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Устанавливает фоновый сервис, чтобы вы могли общаться с SLV из любого браузера по адресу http://127.0.0.1:{port}/ui/, не держа терминал открытым.',
+  'Not supported on this platform — skipped.':
+    'Не поддерживается на этой платформе — пропущено.',
+  'Could not probe gateway status:':
+    'Не удалось проверить статус шлюза:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'Шлюз уже работает по адресу http://127.0.0.1:{port}/ui/',
+  'Install and start the gateway now?':
+    'Установить и запустить шлюз сейчас?',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'Пропущено. Запустите `slv gateway install && slv gateway start` позже, чтобы включить браузерный интерфейс.',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'Установка шлюза не удалась — запустите `slv gateway install` вручную для повторной попытки.',
+  'Service unit already installed — starting it.':
+    'Юнит сервиса уже установлен — запускаем.',
+  'Gateway start failed:': 'Не удалось запустить шлюз:',
+  'Run `slv gateway start` manually to retry.':
+    'Запустите `slv gateway start` вручную для повторной попытки.',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'Шлюз работает по адресу http://127.0.0.1:{port}/ui/',
 }

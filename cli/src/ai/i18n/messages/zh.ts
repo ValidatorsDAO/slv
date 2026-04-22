@@ -251,4 +251,31 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ 已中止',
   '❌ error': '❌ 错误',
   '[disconnected — reply interrupted]': '[已断开 — 回复被中断]',
+
+  // --- 引导: Discord webhook 帮助 + 网关安装 ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    '如何创建 Discord Webhook（30秒视频）: https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    '请在下方粘贴 Webhook URL，或按 Enter 跳过。',
+  'Browser chat UI (optional)': '浏览器聊天界面（可选）',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    '安装后台服务，无需保持终端打开即可在浏览器中访问 http://127.0.0.1:{port}/ui/ 与 SLV 聊天。',
+  'Not supported on this platform — skipped.':
+    '此平台不支持 — 已跳过。',
+  'Could not probe gateway status:': '无法查询网关状态:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    '网关已在 http://127.0.0.1:{port}/ui/ 运行',
+  'Install and start the gateway now?':
+    '现在安装并启动网关吗？',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    '已跳过。稍后运行 `slv gateway install && slv gateway start` 即可启用浏览器 UI。',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    '网关安装失败 — 请手动运行 `slv gateway install` 重试。',
+  'Service unit already installed — starting it.':
+    '服务单元已安装 — 正在启动。',
+  'Gateway start failed:': '网关启动失败:',
+  'Run `slv gateway start` manually to retry.':
+    '请手动运行 `slv gateway start` 重试。',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    '网关运行于 http://127.0.0.1:{port}/ui/',
 }

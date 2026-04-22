@@ -18,6 +18,11 @@ import {
 } from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
 import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { Confirm } from '@cliffy/prompt'
+import { installAction as installGatewayAction } from '/src/gateway/install.ts'
+import { pickGatewayService } from '/src/gateway/service/pick.ts'
+import { GATEWAY_DEFAULT_PORT } from '/src/gateway/paths.ts'
+import { errToString } from '/lib/errToString.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
 // combining marks take 0, most others 1. Used to pad i18n lines inside boxes
@@ -607,6 +612,25 @@ Session history and important notes.
   console.log(
     colors.bold.rgb24(`\n│  ${t('Notifications (optional)')}`, 0x14f195),
   )
+  // Non-engineers rarely know how to create a Discord webhook, so
+  // link a 30-second video walkthrough before the prompt. The URL
+  // lives in the translation key so alt-language versions can swap
+  // to a localized recording later if one exists.
+  console.log(
+    colors.white(
+      `  ${
+        t(
+          'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg',
+        )
+      }`,
+    ),
+  )
+  console.log(
+    colors.rgb24(
+      `  ${t('Paste the webhook URL below, or press Enter to skip.')}`,
+      0x888888,
+    ),
+  )
 
   const discordWebhook = await Input.prompt({
     message: t('Discord Webhook URL for notifications (Enter to skip)'),
@@ -663,6 +687,14 @@ Session history and important notes.
     }
   }
 
+  // --- Gateway daemon (optional) ---
+  // Installs a user-level systemd/launchd service that exposes the
+  // browser chat UI at http://127.0.0.1:20026/ui/. Non-engineers
+  // don't know they can run this manually afterwards, so offer it
+  // here while we already have their attention. Idempotent: if the
+  // service is already installed/running, we say so and continue.
+  await maybeInstallGateway(t)
+
   console.log(
     colors.bold.rgb24('\n│', 0x14f195),
   )
@@ -685,6 +717,139 @@ Session history and important notes.
     colors.rgb24(
       `└  ${t('Run `slv c` to start the AI console.')}\n`,
       0x14f195,
+    ),
+  )
+}
+
+/**
+ * Install + start the gateway daemon (the WebSocket server behind
+ * the browser chat UI) as a user-level launchd/systemd service. Safe
+ * to run on hosts where the gateway is already installed or already
+ * running — we probe status() first and short-circuit.
+ *
+ * All failures are non-fatal: we're at the tail of onboard and the
+ * user can always run `slv gateway install` manually later.
+ */
+const maybeInstallGateway = async (
+  t: (key: string) => string,
+): Promise<void> => {
+  console.log(
+    colors.bold.rgb24(`\n│  ${t('Browser chat UI (optional)')}`, 0x14f195),
+  )
+  console.log(
+    colors.white(
+      `  ${
+        t(
+          'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
+        ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
+      }`,
+    ),
+  )
+
+  // Probe current state before asking — if the daemon is already up
+  // we should not badger the user. pickGatewayService throws on
+  // unsupported platforms (e.g. Windows), in which case we silently
+  // skip the whole step.
+  let service
+  try {
+    service = pickGatewayService()
+  } catch {
+    console.log(
+      colors.rgb24(
+        `  ${t('Not supported on this platform — skipped.')}\n`,
+        0x888888,
+      ),
+    )
+    return
+  }
+
+  let status
+  try {
+    status = await service.status()
+  } catch (err) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${t('Could not probe gateway status:')} ${errToString(err)}`,
+      ),
+    )
+    return
+  }
+
+  if (status.running) {
+    console.log(
+      colors.green(
+        `  ✔ ${
+          t('Gateway is already running at http://127.0.0.1:{port}/ui/').replace(
+            '{port}',
+            String(GATEWAY_DEFAULT_PORT),
+          )
+        }\n`,
+      ),
+    )
+    return
+  }
+
+  const ok = await Confirm.prompt({
+    message: t('Install and start the gateway now?'),
+    default: true,
+  })
+  if (!ok) {
+    console.log(
+      colors.rgb24(
+        `  ${
+          t('Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.')
+        }\n`,
+        0x888888,
+      ),
+    )
+    return
+  }
+
+  // Install only if we're not already installed; start either way.
+  if (!status.loaded) {
+    const installed = await installGatewayAction()
+    if (!installed) {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${
+            t('Gateway install failed — run `slv gateway install` manually to retry.')
+          }\n`,
+        ),
+      )
+      return
+    }
+  } else {
+    console.log(
+      colors.gray(
+        `  ${t('Service unit already installed — starting it.')}`,
+      ),
+    )
+  }
+
+  try {
+    await service.start()
+  } catch (err) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${t('Gateway start failed:')} ${errToString(err)}`,
+      ),
+    )
+    console.log(
+      colors.white(
+        `    ${t('Run `slv gateway start` manually to retry.')}\n`,
+      ),
+    )
+    return
+  }
+
+  console.log(
+    colors.green(
+      `  ✔ ${
+        t('Gateway running at http://127.0.0.1:{port}/ui/').replace(
+          '{port}',
+          String(GATEWAY_DEFAULT_PORT),
+        )
+      }\n`,
     ),
   )
 }
