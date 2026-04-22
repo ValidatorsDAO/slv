@@ -1,21 +1,33 @@
 import { GATEWAY_PROTOCOL_VERSION } from '/src/gateway/paths.ts'
+import type { GatewayMode } from '/src/gateway/config.ts'
+
+export type RenderOptions = {
+  /**
+   * The gateway token. Non-null when the request came from loopback
+   * (same-machine access via 127.0.0.1 / localhost) — safe to inline
+   * in HTML because only the local user can read it. NULL when the
+   * request came from a non-loopback IP (lan mode access); the
+   * client-side JS falls back to localStorage or prompts the user.
+   */
+  token: string | null
+  mode: GatewayMode
+}
 
 /**
- * Render the minimal in-browser chat client HTML. Serves the same
- * event stream the TUI consumes — proves the WS protocol is UI-
- * pluggable and gives the user a zero-install fallback if their
- * terminal is unfriendly (iOS Safari, ChromeOS, shared VNC).
+ * Render the browser chat UI. Token inlining policy is decided by
+ * the caller — see RenderOptions above. The HTML itself is identical
+ * either way; only the bootstrap path differs.
  *
- * Security model: loopback-only (gateway binds 127.0.0.1). The token
- * is inlined into the HTML as a data-attribute, so only a request
- * from the same machine can see it. Tokens are hex-only, no HTML
- * escaping needed.
- *
- * UI scope (Phase 3A): single chat, no history, one connection. The
- * point is to prove the architecture works through a browser; rich
- * UI polish is later.
+ * Security model:
+ *   - `local` mode: gateway binds 127.0.0.1; only same-machine
+ *     requests can reach /ui/; token inlined for zero-friction.
+ *   - `lan` mode: gateway binds 0.0.0.0; requests from any IP reach
+ *     /ui/; token NOT inlined — user pastes it once and we persist
+ *     in localStorage keyed on origin.
  */
-export const renderChatHtml = (token: string): string => `<!doctype html>
+export const renderChatHtml = (opts: RenderOptions): string => {
+  const inlineToken = opts.token ?? ''
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -53,6 +65,14 @@ export const renderChatHtml = (token: string): string => `<!doctype html>
     gap: 10px;
   }
   header .title { font-weight: 600; }
+  header .badge {
+    font: 11px var(--mono);
+    background: #22303e;
+    color: var(--muted);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  header .badge.lan { background: #3d3218; color: #ffdf7a; }
   header .status {
     margin-left: auto;
     font: 12px var(--mono);
@@ -119,37 +139,114 @@ export const renderChatHtml = (token: string): string => `<!doctype html>
     word-break: break-word;
   }
   .msg.assistant pre { background: transparent; border: 0; padding: 4px 0; }
+  .token-gate {
+    max-width: 520px;
+    margin: 60px auto;
+    padding: 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .token-gate h2 { margin: 0 0 10px; font-size: 16px; }
+  .token-gate p  { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+  .token-gate input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font: 13px var(--mono);
+  }
+  .token-gate input:focus { outline: 2px solid var(--accent); }
+  .token-gate button { padding: 8px 14px; margin-top: 10px; }
+  .token-gate code {
+    font: 12px var(--mono);
+    background: var(--bg);
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
 </style>
 </head>
-<body data-slv-token="${token}" data-slv-protocol="${GATEWAY_PROTOCOL_VERSION}">
+<body data-slv-token="${inlineToken}" data-slv-protocol="${GATEWAY_PROTOCOL_VERSION}">
 <header>
   <span class="title">🌐 SLV Chat</span>
+  <span class="badge ${opts.mode}">${opts.mode}</span>
   <span id="status" class="status">connecting…</span>
 </header>
 <main id="log"></main>
-<footer>
+<div id="gate" class="token-gate" style="display:none">
+  <h2>Paste your gateway token</h2>
+  <p>This browser is reaching the SLV gateway from a different host. Paste the <code>token</code> value from <code>~/.slv/gateway/gateway.json</code> on the gateway host to continue. It's saved in your browser's localStorage.</p>
+  <input id="token-input" type="password" autocomplete="off" placeholder="64 hex characters" />
+  <div><button id="token-submit">Connect</button></div>
+</div>
+<footer id="footer" style="display:none">
   <textarea id="input" rows="1" placeholder="Type a message and press Enter"></textarea>
   <button id="send">Send</button>
   <button id="abort" class="abort" style="display:none">Stop</button>
 </footer>
 <script>
 (function () {
-  const token = document.body.dataset.slvToken
   const log = document.getElementById('log')
   const input = document.getElementById('input')
   const sendBtn = document.getElementById('send')
   const abortBtn = document.getElementById('abort')
   const statusEl = document.getElementById('status')
+  const footerEl = document.getElementById('footer')
+  const gateEl = document.getElementById('gate')
+  const tokenInput = document.getElementById('token-input')
+  const tokenSubmit = document.getElementById('token-submit')
+
+  const inlineToken = document.body.dataset.slvToken || ''
+  const storageKey = 'slv.gateway.token.' + location.host
 
   let ws = null
   let nextId = 0
   const pending = new Map()
   let currentAssistantEl = null
 
+  const getToken = () => {
+    if (inlineToken) return inlineToken
+    try {
+      const stored = localStorage.getItem(storageKey) || ''
+      return stored.trim()
+    } catch {
+      return ''
+    }
+  }
+
   const setStatus = (text, cls) => {
     statusEl.textContent = text
     statusEl.className = 'status ' + (cls || '')
   }
+
+  const showGate = () => {
+    gateEl.style.display = 'block'
+    footerEl.style.display = 'none'
+    tokenInput.focus()
+  }
+
+  const showChat = () => {
+    gateEl.style.display = 'none'
+    footerEl.style.display = 'flex'
+    input.focus()
+  }
+
+  tokenSubmit.addEventListener('click', () => {
+    const t = (tokenInput.value || '').trim()
+    if (!t) return
+    try {
+      localStorage.setItem(storageKey, t)
+    } catch {
+      // Ignore storage errors; the in-memory token still works.
+    }
+    connect(t)
+  })
+  tokenInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') tokenSubmit.click()
+  })
 
   const addMsg = (who, whoLabel, text) => {
     const div = document.createElement('div')
@@ -172,9 +269,15 @@ export const renderChatHtml = (token: string): string => `<!doctype html>
     ws.send(JSON.stringify({ kind: 'req', id, method, params }))
   })
 
-  const connect = () => {
-    const url = 'ws://' + location.host + '/v1/session/ws'
-    ws = new WebSocket(url)
+  const connect = (token) => {
+    if (!token) {
+      showGate()
+      setStatus('token required', 'error')
+      return
+    }
+    showChat()
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    ws = new WebSocket(proto + '//' + location.host + '/v1/session/ws')
     ws.onopen = async () => {
       const hello = await call('gateway.hello')
       if (!hello.ok) {
@@ -183,7 +286,9 @@ export const renderChatHtml = (token: string): string => `<!doctype html>
       }
       const auth = await call('gateway.auth', { token })
       if (!auth.ok) {
-        setStatus('auth failed', 'error')
+        setStatus('auth failed — check token', 'error')
+        try { localStorage.removeItem(storageKey) } catch { /* ignore */ }
+        showGate()
         return
       }
       setStatus('connected', 'connected')
@@ -269,9 +374,16 @@ export const renderChatHtml = (token: string): string => `<!doctype html>
     input.style.height = Math.min(input.scrollHeight, 180) + 'px'
   })
 
-  connect()
+  const initial = getToken()
+  if (initial) {
+    connect(initial)
+  } else {
+    showGate()
+    setStatus('token required', 'error')
+  }
 })()
 </script>
 </body>
 </html>
 `
+}

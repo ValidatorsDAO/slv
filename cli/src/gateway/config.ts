@@ -10,19 +10,35 @@ import { randomHex } from '/lib/randomHex.ts'
  *
  * - `port` defaults to {@link GATEWAY_DEFAULT_PORT} (20026).
  * - `token` is a 256-bit random hex string (64 chars) generated on
- *   first run. Clients (TUI, future web UI) read this to authenticate
- *   WS connections.
- * - `mode: 'local'` is a hard gate — the gateway refuses to start if
- *   missing, so misconfigured instances can't accidentally bind to a
- *   public interface. Future modes like `lan` or `tailnet` would
- *   bypass the loopback bind.
+ *   first run. Clients (TUI, web UI) read this to authenticate WS
+ *   connections.
+ * - `mode`:
+ *     - `'local'` (default) — bind 127.0.0.1 only. Safest; requires
+ *       SSH port-forward or same-machine access to reach the UI.
+ *     - `'lan'` — bind 0.0.0.0 so any host on the network can reach
+ *       the gateway by IP (`http://<vps-ip>:20026/ui/`). Token auth
+ *       still gates every WS method; the trade-off is the HTTP
+ *       surface (`/`, `/healthz`, `/ui/`) is exposed to port
+ *       scanners. Only enable on a dedicated dev-VPS you fully own.
  */
-export type GatewayMode = 'local'
+export type GatewayMode = 'local' | 'lan'
 
 export type GatewayConfig = {
   port: number
   token: string
   mode: GatewayMode
+}
+
+export const GATEWAY_MODES: readonly GatewayMode[] = ['local', 'lan']
+
+/** Map config.mode → Deno.serve hostname. */
+export const hostnameForMode = (mode: GatewayMode): string => {
+  switch (mode) {
+    case 'local':
+      return '127.0.0.1'
+    case 'lan':
+      return '0.0.0.0'
+  }
 }
 
 // 256 bits of entropy → 64 hex chars.
@@ -48,8 +64,7 @@ export class GatewayEnvPortError extends Error {
  * Atomic write: stage to `<path>.tmp.<pid>` then `rename` onto the
  * target. On POSIX `rename` is atomic within the same filesystem, so
  * a SIGKILL mid-write leaves either the old file or the new one —
- * never a half-written one. Critical for first-run: a crashed write
- * would otherwise wedge the gateway in EX_CONFIG on every retry.
+ * never a half-written one.
  */
 const atomicWrite = async (path: string, text: string): Promise<void> => {
   await Deno.mkdir(dirname(path), { recursive: true })
@@ -62,6 +77,9 @@ const atomicWrite = async (path: string, text: string): Promise<void> => {
     throw err
   }
 }
+
+const isGatewayMode = (v: unknown): v is GatewayMode =>
+  typeof v === 'string' && (GATEWAY_MODES as readonly string[]).includes(v)
 
 /**
  * Read the on-disk config. Throws {@link Deno.errors.NotFound} if the
@@ -82,8 +100,10 @@ export const loadGatewayConfig = async (): Promise<GatewayConfig> => {
       `gateway.json: token missing or shorter than ${TOKEN_MIN_LEN} chars (256-bit)`,
     )
   }
-  if (parsed.mode !== 'local') {
-    throw new Error(`gateway.json: mode must be 'local' (got ${parsed.mode})`)
+  if (!isGatewayMode(parsed.mode)) {
+    throw new Error(
+      `gateway.json: mode must be one of ${GATEWAY_MODES.join(' | ')} (got ${parsed.mode})`,
+    )
   }
   return { port: parsed.port, token: parsed.token, mode: parsed.mode }
 }
@@ -106,6 +126,22 @@ export const ensureGatewayConfig = async (): Promise<GatewayConfig> => {
   return envPort === null ? base : { ...base, port: envPort }
 }
 
+/**
+ * Mutate the persisted config. Used by `slv gateway config set-mode`
+ * and similar subcommands. Atomic-writes the whole file; a concurrent
+ * reader either sees the old or new one, never a half-written mix.
+ */
+export const writeGatewayConfig = async (
+  cfg: GatewayConfig,
+): Promise<void> => {
+  if (!isGatewayMode(cfg.mode)) {
+    throw new Error(
+      `mode must be one of ${GATEWAY_MODES.join(' | ')} (got ${cfg.mode})`,
+    )
+  }
+  await atomicWrite(gatewayConfigPath, JSON.stringify(cfg, null, 2) + '\n')
+}
+
 const parseEnvPort = (raw: string | undefined): number | null => {
   if (!raw) return null
   const n = Number(raw)
@@ -116,4 +152,3 @@ const parseEnvPort = (raw: string | undefined): number | null => {
   }
   return n
 }
-

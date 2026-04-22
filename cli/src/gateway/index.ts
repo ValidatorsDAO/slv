@@ -7,6 +7,7 @@ import { statusAction } from '/src/gateway/status.ts'
 import { logsAction } from '/src/gateway/logs.ts'
 import { pingAction } from '/src/gateway/ping.ts'
 import { openUiAction } from '/src/gateway/ui/open.ts'
+import { setModeAction, showConfigAction } from '/src/gateway/config_cmd.ts'
 
 export const gatewayCmd = new Command()
   .description(
@@ -101,3 +102,24 @@ gatewayCmd.command('ui')
     const ok = await openUiAction()
     if (!ok) Deno.exit(1)
   })
+
+const configCmd = new Command()
+  .description(
+    'Inspect and modify gateway.json (mode, etc.)',
+  )
+  .action(() => {
+    configCmd.showHelp()
+  })
+configCmd.command('show', 'Show the current gateway config')
+  .action(async () => {
+    const ok = await showConfigAction()
+    if (!ok) Deno.exit(1)
+  })
+configCmd.command('set-mode', 'Change bind mode (local → loopback, lan → 0.0.0.0)')
+  .arguments('<mode:string>')
+  .option('-y, --yes', 'Skip the lan-mode safety confirmation', { default: false })
+  .action(async (opts: { yes?: boolean }, mode: string) => {
+    const ok = await setModeAction(mode, opts)
+    if (!ok) Deno.exit(1)
+  })
+gatewayCmd.command('config', configCmd)
