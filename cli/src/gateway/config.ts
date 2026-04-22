@@ -1,5 +1,9 @@
 import { dirname } from '@std/path'
-import { gatewayConfigPath, GATEWAY_DEFAULT_PORT } from '/src/gateway/paths.ts'
+import {
+  gatewayConfigPath,
+  GATEWAY_DEFAULT_PORT,
+} from '/src/gateway/paths.ts'
+import { randomHex } from '/lib/randomHex.ts'
 
 /**
  * Gateway config persisted at ~/.slv/gateway/gateway.json.
@@ -21,19 +25,12 @@ export type GatewayConfig = {
   mode: GatewayMode
 }
 
-// 256 bits of entropy → 64 hex chars. Enforced both on write (below)
-// and on read (`TOKEN_MIN_LEN` check in readOrCreate).
+// 256 bits of entropy → 64 hex chars.
 const TOKEN_MIN_LEN = 64
-
-const randomToken = (): string => {
-  const buf = new Uint8Array(32)
-  crypto.getRandomValues(buf)
-  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')
-}
 
 const defaults = (): GatewayConfig => ({
   port: GATEWAY_DEFAULT_PORT,
-  token: randomToken(),
+  token: randomHex(32),
   mode: 'local',
 })
 
@@ -48,17 +45,63 @@ export class GatewayEnvPortError extends Error {
 }
 
 /**
- * Load the on-disk config. If the file is missing, writes a fresh one
- * (with a random token) and returns it. If the file exists but is
- * malformed, throws — callers should `Deno.exit(78)` (EX_CONFIG).
- *
- * `SLV_GATEWAY_PORT` env var overrides the persisted port at runtime
- * (handy for local testing when the default 18789 is taken). Token
- * and mode are always read from the file.
+ * Atomic write: stage to `<path>.tmp.<pid>` then `rename` onto the
+ * target. On POSIX `rename` is atomic within the same filesystem, so
+ * a SIGKILL mid-write leaves either the old file or the new one —
+ * never a half-written one. Critical for first-run: a crashed write
+ * would otherwise wedge the gateway in EX_CONFIG on every retry.
  */
-export const loadOrInitGatewayConfig = async (): Promise<GatewayConfig> => {
-  const path = gatewayConfigPath()
-  const base = await readOrCreate(path)
+const atomicWrite = async (path: string, text: string): Promise<void> => {
+  await Deno.mkdir(dirname(path), { recursive: true })
+  const tmp = `${path}.tmp.${Deno.pid}`
+  try {
+    await Deno.writeTextFile(tmp, text, { mode: 0o600 })
+    await Deno.rename(tmp, path)
+  } catch (err) {
+    await Deno.remove(tmp).catch(() => {})
+    throw err
+  }
+}
+
+/**
+ * Read the on-disk config. Throws {@link Deno.errors.NotFound} if the
+ * file doesn't exist — callers use {@link ensureGatewayConfig} to
+ * create-on-miss.
+ */
+export const loadGatewayConfig = async (): Promise<GatewayConfig> => {
+  const raw = await Deno.readTextFile(gatewayConfigPath)
+  const parsed = JSON.parse(raw) as Partial<GatewayConfig>
+  if (typeof parsed.port !== 'number' || !Number.isInteger(parsed.port)) {
+    throw new Error('gateway.json: port must be an integer')
+  }
+  if (
+    typeof parsed.token !== 'string' ||
+    parsed.token.length < TOKEN_MIN_LEN
+  ) {
+    throw new Error(
+      `gateway.json: token missing or shorter than ${TOKEN_MIN_LEN} chars (256-bit)`,
+    )
+  }
+  if (parsed.mode !== 'local') {
+    throw new Error(`gateway.json: mode must be 'local' (got ${parsed.mode})`)
+  }
+  return { port: parsed.port, token: parsed.token, mode: parsed.mode }
+}
+
+/**
+ * Return the persisted config, writing a fresh one with a random
+ * token if the file doesn't exist yet. Applies the
+ * `SLV_GATEWAY_PORT` env override last.
+ */
+export const ensureGatewayConfig = async (): Promise<GatewayConfig> => {
+  let base: GatewayConfig
+  try {
+    base = await loadGatewayConfig()
+  } catch (err) {
+    if (!(err instanceof Deno.errors.NotFound)) throw err
+    base = defaults()
+    await atomicWrite(gatewayConfigPath, JSON.stringify(base, null, 2) + '\n')
+  }
   const envPort = parseEnvPort(Deno.env.get('SLV_GATEWAY_PORT'))
   return envPort === null ? base : { ...base, port: envPort }
 }
@@ -72,35 +115,5 @@ const parseEnvPort = (raw: string | undefined): number | null => {
     )
   }
   return n
-}
-
-const readOrCreate = async (path: string): Promise<GatewayConfig> => {
-  try {
-    const raw = await Deno.readTextFile(path)
-    const parsed = JSON.parse(raw) as Partial<GatewayConfig>
-    if (typeof parsed.port !== 'number' || !Number.isInteger(parsed.port)) {
-      throw new Error('gateway.json: port must be an integer')
-    }
-    if (typeof parsed.token !== 'string' || parsed.token.length < TOKEN_MIN_LEN) {
-      throw new Error(
-        `gateway.json: token missing or shorter than ${TOKEN_MIN_LEN} chars (256-bit)`,
-      )
-    }
-    if (parsed.mode !== 'local') {
-      throw new Error(`gateway.json: mode must be 'local' (got ${parsed.mode})`)
-    }
-    return {
-      port: parsed.port,
-      token: parsed.token,
-      mode: parsed.mode,
-    }
-  } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) throw err
-    const fresh = defaults()
-    await Deno.mkdir(dirname(path), { recursive: true })
-    await Deno.writeTextFile(path, JSON.stringify(fresh, null, 2) + '\n')
-    await Deno.chmod(path, 0o600).catch(() => {})
-    return fresh
-  }
 }
 

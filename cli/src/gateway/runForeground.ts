@@ -1,8 +1,8 @@
 import { colors } from '@cliffy/colors'
 import { Hono } from '@hono/hono'
 import {
+  ensureGatewayConfig,
   GatewayEnvPortError,
-  loadOrInitGatewayConfig,
 } from '/src/gateway/config.ts'
 import {
   acquireGatewayLock,
@@ -85,12 +85,25 @@ export const runGatewayForeground = async (): Promise<number> => {
     // settling.
     serverRef.server.shutdown().catch(() => {})
   }
-  Deno.addSignalListener('SIGTERM', () => gracefulShutdown('SIGTERM'))
-  Deno.addSignalListener('SIGINT', () => gracefulShutdown('SIGINT'))
+  // Capture the bound callbacks so we can remove them on clean exit —
+  // matters if this function is ever called twice in one process
+  // (hot reload, integration test harness) where leaked listeners
+  // would race `Deno.exit(0)`.
+  const sigtermHandler = () => gracefulShutdown('SIGTERM')
+  const sigintHandler = () => gracefulShutdown('SIGINT')
+  Deno.addSignalListener('SIGTERM', sigtermHandler)
+  Deno.addSignalListener('SIGINT', sigintHandler)
+  const removeSignalHandlers = () => {
+    try {
+      Deno.removeSignalListener('SIGTERM', sigtermHandler)
+      Deno.removeSignalListener('SIGINT', sigintHandler)
+    } catch { /* already removed / process exiting */ }
+  }
 
   if (shuttingDown) {
     // A signal fired between addSignalListener calls and here.
     // Release the lock and bail cleanly.
+    removeSignalHandlers()
     await releaseGatewayLock()
     return 0
   }
@@ -118,6 +131,7 @@ export const runGatewayForeground = async (): Promise<number> => {
       app.fetch,
     )
   } catch (err) {
+    removeSignalHandlers()
     await releaseGatewayLock()
     console.error(
       colors.red(
@@ -132,13 +146,14 @@ export const runGatewayForeground = async (): Promise<number> => {
       `✅ slv gateway running on http://127.0.0.1:${config.port} (pid=${Deno.pid})`,
     ),
   )
-  console.log(colors.gray(`   config:  ${gatewayConfigPath()}`))
-  console.log(colors.gray(`   pidfile: ${gatewayPidPath()}`))
+  console.log(colors.gray(`   config:  ${gatewayConfigPath}`))
+  console.log(colors.gray(`   pidfile: ${gatewayPidPath}`))
   console.log(
     colors.gray(`   healthz: curl http://127.0.0.1:${config.port}/healthz`),
   )
 
   await serverRef.server.finished
+  removeSignalHandlers()
   await releaseGatewayLock()
   console.log(colors.green('✅ gateway stopped'))
   return 0
@@ -151,10 +166,10 @@ export const runGatewayForeground = async (): Promise<number> => {
  * - Anything else → EX_CONFIG pointing at the real config file.
  */
 const loadConfigOrFail = async (): Promise<
-  Awaited<ReturnType<typeof loadOrInitGatewayConfig>> | number
+  Awaited<ReturnType<typeof ensureGatewayConfig>> | number
 > => {
   try {
-    return await loadOrInitGatewayConfig()
+    return await ensureGatewayConfig()
   } catch (err) {
     if (err instanceof GatewayEnvPortError) {
       console.error(colors.red(`❌ ${err.message}`))
@@ -164,7 +179,7 @@ const loadConfigOrFail = async (): Promise<
       colors.red(`❌ gateway config is invalid: ${errToString(err)}`),
     )
     console.error(
-      colors.white(`   Fix or delete ${gatewayConfigPath()} and retry.`),
+      colors.white(`   Fix or delete ${gatewayConfigPath} and retry.`),
     )
     return EX_CONFIG
   }

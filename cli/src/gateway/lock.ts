@@ -23,12 +23,22 @@ import { errToString } from '/lib/errToString.ts'
 export type LockRecord = {
   pid: number
   startedAt: string // ISO timestamp
-  linuxStartTime?: string // /proc/<pid>/stat field 22 (clock ticks since boot)
+  // Opaque string identifying the process's boot-relative start time:
+  // /proc/<pid>/stat field 22 on Linux, `ps -o lstart=` output on
+  // macOS. Used to detect PID recycling within a single system uptime
+  // (an ISO timestamp alone can't — PID+ISO get a fresh value on
+  // every lock write).
+  procStartTime?: string
   port: number
 }
 
+const readProcStartTime = async (pid: number): Promise<string | null> => {
+  if (Deno.build.os === 'linux') return readLinuxStartTime(pid)
+  if (Deno.build.os === 'darwin') return readDarwinStartTime(pid)
+  return null
+}
+
 const readLinuxStartTime = async (pid: number): Promise<string | null> => {
-  if (Deno.build.os !== 'linux') return null
   try {
     const stat = await Deno.readTextFile(`/proc/${pid}/stat`)
     // /proc/<pid>/stat fields are space-separated, but field 2 (comm)
@@ -40,6 +50,26 @@ const readLinuxStartTime = async (pid: number): Promise<string | null> => {
     if (tailStart < 0) return null
     const tail = stat.slice(tailStart + 2).trim().split(/\s+/)
     return tail[19] ?? null
+  } catch {
+    return null
+  }
+}
+
+const readDarwinStartTime = async (pid: number): Promise<string | null> => {
+  // `ps -o lstart=` prints the process's absolute start time in a
+  // locale-independent format (e.g. "Mon Apr 22 12:00:00 2026").
+  // That's enough to distinguish a recycled PID within a single boot
+  // — two processes with the same PID cannot have the exact same
+  // start second.
+  try {
+    const out = await new Deno.Command('ps', {
+      args: ['-o', 'lstart=', '-p', String(pid)],
+      stdout: 'piped',
+      stderr: 'null',
+    }).output()
+    if (!out.success) return null
+    const s = new TextDecoder().decode(out.stdout).trim()
+    return s.length > 0 ? s : null
   } catch {
     return null
   }
@@ -66,7 +96,7 @@ const isProcessAlive = (pid: number): boolean => {
 
 const readExistingLock = async (): Promise<LockRecord | null> => {
   try {
-    const raw = await Deno.readTextFile(gatewayPidPath())
+    const raw = await Deno.readTextFile(gatewayPidPath)
     return JSON.parse(raw) as LockRecord
   } catch {
     return null
@@ -74,7 +104,7 @@ const readExistingLock = async (): Promise<LockRecord | null> => {
 }
 
 const writeLock = async (rec: LockRecord): Promise<void> => {
-  const path = gatewayPidPath()
+  const path = gatewayPidPath
   await Deno.mkdir(dirname(path), { recursive: true })
   const file = await Deno.open(path, {
     createNew: true,
@@ -105,63 +135,61 @@ export type AcquireOutcome =
 export const acquireGatewayLock = async (
   port: number,
 ): Promise<AcquireOutcome> => {
-  const myStartTime = await readLinuxStartTime(Deno.pid)
+  const myStartTime = await readProcStartTime(Deno.pid)
   const record: LockRecord = {
     pid: Deno.pid,
     startedAt: new Date().toISOString(),
-    linuxStartTime: myStartTime ?? undefined,
+    procStartTime: myStartTime ?? undefined,
     port,
   }
 
-  try {
-    await writeLock(record)
-    return { state: 'acquired', record }
-  } catch (err) {
-    if (!(err instanceof Deno.errors.AlreadyExists)) {
-      return { state: 'failed', err: errToString(err) }
+  // Bounded-retry loop so two concurrent `slv gateway run` invocations
+  // that both see a stale lock don't both return `failed` — the loser
+  // re-checks and, if the winner is now alive, gets a clean `held`
+  // result instead of a confusing "lost race" error.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await writeLock(record)
+      return { state: 'acquired', record }
+    } catch (err) {
+      if (!(err instanceof Deno.errors.AlreadyExists)) {
+        return { state: 'failed', err: errToString(err) }
+      }
     }
-  }
 
-  // Lock file exists — inspect it to decide stale vs live.
-  const existing = await readExistingLock()
-  if (existing === null) {
-    // File exists but couldn't be parsed. Treat as stale and overwrite.
-    return await replaceStaleAndClaim(record)
-  }
-
-  if (!isProcessAlive(existing.pid)) {
-    return await replaceStaleAndClaim(record)
-  }
-
-  // PID is alive. If we have a Linux start time and it matches, it IS
-  // the same gateway process — definitely held. If start times don't
-  // match, the PID was recycled and the live process is unrelated.
-  if (existing.linuxStartTime) {
-    const nowStart = await readLinuxStartTime(existing.pid)
-    if (nowStart && nowStart !== existing.linuxStartTime) {
-      return await replaceStaleAndClaim(record)
+    const existing = await readExistingLock()
+    if (existing === null) {
+      // File exists but couldn't be parsed. Treat as stale and
+      // retry — the O_EXCL create on next iteration handles the
+      // race cleanly.
+      await Deno.remove(gatewayPidPath).catch(() => {})
+      continue
     }
-    return { state: 'held', holder: existing, reason: 'linux_start_time_match' }
+
+    if (!isProcessAlive(existing.pid)) {
+      await Deno.remove(gatewayPidPath).catch(() => {})
+      continue
+    }
+
+    // PID is alive. If we captured a boot-relative start time and it
+    // matches the current /proc or `ps` readout, this is the same
+    // gateway process — definitely held. If start times differ the
+    // PID was recycled and the live process is unrelated; replace.
+    if (existing.procStartTime) {
+      const nowStart = await readProcStartTime(existing.pid)
+      if (nowStart && nowStart !== existing.procStartTime) {
+        await Deno.remove(gatewayPidPath).catch(() => {})
+        continue
+      }
+      return { state: 'held', holder: existing, reason: 'linux_start_time_match' }
+    }
+
+    return { state: 'held', holder: existing, reason: 'alive' }
   }
 
-  return { state: 'held', holder: existing, reason: 'alive' }
-}
-
-const replaceStaleAndClaim = async (
-  record: LockRecord,
-): Promise<AcquireOutcome> => {
-  await Deno.remove(gatewayPidPath()).catch(() => {})
-  try {
-    await writeLock(record)
-    return { state: 'acquired', record }
-  } catch (err) {
-    // If a concurrent `slv gateway run` won the race for the stale
-    // slot, we land here. The real holder will succeed; we bail with
-    // a clear error so the caller can surface it.
-    return {
-      state: 'failed',
-      err: `lost race to claim stale lock: ${errToString(err)}`,
-    }
+  return {
+    state: 'failed',
+    err: 'acquire retry limit exceeded — concurrent gateway lock churn',
   }
 }
 
@@ -173,5 +201,5 @@ const replaceStaleAndClaim = async (
 export const releaseGatewayLock = async (): Promise<void> => {
   const existing = await readExistingLock()
   if (!existing || existing.pid !== Deno.pid) return
-  await Deno.remove(gatewayPidPath()).catch(() => {})
+  await Deno.remove(gatewayPidPath).catch(() => {})
 }
