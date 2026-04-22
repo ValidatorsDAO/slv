@@ -5,6 +5,7 @@ import { installAction, uninstallAction } from '/src/gateway/install.ts'
 import { runLifecycle } from '/src/gateway/lifecycle.ts'
 import { statusAction } from '/src/gateway/status.ts'
 import { logsAction } from '/src/gateway/logs.ts'
+import { pingAction } from '/src/gateway/ping.ts'
 
 export const gatewayCmd = new Command()
   .description(
@@ -81,5 +82,14 @@ gatewayCmd.command('logs')
   })
   .action(async (opts: { follow?: boolean; lines?: number }) => {
     const ok = await logsAction(opts)
+    if (!ok) Deno.exit(1)
+  })
+
+gatewayCmd.command('ping')
+  .description(
+    'Connect to the local gateway and run the hello → auth → ping handshake',
+  )
+  .action(async () => {
+    const ok = await pingAction()
     if (!ok) Deno.exit(1)
   })

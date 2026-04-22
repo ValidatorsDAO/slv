@@ -5,28 +5,42 @@ import {
   GATEWAY_SERVICE_ID,
 } from '/src/gateway/paths.ts'
 import { PROTOCOL_VERSION } from '/src/gateway/ws/frames.ts'
+import { echoDriver, Session } from '/src/ai/core/session.ts'
 
 /**
- * Per-connection state. Phase 2A tracks only auth; Phase 2B adds a
- * reference to the active session.
+ * Per-connection state. Phase 2A: just auth. Phase 2B adds the
+ * active session (created lazily on the first `session.send`-family
+ * call) and an event-seq counter that's bumped for every pushed
+ * event frame.
  */
 export type ConnState = {
   authenticated: boolean
-  // seq of the next server-pushed event. Bumped by the eventual
-  // session-core event emitter (Phase 2B); kept here so we don't
-  // need a separate store.
   nextEventSeq: number
+  // Lazily-created Session for this connection. Null until the
+  // first session.* method call.
+  session: Session | null
 }
 
 export const newConnState = (): ConnState => ({
   authenticated: false,
   nextEventSeq: 1,
+  session: null,
 })
+
+import type { SessionEvent } from '/src/ai/core/events.ts'
+
+export type DispatchCtx = {
+  token: string
+  // Push an event frame to this specific connection. The router
+  // framework packages each SessionEvent with the right seq number
+  // and encodes as an EventFrame — handlers don't see frames.
+  emitEvent: (event: SessionEvent) => void
+}
 
 type MethodHandler = (
   req: ReqFrame,
   state: ConnState,
-  ctx: { token: string },
+  ctx: DispatchCtx,
 ) => Promise<ResFrame> | ResFrame
 
 const methods: Record<string, MethodHandler> = {
@@ -68,6 +82,52 @@ const methods: Record<string, MethodHandler> = {
     if (!state.authenticated) return resErr(req, 'not authenticated')
     return resOk(req, { pong: true })
   },
+
+  /**
+   * Phase 2B loopback driver: echoes the input text back as a stream
+   * of `text_delta` events followed by `complete`. Purely a wire-
+   * validation tool — the real `session.send` arrives when the
+   * provider driver lands in the next PR. Using a separate method
+   * name now means the eventual `session.send` (backed by a real
+   * LLM) can be added without breaking callers that expect the
+   * deterministic echo behaviour.
+   */
+  'session.echo': (req, state, ctx) => {
+    if (!state.authenticated) return resErr(req, 'not authenticated')
+    const p = req.params as { text?: unknown } | undefined
+    const text = p && typeof p.text === 'string' ? p.text : null
+    if (text === null) return resErr(req, 'params.text must be a string')
+
+    // Lazily create the Session + wire our event-push callback the
+    // first time a session.* method is called on this connection.
+    if (!state.session) {
+      state.session = new Session(echoDriver)
+      state.session.on((event) => ctx.emitEvent(event))
+    }
+    if (state.session.isRunning) {
+      return resErr(req, 'session is already running; call session.abort first')
+    }
+
+    // Fire-and-forget — the driver emits events asynchronously.
+    // We return immediately so the client sees the req ack before
+    // the first event frame.
+    state.session.send(text).catch(() => {
+      // Session.send never throws (it wraps everything into error
+      // events), so this catch is defensive only.
+    })
+    return resOk(req, { accepted: true })
+  },
+
+  /**
+   * Cancel the in-flight session.send/echo. Idempotent: no-op if
+   * nothing is running.
+   */
+  'session.abort': (req, state) => {
+    if (!state.authenticated) return resErr(req, 'not authenticated')
+    const was = state.session?.isRunning ?? false
+    state.session?.abort('client requested abort')
+    return resOk(req, { wasRunning: was })
+  },
 }
 
 const constantTimeEquals = (a: string, b: string): boolean => {
@@ -87,7 +147,7 @@ const constantTimeEquals = (a: string, b: string): boolean => {
 export const dispatchRequest = async (
   req: ReqFrame,
   state: ConnState,
-  ctx: { token: string },
+  ctx: DispatchCtx,
 ): Promise<ResFrame> => {
   const handler = methods[req.method]
   if (!handler) return resErr(req, `method not found: ${req.method}`)
