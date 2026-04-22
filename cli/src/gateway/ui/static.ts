@@ -415,9 +415,13 @@ export const renderChatHtml = (opts: RenderOptions): string => {
       }
       const auth = await call('gateway.auth', { token })
       if (!auth.ok) {
-        // Wrong token is terminal — don't loop. Clear both the
-        // saved token and any reconnect schedule so the gate is
-        // the clean entry point again.
+        // Distinguish a real server rejection ("invalid token")
+        // from a mid-auth disconnect: onclose nulls ws and
+        // resolves the pending promise with a local sentinel, so
+        // a null ws here means the socket died during auth. In
+        // that case the token is still probably valid — let the
+        // reconnect loop retry instead of wiping localStorage.
+        if (ws === null) return
         currentToken = ''
         if (reconnectTimer !== null) {
           clearTimeout(reconnectTimer)
