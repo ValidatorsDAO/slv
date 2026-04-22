@@ -29,10 +29,9 @@ export type RenderOptions = {
 export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   await initI18n()
   const inlineToken = opts.token ?? ''
-  // The client JS needs localized status/label strings too; bake
-  // them into a JSON object rather than round-tripping through t()
-  // on the browser (the browser has no access to the i18n dict).
-  const i18n = {
+  // Strings used only in the server-rendered HTML; they never leave
+  // this function so keep them out of the browser-visible JSON.
+  const html = {
     send: t('Send'),
     stop: t('Stop'),
     clear: t('clear'),
@@ -44,6 +43,11 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     gateBody: t(
       "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.",
     ),
+  }
+  // Strings the client JS needs at runtime (status labels, chat
+  // message prefixes, the reconnect countdown template). Baked in
+  // as JSON so the browser has no need for a t() round-trip.
+  const clientI18n = {
     you: t('You'),
     assistant: t('Assistant'),
     thinking: t('Thinking…'),
@@ -51,7 +55,6 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     reconnecting: t('reconnecting…'),
     reconnectingIn: t('reconnecting in {secs}s…'),
     connected: t('connected'),
-    disconnected: t('disconnected'),
     connectionError: t('connection error'),
     tokenRequired: t('token required'),
     handshakeFailed: t('handshake failed'),
@@ -60,7 +63,7 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     errorLabel: t('❌ error'),
     interrupted: t('[disconnected — reply interrupted]'),
   }
-  const i18nJson = JSON.stringify(i18n)
+  const i18nJson = JSON.stringify(clientI18n)
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -261,20 +264,20 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
 <header>
   <span class="title">🌐 SLV Chat</span>
   <span class="badge ${opts.mode}">${opts.mode}</span>
-  <button id="clear" type="button" title="${i18n.clearTitle}">${i18n.clear}</button>
-  <span id="status" class="status">${i18n.connecting}</span>
+  <button id="clear" type="button" title="${html.clearTitle}">${html.clear}</button>
+  <span id="status" class="status">${clientI18n.connecting}</span>
 </header>
 <main id="log"></main>
 <div id="gate" class="token-gate" style="display:none">
-  <h2>${i18n.gateHeading}</h2>
-  <p>${i18n.gateBody}</p>
-  <input id="token-input" type="password" autocomplete="off" placeholder="${i18n.placeholderToken}" />
-  <div><button id="token-submit">${i18n.connect}</button></div>
+  <h2>${html.gateHeading}</h2>
+  <p>${html.gateBody}</p>
+  <input id="token-input" type="password" autocomplete="off" placeholder="${html.placeholderToken}" />
+  <button id="token-submit">${html.connect}</button>
 </div>
 <footer id="footer" style="display:none">
-  <textarea id="input" rows="1" placeholder="${i18n.placeholderMessage}"></textarea>
-  <button id="send">${i18n.send}</button>
-  <button id="abort" class="abort" style="display:none">${i18n.stop}</button>
+  <textarea id="input" rows="1" placeholder="${html.placeholderMessage}"></textarea>
+  <button id="send">${html.send}</button>
+  <button id="abort" class="abort" style="display:none">${html.stop}</button>
 </footer>
 <script>
 (function () {
