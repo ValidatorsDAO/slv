@@ -4,6 +4,7 @@ import { Hono } from '@hono/hono'
 import {
   ensureGatewayConfig,
   GatewayEnvPortError,
+  hostnameForMode,
 } from '/src/gateway/config.ts'
 import {
   acquireGatewayLock,
@@ -24,6 +25,25 @@ import { errToString } from '/lib/errToString.ts'
 const EX_CONFIG = 78
 const EX_TEMPFAIL = 75
 const EX_UNAVAILABLE = 69
+
+/**
+ * Whether a Host header refers to the loopback interface. Matters for
+ * token-inlining policy on `/ui/`: loopback requests get the token
+ * pre-filled; any other Host must go through the paste-gate. Uses
+ * URL's parser so `127.0.0.1.evil.com` doesn't match as `127.0.0.1.*`
+ * and IPv6 bracket-stripping is handled correctly.
+ */
+const isLoopbackHost = (header: string | undefined): boolean => {
+  if (!header) return false
+  let hostname: string
+  try {
+    hostname = new URL(`http://${header}`).hostname.toLowerCase()
+  } catch {
+    return false
+  }
+  return hostname === '127.0.0.1' || hostname === 'localhost' ||
+    hostname === '::1'
+}
 
 /**
  * Foreground gateway runner. Phase 1A scope: bind loopback HTTP with a
@@ -130,12 +150,23 @@ export const runGatewayForeground = async (): Promise<number> => {
   // first-message via the token in ~/.slv/gateway/gateway.json.
   registerWsRoutes(app, { token: config.token })
 
-  // Browser chat demo at /ui/. Same event stream the TUI consumes,
-  // rendered as a minimal HTML+JS client. Loopback-only so the
-  // inlined token isn't exposed — the gateway refuses to bind
-  // non-loopback interfaces without an explicit mode change.
-  const uiHandler = (c: Context) =>
-    c.html(renderChatHtml(config.token))
+  // Browser chat demo at /ui/. In `local` mode the gateway only
+  // binds loopback so the HTML can safely inline the token for
+  // convenience. In `lan` mode, the HTML is served without the
+  // token inlined — the client-side JS reads it from localStorage
+  // or prompts the user to paste it once. Heuristic for "is this
+  // request from loopback": Host header names `127.0.0.1` /
+  // `localhost`. Not bulletproof against a forged Host header,
+  // but an attacker with network access to the bound port can
+  // already try every other endpoint anyway.
+  const uiHandler = (c: Context) => {
+    return c.html(
+      renderChatHtml({
+        token: isLoopbackHost(c.req.header('host')) ? config.token : null,
+        mode: config.mode,
+      }),
+    )
+  }
   app.get('/ui', uiHandler)
   app.get('/ui/', uiHandler)
 
@@ -143,7 +174,7 @@ export const runGatewayForeground = async (): Promise<number> => {
   // serious footgun for a process that executes shell tools.
   try {
     serverRef.server = Deno.serve(
-      { port: config.port, hostname: '127.0.0.1' },
+      { port: config.port, hostname: hostnameForMode(config.mode) },
       app.fetch,
     )
   } catch (err) {
@@ -157,11 +188,20 @@ export const runGatewayForeground = async (): Promise<number> => {
     return EX_TEMPFAIL
   }
 
+  const bindHost = hostnameForMode(config.mode)
+  const displayHost = config.mode === 'lan' ? '<this-host-ip>' : '127.0.0.1'
   console.log(
     colors.green(
-      `✅ slv gateway running on http://127.0.0.1:${config.port} (pid=${Deno.pid})`,
+      `✅ slv gateway running on http://${displayHost}:${config.port} (pid=${Deno.pid}, mode=${config.mode})`,
     ),
   )
+  if (config.mode === 'lan') {
+    console.log(
+      colors.yellow(
+        `   ⚠️  lan mode: bound to ${bindHost} — token auth still required`,
+      ),
+    )
+  }
   console.log(colors.gray(`   config:  ${gatewayConfigPath}`))
   console.log(colors.gray(`   pidfile: ${gatewayPidPath}`))
   console.log(
