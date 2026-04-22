@@ -784,7 +784,7 @@ const maybeInstallGateway = async (
     console.log(
       colors.bold.rgb24(
         `    ⚠ ${
-          t('Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.')
+          t('Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.')
         }`,
         0xffdf7a,
       ),
@@ -970,20 +970,18 @@ const sendOnboardWebhook = async (opts: {
     )
     lines.push('```')
   }
-  // Hardening advisory is the same regardless of mode — the user
-  // asked for behavior parity. Both WireGuard (encrypted tunnel)
-  // and nftables (host-level packet filter) are listed so the user
-  // can pick whichever fits their setup. Token auth already gates
-  // chat actions; this is about narrowing the HTTP surface to
-  // trusted networks before real use.
+  // Hardening advisory — same wording regardless of mode. Frame
+  // this as something SLV AI helps with (firewall + phone-WireGuard)
+  // rather than a dry link list, since non-engineers won't click
+  // raw nftables docs. YouTube walkthrough slot is a placeholder the
+  // user will fill in later.
   lines.push('')
   lines.push(
     `⚠️ ${
-      t('Security: restrict network access before real use:')
+      t('Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.')
     }`,
   )
-  lines.push(`• WireGuard: https://www.wireguard.com/quickstart/`)
-  lines.push(`• nftables:  https://wiki.nftables.org/`)
+  lines.push(`• ${t('Video walkthrough: coming soon.')}`)
 
   try {
     const controller = new AbortController()

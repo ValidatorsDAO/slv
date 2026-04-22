@@ -1,0 +1,189 @@
+---
+# WireGuard VPN server for SLV — one-peer (iPhone) baseline.
+# Idempotent on re-run: existing server key is preserved, config is
+# rewritten, service is restarted cleanly. The peer public key is
+# required and must be 44 base64 chars. The CLI caller
+# (`slv install wireguard`) validates the key client-side and
+# passes it via --extra-vars WG_IPHONE_PUBKEY=... so ansible sees
+# it here too.
+#
+# Exported artifact for the caller: /tmp/slv-wg-server-pubkey.txt
+# (mode 0644) contains the server public key string with no
+# trailing newline. `slv install wireguard` reads that file after
+# the playbook exits and prints it to the operator so they can
+# finish the iPhone peer config.
+- name: Setup WireGuard VPN Server
+  hosts: all
+  become: true
+
+  vars:
+    wg_interface: 'wg0'
+    wg_port: 51820
+    wg_network: '10.0.0.0/24'
+    wg_server_ip: '10.0.0.1'
+
+    wg_private_key_path: '/etc/wireguard/server_private.key'
+    wg_public_key_path: '/etc/wireguard/server_public.key'
+    wg_conf_path: '/etc/wireguard/{{ wg_interface }}.conf'
+
+    # User-readable drop so the CLI wrapper can display the pubkey
+    # without needing sudo on a second hop.
+    wg_pubkey_exported_path: '/tmp/slv-wg-server-pubkey.txt'
+
+    # iPhone (or whatever first peer) public key. Falls back to the
+    # env var so the playbook stays runnable by hand.
+    wg_iphone_pubkey: '{{ lookup("env", "WG_IPHONE_PUBKEY") }}'
+
+  pre_tasks:
+    - name: Assert peer public key is present and well-formed
+      assert:
+        that:
+          - wg_iphone_pubkey is string
+          - wg_iphone_pubkey | length == 44
+          - wg_iphone_pubkey is match('^[A-Za-z0-9+/]{43}=$')
+        fail_msg: >-
+          WG_IPHONE_PUBKEY is missing or malformed — expected a
+          44-char base64 WireGuard public key ending in '='.
+
+  tasks:
+    # =========================
+    # SYSTEM / NETWORK
+    # =========================
+
+    - name: Install WireGuard
+      apt:
+        name: wireguard
+        state: present
+        update_cache: yes
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        state: present
+        reload: yes
+
+    - name: Detect default network interface
+      command: ip route show default
+      register: default_route
+
+    - name: Extract default interface name
+      set_fact:
+        wg_out_interface: "{{ (default_route.stdout | regex_search('dev ([^ ]+)', '\\1'))[0] }}"
+
+    - name: Assert outbound interface detected
+      assert:
+        that:
+          - wg_out_interface is defined
+          - wg_out_interface | length > 0
+        fail_msg: 'Failed to detect outbound network interface (default route).'
+
+    # =========================
+    # KEYS
+    # =========================
+
+    - name: Create key directory
+      file:
+        path: /etc/wireguard
+        state: directory
+        mode: '0700'
+
+    - name: Read existing private key if present
+      slurp:
+        src: '{{ wg_private_key_path }}'
+      register: existing_priv
+      ignore_errors: true
+
+    - name: Set private key if exists
+      set_fact:
+        wg_private_key_value: >-
+          {{ (existing_priv.content | b64decode | trim).splitlines()
+             | first | default('') | trim }}
+      when: existing_priv.content is defined
+
+    - name: Generate new private key if missing or invalid
+      command: wg genkey
+      register: new_priv
+      when: >
+        wg_private_key_value is not defined
+        or wg_private_key_value | length != 44
+        or not (wg_private_key_value is match('^[A-Za-z0-9+/]{43}=$'))
+
+    - name: Set private key from newly generated key
+      set_fact:
+        wg_private_key_value: '{{ new_priv.stdout | trim }}'
+      when: new_priv.stdout is defined
+
+    - name: Assert private key is valid
+      assert:
+        that:
+          - wg_private_key_value | length == 44
+          - wg_private_key_value is match('^[A-Za-z0-9+/]{43}=$')
+        fail_msg: 'WireGuard private key is missing or malformed.'
+
+    - name: Save private key
+      copy:
+        dest: '{{ wg_private_key_path }}'
+        content: '{{ wg_private_key_value }}'
+        mode: '0600'
+
+    - name: Generate public key
+      command: wg pubkey
+      args:
+        stdin: '{{ wg_private_key_value }}'
+      register: wg_public_key
+
+    - name: Save public key (root-only copy)
+      copy:
+        dest: '{{ wg_public_key_path }}'
+        content: '{{ wg_public_key.stdout }}'
+        mode: '0600'
+
+    # User-readable drop — the CLI wrapper reads this and displays
+    # the pubkey to the operator. World-readable is fine: WireGuard
+    # public keys are meant to be shared (the peer needs this
+    # value to finish its config).
+    - name: Export public key to user-readable path
+      copy:
+        dest: '{{ wg_pubkey_exported_path }}'
+        content: '{{ wg_public_key.stdout }}'
+        mode: '0644'
+
+    # =========================
+    # CONFIG
+    # =========================
+
+    - name: Create WireGuard config
+      copy:
+        dest: '{{ wg_conf_path }}'
+        mode: '0600'
+        content: |
+          [Interface]
+          Address = {{ wg_server_ip }}/24
+          ListenPort = {{ wg_port }}
+          PrivateKey = {{ wg_private_key_value }}
+
+          PostUp   = iptables -t nat -A POSTROUTING -o {{ wg_out_interface }} -j MASQUERADE
+          PostDown = iptables -t nat -D POSTROUTING -o {{ wg_out_interface }} -j MASQUERADE
+
+          [Peer]
+          PublicKey = {{ wg_iphone_pubkey }}
+          AllowedIPs = 10.0.0.2/32
+
+    - name: Enable & restart WireGuard
+      systemd:
+        name: 'wg-quick@{{ wg_interface }}'
+        enabled: yes
+        state: restarted
+
+    # =========================
+    # OUTPUT
+    # =========================
+
+    - name: Show detected outbound interface
+      debug:
+        msg: 'Outbound interface detected: {{ wg_out_interface }}'
+
+    - name: Show server public key with CLI-parseable marker
+      debug:
+        msg: 'SLV_WG_SERVER_PUBKEY={{ wg_public_key.stdout }}'

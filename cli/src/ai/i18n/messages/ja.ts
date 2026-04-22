@@ -291,8 +291,8 @@ export const messages: Record<string, string> = {
     'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     'ゲートウェイを 0.0.0.0 に bind して、スマホやノート PC から直接 http://<server-ip>:{port}/ui/ を開けるようにします。チャットはすべてトークン認証でガードされます。',
-  'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.':
-    '本番利用前に WireGuard（https://www.wireguard.com/quickstart/）や nftables でネットワーク境界を固めてください。',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    '次のステップ: オンボードが完了したら `slv c` を実行して、SLV AI にファイアウォール（nftables）とスマホでの WireGuard 設定を手伝ってもらいましょう。動画解説は後日公開予定。',
   'Enable remote IP access now?': '今すぐリモート IP アクセスを有効にしますか？',
   'Remote IP access enabled — gateway restarted.':
     'リモート IP アクセスを有効化 — ゲートウェイを再起動しました。',
@@ -308,8 +308,9 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': 'ブラウザから SLV を開けます:',
   'Gateway token (paste on first visit):':
     'ゲートウェイトークン（初回アクセス時に貼り付け）:',
-  'Security: restrict network access before real use:':
-    'セキュリティ: 本番利用前に以下のいずれかでネットワークアクセスを制限してください:',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    'セキュリティ: `slv c` を実行して、SLV AI にファイアウォール（nftables）とスマホでの WireGuard 設定を手伝ってもらいましょう。',
+  'Video walkthrough: coming soon.': '動画解説: 後日公開予定。',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     'ループバック限定モード — 外から開くには、まず SSH トンネルを張ってください:',
   'Sent browser UI link to your Discord webhook.':

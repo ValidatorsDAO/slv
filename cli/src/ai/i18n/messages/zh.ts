@@ -283,8 +283,8 @@ export const messages: Record<string, string> = {
     '启用 IP 远程访问吗？（VPS 推荐）',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     '将网关绑定到 0.0.0.0，您可以直接从手机/笔记本打开 http://<server-ip>:{port}/ui/。所有聊天操作仍需令牌认证。',
-  'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.':
-    '正式使用前请用 WireGuard（https://www.wireguard.com/quickstart/）或 nftables 加固网络边界。',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    '下一步：引导完成后运行 `slv c`，请 SLV AI 帮您配置防火墙（nftables）和手机 WireGuard。视频教程即将发布。',
   'Enable remote IP access now?': '现在启用 IP 远程访问吗？',
   'Remote IP access enabled — gateway restarted.':
     'IP 远程访问已启用 — 网关已重启。',
@@ -299,8 +299,9 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': '在浏览器中打开 SLV:',
   'Gateway token (paste on first visit):':
     '网关令牌（首次访问时粘贴）:',
-  'Security: restrict network access before real use:':
-    '安全提醒: 正式使用前请限制网络访问:',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    '安全提醒: 运行 `slv c`，请 SLV AI 帮您配置防火墙（nftables）和手机 WireGuard。',
+  'Video walkthrough: coming soon.': '视频教程：即将发布。',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     '仅回环模式 — 从其他地方打开 URL 前，请先建立 SSH 隧道:',
   'Sent browser UI link to your Discord webhook.':

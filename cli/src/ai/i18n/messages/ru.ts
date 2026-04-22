@@ -302,8 +302,8 @@ export const messages: Record<string, string> = {
     'Включить удалённый доступ по IP? (рекомендуется для VPS)',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     'Привязывает шлюз к 0.0.0.0, чтобы вы могли открыть http://<server-ip>:{port}/ui/ напрямую с телефона/ноутбука. Все действия чата по-прежнему защищены авторизацией токеном.',
-  'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.':
-    'Перед использованием в продакшене ограничьте сетевой периметр с помощью WireGuard (https://www.wireguard.com/quickstart/) или nftables.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    'Следующий шаг: после завершения онбординга запустите `slv c` и попросите SLV AI помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне). Видео-руководство появится позже.',
   'Enable remote IP access now?': 'Включить удалённый доступ по IP сейчас?',
   'Remote IP access enabled — gateway restarted.':
     'Удалённый доступ по IP включён — шлюз перезапущен.',
@@ -319,8 +319,9 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': 'Откройте SLV в браузере:',
   'Gateway token (paste on first visit):':
     'Токен шлюза (вставьте при первом посещении):',
-  'Security: restrict network access before real use:':
-    'Безопасность: ограничьте сетевой доступ перед реальным использованием:',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    'Безопасность: запустите `slv c` и попросите SLV AI помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне).',
+  'Video walkthrough: coming soon.': 'Видео-руководство: скоро будет.',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     'Режим только loopback — чтобы открыть URL из другого места, сначала создайте SSH туннель:',
   'Sent browser UI link to your Discord webhook.':

@@ -1,0 +1,8 @@
+{
+  "name": "slv-security",
+  "version": "1.0.0",
+  "description": "VPN + firewall hardening for SLV gateways (WireGuard, nftables)",
+  "agent": "EL",
+  "author": "ELSOUL LABO B.V.",
+  "tags": ["security", "wireguard", "vpn", "firewall", "nftables"]
+}

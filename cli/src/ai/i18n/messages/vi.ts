@@ -299,8 +299,8 @@ export const messages: Record<string, string> = {
     'Bật truy cập từ xa bằng IP? (khuyến nghị cho VPS)',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     'Bind cổng vào 0.0.0.0 để bạn có thể mở http://<server-ip>:{port}/ui/ trực tiếp từ điện thoại/laptop. Mọi thao tác chat vẫn được bảo vệ bằng token.',
-  'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.':
-    'Trước khi dùng production, hãy gia cố chu vi mạng bằng WireGuard (https://www.wireguard.com/quickstart/) hoặc nftables.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    'Bước tiếp theo: khi onboard hoàn tất, chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại). Video hướng dẫn sẽ có sau.',
   'Enable remote IP access now?': 'Bật truy cập từ xa bằng IP ngay?',
   'Remote IP access enabled — gateway restarted.':
     'Đã bật truy cập từ xa bằng IP — cổng được khởi động lại.',
@@ -316,8 +316,9 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': 'Mở SLV trong trình duyệt:',
   'Gateway token (paste on first visit):':
     'Token cổng (dán khi truy cập lần đầu):',
-  'Security: restrict network access before real use:':
-    'Bảo mật: giới hạn truy cập mạng trước khi sử dụng thực tế:',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    'Bảo mật: chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại).',
+  'Video walkthrough: coming soon.': 'Video hướng dẫn: sẽ có sau.',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     'Chế độ chỉ loopback — Trước khi mở URL từ nơi khác, hãy tạo SSH tunnel trước:',
   'Sent browser UI link to your Discord webhook.':
