@@ -1,4 +1,5 @@
 import { colors } from '@cliffy/colors'
+import type { Context } from '@hono/hono'
 import { Hono } from '@hono/hono'
 import {
   ensureGatewayConfig,
@@ -15,6 +16,7 @@ import {
   GATEWAY_SERVICE_ID,
 } from '/src/gateway/paths.ts'
 import { registerWsRoutes } from '/src/gateway/ws/server.ts'
+import { renderChatHtml } from '/src/gateway/ui/static.ts'
 import { errToString } from '/lib/errToString.ts'
 
 // Exit codes align with sysexits.h so a future systemd unit can set
@@ -127,6 +129,15 @@ export const runGatewayForeground = async (): Promise<number> => {
   // WebSocket endpoint: `/v1/session/ws`. Clients authenticate
   // first-message via the token in ~/.slv/gateway/gateway.json.
   registerWsRoutes(app, { token: config.token })
+
+  // Browser chat demo at /ui/. Same event stream the TUI consumes,
+  // rendered as a minimal HTML+JS client. Loopback-only so the
+  // inlined token isn't exposed — the gateway refuses to bind
+  // non-loopback interfaces without an explicit mode change.
+  const uiHandler = (c: Context) =>
+    c.html(renderChatHtml(config.token))
+  app.get('/ui', uiHandler)
+  app.get('/ui/', uiHandler)
 
   // Bind loopback explicitly. Deno.serve defaults to 0.0.0.0 — a
   // serious footgun for a process that executes shell tools.
