@@ -242,4 +242,31 @@ export const messages: Record<string, string> = {
   'Force exit.': 'Принудительный выход.',
   '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
     '⚠️ Прервано. Нажмите Ctrl+C ещё раз для выхода или введите сообщение.',
+
+  // --- Браузерный чат шлюза ---
+  'Send': 'Отправить',
+  'Stop': 'Стоп',
+  'clear': 'очистить',
+  'Connect': 'Подключиться',
+  'Clear chat history': 'Очистить историю чата',
+  'Paste your gateway token': 'Вставьте токен шлюза',
+  "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.":
+    'Этот браузер подключается к шлюзу SLV с другого хоста. Вставьте значение token из ~/.slv/gateway/gateway.json на хосте шлюза, чтобы продолжить. Сохраняется в localStorage браузера.',
+  'Type a message and press Enter': 'Введите сообщение и нажмите Enter',
+  '64 hex characters': '64 шестнадцатеричных символа',
+  'You': 'Вы',
+  'Assistant': 'Ассистент',
+  'Thinking…': 'Думаю…',
+  'connecting…': 'подключение…',
+  'reconnecting…': 'переподключение…',
+  'reconnecting in {secs}s…': 'переподключение через {secs} с…',
+  'connected': 'подключено',
+  'disconnected': 'отключено',
+  'connection error': 'ошибка соединения',
+  'token required': 'требуется токен',
+  'handshake failed': 'сбой рукопожатия',
+  'auth failed — check token': 'ошибка авторизации — проверьте токен',
+  '⏸ aborted': '⏸ прервано',
+  '❌ error': '❌ ошибка',
+  '[disconnected — reply interrupted]': '[отключено — ответ прерван]',
 }

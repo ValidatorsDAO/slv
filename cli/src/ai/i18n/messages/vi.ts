@@ -239,4 +239,31 @@ export const messages: Record<string, string> = {
   'Force exit.': 'Thoát bắt buộc.',
   '⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.':
     '⚠️ Đã ngắt. Nhấn Ctrl+C lần nữa để thoát, hoặc nhập tin nhắn.',
+
+  // --- Giao diện chat trình duyệt của cổng ---
+  'Send': 'Gửi',
+  'Stop': 'Dừng',
+  'clear': 'xóa',
+  'Connect': 'Kết nối',
+  'Clear chat history': 'Xóa lịch sử trò chuyện',
+  'Paste your gateway token': 'Dán token cổng',
+  "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.":
+    'Trình duyệt này đang truy cập cổng SLV từ host khác. Dán giá trị token trong ~/.slv/gateway/gateway.json trên host cổng để tiếp tục. Sẽ được lưu trong localStorage của trình duyệt.',
+  'Type a message and press Enter': 'Nhập tin nhắn và nhấn Enter',
+  '64 hex characters': '64 ký tự hex',
+  'You': 'Bạn',
+  'Assistant': 'Trợ lý',
+  'Thinking…': 'Đang suy nghĩ…',
+  'connecting…': 'đang kết nối…',
+  'reconnecting…': 'đang kết nối lại…',
+  'reconnecting in {secs}s…': 'kết nối lại sau {secs} giây…',
+  'connected': 'đã kết nối',
+  'disconnected': 'đã ngắt kết nối',
+  'connection error': 'lỗi kết nối',
+  'token required': 'cần token',
+  'handshake failed': 'bắt tay thất bại',
+  'auth failed — check token': 'xác thực thất bại — kiểm tra token',
+  '⏸ aborted': '⏸ đã hủy',
+  '❌ error': '❌ lỗi',
+  '[disconnected — reply interrupted]': '[đã ngắt kết nối — phản hồi bị gián đoạn]',
 }
