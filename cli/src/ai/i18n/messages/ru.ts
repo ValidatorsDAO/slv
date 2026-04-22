@@ -298,30 +298,31 @@ export const messages: Record<string, string> = {
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Шлюз работает по адресу http://127.0.0.1:{port}/ui/',
   'Gateway is already running.': 'Шлюз уже работает.',
-  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
-    'Удалённый доступ через браузер (режим lan) — рекомендуется для VPS, не для ноутбуков.',
-  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
-    'Режим local привязан только к 127.0.0.1 (доступ через SSH туннель). Режим lan привязан к 0.0.0.0, поэтому любое устройство в сети может получить доступ к /ui/. Все действия чата по-прежнему защищены авторизацией токеном.',
-  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
-    'Перед включением режима lan в продакшене ограничьте доступ с помощью WireGuard: https://www.wireguard.com/quickstart/',
-  'Enable lan mode now?': 'Включить режим lan сейчас?',
-  'Gateway switched to lan mode and restarted.':
-    'Шлюз переключён в режим lan и перезапущен.',
-  'Failed to switch to lan mode:': 'Не удалось переключить в режим lan:',
+  'Enable remote IP access (recommended for VPS)?':
+    'Включить удалённый доступ по IP? (рекомендуется для VPS)',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    'Привязывает шлюз к 0.0.0.0, чтобы вы могли открыть http://<server-ip>:{port}/ui/ напрямую с телефона/ноутбука. Все действия чата по-прежнему защищены авторизацией токеном.',
+  'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.':
+    'Перед использованием в продакшене ограничьте сетевой периметр с помощью WireGuard (https://www.wireguard.com/quickstart/) или nftables.',
+  'Enable remote IP access now?': 'Включить удалённый доступ по IP сейчас?',
+  'Remote IP access enabled — gateway restarted.':
+    'Удалённый доступ по IP включён — шлюз перезапущен.',
+  'Failed to enable remote IP access:':
+    'Не удалось включить удалённый доступ по IP:',
   'You can run `slv gateway config set-mode lan` later.':
     'Вы можете позже выполнить `slv gateway config set-mode lan`.',
-  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
-    'Оставлен режим local. Для смены позже выполните `slv gateway config set-mode lan`.',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    'Оставлен только loopback. Для включения удалённого доступа позже выполните `slv gateway config set-mode lan`.',
 
   // Уведомление о завершении в Discord
   'SLV AI setup complete!': 'Настройка SLV AI завершена!',
   'Open SLV in your browser:': 'Откройте SLV в браузере:',
   'Gateway token (paste on first visit):':
     'Токен шлюза (вставьте при первом посещении):',
-  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
-    'Безопасность: этот URL доступен из публичного интернета. Ограничьте доступ через WireGuard перед реальным использованием:',
-  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
-    'Режим local — доступен только с этого хоста. Используйте SSH туннель для открытия URL из другого места:',
+  'Security: restrict network access before real use:':
+    'Безопасность: ограничьте сетевой доступ перед реальным использованием:',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    'Режим только loopback — чтобы открыть URL из другого места, сначала создайте SSH туннель:',
   'Sent browser UI link to your Discord webhook.':
     'Ссылка на браузерный UI отправлена в ваш Discord webhook.',
   'Discord webhook post returned': 'Ответ Discord webhook:',

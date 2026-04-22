@@ -760,35 +760,38 @@ const maybeInstallGateway = async (
     )
   }
 
-  // Offer lan-mode switch so the browser UI is reachable from the
-  // user's phone/laptop by the server's IP — the common use case on
-  // a dedicated dev-VPS. Skip asking if already in lan mode.
+  // Default the gateway to lan mode so non-engineers can reach the
+  // browser UI by IP from their phone/laptop without setting up an
+  // SSH tunnel. Security hardening (WireGuard / nftables) is called
+  // out below and reinforced in the Discord completion message.
+  // Power users who really want loopback-only can still say No and
+  // flip back with `slv gateway config set-mode local` later.
   const currentMode = await readCurrentGatewayMode()
   let finalMode: 'local' | 'lan' = currentMode
   if (currentMode === 'local') {
     console.log(
       colors.bold.yellow(
-        `\n  ${t('Remote browser access (lan mode) — recommended for VPS, not laptops.')}`,
+        `\n  ${t('Enable remote IP access (recommended for VPS)?')}`,
       ),
     )
     console.log(
       colors.white(
         `    ${
-          t('Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host\'s network can reach /ui/. Token auth still gates every chat action.')
+          t('Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.').replace('{port}', String(GATEWAY_DEFAULT_PORT))
         }`,
       ),
     )
     console.log(
       colors.bold.rgb24(
         `    ⚠ ${
-          t('Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/')
+          t('Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.')
         }`,
         0xffdf7a,
       ),
     )
     const enableLan = await Confirm.prompt({
-      message: t('Enable lan mode now?'),
-      default: false,
+      message: t('Enable remote IP access now?'),
+      default: true,
     })
     if (enableLan) {
       try {
@@ -798,13 +801,13 @@ const maybeInstallGateway = async (
         finalMode = 'lan'
         console.log(
           colors.green(
-            `  ✔ ${t('Gateway switched to lan mode and restarted.')}\n`,
+            `  ✔ ${t('Remote IP access enabled — gateway restarted.')}\n`,
           ),
         )
       } catch (err) {
         console.log(
           colors.yellow(
-            `  ⚠ ${t('Failed to switch to lan mode:')} ${errToString(err)}`,
+            `  ⚠ ${t('Failed to enable remote IP access:')} ${errToString(err)}`,
           ),
         )
         console.log(
@@ -817,7 +820,7 @@ const maybeInstallGateway = async (
       console.log(
         colors.rgb24(
           `  ${
-            t('Kept local mode. Run `slv gateway config set-mode lan` later to change.')
+            t('Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.')
           }\n`,
           0x888888,
         ),
@@ -951,25 +954,36 @@ const sendOnboardWebhook = async (opts: {
   lines.push('```')
   lines.push(token)
   lines.push('```')
-  if (mode === 'lan' && externallyReachable) {
-    lines.push('')
-    lines.push(
-      `⚠️ ${
-        t('Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:')
-      }`,
-    )
-    lines.push('https://www.wireguard.com/quickstart/')
-  } else if (mode === 'local') {
+  // Local mode needs an SSH tunnel to reach 127.0.0.1 from another
+  // device. Add it as a prerequisite step — not a replacement for
+  // the hardening advisory below.
+  if (mode === 'local') {
     lines.push('')
     lines.push(
       `ℹ️ ${
-        t('Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:')
+        t('Loopback-only mode — open the URL from elsewhere via SSH tunnel first:')
       }`,
     )
     lines.push('```')
-    lines.push(`ssh -N -L ${GATEWAY_DEFAULT_PORT}:127.0.0.1:${GATEWAY_DEFAULT_PORT} <user>@<host>`)
+    lines.push(
+      `ssh -N -L ${GATEWAY_DEFAULT_PORT}:127.0.0.1:${GATEWAY_DEFAULT_PORT} <user>@<host>`,
+    )
     lines.push('```')
   }
+  // Hardening advisory is the same regardless of mode — the user
+  // asked for behavior parity. Both WireGuard (encrypted tunnel)
+  // and nftables (host-level packet filter) are listed so the user
+  // can pick whichever fits their setup. Token auth already gates
+  // chat actions; this is about narrowing the HTTP surface to
+  // trusted networks before real use.
+  lines.push('')
+  lines.push(
+    `⚠️ ${
+      t('Security: restrict network access before real use:')
+    }`,
+  )
+  lines.push(`• WireGuard: https://www.wireguard.com/quickstart/`)
+  lines.push(`• nftables:  https://wiki.nftables.org/`)
 
   try {
     const controller = new AbortController()

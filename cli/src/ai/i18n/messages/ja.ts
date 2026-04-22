@@ -287,30 +287,31 @@ export const messages: Record<string, string> = {
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'ゲートウェイが http://127.0.0.1:{port}/ui/ で稼働中',
   'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
-  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
-    'ブラウザからの外部アクセス（lan モード） — VPS 向けの設定です。ノート PC では推奨しません。',
-  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
-    'Local モードは 127.0.0.1 のみに bind（SSH トンネル経由でアクセス可能）。Lan モードは 0.0.0.0 に bind してネットワーク上のどのデバイスからも /ui/ に到達可能になります。チャットはすべてトークン認証でガードされます。',
-  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
-    '本番利用前に WireGuard でアクセスを制限することを強く推奨します: https://www.wireguard.com/quickstart/',
-  'Enable lan mode now?': '今すぐ lan モードを有効にしますか？',
-  'Gateway switched to lan mode and restarted.':
-    'ゲートウェイを lan モードに切り替えて再起動しました。',
-  'Failed to switch to lan mode:': 'lan モードへの切り替えに失敗しました:',
+  'Enable remote IP access (recommended for VPS)?':
+    'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    'ゲートウェイを 0.0.0.0 に bind して、スマホやノート PC から直接 http://<server-ip>:{port}/ui/ を開けるようにします。チャットはすべてトークン認証でガードされます。',
+  'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.':
+    '本番利用前に WireGuard（https://www.wireguard.com/quickstart/）や nftables でネットワーク境界を固めてください。',
+  'Enable remote IP access now?': '今すぐリモート IP アクセスを有効にしますか？',
+  'Remote IP access enabled — gateway restarted.':
+    'リモート IP アクセスを有効化 — ゲートウェイを再起動しました。',
+  'Failed to enable remote IP access:':
+    'リモート IP アクセスの有効化に失敗しました:',
   'You can run `slv gateway config set-mode lan` later.':
     '後で `slv gateway config set-mode lan` を実行できます。',
-  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
-    'local モードのままにしました。後で変更したくなったら `slv gateway config set-mode lan` を実行してください。',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    'ループバック限定のままにしました。後でリモートアクセスしたくなったら `slv gateway config set-mode lan` を実行してください。',
 
   // Discord 完了通知
   'SLV AI setup complete!': 'SLV AI セットアップ完了!',
   'Open SLV in your browser:': 'ブラウザから SLV を開けます:',
   'Gateway token (paste on first visit):':
     'ゲートウェイトークン（初回アクセス時に貼り付け）:',
-  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
-    'セキュリティ: この URL は公開インターネットから到達可能です。本番利用前に WireGuard でアクセスを制限してください:',
-  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
-    'Local モード — このホストからのみアクセス可能です。外から開くには SSH トンネルを使ってください:',
+  'Security: restrict network access before real use:':
+    'セキュリティ: 本番利用前に以下のいずれかでネットワークアクセスを制限してください:',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    'ループバック限定モード — 外から開くには、まず SSH トンネルを張ってください:',
   'Sent browser UI link to your Discord webhook.':
     'ブラウザ UI のリンクを Discord Webhook に送信しました。',
   'Discord webhook post returned': 'Discord Webhook のレスポンス:',

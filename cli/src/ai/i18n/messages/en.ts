@@ -309,30 +309,30 @@ export const messages: Record<string, string> = {
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Gateway running at http://127.0.0.1:{port}/ui/',
   'Gateway is already running.': 'Gateway is already running.',
-  'Remote browser access (lan mode) — recommended for VPS, not laptops.':
-    'Remote browser access (lan mode) — recommended for VPS, not laptops.',
-  "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.":
-    "Local mode binds 127.0.0.1 only (reachable via SSH tunnel). Lan mode binds 0.0.0.0 so any device on this host's network can reach /ui/. Token auth still gates every chat action.",
-  'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/':
-    'Before enabling lan mode in production, restrict access with WireGuard: https://www.wireguard.com/quickstart/',
-  'Enable lan mode now?': 'Enable lan mode now?',
-  'Gateway switched to lan mode and restarted.':
-    'Gateway switched to lan mode and restarted.',
-  'Failed to switch to lan mode:': 'Failed to switch to lan mode:',
+  'Enable remote IP access (recommended for VPS)?':
+    'Enable remote IP access (recommended for VPS)?',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.',
+  'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.':
+    'Harden the network perimeter with WireGuard (https://www.wireguard.com/quickstart/) or nftables before production use.',
+  'Enable remote IP access now?': 'Enable remote IP access now?',
+  'Remote IP access enabled — gateway restarted.':
+    'Remote IP access enabled — gateway restarted.',
+  'Failed to enable remote IP access:': 'Failed to enable remote IP access:',
   'You can run `slv gateway config set-mode lan` later.':
     'You can run `slv gateway config set-mode lan` later.',
-  'Kept local mode. Run `slv gateway config set-mode lan` later to change.':
-    'Kept local mode. Run `slv gateway config set-mode lan` later to change.',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.',
 
   // Discord completion webhook
   'SLV AI setup complete!': 'SLV AI setup complete!',
   'Open SLV in your browser:': 'Open SLV in your browser:',
   'Gateway token (paste on first visit):':
     'Gateway token (paste on first visit):',
-  'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:':
-    'Security: this URL is reachable on the public internet. Restrict access with WireGuard before real use:',
-  'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:':
-    'Local mode — reachable only from this host. Use an SSH tunnel to open the URL from elsewhere:',
+  'Security: restrict network access before real use:':
+    'Security: restrict network access before real use:',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:',
   'Sent browser UI link to your Discord webhook.':
     'Sent browser UI link to your Discord webhook.',
   'Discord webhook post returned': 'Discord webhook post returned',
