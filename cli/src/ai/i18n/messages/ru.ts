@@ -308,6 +308,13 @@ export const messages: Record<string, string> = {
   'You can retry later with `slv install nginx`.':
     'Вы можете повторить позже с `slv install nginx`.',
   'HTTPS is live at {url}': 'HTTPS активен: {url}',
+  'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.':
+    'Пропущено — требуется SLV API ключ. Запустите `slv login`, затем `slv install nginx` для включения HTTPS.',
+  'Could not read DNS status — run `slv install nginx` later to retry.':
+    'Не удалось прочитать статус DNS — запустите `slv install nginx` позже для повторной попытки.',
+  'Browser chat UI': 'Браузерный чат',
+  'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Устанавливается фоновый сервис, чтобы вы могли общаться с SLV из любого браузера по адресу http://127.0.0.1:{port}/ui/, не держа терминал открытым.',
   'Gateway is already running.': 'Шлюз уже работает.',
   'Enable remote IP access (recommended for VPS)?':
     'Включить удалённый доступ по IP? (рекомендуется для VPS)',

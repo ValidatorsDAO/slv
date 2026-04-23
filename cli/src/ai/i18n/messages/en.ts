@@ -319,6 +319,14 @@ export const messages: Record<string, string> = {
   'You can retry later with `slv install nginx`.':
     'You can retry later with `slv install nginx`.',
   'HTTPS is live at {url}': 'HTTPS is live at {url}',
+  'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.':
+    'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.',
+  'Could not read DNS status — run `slv install nginx` later to retry.':
+    'Could not read DNS status — run `slv install nginx` later to retry.',
+  'Browser chat UI':
+    'Browser chat UI',
+  'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
   'Gateway is already running.': 'Gateway is already running.',
   'Enable remote IP access (recommended for VPS)?':
     'Enable remote IP access (recommended for VPS)?',

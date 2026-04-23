@@ -615,16 +615,18 @@ Session history and important notes.
   // service is already installed/running, we say so and continue.
   const gatewayResult = await maybeInstallGateway(t)
 
-  // --- HTTPS via erpc.global (optional, Linux-only) ---
-  // If the user has an SLV API key + their free default subdomain
-  // is still unset, we can point `<slug>.erpc.global` at this host
-  // and install nginx to serve /ui/ over HTTPS via Cloudflare — no
-  // certbot, no port-forwarding tutorial. This is the big non-
-  // engineer-friendly win: they get a clickable mobile URL in
-  // Discord before the onboard summary prints.
+  // Access path — try HTTPS first, fall back to LAN mode only if
+  // HTTPS was declined or couldn't be set up. Order matters: with
+  // HTTPS the gateway stays safely on loopback and nginx handles
+  // the external side; offering LAN mode after HTTPS succeeded
+  // would just confuse the user with an unneeded 0.0.0.0 bind.
   let httpsUrl: string | null = null
+  let accessMode: 'local' | 'lan' = gatewayResult.mode
   if (gatewayResult.gatewayReachable) {
     httpsUrl = await maybeSetupHttps(t)
+    if (!httpsUrl) {
+      accessMode = await maybeEnableLanMode(t)
+    }
   }
 
   // If the gateway is up AND the user set a Discord webhook, send
@@ -635,7 +637,7 @@ Session history and important notes.
     await sendOnboardWebhook({
       t,
       agentHome,
-      mode: gatewayResult.mode,
+      mode: accessMode,
       httpsUrl,
     })
   }
@@ -684,13 +686,13 @@ const maybeInstallGateway = async (
   t: (key: string) => string,
 ): Promise<GatewayResult> => {
   console.log(
-    colors.bold.rgb24(`\n│  ${t('Browser chat UI (optional)')}`, 0x14f195),
+    colors.bold.rgb24(`\n│  ${t('Browser chat UI')}`, 0x14f195),
   )
   console.log(
     colors.white(
       `  ${
         t(
-          'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
+          'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
         ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
       }`,
     ),
@@ -721,25 +723,11 @@ const maybeInstallGateway = async (
     return { gatewayReachable: false, mode: 'local' }
   }
 
-  // Probe BEFORE the confirm — a running service shortcuts the whole
-  // prompt, but we still want to ask about lan mode afterwards.
+  // Auto-install: no Confirm. Onboard explicitly assumes the user
+  // wants the browser UI — skipping would leave them stranded.
+  // Platform gate + idempotent status probe above means this is
+  // safe to run every time.
   if (!status.running) {
-    const ok = await Confirm.prompt({
-      message: t('Install and start the gateway now?'),
-      default: true,
-    })
-    if (!ok) {
-      console.log(
-        colors.rgb24(
-          `  ${
-            t('Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.')
-          }\n`,
-          0x888888,
-        ),
-      )
-      return { gatewayReachable: false, mode: 'local' }
-    }
-
     if (!status.loaded) {
       const installed = await installGatewayAction()
       if (!installed) {
@@ -783,73 +771,14 @@ const maybeInstallGateway = async (
     )
   }
 
-  // Default the gateway to lan mode so non-engineers can reach the
-  // browser UI by IP from their phone/laptop without setting up an
-  // SSH tunnel. Security hardening (WireGuard / nftables) is called
-  // out below and reinforced in the Discord completion message.
-  // Power users who really want loopback-only can still say No and
-  // flip back with `slv gateway config set-mode local` later.
-  const currentMode = await readCurrentGatewayMode()
-  let finalMode: 'local' | 'lan' = currentMode
-  if (currentMode === 'local') {
-    console.log(
-      colors.bold.yellow(
-        `\n  ${t('Enable remote IP access (recommended for VPS)?')}`,
-      ),
-    )
-    console.log(
-      colors.white(
-        `    ${
-          t('Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.').replace('{port}', String(GATEWAY_DEFAULT_PORT))
-        }`,
-      ),
-    )
-    console.log(
-      colors.bold.rgb24(
-        `    ⚠ ${
-          t('Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.')
-        }`,
-        0xffdf7a,
-      ),
-    )
-    const enableLan = await Confirm.prompt({
-      message: t('Enable remote IP access now?'),
-      default: true,
-    })
-    if (enableLan) {
-      try {
-        const cfg = await loadGatewayConfig()
-        await writeGatewayConfig({ ...cfg, mode: 'lan' })
-        await service.restart()
-        finalMode = 'lan'
-        console.log(
-          colors.green(
-            `  ✔ ${t('Remote IP access enabled — gateway restarted.')}\n`,
-          ),
-        )
-      } catch (err) {
-        console.log(
-          colors.yellow(
-            `  ⚠ ${t('Failed to enable remote IP access:')} ${errToString(err)}`,
-          ),
-        )
-        console.log(
-          colors.white(
-            `    ${t('You can run `slv gateway config set-mode lan` later.')}\n`,
-          ),
-        )
-      }
-    } else {
-      console.log(
-        colors.rgb24(
-          `  ${
-            t('Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.')
-          }\n`,
-          0x888888,
-        ),
-      )
-    }
-  }
+  // Mode-switching used to live here; it's now split into two
+  // explicit sections further up the onboard flow:
+  //   1. `maybeSetupHttps` offers the Cloudflare-fronted HTTPS
+  //      URL (preferred path — no LAN exposure required).
+  //   2. `maybeEnableLanMode` is only asked when HTTPS was
+  //      skipped, so users don't get badgered about opening 0.0.0.0
+  //      when nginx is going to handle remote access anyway.
+  const finalMode = await readCurrentGatewayMode()
 
   console.log(
     colors.green(
@@ -927,6 +856,87 @@ const resolveBrowserUrl = async (
     return { host: Deno.hostname(), externallyReachable: true }
   } catch {
     return { host: '127.0.0.1', externallyReachable: false }
+  }
+}
+
+/**
+ * Offer lan mode — only called as a fallback when HTTPS has
+ * already been offered and declined (or couldn't be set up). If
+ * HTTPS is configured, the gateway should stay on loopback; nginx
+ * handles the public-facing side.
+ *
+ * Returns the mode the gateway ended up in. Non-fatal on error.
+ */
+const maybeEnableLanMode = async (
+  t: (key: string) => string,
+): Promise<'local' | 'lan'> => {
+  const currentMode = await readCurrentGatewayMode()
+  if (currentMode === 'lan') return 'lan'
+  let service
+  try {
+    service = pickGatewayService()
+  } catch {
+    return currentMode
+  }
+
+  console.log(
+    colors.bold.yellow(
+      `\n  ${t('Enable remote IP access (recommended for VPS)?')}`,
+    ),
+  )
+  console.log(
+    colors.white(
+      `    ${
+        t(
+          'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.',
+        ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
+      }`,
+    ),
+  )
+  console.log(
+    colors.bold.rgb24(
+      `    ⚠ ${
+        t(
+          'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.',
+        )
+      }`,
+      0xffdf7a,
+    ),
+  )
+  const enableLan = await Confirm.prompt({
+    message: t('Enable remote IP access now?'),
+    default: true,
+  })
+  if (!enableLan) {
+    console.log(
+      colors.rgb24(
+        `  ${
+          t(
+            'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.',
+          )
+        }\n`,
+        0x888888,
+      ),
+    )
+    return 'local'
+  }
+  try {
+    const cfg = await loadGatewayConfig()
+    await writeGatewayConfig({ ...cfg, mode: 'lan' })
+    await service.restart()
+    console.log(
+      colors.green(
+        `  ✔ ${t('Remote IP access enabled — gateway restarted.')}\n`,
+      ),
+    )
+    return 'lan'
+  } catch (err) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${t('Failed to enable remote IP access:')} ${errToString(err)}`,
+      ),
+    )
+    return 'local'
   }
 }
 
@@ -1084,27 +1094,54 @@ const sendOnboardWebhook = async (opts: {
 const maybeSetupHttps = async (
   t: (key: string) => string,
 ): Promise<string | null> => {
-  // Platform gate — nginx-via-apt is Ubuntu/Debian-only.
+  // Platform gate — nginx-via-apt is Ubuntu/Debian-only. Silent
+  // skip here is fine; macOS / BSD users aren't missing anything
+  // they'd expect from this onboard step.
   if (Deno.build.os !== 'linux') return null
+
+  // Always show the section header — even when we skip, the user
+  // should see this path exists (and what to do to enable it
+  // later). The previous silent-skip-on-missing-key made users
+  // think the HTTPS feature didn't exist at all.
+  console.log(
+    colors.bold.rgb24(`\n│  ${t('Public HTTPS URL (optional)')}`, 0x14f195),
+  )
 
   let apiKey: string | null = null
   try {
     apiKey = await getApiKeyFromYml(true)
   } catch { /* no key */ }
-  if (!apiKey) return null
+  if (!apiKey) {
+    console.log(
+      colors.rgb24(
+        `  ${
+          t(
+            'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.',
+          )
+        }\n`,
+        0x888888,
+      ),
+    )
+    return null
+  }
 
   // Pre-flight DNS status check — we want to know the user's
   // default slug before asking, so the prompt can name the
   // resulting URL and so we can skip on "already set" without
   // bothering them.
   const status = await getDnsStatus(apiKey)
-  if (!status.ok) return null
+  if (!status.ok) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${
+          t('Could not read DNS status — run `slv install nginx` later to retry.')
+        }\n`,
+      ),
+    )
+    return null
+  }
   const def = status.data.default
   const fqdn = def.fqdn
-
-  console.log(
-    colors.bold.rgb24(`\n│  ${t('Public HTTPS URL (optional)')}`, 0x14f195),
-  )
   console.log(
     colors.white(
       `  ${

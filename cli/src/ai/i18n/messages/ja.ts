@@ -297,6 +297,13 @@ export const messages: Record<string, string> = {
   'You can retry later with `slv install nginx`.':
     '後で `slv install nginx` で再試行できます。',
   'HTTPS is live at {url}': 'HTTPS 有効化: {url}',
+  'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.':
+    'スキップしました — SLV API キーが必要です。`slv login` の後に `slv install nginx` を実行すると HTTPS を有効化できます。',
+  'Could not read DNS status — run `slv install nginx` later to retry.':
+    'DNS ステータスを取得できませんでした — 後で `slv install nginx` を実行して再試行してください。',
+  'Browser chat UI': 'ブラウザチャット UI',
+  'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'バックグラウンドサービスをインストールして、ターミナルを開いたままにしなくてもブラウザから http://127.0.0.1:{port}/ui/ で SLV とチャットできるようにします。',
   'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
   'Enable remote IP access (recommended for VPS)?':
     'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',

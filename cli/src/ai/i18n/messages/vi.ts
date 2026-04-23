@@ -305,6 +305,13 @@ export const messages: Record<string, string> = {
   'You can retry later with `slv install nginx`.':
     'Bạn có thể thử lại sau với `slv install nginx`.',
   'HTTPS is live at {url}': 'HTTPS đang hoạt động tại {url}',
+  'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.':
+    'Đã bỏ qua — cần có SLV API key. Chạy `slv login` rồi `slv install nginx` để bật HTTPS.',
+  'Could not read DNS status — run `slv install nginx` later to retry.':
+    'Không đọc được trạng thái DNS — chạy `slv install nginx` sau để thử lại.',
+  'Browser chat UI': 'Giao diện chat trình duyệt',
+  'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Đang cài dịch vụ chạy nền để bạn có thể trò chuyện với SLV từ trình duyệt tại http://127.0.0.1:{port}/ui/ mà không cần mở terminal.',
   'Gateway is already running.': 'Cổng đang chạy.',
   'Enable remote IP access (recommended for VPS)?':
     'Bật truy cập từ xa bằng IP? (khuyến nghị cho VPS)',

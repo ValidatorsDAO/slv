@@ -289,6 +289,13 @@ export const messages: Record<string, string> = {
   'You can retry later with `slv install nginx`.':
     '您可以稍后使用 `slv install nginx` 重试。',
   'HTTPS is live at {url}': 'HTTPS 已启用：{url}',
+  'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.':
+    '已跳过 — 需要 SLV API 密钥。运行 `slv login` 后再执行 `slv install nginx` 即可启用 HTTPS。',
+  'Could not read DNS status — run `slv install nginx` later to retry.':
+    '无法读取 DNS 状态 — 稍后运行 `slv install nginx` 重试。',
+  'Browser chat UI': '浏览器聊天界面',
+  'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    '安装后台服务，无需保持终端打开即可在浏览器中访问 http://127.0.0.1:{port}/ui/ 与 SLV 聊天。',
   'Gateway is already running.': '网关已在运行。',
   'Enable remote IP access (recommended for VPS)?':
     '启用 IP 远程访问吗？（VPS 推荐）',
