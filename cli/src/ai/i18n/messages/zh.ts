@@ -278,6 +278,17 @@ export const messages: Record<string, string> = {
     '请手动运行 `slv gateway start` 重试。',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     '网关运行于 http://127.0.0.1:{port}/ui/',
+  'Public HTTPS URL (optional)': '公共 HTTPS URL（可选）',
+  'Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).':
+    '将您的免费子域名 {fqdn} 指向此 VPS 并安装 nginx，即可通过 HTTPS 从手机访问 SLV AI — 无需证书设置（Cloudflare 处理 TLS）。',
+  'Set up HTTPS now?': '现在配置 HTTPS 吗？',
+  'Skipped. Run `slv install nginx` later to enable HTTPS.':
+    '已跳过。稍后运行 `slv install nginx` 启用 HTTPS。',
+  'HTTPS setup failed ({stage}): {err}':
+    'HTTPS 配置失败（{stage}）：{err}',
+  'You can retry later with `slv install nginx`.':
+    '您可以稍后使用 `slv install nginx` 重试。',
+  'HTTPS is live at {url}': 'HTTPS 已启用：{url}',
   'Gateway is already running.': '网关已在运行。',
   'Enable remote IP access (recommended for VPS)?':
     '启用 IP 远程访问吗？（VPS 推荐）',

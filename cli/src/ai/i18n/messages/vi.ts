@@ -294,6 +294,17 @@ export const messages: Record<string, string> = {
     'Chạy `slv gateway start` thủ công để thử lại.',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
+  'Public HTTPS URL (optional)': 'URL HTTPS công khai (tùy chọn)',
+  'Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).':
+    'Trỏ subdomain miễn phí {fqdn} của bạn đến VPS này và cài nginx để SLV AI có thể truy cập qua HTTPS từ điện thoại — không cần cài chứng chỉ (Cloudflare xử lý TLS).',
+  'Set up HTTPS now?': 'Cài đặt HTTPS ngay?',
+  'Skipped. Run `slv install nginx` later to enable HTTPS.':
+    'Đã bỏ qua. Chạy `slv install nginx` sau để bật HTTPS.',
+  'HTTPS setup failed ({stage}): {err}':
+    'Cài đặt HTTPS thất bại ({stage}): {err}',
+  'You can retry later with `slv install nginx`.':
+    'Bạn có thể thử lại sau với `slv install nginx`.',
+  'HTTPS is live at {url}': 'HTTPS đang hoạt động tại {url}',
   'Gateway is already running.': 'Cổng đang chạy.',
   'Enable remote IP access (recommended for VPS)?':
     'Bật truy cập từ xa bằng IP? (khuyến nghị cho VPS)',

@@ -8,12 +8,7 @@ import {
   resolveIpsFromInventoryFile,
 } from '/src/install/inventoryTargets.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
-import { resolvePublicIp } from '/lib/publicIp.ts'
-import {
-  explainDnsSetError,
-  getDnsStatus,
-  setDnsRecord,
-} from '/lib/erpcDnsClient.ts'
+import { runNginxFlow } from '/src/install/nginxFlow.ts'
 
 // A WireGuard public key is 32 bytes base64-encoded: 44 chars total,
 // always ending in `=`. Validating client-side gives a clean early
@@ -385,13 +380,8 @@ installCmd.command('wireguard', wireguardCmd)
  */
 const nginxCmd = new Command()
   .description(
-    'Install nginx as an HTTPS reverse proxy fronted by Cloudflare (no certbot needed). By default points your free *.erpc.global subdomain at this VPS and proxies it down to 127.0.0.1:20026 (the SLV gateway). Override --port for any other service.',
+    'Install nginx on THIS host as an HTTPS reverse proxy fronted by Cloudflare (no certbot needed). By default points your free *.erpc.global subdomain at this VPS and proxies it down to 127.0.0.1:20026 (the SLV gateway). Override --port for any other local service.',
   )
-  .option(
-    '-i, --inventory <string>',
-    'Inventory — IP CSV or path to inventory YAML. Defaults to the local host.',
-  )
-  .option('-l, --limit <string>', 'Ansible --limit argument')
   .option(
     '--port <port:number>',
     'Upstream port on 127.0.0.1 to proxy to',
@@ -408,14 +398,11 @@ const nginxCmd = new Command()
   .option('-y, --yes', 'Skip all confirmation prompts', { default: false })
   .action(
     async (options: {
-      inventory?: string
-      limit?: string
       port: number
       slug?: string
       ip?: string
       yes?: boolean
     }) => {
-      // 1. SLV API key
       let apiKey: string | null = null
       try {
         apiKey = await getApiKeyFromYml(true)
@@ -427,40 +414,11 @@ const nginxCmd = new Command()
         return
       }
 
-      // 2. Figure out which slug we're configuring, and what IP
-      // the record should point at.
-      const statusResult = await getDnsStatus(apiKey)
-      if (!statusResult.ok) {
-        console.error(
-          colors.red(
-            `❌ failed to read DNS status (${statusResult.status}) — is your SLV account active?`,
-          ),
-        )
-        return
-      }
-      const { default: defaultRec } = statusResult.data
-      const targetSlug = options.slug ?? defaultRec.slug
-      const fqdn = options.slug
-        ? `${options.slug}.erpc.global`
-        : defaultRec.fqdn
-
-      let ip = options.ip
-      if (!ip) {
-        const detected = await resolvePublicIp()
-        if (!detected) {
-          console.error(
-            colors.red(
-              '❌ could not detect public IP. Pass --ip <address> explicitly.',
-            ),
-          )
-          return
-        }
-        ip = detected
-      }
-
       console.log(colors.blue('\n📋 nginx install plan:'))
-      console.log(colors.blue('  fqdn:         ') + colors.white(fqdn))
-      console.log(colors.blue('  IP:           ') + colors.white(ip))
+      console.log(
+        colors.blue('  slug:         ') +
+          colors.white(options.slug ?? '(default free slug)'),
+      )
       console.log(
         colors.blue('  upstream:     ') +
           colors.white(`http://127.0.0.1:${options.port}`),
@@ -472,10 +430,6 @@ const nginxCmd = new Command()
           ),
         )
       }
-      console.log(
-        colors.blue('  inventory:    ') +
-          colors.white(options.inventory ?? 'localhost'),
-      )
 
       if (!options.yes) {
         const ok = await Confirm.prompt({
@@ -488,51 +442,22 @@ const nginxCmd = new Command()
         }
       }
 
-      // 3. Point the DNS record at this VPS. Skip only if the
-      // record already matches — re-publishing is free but noisy.
-      const needsDnsUpdate = !options.slug &&
-        defaultRec.ip === ip &&
-        defaultRec.exists
-      if (needsDnsUpdate) {
-        console.log(
-          colors.gray(`  DNS: ${fqdn} already → ${ip}, skipping /v3/dns/set.`),
+      const result = await runNginxFlow({
+        apiKey,
+        port: options.port,
+        slug: options.slug,
+        ip: options.ip,
+      })
+      if (!result.ok) {
+        console.error(
+          colors.red(`❌ nginx install failed (${result.stage}): ${result.error}`),
         )
-      } else {
-        console.log(colors.cyan('🌐 Registering DNS...'))
-        const setResult = await setDnsRecord(apiKey, {
-          ip,
-          slug: options.slug,
-        })
-        if (!setResult.ok) {
-          console.error(
-            colors.red(`❌ DNS set failed: ${explainDnsSetError(setResult)}`),
-          )
-          return
-        }
-        console.log(
-          colors.green(
-            `✅ ${setResult.data.fqdn} → ${setResult.data.ip} (Cloudflare usually converges in seconds).`,
-          ),
-        )
+        return
       }
-
-      // 4. Install + configure nginx via the playbook.
-      const inventory = options.inventory ?? '127.0.0.1,'
-      const templateRoot = getTemplatePath()
-      const playbook =
-        `${templateRoot}/ansible/cmn/software/install-nginx.yaml`
-      console.log(colors.cyan('\n🔧 Running nginx playbook...'))
-      const success = await runAnsibleV2(
-        playbook,
-        inventory,
-        options.limit,
-        { fqdn, upstream_port: String(options.port) },
-      )
-      if (!success) return
 
       console.log(colors.green('\n✅ nginx install complete.'))
       console.log(
-        colors.yellow(`\n🌐 Your service is live at: ${colors.bold(`https://${fqdn}/`)}`),
+        colors.yellow(`\n🌐 Your service is live at: ${colors.bold(result.httpsUrl)}`),
       )
       console.log(
         colors.gray(

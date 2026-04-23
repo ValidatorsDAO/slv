@@ -17,7 +17,11 @@ import {
   promptAndInstallSudoers,
 } from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
-import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import {
+  getApiKeyFromYml,
+  isValidApiKey,
+  resolveHome,
+} from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import { installAction as installGatewayAction } from '/src/gateway/install.ts'
 import { pickGatewayService } from '/src/gateway/service/pick.ts'
@@ -28,6 +32,8 @@ import {
   writeGatewayConfig,
 } from '/src/gateway/config.ts'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
+import { getDnsStatus } from '/lib/erpcDnsClient.ts'
+import { runNginxFlow } from '/src/install/nginxFlow.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
 // combining marks take 0, most others 1. Used to pad i18n lines inside boxes
@@ -609,13 +615,29 @@ Session history and important notes.
   // service is already installed/running, we say so and continue.
   const gatewayResult = await maybeInstallGateway(t)
 
+  // --- HTTPS via erpc.global (optional, Linux-only) ---
+  // If the user has an SLV API key + their free default subdomain
+  // is still unset, we can point `<slug>.erpc.global` at this host
+  // and install nginx to serve /ui/ over HTTPS via Cloudflare — no
+  // certbot, no port-forwarding tutorial. This is the big non-
+  // engineer-friendly win: they get a clickable mobile URL in
+  // Discord before the onboard summary prints.
+  let httpsUrl: string | null = null
+  if (gatewayResult.gatewayReachable) {
+    httpsUrl = await maybeSetupHttps(t)
+  }
+
   // If the gateway is up AND the user set a Discord webhook, send
   // them the browser-chat URL + token there so they don't have to
   // hunt for it — the "last-mile" signal that makes non-engineers
-  // actually use the UI. Includes a WireGuard advisory when we had
-  // to flip to lan mode (public network exposure).
+  // actually use the UI. Prefers the HTTPS URL if we set one up.
   if (gatewayResult.gatewayReachable) {
-    await sendOnboardWebhook({ t, agentHome, mode: gatewayResult.mode })
+    await sendOnboardWebhook({
+      t,
+      agentHome,
+      mode: gatewayResult.mode,
+      httpsUrl,
+    })
   }
 
   console.log(
@@ -920,8 +942,17 @@ const sendOnboardWebhook = async (opts: {
   t: (key: string) => string
   agentHome: string
   mode: 'local' | 'lan'
+  /**
+   * URL to show in the Discord message. When the onboard HTTPS
+   * step registered the user's erpc.global subdomain and stood
+   * up nginx, this is the Cloudflare-fronted `https://<slug>/`
+   * so the user can click straight through from mobile. Null
+   * falls back to the bare `http://<ip>:20026/` derived from
+   * the gateway mode (lan → public IP, local → loopback+SSH).
+   */
+  httpsUrl: string | null
 }): Promise<void> => {
-  const { t, agentHome, mode } = opts
+  const { t, agentHome, mode, httpsUrl } = opts
   const apiYmlPath = `${agentHome}/.slv/api.yml`
 
   // Resolve webhook + token. Missing either means quiet skip — the
@@ -942,8 +973,21 @@ const sendOnboardWebhook = async (opts: {
   } catch { /* gateway not configured */ }
   if (!token) return
 
-  const { host, externallyReachable } = await resolveBrowserUrl(mode)
-  const url = `http://${host}:${GATEWAY_DEFAULT_PORT}/ui/`
+  // If the onboard HTTPS step succeeded, use the Cloudflare-
+  // fronted URL verbatim — the user can click it from their
+  // phone without worrying about SSH tunnels or WireGuard. If
+  // the HTTPS step was skipped or failed, fall back to the bare
+  // IP-based URL we had before, with mode-specific guidance
+  // printed below.
+  let url: string
+  if (httpsUrl) {
+    url = httpsUrl.endsWith('/ui/')
+      ? httpsUrl
+      : `${httpsUrl.replace(/\/$/, '')}/ui/`
+  } else {
+    const resolved = await resolveBrowserUrl(mode)
+    url = `http://${resolved.host}:${GATEWAY_DEFAULT_PORT}/ui/`
+  }
 
   const lines: string[] = []
   lines.push(`🎉 ${t('SLV AI setup complete!')}`)
@@ -956,9 +1000,11 @@ const sendOnboardWebhook = async (opts: {
   lines.push(token)
   lines.push('```')
   // Local mode needs an SSH tunnel to reach 127.0.0.1 from another
-  // device. Add it as a prerequisite step — not a replacement for
-  // the hardening advisory below.
-  if (mode === 'local') {
+  // device — but only when there's no Cloudflare-fronted URL
+  // already. The HTTPS path turns the local-mode gateway into a
+  // remotely-clickable URL, so printing the SSH tunnel here would
+  // just confuse the user.
+  if (mode === 'local' && !httpsUrl) {
     lines.push('')
     lines.push(
       `ℹ️ ${
@@ -1012,4 +1058,103 @@ const sendOnboardWebhook = async (opts: {
     case 'skipped_empty_url':
       return
   }
+}
+
+/**
+ * Offer the Cloudflare-fronted HTTPS path: register the user's
+ * free `<slug>.erpc.global` subdomain against this VPS and put
+ * nginx in front of the gateway on port 80. Result: a clickable
+ * `https://u-xxx.erpc.global/ui/` URL in the Discord completion
+ * message that works from any phone/laptop with no SSH tunnel.
+ *
+ * Skipped silently when:
+ *   - no SLV API key is configured (user still needs `slv login`)
+ *   - we can't read DNS status (offline / API down)
+ *   - the user's default slug is already set to an IP we can't
+ *     confirm (we leave whatever they have alone rather than
+ *     re-pointing without consent)
+ *   - running on non-Linux (apt-based install only)
+ *   - the user declines the Confirm prompt
+ *
+ * Returns the `https://...` URL on success so
+ * `sendOnboardWebhook` can put it in the Discord message;
+ * returns null on any skip-or-fail (always non-fatal — the user
+ * can re-run `slv install nginx` manually).
+ */
+const maybeSetupHttps = async (
+  t: (key: string) => string,
+): Promise<string | null> => {
+  // Platform gate — nginx-via-apt is Ubuntu/Debian-only.
+  if (Deno.build.os !== 'linux') return null
+
+  let apiKey: string | null = null
+  try {
+    apiKey = await getApiKeyFromYml(true)
+  } catch { /* no key */ }
+  if (!apiKey) return null
+
+  // Pre-flight DNS status check — we want to know the user's
+  // default slug before asking, so the prompt can name the
+  // resulting URL and so we can skip on "already set" without
+  // bothering them.
+  const status = await getDnsStatus(apiKey)
+  if (!status.ok) return null
+  const def = status.data.default
+  const fqdn = def.fqdn
+
+  console.log(
+    colors.bold.rgb24(`\n│  ${t('Public HTTPS URL (optional)')}`, 0x14f195),
+  )
+  console.log(
+    colors.white(
+      `  ${
+        t('Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).')
+          .replace('{fqdn}', fqdn)
+      }`,
+    ),
+  )
+
+  const ok = await Confirm.prompt({
+    message: t('Set up HTTPS now?'),
+    default: true,
+  })
+  if (!ok) {
+    console.log(
+      colors.rgb24(
+        `  ${t('Skipped. Run `slv install nginx` later to enable HTTPS.')}\n`,
+        0x888888,
+      ),
+    )
+    return null
+  }
+
+  console.log(colors.cyan(`🌐 Registering ${fqdn} + installing nginx...`))
+  const result = await runNginxFlow({
+    apiKey,
+    port: GATEWAY_DEFAULT_PORT,
+  })
+  if (!result.ok) {
+    // Non-fatal: print a clear hint so the user knows what to fix
+    // and continue onboard. Most common case is `ip_not_owned` —
+    // the VPS must be registered against the erpc account first.
+    console.log(
+      colors.yellow(
+        `  ⚠ ${t('HTTPS setup failed ({stage}): {err}')}`
+          .replace('{stage}', result.stage)
+          .replace('{err}', result.error),
+      ),
+    )
+    console.log(
+      colors.white(
+        `    ${t('You can retry later with `slv install nginx`.')}\n`,
+      ),
+    )
+    return null
+  }
+  console.log(
+    colors.green(
+      `  ✔ ${t('HTTPS is live at {url}').replace('{url}', result.httpsUrl)}\n`,
+    ),
+  )
+  return result.httpsUrl
 }

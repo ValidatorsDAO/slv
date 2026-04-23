@@ -286,6 +286,17 @@ export const messages: Record<string, string> = {
     '`slv gateway start` を手動で実行して再試行してください。',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'ゲートウェイが http://127.0.0.1:{port}/ui/ で稼働中',
+  'Public HTTPS URL (optional)': 'パブリック HTTPS URL（オプション）',
+  'Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).':
+    '無料サブドメイン {fqdn} をこの VPS に向け、nginx をインストールしてスマホから HTTPS で SLV AI にアクセスできるようにします — 証明書の設定は不要です（Cloudflare が TLS を終端します）。',
+  'Set up HTTPS now?': '今すぐ HTTPS を設定しますか？',
+  'Skipped. Run `slv install nginx` later to enable HTTPS.':
+    'スキップしました。後で `slv install nginx` を実行すれば HTTPS を有効にできます。',
+  'HTTPS setup failed ({stage}): {err}':
+    'HTTPS 設定に失敗しました（{stage}）: {err}',
+  'You can retry later with `slv install nginx`.':
+    '後で `slv install nginx` で再試行できます。',
+  'HTTPS is live at {url}': 'HTTPS 有効化: {url}',
   'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
   'Enable remote IP access (recommended for VPS)?':
     'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',

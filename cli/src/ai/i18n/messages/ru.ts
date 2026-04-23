@@ -297,6 +297,17 @@ export const messages: Record<string, string> = {
     'Запустите `slv gateway start` вручную для повторной попытки.',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Шлюз работает по адресу http://127.0.0.1:{port}/ui/',
+  'Public HTTPS URL (optional)': 'Публичный HTTPS URL (опционально)',
+  'Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).':
+    'Направьте ваш бесплатный поддомен {fqdn} на этот VPS и установите nginx, чтобы SLV AI был доступен по HTTPS с вашего телефона — настройка сертификата не требуется (Cloudflare обрабатывает TLS).',
+  'Set up HTTPS now?': 'Настроить HTTPS сейчас?',
+  'Skipped. Run `slv install nginx` later to enable HTTPS.':
+    'Пропущено. Запустите `slv install nginx` позже, чтобы включить HTTPS.',
+  'HTTPS setup failed ({stage}): {err}':
+    'Настройка HTTPS не удалась ({stage}): {err}',
+  'You can retry later with `slv install nginx`.':
+    'Вы можете повторить позже с `slv install nginx`.',
+  'HTTPS is live at {url}': 'HTTPS активен: {url}',
   'Gateway is already running.': 'Шлюз уже работает.',
   'Enable remote IP access (recommended for VPS)?':
     'Включить удалённый доступ по IP? (рекомендуется для VPS)',
