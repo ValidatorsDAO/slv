@@ -47,23 +47,25 @@ support ticket (self-lockout from a rotating home IP).
 
 Ask, in plain language:
 
-> "自宅やスマホからこのサーバーに入る方法として、どちらを使いたい
-> ですか? 非エンジニアの方なら 1 を強くおすすめします。
+> "How do you want to reach this server from home / your phone?
+> For non-engineers we strongly recommend option 1.
 >
-> 1. **WireGuard VPN**（推奨）— スマホでも PC でも、どのデバイス
->    からでも対応します。VPN に繋ぐと、サーバーから見た接続元の
->    IP が『いつも同じ固定の IP』になります。ファイアウォールには
->    その固定 IP 1 つを登録すればいいので、家のルーターの IP がど
->    れだけ変わっても関係なくアクセスでき、しかも他の人は入れない
->    状態にできます。安心かつ日常使いでもラクです。
+> 1. **WireGuard VPN** (recommended) — works on any device (phone,
+>    desktop, laptop — all supported). Once you connect to the
+>    VPN, the server sees your traffic as coming from the same
+>    fixed IP every time. The firewall only has to allow that one
+>    IP, so it stops mattering how often your home router's IP
+>    rotates, and nobody else can get in. Safe and low-friction
+>    for everyday use.
 >
-> 2. **固定の公衆 IP を whitelist** — 会社のビジネス回線など、
->    『何があっても変わらない』と分かっている IP があればそれを
->    登録します。**家庭のインターネット回線の IP は ISP の都合で
->    数日〜数週間で変わるので、これを登録すると後日閉め出されま
->    す**。固定と明言できる IP 以外は登録しないでください。
+> 2. **Whitelist a fixed public IP** — if you have a business
+>    line / office address with a guaranteed-stable IP, register
+>    that. **Home internet IPs rotate every few days or weeks
+>    depending on the ISP, so whitelisting one will lock you out
+>    later.** Only register an IP you can personally guarantee is
+>    static.
 >
-> 3. **両方** — 固定 IP も登録しつつ、VPN も用意する。"
+> 3. **Both** — whitelist your static IP AND set up VPN."
 
 **Default recommendation: option 1.** If the user picks 1 or is
 unsure, proceed with firewall install WITHOUT any `--allow` IPs,
@@ -92,9 +94,9 @@ fail2ban-protected) and via WG once it's up.
 
 After the firewall install succeeds, and BEFORE SSH hardening:
 
-> "ファイアウォールは有効化できました。次は VPN を用意します。
-> **slv-wireguard** スキルに切り替えます — VPN 用の VPS を別で
-> 持っていないと進められないので、そこから確認します。"
+> "Firewall is live. Now let's set up the VPN. I'll switch to
+> the **slv-wireguard** skill — we can't proceed without a
+> separate VPS dedicated to the VPN, so we'll check that first."
 
 Invoke the slv-wireguard skill. It will (a) check whether the user
 has a dedicated core1 VPS for the VPN or needs to buy one, and

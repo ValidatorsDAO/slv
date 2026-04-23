@@ -26,13 +26,14 @@ Use this skill when the user says anything like:
 Before anything, make sure the user is installing WG on the **right
 box**. Explain this in plain language:
 
-> "WireGuard は『VPN の出口』専用の小さい VPS に建てるのがおすすめです。
-> 理由は 2 つ:
-> 1. 普段使っている本番機（validator とか SLV chat を動かしてる箱）と
->    同居させると、その本番機が落ちたとき VPN で入り直せないので
->    復旧が一気に大変になります。
-> 2. VPN は『ポートを待って転送するだけ』なので、いちばん安い core1
->    プランの VPS で十分。専用に 1 台用意しても負担は小さいです。"
+> "We recommend installing WireGuard on a small VPS dedicated to
+> being the VPN endpoint. Two reasons:
+> 1. If you put it on your main production box (the one running
+>    your validator / SLV chat), then when that box crashes you
+>    can't VPN back in to fix it — recovery gets a lot harder.
+> 2. A VPN server only sits there forwarding packets, so the
+>    cheapest **core1** plan is more than enough. A dedicated box
+>    is a small monthly cost."
 
 Then branch on what the user has. Fire the MCP probes in parallel to
 see their VPS inventory:
@@ -48,11 +49,11 @@ Good. Continue to Step 1 on THAT host (not on their main box).
 Strongly recommend buying a dedicated core1 VPS for the VPN endpoint.
 Tell them verbatim, non-engineer friendly:
 
-> "まず VPN 専用の VPS を 1 台用意してください。
-> - https://dashboard.erpc.global にログインして、core1 プランを
->   1 台買ってください。月額の負担は小さいです。
-> - 購入が完了したら、また『VPN 設定したい』と声をかけてください。
->   続きをこちらで案内します。"
+> "First, grab a VPS dedicated to the VPN.
+> - Log in at https://dashboard.erpc.global and buy one **core1**
+>   plan VPS. It's a small monthly cost.
+> - Once the purchase is done, come back and say `set up the VPN`
+>   again — I'll pick it up from here."
 
 STOP the WG flow here. Don't try to install on the production box as
 a workaround — the goal is isolation.
@@ -65,10 +66,11 @@ They have two paths:
    they already control), ask them for that IP and hand off to the
    **slv-firewall** skill with `--allow <that-ip>`.
 2. **Home ISP IP** — **refuse this**. Tell them explicitly:
-   > "家のルーターの IP は ISP の都合で数日〜数週間で変わります。
-   > 変わった瞬間に firewall で閉め出されて、現地に行かないと直せ
-   > なくなります。固定 IP でなければ WireGuard のほうが結局ラク
-   > なので、VPN 用 VPS を買う案を再度おすすめします。"
+   > "Home router IPs rotate every few days or weeks depending on
+   > the ISP. The moment it changes, the firewall locks you out
+   > and you need physical access to fix it. If you can't name a
+   > fixed IP, WireGuard ends up being easier overall — I'd
+   > recommend going back and buying the dedicated VPN VPS."
 
 Only proceed to Step 1 below once the user is on a dedicated VPN VPS
 (Case A, or Case B after purchase).
