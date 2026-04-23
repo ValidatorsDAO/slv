@@ -209,28 +209,50 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     word-break: break-word;
   }
   .msg.assistant pre { background: transparent; border: 0; padding: 4px 0; }
+  /* Thinking indicator — styled as a pending assistant message so
+     the user's eye goes to the slot where the reply will stream in.
+     Same layout as a real reply, but the text body is replaced by
+     a row of pulsing dots + a short caption that names the agent
+     so the state reads unambiguously (e.g. "EL 考えています"). */
   .thinking {
     margin: 0 0 12px 0;
-    padding: 6px 0;
-    color: var(--muted);
-    font-style: italic;
-    font-size: 13px;
+  }
+  .thinking .who {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+  .thinking .body {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: fit-content;
+  }
+  .thinking .dots {
+    display: flex;
+    gap: 5px;
   }
   .thinking .dot {
-    width: 6px;
-    height: 6px;
+    width: 9px;
+    height: 9px;
     background: var(--accent);
     border-radius: 50%;
-    animation: pulse 1.2s infinite;
+    animation: pulse 1s infinite;
   }
-  .thinking .dot:nth-child(2) { animation-delay: 0.2s; }
-  .thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+  .thinking .dot:nth-child(2) { animation-delay: 0.15s; }
+  .thinking .dot:nth-child(3) { animation-delay: 0.3s; }
+  .thinking .caption {
+    font-size: 13px;
+    color: var(--muted);
+  }
   @keyframes pulse {
-    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-    40% { opacity: 1; transform: scale(1); }
+    0%, 75%, 100% { opacity: 0.25; transform: scale(0.7); }
+    35% { opacity: 1; transform: scale(1.15); }
   }
   .token-gate {
     max-width: 520px;
@@ -619,14 +641,29 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     if (thinkingEl) return
     thinkingEl = document.createElement('div')
     thinkingEl.className = 'thinking'
-    const label = document.createElement('span')
-    label.textContent = I18N.thinking
-    thinkingEl.appendChild(label)
+    // Named label that matches the assistant-message layout — the
+    // user's eye naturally goes to the same spot where the streaming
+    // reply will render, so the gap feels like "reply starting" not
+    // "nothing happening".
+    const who = document.createElement('div')
+    who.className = 'who'
+    who.textContent = assistantLabel
+    const body = document.createElement('div')
+    body.className = 'body'
+    const dots = document.createElement('div')
+    dots.className = 'dots'
     for (let i = 0; i < 3; i++) {
       const d = document.createElement('span')
       d.className = 'dot'
-      thinkingEl.appendChild(d)
+      dots.appendChild(d)
     }
+    const caption = document.createElement('span')
+    caption.className = 'caption'
+    caption.textContent = I18N.thinking
+    body.appendChild(dots)
+    body.appendChild(caption)
+    thinkingEl.appendChild(who)
+    thinkingEl.appendChild(body)
     log.appendChild(thinkingEl)
     log.scrollTop = log.scrollHeight
   }
@@ -825,10 +862,12 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
       }
       if (f.kind !== 'event') return
       const p = f.payload || {}
-      // Any incoming event means the model is responding — drop the
-      // thinking indicator. Keeping it through text_delta would show
-      // dots next to the actual reply, which is noisy.
-      hideThinking()
+      // Status events (running / idle) fire as soon as the server
+      // accepts the turn — well before the LLM has produced
+      // anything — so they MUST NOT dismiss the thinking
+      // indicator. Any other event implies real content has
+      // started arriving; dismiss then.
+      if (p.type !== 'status') hideThinking()
       switch (p.type) {
         case 'text_delta':
           if (!currentAssistantEl) {
