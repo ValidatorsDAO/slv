@@ -87,7 +87,9 @@ the user wants to add another peer or replace the config.
 Tell the user, verbatim:
 
 > "On your phone:
-> 1. Install the official **WireGuard** app from the App Store / Google Play — it's free, made by the WireGuard project itself, look for the purple dragon logo. (Jason A. Donenfeld / Edge Security publisher.)
+> 1. Install the official **WireGuard** app — it's free, made by the WireGuard project itself, purple dragon logo. (Jason A. Donenfeld / Edge Security publisher.)
+>    - iPhone: https://apps.apple.com/us/app/wireguard/id1441195209
+>    - Android: https://play.google.com/store/apps/details?id=com.wireguard.android
 > 2. Open the app, tap the **+** button, pick **Create from scratch**.
 > 3. Give the tunnel a name like `slv-<short-vps-name>` so you can identify it later.
 > 4. The app auto-generates a key pair. Scroll down to the **Public key** field — it's a 44-character string ending in `=`. Tap it to copy.
@@ -193,8 +195,8 @@ slv install wireguard --iphone-pubkey '<44-char-pubkey>='
 
 | Platform | App | Link |
 |----------|-----|------|
-| iOS | WireGuard | App Store — search "WireGuard" (purple dragon) |
-| Android | WireGuard | Play Store — search "WireGuard" |
+| iOS | WireGuard | https://apps.apple.com/us/app/wireguard/id1441195209 |
+| Android | WireGuard | https://play.google.com/store/apps/details?id=com.wireguard.android |
 | macOS | WireGuard | https://www.wireguard.com/install/ or Mac App Store |
 | Windows | WireGuard | https://www.wireguard.com/install/ |
 | Linux | wireguard-tools | `sudo apt install wireguard` + `wg-quick` |
