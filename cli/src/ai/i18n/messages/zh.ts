@@ -254,6 +254,20 @@ export const messages: Record<string, string> = {
   '❌ error': '❌ 错误',
   '[disconnected — reply interrupted]': '[已断开 — 回复被中断]',
 
+  // --- 浏览器聊天图片附件 ---
+  'Attach image': '添加图片',
+  'Drop images here to attach': '拖放图片到此处添加',
+  'Remove image': '移除图片',
+  '📎 {n} image(s) attached': '📎 已添加 {n} 张图片',
+  'Only JPEG, PNG, GIF, or WebP images are accepted.':
+    '仅支持 JPEG / PNG / GIF / WebP 图片。',
+  'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':
+    '图片 "{name}" 过大（{mb} MB）。单张最大：{max} MB。',
+  'Too many images — max {max} per message.':
+    '图片过多 — 每条消息最多 {max} 张。',
+  'Attached images total {mb} MB; max {max} MB combined.':
+    '附加图片总计 {mb} MB；总计最大 {max} MB。',
+
   // --- 引导: Discord webhook 帮助 + 网关安装 ---
   'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
     '如何创建 Discord Webhook（30秒视频）: https://youtube.com/shorts/2w-Afr_JVEg',

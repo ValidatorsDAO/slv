@@ -262,6 +262,20 @@ export const messages: Record<string, string> = {
   '❌ error': '❌ エラー',
   '[disconnected — reply interrupted]': '[切断されました — 応答が中断されました]',
 
+  // --- ブラウザチャットの画像添付 ---
+  'Attach image': '画像を添付',
+  'Drop images here to attach': 'ここに画像をドロップして添付',
+  'Remove image': '画像を削除',
+  '📎 {n} image(s) attached': '📎 画像 {n} 枚を添付',
+  'Only JPEG, PNG, GIF, or WebP images are accepted.':
+    'JPEG / PNG / GIF / WebP 画像のみ対応しています。',
+  'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':
+    '画像「{name}」のサイズが大きすぎます（{mb} MB）。1 枚あたり最大: {max} MB。',
+  'Too many images — max {max} per message.':
+    '画像が多すぎます — 1 メッセージ最大 {max} 枚まで。',
+  'Attached images total {mb} MB; max {max} MB combined.':
+    '添付画像の合計 {mb} MB — 合計最大 {max} MB まで。',
+
   // --- オンボード: Discord webhook ヘルプ + ゲートウェイインストール ---
   'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
     'Discord Webhook の作り方（30秒動画）: https://youtube.com/shorts/2w-Afr_JVEg',
