@@ -14,12 +14,7 @@ import {
   type AuthorizationStatus,
   fetchAuthorizationStatus,
 } from '@/ai/authorization.ts'
-
-type McpResponse = {
-  result?: {
-    content?: Array<{ type: string; text?: string }>
-  }
-}
+import { callMcpTool } from '/lib/slvCloudMcp.ts'
 
 type Product = {
   name?: string
@@ -37,26 +32,28 @@ type Product = {
   [key: string]: unknown
 }
 
+/**
+ * Thin wrapper over the shared `callMcpTool` that flattens the
+ * typed discriminated-union result down to the "raw text" shape
+ * this file's existing product-list rendering code expects. New
+ * call-sites should prefer `callMcpTool` directly.
+ */
 async function callMcp(
   apiKey: string,
   toolName: string,
   args: Record<string, unknown> = {},
 ): Promise<string> {
-  const response = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/call',
-      params: { name: toolName, arguments: args },
-    }),
-  })
-  const data = await response.json() as McpResponse
-  return data.result?.content?.[0]?.text || ''
+  const r = await callMcpTool<Record<string, unknown>>(apiKey, toolName, args)
+  if (r.ok) {
+    // callMcpTool already JSON-parsed the content text; re-stringify
+    // so legacy consumers that `JSON.parse` the return continue to
+    // work. The double-round-trip is cheap relative to the network
+    // call itself.
+    return JSON.stringify(r.data)
+  }
+  // On failure the original helper returned an empty string; keep
+  // that contract so no rendering code changes.
+  return ''
 }
 
 function getAuthorizationLink(product: Product): string {

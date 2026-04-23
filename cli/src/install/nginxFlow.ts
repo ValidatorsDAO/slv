@@ -167,11 +167,18 @@ export const runNginxFlow = async (
     }
   } catch (err) {
     // openssl missing, tmp-write failure, or a hang we didn't
-    // anticipate. Same fallback.
+    // anticipate. Self-signed fallback still runs in the playbook,
+    // so the install completes — but Cloudflare Full (strict) will
+    // reject the resulting cert. Surface at warn level so it's
+    // clearly visible in the install log alongside an actionable
+    // hint.
+    const msg = err instanceof Error ? err.message : String(err)
     console.warn(
-      `Origin CA issuance skipped (local error): ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      '\n⚠  Origin CA issuance failed — HTTPS will use a self-signed ' +
+        'cert and Cloudflare Full (strict) mode will reject it.\n' +
+        `   Reason: ${msg}\n` +
+        '   Fix: install openssl (`sudo apt install -y openssl`) and re-run ' +
+        '`slv install nginx`.\n',
     )
   }
 

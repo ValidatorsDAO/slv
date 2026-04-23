@@ -28,8 +28,16 @@ export type Csr = {
  * fall back to self-signed or surface the error to the user.
  */
 export const generateCsr = async (fqdn: string): Promise<Csr> => {
-  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(fqdn)) {
-    throw new Error(`generateCsr: refusing suspicious fqdn: ${fqdn}`)
+  // Label-by-label fqdn check:
+  //   - each label: 1-63 chars, alnum, hyphens allowed but not at
+  //     edges — matches RFC 1035.
+  //   - at least two labels (e.g. `x.y`) with a TLD of 2+ chars.
+  //   - rejects leading / trailing / consecutive dots and IP-like
+  //     strings (all-numeric TLDs).
+  const FQDN_RE =
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,63}$/i
+  if (!FQDN_RE.test(fqdn)) {
+    throw new Error(`generateCsr: refusing malformed fqdn: ${fqdn}`)
   }
 
   // Single openssl config that covers key + CSR generation. Kept in

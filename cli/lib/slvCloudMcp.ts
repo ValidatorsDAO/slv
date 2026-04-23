@@ -236,16 +236,32 @@ export const requestOriginCert = async (
   )
   if (r.ok) return { ok: true, data: r.data }
 
-  // MCP-level "tool not found" arrives as a 404-ish error with a
-  // message mentioning the tool name. That means the erpc side
-  // hasn't deployed the /v3/dns/origin-cert route yet — fall back
-  // to self-signed rather than failing the whole flow.
+  // MCP-level "tool not found" = endpoint hasn't been deployed to
+  // the cloud MCP yet. Detection is layered, from strongest to
+  // weakest signal, to survive minor wording changes on the MCP
+  // server side:
+  //   1. HTTP 404 response status — the canonical "not found".
+  //   2. Error code literals (`tool_not_found` / `UnknownTool`).
+  //   3. Last-resort substring match on the human message.
+  // Any of the three triggers the graceful self-signed fallback;
+  // everything else surfaces as a real error to the caller.
+  if (r.status === 404) {
+    return { ok: false, kind: 'tool_not_found' }
+  }
+  const errCode = (r.body?.error ?? '').toString().toLowerCase()
+  if (
+    errCode === 'tool_not_found' ||
+    errCode === 'unknown_tool' ||
+    errCode === 'method_not_found'
+  ) {
+    return { ok: false, kind: 'tool_not_found' }
+  }
   const msg = (r.body?.message ?? r.raw ?? '').toLowerCase()
-  const looksLikeMissingTool = msg.includes('unknown tool') ||
+  if (
+    msg.includes('unknown tool') ||
     msg.includes('tool not found') ||
-    msg.includes('no such tool') ||
-    (r.status === 404 && msg.includes('origin_cert'))
-  if (looksLikeMissingTool) {
+    msg.includes('no such tool')
+  ) {
     return { ok: false, kind: 'tool_not_found' }
   }
   return { ok: false, kind: 'error', status: r.status, body: r.body }
