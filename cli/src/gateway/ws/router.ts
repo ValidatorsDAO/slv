@@ -27,14 +27,19 @@ export type ConnState = {
   authenticated: boolean
   nextEventSeq: number
   // Lazily-created Session for this connection. Null until the
-  // first session.* method call.
+  // first session.* method call. `sessionKind` tracks whether the
+  // current Session is wired to the echo driver or the real
+  // provider driver, so a subsequent call of the other kind knows
+  // to rebuild instead of piping messages into the wrong driver.
   session: Session | null
+  sessionKind: 'echo' | 'provider' | null
 }
 
 export const newConnState = (): ConnState => ({
   authenticated: false,
   nextEventSeq: 1,
   session: null,
+  sessionKind: null,
 })
 
 import type { SessionEvent } from '/src/ai/core/events.ts'
@@ -126,11 +131,13 @@ const methods: Record<string, MethodHandler> = {
     if (state.session?.isRunning) {
       return resErr(req, 'session is already running; call session.abort first')
     }
-    // Fresh session per turn so switching drivers between echo and
-    // send works cleanly. Previous-turn history is not preserved in
-    // Phase 2C; session persistence lands in a later PR.
+    // Fresh echo session per turn. Echo is deterministic and
+    // history-free by design, so we always rebuild — and we mark
+    // the kind so a later session.send knows to rebuild with the
+    // real provider instead of piping chat into the echo driver.
     state.session = new Session(echoDriver)
     state.session.on((event) => ctx.emitEvent(event))
+    state.sessionKind = 'echo'
 
     state.session.send(text).catch(() => {
       // Session.send swallows errors into `error` events; this
@@ -223,14 +230,22 @@ const methods: Record<string, MethodHandler> = {
       )
     }
 
-    const driver = providerDriver({
-      kind: aiCfg.provider,
-      apiKey,
-      model: aiCfg.model,
-      systemPrompt,
-    })
-    state.session = new Session(driver)
-    state.session.on((event) => ctx.emitEvent(event))
+    // Reuse the existing provider Session across turns so message
+    // history accumulates — otherwise the model forgets everything
+    // the user said on the prior turn. Rebuild if this is the
+    // first send on the connection OR the previous session on this
+    // connection was the echo driver (different driver kind).
+    if (state.session === null || state.sessionKind !== 'provider') {
+      const driver = providerDriver({
+        kind: aiCfg.provider,
+        apiKey,
+        model: aiCfg.model,
+        systemPrompt,
+      })
+      state.session = new Session(driver)
+      state.session.on((event) => ctx.emitEvent(event))
+      state.sessionKind = 'provider'
+    }
 
     state.session.send(input).catch(() => {
       // Session.send swallows errors into `error` events.

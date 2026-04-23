@@ -57,6 +57,11 @@ export class OpenAIProvider {
     }
   }
 
+  /** Swap per-turn callbacks — see SLVProvider.updateCallbacks. */
+  updateCallbacks(callbacks: ChatCallbacks): void {
+    this.callbacks = callbacks
+  }
+
   async chat(userMessage: MessageInput): Promise<void> {
     // OpenAI's vision format differs from Anthropic's. We only ship
     // vision through SLV (Anthropic) for now, so drop any attached

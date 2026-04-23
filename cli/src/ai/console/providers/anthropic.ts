@@ -49,6 +49,11 @@ export class AnthropicProvider {
     this.systemPrompt = systemPrompt
   }
 
+  /** Swap per-turn callbacks — see SLVProvider.updateCallbacks. */
+  updateCallbacks(callbacks: ChatCallbacks): void {
+    this.callbacks = callbacks
+  }
+
   async chat(userMessage: MessageInput): Promise<void> {
     // messageInputToContent produces `string | ContentBlock[]` —
     // both forms are accepted by the Anthropic SDK, so no further
