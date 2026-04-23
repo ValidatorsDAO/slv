@@ -1004,62 +1004,96 @@ const sendOnboardWebhook = async (opts: {
     url = `http://${resolved.host}:${GATEWAY_DEFAULT_PORT}/ui/`
   }
 
-  const lines: string[] = []
-  lines.push(`🎉 ${t('SLV AI setup complete!')}`)
-  lines.push('')
-  lines.push(`📱 ${t('Open SLV in your browser:')}`)
-  lines.push(url)
-  lines.push('')
-  lines.push(`🔑 ${t('Gateway token (paste on first visit):')}`)
-  lines.push('```')
-  lines.push(token)
-  lines.push('```')
-  // Local mode needs an SSH tunnel to reach 127.0.0.1 from another
-  // device — but only when there's no Cloudflare-fronted URL
-  // already. The HTTPS path turns the local-mode gateway into a
-  // remotely-clickable URL, so printing the SSH tunnel here would
-  // just confuse the user.
+  // Split into THREE Discord messages so the token sits in its own
+  // bubble — mobile users can long-press → "Select All" → Copy and
+  // get the exact 64 chars with no surrounding prose. Single-bubble
+  // copy on iOS drags in the headers and the user has to trim by
+  // hand.
+  //
+  //   msg 1: header + browser URL (the clickable thing)
+  //   msg 2: token ONLY — pure code block, nothing else
+  //   msg 3: security advisory (+ SSH tunnel hint / dashboard hint
+  //          where applicable)
+  const msg1Lines: string[] = [
+    `🎉 ${t('SLV AI setup complete!')}`,
+    '',
+    `📱 ${t('Open SLV in your browser:')}`,
+    url,
+  ]
+
+  // Token-only bubble. A code block (triple-backtick) keeps the
+  // mono font so the 64 hex chars stay readable, but the whole
+  // message body is the token — nothing to trim on copy.
+  const msg2Lines: string[] = [
+    `🔑 ${t('Gateway token (paste on first visit):')}`,
+    '```',
+    token,
+    '```',
+  ]
+
+  const msg3Lines: string[] = []
+  // Local-mode SSH tunnel hint only applies when no HTTPS URL was
+  // set up. With HTTPS, the user clicks the link and they're in;
+  // instructing them to open a terminal would contradict the
+  // advisory below.
   if (mode === 'local' && !httpsUrl) {
-    lines.push('')
-    lines.push(
+    msg3Lines.push(
       `ℹ️ ${
         t('Loopback-only mode — open the URL from elsewhere via SSH tunnel first:')
       }`,
-    )
-    lines.push('```')
-    lines.push(
+      '```',
       `ssh -N -L ${GATEWAY_DEFAULT_PORT}:127.0.0.1:${GATEWAY_DEFAULT_PORT} <user>@<host>`,
+      '```',
+      '',
     )
-    lines.push('```')
   }
-  // Hardening advisory — frame as something the user does INSIDE
-  // the chat window they just got the link to. They're reading
-  // this on their phone; telling them to "open a terminal and run
-  // `slv c`" on the VPS defeats the whole purpose. Instead: "tap
-  // the URL above, chat with SLV AI there, and it will walk you
-  // through nftables + WireGuard."
-  lines.push('')
-  lines.push(
+  msg3Lines.push(
     `⚠️ ${
       t('Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.')
     }`,
+    `• ${t('Video walkthrough: coming soon.')}`,
   )
-  lines.push(`• ${t('Video walkthrough: coming soon.')}`)
-  // If the user's VPS isn't an SLV VPS/BareMetal (http fallback),
-  // the security advisory above is especially important AND they
-  // should upgrade to get HTTPS. Point at the dashboard for
-  // provisioning.
   if (!httpsUrl) {
-    lines.push('')
-    lines.push(
+    msg3Lines.push(
+      '',
       `🏷 ${
         t('For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):')
       }`,
+      ERPC_DASHBOARD_URL,
     )
-    lines.push(ERPC_DASHBOARD_URL)
   }
 
-  const result = await notifyDiscordWebhook(webhookUrl, lines.join('\n'))
+  // Send in order, stop-on-first-failure: if Discord rejects msg1
+  // we don't bother with msg2/3 (they'd orphan the token in a
+  // Discord channel with no context). Small delay between posts
+  // so the channel renders them in the right order; Discord will
+  // occasionally reorder messages sent within the same tens of ms.
+  const messages = [
+    msg1Lines.join('\n'),
+    msg2Lines.join('\n'),
+    msg3Lines.join('\n'),
+  ]
+  type Aggregate =
+    | { kind: 'ok' }
+    | { kind: 'http_error'; status: number }
+    | { kind: 'network_error'; message: string }
+  let result: Aggregate = { kind: 'ok' }
+  for (let i = 0; i < messages.length; i++) {
+    const r = await notifyDiscordWebhook(webhookUrl, messages[i])
+    if (r.kind === 'ok') {
+      if (i < messages.length - 1) await new Promise((res) => setTimeout(res, 250))
+      continue
+    }
+    if (r.kind === 'http_error') {
+      result = { kind: 'http_error', status: r.status }
+    } else if (r.kind === 'network_error') {
+      result = { kind: 'network_error', message: r.message }
+    } else {
+      // skipped_empty_url — webhookUrl went empty mid-loop,
+      // shouldn't happen but bail out safely.
+    }
+    break
+  }
   switch (result.kind) {
     case 'ok':
       console.log(
@@ -1083,8 +1117,6 @@ const sendOnboardWebhook = async (opts: {
           `  ⚠ ${t('Could not reach Discord webhook:')} ${result.message}\n`,
         ),
       )
-      return
-    case 'skipped_empty_url':
       return
   }
 }
