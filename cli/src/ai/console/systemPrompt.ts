@@ -335,6 +335,22 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
     )
   } catch { /* skill not synced yet — Core Rules line still applies */ }
 
+  // EL-owned operational skills: firewall + WireGuard. These aren't
+  // delegated to a specialist agent — EL walks the user through them
+  // directly, so the full SKILL.md has to be in the main prompt.
+  let firewallSkillMd = ''
+  try {
+    firewallSkillMd = await Deno.readTextFile(
+      resolveSkillMdPath('slv-firewall', home),
+    )
+  } catch { /* not synced yet */ }
+  let wireguardSkillMd = ''
+  try {
+    wireguardSkillMd = await Deno.readTextFile(
+      resolveSkillMdPath('slv-wireguard', home),
+    )
+  } catch { /* not synced yet */ }
+
   // Detect the user's primary focus (validator / rpc / app / mixed) so the
   // main agent can bias its proactive suggestions. See profile.ts for the
   // exact signal hierarchy.
@@ -463,6 +479,8 @@ ${
   ${DISCORD_LINK}
 
 ${backupSkillMd ? `## Backup & Storage (non-interactive reference)\n${backupSkillMd}\n` : ''}
+${firewallSkillMd ? `## Firewall (EL walkthrough)\n${firewallSkillMd}\n` : ''}
+${wireguardSkillMd ? `## WireGuard VPN (EL walkthrough)\n${wireguardSkillMd}\n` : ''}
 ## Working Environment
 - Home: ${home}
 - Agent dir: ${agentDir}/
