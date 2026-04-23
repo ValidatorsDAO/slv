@@ -79,12 +79,48 @@ Load with `nft -f /etc/nftables.d/slv.nft` + `systemctl enable nftables`.
 - WireGuard alone hides the HTTP surface behind the tunnel only if the listener is bound to the WireGuard interface. Our gateway binds `0.0.0.0` (any), so nftables is what actually blocks public scanners.
 - Both together is the belt-and-suspenders recommendation. Either in isolation is weaker.
 
-## 3. Where the advisory appears in the UX
+## 3. HTTPS via Cloudflare-proxied `*.erpc.global` (recommended for non-engineers)
+
+Every SLV account gets a free, deterministic subdomain under `*.erpc.global` (slug derived from the user id). Cloudflare proxies that record — so pointing it at a VPS IP gives the user **HTTPS for free**, no certbot / Let's Encrypt on the origin.
+
+### One-shot command
+
+```
+slv install nginx [--port 20026] [--slug <custom>] [-i <ip-or-inventory>]
+```
+
+What happens:
+1. Reads the SLV API key from `~/.slv/api.yml`
+2. Detects the VPS public IP (api.ipify.org → `hostname -I` fallback)
+3. Calls `POST /v3/dns/set` so `<user-slug>.erpc.global` resolves to that IP
+4. Runs the ansible playbook `install-nginx.yaml` to install nginx + render a WS-aware vhost on port 80 that proxies to `127.0.0.1:<port>`
+
+Result: `https://<slug>.erpc.global/` is live. Cloudflare handles TLS termination in Flexible SSL mode (user↔CF is HTTPS, CF↔origin is HTTP/80).
+
+### When to recommend this
+
+- User wants to open the SLV browser chat from their phone without SSH tunnels
+- User has a VPS already registered against their erpc account
+- User doesn't want to touch cert renewals (Cloudflare auto-rotates the wildcard)
+
+### Custom slugs
+
+`--slug <name>` targets a non-default subdomain (e.g. `myapp.erpc.global`). Paid-tier only; the endpoint currently returns HTTP 402 until the Stripe product launches. The default slug is always free.
+
+### `slv dns status` / `slv dns set`
+
+Expose the same endpoints as first-class commands for users who want to point the subdomain at a non-local host (BareMetal, another VPS they own).
+
+### Gateway mode alongside nginx
+
+Once nginx is fronting the gateway, you can keep the gateway in `local` mode (bind 127.0.0.1 only). nginx listens on 0.0.0.0:80 and proxies loopback. This is the most secure layout — no direct internet exposure of the gateway; token auth + Cloudflare DDoS + nftables (optional, see §2) all stack.
+
+## 4. Where the advisory appears in the UX
 
 - `slv onboard` prints a yellow advisory above the "enable remote IP access" prompt and attaches the same wording to the Discord completion webhook (in the user's configured language).
 - The onboard flow does NOT automatically run `slv install wireguard` — we're not assuming the user has a phone keypair ready at that moment. The skill tells them how to do it afterwards.
 
-## 4. Don't do
+## 5. Don't do
 
 - Don't expose port 20026 to `0.0.0.0` without a firewall in any environment that holds real funds.
 - Don't paste the WireGuard *private* key into onboard — only the *public* key of the phone peer.

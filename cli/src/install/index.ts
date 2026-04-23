@@ -7,6 +7,8 @@ import {
   isInventoryFilePath,
   resolveIpsFromInventoryFile,
 } from '/src/install/inventoryTargets.ts'
+import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { runNginxFlow } from '/src/install/nginxFlow.ts'
 
 // A WireGuard public key is 32 bytes base64-encoded: 44 chars total,
 // always ending in `=`. Validating client-side gives a clean early
@@ -356,3 +358,113 @@ const reportServerPubkey = async (): Promise<void> => {
 }
 
 installCmd.command('wireguard', wireguardCmd)
+
+/**
+ * `slv install nginx` — one-shot HTTPS reverse proxy for a local
+ * service (default: the gateway on 20026).
+ *
+ * Flow (all steps skippable via flags for power users):
+ *   1. Read the SLV API key so we can talk to /v3/dns/*.
+ *   2. Pick the target subdomain — default slug unless --slug.
+ *   3. Detect this host's public IP (ipify → hostname -I).
+ *   4. POST /v3/dns/set so the hostname resolves to this VPS.
+ *      Cloudflare proxies it → user gets HTTPS with no cert work
+ *      on origin.
+ *   5. Run the install-nginx playbook with `fqdn` and
+ *      `upstream_port` extra-vars. The playbook installs nginx,
+ *      renders a WS-aware vhost, and reloads the service.
+ *
+ * No certbot, no email — Cloudflare's Universal SSL handles TLS
+ * termination end-to-end. The origin nginx only listens on plain
+ * HTTP port 80.
+ */
+const nginxCmd = new Command()
+  .description(
+    'Install nginx on THIS host as an HTTPS reverse proxy fronted by Cloudflare (no certbot needed). By default points your free *.erpc.global subdomain at this VPS and proxies it down to 127.0.0.1:20026 (the SLV gateway). Override --port for any other local service.',
+  )
+  .option(
+    '--port <port:number>',
+    'Upstream port on 127.0.0.1 to proxy to',
+    { default: 20026 },
+  )
+  .option(
+    '--slug <slug:string>',
+    'Custom subdomain under erpc.global (requires paid tier; falls back with a 402 error if your account lacks it)',
+  )
+  .option(
+    '--ip <ip:string>',
+    'Override the detected public IP that the DNS record points at',
+  )
+  .option('-y, --yes', 'Skip all confirmation prompts', { default: false })
+  .action(
+    async (options: {
+      port: number
+      slug?: string
+      ip?: string
+      yes?: boolean
+    }) => {
+      let apiKey: string | null = null
+      try {
+        apiKey = await getApiKeyFromYml(true)
+      } catch { /* fall through */ }
+      if (!apiKey) {
+        console.error(
+          colors.red('❌ no SLV API key found — run `slv login` first.'),
+        )
+        return
+      }
+
+      console.log(colors.blue('\n📋 nginx install plan:'))
+      console.log(
+        colors.blue('  slug:         ') +
+          colors.white(options.slug ?? '(default free slug)'),
+      )
+      console.log(
+        colors.blue('  upstream:     ') +
+          colors.white(`http://127.0.0.1:${options.port}`),
+      )
+      if (options.slug) {
+        console.log(
+          colors.yellow(
+            '  (custom slug) — paid tier required; request may return 402.',
+          ),
+        )
+      }
+
+      if (!options.yes) {
+        const ok = await Confirm.prompt({
+          message: 'Proceed?',
+          default: true,
+        })
+        if (!ok) {
+          console.log(colors.red('❌ cancelled.'))
+          return
+        }
+      }
+
+      const result = await runNginxFlow({
+        apiKey,
+        port: options.port,
+        slug: options.slug,
+        ip: options.ip,
+      })
+      if (!result.ok) {
+        console.error(
+          colors.red(`❌ nginx install failed (${result.stage}): ${result.error}`),
+        )
+        return
+      }
+
+      console.log(colors.green('\n✅ nginx install complete.'))
+      console.log(
+        colors.yellow(`\n🌐 Your service is live at: ${colors.bold(result.httpsUrl)}`),
+      )
+      console.log(
+        colors.gray(
+          '   (If you just set the DNS record, give Cloudflare a minute to converge.)',
+        ),
+      )
+    },
+  )
+
+installCmd.command('nginx', nginxCmd)

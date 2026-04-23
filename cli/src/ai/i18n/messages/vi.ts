@@ -294,6 +294,54 @@ export const messages: Record<string, string> = {
     'Chạy `slv gateway start` thủ công để thử lại.',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
+  'Public HTTPS URL (optional)': 'URL HTTPS công khai (tùy chọn)',
+  'Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).':
+    'Trỏ subdomain miễn phí {fqdn} của bạn đến VPS này và cài nginx để SLV AI có thể truy cập qua HTTPS từ điện thoại — không cần cài chứng chỉ (Cloudflare xử lý TLS).',
+  'Set up HTTPS now?': 'Cài đặt HTTPS ngay?',
+  'Skipped. Run `slv install nginx` later to enable HTTPS.':
+    'Đã bỏ qua. Chạy `slv install nginx` sau để bật HTTPS.',
+  'HTTPS setup failed ({stage}): {err}':
+    'Cài đặt HTTPS thất bại ({stage}): {err}',
+  'You can retry later with `slv install nginx`.':
+    'Bạn có thể thử lại sau với `slv install nginx`.',
+  'HTTPS is live at {url}': 'HTTPS đang hoạt động tại {url}',
+  'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.':
+    'Đã bỏ qua — cần có SLV API key. Chạy `slv login` rồi `slv install nginx` để bật HTTPS.',
+  'Could not read DNS status — run `slv install nginx` later to retry.':
+    'Không đọc được trạng thái DNS — chạy `slv install nginx` sau để thử lại.',
+  'Browser chat UI': 'Giao diện chat trình duyệt',
+  'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Đang cài dịch vụ chạy nền để bạn có thể trò chuyện với SLV từ trình duyệt tại http://127.0.0.1:{port}/ui/ mà không cần mở terminal.',
+  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'SLV API key cho phép trỏ subdomain erpc.global miễn phí của bạn đến VPS này để có HTTPS ngay.',
+  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
+    '🔑 Dán SLV API key tại đây (Enter để bỏ qua HTTPS):',
+  'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
+    'Đã bỏ qua. Chạy `slv login` rồi `slv install nginx` sau để bật HTTPS.',
+  '⚠ This VPS is NOT an SLV VPS / BareMetal.':
+    '⚠ VPS này KHÔNG phải SLV VPS / BareMetal.',
+  'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.':
+    'Chuyển sang HTTP thường (http://<ip>:20026/) — không mã hóa. Chỉ dùng cho dev. Với production, hãy tạo SLV VPS hoặc BareMetal từ dashboard bên dưới; IP sẽ tự động đăng ký và HTTPS hoạt động ở lần `slv install nginx` tiếp theo.',
+  '⚠ Your free subdomain {fqdn} is already pointing at {ip}.':
+    '⚠ Subdomain miễn phí {fqdn} của bạn đang trỏ đến {ip}.',
+  'Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.':
+    'Trỏ lại ở đây sẽ làm hỏng host kia. Mỗi tài khoản SLV chỉ có 1 subdomain miễn phí; cái thứ 2 cần gói trả phí (sắp ra mắt) hoặc ticket hỗ trợ.',
+  'What would you like to do?': 'Bạn muốn làm gì?',
+  'Skip HTTPS for this VPS — leave the existing subdomain alone':
+    'Bỏ qua HTTPS cho VPS này — giữ nguyên subdomain hiện có',
+  'Create a support ticket to request a 2nd subdomain':
+    'Tạo ticket hỗ trợ để xin subdomain thứ 2',
+  "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)":
+    'Vẫn trỏ lại (làm hỏng VPS kia — chỉ chọn nếu bạn biết mình đang làm gì)',
+  'Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.':
+    'Đã giữ subdomain hiện có. Nếu cần, chạy `slv install nginx` trên VPS kia để lấy lại.',
+  'Creating support ticket...': 'Đang tạo ticket hỗ trợ…',
+  'Ticket creation failed: {err}': 'Tạo ticket thất bại: {err}',
+  'Ticket opened. Follow up here:': 'Đã mở ticket. Theo dõi tại:',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
+    'Bảo mật: chạm URL phía trên để mở SLV AI trong trình duyệt, rồi nhờ nó hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại). Trò chuyện ngay trong trình duyệt — không cần terminal.',
+  'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
+    'Để tự động có HTTPS và subdomain *.erpc.global miễn phí, hãy chạy SLV trên SLV VPS hoặc BareMetal (tạo qua dashboard):',
   'Gateway is already running.': 'Cổng đang chạy.',
   'Enable remote IP access (recommended for VPS)?':
     'Bật truy cập từ xa bằng IP? (khuyến nghị cho VPS)',

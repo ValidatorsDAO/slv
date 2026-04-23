@@ -97,8 +97,14 @@ const inspectExisting = async (
  */
 export const promptAndInstallSudoers = async (options: {
   t: (msg: string) => string
+  /**
+   * When set, skip the Confirm and apply this answer directly —
+   * used by `slv onboard --config <path>` to drive the flow
+   * non-interactively.
+   */
+  preset?: boolean
 }): Promise<InstallStatus> => {
-  const { t } = options
+  const { t, preset } = options
 
   if (Deno.build.os !== 'linux') {
     return { state: 'skipped', reason: 'not_linux' }
@@ -196,7 +202,7 @@ export const promptAndInstallSudoers = async (options: {
   console.log(colors.gray(`        sudo rm ${sudoersPath(user)}`))
   console.log()
 
-  const ok = await Confirm.prompt({
+  const ok = preset !== undefined ? preset : await Confirm.prompt({
     message: t('Install passwordless sudo for this user now?'),
     default: false,
   })

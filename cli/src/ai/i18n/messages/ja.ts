@@ -286,6 +286,54 @@ export const messages: Record<string, string> = {
     '`slv gateway start` を手動で実行して再試行してください。',
   'Gateway running at http://127.0.0.1:{port}/ui/':
     'ゲートウェイが http://127.0.0.1:{port}/ui/ で稼働中',
+  'Public HTTPS URL (optional)': 'パブリック HTTPS URL（オプション）',
+  'Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).':
+    '無料サブドメイン {fqdn} をこの VPS に向け、nginx をインストールしてスマホから HTTPS で SLV AI にアクセスできるようにします — 証明書の設定は不要です（Cloudflare が TLS を終端します）。',
+  'Set up HTTPS now?': '今すぐ HTTPS を設定しますか？',
+  'Skipped. Run `slv install nginx` later to enable HTTPS.':
+    'スキップしました。後で `slv install nginx` を実行すれば HTTPS を有効にできます。',
+  'HTTPS setup failed ({stage}): {err}':
+    'HTTPS 設定に失敗しました（{stage}）: {err}',
+  'You can retry later with `slv install nginx`.':
+    '後で `slv install nginx` で再試行できます。',
+  'HTTPS is live at {url}': 'HTTPS 有効化: {url}',
+  'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.':
+    'スキップしました — SLV API キーが必要です。`slv login` の後に `slv install nginx` を実行すると HTTPS を有効化できます。',
+  'Could not read DNS status — run `slv install nginx` later to retry.':
+    'DNS ステータスを取得できませんでした — 後で `slv install nginx` を実行して再試行してください。',
+  'Browser chat UI': 'ブラウザチャット UI',
+  'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'バックグラウンドサービスをインストールして、ターミナルを開いたままにしなくてもブラウザから http://127.0.0.1:{port}/ui/ で SLV とチャットできるようにします。',
+  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'SLV API キーがあれば、無料の erpc.global サブドメインをこの VPS に向けてすぐに HTTPS を有効化できます。',
+  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
+    '🔑 SLV API キーをここに貼り付け（Enter で HTTPS をスキップ）:',
+  'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
+    'スキップしました。後で `slv login` → `slv install nginx` を実行すれば HTTPS を有効化できます。',
+  '⚠ This VPS is NOT an SLV VPS / BareMetal.':
+    '⚠ この VPS は SLV VPS / BareMetal ではありません。',
+  'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.':
+    '暗号化されていない平文 HTTP（http://<ip>:20026/）にフォールバックします — 開発用途限定で扱ってください。本番では下記のダッシュボードから SLV VPS または BareMetal を調達してください。IP は自動登録され、次回 `slv install nginx` で HTTPS が有効になります。',
+  '⚠ Your free subdomain {fqdn} is already pointing at {ip}.':
+    '⚠ 無料サブドメイン {fqdn} は既に {ip} を指しています。',
+  'Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.':
+    'ここで向き直すと、別のホストのアクセスが壊れます。SLV アカウントには無料サブドメインが 1 つだけ。2 つ目は有料プラン（近日公開）またはサポートチケットで相談してください。',
+  'What would you like to do?': 'どうしますか？',
+  'Skip HTTPS for this VPS — leave the existing subdomain alone':
+    'この VPS では HTTPS をスキップ — 既存サブドメインはそのまま',
+  'Create a support ticket to request a 2nd subdomain':
+    '2つ目のサブドメインをリクエストするサポートチケットを作成',
+  "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)":
+    '承知の上で向き直す（他の VPS のアクセスが壊れます。わかっている人だけ選択）',
+  'Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.':
+    '既存サブドメインを維持しました。必要なら他の VPS で `slv install nginx` を実行して再度紐付けできます。',
+  'Creating support ticket...': 'サポートチケットを作成中…',
+  'Ticket creation failed: {err}': 'チケット作成に失敗しました: {err}',
+  'Ticket opened. Follow up here:': 'チケットを作成しました。こちらで確認してください:',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
+    'セキュリティ: 上記の URL をタップしてブラウザで SLV AI を開き、そのまま「ファイアウォール（nftables）とスマホで WireGuard の設定を手伝って」と頼んでください。ターミナル不要、チャット画面だけで進められます。',
+  'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
+    'HTTPS と無料の *.erpc.global サブドメインを自動で使うには、SLV VPS または BareMetal 上で SLV を動かしてください（ダッシュボードから調達できます）:',
   'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
   'Enable remote IP access (recommended for VPS)?':
     'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',

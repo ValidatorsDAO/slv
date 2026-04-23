@@ -17,7 +17,11 @@ import {
   promptAndInstallSudoers,
 } from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
-import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import {
+  getApiKeyFromYml,
+  isValidApiKey,
+  resolveHome,
+} from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import { installAction as installGatewayAction } from '/src/gateway/install.ts'
 import { pickGatewayService } from '/src/gateway/service/pick.ts'
@@ -28,6 +32,32 @@ import {
   writeGatewayConfig,
 } from '/src/gateway/config.ts'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
+import {
+  ERPC_DASHBOARD_URL,
+  getDnsStatus,
+  openSupportTicket,
+} from '/lib/slvCloudMcp.ts'
+import { resolvePublicIp } from '/lib/publicIp.ts'
+import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
+
+/**
+ * Module-scoped config for the current onboard run. Set once at the
+ * top of `onboardAction` from `--config <path>`; every prompt site
+ * checks it first via the helpers below. Safe to leave at
+ * module-scope because slv onboard is a single-user,
+ * single-invocation CLI command — there's no concurrency to race.
+ */
+let currentCfg: OnboardConfig = {}
+
+/** Return the preset value if present, otherwise run the prompt. */
+const orPrompt = async <T>(
+  preset: T | undefined,
+  prompt: () => Promise<T>,
+): Promise<T> => {
+  if (preset !== undefined) return preset
+  return await prompt()
+}
+import { runNginxFlow } from '/src/install/nginxFlow.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
 // combining marks take 0, most others 1. Used to pad i18n lines inside boxes
@@ -252,7 +282,17 @@ const hasBenchmarkOps = (selectedOps: string[]) =>
   selectedOps.includes('Index RPC Node Operations') ||
   selectedOps.includes('gRPC Geyser Streaming')
 
-export const onboardAction = async () => {
+export const onboardAction = async (
+  opts: { configPath?: string } = {},
+) => {
+  currentCfg = opts.configPath ? await loadOnboardConfig(opts.configPath) : {}
+  if (opts.configPath) {
+    console.log(
+      colors.gray(
+        `  (loaded pre-filled answers from ${opts.configPath} — any missing fields will still be prompted)`,
+      ),
+    )
+  }
   slvAA(denoJson.version)
 
   // --- Language gate ---
@@ -261,27 +301,31 @@ export const onboardAction = async () => {
   // can show in that language. On subsequent runs we skip this block entirely
   // (avoids the re-run loop) and just load the saved language.
   if (!(await hasLangSet())) {
-    const picked = await Select.prompt({
-      message: 'Select your language / 言語を選択 / Выберите язык',
-      options: [
-        { name: 'English', value: 'en' },
-        { name: '日本語 (Japanese)', value: 'ja' },
-        { name: '中文 (Chinese)', value: 'zh' },
-        { name: 'Русский (Russian)', value: 'ru' },
-        { name: 'Tiếng Việt (Vietnamese)', value: 'vi' },
-        { name: 'Other (type your language)', value: '__other__' },
-      ],
-      default: 'en',
-    })
-
-    let chosenLang: string = picked
-    if (picked === '__other__') {
-      const typed = await Input.prompt({
-        message: 'Enter your language (e.g. "de", "Français", "日本語")',
+    let chosenLang: string
+    if (currentCfg.lang) {
+      chosenLang = currentCfg.lang
+    } else {
+      const picked = await Select.prompt({
+        message: 'Select your language / 言語を選択 / Выберите язык',
+        options: [
+          { name: 'English', value: 'en' },
+          { name: '日本語 (Japanese)', value: 'ja' },
+          { name: '中文 (Chinese)', value: 'zh' },
+          { name: 'Русский (Russian)', value: 'ru' },
+          { name: 'Tiếng Việt (Vietnamese)', value: 'vi' },
+          { name: 'Other (type your language)', value: '__other__' },
+        ],
         default: 'en',
-        validate: (v) => v.trim().length > 0 || 'Language is required',
       })
-      chosenLang = typed.trim()
+      chosenLang = picked
+      if (picked === '__other__') {
+        const typed = await Input.prompt({
+          message: 'Enter your language (e.g. "de", "Français", "日本語")',
+          default: 'en',
+          validate: (v) => v.trim().length > 0 || 'Language is required',
+        })
+        chosenLang = typed.trim()
+      }
     }
 
     await writeLang(chosenLang)
@@ -310,13 +354,17 @@ export const onboardAction = async () => {
 
   printSecurityWarning()
 
-  const accepted = await Select.prompt({
-    message: t('I understand this is powerful and inherently risky. Continue?'),
-    options: [
-      { name: t('Yes'), value: 'yes' },
-      { name: t('No'), value: 'no' },
-    ],
-  })
+  const accepted = currentCfg.security_warning_accepted === true
+    ? 'yes'
+    : await Select.prompt({
+      message: t(
+        'I understand this is powerful and inherently risky. Continue?',
+      ),
+      options: [
+        { name: t('Yes'), value: 'yes' },
+        { name: t('No'), value: 'no' },
+      ],
+    })
 
   if (accepted !== 'yes') {
     console.log(colors.yellow(`\n  ${t('Setup cancelled.')}\n`))
@@ -343,9 +391,11 @@ export const onboardAction = async () => {
       ),
     )
 
-    const slvApiKey = await Secret.prompt({
-      message: t('🔑 SLV API Key (or press Enter to skip)'),
-    })
+    const slvApiKey = currentCfg.slv_api_key !== undefined
+      ? currentCfg.slv_api_key
+      : await Secret.prompt({
+        message: t('🔑 SLV API Key (or press Enter to skip)'),
+      })
 
     if (slvApiKey && slvApiKey.trim().length > 0) {
       await Deno.mkdir(`${home}/.slv`, { recursive: true })
@@ -390,21 +440,33 @@ export const onboardAction = async () => {
   // just needs Enter-Enter-Enter unless the user wants to change something.
   const existing = await loadExistingDefaults(home)
 
-  const userName = await Input.prompt({
-    message: t('Your name'),
-    default: existing.userName,
-    validate: (v) => v.trim().length > 0 || t('Name is required'),
-  })
+  const userName = await orPrompt(
+    currentCfg.user_name,
+    () =>
+      Input.prompt({
+        message: t('Your name'),
+        default: existing.userName,
+        validate: (v) => v.trim().length > 0 || t('Name is required'),
+      }),
+  )
 
-  const callMe = await Input.prompt({
-    message: t('What should the AI call you?'),
-    default: existing.callMe ?? userName,
-  })
+  const callMe = await orPrompt(
+    currentCfg.call_me_name,
+    () =>
+      Input.prompt({
+        message: t('What should the AI call you?'),
+        default: existing.callMe ?? userName,
+      }),
+  )
 
-  const agentName = await Input.prompt({
-    message: t('Name your main AI agent'),
-    default: existing.agentName ?? 'SLV Agent',
-  })
+  const agentName = await orPrompt(
+    currentCfg.agent_name,
+    () =>
+      Input.prompt({
+        message: t('Name your main AI agent'),
+        default: existing.agentName ?? 'SLV Agent',
+      }),
+  )
 
   // Default the Checkbox to previously-enabled ops; fall back to first-run
   // defaults when nothing is saved yet.
@@ -417,7 +479,9 @@ export const onboardAction = async () => {
   // use-case) and stops the onboarding flow from dumping the user into a
   // "you do everything" state. The user can still tick more with Space.
   // Second-run: defaults come from the existing config (`existing.enabledOps`).
-  const selectedOps: string[] = await Checkbox.prompt({
+  const selectedOps: string[] = currentCfg.selected_ops !== undefined
+    ? currentCfg.selected_ops
+    : await Checkbox.prompt({
     message: t('What will you be doing? (↑↓ move, Space toggle, Enter confirm)'),
     options: [
       {
@@ -454,14 +518,19 @@ export const onboardAction = async () => {
   })
 
   // --- Deployment mode ---
-  const deployMode = await Select.prompt({
-    message: t('Deployment mode'),
-    default: existing.deployMode,
-    options: [
-      { name: t('Local — deploy to this machine'), value: 'local' },
-      { name: t('Remote — deploy to remote servers via SSH'), value: 'remote' },
-    ],
-  })
+  const deployMode = currentCfg.deploy_mode !== undefined
+    ? currentCfg.deploy_mode
+    : await Select.prompt({
+      message: t('Deployment mode'),
+      default: existing.deployMode,
+      options: [
+        { name: t('Local — deploy to this machine'), value: 'local' },
+        {
+          name: t('Remote — deploy to remote servers via SSH'),
+          value: 'remote',
+        },
+      ],
+    })
 
   // Build config
   const agentHome = resolveHome()
@@ -546,10 +615,12 @@ Session history and important notes.
     ),
   )
 
-  const discordWebhook = await Input.prompt({
-    message: t('Discord Webhook URL for notifications (Enter to skip)'),
-    default: existing.discordWebhook ?? '',
-  })
+  const discordWebhook = currentCfg.discord_webhook !== undefined
+    ? currentCfg.discord_webhook
+    : await Input.prompt({
+      message: t('Discord Webhook URL for notifications (Enter to skip)'),
+      default: existing.discordWebhook ?? '',
+    })
 
   if (discordWebhook && discordWebhook.trim().length > 0) {
     // Save to api.yml preserving existing content
@@ -575,7 +646,10 @@ Session history and important notes.
   // after `sudo rm /etc/sudoers.d/slv-<user>` correctly re-offers.
   // We still record a timestamp for observability, but don't gate on it.
   if (await isSudoersTarget()) {
-    const result = await promptAndInstallSudoers({ t })
+    const result = await promptAndInstallSudoers({
+      t,
+      preset: currentCfg.sudoers_install,
+    })
     if (result.state === 'installed' || result.state === 'already_installed') {
       await writeSudoersInstalledAt(new Date().toISOString())
     } else if (result.state === 'foreign_file_exists') {
@@ -609,13 +683,31 @@ Session history and important notes.
   // service is already installed/running, we say so and continue.
   const gatewayResult = await maybeInstallGateway(t)
 
+  // Access path — try HTTPS first, fall back to LAN mode only if
+  // HTTPS was declined or couldn't be set up. Order matters: with
+  // HTTPS the gateway stays safely on loopback and nginx handles
+  // the external side; offering LAN mode after HTTPS succeeded
+  // would just confuse the user with an unneeded 0.0.0.0 bind.
+  let httpsUrl: string | null = null
+  let accessMode: 'local' | 'lan' = gatewayResult.mode
+  if (gatewayResult.gatewayReachable) {
+    httpsUrl = await maybeSetupHttps(t)
+    if (!httpsUrl) {
+      accessMode = await maybeEnableLanMode(t)
+    }
+  }
+
   // If the gateway is up AND the user set a Discord webhook, send
   // them the browser-chat URL + token there so they don't have to
   // hunt for it — the "last-mile" signal that makes non-engineers
-  // actually use the UI. Includes a WireGuard advisory when we had
-  // to flip to lan mode (public network exposure).
+  // actually use the UI. Prefers the HTTPS URL if we set one up.
   if (gatewayResult.gatewayReachable) {
-    await sendOnboardWebhook({ t, agentHome, mode: gatewayResult.mode })
+    await sendOnboardWebhook({
+      t,
+      agentHome,
+      mode: accessMode,
+      httpsUrl,
+    })
   }
 
   console.log(
@@ -662,13 +754,13 @@ const maybeInstallGateway = async (
   t: (key: string) => string,
 ): Promise<GatewayResult> => {
   console.log(
-    colors.bold.rgb24(`\n│  ${t('Browser chat UI (optional)')}`, 0x14f195),
+    colors.bold.rgb24(`\n│  ${t('Browser chat UI')}`, 0x14f195),
   )
   console.log(
     colors.white(
       `  ${
         t(
-          'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
+          'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
         ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
       }`,
     ),
@@ -699,25 +791,11 @@ const maybeInstallGateway = async (
     return { gatewayReachable: false, mode: 'local' }
   }
 
-  // Probe BEFORE the confirm — a running service shortcuts the whole
-  // prompt, but we still want to ask about lan mode afterwards.
+  // Auto-install: no Confirm. Onboard explicitly assumes the user
+  // wants the browser UI — skipping would leave them stranded.
+  // Platform gate + idempotent status probe above means this is
+  // safe to run every time.
   if (!status.running) {
-    const ok = await Confirm.prompt({
-      message: t('Install and start the gateway now?'),
-      default: true,
-    })
-    if (!ok) {
-      console.log(
-        colors.rgb24(
-          `  ${
-            t('Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.')
-          }\n`,
-          0x888888,
-        ),
-      )
-      return { gatewayReachable: false, mode: 'local' }
-    }
-
     if (!status.loaded) {
       const installed = await installGatewayAction()
       if (!installed) {
@@ -761,73 +839,14 @@ const maybeInstallGateway = async (
     )
   }
 
-  // Default the gateway to lan mode so non-engineers can reach the
-  // browser UI by IP from their phone/laptop without setting up an
-  // SSH tunnel. Security hardening (WireGuard / nftables) is called
-  // out below and reinforced in the Discord completion message.
-  // Power users who really want loopback-only can still say No and
-  // flip back with `slv gateway config set-mode local` later.
-  const currentMode = await readCurrentGatewayMode()
-  let finalMode: 'local' | 'lan' = currentMode
-  if (currentMode === 'local') {
-    console.log(
-      colors.bold.yellow(
-        `\n  ${t('Enable remote IP access (recommended for VPS)?')}`,
-      ),
-    )
-    console.log(
-      colors.white(
-        `    ${
-          t('Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.').replace('{port}', String(GATEWAY_DEFAULT_PORT))
-        }`,
-      ),
-    )
-    console.log(
-      colors.bold.rgb24(
-        `    ⚠ ${
-          t('Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.')
-        }`,
-        0xffdf7a,
-      ),
-    )
-    const enableLan = await Confirm.prompt({
-      message: t('Enable remote IP access now?'),
-      default: true,
-    })
-    if (enableLan) {
-      try {
-        const cfg = await loadGatewayConfig()
-        await writeGatewayConfig({ ...cfg, mode: 'lan' })
-        await service.restart()
-        finalMode = 'lan'
-        console.log(
-          colors.green(
-            `  ✔ ${t('Remote IP access enabled — gateway restarted.')}\n`,
-          ),
-        )
-      } catch (err) {
-        console.log(
-          colors.yellow(
-            `  ⚠ ${t('Failed to enable remote IP access:')} ${errToString(err)}`,
-          ),
-        )
-        console.log(
-          colors.white(
-            `    ${t('You can run `slv gateway config set-mode lan` later.')}\n`,
-          ),
-        )
-      }
-    } else {
-      console.log(
-        colors.rgb24(
-          `  ${
-            t('Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.')
-          }\n`,
-          0x888888,
-        ),
-      )
-    }
-  }
+  // Mode-switching used to live here; it's now split into two
+  // explicit sections further up the onboard flow:
+  //   1. `maybeSetupHttps` offers the Cloudflare-fronted HTTPS
+  //      URL (preferred path — no LAN exposure required).
+  //   2. `maybeEnableLanMode` is only asked when HTTPS was
+  //      skipped, so users don't get badgered about opening 0.0.0.0
+  //      when nginx is going to handle remote access anyway.
+  const finalMode = await readCurrentGatewayMode()
 
   console.log(
     colors.green(
@@ -909,6 +928,89 @@ const resolveBrowserUrl = async (
 }
 
 /**
+ * Offer lan mode — only called as a fallback when HTTPS has
+ * already been offered and declined (or couldn't be set up). If
+ * HTTPS is configured, the gateway should stay on loopback; nginx
+ * handles the public-facing side.
+ *
+ * Returns the mode the gateway ended up in. Non-fatal on error.
+ */
+const maybeEnableLanMode = async (
+  t: (key: string) => string,
+): Promise<'local' | 'lan'> => {
+  const currentMode = await readCurrentGatewayMode()
+  if (currentMode === 'lan') return 'lan'
+  let service
+  try {
+    service = pickGatewayService()
+  } catch {
+    return currentMode
+  }
+
+  console.log(
+    colors.bold.yellow(
+      `\n  ${t('Enable remote IP access (recommended for VPS)?')}`,
+    ),
+  )
+  console.log(
+    colors.white(
+      `    ${
+        t(
+          'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.',
+        ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
+      }`,
+    ),
+  )
+  console.log(
+    colors.bold.rgb24(
+      `    ⚠ ${
+        t(
+          'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.',
+        )
+      }`,
+      0xffdf7a,
+    ),
+  )
+  const enableLan = currentCfg.enable_lan_mode !== undefined
+    ? currentCfg.enable_lan_mode
+    : await Confirm.prompt({
+      message: t('Enable remote IP access now?'),
+      default: true,
+    })
+  if (!enableLan) {
+    console.log(
+      colors.rgb24(
+        `  ${
+          t(
+            'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.',
+          )
+        }\n`,
+        0x888888,
+      ),
+    )
+    return 'local'
+  }
+  try {
+    const cfg = await loadGatewayConfig()
+    await writeGatewayConfig({ ...cfg, mode: 'lan' })
+    await service.restart()
+    console.log(
+      colors.green(
+        `  ✔ ${t('Remote IP access enabled — gateway restarted.')}\n`,
+      ),
+    )
+    return 'lan'
+  } catch (err) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${t('Failed to enable remote IP access:')} ${errToString(err)}`,
+      ),
+    )
+    return 'local'
+  }
+}
+
+/**
  * Post a completion message to the user's Discord webhook with the
  * browser chat URL + token + (for lan mode) a WireGuard hardening
  * reminder. All in the language the user picked at step 1. Silent
@@ -920,8 +1022,17 @@ const sendOnboardWebhook = async (opts: {
   t: (key: string) => string
   agentHome: string
   mode: 'local' | 'lan'
+  /**
+   * URL to show in the Discord message. When the onboard HTTPS
+   * step registered the user's erpc.global subdomain and stood
+   * up nginx, this is the Cloudflare-fronted `https://<slug>/`
+   * so the user can click straight through from mobile. Null
+   * falls back to the bare `http://<ip>:20026/` derived from
+   * the gateway mode (lan → public IP, local → loopback+SSH).
+   */
+  httpsUrl: string | null
 }): Promise<void> => {
-  const { t, agentHome, mode } = opts
+  const { t, agentHome, mode, httpsUrl } = opts
   const apiYmlPath = `${agentHome}/.slv/api.yml`
 
   // Resolve webhook + token. Missing either means quiet skip — the
@@ -942,49 +1053,112 @@ const sendOnboardWebhook = async (opts: {
   } catch { /* gateway not configured */ }
   if (!token) return
 
-  const { host, externallyReachable } = await resolveBrowserUrl(mode)
-  const url = `http://${host}:${GATEWAY_DEFAULT_PORT}/ui/`
+  // If the onboard HTTPS step succeeded, use the Cloudflare-
+  // fronted URL verbatim — the user can click it from their
+  // phone without worrying about SSH tunnels or WireGuard. If
+  // the HTTPS step was skipped or failed, fall back to the bare
+  // IP-based URL we had before, with mode-specific guidance
+  // printed below.
+  let url: string
+  if (httpsUrl) {
+    url = httpsUrl.endsWith('/ui/')
+      ? httpsUrl
+      : `${httpsUrl.replace(/\/$/, '')}/ui/`
+  } else {
+    const resolved = await resolveBrowserUrl(mode)
+    url = `http://${resolved.host}:${GATEWAY_DEFAULT_PORT}/ui/`
+  }
 
-  const lines: string[] = []
-  lines.push(`🎉 ${t('SLV AI setup complete!')}`)
-  lines.push('')
-  lines.push(`📱 ${t('Open SLV in your browser:')}`)
-  lines.push(url)
-  lines.push('')
-  lines.push(`🔑 ${t('Gateway token (paste on first visit):')}`)
-  lines.push('```')
-  lines.push(token)
-  lines.push('```')
-  // Local mode needs an SSH tunnel to reach 127.0.0.1 from another
-  // device. Add it as a prerequisite step — not a replacement for
-  // the hardening advisory below.
-  if (mode === 'local') {
-    lines.push('')
-    lines.push(
+  // Split into THREE Discord messages so the token sits in its own
+  // bubble — mobile users can long-press → "Select All" → Copy and
+  // get the exact 64 chars with no surrounding prose. Single-bubble
+  // copy on iOS drags in the headers and the user has to trim by
+  // hand.
+  //
+  //   msg 1: header + browser URL (the clickable thing)
+  //   msg 2: token ONLY — pure code block, nothing else
+  //   msg 3: security advisory (+ SSH tunnel hint / dashboard hint
+  //          where applicable)
+  const msg1Lines: string[] = [
+    `🎉 ${t('SLV AI setup complete!')}`,
+    '',
+    `📱 ${t('Open SLV in your browser:')}`,
+    url,
+  ]
+
+  // Token-only bubble. A code block (triple-backtick) keeps the
+  // mono font so the 64 hex chars stay readable, but the whole
+  // message body is the token — nothing to trim on copy.
+  const msg2Lines: string[] = [
+    `🔑 ${t('Gateway token (paste on first visit):')}`,
+    '```',
+    token,
+    '```',
+  ]
+
+  const msg3Lines: string[] = []
+  // Local-mode SSH tunnel hint only applies when no HTTPS URL was
+  // set up. With HTTPS, the user clicks the link and they're in;
+  // instructing them to open a terminal would contradict the
+  // advisory below.
+  if (mode === 'local' && !httpsUrl) {
+    msg3Lines.push(
       `ℹ️ ${
         t('Loopback-only mode — open the URL from elsewhere via SSH tunnel first:')
       }`,
-    )
-    lines.push('```')
-    lines.push(
+      '```',
       `ssh -N -L ${GATEWAY_DEFAULT_PORT}:127.0.0.1:${GATEWAY_DEFAULT_PORT} <user>@<host>`,
+      '```',
+      '',
     )
-    lines.push('```')
   }
-  // Hardening advisory — same wording regardless of mode. Frame
-  // this as something SLV AI helps with (firewall + phone-WireGuard)
-  // rather than a dry link list, since non-engineers won't click
-  // raw nftables docs. YouTube walkthrough slot is a placeholder the
-  // user will fill in later.
-  lines.push('')
-  lines.push(
+  msg3Lines.push(
     `⚠️ ${
-      t('Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.')
+      t('Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.')
     }`,
+    `• ${t('Video walkthrough: coming soon.')}`,
   )
-  lines.push(`• ${t('Video walkthrough: coming soon.')}`)
+  if (!httpsUrl) {
+    msg3Lines.push(
+      '',
+      `🏷 ${
+        t('For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):')
+      }`,
+      ERPC_DASHBOARD_URL,
+    )
+  }
 
-  const result = await notifyDiscordWebhook(webhookUrl, lines.join('\n'))
+  // Send in order, stop-on-first-failure: if Discord rejects msg1
+  // we don't bother with msg2/3 (they'd orphan the token in a
+  // Discord channel with no context). Small delay between posts
+  // so the channel renders them in the right order; Discord will
+  // occasionally reorder messages sent within the same tens of ms.
+  const messages = [
+    msg1Lines.join('\n'),
+    msg2Lines.join('\n'),
+    msg3Lines.join('\n'),
+  ]
+  type Aggregate =
+    | { kind: 'ok' }
+    | { kind: 'http_error'; status: number }
+    | { kind: 'network_error'; message: string }
+  let result: Aggregate = { kind: 'ok' }
+  for (let i = 0; i < messages.length; i++) {
+    const r = await notifyDiscordWebhook(webhookUrl, messages[i])
+    if (r.kind === 'ok') {
+      if (i < messages.length - 1) await new Promise((res) => setTimeout(res, 250))
+      continue
+    }
+    if (r.kind === 'http_error') {
+      result = { kind: 'http_error', status: r.status }
+    } else if (r.kind === 'network_error') {
+      result = { kind: 'network_error', message: r.message }
+    } else {
+      // skipped_empty_url — webhookUrl went empty mid-loop,
+      // shouldn't happen but bail out safely.
+    }
+    break
+  }
   switch (result.kind) {
     case 'ok':
       console.log(
@@ -1009,7 +1183,330 @@ const sendOnboardWebhook = async (opts: {
         ),
       )
       return
-    case 'skipped_empty_url':
-      return
   }
+}
+
+/**
+ * Offer the Cloudflare-fronted HTTPS path: register the user's
+ * free `<slug>.erpc.global` subdomain against this VPS and put
+ * nginx in front of the gateway on port 80. Result: a clickable
+ * `https://u-xxx.erpc.global/ui/` URL in the Discord completion
+ * message that works from any phone/laptop with no SSH tunnel.
+ *
+ * Skipped silently when:
+ *   - no SLV API key is configured (user still needs `slv login`)
+ *   - we can't read DNS status (offline / API down)
+ *   - the user's default slug is already set to an IP we can't
+ *     confirm (we leave whatever they have alone rather than
+ *     re-pointing without consent)
+ *   - running on non-Linux (apt-based install only)
+ *   - the user declines the Confirm prompt
+ *
+ * Returns the `https://...` URL on success so
+ * `sendOnboardWebhook` can put it in the Discord message;
+ * returns null on any skip-or-fail (always non-fatal — the user
+ * can re-run `slv install nginx` manually).
+ */
+const maybeSetupHttps = async (
+  t: (key: string) => string,
+): Promise<string | null> => {
+  // Platform gate — nginx-via-apt is Ubuntu/Debian-only. Silent
+  // skip here is fine; macOS / BSD users aren't missing anything
+  // they'd expect from this onboard step.
+  if (Deno.build.os !== 'linux') return null
+
+  // Always show the section header — even when we skip, the user
+  // should see this path exists (and what to do to enable it
+  // later). The previous silent-skip-on-missing-key made users
+  // think the HTTPS feature didn't exist at all.
+  console.log(
+    colors.bold.rgb24(`\n│  ${t('Public HTTPS URL (optional)')}`, 0x14f195),
+  )
+
+  // FIX 1: re-read api.yml fresh (getApiKeyFromYml already bypasses
+  // any cache). If it's still missing after the onboard SLV-key
+  // step, offer to paste one now so HTTPS isn't blocked on a
+  // single skipped prompt earlier in the flow.
+  let apiKey = await readSlvKeyOrEmpty()
+  if (!apiKey) {
+    console.log(
+      colors.white(
+        `  ${
+          t('An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
+        }`,
+      ),
+    )
+    const pasted = (await Secret.prompt({
+      message: t('🔑 Paste your SLV API key here (Enter to skip HTTPS):'),
+    })).trim()
+    if (!pasted) {
+      console.log(
+        colors.rgb24(
+          `  ${
+            t('Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.')
+          }\n`,
+          0x888888,
+        ),
+      )
+      return null
+    }
+    await persistSlvKey(pasted)
+    apiKey = pasted
+  }
+
+  // Pre-flight DNS status check.
+  const status = await getDnsStatus(apiKey)
+  if (!status.ok) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${
+          t('Could not read DNS status — run `slv install nginx` later to retry.')
+        }\n`,
+      ),
+    )
+    return null
+  }
+  const def = status.data.default
+  const fqdn = def.fqdn
+
+  // FIX 4: detect existing-slug conflict. If the user's default
+  // subdomain already points somewhere OTHER than this host, a
+  // `/v3/dns/set` here would hijack their other VPS's URL —
+  // exactly what we don't want. Branch into the 2nd-subdomain /
+  // support-ticket flow.
+  const thisHostIp = await resolvePublicIp()
+  if (
+    def.exists && def.ip &&
+    thisHostIp && def.ip !== thisHostIp
+  ) {
+    return await handleSubdomainConflict(t, apiKey, fqdn, def.ip, thisHostIp)
+  }
+
+  console.log(
+    colors.white(
+      `  ${
+        t('Point your free subdomain {fqdn} at this VPS and install nginx so SLV AI is reachable over HTTPS from your phone — no cert setup needed (Cloudflare handles TLS).')
+          .replace('{fqdn}', fqdn)
+      }`,
+    ),
+  )
+
+  const ok = currentCfg.enable_https !== undefined
+    ? currentCfg.enable_https
+    : await Confirm.prompt({
+      message: t('Set up HTTPS now?'),
+      default: true,
+    })
+  if (!ok) {
+    console.log(
+      colors.rgb24(
+        `  ${t('Skipped. Run `slv install nginx` later to enable HTTPS.')}\n`,
+        0x888888,
+      ),
+    )
+    return null
+  }
+
+  console.log(colors.cyan(`🌐 Registering ${fqdn} + installing nginx...`))
+  const result = await runNginxFlow({
+    apiKey,
+    port: GATEWAY_DEFAULT_PORT,
+    ip: thisHostIp ?? undefined,
+  })
+  if (!result.ok) {
+    // FIX 3: ip_not_owned means the VPS isn't an SLV VPS/BareMetal.
+    // Falling back to http://<ip>:20026 is unencrypted and exposed;
+    // we print a loud warning + direct the user at Figaro (the
+    // server-procurement specialist in `slv c`) for a proper
+    // upgrade path, rather than pretending the http URL is fine.
+    if (result.stage === 'dns_set' && result.error.includes('not registered')) {
+      console.log(
+        colors.bold.red(
+          `\n  ${t('⚠ This VPS is NOT an SLV VPS / BareMetal.')}`,
+        ),
+      )
+      console.log(
+        colors.bold.yellow(
+          `  ${
+            t(
+              'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.',
+            )
+          }`,
+        ),
+      )
+      console.log(
+        colors.bold.white(`  👉  ${ERPC_DASHBOARD_URL}\n`),
+      )
+    } else {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('HTTPS setup failed ({stage}): {err}')}`
+            .replace('{stage}', result.stage)
+            .replace('{err}', result.error),
+        ),
+      )
+      console.log(
+        colors.white(
+          `    ${t('You can retry later with `slv install nginx`.')}\n`,
+        ),
+      )
+    }
+    return null
+  }
+  console.log(
+    colors.green(
+      `  ✔ ${t('HTTPS is live at {url}').replace('{url}', result.httpsUrl)}\n`,
+    ),
+  )
+  return result.httpsUrl
+}
+
+/**
+ * Read the SLV API key from ~/.slv/api.yml without erroring out
+ * when absent — the HTTPS step treats "missing" as a prompt trigger,
+ * not a fatal.
+ */
+const readSlvKeyOrEmpty = async (): Promise<string> => {
+  try {
+    const k = await getApiKeyFromYml(true)
+    return k ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Write a pasted SLV API key back into ~/.slv/api.yml, preserving
+ * whatever other fields (lang, notifications, ai, …) were already
+ * there. Mirror of the write in the SLV-key onboard step.
+ */
+const persistSlvKey = async (apiKey: string): Promise<void> => {
+  const home = resolveHome()
+  const apiYmlPath = `${home}/.slv/api.yml`
+  await Deno.mkdir(`${home}/.slv`, { recursive: true })
+  let existing: Record<string, unknown> = {}
+  try {
+    const content = await Deno.readTextFile(apiYmlPath)
+    existing = (parse(content) as Record<string, unknown>) ?? {}
+  } catch { /* file doesn't exist yet */ }
+  const slv = (existing.slv as Record<string, unknown> | undefined) ?? {}
+  slv.api_key = apiKey
+  existing.slv = slv
+  await Deno.writeTextFile(apiYmlPath, stringify(existing))
+  await Deno.chmod(apiYmlPath, 0o600)
+}
+
+/**
+ * The user's free default subdomain is already pointing somewhere
+ * else — typically an earlier SLV VPS they've already onboarded.
+ * Overwriting it here would break the old host's URL, so give the
+ * user three explicit options and take their pick.
+ */
+const handleSubdomainConflict = async (
+  t: (key: string) => string,
+  apiKey: string,
+  fqdn: string,
+  currentIp: string,
+  thisHostIp: string,
+): Promise<string | null> => {
+  console.log(
+    colors.bold.yellow(
+      `  ${
+        t('⚠ Your free subdomain {fqdn} is already pointing at {ip}.')
+          .replace('{fqdn}', fqdn)
+          .replace('{ip}', currentIp)
+      }`,
+    ),
+  )
+  console.log(
+    colors.white(
+      `  ${
+        t('Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.')
+      }\n`,
+    ),
+  )
+
+  const choice = await Select.prompt({
+    message: t('What would you like to do?'),
+    options: [
+      {
+        name: t('Skip HTTPS for this VPS — leave the existing subdomain alone'),
+        value: 'skip',
+      },
+      {
+        name: t('Create a support ticket to request a 2nd subdomain'),
+        value: 'ticket',
+      },
+      {
+        name: t(
+          'Re-point anyway (breaks the other VPS — only choose if you know what you\'re doing)',
+        ),
+        value: 'repoint',
+      },
+    ],
+    default: 'skip',
+  })
+
+  if (choice === 'skip') {
+    console.log(
+      colors.rgb24(
+        `  ${t('Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.')}\n`,
+        0x888888,
+      ),
+    )
+    return null
+  }
+
+  if (choice === 'ticket') {
+    console.log(colors.cyan(`  ${t('Creating support ticket...')}`))
+    const description =
+      `Request: 2nd erpc.global subdomain\n\n` +
+      `Current free subdomain: ${fqdn} → ${currentIp}\n` +
+      `This new VPS IP: ${thisHostIp}\n` +
+      `Use case: user is onboarding a second SLV host and wants an additional subdomain for it.`
+    const ticket = await openSupportTicket(apiKey, {
+      title: `Request 2nd erpc.global subdomain for ${thisHostIp}`,
+      description,
+    })
+    if (!ticket.ok) {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('Ticket creation failed: {err}')}`
+            .replace('{err}', ticket.error),
+        ),
+      )
+      return null
+    }
+    console.log(
+      colors.green(
+        `  ✔ ${t('Ticket opened. Follow up here:')} ${ticket.link || '(see Discord notifications)'}\n`,
+      ),
+    )
+    return null
+  }
+
+  // choice === 'repoint' — run the normal flow; the caller will
+  // overwrite the old record.
+  console.log(colors.cyan(`🌐 Re-pointing ${fqdn} at ${thisHostIp}...`))
+  const result = await runNginxFlow({
+    apiKey,
+    port: GATEWAY_DEFAULT_PORT,
+    ip: thisHostIp,
+  })
+  if (!result.ok) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${t('HTTPS setup failed ({stage}): {err}')}`
+          .replace('{stage}', result.stage)
+          .replace('{err}', result.error),
+      ),
+    )
+    return null
+  }
+  console.log(
+    colors.green(
+      `  ✔ ${t('HTTPS is live at {url}').replace('{url}', result.httpsUrl)}\n`,
+    ),
+  )
+  return result.httpsUrl
 }
