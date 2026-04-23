@@ -17,21 +17,31 @@ type MockScript = ({
   delayMs?: number
 })[]
 
-const buildMock = (script: MockScript) => (callbacks: ChatCallbacks): ProviderLike => ({
-  chat: async (_text: string) => {
-    for (const step of script) {
-      if (step.delayMs) {
-        await new Promise((r) => setTimeout(r, step.delayMs))
+const buildMock = (script: MockScript) =>
+(initialCallbacks: ChatCallbacks): ProviderLike => {
+  // Hold callbacks in a mutable slot so updateCallbacks() can swap
+  // them between turns — mirrors the real provider contract since
+  // providerDriver now reuses one provider across calls.
+  let callbacks = initialCallbacks
+  return {
+    updateCallbacks: (cb: ChatCallbacks) => {
+      callbacks = cb
+    },
+    chat: async (_text) => {
+      for (const step of script) {
+        if (step.delayMs) {
+          await new Promise((r) => setTimeout(r, step.delayMs))
+        }
+        if (step.throw) throw step.throw
+        if (step.stream !== undefined) callbacks.onStream(step.stream)
+        if (step.toolCall) {
+          callbacks.onToolCall(step.toolCall.name, step.toolCall.detail)
+        }
       }
-      if (step.throw) throw step.throw
-      if (step.stream !== undefined) callbacks.onStream(step.stream)
-      if (step.toolCall) {
-        callbacks.onToolCall(step.toolCall.name, step.toolCall.detail)
-      }
-    }
-    callbacks.onComplete()
-  },
-})
+      callbacks.onComplete()
+    },
+  }
+}
 
 const collect = (session: Session): SessionEvent[] => {
   const events: SessionEvent[] = []
@@ -160,4 +170,36 @@ Deno.test('providerDriver ignores zero-length text_delta', async () => {
     )
     .map((e) => e.text)
   assertEquals(deltas, ['hi', '!'])
+})
+
+Deno.test('providerDriver reuses provider across turns (history preserved)', async () => {
+  // Count the number of times the builder is called; providerDriver
+  // must only call it once across two session.send() invocations,
+  // so the provider's internal message history survives.
+  let buildCount = 0
+  let updateCount = 0
+  const build = (initialCallbacks: ChatCallbacks): ProviderLike => {
+    buildCount++
+    let callbacks = initialCallbacks
+    return {
+      updateCallbacks: (cb: ChatCallbacks) => {
+        updateCount++
+        callbacks = cb
+      },
+      chat: async (_text) => {
+        callbacks.onStream('ok')
+        callbacks.onComplete()
+      },
+    }
+  }
+  const session = new Session(providerDriver({ build }))
+  await session.send('first')
+  await session.send('second')
+
+  assertEquals(buildCount, 1, 'provider must be built exactly once')
+  assertEquals(
+    updateCount,
+    1,
+    'updateCallbacks must fire once on the second send (not the first)',
+  )
 })

@@ -43,6 +43,8 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     gateBody: t(
       "This browser is reaching the SLV gateway from a different host. Paste the gateway token value (found in ~/.slv/gateway/gateway.json on the gateway host) to continue. It's saved in your browser's localStorage.",
     ),
+    attachTitle: t('Attach image'),
+    dropHere: t('Drop images here to attach'),
   }
   // Strings the client JS needs at runtime (status labels, chat
   // message prefixes, the reconnect countdown template). Baked in
@@ -62,6 +64,18 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     aborted: t('⏸ aborted'),
     errorLabel: t('❌ error'),
     interrupted: t('[disconnected — reply interrupted]'),
+    // Image-attach strings — consumed by JS validators and the
+    // history placeholder that replaces stripped base64 on reload.
+    removeImage: t('Remove image'),
+    imgCount: t('📎 {n} image(s) attached'),
+    errImageType: t('Only JPEG, PNG, GIF, or WebP images are accepted.'),
+    errImageTooLarge: t(
+      'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.',
+    ),
+    errImageCount: t('Too many images — max {max} per message.'),
+    errImageTotalSize: t(
+      'Attached images total {mb} MB; max {max} MB combined.',
+    ),
   }
   const i18nJson = JSON.stringify(clientI18n)
   return `<!doctype html>
@@ -195,28 +209,50 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     word-break: break-word;
   }
   .msg.assistant pre { background: transparent; border: 0; padding: 4px 0; }
+  /* Thinking indicator — styled as a pending assistant message so
+     the user's eye goes to the slot where the reply will stream in.
+     Same layout as a real reply, but the text body is replaced by
+     a row of pulsing dots + a short caption that names the agent
+     so the state reads unambiguously (e.g. "EL 考えています"). */
   .thinking {
     margin: 0 0 12px 0;
-    padding: 6px 0;
-    color: var(--muted);
-    font-style: italic;
-    font-size: 13px;
+  }
+  .thinking .who {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+  .thinking .body {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: fit-content;
+  }
+  .thinking .dots {
+    display: flex;
+    gap: 5px;
   }
   .thinking .dot {
-    width: 6px;
-    height: 6px;
+    width: 9px;
+    height: 9px;
     background: var(--accent);
     border-radius: 50%;
-    animation: pulse 1.2s infinite;
+    animation: pulse 1s infinite;
   }
-  .thinking .dot:nth-child(2) { animation-delay: 0.2s; }
-  .thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+  .thinking .dot:nth-child(2) { animation-delay: 0.15s; }
+  .thinking .dot:nth-child(3) { animation-delay: 0.3s; }
+  .thinking .caption {
+    font-size: 13px;
+    color: var(--muted);
+  }
   @keyframes pulse {
-    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-    40% { opacity: 1; transform: scale(1); }
+    0%, 75%, 100% { opacity: 0.25; transform: scale(0.7); }
+    35% { opacity: 1; transform: scale(1.15); }
   }
   .token-gate {
     max-width: 520px;
@@ -246,6 +282,101 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     border-radius: 4px;
     color: var(--text);
   }
+  footer { flex-direction: column; align-items: stretch; gap: 6px; }
+  .footer-row { display: flex; gap: 8px; align-items: flex-end; }
+  #attach {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0;
+    width: 40px;
+    min-height: 40px;
+    font-size: 18px;
+    line-height: 1;
+  }
+  #attach:hover { color: var(--text); border-color: var(--muted); }
+  .attach-previews {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 0 0;
+  }
+  .attach-thumb {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 6px;
+    background-size: cover;
+    background-position: center;
+    background-color: var(--panel);
+    border: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  .attach-thumb .remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    min-height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .attach-thumb .size {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    font: 9px var(--mono);
+    color: var(--text);
+    background: rgba(0, 0, 0, 0.55);
+    text-align: center;
+    border-radius: 0 0 5px 5px;
+    padding: 1px 0;
+  }
+  /* Drag-and-drop: the overlay is a semi-transparent layer above
+     the whole chat area that appears while the user is dragging
+     files over the window. Pointer events are disabled on it so
+     the drop lands on the main area beneath. */
+  #drop-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 14, 20, 0.85);
+    border: 2px dashed var(--accent);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 16px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  body.dragging #drop-overlay { display: flex; }
+  .msg .img-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .msg .img-strip img {
+    max-width: 180px;
+    max-height: 180px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .msg .img-placeholder {
+    font: 12px var(--mono);
+    color: var(--muted);
+    margin-top: 4px;
+  }
   @media (max-width: 640px) {
     header { padding: 8px 10px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); gap: 6px; }
     header .title { font-size: 13px; }
@@ -257,6 +388,9 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     .token-gate { margin: 16px 10px; padding: 16px; }
     button { padding: 0 12px; min-height: 44px; }
     #input { min-height: 44px; }
+    #attach { width: 44px; min-height: 44px; }
+    .attach-thumb { width: 48px; height: 48px; }
+    .msg .img-strip img { max-width: 120px; max-height: 120px; }
   }
 </style>
 </head>
@@ -275,10 +409,16 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   <button id="token-submit">${html.connect}</button>
 </div>
 <footer id="footer" style="display:none">
-  <textarea id="input" rows="1" placeholder="${html.placeholderMessage}"></textarea>
-  <button id="send">${html.send}</button>
-  <button id="abort" class="abort" style="display:none">${html.stop}</button>
+  <div id="attach-previews" class="attach-previews" style="display:none"></div>
+  <div class="footer-row">
+    <button id="attach" type="button" title="${html.attachTitle}">📎</button>
+    <textarea id="input" rows="1" placeholder="${html.placeholderMessage}"></textarea>
+    <button id="send">${html.send}</button>
+    <button id="abort" class="abort" style="display:none">${html.stop}</button>
+  </div>
+  <input id="file-picker" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none" />
 </footer>
+<div id="drop-overlay">${html.dropHere}</div>
 <script>
 (function () {
   const I18N = ${i18nJson}
@@ -293,6 +433,20 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   const gateEl = document.getElementById('gate')
   const tokenInput = document.getElementById('token-input')
   const tokenSubmit = document.getElementById('token-submit')
+  const attachBtn = document.getElementById('attach')
+  const filePicker = document.getElementById('file-picker')
+  const previewsEl = document.getElementById('attach-previews')
+
+  // Mirror the server-side caps from messageInput.ts. Keep in sync
+  // if those change — the server validates authoritatively on send,
+  // but the client checks early so users don't base64-encode a
+  // 10 MB photo just to hear "too big" afterwards.
+  const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  const MAX_IMAGES = 5
+  // Raw (decoded) bytes. base64 is 1.37x, so 3.75 MiB raw ≈ 5 MiB
+  // base64, matching the per-image cap on the server.
+  const MAX_IMAGE_RAW_BYTES = Math.floor(3.75 * 1024 * 1024)
+  const MAX_TOTAL_BASE64_BYTES = 20 * 1024 * 1024
 
   const inlineToken = document.body.dataset.slvToken || ''
   const storageKey = 'slv.gateway.token.' + location.host
@@ -311,6 +465,12 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   let currentAssistantEntry = null
   let thinkingEl = null
   let assistantLabel = I18N.assistant
+
+  // Pending image attachments for the NEXT outbound message. Each
+  // entry: { mime, base64, dataUri, rawBytes, name, thumbEl }. The
+  // dataUri is kept only to render the thumbnail preview cheaply —
+  // only mime + base64 go over the wire.
+  const pendingImages = []
 
   // Reconnect state: survives across connection lifetimes.
   // reconnectAttempt resets on a successful auth; backoff is
@@ -363,7 +523,17 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
 
   const saveHistory = () => {
     try {
-      localStorage.setItem(logKey, JSON.stringify(history))
+      // Strip in-memory base64 thumbnails before persisting — a
+      // handful of phone-camera images would blow through the
+      // 5 MB localStorage quota per origin. The placeholder on
+      // reload ("📎 3 image(s) attached") is enough to keep the
+      // transcript sensible.
+      const sanitized = history.map((e) => {
+        if (!e.imageThumbs) return e
+        const { imageThumbs: _drop, ...rest } = e
+        return rest
+      })
+      localStorage.setItem(logKey, JSON.stringify(sanitized))
     } catch {
       // Over quota or disabled — history still lives in memory.
     }
@@ -379,12 +549,43 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     pre.textContent = entry.text
     div.appendChild(label)
     div.appendChild(pre)
+    // In-memory (current-session) image thumbs get rendered inline
+    // so the user can see what they attached right above the reply.
+    if (entry.imageThumbs && entry.imageThumbs.length > 0) {
+      const strip = document.createElement('div')
+      strip.className = 'img-strip'
+      for (const src of entry.imageThumbs) {
+        const im = document.createElement('img')
+        im.src = src
+        im.loading = 'lazy'
+        strip.appendChild(im)
+      }
+      div.appendChild(strip)
+    } else if (entry.imageCount && entry.imageCount > 0) {
+      // Restored-from-localStorage case: we dropped the base64
+      // payloads (too large for the 5 MB quota) so only a
+      // placeholder is available. The user still sees they
+      // attached N images on that turn.
+      const ph = document.createElement('div')
+      ph.className = 'img-placeholder'
+      ph.textContent = I18N.imgCount.replace(
+        '{n}',
+        String(entry.imageCount),
+      )
+      div.appendChild(ph)
+    }
     log.appendChild(div)
     return pre
   }
 
-  const addMsg = (who, whoLabel, text) => {
+  const addMsg = (who, whoLabel, text, opts) => {
     const entry = { who, label: whoLabel, text: text || '' }
+    if (opts && opts.imageThumbs && opts.imageThumbs.length > 0) {
+      // Keep the thumbs on the entry only for this session — they
+      // get stripped before saveHistory writes to localStorage.
+      entry.imageThumbs = opts.imageThumbs
+      entry.imageCount = opts.imageThumbs.length
+    }
     history.push(entry)
     if (history.length > HISTORY_MAX) {
       const excess = history.length - HISTORY_MAX
@@ -424,6 +625,8 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   clearBtn.addEventListener('click', () => {
     history = []
     log.innerHTML = ''
+    pendingImages.length = 0
+    renderAttachPreviews()
     try { localStorage.removeItem(logKey) } catch { /* ignore */ }
   })
 
@@ -438,14 +641,29 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     if (thinkingEl) return
     thinkingEl = document.createElement('div')
     thinkingEl.className = 'thinking'
-    const label = document.createElement('span')
-    label.textContent = I18N.thinking
-    thinkingEl.appendChild(label)
+    // Named label that matches the assistant-message layout — the
+    // user's eye naturally goes to the same spot where the streaming
+    // reply will render, so the gap feels like "reply starting" not
+    // "nothing happening".
+    const who = document.createElement('div')
+    who.className = 'who'
+    who.textContent = assistantLabel
+    const body = document.createElement('div')
+    body.className = 'body'
+    const dots = document.createElement('div')
+    dots.className = 'dots'
     for (let i = 0; i < 3; i++) {
       const d = document.createElement('span')
       d.className = 'dot'
-      thinkingEl.appendChild(d)
+      dots.appendChild(d)
     }
+    const caption = document.createElement('span')
+    caption.className = 'caption'
+    caption.textContent = I18N.thinking
+    body.appendChild(dots)
+    body.appendChild(caption)
+    thinkingEl.appendChild(who)
+    thinkingEl.appendChild(body)
     log.appendChild(thinkingEl)
     log.scrollTop = log.scrollHeight
   }
@@ -454,6 +672,112 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     if (!thinkingEl) return
     thinkingEl.remove()
     thinkingEl = null
+  }
+
+  const fmtMb = (bytes) => (bytes / (1024 * 1024)).toFixed(1)
+
+  const renderAttachPreviews = () => {
+    previewsEl.innerHTML = ''
+    if (pendingImages.length === 0) {
+      previewsEl.style.display = 'none'
+      return
+    }
+    previewsEl.style.display = 'flex'
+    for (const img of pendingImages) {
+      const thumb = document.createElement('div')
+      thumb.className = 'attach-thumb'
+      thumb.style.backgroundImage = 'url("' + img.dataUri + '")'
+      const size = document.createElement('div')
+      size.className = 'size'
+      size.textContent = fmtMb(img.rawBytes) + ' MB'
+      thumb.appendChild(size)
+      const rm = document.createElement('button')
+      rm.className = 'remove'
+      rm.type = 'button'
+      rm.title = I18N.removeImage
+      rm.textContent = '×'
+      rm.addEventListener('click', () => {
+        const idx = pendingImages.indexOf(img)
+        if (idx >= 0) pendingImages.splice(idx, 1)
+        renderAttachPreviews()
+      })
+      thumb.appendChild(rm)
+      img.thumbEl = thumb
+      previewsEl.appendChild(thumb)
+    }
+  }
+
+  const readAsDataUri = (file) =>
+    new Promise((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(String(r.result || ''))
+      r.onerror = () => reject(r.error || new Error('read failed'))
+      r.readAsDataURL(file)
+    })
+
+  // Accept one browser File object and, if it passes the type/size/
+  // count checks, push it onto pendingImages. Errors are surfaced
+  // via the chat log (addMsg 'error') so the user doesn't have to
+  // notice a toast that disappears.
+  const attachFile = async (file) => {
+    if (!file) return
+    if (!ALLOWED_MIME.includes(file.type)) {
+      addMsg('error', I18N.errorLabel, I18N.errImageType)
+      return
+    }
+    if (file.size > MAX_IMAGE_RAW_BYTES) {
+      addMsg('error', I18N.errorLabel, I18N.errImageTooLarge
+        .replace('{name}', file.name || 'image')
+        .replace('{mb}', fmtMb(file.size))
+        .replace('{max}', fmtMb(MAX_IMAGE_RAW_BYTES)))
+      return
+    }
+    if (pendingImages.length >= MAX_IMAGES) {
+      addMsg('error', I18N.errorLabel,
+        I18N.errImageCount.replace('{max}', String(MAX_IMAGES)))
+      return
+    }
+    let dataUri
+    try {
+      dataUri = await readAsDataUri(file)
+    } catch {
+      addMsg('error', I18N.errorLabel, 'read failed')
+      return
+    }
+    // Strip the "data:<mime>;base64," prefix — the server rejects
+    // anything with the prefix attached, same as Anthropic itself.
+    const comma = dataUri.indexOf(',')
+    const base64 = comma >= 0 ? dataUri.slice(comma + 1) : ''
+    if (!base64) {
+      addMsg('error', I18N.errorLabel, 'empty image')
+      return
+    }
+    // Enforce total-base64 cap BEFORE pushing, so one oversized
+    // image doesn't land and then block all subsequent uploads.
+    let totalSoFar = 0
+    for (const p of pendingImages) totalSoFar += p.base64.length
+    if (totalSoFar + base64.length > MAX_TOTAL_BASE64_BYTES) {
+      addMsg('error', I18N.errorLabel, I18N.errImageTotalSize
+        .replace('{mb}', fmtMb(totalSoFar + base64.length))
+        .replace('{max}', fmtMb(MAX_TOTAL_BASE64_BYTES)))
+      return
+    }
+    pendingImages.push({
+      mime: file.type,
+      base64: base64,
+      dataUri: dataUri,
+      rawBytes: file.size,
+      name: file.name || 'image',
+      thumbEl: null,
+    })
+    renderAttachPreviews()
+  }
+
+  const attachFileList = async (files) => {
+    if (!files || files.length === 0) return
+    for (const f of files) {
+      await attachFile(f)
+    }
   }
 
   const scheduleReconnect = () => {
@@ -538,10 +862,12 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
       }
       if (f.kind !== 'event') return
       const p = f.payload || {}
-      // Any incoming event means the model is responding — drop the
-      // thinking indicator. Keeping it through text_delta would show
-      // dots next to the actual reply, which is noisy.
-      hideThinking()
+      // Status events (running / idle) fire as soon as the server
+      // accepts the turn — well before the LLM has produced
+      // anything — so they MUST NOT dismiss the thinking
+      // indicator. Any other event implies real content has
+      // started arriving; dismiss then.
+      if (p.type !== 'status') hideThinking()
       switch (p.type) {
         case 'text_delta':
           if (!currentAssistantEl) {
@@ -615,16 +941,38 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
 
   const sendMessage = async () => {
     const text = input.value.trim()
-    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return
-    addMsg('user', I18N.you, text)
+    // Accept text-only, images-only, or text+images. An empty-empty
+    // send still short-circuits because it would be indistinguishable
+    // from an accidental Enter.
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (!text && pendingImages.length === 0) return
+
+    const outboundImages = pendingImages.slice()
+    const thumbs = outboundImages.map((p) => p.dataUri)
+    addMsg('user', I18N.you, text, thumbs.length > 0 ? { imageThumbs: thumbs } : undefined)
+
     input.value = ''
     input.style.height = 'auto'
+    // Clear pendingImages immediately so a second Send doesn't
+    // double-attach. Previews get rebuilt from the now-empty array.
+    pendingImages.length = 0
+    renderAttachPreviews()
+
     sendBtn.disabled = true
     abortBtn.style.display = 'inline-block'
     currentAssistantEl = null
     currentAssistantEntry = null
     showThinking()
-    const res = await call('session.send', { text })
+    const params = outboundImages.length > 0
+      ? {
+        text,
+        images: outboundImages.map((p) => ({
+          mime: p.mime,
+          base64: p.base64,
+        })),
+      }
+      : { text }
+    const res = await call('session.send', params)
     if (!res.ok) {
       hideThinking()
       addMsg('error', I18N.errorLabel, res.error || 'session.send rejected')
@@ -653,6 +1001,64 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   input.addEventListener('input', () => {
     input.style.height = 'auto'
     input.style.height = Math.min(input.scrollHeight, 180) + 'px'
+  })
+
+  // Attach button → open the hidden <input type="file">. Kept
+  // separate from the native <label> pattern so we can reuse the
+  // same attach pipeline for paste + drag-drop without duplication.
+  attachBtn.addEventListener('click', () => filePicker.click())
+  filePicker.addEventListener('change', async (e) => {
+    const files = e.target.files
+    await attachFileList(files)
+    // Reset so the same file can be re-picked after removal.
+    filePicker.value = ''
+  })
+
+  // Ctrl+V / Cmd+V in the textarea pastes an image straight onto
+  // the pending list — the common case for "I just took a
+  // screenshot and I want to ask about it".
+  input.addEventListener('paste', async (e) => {
+    const items = e.clipboardData && e.clipboardData.items
+    if (!items) return
+    const files = []
+    for (const item of items) {
+      if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+        const f = item.getAsFile()
+        if (f) files.push(f)
+      }
+    }
+    if (files.length === 0) return
+    e.preventDefault()
+    await attachFileList(files)
+  })
+
+  // Drag-drop: listen on document because the drop target in
+  // practice is the whole page. dragenter / dragleave fires per
+  // child element, so track a reference count to avoid flicker.
+  let dragDepth = 0
+  document.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer || !e.dataTransfer.types.includes('Files')) return
+    dragDepth++
+    document.body.classList.add('dragging')
+  })
+  document.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1)
+    if (dragDepth === 0) document.body.classList.remove('dragging')
+  })
+  document.addEventListener('dragover', (e) => {
+    // preventDefault on dragover is required — without it the drop
+    // event never fires.
+    if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+      e.preventDefault()
+    }
+  })
+  document.addEventListener('drop', async (e) => {
+    dragDepth = 0
+    document.body.classList.remove('dragging')
+    if (!e.dataTransfer || !e.dataTransfer.files) return
+    if (e.dataTransfer.files.length === 0) return
+    e.preventDefault()
+    await attachFileList(e.dataTransfer.files)
   })
 
   restoreHistory()

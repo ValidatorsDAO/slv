@@ -9,6 +9,8 @@ import {
 import { isAbortLikeError } from '/lib/isAbortError.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
 import { getModuleContent } from '@/ai/console/systemPrompt.ts'
+import type { MessageInput } from '@/ai/core/messageInput.ts'
+import { getMessageText } from '@/ai/core/messageInput.ts'
 
 type Message = OpenAI.ChatCompletionMessageParam
 
@@ -55,8 +57,19 @@ export class OpenAIProvider {
     }
   }
 
-  async chat(userMessage: string): Promise<void> {
-    this.messages.push({ role: 'user', content: userMessage })
+  /** Swap per-turn callbacks — see SLVProvider.updateCallbacks. */
+  updateCallbacks(callbacks: ChatCallbacks): void {
+    this.callbacks = callbacks
+  }
+
+  async chat(userMessage: MessageInput): Promise<void> {
+    // OpenAI's vision format differs from Anthropic's. We only ship
+    // vision through SLV (Anthropic) for now, so drop any attached
+    // images and use the text — the browser UI's pre-flight check
+    // already warns the user when the provider is not slv. This
+    // stays a one-liner change so adding OpenAI vision later is
+    // local to this file.
+    this.messages.push({ role: 'user', content: getMessageText(userMessage) })
 
     while (true) {
       // Update system message with any newly loaded context modules

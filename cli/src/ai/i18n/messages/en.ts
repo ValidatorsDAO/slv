@@ -285,6 +285,20 @@ export const messages: Record<string, string> = {
   '❌ error': '❌ error',
   '[disconnected — reply interrupted]': '[disconnected — reply interrupted]',
 
+  // --- Image attachments in browser chat ---
+  'Attach image': 'Attach image',
+  'Drop images here to attach': 'Drop images here to attach',
+  'Remove image': 'Remove image',
+  '📎 {n} image(s) attached': '📎 {n} image(s) attached',
+  'Only JPEG, PNG, GIF, or WebP images are accepted.':
+    'Only JPEG, PNG, GIF, or WebP images are accepted.',
+  'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':
+    'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.',
+  'Too many images — max {max} per message.':
+    'Too many images — max {max} per message.',
+  'Attached images total {mb} MB; max {max} MB combined.':
+    'Attached images total {mb} MB; max {max} MB combined.',
+
   // --- Onboard: Discord webhook help + gateway install ---
   'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
     'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg',

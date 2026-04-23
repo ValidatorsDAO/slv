@@ -13,6 +13,8 @@ import {
 } from '@/ai/authorization.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
 import { getModuleContent } from '@/ai/console/systemPrompt.ts'
+import type { MessageInput } from '@/ai/core/messageInput.ts'
+import { messageInputToContent } from '@/ai/core/messageInput.ts'
 
 type MessageParam = {
   role: 'user' | 'assistant'
@@ -180,8 +182,26 @@ export class SLVProvider {
     this.systemPrompt = systemPrompt
   }
 
-  async chat(userMessage: string): Promise<void> {
-    this.messages.push({ role: 'user', content: userMessage })
+  /**
+   * Swap the per-turn callbacks without touching message history.
+   * Used by the gateway's providerDriver so a single provider
+   * instance serves every turn of a WS connection (preserving
+   * `this.messages`) while the `emit` closure differs per call.
+   */
+  updateCallbacks(callbacks: ChatCallbacks): void {
+    this.callbacks = callbacks
+  }
+
+  async chat(userMessage: MessageInput): Promise<void> {
+    // Convert the widened MessageInput to the Anthropic content
+    // shape the erpc proxy expects. For text-only turns this
+    // collapses back to a plain string (so the wire payload stays
+    // identical to pre-vision requests); for turns with images it
+    // becomes a [text, image…] block array.
+    this.messages.push({
+      role: 'user',
+      content: messageInputToContent(userMessage),
+    })
 
     while (true) {
       // Combine the per-request 120s timeout with the user-abort signal
@@ -205,6 +225,12 @@ export class SLVProvider {
             system: this.systemPrompt + getModuleContent(),
             messages: this.messages,
             tools: toAnthropicTools(getActiveTools()),
+            // stream=true gets text_delta events back as soon as the
+            // model produces the first token, rather than holding the
+            // whole response hostage until the model is done. Makes
+            // the browser UI feel responsive (ms-scale first-byte
+            // latency) instead of frozen for several seconds.
+            stream: true,
           }),
           signal,
         })
@@ -238,39 +264,152 @@ export class SLVProvider {
         throw new Error(`SLV AI API error (${response.status}): ${errorText}`)
       }
 
-      const data = await response.json()
-
-      if (!data || !Array.isArray(data.content)) {
-        throw new Error(
-          `SLV AI returned unexpected response: ${
-            JSON.stringify(data).slice(0, 200)
-          }`,
-        )
+      // Parse the Anthropic SSE stream. Events we care about:
+      //   - content_block_start  → begin a text or tool_use block
+      //   - content_block_delta  → text_delta or input_json_delta
+      //   - content_block_stop   → finalize the block
+      //   - message_delta        → stop_reason lands here
+      //   - message_stop         → end of this turn's stream
+      //   - error                → upstream error mid-stream
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('SLV AI returned a non-streaming response body')
       }
-
+      const decoder = new TextDecoder()
+      let sseBuffer = ''
       let assistantText = ''
+      const finalContent: Array<
+        | { type: 'text'; text: string }
+        | {
+          type: 'tool_use'
+          id: string
+          name: string
+          input: Record<string, unknown>
+        }
+      > = []
       const toolUseBlocks: {
         id: string
         name: string
         input: Record<string, unknown>
       }[] = []
+      // Per-block scratch state keyed by the `index` ordinal the
+      // server uses in content_block_* events.
+      type BlockScratch =
+        | { kind: 'text'; text: string }
+        | { kind: 'tool_use'; id: string; name: string; partialJson: string }
+      const scratch = new Map<number, BlockScratch>()
 
-      // Process response content blocks (Anthropic Messages API format)
-      for (const block of data.content) {
-        if (block.type === 'text') {
-          assistantText += block.text
-          this.callbacks.onStream(assistantText)
-        } else if (block.type === 'tool_use') {
-          toolUseBlocks.push({
-            id: block.id,
-            name: block.name,
-            input: block.input as Record<string, unknown>,
-          })
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          sseBuffer += decoder.decode(value, { stream: true })
+          // SSE event delimiter is a blank line (\n\n). Drain every
+          // complete event from the buffer in order; anything after
+          // the last \n\n is a partial event we keep for the next
+          // read.
+          let sep
+          while ((sep = sseBuffer.indexOf('\n\n')) !== -1) {
+            const rawEvent = sseBuffer.slice(0, sep)
+            sseBuffer = sseBuffer.slice(sep + 2)
+            let dataLine = ''
+            for (const line of rawEvent.split('\n')) {
+              if (line.startsWith('data: ')) {
+                dataLine = line.slice(6)
+                break
+              }
+            }
+            if (!dataLine || dataLine === '[DONE]') continue
+            let p: {
+              type: string
+              index?: number
+              content_block?: {
+                type: string
+                id?: string
+                name?: string
+                text?: string
+              }
+              delta?: {
+                type?: string
+                text?: string
+                partial_json?: string
+                stop_reason?: string
+              }
+              error?: { message?: string }
+            }
+            try {
+              p = JSON.parse(dataLine)
+            } catch {
+              continue
+            }
+            if (p.type === 'content_block_start' && p.content_block) {
+              const idx = p.index ?? 0
+              if (p.content_block.type === 'text') {
+                scratch.set(idx, { kind: 'text', text: '' })
+              } else if (p.content_block.type === 'tool_use') {
+                scratch.set(idx, {
+                  kind: 'tool_use',
+                  id: p.content_block.id ?? '',
+                  name: p.content_block.name ?? '',
+                  partialJson: '',
+                })
+              }
+            } else if (p.type === 'content_block_delta' && p.delta) {
+              const idx = p.index ?? 0
+              const b = scratch.get(idx)
+              if (!b) continue
+              if (p.delta.type === 'text_delta' && b.kind === 'text') {
+                const chunk = p.delta.text ?? ''
+                b.text += chunk
+                assistantText += chunk
+                // Cumulative — providerDriver diffs against the
+                // previously-emitted length to build incremental
+                // text_delta events for the client.
+                this.callbacks.onStream(assistantText)
+              } else if (
+                p.delta.type === 'input_json_delta' &&
+                b.kind === 'tool_use'
+              ) {
+                b.partialJson += p.delta.partial_json ?? ''
+              }
+            } else if (p.type === 'content_block_stop') {
+              const idx = p.index ?? 0
+              const b = scratch.get(idx)
+              if (!b) continue
+              if (b.kind === 'text') {
+                finalContent.push({ type: 'text', text: b.text })
+              } else {
+                let input: Record<string, unknown> = {}
+                try {
+                  input = JSON.parse(b.partialJson || '{}')
+                } catch {
+                  // Tool args were truncated — surface an empty
+                  // input so the tool layer can error out cleanly
+                  // instead of us throwing here.
+                }
+                const tu = { id: b.id, name: b.name, input }
+                toolUseBlocks.push(tu)
+                finalContent.push({ type: 'tool_use', ...tu })
+              }
+              scratch.delete(idx)
+            } else if (p.type === 'error') {
+              throw new Error(p.error?.message ?? 'SLV AI stream error')
+            }
+            // message_start / message_delta / message_stop / ping
+            // carry no state we need — the stream ends on the
+            // reader's `done` or message_stop (either way).
+          }
         }
+      } catch (err) {
+        if (isAbortLikeError(err)) {
+          this.callbacks.onComplete()
+          return
+        }
+        throw err
       }
 
-      // Save assistant message with the raw response content
-      this.messages.push({ role: 'assistant', content: data.content })
+      // Save assistant message with the reconstructed block array.
+      this.messages.push({ role: 'assistant', content: finalContent })
 
       if (toolUseBlocks.length === 0) {
         this.callbacks.onComplete()

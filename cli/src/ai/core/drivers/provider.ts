@@ -10,13 +10,24 @@ import {
 } from '/src/ai/console/tools.ts'
 import type { AiProvider } from '/src/ai/config.ts'
 import { errToString } from '/lib/errToString.ts'
+import type { MessageInput } from '/src/ai/core/messageInput.ts'
 
 /**
  * Minimum provider-chat shape the driver needs — any object with a
- * `.chat(text)` method that emits via callbacks supplied at
- * construction time. All three existing providers fit.
+ * `.chat(input)` method that emits via callbacks supplied at
+ * construction time. `input` is the widened `MessageInput` so
+ * providers can see attached images; providers that don't support
+ * vision simply drop the images field and use the text.
+ *
+ * `updateCallbacks` lets the driver reuse a single provider across
+ * multiple turns (so provider-internal message history survives)
+ * while still rebinding the per-turn `emit` closure every call.
  */
-export type ProviderLike = { chat: (userMessage: string) => Promise<void> }
+import type { ChatCallbacks as ChatCallbacksType } from '/src/ai/console/consoleAction.ts'
+export type ProviderLike = {
+  chat: (userMessage: MessageInput) => Promise<void>
+  updateCallbacks: (callbacks: ChatCallbacksType) => void
+}
 
 export type ProviderBuilder = (callbacks: ChatCallbacks) => ProviderLike
 
@@ -70,7 +81,15 @@ export const providerDriver = (
     ? cfgOrBuilder.build
     : defaultProviderBuilder(cfgOrBuilder)
 
-  return async (text, { emit, signal }) => {
+  // Lazy-instantiate the provider on the FIRST call and cache it in
+  // the driver closure. Subsequent calls swap only the per-turn
+  // callbacks via updateCallbacks, so the provider's internal
+  // message history accumulates across turns. Without this cache,
+  // each `session.send` on the gateway would start from a blank
+  // history and the model would forget the previous exchange.
+  let cachedProvider: ProviderLike | null = null
+
+  return async (input, { emit, signal }) => {
     let emittedChars = 0
     let toolSeq = 0
     let aborted = false
@@ -108,7 +127,12 @@ export const providerDriver = (
       },
     }
 
-    const provider = buildProvider(callbacks)
+    if (cachedProvider === null) {
+      cachedProvider = buildProvider(callbacks)
+    } else {
+      cachedProvider.updateCallbacks(callbacks)
+    }
+    const provider = cachedProvider
 
     // Forward Session.abort → global provider abort flag. Providers
     // check this flag between LLM turns and break out of their loop
@@ -145,7 +169,7 @@ export const providerDriver = (
     clearAbort()
 
     try {
-      await provider.chat(text)
+      await provider.chat(input)
       // Provider.chat already fires onComplete → Session turns it
       // into `complete`. If it returned without either, Session
       // synthesizes one in its wrapper.

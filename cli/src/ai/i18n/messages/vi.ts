@@ -269,6 +269,20 @@ export const messages: Record<string, string> = {
   '❌ error': '❌ lỗi',
   '[disconnected — reply interrupted]': '[đã ngắt kết nối — phản hồi bị gián đoạn]',
 
+  // --- Đính kèm ảnh trong chat trình duyệt ---
+  'Attach image': 'Đính kèm ảnh',
+  'Drop images here to attach': 'Thả ảnh vào đây để đính kèm',
+  'Remove image': 'Xóa ảnh',
+  '📎 {n} image(s) attached': '📎 Đã đính kèm {n} ảnh',
+  'Only JPEG, PNG, GIF, or WebP images are accepted.':
+    'Chỉ chấp nhận ảnh JPEG / PNG / GIF / WebP.',
+  'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':
+    'Ảnh "{name}" quá lớn ({mb} MB). Tối đa mỗi ảnh: {max} MB.',
+  'Too many images — max {max} per message.':
+    'Quá nhiều ảnh — tối đa {max} mỗi tin nhắn.',
+  'Attached images total {mb} MB; max {max} MB combined.':
+    'Tổng kích thước ảnh đính kèm {mb} MB; tối đa tổng cộng {max} MB.',
+
   // --- Onboard: hướng dẫn Discord webhook + cài đặt cổng ---
   'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
     'Cách tạo Discord Webhook (video 30 giây): https://youtube.com/shorts/2w-Afr_JVEg',

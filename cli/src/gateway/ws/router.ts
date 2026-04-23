@@ -11,6 +11,11 @@ import { readAiConfig } from '/src/ai/config.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { loadAgentContext } from '/src/ai/agentConfig/loader.ts'
 import { buildSystemPrompt } from '/src/ai/console/systemPrompt.ts'
+import {
+  explainImageParseError,
+  type MessageInput,
+  parseImagesParam,
+} from '/src/ai/core/messageInput.ts'
 
 /**
  * Per-connection state. Phase 2A: just auth. Phase 2B adds the
@@ -22,14 +27,19 @@ export type ConnState = {
   authenticated: boolean
   nextEventSeq: number
   // Lazily-created Session for this connection. Null until the
-  // first session.* method call.
+  // first session.* method call. `sessionKind` tracks whether the
+  // current Session is wired to the echo driver or the real
+  // provider driver, so a subsequent call of the other kind knows
+  // to rebuild instead of piping messages into the wrong driver.
   session: Session | null
+  sessionKind: 'echo' | 'provider' | null
 }
 
 export const newConnState = (): ConnState => ({
   authenticated: false,
   nextEventSeq: 1,
   session: null,
+  sessionKind: null,
 })
 
 import type { SessionEvent } from '/src/ai/core/events.ts'
@@ -121,11 +131,13 @@ const methods: Record<string, MethodHandler> = {
     if (state.session?.isRunning) {
       return resErr(req, 'session is already running; call session.abort first')
     }
-    // Fresh session per turn so switching drivers between echo and
-    // send works cleanly. Previous-turn history is not preserved in
-    // Phase 2C; session persistence lands in a later PR.
+    // Fresh echo session per turn. Echo is deterministic and
+    // history-free by design, so we always rebuild — and we mark
+    // the kind so a later session.send knows to rebuild with the
+    // real provider instead of piping chat into the echo driver.
     state.session = new Session(echoDriver)
     state.session.on((event) => ctx.emitEvent(event))
+    state.sessionKind = 'echo'
 
     state.session.send(text).catch(() => {
       // Session.send swallows errors into `error` events; this
@@ -148,9 +160,21 @@ const methods: Record<string, MethodHandler> = {
    */
   'session.send': async (req, state, ctx) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
-    const p = req.params as { text?: unknown } | undefined
+    const p = req.params as
+      | { text?: unknown; images?: unknown }
+      | undefined
     const text = p && typeof p.text === 'string' ? p.text : null
     if (text === null) return resErr(req, 'params.text must be a string')
+    // Optional images: validate shape + mime allowlist + size/count
+    // caps BEFORE creating the session so clients get a precise 4xx
+    // rather than a vague provider error half a second later.
+    const imageParse = parseImagesParam(p?.images)
+    if (!imageParse.ok) {
+      return resErr(req, explainImageParseError(imageParse.error))
+    }
+    const input: MessageInput = imageParse.images.length === 0
+      ? text
+      : { text, images: imageParse.images }
 
     if (state.session?.isRunning) {
       return resErr(req, 'session is already running; call session.abort first')
@@ -206,19 +230,31 @@ const methods: Record<string, MethodHandler> = {
       )
     }
 
-    const driver = providerDriver({
-      kind: aiCfg.provider,
-      apiKey,
-      model: aiCfg.model,
-      systemPrompt,
-    })
-    state.session = new Session(driver)
-    state.session.on((event) => ctx.emitEvent(event))
+    // Reuse the existing provider Session across turns so message
+    // history accumulates — otherwise the model forgets everything
+    // the user said on the prior turn. Rebuild if this is the
+    // first send on the connection OR the previous session on this
+    // connection was the echo driver (different driver kind).
+    if (state.session === null || state.sessionKind !== 'provider') {
+      const driver = providerDriver({
+        kind: aiCfg.provider,
+        apiKey,
+        model: aiCfg.model,
+        systemPrompt,
+      })
+      state.session = new Session(driver)
+      state.session.on((event) => ctx.emitEvent(event))
+      state.sessionKind = 'provider'
+    }
 
-    state.session.send(text).catch(() => {
+    state.session.send(input).catch(() => {
       // Session.send swallows errors into `error` events.
     })
-    return resOk(req, { accepted: true, provider: aiCfg.provider })
+    return resOk(req, {
+      accepted: true,
+      provider: aiCfg.provider,
+      imagesAttached: imageParse.images.length,
+    })
   },
 
   /**

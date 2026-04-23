@@ -272,6 +272,20 @@ export const messages: Record<string, string> = {
   '❌ error': '❌ ошибка',
   '[disconnected — reply interrupted]': '[отключено — ответ прерван]',
 
+  // --- Вложения изображений в браузерном чате ---
+  'Attach image': 'Прикрепить изображение',
+  'Drop images here to attach': 'Перетащите изображения сюда',
+  'Remove image': 'Удалить изображение',
+  '📎 {n} image(s) attached': '📎 Прикреплено изображений: {n}',
+  'Only JPEG, PNG, GIF, or WebP images are accepted.':
+    'Принимаются только изображения JPEG / PNG / GIF / WebP.',
+  'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':
+    'Изображение "{name}" слишком большое ({mb} МБ). Максимум на изображение: {max} МБ.',
+  'Too many images — max {max} per message.':
+    'Слишком много изображений — максимум {max} на сообщение.',
+  'Attached images total {mb} MB; max {max} MB combined.':
+    'Общий размер вложений {mb} МБ; максимум суммарно {max} МБ.',
+
   // --- Онбординг: помощь по Discord webhook + установка шлюза ---
   'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
     'Как создать Discord Webhook (30-сек видео): https://youtube.com/shorts/2w-Afr_JVEg',
