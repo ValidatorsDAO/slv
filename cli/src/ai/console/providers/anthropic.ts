@@ -10,6 +10,8 @@ import { isAbortLikeError } from '/lib/isAbortError.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
 import { getModuleContent } from '@/ai/console/systemPrompt.ts'
+import type { MessageInput } from '@/ai/core/messageInput.ts'
+import { messageInputToContent } from '@/ai/core/messageInput.ts'
 
 type MessageParam = Anthropic.MessageParam
 type ToolResultBlockParam = Anthropic.ToolResultBlockParam
@@ -47,8 +49,14 @@ export class AnthropicProvider {
     this.systemPrompt = systemPrompt
   }
 
-  async chat(userMessage: string): Promise<void> {
-    this.messages.push({ role: 'user', content: userMessage })
+  async chat(userMessage: MessageInput): Promise<void> {
+    // messageInputToContent produces `string | ContentBlock[]` —
+    // both forms are accepted by the Anthropic SDK, so no further
+    // massaging is needed here.
+    this.messages.push({
+      role: 'user',
+      content: messageInputToContent(userMessage) as MessageParam['content'],
+    })
 
     while (true) {
       const stream = this.client.messages.stream(

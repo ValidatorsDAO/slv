@@ -11,6 +11,11 @@ import { readAiConfig } from '/src/ai/config.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { loadAgentContext } from '/src/ai/agentConfig/loader.ts'
 import { buildSystemPrompt } from '/src/ai/console/systemPrompt.ts'
+import {
+  explainImageParseError,
+  type MessageInput,
+  parseImagesParam,
+} from '/src/ai/core/messageInput.ts'
 
 /**
  * Per-connection state. Phase 2A: just auth. Phase 2B adds the
@@ -148,9 +153,21 @@ const methods: Record<string, MethodHandler> = {
    */
   'session.send': async (req, state, ctx) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
-    const p = req.params as { text?: unknown } | undefined
+    const p = req.params as
+      | { text?: unknown; images?: unknown }
+      | undefined
     const text = p && typeof p.text === 'string' ? p.text : null
     if (text === null) return resErr(req, 'params.text must be a string')
+    // Optional images: validate shape + mime allowlist + size/count
+    // caps BEFORE creating the session so clients get a precise 4xx
+    // rather than a vague provider error half a second later.
+    const imageParse = parseImagesParam(p?.images)
+    if (!imageParse.ok) {
+      return resErr(req, explainImageParseError(imageParse.error))
+    }
+    const input: MessageInput = imageParse.images.length === 0
+      ? text
+      : { text, images: imageParse.images }
 
     if (state.session?.isRunning) {
       return resErr(req, 'session is already running; call session.abort first')
@@ -215,10 +232,14 @@ const methods: Record<string, MethodHandler> = {
     state.session = new Session(driver)
     state.session.on((event) => ctx.emitEvent(event))
 
-    state.session.send(text).catch(() => {
+    state.session.send(input).catch(() => {
       // Session.send swallows errors into `error` events.
     })
-    return resOk(req, { accepted: true, provider: aiCfg.provider })
+    return resOk(req, {
+      accepted: true,
+      provider: aiCfg.provider,
+      imagesAttached: imageParse.images.length,
+    })
   },
 
   /**

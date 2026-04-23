@@ -13,6 +13,8 @@ import {
 } from '@/ai/authorization.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
 import { getModuleContent } from '@/ai/console/systemPrompt.ts'
+import type { MessageInput } from '@/ai/core/messageInput.ts'
+import { messageInputToContent } from '@/ai/core/messageInput.ts'
 
 type MessageParam = {
   role: 'user' | 'assistant'
@@ -180,8 +182,16 @@ export class SLVProvider {
     this.systemPrompt = systemPrompt
   }
 
-  async chat(userMessage: string): Promise<void> {
-    this.messages.push({ role: 'user', content: userMessage })
+  async chat(userMessage: MessageInput): Promise<void> {
+    // Convert the widened MessageInput to the Anthropic content
+    // shape the erpc proxy expects. For text-only turns this
+    // collapses back to a plain string (so the wire payload stays
+    // identical to pre-vision requests); for turns with images it
+    // becomes a [text, image…] block array.
+    this.messages.push({
+      role: 'user',
+      content: messageInputToContent(userMessage),
+    })
 
     while (true) {
       // Combine the per-request 120s timeout with the user-abort signal

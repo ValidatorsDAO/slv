@@ -2,6 +2,8 @@ import type {
   SessionEvent,
   SessionEventListener,
 } from '/src/ai/core/events.ts'
+import type { MessageInput } from '/src/ai/core/messageInput.ts'
+import { getMessageText } from '/src/ai/core/messageInput.ts'
 
 /**
  * Session drives a single chat run. It's driver-agnostic: pass any
@@ -19,7 +21,7 @@ import type {
  * doesn't need to change.
  */
 export type SessionDriver = (
-  text: string,
+  input: MessageInput,
   ctx: {
     emit: (event: SessionEvent) => void
     signal: AbortSignal
@@ -50,7 +52,7 @@ export class Session {
    * order. Exactly one terminal event (`complete` | `aborted` |
    * `error`) fires per call.
    */
-  async send(text: string): Promise<void> {
+  async send(input: MessageInput): Promise<void> {
     if (this.sending) {
       this.emit({
         type: 'error',
@@ -69,7 +71,7 @@ export class Session {
     }
 
     try {
-      await this.driver(text, {
+      await this.driver(input, {
         emit: (e) => {
           if (e.type === 'complete') markTerminal('complete')
           if (e.type === 'aborted') markTerminal('aborted')
@@ -145,7 +147,12 @@ export class Session {
  * provider. Splits on whitespace, emits one `text_delta` per token
  * with a short delay, then `complete`. Respects `signal.aborted`.
  */
-export const echoDriver: SessionDriver = async (text, { emit, signal }) => {
+export const echoDriver: SessionDriver = async (input, { emit, signal }) => {
+  // echoDriver is a plumbing smoke-test — it never rendered images
+  // and doesn't need to. Pull the text out and echo that; attached
+  // images are silently ignored (the gateway's `session.send`
+  // handler already validated them upstream).
+  const text = getMessageText(input)
   const tokens = text.split(/\s+/).filter((t) => t.length > 0)
   if (tokens.length === 0) {
     emit({ type: 'text_delta', text: '(empty message — echoing nothing)' })

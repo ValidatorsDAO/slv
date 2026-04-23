@@ -10,13 +10,16 @@ import {
 } from '/src/ai/console/tools.ts'
 import type { AiProvider } from '/src/ai/config.ts'
 import { errToString } from '/lib/errToString.ts'
+import type { MessageInput } from '/src/ai/core/messageInput.ts'
 
 /**
  * Minimum provider-chat shape the driver needs — any object with a
- * `.chat(text)` method that emits via callbacks supplied at
- * construction time. All three existing providers fit.
+ * `.chat(input)` method that emits via callbacks supplied at
+ * construction time. `input` is the widened `MessageInput` so
+ * providers can see attached images; providers that don't support
+ * vision simply drop the images field and use the text.
  */
-export type ProviderLike = { chat: (userMessage: string) => Promise<void> }
+export type ProviderLike = { chat: (userMessage: MessageInput) => Promise<void> }
 
 export type ProviderBuilder = (callbacks: ChatCallbacks) => ProviderLike
 
@@ -70,7 +73,7 @@ export const providerDriver = (
     ? cfgOrBuilder.build
     : defaultProviderBuilder(cfgOrBuilder)
 
-  return async (text, { emit, signal }) => {
+  return async (input, { emit, signal }) => {
     let emittedChars = 0
     let toolSeq = 0
     let aborted = false
@@ -145,7 +148,7 @@ export const providerDriver = (
     clearAbort()
 
     try {
-      await provider.chat(text)
+      await provider.chat(input)
       // Provider.chat already fires onComplete → Session turns it
       // into `complete`. If it returned without either, Session
       // synthesizes one in its wrapper.
