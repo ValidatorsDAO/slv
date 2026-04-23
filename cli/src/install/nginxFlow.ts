@@ -1,11 +1,18 @@
 import {
   explainDnsSetError,
   getDnsStatus,
+  requestOriginCert,
   setDnsRecord,
 } from '/lib/slvCloudMcp.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { runAnsibleLocal } from '/lib/runAnsibleLocal.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
+import { generateCsr } from '/lib/generateCsr.ts'
+
+// PEM is already an ASCII-only encoding, so the base64-of-PEM
+// double-wrapping for ansible --extra-vars transport is safe:
+// `btoa(pem)` never sees a multi-byte code unit.
+const b64 = (pem: string): string => btoa(pem)
 
 export type NginxFlowInput = {
   /** SLV API key (Bearer) used to authenticate against the erpc /v3/dns/* endpoints. */
@@ -35,6 +42,14 @@ export type NginxFlowSuccess = {
   httpsUrl: string
   /** IP the DNS record now points at (may have been auto-detected). */
   ip: string
+  /**
+   * True when a Cloudflare Origin CA cert was successfully issued and
+   * installed on origin. False when we fell back to self-signed
+   * (still works in Full non-strict, but Full strict will 526).
+   * Callers can use this to surface a "run `slv install nginx` again
+   * once the erpc origin-cert endpoint is deployed" hint.
+   */
+  originCertIssued: boolean
 }
 
 export type NginxFlowFailure = {
@@ -113,17 +128,61 @@ export const runNginxFlow = async (
     }
   }
 
-  // 4. Install/configure nginx via the local ansible playbook.
-  // The `fqdn` + `upstream_port` extra-vars are the only knobs;
-  // everything else (WS headers, timeouts, listen port) is
-  // already correct for the SLV gateway in the playbook.
+  // 4. Try to get a Cloudflare Origin CA cert via the erpc MCP.
+  // With this cert in place on origin, the erpc.global zone can
+  // run in Cloudflare Full (strict) mode — no origin-pull cert
+  // validation failures (526). If the MCP tool isn't deployed
+  // yet (older erpc) or issuance fails transiently, we fall back
+  // to the playbook's self-signed cert — Full (not strict) still
+  // works with that, so the install doesn't fail outright.
+  const extraVars: Record<string, string> = {
+    fqdn,
+    upstream_port: String(opts.port),
+  }
+  let originCertIssued = false
+  try {
+    const csr = await generateCsr(fqdn)
+    const cert = await requestOriginCert(opts.apiKey, {
+      csr: csr.csrPem,
+      slug: opts.slug,
+    })
+    if (cert.ok) {
+      extraVars.origin_cert_b64 = b64(cert.data.certificate)
+      extraVars.origin_key_b64 = b64(csr.keyPem)
+      originCertIssued = true
+    } else if (cert.kind === 'tool_not_found') {
+      // erpc hasn't shipped POST /v3/dns/origin-cert yet; silently
+      // use the self-signed fallback. Callers see this via the
+      // returned `originCertIssued` flag (exposed on success).
+    } else {
+      // Endpoint exists but refused (invalid_csr, premium_required,
+      // cloudflare_error, …). Log a breadcrumb and fall back;
+      // non-fatal because the self-signed path still produces a
+      // working nginx in Full (not strict) mode.
+      console.warn(
+        `Origin CA issuance skipped: status=${cert.status} ${
+          cert.body?.error ?? ''
+        } ${cert.body?.message ?? ''}`.trim(),
+      )
+    }
+  } catch (err) {
+    // openssl missing, tmp-write failure, or a hang we didn't
+    // anticipate. Same fallback.
+    console.warn(
+      `Origin CA issuance skipped (local error): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    )
+  }
+
+  // 5. Install/configure nginx via the local ansible playbook.
+  // `fqdn` + `upstream_port` are required; `origin_cert_b64` +
+  // `origin_key_b64` are optional — the playbook's self-signed
+  // fallback kicks in when they're empty.
   const templateRoot = getTemplatePath()
   const playbook =
     `${templateRoot}/ansible/cmn/software/install-nginx.yaml`
-  const success = await runAnsibleLocal(playbook, {
-    fqdn,
-    upstream_port: String(opts.port),
-  })
+  const success = await runAnsibleLocal(playbook, extraVars)
   if (!success) {
     return {
       ok: false,
@@ -138,5 +197,6 @@ export const runNginxFlow = async (
     fqdn,
     httpsUrl: `https://${fqdn}/`,
     ip,
+    originCertIssued,
   }
 }

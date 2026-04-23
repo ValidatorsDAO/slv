@@ -195,6 +195,62 @@ export const explainDnsSetError = (result: {
   }
 }
 
+// ---------- Origin CA certificate issuance ------------------------------
+
+export type OriginCertSuccess = {
+  success: true
+  fqdn: string
+  /** PEM-encoded certificate chain signed by Cloudflare Origin CA. */
+  certificate: string
+  /** Cloudflare's raw `expires_on` string (ISO-ish). */
+  expires_on: string
+  /** Cloudflare certificate ID — kept for audit / future revocation. */
+  certificate_id: string
+}
+
+/**
+ * Tagged result shape that distinguishes "erpc returned an error"
+ * (e.g. invalid_csr) from "the tool isn't deployed yet on this MCP"
+ * (tool_not_found). The latter tells the CLI to fall back to a
+ * self-signed cert so users on stale erpc deployments still get
+ * something working.
+ */
+export type OriginCertResult =
+  | { ok: true; data: OriginCertSuccess }
+  | { ok: false; kind: 'tool_not_found' }
+  | { ok: false; kind: 'error'; status: number; body: McpErrorBody | null }
+
+export const requestOriginCert = async (
+  apiKey: string,
+  opts: { csr: string; slug?: string; validityDays?: number },
+): Promise<OriginCertResult> => {
+  const args: Record<string, unknown> = { csr: opts.csr }
+  if (opts.slug) args.slug = opts.slug
+  if (typeof opts.validityDays === 'number') {
+    args.validity_days = opts.validityDays
+  }
+  const r = await callMcpTool<OriginCertSuccess>(
+    apiKey,
+    'post_dns_origin_cert',
+    args,
+  )
+  if (r.ok) return { ok: true, data: r.data }
+
+  // MCP-level "tool not found" arrives as a 404-ish error with a
+  // message mentioning the tool name. That means the erpc side
+  // hasn't deployed the /v3/dns/origin-cert route yet — fall back
+  // to self-signed rather than failing the whole flow.
+  const msg = (r.body?.message ?? r.raw ?? '').toLowerCase()
+  const looksLikeMissingTool = msg.includes('unknown tool') ||
+    msg.includes('tool not found') ||
+    msg.includes('no such tool') ||
+    (r.status === 404 && msg.includes('origin_cert'))
+  if (looksLikeMissingTool) {
+    return { ok: false, kind: 'tool_not_found' }
+  }
+  return { ok: false, kind: 'error', status: r.status, body: r.body }
+}
+
 export type SupportTicketResult =
   | { ok: true; link: string; message: string }
   | { ok: false; status: number; error: string }

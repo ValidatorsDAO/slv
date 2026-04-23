@@ -29,6 +29,16 @@
   vars:
     upstream_port: 20026
     server_name: '{{ fqdn }}'
+    # Base64-encoded PEM origin cert + private key, optionally
+    # supplied by the caller (e.g. `slv install nginx` after a
+    # successful Cloudflare Origin CA issuance). When both are
+    # present, they're written verbatim and the self-signed
+    # fallback is skipped. When either is empty, we fall back to
+    # generating a self-signed origin cert locally — works with
+    # Cloudflare Full (not strict) but NOT Full-strict, so real
+    # origin-pull requires the values be supplied.
+    origin_cert_b64: ''
+    origin_key_b64: ''
 
   pre_tasks:
     - name: Assert fqdn is set
@@ -75,7 +85,28 @@
         state: directory
         mode: '0700'
 
-    - name: Generate self-signed origin cert (if missing)
+    # If the caller supplied an Origin CA cert + key via
+    # --extra-vars, write those verbatim (overwrites whatever was
+    # there before — rotating to a fresh cert is idempotent).
+    # These tasks are no-ops when the vars are empty.
+    - name: Write caller-supplied origin certificate
+      copy:
+        content: '{{ origin_cert_b64 | b64decode }}'
+        dest: '/etc/nginx/ssl/{{ fqdn }}.crt'
+        mode: '0644'
+      when: origin_cert_b64 | length > 0
+
+    - name: Write caller-supplied origin private key
+      copy:
+        content: '{{ origin_key_b64 | b64decode }}'
+        dest: '/etc/nginx/ssl/{{ fqdn }}.key'
+        mode: '0600'
+      when: origin_key_b64 | length > 0
+
+    # Self-signed fallback for when the caller didn't supply a
+    # Cloudflare Origin CA cert. Only generates if the crt file
+    # doesn't already exist (idempotent via `creates:`).
+    - name: Generate self-signed origin cert (fallback)
       command: >-
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048
         -keyout /etc/nginx/ssl/{{ fqdn }}.key
@@ -83,6 +114,7 @@
         -subj "/CN={{ fqdn }}"
       args:
         creates: /etc/nginx/ssl/{{ fqdn }}.crt
+      when: origin_cert_b64 | length == 0
 
     - name: Render vhost file
       copy:
