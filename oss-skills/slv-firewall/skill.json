@@ -1,0 +1,8 @@
+{
+  "name": "slv-firewall",
+  "version": "1.0.0",
+  "description": "nftables firewall + fail2ban + SSH hardening for SLV hosts",
+  "agent": "EL",
+  "author": "ELSOUL LABO B.V.",
+  "tags": ["security", "firewall", "nftables", "fail2ban", "ssh"]
+}
