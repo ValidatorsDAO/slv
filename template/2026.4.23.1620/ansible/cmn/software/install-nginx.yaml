@@ -1,0 +1,208 @@
+---
+# Generic nginx reverse-proxy installer for SLV. Renders a single
+# vhost that proxies a public hostname (typically a Cloudflare-
+# proxied `*.erpc.global` record, set via POST /v3/dns/set) down to
+# a loopback service on this host — by default the gateway on
+# 127.0.0.1:20026, but any `upstream_port` works.
+#
+# No certbot / Let's Encrypt here: Cloudflare handles TLS
+# termination in Flexible SSL mode (user ↔ Cloudflare is HTTPS;
+# Cloudflare ↔ origin is plain HTTP on port 80). If you want full
+# end-to-end TLS later, add a cert on origin and flip Cloudflare to
+# Full (strict) — no playbook change needed.
+#
+# Variables (all overridable via --extra-vars):
+#   fqdn           — required. Fully-qualified hostname to serve,
+#                    e.g. u-a8b3nq9p2xz4k.erpc.global
+#   upstream_port  — loopback port to proxy to. Default 20026
+#                    (the SLV gateway).
+#   server_name    — nginx server_name directive. Defaults to fqdn.
+#
+# Idempotent: re-running rewrites the vhost file and reloads nginx.
+# Stale vhosts from a prior `slv install nginx` with a different
+# fqdn are NOT cleaned up automatically — they're left in
+# sites-available for the operator to remove if they want.
+- name: Install nginx reverse proxy
+  hosts: all
+  become: true
+
+  vars:
+    upstream_port: 20026
+    server_name: '{{ fqdn }}'
+    # Base64-encoded PEM origin cert + private key, optionally
+    # supplied by the caller (e.g. `slv install nginx` after a
+    # successful Cloudflare Origin CA issuance). When both are
+    # present, they're written verbatim and the self-signed
+    # fallback is skipped. When either is empty, we fall back to
+    # generating a self-signed origin cert locally — works with
+    # Cloudflare Full (not strict) but NOT Full-strict, so real
+    # origin-pull requires the values be supplied.
+    origin_cert_b64: ''
+    origin_key_b64: ''
+
+  pre_tasks:
+    - name: Assert fqdn is set
+      assert:
+        that:
+          - fqdn is defined
+          - fqdn | length > 0
+        fail_msg: >-
+          `fqdn` variable is required. Pass it via
+          --extra-vars fqdn=<host>.erpc.global
+
+  tasks:
+    - name: Install nginx
+      apt:
+        name:
+          - nginx
+          - openssl
+        state: present
+        update_cache: yes
+        # Skip the cache refresh when it's less than an hour old —
+        # keeps re-runs fast without masking a legitimately stale
+        # repo state.
+        cache_valid_time: 3600
+
+    - name: Remove default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    # Self-signed certificate for origin TLS. Cloudflare's zone is
+    # configured in "Full" SSL mode (not Full strict), which means
+    # Cloudflare connects to the origin over HTTPS on port 443 but
+    # does NOT validate the origin certificate — so any cert works,
+    # including a brand-new self-signed one we generate right here.
+    # This is the minimum plumbing to resolve HTTP 521 ("Web Server
+    # Is Down", i.e. Cloudflare couldn't connect to origin).
+    #
+    # Cert lives separately from Let's Encrypt or any other managed
+    # PKI — Cloudflare fronts user-facing TLS, so the origin cert
+    # is purely an internal handshake signal.
+    - name: Ensure ssl directory exists
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0700'
+
+    # If the caller supplied an Origin CA cert + key via
+    # --extra-vars, write those verbatim (overwrites whatever was
+    # there before — rotating to a fresh cert is idempotent).
+    # These tasks are no-ops when the vars are empty.
+    - name: Write caller-supplied origin certificate
+      copy:
+        content: '{{ origin_cert_b64 | b64decode }}'
+        dest: '/etc/nginx/ssl/{{ fqdn }}.crt'
+        mode: '0644'
+      when: origin_cert_b64 | length > 0
+
+    - name: Write caller-supplied origin private key
+      copy:
+        content: '{{ origin_key_b64 | b64decode }}'
+        dest: '/etc/nginx/ssl/{{ fqdn }}.key'
+        mode: '0600'
+      when: origin_key_b64 | length > 0
+
+    # Self-signed fallback for when the caller didn't supply a
+    # Cloudflare Origin CA cert. Only generates if the crt file
+    # doesn't already exist (idempotent via `creates:`).
+    - name: Generate self-signed origin cert (fallback)
+      command: >-
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048
+        -keyout /etc/nginx/ssl/{{ fqdn }}.key
+        -out /etc/nginx/ssl/{{ fqdn }}.crt
+        -subj "/CN={{ fqdn }}"
+      args:
+        creates: /etc/nginx/ssl/{{ fqdn }}.crt
+      when: origin_cert_b64 | length == 0
+
+    - name: Render vhost file
+      copy:
+        dest: '/etc/nginx/sites-available/{{ fqdn }}.conf'
+        mode: '0644'
+        # TWO server blocks: one on 80, one on 443 with the self-
+        # signed cert above. Cloudflare's erpc.global zone is
+        # configured in Full SSL mode (origin-pull over HTTPS),
+        # so we NEED 443 open for Cloudflare to reach origin at
+        # all — an 80-only config produces HTTP 521 "Web Server
+        # Is Down" at the edge. Serving 80 alongside lets users
+        # who bypass Cloudflare (direct IP / LAN debugging) also
+        # hit nginx without mucking with http/https.
+        content: |
+          server {
+            listen 80;
+            listen [::]:80;
+            server_name {{ server_name }};
+
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade    $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+
+            location / {
+              proxy_pass http://127.0.0.1:{{ upstream_port }};
+            }
+          }
+
+          server {
+            # Legacy `listen ... http2` form — the separate
+            # `http2 on;` directive only arrived in nginx 1.25
+            # and Ubuntu 24.04 ships 1.24. Inline form works
+            # on both 1.24 and 1.25+.
+            listen 443 ssl http2;
+            listen [::]:443 ssl http2;
+            server_name {{ server_name }};
+
+            ssl_certificate     /etc/nginx/ssl/{{ fqdn }}.crt;
+            ssl_certificate_key /etc/nginx/ssl/{{ fqdn }}.key;
+            ssl_protocols       TLSv1.2 TLSv1.3;
+            ssl_ciphers         HIGH:!aNULL:!MD5;
+
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade    $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+
+            location / {
+              proxy_pass http://127.0.0.1:{{ upstream_port }};
+            }
+          }
+      register: vhost_file
+
+    - name: Enable vhost
+      file:
+        src: '/etc/nginx/sites-available/{{ fqdn }}.conf'
+        dest: '/etc/nginx/sites-enabled/{{ fqdn }}.conf'
+        state: link
+        force: yes
+
+    - name: Validate nginx config
+      command: nginx -t
+      changed_when: false
+
+    - name: Reload nginx
+      systemd:
+        name: nginx
+        state: reloaded
+        enabled: yes
+
+    - name: Done
+      debug:
+        msg: >-
+          nginx is proxying https://{{ fqdn }}/ →
+          http://127.0.0.1:{{ upstream_port }}/. Allow it a minute
+          for Cloudflare to converge on the new A record.
