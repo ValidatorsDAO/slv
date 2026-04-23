@@ -9,6 +9,11 @@ import {
 } from '/src/install/inventoryTargets.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { runNginxFlow } from '/src/install/nginxFlow.ts'
+import {
+  ALLOW_IPS_HELP,
+  parseAllowIps,
+  runFirewallFlow,
+} from '/src/install/firewallFlow.ts'
 
 // A WireGuard public key is 32 bytes base64-encoded: 44 chars total,
 // always ending in `=`. Validating client-side gives a clean early
@@ -468,3 +473,81 @@ const nginxCmd = new Command()
   )
 
 installCmd.command('nginx', nginxCmd)
+
+/**
+ * `slv install firewall` — nftables + fail2ban in one shot.
+ * Defaults keep the box reachable: SSH (22) open for all,
+ * HTTP/HTTPS (80/443) open for Cloudflare origin-pull, WireGuard
+ * (51820/udp) open so phone peers can dial in, WG subnet
+ * (10.0.0.0/24) trusted. Everything else is dropped unless the
+ * caller whitelists it via `--allow`.
+ *
+ * Invoked both directly by operators and by the slv-security
+ * skill when EL walks a user through setup.
+ */
+const firewallCmd = new Command()
+  .description(
+    'Install nftables + fail2ban on THIS host with a safe default ruleset (SSH, HTTP, HTTPS, WireGuard always open; deny the rest). Pass --allow <ip> one or more times to whitelist trusted sources across all ports.',
+  )
+  .option(
+    '--allow <ip:string>',
+    ALLOW_IPS_HELP + ' Repeatable or comma-separated.',
+    { collect: true },
+  )
+  .option('-y, --yes', 'Skip the confirmation prompt', { default: false })
+  .action(
+    async (options: { allow?: string[]; yes?: boolean }) => {
+      const parsed = parseAllowIps(options.allow)
+      if (!parsed.ok) {
+        console.error(
+          colors.red(
+            `❌ invalid IPv4 in --allow: "${parsed.bad}" (expected dotted-quad).`,
+          ),
+        )
+        return
+      }
+
+      console.log(colors.blue('\n📋 firewall install plan:'))
+      console.log(
+        colors.blue('  nftables:    ') +
+          colors.white('default-drop, allow 22/80/443/wg, accept established'),
+      )
+      console.log(
+        colors.blue('  fail2ban:    ') +
+          colors.white('sshd jail, 5 retries in 10m → 1h ban'),
+      )
+      console.log(
+        colors.blue('  whitelist:   ') +
+          colors.white(
+            parsed.ips.length > 0
+              ? parsed.ips.join(', ')
+              : '(none — trust only the always-open ports)',
+          ),
+      )
+
+      if (!options.yes) {
+        const ok = await Confirm.prompt({
+          message: 'Proceed?',
+          default: true,
+        })
+        if (!ok) {
+          console.log(colors.red('❌ cancelled.'))
+          return
+        }
+      }
+
+      const result = await runFirewallFlow({ allowIps: parsed.ips })
+      if (!result.ok) {
+        console.error(colors.red(`❌ firewall install failed: ${result.error}`))
+        return
+      }
+      console.log(colors.green('\n✅ firewall is up.'))
+      console.log(
+        colors.yellow(
+          '\n⚠  Before tightening SSH further, run `slv add:ssh <your-pubkey>` to install your SSH public key, verify you can log in with it, THEN `slv disable pwd-login` to turn off password auth. Do not skip the verify step — you can lock yourself out.\n',
+        ),
+      )
+    },
+  )
+
+installCmd.command('firewall', firewallCmd)
