@@ -269,4 +269,65 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ прервано',
   '❌ error': '❌ ошибка',
   '[disconnected — reply interrupted]': '[отключено — ответ прерван]',
+
+  // --- Онбординг: помощь по Discord webhook + установка шлюза ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'Как создать Discord Webhook (30-сек видео): https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    'Вставьте URL webhook ниже или нажмите Enter, чтобы пропустить.',
+  'Browser chat UI (optional)': 'Браузерный чат (опционально)',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Устанавливает фоновый сервис, чтобы вы могли общаться с SLV из любого браузера по адресу http://127.0.0.1:{port}/ui/, не держа терминал открытым.',
+  'Not supported on this platform — skipped.':
+    'Не поддерживается на этой платформе — пропущено.',
+  'Could not probe gateway status:':
+    'Не удалось проверить статус шлюза:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'Шлюз уже работает по адресу http://127.0.0.1:{port}/ui/',
+  'Install and start the gateway now?':
+    'Установить и запустить шлюз сейчас?',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'Пропущено. Запустите `slv gateway install && slv gateway start` позже, чтобы включить браузерный интерфейс.',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'Установка шлюза не удалась — запустите `slv gateway install` вручную для повторной попытки.',
+  'Service unit already installed — starting it.':
+    'Юнит сервиса уже установлен — запускаем.',
+  'Gateway start failed:': 'Не удалось запустить шлюз:',
+  'Run `slv gateway start` manually to retry.':
+    'Запустите `slv gateway start` вручную для повторной попытки.',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'Шлюз работает по адресу http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': 'Шлюз уже работает.',
+  'Enable remote IP access (recommended for VPS)?':
+    'Включить удалённый доступ по IP? (рекомендуется для VPS)',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    'Привязывает шлюз к 0.0.0.0, чтобы вы могли открыть http://<server-ip>:{port}/ui/ напрямую с телефона/ноутбука. Все действия чата по-прежнему защищены авторизацией токеном.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    'Следующий шаг: после завершения онбординга запустите `slv c` и попросите SLV AI помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне). Видео-руководство появится позже.',
+  'Enable remote IP access now?': 'Включить удалённый доступ по IP сейчас?',
+  'Remote IP access enabled — gateway restarted.':
+    'Удалённый доступ по IP включён — шлюз перезапущен.',
+  'Failed to enable remote IP access:':
+    'Не удалось включить удалённый доступ по IP:',
+  'You can run `slv gateway config set-mode lan` later.':
+    'Вы можете позже выполнить `slv gateway config set-mode lan`.',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    'Оставлен только loopback. Для включения удалённого доступа позже выполните `slv gateway config set-mode lan`.',
+
+  // Уведомление о завершении в Discord
+  'SLV AI setup complete!': 'Настройка SLV AI завершена!',
+  'Open SLV in your browser:': 'Откройте SLV в браузере:',
+  'Gateway token (paste on first visit):':
+    'Токен шлюза (вставьте при первом посещении):',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    'Безопасность: запустите `slv c` и попросите SLV AI помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне).',
+  'Video walkthrough: coming soon.': 'Видео-руководство: скоро будет.',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    'Режим только loopback — чтобы открыть URL из другого места, сначала создайте SSH туннель:',
+  'Sent browser UI link to your Discord webhook.':
+    'Ссылка на браузерный UI отправлена в ваш Discord webhook.',
+  'Discord webhook post returned': 'Ответ Discord webhook:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    'Проверьте URL webhook в ~/.slv/api.yml.',
+  'Could not reach Discord webhook:': 'Не удалось связаться с Discord webhook:',
 }

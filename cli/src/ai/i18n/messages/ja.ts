@@ -259,4 +259,64 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ 中断',
   '❌ error': '❌ エラー',
   '[disconnected — reply interrupted]': '[切断されました — 応答が中断されました]',
+
+  // --- オンボード: Discord webhook ヘルプ + ゲートウェイインストール ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'Discord Webhook の作り方（30秒動画）: https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    '下の欄に Webhook URL を貼り付けてください。スキップするなら Enter を押してください。',
+  'Browser chat UI (optional)': 'ブラウザチャット UI（オプション）',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'バックグラウンドサービスをインストールして、ターミナルを開いたままにしなくてもブラウザから http://127.0.0.1:{port}/ui/ で SLV とチャットできるようにします。',
+  'Not supported on this platform — skipped.':
+    'このプラットフォームでは対応していません — スキップします。',
+  'Could not probe gateway status:': 'ゲートウェイの状態を取得できませんでした:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'ゲートウェイは既に http://127.0.0.1:{port}/ui/ で起動しています',
+  'Install and start the gateway now?':
+    'ゲートウェイを今すぐインストールして起動しますか？',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'スキップしました。ブラウザ UI を有効にしたくなったら `slv gateway install && slv gateway start` を実行してください。',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'ゲートウェイのインストールに失敗しました — `slv gateway install` を手動で実行して再試行してください。',
+  'Service unit already installed — starting it.':
+    'サービスユニットは既にインストール済み — 起動します。',
+  'Gateway start failed:': 'ゲートウェイの起動に失敗しました:',
+  'Run `slv gateway start` manually to retry.':
+    '`slv gateway start` を手動で実行して再試行してください。',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'ゲートウェイが http://127.0.0.1:{port}/ui/ で稼働中',
+  'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
+  'Enable remote IP access (recommended for VPS)?':
+    'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    'ゲートウェイを 0.0.0.0 に bind して、スマホやノート PC から直接 http://<server-ip>:{port}/ui/ を開けるようにします。チャットはすべてトークン認証でガードされます。',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    '次のステップ: オンボードが完了したら `slv c` を実行して、SLV AI にファイアウォール（nftables）とスマホでの WireGuard 設定を手伝ってもらいましょう。動画解説は後日公開予定。',
+  'Enable remote IP access now?': '今すぐリモート IP アクセスを有効にしますか？',
+  'Remote IP access enabled — gateway restarted.':
+    'リモート IP アクセスを有効化 — ゲートウェイを再起動しました。',
+  'Failed to enable remote IP access:':
+    'リモート IP アクセスの有効化に失敗しました:',
+  'You can run `slv gateway config set-mode lan` later.':
+    '後で `slv gateway config set-mode lan` を実行できます。',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    'ループバック限定のままにしました。後でリモートアクセスしたくなったら `slv gateway config set-mode lan` を実行してください。',
+
+  // Discord 完了通知
+  'SLV AI setup complete!': 'SLV AI セットアップ完了!',
+  'Open SLV in your browser:': 'ブラウザから SLV を開けます:',
+  'Gateway token (paste on first visit):':
+    'ゲートウェイトークン（初回アクセス時に貼り付け）:',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    'セキュリティ: `slv c` を実行して、SLV AI にファイアウォール（nftables）とスマホでの WireGuard 設定を手伝ってもらいましょう。',
+  'Video walkthrough: coming soon.': '動画解説: 後日公開予定。',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    'ループバック限定モード — 外から開くには、まず SSH トンネルを張ってください:',
+  'Sent browser UI link to your Discord webhook.':
+    'ブラウザ UI のリンクを Discord Webhook に送信しました。',
+  'Discord webhook post returned': 'Discord Webhook のレスポンス:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    '~/.slv/api.yml の Webhook URL を確認してください。',
+  'Could not reach Discord webhook:': 'Discord Webhook に到達できませんでした:',
 }

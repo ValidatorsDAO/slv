@@ -251,4 +251,63 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ 已中止',
   '❌ error': '❌ 错误',
   '[disconnected — reply interrupted]': '[已断开 — 回复被中断]',
+
+  // --- 引导: Discord webhook 帮助 + 网关安装 ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    '如何创建 Discord Webhook（30秒视频）: https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    '请在下方粘贴 Webhook URL，或按 Enter 跳过。',
+  'Browser chat UI (optional)': '浏览器聊天界面（可选）',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    '安装后台服务，无需保持终端打开即可在浏览器中访问 http://127.0.0.1:{port}/ui/ 与 SLV 聊天。',
+  'Not supported on this platform — skipped.':
+    '此平台不支持 — 已跳过。',
+  'Could not probe gateway status:': '无法查询网关状态:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    '网关已在 http://127.0.0.1:{port}/ui/ 运行',
+  'Install and start the gateway now?':
+    '现在安装并启动网关吗？',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    '已跳过。稍后运行 `slv gateway install && slv gateway start` 即可启用浏览器 UI。',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    '网关安装失败 — 请手动运行 `slv gateway install` 重试。',
+  'Service unit already installed — starting it.':
+    '服务单元已安装 — 正在启动。',
+  'Gateway start failed:': '网关启动失败:',
+  'Run `slv gateway start` manually to retry.':
+    '请手动运行 `slv gateway start` 重试。',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    '网关运行于 http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': '网关已在运行。',
+  'Enable remote IP access (recommended for VPS)?':
+    '启用 IP 远程访问吗？（VPS 推荐）',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    '将网关绑定到 0.0.0.0，您可以直接从手机/笔记本打开 http://<server-ip>:{port}/ui/。所有聊天操作仍需令牌认证。',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    '下一步：引导完成后运行 `slv c`，请 SLV AI 帮您配置防火墙（nftables）和手机 WireGuard。视频教程即将发布。',
+  'Enable remote IP access now?': '现在启用 IP 远程访问吗？',
+  'Remote IP access enabled — gateway restarted.':
+    'IP 远程访问已启用 — 网关已重启。',
+  'Failed to enable remote IP access:': 'IP 远程访问启用失败:',
+  'You can run `slv gateway config set-mode lan` later.':
+    '稍后可运行 `slv gateway config set-mode lan`。',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    '已保留仅回环访问。稍后运行 `slv gateway config set-mode lan` 即可启用远程访问。',
+
+  // Discord 完成通知
+  'SLV AI setup complete!': 'SLV AI 设置完成!',
+  'Open SLV in your browser:': '在浏览器中打开 SLV:',
+  'Gateway token (paste on first visit):':
+    '网关令牌（首次访问时粘贴）:',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    '安全提醒: 运行 `slv c`，请 SLV AI 帮您配置防火墙（nftables）和手机 WireGuard。',
+  'Video walkthrough: coming soon.': '视频教程：即将发布。',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    '仅回环模式 — 从其他地方打开 URL 前，请先建立 SSH 隧道:',
+  'Sent browser UI link to your Discord webhook.':
+    '已将浏览器 UI 链接发送到您的 Discord Webhook。',
+  'Discord webhook post returned': 'Discord Webhook 响应:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    '请检查 ~/.slv/api.yml 中的 Webhook URL。',
+  'Could not reach Discord webhook:': '无法连接 Discord Webhook:',
 }

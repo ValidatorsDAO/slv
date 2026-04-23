@@ -15,6 +15,7 @@ import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import { buildExcludeList, printExcludes } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
 import { resticBackup, type ResticBackupOptions } from '@/backup/restic.ts'
+import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
 
 /**
  * Resolve the webhook URL from (in priority order):
@@ -54,16 +55,12 @@ function getWebhookUrl(cliOption?: string): string | undefined {
 }
 
 /**
- * Send a notification to a Discord webhook URL.
- * Silently ignores errors — backup should never fail because of a notification.
+ * Wrapper around the shared {@link notifyDiscordWebhook} helper.
+ * Kept here as a thin rename so the ~six call sites below don't need
+ * to be touched when the default timeout / result handling shifts.
  */
-async function notifyWebhook(webhookUrl: string, message: string): Promise<void> {
-  await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: message }),
-  }).catch(() => {})
-}
+const notifyWebhook = (webhookUrl: string, message: string): Promise<unknown> =>
+  notifyDiscordWebhook(webhookUrl, message)
 
 async function getHostname(): Promise<string> {
   const command = new Deno.Command('hostname', { stdout: 'piped', stderr: 'piped' })

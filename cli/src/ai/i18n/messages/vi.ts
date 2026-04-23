@@ -266,4 +266,66 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ đã hủy',
   '❌ error': '❌ lỗi',
   '[disconnected — reply interrupted]': '[đã ngắt kết nối — phản hồi bị gián đoạn]',
+
+  // --- Onboard: hướng dẫn Discord webhook + cài đặt cổng ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'Cách tạo Discord Webhook (video 30 giây): https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    'Dán URL webhook bên dưới, hoặc nhấn Enter để bỏ qua.',
+  'Browser chat UI (optional)': 'Giao diện chat trên trình duyệt (tùy chọn)',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Cài dịch vụ chạy nền để bạn có thể trò chuyện với SLV từ trình duyệt tại http://127.0.0.1:{port}/ui/ mà không cần mở terminal.',
+  'Not supported on this platform — skipped.':
+    'Không hỗ trợ trên nền tảng này — đã bỏ qua.',
+  'Could not probe gateway status:':
+    'Không kiểm tra được trạng thái cổng:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
+  'Install and start the gateway now?':
+    'Cài đặt và khởi động cổng ngay bây giờ?',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'Đã bỏ qua. Chạy `slv gateway install && slv gateway start` sau để bật giao diện trình duyệt.',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'Cài đặt cổng thất bại — chạy `slv gateway install` thủ công để thử lại.',
+  'Service unit already installed — starting it.':
+    'Đơn vị dịch vụ đã được cài — đang khởi động.',
+  'Gateway start failed:': 'Khởi động cổng thất bại:',
+  'Run `slv gateway start` manually to retry.':
+    'Chạy `slv gateway start` thủ công để thử lại.',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': 'Cổng đang chạy.',
+  'Enable remote IP access (recommended for VPS)?':
+    'Bật truy cập từ xa bằng IP? (khuyến nghị cho VPS)',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    'Bind cổng vào 0.0.0.0 để bạn có thể mở http://<server-ip>:{port}/ui/ trực tiếp từ điện thoại/laptop. Mọi thao tác chat vẫn được bảo vệ bằng token.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    'Bước tiếp theo: khi onboard hoàn tất, chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại). Video hướng dẫn sẽ có sau.',
+  'Enable remote IP access now?': 'Bật truy cập từ xa bằng IP ngay?',
+  'Remote IP access enabled — gateway restarted.':
+    'Đã bật truy cập từ xa bằng IP — cổng được khởi động lại.',
+  'Failed to enable remote IP access:':
+    'Không thể bật truy cập từ xa bằng IP:',
+  'You can run `slv gateway config set-mode lan` later.':
+    'Bạn có thể chạy `slv gateway config set-mode lan` sau.',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    'Giữ nguyên loopback. Chạy `slv gateway config set-mode lan` sau để bật truy cập từ xa.',
+
+  // Thông báo hoàn tất qua Discord
+  'SLV AI setup complete!': 'Cài đặt SLV AI hoàn tất!',
+  'Open SLV in your browser:': 'Mở SLV trong trình duyệt:',
+  'Gateway token (paste on first visit):':
+    'Token cổng (dán khi truy cập lần đầu):',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    'Bảo mật: chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại).',
+  'Video walkthrough: coming soon.': 'Video hướng dẫn: sẽ có sau.',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    'Chế độ chỉ loopback — Trước khi mở URL từ nơi khác, hãy tạo SSH tunnel trước:',
+  'Sent browser UI link to your Discord webhook.':
+    'Đã gửi liên kết giao diện trình duyệt đến Discord webhook của bạn.',
+  'Discord webhook post returned': 'Phản hồi từ Discord webhook:',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    'Kiểm tra URL webhook trong ~/.slv/api.yml.',
+  'Could not reach Discord webhook:':
+    'Không kết nối được Discord webhook:',
 }

@@ -282,4 +282,62 @@ export const messages: Record<string, string> = {
   '⏸ aborted': '⏸ aborted',
   '❌ error': '❌ error',
   '[disconnected — reply interrupted]': '[disconnected — reply interrupted]',
+
+  // --- Onboard: Discord webhook help + gateway install ---
+  'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg':
+    'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg',
+  'Paste the webhook URL below, or press Enter to skip.':
+    'Paste the webhook URL below, or press Enter to skip.',
+  'Browser chat UI (optional)': 'Browser chat UI (optional)',
+  'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
+    'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
+  'Not supported on this platform — skipped.':
+    'Not supported on this platform — skipped.',
+  'Could not probe gateway status:': 'Could not probe gateway status:',
+  'Gateway is already running at http://127.0.0.1:{port}/ui/':
+    'Gateway is already running at http://127.0.0.1:{port}/ui/',
+  'Install and start the gateway now?': 'Install and start the gateway now?',
+  'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
+    'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.',
+  'Gateway install failed — run `slv gateway install` manually to retry.':
+    'Gateway install failed — run `slv gateway install` manually to retry.',
+  'Service unit already installed — starting it.':
+    'Service unit already installed — starting it.',
+  'Gateway start failed:': 'Gateway start failed:',
+  'Run `slv gateway start` manually to retry.':
+    'Run `slv gateway start` manually to retry.',
+  'Gateway running at http://127.0.0.1:{port}/ui/':
+    'Gateway running at http://127.0.0.1:{port}/ui/',
+  'Gateway is already running.': 'Gateway is already running.',
+  'Enable remote IP access (recommended for VPS)?':
+    'Enable remote IP access (recommended for VPS)?',
+  'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
+    'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
+    'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.',
+  'Enable remote IP access now?': 'Enable remote IP access now?',
+  'Remote IP access enabled — gateway restarted.':
+    'Remote IP access enabled — gateway restarted.',
+  'Failed to enable remote IP access:': 'Failed to enable remote IP access:',
+  'You can run `slv gateway config set-mode lan` later.':
+    'You can run `slv gateway config set-mode lan` later.',
+  'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
+    'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.',
+
+  // Discord completion webhook
+  'SLV AI setup complete!': 'SLV AI setup complete!',
+  'Open SLV in your browser:': 'Open SLV in your browser:',
+  'Gateway token (paste on first visit):':
+    'Gateway token (paste on first visit):',
+  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
+    'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.',
+  'Video walkthrough: coming soon.': 'Video walkthrough: coming soon.',
+  'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
+    'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:',
+  'Sent browser UI link to your Discord webhook.':
+    'Sent browser UI link to your Discord webhook.',
+  'Discord webhook post returned': 'Discord webhook post returned',
+  'Check the webhook URL in ~/.slv/api.yml.':
+    'Check the webhook URL in ~/.slv/api.yml.',
+  'Could not reach Discord webhook:': 'Could not reach Discord webhook:',
 }

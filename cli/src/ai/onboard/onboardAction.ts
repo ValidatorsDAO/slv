@@ -18,6 +18,16 @@ import {
 } from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
 import { isValidApiKey, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { Confirm } from '@cliffy/prompt'
+import { installAction as installGatewayAction } from '/src/gateway/install.ts'
+import { pickGatewayService } from '/src/gateway/service/pick.ts'
+import { GATEWAY_DEFAULT_PORT } from '/src/gateway/paths.ts'
+import { errToString } from '/lib/errToString.ts'
+import {
+  loadGatewayConfig,
+  writeGatewayConfig,
+} from '/src/gateway/config.ts'
+import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
 // combining marks take 0, most others 1. Used to pad i18n lines inside boxes
@@ -512,100 +522,28 @@ Session history and important notes.
   const configYml = stringify(configData as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
 
-  // --- GitHub Setup (optional) ---
-  console.log(
-    colors.bold.rgb24(`\n│  ${t('GitHub Setup (optional)')}`, 0x14f195),
-  )
-
-  // Check if gh CLI is available and authenticated
-  let ghAuthenticated = false
-  try {
-    const p = new Deno.Command('gh', {
-      args: ['auth', 'status'],
-      stdout: 'piped',
-      stderr: 'piped',
-    })
-    const { success } = await p.output()
-    ghAuthenticated = success
-  } catch {
-    /* gh not installed */
-  }
-
-  if (ghAuthenticated) {
-    console.log(colors.green(`  ✔ ${t('GitHub CLI already authenticated.')}\n`))
-  } else {
-    // Check if gh is installed
-    let ghInstalled = false
-    try {
-      const p = new Deno.Command('gh', {
-        args: ['--version'],
-        stdout: 'piped',
-        stderr: 'piped',
-      })
-      const { success } = await p.output()
-      ghInstalled = success
-    } catch {
-      /* not installed */
-    }
-
-    if (!ghInstalled) {
-      console.log(
-        colors.rgb24(
-          `  ${t('GitHub CLI (gh) not found. Install it from https://cli.github.com/')}\n`,
-          0x888888,
-        ),
-      )
-      console.log(
-        colors.rgb24(
-          `  ${t('Skipped. You can set up GitHub later.')}\n`,
-          0x888888,
-        ),
-      )
-    } else {
-      const setupGh = await Select.prompt({
-        message: t(
-          'Set up GitHub authentication? (enables repo creation, PRs, etc.)',
-        ),
-        options: [
-          { name: t('Yes — run gh auth login'), value: 'yes' },
-          { name: t('Skip for now'), value: 'skip' },
-        ],
-      })
-
-      if (setupGh === 'yes') {
-        console.log(colors.white(`\n  ${t('Running `gh auth login`...')}\n`))
-        const proc = new Deno.Command('gh', {
-          args: ['auth', 'login'],
-          stdin: 'inherit',
-          stdout: 'inherit',
-          stderr: 'inherit',
-        })
-        const { success } = await proc.output()
-        if (success) {
-          console.log(colors.green(`\n  ✔ ${t('GitHub authenticated.')}\n`))
-        } else {
-          console.log(
-            colors.yellow(
-              `\n  ⚠ ${
-                t('GitHub authentication failed. You can retry with `gh auth login`.')
-              }\n`,
-            ),
-          )
-        }
-      } else {
-        console.log(
-          colors.rgb24(
-            `  ${t('Skipped. You can run `gh auth login` later.')}\n`,
-            0x888888,
-          ),
-        )
-      }
-    }
-  }
-
   // --- Notifications (optional) ---
   console.log(
     colors.bold.rgb24(`\n│  ${t('Notifications (optional)')}`, 0x14f195),
+  )
+  // Non-engineers rarely know how to create a Discord webhook, so
+  // link a 30-second video walkthrough before the prompt. The URL
+  // lives in the translation key so alt-language versions can swap
+  // to a localized recording later if one exists.
+  console.log(
+    colors.white(
+      `  ${
+        t(
+          'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg',
+        )
+      }`,
+    ),
+  )
+  console.log(
+    colors.rgb24(
+      `  ${t('Paste the webhook URL below, or press Enter to skip.')}`,
+      0x888888,
+    ),
   )
 
   const discordWebhook = await Input.prompt({
@@ -663,6 +601,23 @@ Session history and important notes.
     }
   }
 
+  // --- Gateway daemon (optional) ---
+  // Installs a user-level systemd/launchd service that exposes the
+  // browser chat UI at http://127.0.0.1:20026/ui/. Non-engineers
+  // don't know they can run this manually afterwards, so offer it
+  // here while we already have their attention. Idempotent: if the
+  // service is already installed/running, we say so and continue.
+  const gatewayResult = await maybeInstallGateway(t)
+
+  // If the gateway is up AND the user set a Discord webhook, send
+  // them the browser-chat URL + token there so they don't have to
+  // hunt for it — the "last-mile" signal that makes non-engineers
+  // actually use the UI. Includes a WireGuard advisory when we had
+  // to flip to lan mode (public network exposure).
+  if (gatewayResult.gatewayReachable) {
+    await sendOnboardWebhook({ t, agentHome, mode: gatewayResult.mode })
+  }
+
   console.log(
     colors.bold.rgb24('\n│', 0x14f195),
   )
@@ -687,4 +642,374 @@ Session history and important notes.
       0x14f195,
     ),
   )
+}
+
+type GatewayResult = {
+  gatewayReachable: boolean
+  mode: 'local' | 'lan'
+}
+
+/**
+ * Install + start the gateway daemon, then optionally flip to lan
+ * mode for remote-browser access with a WireGuard security advisory.
+ * Idempotent — probes status() first so re-running onboard on an
+ * already-configured host is a no-op with a ✔ message.
+ *
+ * All failures are non-fatal. Returns the current gateway state so
+ * the caller can decide whether to send a Discord completion ping.
+ */
+const maybeInstallGateway = async (
+  t: (key: string) => string,
+): Promise<GatewayResult> => {
+  console.log(
+    colors.bold.rgb24(`\n│  ${t('Browser chat UI (optional)')}`, 0x14f195),
+  )
+  console.log(
+    colors.white(
+      `  ${
+        t(
+          'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
+        ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
+      }`,
+    ),
+  )
+
+  let service
+  try {
+    service = pickGatewayService()
+  } catch {
+    console.log(
+      colors.rgb24(
+        `  ${t('Not supported on this platform — skipped.')}\n`,
+        0x888888,
+      ),
+    )
+    return { gatewayReachable: false, mode: 'local' }
+  }
+
+  let status
+  try {
+    status = await service.status()
+  } catch (err) {
+    console.log(
+      colors.yellow(
+        `  ⚠ ${t('Could not probe gateway status:')} ${errToString(err)}`,
+      ),
+    )
+    return { gatewayReachable: false, mode: 'local' }
+  }
+
+  // Probe BEFORE the confirm — a running service shortcuts the whole
+  // prompt, but we still want to ask about lan mode afterwards.
+  if (!status.running) {
+    const ok = await Confirm.prompt({
+      message: t('Install and start the gateway now?'),
+      default: true,
+    })
+    if (!ok) {
+      console.log(
+        colors.rgb24(
+          `  ${
+            t('Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.')
+          }\n`,
+          0x888888,
+        ),
+      )
+      return { gatewayReachable: false, mode: 'local' }
+    }
+
+    if (!status.loaded) {
+      const installed = await installGatewayAction()
+      if (!installed) {
+        console.log(
+          colors.yellow(
+            `  ⚠ ${
+              t('Gateway install failed — run `slv gateway install` manually to retry.')
+            }\n`,
+          ),
+        )
+        return { gatewayReachable: false, mode: 'local' }
+      }
+    } else {
+      console.log(
+        colors.gray(
+          `  ${t('Service unit already installed — starting it.')}`,
+        ),
+      )
+    }
+
+    try {
+      await service.start()
+    } catch (err) {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('Gateway start failed:')} ${errToString(err)}`,
+        ),
+      )
+      console.log(
+        colors.white(
+          `    ${t('Run `slv gateway start` manually to retry.')}\n`,
+        ),
+      )
+      return { gatewayReachable: false, mode: 'local' }
+    }
+  } else {
+    console.log(
+      colors.green(
+        `  ✔ ${t('Gateway is already running.')}`,
+      ),
+    )
+  }
+
+  // Default the gateway to lan mode so non-engineers can reach the
+  // browser UI by IP from their phone/laptop without setting up an
+  // SSH tunnel. Security hardening (WireGuard / nftables) is called
+  // out below and reinforced in the Discord completion message.
+  // Power users who really want loopback-only can still say No and
+  // flip back with `slv gateway config set-mode local` later.
+  const currentMode = await readCurrentGatewayMode()
+  let finalMode: 'local' | 'lan' = currentMode
+  if (currentMode === 'local') {
+    console.log(
+      colors.bold.yellow(
+        `\n  ${t('Enable remote IP access (recommended for VPS)?')}`,
+      ),
+    )
+    console.log(
+      colors.white(
+        `    ${
+          t('Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.').replace('{port}', String(GATEWAY_DEFAULT_PORT))
+        }`,
+      ),
+    )
+    console.log(
+      colors.bold.rgb24(
+        `    ⚠ ${
+          t('Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.')
+        }`,
+        0xffdf7a,
+      ),
+    )
+    const enableLan = await Confirm.prompt({
+      message: t('Enable remote IP access now?'),
+      default: true,
+    })
+    if (enableLan) {
+      try {
+        const cfg = await loadGatewayConfig()
+        await writeGatewayConfig({ ...cfg, mode: 'lan' })
+        await service.restart()
+        finalMode = 'lan'
+        console.log(
+          colors.green(
+            `  ✔ ${t('Remote IP access enabled — gateway restarted.')}\n`,
+          ),
+        )
+      } catch (err) {
+        console.log(
+          colors.yellow(
+            `  ⚠ ${t('Failed to enable remote IP access:')} ${errToString(err)}`,
+          ),
+        )
+        console.log(
+          colors.white(
+            `    ${t('You can run `slv gateway config set-mode lan` later.')}\n`,
+          ),
+        )
+      }
+    } else {
+      console.log(
+        colors.rgb24(
+          `  ${
+            t('Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.')
+          }\n`,
+          0x888888,
+        ),
+      )
+    }
+  }
+
+  console.log(
+    colors.green(
+      `  ✔ ${
+        t('Gateway running at http://127.0.0.1:{port}/ui/').replace(
+          '{port}',
+          String(GATEWAY_DEFAULT_PORT),
+        )
+      }\n`,
+    ),
+  )
+  return { gatewayReachable: true, mode: finalMode }
+}
+
+/**
+ * Read the gateway's current bind mode from ~/.slv/gateway/gateway.json.
+ * Defaults to 'local' if the config doesn't exist yet — matches what
+ * the gateway itself does on first run.
+ */
+const readCurrentGatewayMode = async (): Promise<'local' | 'lan'> => {
+  try {
+    const cfg = await loadGatewayConfig()
+    return cfg.mode
+  } catch {
+    return 'local'
+  }
+}
+
+/**
+ * Determine the host URL a Discord reader on a different device
+ * would actually hit. For lan mode we try to discover the public IP
+ * (api.ipify.org → fallback to `hostname -I`). For local mode we
+ * just say 127.0.0.1 plus an SSH-tunnel hint. Returns null on
+ * unexpected failure so the caller can skip the notification
+ * gracefully.
+ */
+const resolveBrowserUrl = async (
+  mode: 'local' | 'lan',
+): Promise<{ host: string; externallyReachable: boolean }> => {
+  if (mode === 'local') return { host: '127.0.0.1', externallyReachable: false }
+  // Try ipify first — the VPS almost always has direct outbound and
+  // ipify returns the actual public IP even from behind NAT.
+  try {
+    const controller = new AbortController()
+    const tid = setTimeout(() => controller.abort(), 3000)
+    const res = await fetch('https://api.ipify.org', {
+      signal: controller.signal,
+    })
+    clearTimeout(tid)
+    if (res.ok) {
+      const ip = (await res.text()).trim()
+      if (/^[0-9a-fA-F.:]+$/.test(ip)) {
+        return { host: ip, externallyReachable: true }
+      }
+    }
+  } catch { /* try the local fallback */ }
+  // Fallback: first address from `hostname -I` (Linux only). Good for
+  // LAN-only deployments where ipify isn't reachable.
+  try {
+    const p = new Deno.Command('hostname', {
+      args: ['-I'],
+      stdout: 'piped',
+      stderr: 'null',
+    })
+    const { stdout, success } = await p.output()
+    if (success) {
+      const first = new TextDecoder().decode(stdout).trim().split(/\s+/)[0]
+      if (first && /^[0-9a-fA-F.:]+$/.test(first)) {
+        return { host: first, externallyReachable: true }
+      }
+    }
+  } catch { /* fall through */ }
+  // Last resort: the literal hostname. Useful on hosts with DNS.
+  try {
+    return { host: Deno.hostname(), externallyReachable: true }
+  } catch {
+    return { host: '127.0.0.1', externallyReachable: false }
+  }
+}
+
+/**
+ * Post a completion message to the user's Discord webhook with the
+ * browser chat URL + token + (for lan mode) a WireGuard hardening
+ * reminder. All in the language the user picked at step 1. Silent
+ * no-op when no webhook is configured or the gateway token isn't
+ * readable — this runs at the tail of onboard and must not fail the
+ * overall flow.
+ */
+const sendOnboardWebhook = async (opts: {
+  t: (key: string) => string
+  agentHome: string
+  mode: 'local' | 'lan'
+}): Promise<void> => {
+  const { t, agentHome, mode } = opts
+  const apiYmlPath = `${agentHome}/.slv/api.yml`
+
+  // Resolve webhook + token. Missing either means quiet skip — the
+  // user either didn't set up notifications or deferred the gateway.
+  let webhookUrl = ''
+  try {
+    const raw = await Deno.readTextFile(apiYmlPath)
+    const parsed = parse(raw) as Record<string, unknown> | null
+    const n = parsed?.notifications as { discord_webhook?: string } | undefined
+    if (n?.discord_webhook) webhookUrl = n.discord_webhook.trim()
+  } catch { /* no api.yml yet */ }
+  if (!webhookUrl) return
+
+  let token = ''
+  try {
+    const cfg = await loadGatewayConfig()
+    token = cfg.token
+  } catch { /* gateway not configured */ }
+  if (!token) return
+
+  const { host, externallyReachable } = await resolveBrowserUrl(mode)
+  const url = `http://${host}:${GATEWAY_DEFAULT_PORT}/ui/`
+
+  const lines: string[] = []
+  lines.push(`🎉 ${t('SLV AI setup complete!')}`)
+  lines.push('')
+  lines.push(`📱 ${t('Open SLV in your browser:')}`)
+  lines.push(url)
+  lines.push('')
+  lines.push(`🔑 ${t('Gateway token (paste on first visit):')}`)
+  lines.push('```')
+  lines.push(token)
+  lines.push('```')
+  // Local mode needs an SSH tunnel to reach 127.0.0.1 from another
+  // device. Add it as a prerequisite step — not a replacement for
+  // the hardening advisory below.
+  if (mode === 'local') {
+    lines.push('')
+    lines.push(
+      `ℹ️ ${
+        t('Loopback-only mode — open the URL from elsewhere via SSH tunnel first:')
+      }`,
+    )
+    lines.push('```')
+    lines.push(
+      `ssh -N -L ${GATEWAY_DEFAULT_PORT}:127.0.0.1:${GATEWAY_DEFAULT_PORT} <user>@<host>`,
+    )
+    lines.push('```')
+  }
+  // Hardening advisory — same wording regardless of mode. Frame
+  // this as something SLV AI helps with (firewall + phone-WireGuard)
+  // rather than a dry link list, since non-engineers won't click
+  // raw nftables docs. YouTube walkthrough slot is a placeholder the
+  // user will fill in later.
+  lines.push('')
+  lines.push(
+    `⚠️ ${
+      t('Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.')
+    }`,
+  )
+  lines.push(`• ${t('Video walkthrough: coming soon.')}`)
+
+  const result = await notifyDiscordWebhook(webhookUrl, lines.join('\n'))
+  switch (result.kind) {
+    case 'ok':
+      console.log(
+        colors.green(
+          `  ✔ ${t('Sent browser UI link to your Discord webhook.')}\n`,
+        ),
+      )
+      return
+    case 'http_error':
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('Discord webhook post returned')} ${result.status}. ${
+            t('Check the webhook URL in ~/.slv/api.yml.')
+          }\n`,
+        ),
+      )
+      return
+    case 'network_error':
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('Could not reach Discord webhook:')} ${result.message}\n`,
+        ),
+      )
+      return
+    case 'skipped_empty_url':
+      return
+  }
 }
