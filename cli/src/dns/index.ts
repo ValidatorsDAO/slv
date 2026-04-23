@@ -2,6 +2,8 @@ import { Command } from '@cliffy'
 import { Confirm } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import {
+  deleteDnsRecord,
+  explainDnsDeleteError,
   explainDnsSetError,
   getDnsStatus,
   setDnsRecord,
@@ -9,12 +11,16 @@ import {
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 
-const readSlvApiKey = async (): Promise<string | null> => {
+const requireSlvApiKey = async (): Promise<string> => {
+  let key: string | null = null
   try {
-    return await getApiKeyFromYml(true)
-  } catch {
-    return null
+    key = await getApiKeyFromYml(true)
+  } catch { /* treat as missing */ }
+  if (!key) {
+    console.error(colors.red('❌ no SLV API key — run `slv login` first.'))
+    Deno.exit(1)
   }
+  return key
 }
 
 /**
@@ -33,13 +39,7 @@ dnsCmd.command('status')
     'Show the caller\'s DNS state: the default `<slug>.erpc.global` subdomain and any paid custom slugs, with the IP they currently point at.',
   )
   .action(async () => {
-    const apiKey = await readSlvApiKey()
-    if (!apiKey) {
-      console.error(
-        colors.red('❌ no SLV API key — run `slv login` first.'),
-      )
-      Deno.exit(1)
-    }
+    const apiKey = await requireSlvApiKey()
     const result = await getDnsStatus(apiKey)
     if (!result.ok) {
       if (result.status === 401) {
@@ -93,13 +93,7 @@ dnsCmd.command('set')
       proxied?: boolean
       yes?: boolean
     }) => {
-      const apiKey = await readSlvApiKey()
-      if (!apiKey) {
-        console.error(
-          colors.red('❌ no SLV API key — run `slv login` first.'),
-        )
-        Deno.exit(1)
-      }
+      const apiKey = await requireSlvApiKey()
 
       let ip = opts.ip
       if (!ip) {
@@ -150,3 +144,35 @@ dnsCmd.command('set')
       )
     },
   )
+
+dnsCmd.command('delete')
+  .description(
+    'Delete a DNS record. Omit --slug to target your free default subdomain; pass --slug for a custom one. Destructive — the record stops resolving immediately.',
+  )
+  .option('--slug <slug:string>', 'Custom slug to delete (omit for the default)')
+  .option('-y, --yes', 'Skip the confirmation prompt', { default: false })
+  .action(async (opts: { slug?: string; yes?: boolean }) => {
+    const apiKey = await requireSlvApiKey()
+
+    const target = opts.slug
+      ? `${opts.slug}.erpc.global`
+      : 'your default <slug>.erpc.global'
+
+    if (!opts.yes) {
+      const ok = await Confirm.prompt({
+        message: colors.yellow(`⚠  Delete ${target}? This is permanent.`),
+        default: false,
+      })
+      if (!ok) {
+        console.log(colors.gray('cancelled.'))
+        return
+      }
+    }
+
+    const result = await deleteDnsRecord(apiKey, { slug: opts.slug })
+    if (!result.ok) {
+      console.error(colors.red(`❌ ${explainDnsDeleteError(result)}`))
+      Deno.exit(1)
+    }
+    console.log(colors.green(`✅ ${result.data.fqdn} deleted.`))
+  })

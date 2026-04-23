@@ -167,6 +167,78 @@ export const setDnsRecord = async (
   return { ok: false, status: r.status, body: r.body }
 }
 
+export type DnsDeleteSuccessResponse = {
+  success: true
+  fqdn: string
+  // Absent when deleting the free default (server may omit).
+  slug?: string
+  message?: string
+}
+
+export type DnsDeleteResult =
+  | { ok: true; data: DnsDeleteSuccessResponse }
+  | { ok: false; kind: 'tool_not_found'; status: number; body: DnsApiError | null }
+  | { ok: false; kind: 'error'; status: number; body: DnsApiError | null }
+
+// Server decides whether "delete" means unset the IP or release the
+// slug — wrapper passes args through as-is.
+export const deleteDnsRecord = async (
+  apiKey: string,
+  opts: { slug?: string } = {},
+): Promise<DnsDeleteResult> => {
+  const args: Record<string, unknown> = {}
+  if (opts.slug) args.slug = opts.slug
+  const r = await callMcpTool<DnsDeleteSuccessResponse>(
+    apiKey,
+    'delete_dns_delete',
+    args,
+  )
+  if (r.ok) return { ok: true, data: r.data }
+  // Disambiguate "server doesn't know this tool" from "record not
+  // found" so the user gets an actionable error rather than a
+  // misleading "No record found."
+  const errCode = (r.body?.error ?? '').toString().toLowerCase()
+  if (
+    r.status === 404 &&
+    (errCode === 'tool_not_found' ||
+      errCode === 'unknown_tool' ||
+      errCode === 'method_not_found')
+  ) {
+    return { ok: false, kind: 'tool_not_found', status: r.status, body: r.body }
+  }
+  return { ok: false, kind: 'error', status: r.status, body: r.body }
+}
+
+export const explainDnsDeleteError = (result: {
+  kind?: 'tool_not_found' | 'error'
+  status: number
+  body: DnsApiError | null
+}): string => {
+  if (result.kind === 'tool_not_found') {
+    return 'The SLV Cloud MCP does not expose a DNS delete tool yet — update your server / CLI or delete from https://dashboard.erpc.global.'
+  }
+  const err = result.body?.error ?? ''
+  const msg = result.body?.message ?? ''
+  switch (result.status) {
+    case 401:
+      return 'SLV API key missing or invalid — run `slv login`.'
+    case 402:
+      return msg ||
+        'Deleting a custom slug requires a paid subscription (not yet launched).'
+    case 403:
+      if (err === 'not_owner') {
+        return msg || 'That slug is owned by another user.'
+      }
+      return msg || 'Forbidden.'
+    case 404:
+      return msg || 'No record found to delete.'
+    case 400:
+      return msg || 'Bad request.'
+    default:
+      return msg || `DNS delete failed with status ${result.status}.`
+  }
+}
+
 /** Human-readable explanation for the common DNS set errors. */
 export const explainDnsSetError = (result: {
   status: number
