@@ -43,7 +43,9 @@
   tasks:
     - name: Install nginx
       apt:
-        name: nginx
+        name:
+          - nginx
+          - openssl
         state: present
         update_cache: yes
         # Skip the cache refresh when it's less than an hour old —
@@ -56,38 +58,90 @@
         path: /etc/nginx/sites-enabled/default
         state: absent
 
+    # Self-signed certificate for origin TLS. Cloudflare's zone is
+    # configured in "Full" SSL mode (not Full strict), which means
+    # Cloudflare connects to the origin over HTTPS on port 443 but
+    # does NOT validate the origin certificate — so any cert works,
+    # including a brand-new self-signed one we generate right here.
+    # This is the minimum plumbing to resolve HTTP 521 ("Web Server
+    # Is Down", i.e. Cloudflare couldn't connect to origin).
+    #
+    # Cert lives separately from Let's Encrypt or any other managed
+    # PKI — Cloudflare fronts user-facing TLS, so the origin cert
+    # is purely an internal handshake signal.
+    - name: Ensure ssl directory exists
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0700'
+
+    - name: Generate self-signed origin cert (if missing)
+      command: >-
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048
+        -keyout /etc/nginx/ssl/{{ fqdn }}.key
+        -out /etc/nginx/ssl/{{ fqdn }}.crt
+        -subj "/CN={{ fqdn }}"
+      args:
+        creates: /etc/nginx/ssl/{{ fqdn }}.crt
+
     - name: Render vhost file
       copy:
         dest: '/etc/nginx/sites-available/{{ fqdn }}.conf'
         mode: '0644'
-        # Single server block: listens on 80, proxies to the
-        # loopback upstream. WebSocket headers (Upgrade /
-        # Connection) are set so the gateway's /v1/session/ws
-        # route works. Read/send timeouts are bumped to 5 min
-        # because some tool invocations (cargo build, ansible
-        # playbook) stream progress for minutes.
+        # TWO server blocks: one on 80, one on 443 with the self-
+        # signed cert above. Cloudflare's erpc.global zone is
+        # configured in Full SSL mode (origin-pull over HTTPS),
+        # so we NEED 443 open for Cloudflare to reach origin at
+        # all — an 80-only config produces HTTP 521 "Web Server
+        # Is Down" at the edge. Serving 80 alongside lets users
+        # who bypass Cloudflare (direct IP / LAN debugging) also
+        # hit nginx without mucking with http/https.
         content: |
           server {
             listen 80;
             listen [::]:80;
             server_name {{ server_name }};
 
-            # Let the browser know it's behind a proxy — the
-            # gateway uses these for `X-Forwarded-For` logging
-            # and for deciding whether to inline the token in
-            # /ui/ (loopback-only requests get it inlined).
             proxy_set_header Host              $host;
             proxy_set_header X-Real-IP         $remote_addr;
             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto https;
 
-            # WebSocket support (required for /v1/session/ws).
             proxy_http_version 1.1;
             proxy_set_header Upgrade    $http_upgrade;
             proxy_set_header Connection "upgrade";
 
-            # Long timeouts so streaming replies + long-running
-            # tool executions (cargo build etc.) don't get cut off.
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+
+            location / {
+              proxy_pass http://127.0.0.1:{{ upstream_port }};
+            }
+          }
+
+          server {
+            # Legacy `listen ... http2` form — the separate
+            # `http2 on;` directive only arrived in nginx 1.25
+            # and Ubuntu 24.04 ships 1.24. Inline form works
+            # on both 1.24 and 1.25+.
+            listen 443 ssl http2;
+            listen [::]:443 ssl http2;
+            server_name {{ server_name }};
+
+            ssl_certificate     /etc/nginx/ssl/{{ fqdn }}.crt;
+            ssl_certificate_key /etc/nginx/ssl/{{ fqdn }}.key;
+            ssl_protocols       TLSv1.2 TLSv1.3;
+            ssl_ciphers         HIGH:!aNULL:!MD5;
+
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade    $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
             proxy_read_timeout 300s;
             proxy_send_timeout 300s;
 
