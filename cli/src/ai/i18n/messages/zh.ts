@@ -296,6 +296,36 @@ export const messages: Record<string, string> = {
   'Browser chat UI': '浏览器聊天界面',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     '安装后台服务，无需保持终端打开即可在浏览器中访问 http://127.0.0.1:{port}/ui/ 与 SLV 聊天。',
+  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'SLV API 密钥可将您的免费 erpc.global 子域名指向此 VPS，立即启用 HTTPS。',
+  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
+    '🔑 在此粘贴 SLV API 密钥（按 Enter 跳过 HTTPS）:',
+  'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
+    '已跳过。稍后运行 `slv login` 然后 `slv install nginx` 启用 HTTPS。',
+  '⚠ This VPS is NOT an SLV VPS / BareMetal.':
+    '⚠ 此 VPS 不是 SLV VPS / BareMetal。',
+  'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.':
+    '回退到明文 HTTP（http://<ip>:20026/）— 未加密，仅限开发使用。生产环境请从下方仪表板开通 SLV VPS 或 BareMetal，IP 会自动注册，下次 `slv install nginx` 即可启用 HTTPS。',
+  '⚠ Your free subdomain {fqdn} is already pointing at {ip}.':
+    '⚠ 您的免费子域名 {fqdn} 已指向 {ip}。',
+  'Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.':
+    '在此重新指向会破坏其他主机。每个 SLV 账户仅有 1 个免费子域名；第二个需付费版（即将推出）或提交支持工单。',
+  'What would you like to do?': '您想要做什么？',
+  'Skip HTTPS for this VPS — leave the existing subdomain alone':
+    '此 VPS 跳过 HTTPS — 保留现有子域名不变',
+  'Create a support ticket to request a 2nd subdomain':
+    '创建工单申请第 2 个子域名',
+  "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)":
+    '仍要重新指向（会破坏其他 VPS — 仅在您清楚后果时选择）',
+  'Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.':
+    '保留现有子域名。如需恢复，可在另一台 VPS 运行 `slv install nginx`。',
+  'Creating support ticket...': '正在创建支持工单…',
+  'Ticket creation failed: {err}': '工单创建失败: {err}',
+  'Ticket opened. Follow up here:': '工单已创建。请在此跟进:',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
+    '安全建议: 点击上方 URL 在浏览器中打开 SLV AI，直接让它帮您配置防火墙（nftables）和手机 WireGuard。对话就在浏览器里进行，无需终端。',
+  'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
+    '要自动启用 HTTPS 和免费 *.erpc.global 子域名，请在 SLV VPS 或 BareMetal 上运行 SLV（通过仪表板开通）:',
   'Gateway is already running.': '网关已在运行。',
   'Enable remote IP access (recommended for VPS)?':
     '启用 IP 远程访问吗？（VPS 推荐）',

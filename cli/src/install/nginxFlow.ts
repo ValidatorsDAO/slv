@@ -2,7 +2,7 @@ import {
   explainDnsSetError,
   getDnsStatus,
   setDnsRecord,
-} from '/lib/erpcDnsClient.ts'
+} from '/lib/slvCloudMcp.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { runAnsibleLocal } from '/lib/runAnsibleLocal.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'

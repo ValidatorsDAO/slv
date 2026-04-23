@@ -304,6 +304,36 @@ export const messages: Record<string, string> = {
   'Browser chat UI': 'ブラウザチャット UI',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'バックグラウンドサービスをインストールして、ターミナルを開いたままにしなくてもブラウザから http://127.0.0.1:{port}/ui/ で SLV とチャットできるようにします。',
+  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'SLV API キーがあれば、無料の erpc.global サブドメインをこの VPS に向けてすぐに HTTPS を有効化できます。',
+  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
+    '🔑 SLV API キーをここに貼り付け（Enter で HTTPS をスキップ）:',
+  'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
+    'スキップしました。後で `slv login` → `slv install nginx` を実行すれば HTTPS を有効化できます。',
+  '⚠ This VPS is NOT an SLV VPS / BareMetal.':
+    '⚠ この VPS は SLV VPS / BareMetal ではありません。',
+  'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.':
+    '暗号化されていない平文 HTTP（http://<ip>:20026/）にフォールバックします — 開発用途限定で扱ってください。本番では下記のダッシュボードから SLV VPS または BareMetal を調達してください。IP は自動登録され、次回 `slv install nginx` で HTTPS が有効になります。',
+  '⚠ Your free subdomain {fqdn} is already pointing at {ip}.':
+    '⚠ 無料サブドメイン {fqdn} は既に {ip} を指しています。',
+  'Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.':
+    'ここで向き直すと、別のホストのアクセスが壊れます。SLV アカウントには無料サブドメインが 1 つだけ。2 つ目は有料プラン（近日公開）またはサポートチケットで相談してください。',
+  'What would you like to do?': 'どうしますか？',
+  'Skip HTTPS for this VPS — leave the existing subdomain alone':
+    'この VPS では HTTPS をスキップ — 既存サブドメインはそのまま',
+  'Create a support ticket to request a 2nd subdomain':
+    '2つ目のサブドメインをリクエストするサポートチケットを作成',
+  "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)":
+    '承知の上で向き直す（他の VPS のアクセスが壊れます。わかっている人だけ選択）',
+  'Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.':
+    '既存サブドメインを維持しました。必要なら他の VPS で `slv install nginx` を実行して再度紐付けできます。',
+  'Creating support ticket...': 'サポートチケットを作成中…',
+  'Ticket creation failed: {err}': 'チケット作成に失敗しました: {err}',
+  'Ticket opened. Follow up here:': 'チケットを作成しました。こちらで確認してください:',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
+    'セキュリティ: 上記の URL をタップしてブラウザで SLV AI を開き、そのまま「ファイアウォール（nftables）とスマホで WireGuard の設定を手伝って」と頼んでください。ターミナル不要、チャット画面だけで進められます。',
+  'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
+    'HTTPS と無料の *.erpc.global サブドメインを自動で使うには、SLV VPS または BareMetal 上で SLV を動かしてください（ダッシュボードから調達できます）:',
   'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
   'Enable remote IP access (recommended for VPS)?':
     'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',

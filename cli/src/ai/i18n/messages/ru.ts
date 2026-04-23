@@ -315,6 +315,36 @@ export const messages: Record<string, string> = {
   'Browser chat UI': 'Браузерный чат',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Устанавливается фоновый сервис, чтобы вы могли общаться с SLV из любого браузера по адресу http://127.0.0.1:{port}/ui/, не держа терминал открытым.',
+  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'SLV API ключ позволяет направить ваш бесплатный erpc.global поддомен на этот VPS для мгновенного HTTPS.',
+  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
+    '🔑 Вставьте SLV API ключ сюда (Enter — пропустить HTTPS):',
+  'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
+    'Пропущено. Запустите `slv login`, затем `slv install nginx` позже для включения HTTPS.',
+  '⚠ This VPS is NOT an SLV VPS / BareMetal.':
+    '⚠ Этот VPS — НЕ SLV VPS / BareMetal.',
+  'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.':
+    'Откат на обычный HTTP (http://<ip>:20026/) — без шифрования. Только для разработки. Для продакшена закажите SLV VPS или BareMetal через панель управления ниже; IP зарегистрируется автоматически, и HTTPS заработает со следующим `slv install nginx`.',
+  '⚠ Your free subdomain {fqdn} is already pointing at {ip}.':
+    '⚠ Ваш бесплатный поддомен {fqdn} уже указывает на {ip}.',
+  'Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.':
+    'Переназначение нарушит работу другого хоста. У каждого SLV аккаунта ровно один бесплатный поддомен; второй требует платного тарифа (скоро) или обращения в поддержку.',
+  'What would you like to do?': 'Что вы хотите сделать?',
+  'Skip HTTPS for this VPS — leave the existing subdomain alone':
+    'Пропустить HTTPS для этого VPS — оставить существующий поддомен',
+  'Create a support ticket to request a 2nd subdomain':
+    'Создать тикет поддержки для запроса 2-го поддомена',
+  "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)":
+    'Всё равно переназначить (сломает другой VPS — только если знаете, что делаете)',
+  'Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.':
+    'Существующий поддомен сохранён. При необходимости запустите `slv install nginx` на другом VPS.',
+  'Creating support ticket...': 'Создание тикета поддержки…',
+  'Ticket creation failed: {err}': 'Не удалось создать тикет: {err}',
+  'Ticket opened. Follow up here:': 'Тикет открыт. Следите здесь:',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
+    'Безопасность: откройте URL выше в браузере, чтобы запустить SLV AI, и попросите его помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне). Вся беседа — в браузере, терминал не нужен.',
+  'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
+    'Для автоматического HTTPS + бесплатного *.erpc.global поддомена запускайте SLV на SLV VPS или BareMetal (закажите через панель управления):',
   'Gateway is already running.': 'Шлюз уже работает.',
   'Enable remote IP access (recommended for VPS)?':
     'Включить удалённый доступ по IP? (рекомендуется для VPS)',

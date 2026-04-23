@@ -5,7 +5,7 @@ import {
   explainDnsSetError,
   getDnsStatus,
   setDnsRecord,
-} from '/lib/erpcDnsClient.ts'
+} from '/lib/slvCloudMcp.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 

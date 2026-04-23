@@ -327,6 +327,36 @@ export const messages: Record<string, string> = {
     'Browser chat UI',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
+  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.',
+  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
+    '🔑 Paste your SLV API key here (Enter to skip HTTPS):',
+  'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
+    'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.',
+  '⚠ This VPS is NOT an SLV VPS / BareMetal.':
+    '⚠ This VPS is NOT an SLV VPS / BareMetal.',
+  'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.':
+    'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.',
+  '⚠ Your free subdomain {fqdn} is already pointing at {ip}.':
+    '⚠ Your free subdomain {fqdn} is already pointing at {ip}.',
+  'Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.':
+    'Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.',
+  'What would you like to do?': 'What would you like to do?',
+  'Skip HTTPS for this VPS — leave the existing subdomain alone':
+    'Skip HTTPS for this VPS — leave the existing subdomain alone',
+  'Create a support ticket to request a 2nd subdomain':
+    'Create a support ticket to request a 2nd subdomain',
+  "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)":
+    "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)",
+  'Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.':
+    'Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.',
+  'Creating support ticket...': 'Creating support ticket...',
+  'Ticket creation failed: {err}': 'Ticket creation failed: {err}',
+  'Ticket opened. Follow up here:': 'Ticket opened. Follow up here:',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
+    'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.',
+  'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
+    'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):',
   'Gateway is already running.': 'Gateway is already running.',
   'Enable remote IP access (recommended for VPS)?':
     'Enable remote IP access (recommended for VPS)?',

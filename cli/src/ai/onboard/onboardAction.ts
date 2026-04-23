@@ -32,7 +32,12 @@ import {
   writeGatewayConfig,
 } from '/src/gateway/config.ts'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
-import { getDnsStatus } from '/lib/erpcDnsClient.ts'
+import {
+  ERPC_DASHBOARD_URL,
+  getDnsStatus,
+  openSupportTicket,
+} from '/lib/slvCloudMcp.ts'
+import { resolvePublicIp } from '/lib/publicIp.ts'
 import { runNginxFlow } from '/src/install/nginxFlow.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
@@ -1027,18 +1032,32 @@ const sendOnboardWebhook = async (opts: {
     )
     lines.push('```')
   }
-  // Hardening advisory — same wording regardless of mode. Frame
-  // this as something SLV AI helps with (firewall + phone-WireGuard)
-  // rather than a dry link list, since non-engineers won't click
-  // raw nftables docs. YouTube walkthrough slot is a placeholder the
-  // user will fill in later.
+  // Hardening advisory — frame as something the user does INSIDE
+  // the chat window they just got the link to. They're reading
+  // this on their phone; telling them to "open a terminal and run
+  // `slv c`" on the VPS defeats the whole purpose. Instead: "tap
+  // the URL above, chat with SLV AI there, and it will walk you
+  // through nftables + WireGuard."
   lines.push('')
   lines.push(
     `⚠️ ${
-      t('Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.')
+      t('Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.')
     }`,
   )
   lines.push(`• ${t('Video walkthrough: coming soon.')}`)
+  // If the user's VPS isn't an SLV VPS/BareMetal (http fallback),
+  // the security advisory above is especially important AND they
+  // should upgrade to get HTTPS. Point at the dashboard for
+  // provisioning.
+  if (!httpsUrl) {
+    lines.push('')
+    lines.push(
+      `🏷 ${
+        t('For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):')
+      }`,
+    )
+    lines.push(ERPC_DASHBOARD_URL)
+  }
 
   const result = await notifyDiscordWebhook(webhookUrl, lines.join('\n'))
   switch (result.kind) {
@@ -1107,28 +1126,38 @@ const maybeSetupHttps = async (
     colors.bold.rgb24(`\n│  ${t('Public HTTPS URL (optional)')}`, 0x14f195),
   )
 
-  let apiKey: string | null = null
-  try {
-    apiKey = await getApiKeyFromYml(true)
-  } catch { /* no key */ }
+  // FIX 1: re-read api.yml fresh (getApiKeyFromYml already bypasses
+  // any cache). If it's still missing after the onboard SLV-key
+  // step, offer to paste one now so HTTPS isn't blocked on a
+  // single skipped prompt earlier in the flow.
+  let apiKey = await readSlvKeyOrEmpty()
   if (!apiKey) {
     console.log(
-      colors.rgb24(
+      colors.white(
         `  ${
-          t(
-            'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.',
-          )
-        }\n`,
-        0x888888,
+          t('An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
+        }`,
       ),
     )
-    return null
+    const pasted = (await Secret.prompt({
+      message: t('🔑 Paste your SLV API key here (Enter to skip HTTPS):'),
+    })).trim()
+    if (!pasted) {
+      console.log(
+        colors.rgb24(
+          `  ${
+            t('Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.')
+          }\n`,
+          0x888888,
+        ),
+      )
+      return null
+    }
+    await persistSlvKey(pasted)
+    apiKey = pasted
   }
 
-  // Pre-flight DNS status check — we want to know the user's
-  // default slug before asking, so the prompt can name the
-  // resulting URL and so we can skip on "already set" without
-  // bothering them.
+  // Pre-flight DNS status check.
   const status = await getDnsStatus(apiKey)
   if (!status.ok) {
     console.log(
@@ -1142,6 +1171,20 @@ const maybeSetupHttps = async (
   }
   const def = status.data.default
   const fqdn = def.fqdn
+
+  // FIX 4: detect existing-slug conflict. If the user's default
+  // subdomain already points somewhere OTHER than this host, a
+  // `/v3/dns/set` here would hijack their other VPS's URL —
+  // exactly what we don't want. Branch into the 2nd-subdomain /
+  // support-ticket flow.
+  const thisHostIp = await resolvePublicIp()
+  if (
+    def.exists && def.ip &&
+    thisHostIp && def.ip !== thisHostIp
+  ) {
+    return await handleSubdomainConflict(t, apiKey, fqdn, def.ip, thisHostIp)
+  }
+
   console.log(
     colors.white(
       `  ${
@@ -1169,21 +1212,194 @@ const maybeSetupHttps = async (
   const result = await runNginxFlow({
     apiKey,
     port: GATEWAY_DEFAULT_PORT,
+    ip: thisHostIp ?? undefined,
   })
   if (!result.ok) {
-    // Non-fatal: print a clear hint so the user knows what to fix
-    // and continue onboard. Most common case is `ip_not_owned` —
-    // the VPS must be registered against the erpc account first.
+    // FIX 3: ip_not_owned means the VPS isn't an SLV VPS/BareMetal.
+    // Falling back to http://<ip>:20026 is unencrypted and exposed;
+    // we print a loud warning + direct the user at Figaro (the
+    // server-procurement specialist in `slv c`) for a proper
+    // upgrade path, rather than pretending the http URL is fine.
+    if (result.stage === 'dns_set' && result.error.includes('not registered')) {
+      console.log(
+        colors.bold.red(
+          `\n  ${t('⚠ This VPS is NOT an SLV VPS / BareMetal.')}`,
+        ),
+      )
+      console.log(
+        colors.bold.yellow(
+          `  ${
+            t(
+              'Falling back to plain HTTP (http://<ip>:20026/) — not encrypted. Treat this as dev-only. For production, provision an SLV VPS or BareMetal from the dashboard below; its IP gets registered automatically and HTTPS works on the next `slv install nginx`.',
+            )
+          }`,
+        ),
+      )
+      console.log(
+        colors.bold.white(`  👉  ${ERPC_DASHBOARD_URL}\n`),
+      )
+    } else {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('HTTPS setup failed ({stage}): {err}')}`
+            .replace('{stage}', result.stage)
+            .replace('{err}', result.error),
+        ),
+      )
+      console.log(
+        colors.white(
+          `    ${t('You can retry later with `slv install nginx`.')}\n`,
+        ),
+      )
+    }
+    return null
+  }
+  console.log(
+    colors.green(
+      `  ✔ ${t('HTTPS is live at {url}').replace('{url}', result.httpsUrl)}\n`,
+    ),
+  )
+  return result.httpsUrl
+}
+
+/**
+ * Read the SLV API key from ~/.slv/api.yml without erroring out
+ * when absent — the HTTPS step treats "missing" as a prompt trigger,
+ * not a fatal.
+ */
+const readSlvKeyOrEmpty = async (): Promise<string> => {
+  try {
+    const k = await getApiKeyFromYml(true)
+    return k ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Write a pasted SLV API key back into ~/.slv/api.yml, preserving
+ * whatever other fields (lang, notifications, ai, …) were already
+ * there. Mirror of the write in the SLV-key onboard step.
+ */
+const persistSlvKey = async (apiKey: string): Promise<void> => {
+  const home = resolveHome()
+  const apiYmlPath = `${home}/.slv/api.yml`
+  await Deno.mkdir(`${home}/.slv`, { recursive: true })
+  let existing: Record<string, unknown> = {}
+  try {
+    const content = await Deno.readTextFile(apiYmlPath)
+    existing = (parse(content) as Record<string, unknown>) ?? {}
+  } catch { /* file doesn't exist yet */ }
+  const slv = (existing.slv as Record<string, unknown> | undefined) ?? {}
+  slv.api_key = apiKey
+  existing.slv = slv
+  await Deno.writeTextFile(apiYmlPath, stringify(existing))
+  await Deno.chmod(apiYmlPath, 0o600)
+}
+
+/**
+ * The user's free default subdomain is already pointing somewhere
+ * else — typically an earlier SLV VPS they've already onboarded.
+ * Overwriting it here would break the old host's URL, so give the
+ * user three explicit options and take their pick.
+ */
+const handleSubdomainConflict = async (
+  t: (key: string) => string,
+  apiKey: string,
+  fqdn: string,
+  currentIp: string,
+  thisHostIp: string,
+): Promise<string | null> => {
+  console.log(
+    colors.bold.yellow(
+      `  ${
+        t('⚠ Your free subdomain {fqdn} is already pointing at {ip}.')
+          .replace('{fqdn}', fqdn)
+          .replace('{ip}', currentIp)
+      }`,
+    ),
+  )
+  console.log(
+    colors.white(
+      `  ${
+        t('Re-pointing it here would break the other host. Each SLV account gets exactly one free subdomain; a second one requires the paid tier (coming soon) or a support ticket for edge cases.')
+      }\n`,
+    ),
+  )
+
+  const choice = await Select.prompt({
+    message: t('What would you like to do?'),
+    options: [
+      {
+        name: t('Skip HTTPS for this VPS — leave the existing subdomain alone'),
+        value: 'skip',
+      },
+      {
+        name: t('Create a support ticket to request a 2nd subdomain'),
+        value: 'ticket',
+      },
+      {
+        name: t(
+          'Re-point anyway (breaks the other VPS — only choose if you know what you\'re doing)',
+        ),
+        value: 'repoint',
+      },
+    ],
+    default: 'skip',
+  })
+
+  if (choice === 'skip') {
+    console.log(
+      colors.rgb24(
+        `  ${t('Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.')}\n`,
+        0x888888,
+      ),
+    )
+    return null
+  }
+
+  if (choice === 'ticket') {
+    console.log(colors.cyan(`  ${t('Creating support ticket...')}`))
+    const description =
+      `Request: 2nd erpc.global subdomain\n\n` +
+      `Current free subdomain: ${fqdn} → ${currentIp}\n` +
+      `This new VPS IP: ${thisHostIp}\n` +
+      `Use case: user is onboarding a second SLV host and wants an additional subdomain for it.`
+    const ticket = await openSupportTicket(apiKey, {
+      title: `Request 2nd erpc.global subdomain for ${thisHostIp}`,
+      description,
+    })
+    if (!ticket.ok) {
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('Ticket creation failed: {err}')}`
+            .replace('{err}', ticket.error),
+        ),
+      )
+      return null
+    }
+    console.log(
+      colors.green(
+        `  ✔ ${t('Ticket opened. Follow up here:')} ${ticket.link || '(see Discord notifications)'}\n`,
+      ),
+    )
+    return null
+  }
+
+  // choice === 'repoint' — run the normal flow; the caller will
+  // overwrite the old record.
+  console.log(colors.cyan(`🌐 Re-pointing ${fqdn} at ${thisHostIp}...`))
+  const result = await runNginxFlow({
+    apiKey,
+    port: GATEWAY_DEFAULT_PORT,
+    ip: thisHostIp,
+  })
+  if (!result.ok) {
     console.log(
       colors.yellow(
         `  ⚠ ${t('HTTPS setup failed ({stage}): {err}')}`
           .replace('{stage}', result.stage)
           .replace('{err}', result.error),
-      ),
-    )
-    console.log(
-      colors.white(
-        `    ${t('You can retry later with `slv install nginx`.')}\n`,
       ),
     )
     return null
