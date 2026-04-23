@@ -167,6 +167,61 @@ export const setDnsRecord = async (
   return { ok: false, status: r.status, body: r.body }
 }
 
+export type DnsDeleteSuccessResponse = {
+  success: true
+  fqdn: string
+  slug: string
+  message: string
+}
+
+export type DnsDeleteResult =
+  | { ok: true; data: DnsDeleteSuccessResponse }
+  | { ok: false; status: number; body: DnsApiError | null }
+
+/**
+ * Delete one of the caller's DNS records. Omit `slug` to target the
+ * free default subdomain; pass `slug` for a custom record. Server
+ * decides whether "delete" means unset the IP or release the slug.
+ */
+export const deleteDnsRecord = async (
+  apiKey: string,
+  opts: { slug?: string } = {},
+): Promise<DnsDeleteResult> => {
+  const args: Record<string, unknown> = {}
+  if (opts.slug) args.slug = opts.slug
+  const r = await callMcpTool<DnsDeleteSuccessResponse>(
+    apiKey,
+    'delete_dns_delete',
+    args,
+  )
+  if (r.ok) return { ok: true, data: r.data }
+  return { ok: false, status: r.status, body: r.body }
+}
+
+/** Human-readable explanation for the common DNS delete errors. */
+export const explainDnsDeleteError = (result: {
+  status: number
+  body: DnsApiError | null
+}): string => {
+  const err = result.body?.error ?? ''
+  const msg = result.body?.message ?? ''
+  switch (result.status) {
+    case 401:
+      return 'SLV API key missing or invalid — run `slv login`.'
+    case 403:
+      if (err === 'not_owner') {
+        return msg || 'That slug is owned by another user.'
+      }
+      return msg || 'Forbidden.'
+    case 404:
+      return msg || 'No record found to delete.'
+    case 400:
+      return msg || 'Bad request.'
+    default:
+      return msg || `DNS delete failed with status ${result.status}.`
+  }
+}
+
 /** Human-readable explanation for the common DNS set errors. */
 export const explainDnsSetError = (result: {
   status: number

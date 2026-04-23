@@ -2,6 +2,8 @@ import { Command } from '@cliffy'
 import { Confirm } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import {
+  deleteDnsRecord,
+  explainDnsDeleteError,
   explainDnsSetError,
   getDnsStatus,
   setDnsRecord,
@@ -150,3 +152,41 @@ dnsCmd.command('set')
       )
     },
   )
+
+dnsCmd.command('delete')
+  .description(
+    'Delete a DNS record. Omit --slug to target your free default subdomain; pass --slug for a custom one. Destructive — the record stops resolving immediately.',
+  )
+  .option('--slug <slug:string>', 'Custom slug to delete (omit for the default)')
+  .option('-y, --yes', 'Skip the confirmation prompt', { default: false })
+  .action(async (opts: { slug?: string; yes?: boolean }) => {
+    const apiKey = await readSlvApiKey()
+    if (!apiKey) {
+      console.error(
+        colors.red('❌ no SLV API key — run `slv login` first.'),
+      )
+      Deno.exit(1)
+    }
+
+    const target = opts.slug
+      ? `${opts.slug}.erpc.global`
+      : 'your default <slug>.erpc.global'
+
+    if (!opts.yes) {
+      const ok = await Confirm.prompt({
+        message: colors.yellow(`⚠  Delete ${target}? This is permanent.`),
+        default: false,
+      })
+      if (!ok) {
+        console.log(colors.gray('cancelled.'))
+        return
+      }
+    }
+
+    const result = await deleteDnsRecord(apiKey, { slug: opts.slug })
+    if (!result.ok) {
+      console.error(colors.red(`❌ ${explainDnsDeleteError(result)}`))
+      Deno.exit(1)
+    }
+    console.log(colors.green(`✅ ${result.data.fqdn} deleted.`))
+  })
