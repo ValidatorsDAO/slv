@@ -1,0 +1,8 @@
+{
+  "name": "slv-wireguard",
+  "version": "1.0.0",
+  "description": "WireGuard VPN setup for SLV hosts — phone / laptop peers with guided pubkey exchange",
+  "agent": "EL",
+  "author": "ELSOUL LABO B.V.",
+  "tags": ["security", "vpn", "wireguard", "mobile"]
+}

@@ -12,6 +12,8 @@ export const SKILL_NAMES = [
   'slv-bot-trade-app',
   'slv-server-procurement',
   'slv-backup',
+  'slv-firewall',
+  'slv-wireguard',
 ] as const
 
 // Top-level files fetched for every skill. These are the files the AI console
