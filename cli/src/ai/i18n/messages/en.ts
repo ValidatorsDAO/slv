@@ -79,6 +79,10 @@ export const messages: Record<string, string> = {
   'Agent:': 'Agent:',
   'Run `slv c` to start the AI console.':
     'Run `slv c` to start the AI console.',
+  'Next: run `slv c` and ask to set up the firewall.':
+    'Next: run `slv c` and ask to set up the firewall.',
+  'The firewall flow will also offer to pair a WireGuard VPN for secure remote access.':
+    'The firewall flow will also offer to pair a WireGuard VPN for secure remote access.',
 
   // --- Bot init agreement ---
   'slv bot init — trade-app is an example only':

@@ -75,6 +75,10 @@ export const messages: Record<string, string> = {
   'Agent:': 'エージェント:',
   'Run `slv c` to start the AI console.':
     'AI コンソールを起動するには `slv c` を実行してください。',
+  'Next: run `slv c` and ask to set up the firewall.':
+    '次は `slv c` を実行して、ファイアウォールの設定をお願いしてください。',
+  'The firewall flow will also offer to pair a WireGuard VPN for secure remote access.':
+    'ファイアウォール設定中に、安全な遠隔アクセス用の WireGuard VPN も一緒にセットアップするか聞かれます。',
 
   'slv bot init — trade-app is an example only':
     'slv bot init — trade-app はサンプルです',

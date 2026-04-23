@@ -72,6 +72,10 @@ export const messages: Record<string, string> = {
   'Agent:': '代理:',
   'Run `slv c` to start the AI console.':
     '运行 `slv c` 启动 AI 控制台。',
+  'Next: run `slv c` and ask to set up the firewall.':
+    '下一步：运行 `slv c`，然后请求设置防火墙。',
+  'The firewall flow will also offer to pair a WireGuard VPN for secure remote access.':
+    '防火墙流程中会提供配对 WireGuard VPN 的选项，用于安全的远程访问。',
 
   'slv bot init — trade-app is an example only':
     'slv bot init — trade-app 仅为示例',

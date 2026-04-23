@@ -730,8 +730,17 @@ Session history and important notes.
   )
   console.log(
     colors.rgb24(
-      `└  ${t('Run `slv c` to start the AI console.')}\n`,
+      `└  ${t('Next: run `slv c` and ask to set up the firewall.')}`,
       0x14f195,
+    ),
+  )
+  console.log(
+    colors.gray(
+      `   ${
+        t(
+          'The firewall flow will also offer to pair a WireGuard VPN for secure remote access.',
+        )
+      }\n`,
     ),
   )
 }
