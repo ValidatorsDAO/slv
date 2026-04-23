@@ -1,0 +1,122 @@
+---
+# Generic nginx reverse-proxy installer for SLV. Renders a single
+# vhost that proxies a public hostname (typically a Cloudflare-
+# proxied `*.erpc.global` record, set via POST /v3/dns/set) down to
+# a loopback service on this host — by default the gateway on
+# 127.0.0.1:20026, but any `upstream_port` works.
+#
+# No certbot / Let's Encrypt here: Cloudflare handles TLS
+# termination in Flexible SSL mode (user ↔ Cloudflare is HTTPS;
+# Cloudflare ↔ origin is plain HTTP on port 80). If you want full
+# end-to-end TLS later, add a cert on origin and flip Cloudflare to
+# Full (strict) — no playbook change needed.
+#
+# Variables (all overridable via --extra-vars):
+#   fqdn           — required. Fully-qualified hostname to serve,
+#                    e.g. u-a8b3nq9p2xz4k.erpc.global
+#   upstream_port  — loopback port to proxy to. Default 20026
+#                    (the SLV gateway).
+#   server_name    — nginx server_name directive. Defaults to fqdn.
+#
+# Idempotent: re-running rewrites the vhost file and reloads nginx.
+# Stale vhosts from a prior `slv install nginx` with a different
+# fqdn are NOT cleaned up automatically — they're left in
+# sites-available for the operator to remove if they want.
+- name: Install nginx reverse proxy
+  hosts: all
+  become: true
+
+  vars:
+    upstream_port: 20026
+    server_name: '{{ fqdn }}'
+
+  pre_tasks:
+    - name: Assert fqdn is set
+      assert:
+        that:
+          - fqdn is defined
+          - fqdn | length > 0
+        fail_msg: >-
+          `fqdn` variable is required. Pass it via
+          --extra-vars fqdn=<host>.erpc.global
+
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+        # Skip the cache refresh when it's less than an hour old —
+        # keeps re-runs fast without masking a legitimately stale
+        # repo state.
+        cache_valid_time: 3600
+
+    - name: Remove default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Render vhost file
+      copy:
+        dest: '/etc/nginx/sites-available/{{ fqdn }}.conf'
+        mode: '0644'
+        # Single server block: listens on 80, proxies to the
+        # loopback upstream. WebSocket headers (Upgrade /
+        # Connection) are set so the gateway's /v1/session/ws
+        # route works. Read/send timeouts are bumped to 5 min
+        # because some tool invocations (cargo build, ansible
+        # playbook) stream progress for minutes.
+        content: |
+          server {
+            listen 80;
+            listen [::]:80;
+            server_name {{ server_name }};
+
+            # Let the browser know it's behind a proxy — the
+            # gateway uses these for `X-Forwarded-For` logging
+            # and for deciding whether to inline the token in
+            # /ui/ (loopback-only requests get it inlined).
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+
+            # WebSocket support (required for /v1/session/ws).
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade    $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Long timeouts so streaming replies + long-running
+            # tool executions (cargo build etc.) don't get cut off.
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+
+            location / {
+              proxy_pass http://127.0.0.1:{{ upstream_port }};
+            }
+          }
+      register: vhost_file
+
+    - name: Enable vhost
+      file:
+        src: '/etc/nginx/sites-available/{{ fqdn }}.conf'
+        dest: '/etc/nginx/sites-enabled/{{ fqdn }}.conf'
+        state: link
+        force: yes
+
+    - name: Validate nginx config
+      command: nginx -t
+      changed_when: false
+
+    - name: Reload nginx
+      systemd:
+        name: nginx
+        state: reloaded
+        enabled: yes
+
+    - name: Done
+      debug:
+        msg: >-
+          nginx is proxying https://{{ fqdn }}/ →
+          http://127.0.0.1:{{ upstream_port }}/. Allow it a minute
+          for Cloudflare to converge on the new A record.
