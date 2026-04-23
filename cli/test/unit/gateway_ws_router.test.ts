@@ -1,5 +1,6 @@
 import { assert, assertEquals } from '@std/assert'
 import {
+  type DispatchCtx,
   dispatchRequest,
   getSupportedMethods,
   newConnState,
@@ -7,12 +8,14 @@ import {
 
 const TOKEN = 'a'.repeat(64)
 
+const ctx = (): DispatchCtx => ({ token: TOKEN, emitEvent: () => {} })
+
 Deno.test('gateway.hello works before auth', async () => {
   const state = newConnState()
   const res = await dispatchRequest(
     { kind: 'req', id: '1', method: 'gateway.hello' },
     state,
-    { token: TOKEN },
+    ctx(),
   )
   assertEquals(res.ok, true)
   const payload = res.payload as Record<string, unknown>
@@ -31,7 +34,7 @@ Deno.test('gateway.auth rejects wrong token', async () => {
       params: { token: 'wrong' },
     },
     state,
-    { token: TOKEN },
+    ctx(),
   )
   assertEquals(res.ok, false)
   assertEquals(state.authenticated, false)
@@ -47,7 +50,7 @@ Deno.test('gateway.auth accepts matching token', async () => {
       params: { token: TOKEN },
     },
     state,
-    { token: TOKEN },
+    ctx(),
   )
   assertEquals(res.ok, true)
   assertEquals(state.authenticated, true)
@@ -58,7 +61,7 @@ Deno.test('gateway.ping requires auth', async () => {
   const res = await dispatchRequest(
     { kind: 'req', id: '4', method: 'gateway.ping' },
     state,
-    { token: TOKEN },
+    ctx(),
   )
   assertEquals(res.ok, false)
   assert(res.error && /not authenticated/.test(res.error))
@@ -70,7 +73,7 @@ Deno.test('gateway.ping works after auth', async () => {
   const res = await dispatchRequest(
     { kind: 'req', id: '5', method: 'gateway.ping' },
     state,
-    { token: TOKEN },
+    ctx(),
   )
   assertEquals(res.ok, true)
   assertEquals((res.payload as { pong: boolean }).pong, true)
@@ -81,7 +84,7 @@ Deno.test('unknown method returns "method not found"', async () => {
   const res = await dispatchRequest(
     { kind: 'req', id: '6', method: 'does.not.exist' },
     state,
-    { token: TOKEN },
+    ctx(),
   )
   assertEquals(res.ok, false)
   assert(res.error && /method not found/.test(res.error))
@@ -99,7 +102,7 @@ Deno.test('gateway.auth rejects missing token param', async () => {
   const res = await dispatchRequest(
     { kind: 'req', id: '7', method: 'gateway.auth', params: {} },
     state,
-    { token: TOKEN },
+    ctx(),
   )
   assertEquals(res.ok, false)
   assertEquals(state.authenticated, false)
