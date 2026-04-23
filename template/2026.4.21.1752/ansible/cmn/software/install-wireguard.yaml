@@ -55,6 +55,10 @@
         name: wireguard
         state: present
         update_cache: yes
+        # Skip the cache refresh on re-runs within the last hour —
+        # keeps idempotent runs fast without masking a legitimately
+        # stale repo state.
+        cache_valid_time: 3600
 
     - name: Enable IP forwarding
       sysctl:

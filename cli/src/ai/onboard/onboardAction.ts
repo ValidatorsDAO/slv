@@ -27,6 +27,7 @@ import {
   loadGatewayConfig,
   writeGatewayConfig,
 } from '/src/gateway/config.ts'
+import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
 // combining marks take 0, most others 1. Used to pad i18n lines inside boxes
@@ -983,34 +984,32 @@ const sendOnboardWebhook = async (opts: {
   )
   lines.push(`• ${t('Video walkthrough: coming soon.')}`)
 
-  try {
-    const controller = new AbortController()
-    const tid = setTimeout(() => controller.abort(), 5000)
-    const res = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: lines.join('\n') }),
-      signal: controller.signal,
-    })
-    clearTimeout(tid)
-    if (res.ok) {
+  const result = await notifyDiscordWebhook(webhookUrl, lines.join('\n'))
+  switch (result.kind) {
+    case 'ok':
       console.log(
-        colors.green(`  ✔ ${t('Sent browser UI link to your Discord webhook.')}\n`),
+        colors.green(
+          `  ✔ ${t('Sent browser UI link to your Discord webhook.')}\n`,
+        ),
       )
-    } else {
+      return
+    case 'http_error':
       console.log(
         colors.yellow(
-          `  ⚠ ${t('Discord webhook post returned')} ${res.status}. ${
+          `  ⚠ ${t('Discord webhook post returned')} ${result.status}. ${
             t('Check the webhook URL in ~/.slv/api.yml.')
           }\n`,
         ),
       )
-    }
-  } catch (err) {
-    console.log(
-      colors.yellow(
-        `  ⚠ ${t('Could not reach Discord webhook:')} ${errToString(err)}\n`,
-      ),
-    )
+      return
+    case 'network_error':
+      console.log(
+        colors.yellow(
+          `  ⚠ ${t('Could not reach Discord webhook:')} ${result.message}\n`,
+        ),
+      )
+      return
+    case 'skipped_empty_url':
+      return
   }
 }
