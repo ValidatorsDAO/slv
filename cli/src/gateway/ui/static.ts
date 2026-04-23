@@ -1,6 +1,7 @@
 import { GATEWAY_PROTOCOL_VERSION } from '/src/gateway/paths.ts'
 import type { GatewayMode } from '/src/gateway/config.ts'
 import { initI18n, t } from '/src/ai/i18n/index.ts'
+import { VERSION } from '@cmn/constants/version.ts'
 
 export type RenderOptions = {
   /**
@@ -128,6 +129,7 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     border-radius: 4px;
   }
   header .badge.lan { background: #3d3218; color: #ffdf7a; }
+  header .badge.version { background: #1d2a38; color: #7a9abb; }
   header #clear {
     background: transparent;
     color: var(--muted);
@@ -398,6 +400,7 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
 <header>
   <span class="title">🌐 SLV Chat</span>
   <span class="badge ${opts.mode}">${opts.mode}</span>
+  <span class="badge version">v${VERSION}</span>
   <button id="clear" type="button" title="${html.clearTitle}">${html.clear}</button>
   <span id="status" class="status">${clientI18n.connecting}</span>
 </header>
