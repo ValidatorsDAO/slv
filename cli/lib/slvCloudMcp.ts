@@ -170,19 +170,18 @@ export const setDnsRecord = async (
 export type DnsDeleteSuccessResponse = {
   success: true
   fqdn: string
-  slug: string
-  message: string
+  // Absent when deleting the free default (server may omit).
+  slug?: string
+  message?: string
 }
 
 export type DnsDeleteResult =
   | { ok: true; data: DnsDeleteSuccessResponse }
-  | { ok: false; status: number; body: DnsApiError | null }
+  | { ok: false; kind: 'tool_not_found'; status: number; body: DnsApiError | null }
+  | { ok: false; kind: 'error'; status: number; body: DnsApiError | null }
 
-/**
- * Delete one of the caller's DNS records. Omit `slug` to target the
- * free default subdomain; pass `slug` for a custom record. Server
- * decides whether "delete" means unset the IP or release the slug.
- */
+// Server decides whether "delete" means unset the IP or release the
+// slug — wrapper passes args through as-is.
 export const deleteDnsRecord = async (
   apiKey: string,
   opts: { slug?: string } = {},
@@ -195,19 +194,37 @@ export const deleteDnsRecord = async (
     args,
   )
   if (r.ok) return { ok: true, data: r.data }
-  return { ok: false, status: r.status, body: r.body }
+  // Disambiguate "server doesn't know this tool" from "record not
+  // found" so the user gets an actionable error rather than a
+  // misleading "No record found."
+  const errCode = (r.body?.error ?? '').toString().toLowerCase()
+  if (
+    r.status === 404 &&
+    (errCode === 'tool_not_found' ||
+      errCode === 'unknown_tool' ||
+      errCode === 'method_not_found')
+  ) {
+    return { ok: false, kind: 'tool_not_found', status: r.status, body: r.body }
+  }
+  return { ok: false, kind: 'error', status: r.status, body: r.body }
 }
 
-/** Human-readable explanation for the common DNS delete errors. */
 export const explainDnsDeleteError = (result: {
+  kind?: 'tool_not_found' | 'error'
   status: number
   body: DnsApiError | null
 }): string => {
+  if (result.kind === 'tool_not_found') {
+    return 'The SLV Cloud MCP does not expose a DNS delete tool yet — update your server / CLI or delete from https://dashboard.erpc.global.'
+  }
   const err = result.body?.error ?? ''
   const msg = result.body?.message ?? ''
   switch (result.status) {
     case 401:
       return 'SLV API key missing or invalid — run `slv login`.'
+    case 402:
+      return msg ||
+        'Deleting a custom slug requires a paid subscription (not yet launched).'
     case 403:
       if (err === 'not_owner') {
         return msg || 'That slug is owned by another user.'
