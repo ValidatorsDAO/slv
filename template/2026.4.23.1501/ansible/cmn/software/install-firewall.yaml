@@ -1,0 +1,147 @@
+---
+# Perimeter firewall for an SLV dev VPS: nftables (default-drop) +
+# fail2ban (sshd brute-force guard). Does NOT disable password
+# login — that lives behind an explicit `slv disable pwd-login`
+# call AFTER the user has verified key-based login, so they can't
+# accidentally lock themselves out.
+#
+# SSH (22) stays open to the world on purpose: non-engineer home
+# IPs are dynamic, so a whitelist would silently lock users out.
+# fail2ban + key-only auth is the equivalent defense.
+#
+# HTTP/HTTPS (80/443) stay open to the world because Cloudflare's
+# edge IP set is too churny to whitelist.
+- name: SLV perimeter firewall (nftables + fail2ban)
+  hosts: all
+  become: true
+
+  vars:
+    allow_ips: ''
+    wireguard_port: 51820
+    gateway_http_ports: '80,443'
+    ssh_port: 22
+
+  handlers:
+    - name: reload nftables
+      systemd:
+        name: nftables
+        enabled: yes
+        state: reloaded
+
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        enabled: yes
+        state: restarted
+
+  tasks:
+    - name: Install nftables + fail2ban
+      apt:
+        name:
+          - nftables
+          - fail2ban
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Split whitelist IPs into a list
+      set_fact:
+        whitelist_ip_list: >-
+          {{ allow_ips.split(',')
+             | map('trim')
+             | select('match', '^[0-9.]+$')
+             | list }}
+
+    - name: Render /etc/nftables.conf
+      copy:
+        dest: /etc/nftables.conf
+        mode: '0644'
+        content: |
+          #!/usr/sbin/nft -f
+          # Managed by `slv install firewall` — edits survive re-runs
+          # only if you pass the same --allow IP set. Any manual
+          # rules you add here will be OVERWRITTEN on the next run.
+          flush ruleset
+
+          table inet slv {
+            chain input {
+              type filter hook input priority 0; policy drop;
+
+              iifname "lo" accept
+
+              ct state established,related accept
+              ct state invalid drop
+
+              ip  protocol icmp   accept
+              ip6 nexthdr  icmpv6 accept
+
+              # SSH: always open. fail2ban below gates brute-force.
+              tcp dport {{ ssh_port }} accept
+
+              # HTTP / HTTPS: open to world so Cloudflare edge can reach nginx.
+              tcp dport {{ '{' }} {{ gateway_http_ports }} {{ '}' }} accept
+
+              # WireGuard: open so phones / laptops can dial in.
+              udp dport {{ wireguard_port }} accept
+
+              # WireGuard peers get unconditional access.
+              ip saddr 10.0.0.0/24 accept
+
+              {% if whitelist_ip_list | length > 0 %}
+              ip saddr {{ '{' }} {{ whitelist_ip_list | join(', ') }} {{ '}' }} accept
+              {% endif %}
+            }
+
+            chain forward {
+              # install-wireguard adds MASQUERADE on postrouting; keep forward
+              # permissive so the VPN can route client → internet.
+              type filter hook forward priority 0; policy accept;
+            }
+
+            chain output {
+              type filter hook output priority 0; policy accept;
+            }
+          }
+      register: nft_conf
+      notify: reload nftables
+
+    - name: Validate nftables ruleset
+      command: nft -c -f /etc/nftables.conf
+      changed_when: false
+      when: nft_conf.changed
+
+    - name: Ensure nftables is enabled and running
+      systemd:
+        name: nftables
+        enabled: yes
+        state: started
+
+    - name: Render fail2ban sshd jail
+      copy:
+        dest: /etc/fail2ban/jail.d/sshd.conf
+        mode: '0644'
+        content: |
+          [sshd]
+          enabled = true
+          port    = {{ ssh_port }}
+          filter  = sshd
+          maxretry = 5
+          findtime = 10m
+          bantime  = 1h
+          ignoreip = 127.0.0.1/8 10.0.0.0/24{% if whitelist_ip_list | length > 0 %} {{ whitelist_ip_list | join(' ') }}{% endif %}
+      notify: restart fail2ban
+
+    - name: Ensure fail2ban is enabled and running
+      systemd:
+        name: fail2ban
+        enabled: yes
+        state: started
+
+    - name: Done
+      debug:
+        msg: |
+          Firewall up:
+            whitelist = {{ whitelist_ip_list | join(', ') if whitelist_ip_list | length > 0 else '(none)' }}
+            ssh:      {{ ssh_port }} open + fail2ban 5/10m → 1h ban
+            http:     {{ gateway_http_ports }} open to the world (Cloudflare edge)
+            wireguard {{ wireguard_port }}/udp open; 10.0.0.0/24 peers trusted
