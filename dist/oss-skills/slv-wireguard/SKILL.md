@@ -21,7 +21,59 @@ Use this skill when the user says anything like:
 
 ## EL's walkthrough
 
-### Step 0 — Sanity probe
+### Step 0 — Pick the right VPS to install WireGuard on
+
+Before anything, make sure the user is installing WG on the **right
+box**. Explain this in plain language:
+
+> "WireGuard は『VPN の出口』専用の小さい VPS に建てるのがおすすめです。
+> 理由は 2 つ:
+> 1. 普段使っている本番機（validator とか SLV chat を動かしてる箱）と
+>    同居させると、その本番機が落ちたとき VPN で入り直せないので
+>    復旧が一気に大変になります。
+> 2. VPN は『ポートを待って転送するだけ』なので、いちばん安い core1
+>    プランの VPS で十分。専用に 1 台用意しても負担は小さいです。"
+
+Then branch on what the user has. Fire the MCP probes in parallel to
+see their VPS inventory:
+
+- `get_premium_vps_my_vps` (MCP)
+- `get_super_vps_my_vps` (MCP)
+- `get_baremetal_status` (MCP)
+
+**Case A — they already own a spare / VPN-dedicated core1 VPS.**
+Good. Continue to Step 1 on THAT host (not on their main box).
+
+**Case B — they only have their main production box.**
+Strongly recommend buying a dedicated core1 VPS for the VPN endpoint.
+Tell them verbatim, non-engineer friendly:
+
+> "まず VPN 専用の VPS を 1 台用意してください。
+> - https://dashboard.erpc.global にログインして、core1 プランを
+>   1 台買ってください。月額の負担は小さいです。
+> - 購入が完了したら、また『VPN 設定したい』と声をかけてください。
+>   続きをこちらで案内します。"
+
+STOP the WG flow here. Don't try to install on the production box as
+a workaround — the goal is isolation.
+
+**Case C — they don't want to use WireGuard at all.**
+They have two paths:
+
+1. **Static public IP whitelist.** If the user has a known-stable IP
+   (office line, business fiber with a fixed address, a jump host
+   they already control), ask them for that IP and hand off to the
+   **slv-firewall** skill with `--allow <that-ip>`.
+2. **Home ISP IP** — **refuse this**. Tell them explicitly:
+   > "家のルーターの IP は ISP の都合で数日〜数週間で変わります。
+   > 変わった瞬間に firewall で閉め出されて、現地に行かないと直せ
+   > なくなります。固定 IP でなければ WireGuard のほうが結局ラク
+   > なので、VPN 用 VPS を買う案を再度おすすめします。"
+
+Only proceed to Step 1 below once the user is on a dedicated VPN VPS
+(Case A, or Case B after purchase).
+
+### Step 1 — Sanity probe (on the VPN-dedicated VPS)
 
 - `run_command: systemctl is-active wg-quick@wg0 2>/dev/null` — is WG already up?
 - `run_command: command -v wg >/dev/null && wg show 2>&1 | head -20` — current peers, if any.
@@ -30,12 +82,14 @@ Use this skill when the user says anything like:
 If WG is already up, read back the current peers and ask whether
 the user wants to add another peer or replace the config.
 
-### Step 1 — Phone side (walk the user through this BEFORE running anything on the server)
+### Step 2 — Phone side (walk the user through this BEFORE running anything on the server)
 
 Tell the user, verbatim:
 
 > "On your phone:
-> 1. Install the official **WireGuard** app from the App Store / Google Play — it's free, made by the WireGuard project itself, look for the purple dragon logo. (Jason A. Donenfeld / Edge Security publisher.)
+> 1. Install the official **WireGuard** app — it's free, made by the WireGuard project itself, purple dragon logo. (Jason A. Donenfeld / Edge Security publisher.)
+>    - iPhone: https://apps.apple.com/us/app/wireguard/id1441195209
+>    - Android: https://play.google.com/store/apps/details?id=com.wireguard.android
 > 2. Open the app, tap the **+** button, pick **Create from scratch**.
 > 3. Give the tunnel a name like `slv-<short-vps-name>` so you can identify it later.
 > 4. The app auto-generates a key pair. Scroll down to the **Public key** field — it's a 44-character string ending in `=`. Tap it to copy.
@@ -47,7 +101,7 @@ Desktop flow is identical: `wireguard` app from https://www.wireguard.com/instal
 
 Ask them to paste the **public** key.
 
-### Step 2 — Server side
+### Step 3 — Server side
 
 With their public key in hand, run:
 
@@ -66,10 +120,10 @@ The playbook:
 When the playbook finishes, SLV prints the **server public key**
 in a highlighted block. Copy that.
 
-### Step 3 — Finish the phone-side config
+### Step 4 — Finish the phone-side config
 
 Back on the user's phone, inside the tunnel they started in
-Step 1, tell them:
+Step 2, tell them:
 
 > "Fill in these fields:
 >
@@ -87,7 +141,7 @@ Step 1, tell them:
 >
 > Save. Slide the tunnel toggle to ON."
 
-### Step 4 — Verify
+### Step 5 — Verify
 
 Ask the user to try opening `http://10.0.0.1:20026/ui/` on their
 phone while the VPN is on. If the SLV chat UI loads, the VPN
@@ -141,8 +195,8 @@ slv install wireguard --iphone-pubkey '<44-char-pubkey>='
 
 | Platform | App | Link |
 |----------|-----|------|
-| iOS | WireGuard | App Store — search "WireGuard" (purple dragon) |
-| Android | WireGuard | Play Store — search "WireGuard" |
+| iOS | WireGuard | https://apps.apple.com/us/app/wireguard/id1441195209 |
+| Android | WireGuard | https://play.google.com/store/apps/details?id=com.wireguard.android |
 | macOS | WireGuard | https://www.wireguard.com/install/ or Mac App Store |
 | Windows | WireGuard | https://www.wireguard.com/install/ |
 | Linux | wireguard-tools | `sudo apt install wireguard` + `wg-quick` |

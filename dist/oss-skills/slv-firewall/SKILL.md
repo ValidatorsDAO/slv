@@ -39,24 +39,67 @@ Use the results to:
 - Build the **whitelist candidate list**: every `ip` from the MCP VPS/BM calls that isn't THIS host's IP. Present to the user verbatim:
   > "Your SLV account has these other hosts — want them whitelisted? You'll still be able to SSH between them after we lock down."
 
-### Step 1 — Firewall (nftables + fail2ban)
+### Step 1 — How will the user reach this box from outside?
 
-Ask the user for any extra trusted IPs:
+Before collecting any `--allow` IPs, decide the remote-access
+method with the user. This single question prevents the #1
+support ticket (self-lockout from a rotating home IP).
 
-> "Any additional IPs for the whitelist? Your home IP, office VPN, or a friend's laptop. Paste them comma-separated, or say 'none'."
+Ask, in plain language:
 
-**Do NOT auto-add the user's current SSH source IP.** Their home
+> "自宅やスマホからこのサーバーに入る方法として、どちらを使いたい
+> ですか? 非エンジニアの方なら 1 を強くおすすめします。
+>
+> 1. **WireGuard VPN**（推奨）— スマホでも PC でも、どのデバイス
+>    からでも対応します。VPN に繋ぐと、サーバーから見た接続元の
+>    IP が『いつも同じ固定の IP』になります。ファイアウォールには
+>    その固定 IP 1 つを登録すればいいので、家のルーターの IP がど
+>    れだけ変わっても関係なくアクセスでき、しかも他の人は入れない
+>    状態にできます。安心かつ日常使いでもラクです。
+>
+> 2. **固定の公衆 IP を whitelist** — 会社のビジネス回線など、
+>    『何があっても変わらない』と分かっている IP があればそれを
+>    登録します。**家庭のインターネット回線の IP は ISP の都合で
+>    数日〜数週間で変わるので、これを登録すると後日閉め出されま
+>    す**。固定と明言できる IP 以外は登録しないでください。
+>
+> 3. **両方** — 固定 IP も登録しつつ、VPN も用意する。"
+
+**Default recommendation: option 1.** If the user picks 1 or is
+unsure, proceed with firewall install WITHOUT any `--allow` IPs,
+then immediately hand off to the **slv-wireguard** skill as Step
+1.5 below. If they pick 2 or 3, collect the IPs now.
+
+**Never auto-add the user's current SSH source IP.** Their home
 IP is probably dynamic; hardcoding it leads to "my firewall locked
 me out next Tuesday" support tickets. Invite them to add it
-explicitly if they want.
+explicitly only if they swear it's static.
 
-Combine MCP-derived IPs + user-supplied IPs, then run:
+### Step 1.5 — Install the firewall
+
+Combine MCP-derived IPs (from Step 0) + user-supplied IPs, then run:
 
 ```bash
 slv install firewall --allow <ip1> --allow <ip2> -y
 ```
 
 `--allow` is repeatable. Order doesn't matter. The CLI dedupes.
+If the user picked WireGuard-only (option 1 above), omit `--allow`
+entirely — the box will still be reachable via SSH (port 22 open,
+fail2ban-protected) and via WG once it's up.
+
+### Step 1.6 — If they picked WireGuard, hand off now
+
+After the firewall install succeeds, and BEFORE SSH hardening:
+
+> "ファイアウォールは有効化できました。次は VPN を用意します。
+> **slv-wireguard** スキルに切り替えます — VPN 用の VPS を別で
+> 持っていないと進められないので、そこから確認します。"
+
+Invoke the slv-wireguard skill. It will (a) check whether the user
+has a dedicated core1 VPS for the VPN or needs to buy one, and
+(b) walk them through the phone pairing. Once WG is up, come back
+to Step 2 below.
 
 **What this does:**
 - Always-open: SSH (22), HTTP (80), HTTPS (443), WireGuard (51820/udp), lo, WG peer subnet 10.0.0.0/24.

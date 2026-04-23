@@ -730,7 +730,11 @@ Session history and important notes.
   )
   console.log(
     colors.rgb24(
-      `└  ${t('Run `slv c` to start the AI console.')}\n`,
+      `└  ${
+        t(
+          'First, tell the AI `set up the firewall` — we recommend hardening security next.',
+        )
+      }\n`,
       0x14f195,
     ),
   )

@@ -75,6 +75,8 @@ export const messages: Record<string, string> = {
   'Agent:': 'Агент:',
   'Run `slv c` to start the AI console.':
     'Запустите `slv c`, чтобы открыть консоль ИИ.',
+  'First, tell the AI `set up the firewall` — we recommend hardening security next.':
+    'Сначала скажите ИИ «настроить брандмауэр» — рекомендуем далее усилить безопасность.',
 
   'slv bot init — trade-app is an example only':
     'slv bot init — trade-app является лишь примером',
