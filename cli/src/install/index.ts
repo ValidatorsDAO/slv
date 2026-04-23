@@ -220,18 +220,6 @@ const endpointLog = (targets: string[], component: SoftwareComponent) => {
   }
 }
 
-/**
- * `slv install wireguard` — typed subcommand for the VPN setup path.
- * Kept separate from the main interactive Select because it needs
- * one specific option (--iphone-pubkey) that the other components
- * don't, and because non-engineers following the onboard flow need
- * to run this without understanding the general-purpose installer.
- *
- * After the playbook exits we read /tmp/slv-wg-server-pubkey.txt
- * (written by the playbook's export task, mode 0644) and display
- * the server public key prominently so the operator can paste it
- * back into their phone's WireGuard app.
- */
 const wireguardCmd = new Command()
   .description(
     'Install a WireGuard VPN server (one-peer baseline) — prompts for the phone/peer public key, runs the ansible playbook, prints the resulting server public key so you can finish the peer config.',
@@ -299,9 +287,6 @@ const wireguardCmd = new Command()
         return
       }
 
-      // Best-effort cleanup of any stale export from a previous run;
-      // we'll read this file immediately after the playbook to pick
-      // up the fresh server public key.
       await Deno.remove(WG_PUBKEY_EXPORT_PATH).catch(() => {})
 
       const success = await runAnsibleV2(
@@ -319,14 +304,6 @@ const wireguardCmd = new Command()
 const maskPubkey = (key: string): string =>
   key.length <= 12 ? key : `${key.slice(0, 6)}…${key.slice(-6)}`
 
-/**
- * Display the freshly-installed WireGuard server public key to the
- * operator. The playbook's `Export public key to user-readable path`
- * task writes it to /tmp/slv-wg-server-pubkey.txt with no trailing
- * newline. If the file is missing, it means the playbook failed
- * before that task — we fall back to a generic hint rather than
- * pretending success.
- */
 const reportServerPubkey = async (): Promise<void> => {
   let serverPubkey = ''
   try {
@@ -364,25 +341,6 @@ const reportServerPubkey = async (): Promise<void> => {
 
 installCmd.command('wireguard', wireguardCmd)
 
-/**
- * `slv install nginx` — one-shot HTTPS reverse proxy for a local
- * service (default: the gateway on 20026).
- *
- * Flow (all steps skippable via flags for power users):
- *   1. Read the SLV API key so we can talk to /v3/dns/*.
- *   2. Pick the target subdomain — default slug unless --slug.
- *   3. Detect this host's public IP (ipify → hostname -I).
- *   4. POST /v3/dns/set so the hostname resolves to this VPS.
- *      Cloudflare proxies it → user gets HTTPS with no cert work
- *      on origin.
- *   5. Run the install-nginx playbook with `fqdn` and
- *      `upstream_port` extra-vars. The playbook installs nginx,
- *      renders a WS-aware vhost, and reloads the service.
- *
- * No certbot, no email — Cloudflare's Universal SSL handles TLS
- * termination end-to-end. The origin nginx only listens on plain
- * HTTP port 80.
- */
 const nginxCmd = new Command()
   .description(
     'Install nginx on THIS host as an HTTPS reverse proxy fronted by Cloudflare (no certbot needed). By default points your free *.erpc.global subdomain at this VPS and proxies it down to 127.0.0.1:20026 (the SLV gateway). Override --port for any other local service.',
@@ -474,17 +432,6 @@ const nginxCmd = new Command()
 
 installCmd.command('nginx', nginxCmd)
 
-/**
- * `slv install firewall` — nftables + fail2ban in one shot.
- * Defaults keep the box reachable: SSH (22) open for all,
- * HTTP/HTTPS (80/443) open for Cloudflare origin-pull, WireGuard
- * (51820/udp) open so phone peers can dial in, WG subnet
- * (10.0.0.0/24) trusted. Everything else is dropped unless the
- * caller whitelists it via `--allow`.
- *
- * Invoked both directly by operators and by the slv-security
- * skill when EL walks a user through setup.
- */
 const firewallCmd = new Command()
   .description(
     'Install nftables + fail2ban on THIS host with a safe default ruleset (SSH, HTTP, HTTPS, WireGuard always open; deny the rest). Pass --allow <ip> one or more times to whitelist trusted sources across all ports.',
