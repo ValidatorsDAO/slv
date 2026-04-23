@@ -42,7 +42,15 @@ export const aiCmd = new Command()
   })
 
 export const onboardCmd = new Command()
-  .description(colors.white('Set up AI provider and API key'))
-  .action(async () => {
-    await onboardAction()
+  .description(
+    colors.white(
+      'Set up AI provider and API key. Pass --config <path> with a YAML containing pre-filled answers to skip the interactive prompts (future-proofing for API-driven onboarding).',
+    ),
+  )
+  .option(
+    '--config <path:string>',
+    'YAML file with pre-filled onboard answers (partial configs are fine — missing fields still get prompted).',
+  )
+  .action(async (opts: { config?: string }) => {
+    await onboardAction({ configPath: opts.config })
   })

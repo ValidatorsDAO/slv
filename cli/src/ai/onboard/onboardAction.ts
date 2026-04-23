@@ -38,6 +38,25 @@ import {
   openSupportTicket,
 } from '/lib/slvCloudMcp.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
+import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
+
+/**
+ * Module-scoped config for the current onboard run. Set once at the
+ * top of `onboardAction` from `--config <path>`; every prompt site
+ * checks it first via the helpers below. Safe to leave at
+ * module-scope because slv onboard is a single-user,
+ * single-invocation CLI command — there's no concurrency to race.
+ */
+let currentCfg: OnboardConfig = {}
+
+/** Return the preset value if present, otherwise run the prompt. */
+const orPrompt = async <T>(
+  preset: T | undefined,
+  prompt: () => Promise<T>,
+): Promise<T> => {
+  if (preset !== undefined) return preset
+  return await prompt()
+}
 import { runNginxFlow } from '/src/install/nginxFlow.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
@@ -263,7 +282,17 @@ const hasBenchmarkOps = (selectedOps: string[]) =>
   selectedOps.includes('Index RPC Node Operations') ||
   selectedOps.includes('gRPC Geyser Streaming')
 
-export const onboardAction = async () => {
+export const onboardAction = async (
+  opts: { configPath?: string } = {},
+) => {
+  currentCfg = opts.configPath ? await loadOnboardConfig(opts.configPath) : {}
+  if (opts.configPath) {
+    console.log(
+      colors.gray(
+        `  (loaded pre-filled answers from ${opts.configPath} — any missing fields will still be prompted)`,
+      ),
+    )
+  }
   slvAA(denoJson.version)
 
   // --- Language gate ---
@@ -272,27 +301,31 @@ export const onboardAction = async () => {
   // can show in that language. On subsequent runs we skip this block entirely
   // (avoids the re-run loop) and just load the saved language.
   if (!(await hasLangSet())) {
-    const picked = await Select.prompt({
-      message: 'Select your language / 言語を選択 / Выберите язык',
-      options: [
-        { name: 'English', value: 'en' },
-        { name: '日本語 (Japanese)', value: 'ja' },
-        { name: '中文 (Chinese)', value: 'zh' },
-        { name: 'Русский (Russian)', value: 'ru' },
-        { name: 'Tiếng Việt (Vietnamese)', value: 'vi' },
-        { name: 'Other (type your language)', value: '__other__' },
-      ],
-      default: 'en',
-    })
-
-    let chosenLang: string = picked
-    if (picked === '__other__') {
-      const typed = await Input.prompt({
-        message: 'Enter your language (e.g. "de", "Français", "日本語")',
+    let chosenLang: string
+    if (currentCfg.lang) {
+      chosenLang = currentCfg.lang
+    } else {
+      const picked = await Select.prompt({
+        message: 'Select your language / 言語を選択 / Выберите язык',
+        options: [
+          { name: 'English', value: 'en' },
+          { name: '日本語 (Japanese)', value: 'ja' },
+          { name: '中文 (Chinese)', value: 'zh' },
+          { name: 'Русский (Russian)', value: 'ru' },
+          { name: 'Tiếng Việt (Vietnamese)', value: 'vi' },
+          { name: 'Other (type your language)', value: '__other__' },
+        ],
         default: 'en',
-        validate: (v) => v.trim().length > 0 || 'Language is required',
       })
-      chosenLang = typed.trim()
+      chosenLang = picked
+      if (picked === '__other__') {
+        const typed = await Input.prompt({
+          message: 'Enter your language (e.g. "de", "Français", "日本語")',
+          default: 'en',
+          validate: (v) => v.trim().length > 0 || 'Language is required',
+        })
+        chosenLang = typed.trim()
+      }
     }
 
     await writeLang(chosenLang)
@@ -321,13 +354,17 @@ export const onboardAction = async () => {
 
   printSecurityWarning()
 
-  const accepted = await Select.prompt({
-    message: t('I understand this is powerful and inherently risky. Continue?'),
-    options: [
-      { name: t('Yes'), value: 'yes' },
-      { name: t('No'), value: 'no' },
-    ],
-  })
+  const accepted = currentCfg.security_warning_accepted === true
+    ? 'yes'
+    : await Select.prompt({
+      message: t(
+        'I understand this is powerful and inherently risky. Continue?',
+      ),
+      options: [
+        { name: t('Yes'), value: 'yes' },
+        { name: t('No'), value: 'no' },
+      ],
+    })
 
   if (accepted !== 'yes') {
     console.log(colors.yellow(`\n  ${t('Setup cancelled.')}\n`))
@@ -354,9 +391,11 @@ export const onboardAction = async () => {
       ),
     )
 
-    const slvApiKey = await Secret.prompt({
-      message: t('🔑 SLV API Key (or press Enter to skip)'),
-    })
+    const slvApiKey = currentCfg.slv_api_key !== undefined
+      ? currentCfg.slv_api_key
+      : await Secret.prompt({
+        message: t('🔑 SLV API Key (or press Enter to skip)'),
+      })
 
     if (slvApiKey && slvApiKey.trim().length > 0) {
       await Deno.mkdir(`${home}/.slv`, { recursive: true })
@@ -401,21 +440,33 @@ export const onboardAction = async () => {
   // just needs Enter-Enter-Enter unless the user wants to change something.
   const existing = await loadExistingDefaults(home)
 
-  const userName = await Input.prompt({
-    message: t('Your name'),
-    default: existing.userName,
-    validate: (v) => v.trim().length > 0 || t('Name is required'),
-  })
+  const userName = await orPrompt(
+    currentCfg.user_name,
+    () =>
+      Input.prompt({
+        message: t('Your name'),
+        default: existing.userName,
+        validate: (v) => v.trim().length > 0 || t('Name is required'),
+      }),
+  )
 
-  const callMe = await Input.prompt({
-    message: t('What should the AI call you?'),
-    default: existing.callMe ?? userName,
-  })
+  const callMe = await orPrompt(
+    currentCfg.call_me_name,
+    () =>
+      Input.prompt({
+        message: t('What should the AI call you?'),
+        default: existing.callMe ?? userName,
+      }),
+  )
 
-  const agentName = await Input.prompt({
-    message: t('Name your main AI agent'),
-    default: existing.agentName ?? 'SLV Agent',
-  })
+  const agentName = await orPrompt(
+    currentCfg.agent_name,
+    () =>
+      Input.prompt({
+        message: t('Name your main AI agent'),
+        default: existing.agentName ?? 'SLV Agent',
+      }),
+  )
 
   // Default the Checkbox to previously-enabled ops; fall back to first-run
   // defaults when nothing is saved yet.
@@ -428,7 +479,9 @@ export const onboardAction = async () => {
   // use-case) and stops the onboarding flow from dumping the user into a
   // "you do everything" state. The user can still tick more with Space.
   // Second-run: defaults come from the existing config (`existing.enabledOps`).
-  const selectedOps: string[] = await Checkbox.prompt({
+  const selectedOps: string[] = currentCfg.selected_ops !== undefined
+    ? currentCfg.selected_ops
+    : await Checkbox.prompt({
     message: t('What will you be doing? (↑↓ move, Space toggle, Enter confirm)'),
     options: [
       {
@@ -465,14 +518,19 @@ export const onboardAction = async () => {
   })
 
   // --- Deployment mode ---
-  const deployMode = await Select.prompt({
-    message: t('Deployment mode'),
-    default: existing.deployMode,
-    options: [
-      { name: t('Local — deploy to this machine'), value: 'local' },
-      { name: t('Remote — deploy to remote servers via SSH'), value: 'remote' },
-    ],
-  })
+  const deployMode = currentCfg.deploy_mode !== undefined
+    ? currentCfg.deploy_mode
+    : await Select.prompt({
+      message: t('Deployment mode'),
+      default: existing.deployMode,
+      options: [
+        { name: t('Local — deploy to this machine'), value: 'local' },
+        {
+          name: t('Remote — deploy to remote servers via SSH'),
+          value: 'remote',
+        },
+      ],
+    })
 
   // Build config
   const agentHome = resolveHome()
@@ -557,10 +615,12 @@ Session history and important notes.
     ),
   )
 
-  const discordWebhook = await Input.prompt({
-    message: t('Discord Webhook URL for notifications (Enter to skip)'),
-    default: existing.discordWebhook ?? '',
-  })
+  const discordWebhook = currentCfg.discord_webhook !== undefined
+    ? currentCfg.discord_webhook
+    : await Input.prompt({
+      message: t('Discord Webhook URL for notifications (Enter to skip)'),
+      default: existing.discordWebhook ?? '',
+    })
 
   if (discordWebhook && discordWebhook.trim().length > 0) {
     // Save to api.yml preserving existing content
@@ -586,7 +646,10 @@ Session history and important notes.
   // after `sudo rm /etc/sudoers.d/slv-<user>` correctly re-offers.
   // We still record a timestamp for observability, but don't gate on it.
   if (await isSudoersTarget()) {
-    const result = await promptAndInstallSudoers({ t })
+    const result = await promptAndInstallSudoers({
+      t,
+      preset: currentCfg.sudoers_install,
+    })
     if (result.state === 'installed' || result.state === 'already_installed') {
       await writeSudoersInstalledAt(new Date().toISOString())
     } else if (result.state === 'foreign_file_exists') {
@@ -908,10 +971,12 @@ const maybeEnableLanMode = async (
       0xffdf7a,
     ),
   )
-  const enableLan = await Confirm.prompt({
-    message: t('Enable remote IP access now?'),
-    default: true,
-  })
+  const enableLan = currentCfg.enable_lan_mode !== undefined
+    ? currentCfg.enable_lan_mode
+    : await Confirm.prompt({
+      message: t('Enable remote IP access now?'),
+      default: true,
+    })
   if (!enableLan) {
     console.log(
       colors.rgb24(
@@ -1226,10 +1291,12 @@ const maybeSetupHttps = async (
     ),
   )
 
-  const ok = await Confirm.prompt({
-    message: t('Set up HTTPS now?'),
-    default: true,
-  })
+  const ok = currentCfg.enable_https !== undefined
+    ? currentCfg.enable_https
+    : await Confirm.prompt({
+      message: t('Set up HTTPS now?'),
+      default: true,
+    })
   if (!ok) {
     console.log(
       colors.rgb24(
