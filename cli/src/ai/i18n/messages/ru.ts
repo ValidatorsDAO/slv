@@ -357,8 +357,8 @@ export const messages: Record<string, string> = {
   'Creating support ticket...': 'Создание тикета поддержки…',
   'Ticket creation failed: {err}': 'Не удалось создать тикет: {err}',
   'Ticket opened. Follow up here:': 'Тикет открыт. Следите здесь:',
-  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
-    'Безопасность: откройте URL выше в браузере, чтобы запустить SLV AI, и попросите его помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне). Вся беседа — в браузере, терминал не нужен.',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.':
+    'Безопасность: откройте URL выше в браузере, чтобы запустить SLV AI, и попросите его помочь настроить брандмауэр. Вся беседа — в браузере, терминал не нужен.',
   'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
     'Для автоматического HTTPS + бесплатного *.erpc.global поддомена запускайте SLV на SLV VPS или BareMetal (закажите через панель управления):',
   'Gateway is already running.': 'Шлюз уже работает.',
@@ -366,8 +366,8 @@ export const messages: Record<string, string> = {
     'Включить удалённый доступ по IP? (рекомендуется для VPS)',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     'Привязывает шлюз к 0.0.0.0, чтобы вы могли открыть http://<server-ip>:{port}/ui/ напрямую с телефона/ноутбука. Все действия чата по-прежнему защищены авторизацией токеном.',
-  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
-    'Следующий шаг: после завершения онбординга запустите `slv c` и попросите SLV AI помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне). Видео-руководство появится позже.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.':
+    'Следующий шаг: после завершения онбординга запустите `slv c` и попросите SLV AI помочь настроить брандмауэр. Видео-руководство появится позже.',
   'Enable remote IP access now?': 'Включить удалённый доступ по IP сейчас?',
   'Remote IP access enabled — gateway restarted.':
     'Удалённый доступ по IP включён — шлюз перезапущен.',
@@ -383,8 +383,8 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': 'Откройте SLV в браузере:',
   'Gateway token (paste on first visit):':
     'Токен шлюза (вставьте при первом посещении):',
-  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
-    'Безопасность: запустите `slv c` и попросите SLV AI помочь настроить брандмауэр (nftables) и WireGuard (с приложением на телефоне).',
+  'Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.':
+    'Безопасность: запустите `slv c` и попросите SLV AI помочь настроить брандмауэр.',
   'Video walkthrough: coming soon.': 'Видео-руководство: скоро будет.',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     'Режим только loopback — чтобы открыть URL из другого места, сначала создайте SSH туннель:',

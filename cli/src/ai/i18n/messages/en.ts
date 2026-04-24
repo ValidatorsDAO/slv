@@ -369,8 +369,8 @@ export const messages: Record<string, string> = {
   'Creating support ticket...': 'Creating support ticket...',
   'Ticket creation failed: {err}': 'Ticket creation failed: {err}',
   'Ticket opened. Follow up here:': 'Ticket opened. Follow up here:',
-  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
-    'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.':
+    'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.',
   'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
     'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):',
   'Gateway is already running.': 'Gateway is already running.',
@@ -378,8 +378,8 @@ export const messages: Record<string, string> = {
     'Enable remote IP access (recommended for VPS)?',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.',
-  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
-    'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.':
+    'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.',
   'Enable remote IP access now?': 'Enable remote IP access now?',
   'Remote IP access enabled — gateway restarted.':
     'Remote IP access enabled — gateway restarted.',
@@ -394,8 +394,8 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': 'Open SLV in your browser:',
   'Gateway token (paste on first visit):':
     'Gateway token (paste on first visit):',
-  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
-    'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.',
+  'Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.':
+    'Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.',
   'Video walkthrough: coming soon.': 'Video walkthrough: coming soon.',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:',
