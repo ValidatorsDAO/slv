@@ -10,7 +10,11 @@ import {
   BotTempDirMap,
   BotTempTypeArray,
 } from '@cmn/zod/bot.ts'
-import { readBotAgreement, writeBotAgreement } from '@/ai/config.ts'
+import {
+  readBotAgreement,
+  readLang,
+  writeBotAgreement,
+} from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
 
 // Files that MUST NEVER be destroyed by `slv bot init`. A real incident
@@ -118,6 +122,34 @@ const mergeProtectedFilesInto = async (
 // Returns true if a trade-app process appears to be running from the given
 // appDir. We refuse to re-init while the bot is live so we don't race with an
 // active server.
+// Seed the bot's .env with TRADE_APP_LANG from the user's SLV
+// config if no .env exists yet. If one is already present
+// (preserved by the protected-files rescue, or hand-edited), we
+// don't touch it — the user's explicit value wins.
+const seedEnvLang = async (appDir: string): Promise<void> => {
+  const envPath = join(appDir, '.env')
+  try {
+    await Deno.stat(envPath)
+    return // existing .env left alone
+  } catch { /* no .env yet — seed one */ }
+  let lang: string
+  try {
+    lang = await readLang()
+  } catch {
+    lang = 'en'
+  }
+  try {
+    await Deno.writeTextFile(
+      envPath,
+      `# Seeded by \`slv bot init\`.\n# Match output/log language to ~/.slv/api.yml \`lang\`.\nTRADE_APP_LANG=${lang}\n`,
+      { mode: 0o600 },
+    )
+    console.log(
+      colors.gray(`  Seeded .env with TRADE_APP_LANG=${lang}`),
+    )
+  } catch { /* non-fatal — user can cp .env.sample .env themselves */ }
+}
+
 const isBotRunningFromDir = async (appDir: string): Promise<boolean> => {
   try {
     const p = new Deno.Command('pgrep', {
@@ -467,6 +499,13 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
           stderr: 'null',
         }).output()
       } catch { /* silent — non-critical */ }
+
+      // Seed the bot's .env with the user's preferred language so
+      // the running app logs / notifies in that language without
+      // requiring the operator (or Setzer) to remember to set it.
+      // Only write when no .env exists yet — an existing one was
+      // already preserved by the protected-files rescue above.
+      await seedEnvLang(appDir)
 
       console.log(
         colors.green(
