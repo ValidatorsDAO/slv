@@ -131,54 +131,36 @@ export const runNginxFlow = async (
   // 4. Try to get a Cloudflare Origin CA cert via the erpc MCP.
   // With this cert in place on origin, the erpc.global zone can
   // run in Cloudflare Full (strict) mode — no origin-pull cert
-  // validation failures (526). If the MCP tool isn't deployed
-  // yet (older erpc) or issuance fails transiently, we fall back
-  // to the playbook's self-signed cert — Full (not strict) still
-  // works with that, so the install doesn't fail outright.
+  // validation failures (526). The fetch goes out to the MCP and
+  // then Cloudflare's Origin CA API, both of which occasionally
+  // stall or 5xx under load — so we retry a few times with a
+  // short backoff before falling back to self-signed.
   const extraVars: Record<string, string> = {
     fqdn,
     upstream_port: String(opts.port),
   }
   let originCertIssued = false
-  try {
-    const csr = await generateCsr(fqdn)
-    const cert = await requestOriginCert(opts.apiKey, {
-      csr: csr.csrPem,
-      slug: opts.slug,
-    })
-    if (cert.ok) {
-      extraVars.origin_cert_b64 = b64(cert.data.certificate)
-      extraVars.origin_key_b64 = b64(csr.keyPem)
-      originCertIssued = true
-    } else if (cert.kind === 'tool_not_found') {
-      // erpc hasn't shipped POST /v3/dns/origin-cert yet; silently
-      // use the self-signed fallback. Callers see this via the
-      // returned `originCertIssued` flag (exposed on success).
-    } else {
-      // Endpoint exists but refused (invalid_csr, premium_required,
-      // cloudflare_error, …). Log a breadcrumb and fall back;
-      // non-fatal because the self-signed path still produces a
-      // working nginx in Full (not strict) mode.
-      console.warn(
-        `Origin CA issuance skipped: status=${cert.status} ${
-          cert.body?.error ?? ''
-        } ${cert.body?.message ?? ''}`.trim(),
-      )
-    }
-  } catch (err) {
-    // openssl missing, tmp-write failure, or a hang we didn't
-    // anticipate. Self-signed fallback still runs in the playbook,
-    // so the install completes — but Cloudflare Full (strict) will
-    // reject the resulting cert. Surface at warn level so it's
-    // clearly visible in the install log alongside an actionable
-    // hint.
-    const msg = err instanceof Error ? err.message : String(err)
+  const originCertResult = await issueOriginCertWithRetry(opts, fqdn)
+  if (originCertResult.ok) {
+    extraVars.origin_cert_b64 = b64(originCertResult.certPem)
+    extraVars.origin_key_b64 = b64(originCertResult.keyPem)
+    originCertIssued = true
+  } else if (originCertResult.kind === 'tool_not_found') {
+    // erpc hasn't shipped POST /v3/dns/origin-cert yet; silently
+    // fall back. Callers see this via `originCertIssued: false`.
+  } else if (originCertResult.kind === 'mcp_error') {
+    // Endpoint exists but refused (invalid_csr, premium_required,
+    // cloudflare_error, …). Non-fatal — self-signed still yields a
+    // working nginx in Full (not strict) mode.
+    console.warn(
+      `Origin CA issuance skipped after ${originCertResult.attempts} attempt(s): ${originCertResult.reason}`,
+    )
+  } else {
     console.warn(
       '\n⚠  Origin CA issuance failed — HTTPS will use a self-signed ' +
         'cert and Cloudflare Full (strict) mode will reject it.\n' +
-        `   Reason: ${msg}\n` +
-        '   Fix: install openssl (`sudo apt install -y openssl`) and re-run ' +
-        '`slv install nginx`.\n',
+        `   Reason: ${originCertResult.reason} (${originCertResult.attempts} attempt(s))\n` +
+        '   Fix: re-run `slv install nginx` — often transient. If openssl is missing, `sudo apt install -y openssl` first.\n',
     )
   }
 
@@ -206,4 +188,85 @@ export const runNginxFlow = async (
     ip,
     originCertIssued,
   }
+}
+
+type OriginCertRetriableFailure =
+  | { ok: false; kind: 'mcp_error'; reason: string; attempts: number }
+  | { ok: false; kind: 'exception'; reason: string; attempts: number }
+
+type OriginCertOutcome =
+  | { ok: true; certPem: string; keyPem: string }
+  | { ok: false; kind: 'tool_not_found' }
+  | OriginCertRetriableFailure
+
+// Retries only on transient conditions. Permanent outcomes —
+// tool_not_found, 4xx other than 408/429, malformed-fqdn throws,
+// and a missing openssl binary — short-circuit immediately so we
+// don't burn backoff on errors that can never succeed.
+const ORIGIN_CERT_MAX_ATTEMPTS = 3
+// Waits BETWEEN attempts: [0]=after attempt 1, [1]=after attempt 2.
+const ORIGIN_CERT_BACKOFF_MS = [1500, 4000]
+// Per-attempt ceiling so a hung socket can't freeze the install
+// for the fetch layer's default timeout (~2 min × 3 attempts).
+const ORIGIN_CERT_ATTEMPT_TIMEOUT_MS = 30_000
+
+const isPermanentException = (err: unknown): boolean => {
+  if (err instanceof Deno.errors.NotFound) return true
+  const msg = err instanceof Error ? err.message : String(err)
+  return /refusing malformed fqdn|No such file|ENOENT/i.test(msg)
+}
+
+const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+  Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ])
+
+const issueOriginCertWithRetry = async (
+  opts: NginxFlowInput,
+  fqdn: string,
+): Promise<OriginCertOutcome> => {
+  let lastOutcome: OriginCertRetriableFailure = {
+    ok: false,
+    kind: 'exception',
+    reason: 'no attempts ran',
+    attempts: 0,
+  }
+  for (let attempt = 1; attempt <= ORIGIN_CERT_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      const wait = ORIGIN_CERT_BACKOFF_MS[attempt - 2]
+      console.log(
+        `  Retrying Origin CA issuance (attempt ${attempt}/${ORIGIN_CERT_MAX_ATTEMPTS}, waiting ${wait}ms; previous: ${lastOutcome.reason})...`,
+      )
+      await new Promise((r) => setTimeout(r, wait))
+    }
+    try {
+      const csr = await generateCsr(fqdn)
+      const cert = await withTimeout(
+        requestOriginCert(opts.apiKey, { csr: csr.csrPem, slug: opts.slug }),
+        ORIGIN_CERT_ATTEMPT_TIMEOUT_MS,
+        'Origin CA request',
+      )
+      if (cert.ok) {
+        return { ok: true, certPem: cert.data.certificate, keyPem: csr.keyPem }
+      }
+      if (cert.kind === 'tool_not_found') {
+        return { ok: false, kind: 'tool_not_found' }
+      }
+      const reason = `status=${cert.status} ${cert.body?.error ?? ''} ${
+        cert.body?.message ?? ''
+      }`.trim()
+      const transient = cert.status >= 500 || cert.status === 408 ||
+        cert.status === 429
+      lastOutcome = { ok: false, kind: 'mcp_error', reason, attempts: attempt }
+      if (!transient) return lastOutcome
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      lastOutcome = { ok: false, kind: 'exception', reason, attempts: attempt }
+      if (isPermanentException(err)) return lastOutcome
+    }
+  }
+  return lastOutcome
 }
