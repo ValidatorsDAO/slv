@@ -103,18 +103,26 @@ const checkLinger = async (): Promise<CheckResult> => {
 }
 
 const checkGatewayPort = async (): Promise<CheckResult> => {
+  // Probe the gateway's own healthz endpoint rather than raw TCP —
+  // raw connect succeeds against any process that happened to bind
+  // 20026, not just our gateway.
   try {
-    const conn = await Promise.race([
-      Deno.connect({ hostname: '127.0.0.1', port: 20026 }),
-      new Promise<Deno.Conn>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), 2_000)
-      ),
-    ])
-    conn.close()
+    const res = await fetch('http://127.0.0.1:20026/healthz', {
+      signal: AbortSignal.timeout(2_000),
+    })
+    if (!res.ok) {
+      return {
+        name: 'gateway port 20026',
+        status: 'fail',
+        message: `/healthz returned ${res.status}`,
+      }
+    }
+    // Drain the body so the response isn't left hanging.
+    await res.text().catch(() => {})
     return {
       name: 'gateway port 20026',
       status: 'ok',
-      message: 'accepting connections',
+      message: 'healthz 200',
     }
   } catch (err) {
     return {
@@ -126,13 +134,37 @@ const checkGatewayPort = async (): Promise<CheckResult> => {
 }
 
 const checkNginx = async (): Promise<CheckResult> => {
-  const probe = await localExec('systemctl', ['is-active', 'nginx'])
-  if (!probe.success || !probe.stdout.includes('active')) {
-    // Try user-mode too in case this is a user-service system.
+  // Distinguish "not installed" (skip, fine) from "installed but
+  // inactive" (fail, real problem). `is-active` exits non-zero in
+  // both cases and doesn't tell us which.
+  const installed = await localExec('systemctl', [
+    'list-unit-files',
+    'nginx.service',
+  ])
+  const hasUnit = installed.success && /nginx\.service/.test(installed.stdout)
+  if (!hasUnit) {
     return {
       name: 'nginx',
       status: 'skip',
-      message: 'not running (no HTTPS reverse proxy detected)',
+      message: 'not installed (no HTTPS reverse proxy configured)',
+    }
+  }
+  const probe = await localExec('systemctl', ['is-active', 'nginx'])
+  if (!probe.success || !probe.stdout.includes('active')) {
+    return {
+      name: 'nginx',
+      status: 'fail',
+      message: 'installed but inactive — run `sudo systemctl start nginx`',
+      fix: async () => {
+        const r = await localExec('sudo', ['-n', 'systemctl', 'start', 'nginx'])
+        if (!r.success) {
+          return {
+            status: 'fail',
+            message: `sudo start failed: ${r.stderr.trim()}`,
+          }
+        }
+        return { status: 'ok', message: 'started nginx' }
+      },
     }
   }
   return { name: 'nginx', status: 'ok', message: 'active' }
@@ -150,12 +182,25 @@ const checkDns = async (): Promise<CheckResult> => {
       message: 'no SLV API key — run `slv login` to enable this check',
     }
   }
-  const status = await getDnsStatus(apiKey)
+  // Fetch status + local public IP in parallel — independent network calls.
+  const [status, ip] = await Promise.all([
+    getDnsStatus(apiKey).catch((err) => ({
+      ok: false as const,
+      status: 0,
+      body: {
+        error: 'network',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    })),
+    resolvePublicIp(),
+  ])
   if (!status.ok) {
     return {
       name: 'DNS record',
       status: 'fail',
-      message: `/v3/dns/status returned ${status.status}`,
+      message: status.status > 0
+        ? `/v3/dns/status returned ${status.status}`
+        : `/v3/dns/status unreachable: ${status.body?.message ?? ''}`,
     }
   }
   const def = status.data.default
@@ -166,7 +211,6 @@ const checkDns = async (): Promise<CheckResult> => {
       message: `${def.fqdn} not registered — run \`slv install nginx\` to set it up`,
     }
   }
-  const ip = await resolvePublicIp()
   if (ip && def.ip && def.ip !== ip) {
     return {
       name: 'DNS record',
@@ -183,13 +227,15 @@ const checkDns = async (): Promise<CheckResult> => {
 }
 
 const runAllChecks = async (): Promise<CheckResult[]> => {
-  return [
-    await checkGatewayRunning(),
-    await checkLinger(),
-    await checkGatewayPort(),
-    await checkNginx(),
-    await checkDns(),
-  ]
+  // All five checks are independent — parallelize so a slow network
+  // on checkDns doesn't serialize behind checkLinger etc.
+  return await Promise.all([
+    checkGatewayRunning(),
+    checkLinger(),
+    checkGatewayPort(),
+    checkNginx(),
+    checkDns(),
+  ])
 }
 
 const printSummary = (results: CheckResult[]): number => {

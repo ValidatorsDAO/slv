@@ -769,11 +769,17 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
         latestVersion = v
         updateBtn.textContent = I18N.updateReady.replace('{version}', v)
         updateBtn.style.display = 'inline-block'
+        // Button is shown — no need to keep polling this session.
+        // The user will either upgrade (→ reload) or dismiss.
+        clearInterval(pollHandle)
       }
     } catch { /* offline / CORS / whatever — silent */ }
   }
+  // Assign pollHandle BEFORE the first checkLatest call so the
+  // inner early-return can cancel it if an update is immediately
+  // detected.
+  const pollHandle = setInterval(checkLatest, 30 * 60 * 1000)
   checkLatest()
-  setInterval(checkLatest, 30 * 60 * 1000)
 
   updateBtn.addEventListener('click', async () => {
     if (updateBtn.classList.contains('upgrading')) return
@@ -781,9 +787,27 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     updateBtn.classList.add('upgrading')
     updateBtn.textContent = I18N.updating
     try {
-      await req('gateway.upgrade', {})
+      const res = await call('gateway.upgrade', {})
+      if (res && res.ok === false) {
+        // Server refused (not authenticated, spawn failed, etc.) —
+        // restore the button so the user isn't stuck on "Updating…".
+        updateBtn.classList.remove('upgrading')
+        updateBtn.textContent = I18N.updateReady.replace(
+          '{version}',
+          latestVersion,
+        )
+        return
+      }
       setStatus(I18N.updating, 'warn')
-    } catch { /* WS may be mid-disconnect; the gateway restart will flush us */ }
+    } catch {
+      // Unexpected throw (should not happen — call() resolves on
+      // disconnect rather than rejecting), but reset UI defensively.
+      updateBtn.classList.remove('upgrading')
+      updateBtn.textContent = I18N.updateReady.replace(
+        '{version}',
+        latestVersion,
+      )
+    }
   })
 
   clearBtn.addEventListener('click', () => {
