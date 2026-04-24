@@ -7,6 +7,13 @@ import type {
 } from '/src/gateway/service/service.ts'
 
 export const SYSTEMD_UNIT_NAME = 'slv-gateway.service'
+// Watchdog units — catch the case where slv-gateway.service was
+// explicitly stopped (e.g. `slv upgrade` stopped the unit then
+// hung before restarting it). `Restart=always` only covers CRASHES,
+// not clean `systemctl stop` requests, so the gateway can stay
+// dark indefinitely without this.
+export const HEAL_UNIT_NAME = 'slv-gateway-heal.service'
+export const HEAL_TIMER_NAME = 'slv-gateway-heal.timer'
 
 const userUnitDir = (): string => {
   const home = Deno.env.get('HOME') ?? '.'
@@ -17,6 +24,8 @@ const userUnitDir = (): string => {
 
 export const systemdUnitPath = (): string =>
   join(userUnitDir(), SYSTEMD_UNIT_NAME)
+const healServicePath = (): string => join(userUnitDir(), HEAL_UNIT_NAME)
+const healTimerPath = (): string => join(userUnitDir(), HEAL_TIMER_NAME)
 
 /**
  * Render the systemd --user unit. Notes on choices:
@@ -59,6 +68,35 @@ WantedBy=default.target
 `
 }
 
+// Oneshot healer: if slv-gateway.service is not active, try to
+// start it. Idempotent — a no-op when the gateway is already
+// running, so the timer can fire safely. Users who WANT the
+// gateway to stay down (maintenance) can `systemctl --user stop
+// slv-gateway-heal.timer` as well.
+const renderHealerService = (): string => `[Unit]
+Description=SLV Gateway watchdog — restart slv-gateway if it's down
+After=slv-gateway.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'systemctl --user is-active --quiet slv-gateway.service || systemctl --user start slv-gateway.service'
+`
+
+// Timer: fire 30s after boot, then every 2 minutes. Short enough
+// that a 6-minute outage like the one we hit tops out at ~2 min,
+// long enough that we don't thrash systemd or log-spam.
+const renderHealerTimer = (): string => `[Unit]
+Description=Periodic check + restart for slv-gateway
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+Unit=${HEAL_UNIT_NAME}
+
+[Install]
+WantedBy=timers.target
+`
+
 // Minimal shell quoter for unit files. Systemd's ExecStart tokenizer
 // is shell-like but not a full shell, so we wrap each arg in double
 // quotes and escape `"` + `\` + `$`. No path we generate contains
@@ -78,13 +116,50 @@ const systemctl = async (
   return { success: out.success, stdout: out.stdout, stderr: out.stderr }
 }
 
+// Turn on linger for the invoking user so the user-level systemd
+// session (and therefore slv-gateway.service) survives SSH
+// disconnects. Without this, the gateway dies every time the last
+// login session ends — producing Cloudflare 502s for remote users.
+// Idempotent: `loginctl enable-linger` on an already-lingering user
+// is a no-op. Requires sudo; failure is surfaced to the caller but
+// is non-fatal for the install (the user may be already lingering
+// via OS defaults, or may intentionally run slv only during their
+// SSH session).
+const ensureLinger = async (): Promise<void> => {
+  const user = Deno.env.get('USER') || Deno.env.get('LOGNAME') || ''
+  if (!user) return
+  // Fast path: already lingering?
+  const probe = await localExec('loginctl', ['show-user', user])
+  if (probe.success && /Linger=yes/.test(probe.stdout)) return
+  const enable = await localExec('sudo', [
+    '-n',
+    'loginctl',
+    'enable-linger',
+    user,
+  ])
+  if (!enable.success) {
+    console.warn(
+      `  ⚠ could not enable systemd linger for user "${user}": ${
+        enable.stderr.trim() || 'sudo refused'
+      }\n     Run \`sudo loginctl enable-linger ${user}\` manually so the gateway survives SSH disconnects.`,
+    )
+  }
+}
+
 export class SystemdUserService implements GatewayService {
   readonly name = 'systemd --user'
 
   async install(opts: InstallOptions): Promise<void> {
+    // Enable systemd linger FIRST so the unit we're about to
+    // install survives SSH disconnects. Doing this before enable
+    // avoids a race where the service is enabled but the user
+    // session tears down on SSH logout, killing the gateway.
+    await ensureLinger()
     const path = systemdUnitPath()
     await Deno.mkdir(dirname(path), { recursive: true })
     await Deno.writeTextFile(path, renderSystemdUnit(opts))
+    await Deno.writeTextFile(healServicePath(), renderHealerService())
+    await Deno.writeTextFile(healTimerPath(), renderHealerTimer())
     const reload = await systemctl('daemon-reload')
     if (!reload.success) {
       throw new Error(
@@ -101,11 +176,25 @@ export class SystemdUserService implements GatewayService {
         }`,
       )
     }
+    // Enable+start the watchdog timer. Failure here is non-fatal —
+    // the main service is already enabled; we don't want the whole
+    // install to roll back because the optional healer didn't take.
+    const timerEnable = await systemctl('enable', '--now', HEAL_TIMER_NAME)
+    if (!timerEnable.success) {
+      console.warn(
+        `  ⚠ watchdog timer (${HEAL_TIMER_NAME}) could not be enabled: ${
+          timerEnable.stderr.trim() || 'unknown'
+        }`,
+      )
+    }
   }
 
   async uninstall(): Promise<void> {
     // Best-effort stop+disable; ignore "not loaded" errors so
     // uninstall is idempotent.
+    await systemctl('disable', '--now', HEAL_TIMER_NAME)
+    await Deno.remove(healTimerPath()).catch(() => {})
+    await Deno.remove(healServicePath()).catch(() => {})
     await systemctl('disable', '--now', SYSTEMD_UNIT_NAME)
     await Deno.remove(systemdUnitPath()).catch(() => {})
     await systemctl('daemon-reload')

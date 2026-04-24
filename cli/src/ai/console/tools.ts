@@ -614,6 +614,11 @@ async function executeRunCommand(command: string): Promise<string> {
     // Stream stdout lines to TUI in real-time
     const stdoutChunks: string[] = []
     const stderrChunks: string[] = []
+    // Heartbeat timestamp — updated on every byte read from either
+    // stream. Used by the inactivity watcher below to detect truly
+    // stuck subprocesses (waiting on stdin, hung network, zombie
+    // state) vs. legitimately slow-but-progressing ones.
+    let lastOutputMs = Date.now()
 
     const readStream = async (
       stream: ReadableStream<Uint8Array>,
@@ -626,6 +631,7 @@ async function executeRunCommand(command: string): Promise<string> {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+        lastOutputMs = Date.now()
         const text = decoder.decode(value, { stream: true })
         buffer += text
         chunks.push(text)
@@ -670,11 +676,30 @@ async function executeRunCommand(command: string): Promise<string> {
       }
     }
 
-    // Race between command completion and timeout (60 minutes — builds and snapshots can take a while)
+    // Two timeouts guard every subprocess:
+    //   - Hard ceiling (60 min) — for builds/snapshots that legitimately
+    //     run long. Kept as a seat belt against forgotten orphans.
+    //   - Inactivity (2 min) — kills a subprocess that produced no
+    //     output for the window. Catches truly hung processes (waiting
+    //     on stdin, blocked network, dead loops) so the agent can
+    //     report back to the user instead of freezing the chat.
+    //     Legitimate long silent steps (cargo linking, npm resolve)
+    //     usually emit something every 30–60 s; 2 min leaves headroom.
     const COMMAND_TIMEOUT_MS = 3_600_000
+    const INACTIVITY_TIMEOUT_MS = 120_000
     const timeoutPromise = new Promise<'timeout'>((resolve) =>
       setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS)
     )
+    const inactivityPromise = new Promise<'inactivity'>((resolve) => {
+      const tick = () => {
+        if (Date.now() - lastOutputMs >= INACTIVITY_TIMEOUT_MS) {
+          resolve('inactivity')
+          return
+        }
+        setTimeout(tick, 1_000)
+      }
+      setTimeout(tick, 1_000)
+    })
 
     const commandPromise = (async () => {
       await Promise.all([
@@ -684,9 +709,13 @@ async function executeRunCommand(command: string): Promise<string> {
       return await child.status
     })()
 
-    const result = await Promise.race([commandPromise, timeoutPromise])
+    const result = await Promise.race([
+      commandPromise,
+      timeoutPromise,
+      inactivityPromise,
+    ])
 
-    if (result === 'timeout') {
+    if (result === 'timeout' || result === 'inactivity') {
       try {
         child.kill('SIGTERM')
       } catch { /* ignore */ }
@@ -697,9 +726,13 @@ async function executeRunCommand(command: string): Promise<string> {
       activeChildProcess = null
       if (onCommandComplete) onCommandComplete()
       const stdout = stdoutChunks.join('')
-      return `Command timed out after 60 minutes.\nPartial output:\n${
-        stdout.slice(-2000)
-      }`
+      const tail = stdout.slice(-2000)
+      if (result === 'inactivity') {
+        return `Command stopped — no output for ${
+          INACTIVITY_TIMEOUT_MS / 1000
+        } seconds (likely hung on stdin, blocked network, or an infinite loop). Partial output:\n${tail}\n\nTell the user the command was stopped and suggest one of: (a) re-run it manually in a shell where they can watch progress, (b) try a non-interactive variant with explicit flags, (c) check network / prerequisite (e.g. RPC reachability) before retrying.`
+      }
+      return `Command timed out after 60 minutes.\nPartial output:\n${tail}`
     }
 
     const status = result
