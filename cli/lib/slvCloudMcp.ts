@@ -190,7 +190,7 @@ export const deleteDnsRecord = async (
   if (opts.slug) args.slug = opts.slug
   const r = await callMcpTool<DnsDeleteSuccessResponse>(
     apiKey,
-    'delete_dns_delete',
+    'delete_dns',
     args,
   )
   if (r.ok) return { ok: true, data: r.data }
