@@ -330,6 +330,40 @@ const methods: Record<string, MethodHandler> = {
     state.session?.abort('client requested abort')
     return resOk(req, { wasRunning: was })
   },
+
+  /**
+   * Trigger `slv upgrade && slv gateway restart` asynchronously.
+   * The child is spawned detached so it outlives this process —
+   * when `slv gateway restart` SIGTERMs us, the detached shell
+   * keeps running and waits for the new binary to come back up
+   * via the systemd unit. The watchdog timer (installed by
+   * `slv gateway install`) covers the case where the restart
+   * itself fails partway.
+   *
+   * Intentionally fire-and-forget: we return ack immediately so
+   * the WS can disconnect cleanly before the shutdown.
+   */
+  'gateway.upgrade': (req, state) => {
+    if (!state.authenticated) return resErr(req, 'not authenticated')
+    try {
+      const cmd = new Deno.Command('sh', {
+        args: ['-c', 'sleep 2; slv upgrade && slv gateway restart'],
+        stdin: 'null',
+        stdout: 'null',
+        stderr: 'null',
+      })
+      // detached / orphaned child. unref makes sure Deno doesn't
+      // keep the event loop alive because of it.
+      const child = cmd.spawn()
+      child.unref()
+      return resOk(req, { started: true })
+    } catch (err) {
+      return resErr(
+        req,
+        `upgrade spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  },
 }
 
 const constantTimeEquals = (a: string, b: string): boolean => {

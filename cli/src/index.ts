@@ -25,6 +25,7 @@ import { disableCmd } from '@/disable/index.ts'
 import { addSshCmd } from '@/addSsh/index.ts'
 import { gatewayCmd } from '@/gateway/index.ts'
 import { dnsCmd } from '@/dns/index.ts'
+import { doctorCmd } from '@/doctor/index.ts'
 import { prepareLocalDb } from '@db/dbInit.ts'
 
 const program = new Command()
@@ -106,6 +107,9 @@ program
 
 program
   .command('check', checkCmd)
+
+program
+  .command('doctor', doctorCmd)
 
 program
   .command('ai', aiCmd)

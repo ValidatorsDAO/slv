@@ -46,6 +46,8 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     ),
     attachTitle: t('Attach image'),
     dropHere: t('Drop images here to attach'),
+    updateTitle: t('Update to the latest slv version (runs `slv upgrade && slv gateway restart`).'),
+    updateLabel: t('Update'),
   }
   // Strings the client JS needs at runtime (status labels, chat
   // message prefixes, the reconnect countdown template). Baked in
@@ -80,6 +82,9 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     workLog: t('Operation log'),
     consulting: t('Consulting {agent}…'),
     running: t('Running {tool}…'),
+    updateReady: t('Update → v{version}'),
+    updateConfirm: t('Update slv on this host to v{version}? The chat will reconnect in ~30 seconds.'),
+    updating: t('Updating…'),
   }
   const i18nJson = JSON.stringify(clientI18n)
   return `<!doctype html>
@@ -180,6 +185,18 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   header .badge.version { background: #1d2a38; color: #7a9abb; }
+  header #update-btn {
+    display: none;
+    background: #2d3a2d;
+    color: #7ebd7e;
+    border: 1px solid #3d5a3d;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font: 11px var(--mono);
+    cursor: pointer;
+  }
+  header #update-btn:hover { background: #3a4d3a; color: #9edf9e; }
+  header #update-btn.upgrading { opacity: 0.6; cursor: progress; }
   header #clear {
     background: transparent;
     color: var(--muted);
@@ -451,6 +468,7 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   <span class="title">🌐 SLV Chat</span>
   <span class="badge ${opts.mode}">${opts.mode}</span>
   <span class="badge version">v${VERSION}</span>
+  <button id="update-btn" type="button" title="${html.updateTitle}">${html.updateLabel}</button>
   <button id="clear" type="button" title="${html.clearTitle}">${html.clear}</button>
   <span id="status" class="status">${clientI18n.connecting}</span>
 </header>
@@ -481,6 +499,7 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   const sendBtn = document.getElementById('send')
   const abortBtn = document.getElementById('abort')
   const clearBtn = document.getElementById('clear')
+  const updateBtn = document.getElementById('update-btn')
   const statusEl = document.getElementById('status')
   const footerEl = document.getElementById('footer')
   const gateEl = document.getElementById('gate')
@@ -719,6 +738,53 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
       try { localStorage.removeItem(logKey) } catch { /* ignore */ }
     }
   }
+
+  // --- Update-available probe ----------------------------------
+  // On load and every 30 min, fetch the install script from
+  // storage.slv.dev and grep its VERSION="…" line. If newer than
+  // the baked-in VERSION, reveal the Update button. The fetch is
+  // cross-origin but the install script is public, so CORS is OK
+  // — the user's browser caches it for 5 min via Cloudflare.
+  const currentVersion = '${VERSION}'
+  let latestVersion = currentVersion
+  const compareCalVer = (a, b) => {
+    const ap = a.split('.').map((n) => parseInt(n, 10) || 0)
+    const bp = b.split('.').map((n) => parseInt(n, 10) || 0)
+    for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+      const av = ap[i] ?? 0
+      const bv = bp[i] ?? 0
+      if (av !== bv) return av - bv
+    }
+    return 0
+  }
+  const checkLatest = async () => {
+    try {
+      const res = await fetch('https://storage.slv.dev/slv/install', { cache: 'no-store' })
+      if (!res.ok) return
+      const body = await res.text()
+      const m = body.match(/VERSION=[\"']([0-9.]+)[\"']/)
+      if (!m) return
+      const v = m[1]
+      if (compareCalVer(v, currentVersion) > 0) {
+        latestVersion = v
+        updateBtn.textContent = I18N.updateReady.replace('{version}', v)
+        updateBtn.style.display = 'inline-block'
+      }
+    } catch { /* offline / CORS / whatever — silent */ }
+  }
+  checkLatest()
+  setInterval(checkLatest, 30 * 60 * 1000)
+
+  updateBtn.addEventListener('click', async () => {
+    if (updateBtn.classList.contains('upgrading')) return
+    if (!confirm(I18N.updateConfirm.replace('{version}', latestVersion))) return
+    updateBtn.classList.add('upgrading')
+    updateBtn.textContent = I18N.updating
+    try {
+      await req('gateway.upgrade', {})
+      setStatus(I18N.updating, 'warn')
+    } catch { /* WS may be mid-disconnect; the gateway restart will flush us */ }
+  })
 
   clearBtn.addEventListener('click', () => {
     history = []

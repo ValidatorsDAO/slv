@@ -291,6 +291,13 @@ export const messages: Record<string, string> = {
   'Remove image': 'Remove image',
   '📎 {n} image(s) attached': '📎 {n} image(s) attached',
   'Operation log': 'Operation log',
+  'Update to the latest slv version (runs `slv upgrade && slv gateway restart`).':
+    'Update to the latest slv version (runs `slv upgrade && slv gateway restart`).',
+  'Update': 'Update',
+  'Update → v{version}': 'Update → v{version}',
+  'Update slv on this host to v{version}? The chat will reconnect in ~30 seconds.':
+    'Update slv on this host to v{version}? The chat will reconnect in ~30 seconds.',
+  'Updating…': 'Updating…',
   'Consulting {agent}…': 'Consulting {agent}…',
   'Running {tool}…': 'Running {tool}…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':
