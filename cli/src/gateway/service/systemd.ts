@@ -116,10 +116,45 @@ const systemctl = async (
   return { success: out.success, stdout: out.stdout, stderr: out.stderr }
 }
 
+// Turn on linger for the invoking user so the user-level systemd
+// session (and therefore slv-gateway.service) survives SSH
+// disconnects. Without this, the gateway dies every time the last
+// login session ends — producing Cloudflare 502s for remote users.
+// Idempotent: `loginctl enable-linger` on an already-lingering user
+// is a no-op. Requires sudo; failure is surfaced to the caller but
+// is non-fatal for the install (the user may be already lingering
+// via OS defaults, or may intentionally run slv only during their
+// SSH session).
+const ensureLinger = async (): Promise<void> => {
+  const user = Deno.env.get('USER') || Deno.env.get('LOGNAME') || ''
+  if (!user) return
+  // Fast path: already lingering?
+  const probe = await localExec('loginctl', ['show-user', user])
+  if (probe.success && /Linger=yes/.test(probe.stdout)) return
+  const enable = await localExec('sudo', [
+    '-n',
+    'loginctl',
+    'enable-linger',
+    user,
+  ])
+  if (!enable.success) {
+    console.warn(
+      `  ⚠ could not enable systemd linger for user "${user}": ${
+        enable.stderr.trim() || 'sudo refused'
+      }\n     Run \`sudo loginctl enable-linger ${user}\` manually so the gateway survives SSH disconnects.`,
+    )
+  }
+}
+
 export class SystemdUserService implements GatewayService {
   readonly name = 'systemd --user'
 
   async install(opts: InstallOptions): Promise<void> {
+    // Enable systemd linger FIRST so the unit we're about to
+    // install survives SSH disconnects. Doing this before enable
+    // avoids a race where the service is enabled but the user
+    // session tears down on SSH logout, killing the gateway.
+    await ensureLinger()
     const path = systemdUnitPath()
     await Deno.mkdir(dirname(path), { recursive: true })
     await Deno.writeTextFile(path, renderSystemdUnit(opts))
