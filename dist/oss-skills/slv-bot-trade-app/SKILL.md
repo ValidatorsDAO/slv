@@ -52,6 +52,25 @@ Linux:
 cargo build -r
 ```
 
+**⚠ Non-engineer-friendly warning — say this BEFORE you start the
+build.** The first `cargo build -r` compiles hundreds of Solana
+crates and realistically takes **5–15 minutes** on a modern VPS.
+The chat UI's spinner will keep turning the whole time; tell the
+user up front so they don't think it froze:
+
+> "これから Rust のビルドが始まります。初回だけ 5〜15 分ほどかかります。
+> この間チャット画面は『実行中』のままですが、固まっているわけでは
+> ないので少しお待ちください。"
+
+If the VPS has **< 4 GB RAM or 2 vCPUs**, the build can run out of
+memory (killed by OOM) or never finish. If that happens, say:
+
+> "今の VPS のスペックだとビルドが完了しないようです。core2 以上の
+> プランにアップグレードすると安定して動きます。
+> https://dashboard.erpc.global から変更できます。"
+
+Check `free -m` / `nproc` before building if you're unsure.
+
 ### 4. Run (background, with PID file and bounded readiness check)
 ```bash
 cd ~/slv/solana-trade-bot

@@ -77,6 +77,9 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     errImageTotalSize: t(
       'Attached images total {mb} MB; max {max} MB combined.',
     ),
+    workLog: t('Operation log'),
+    consulting: t('Consulting {agent}…'),
+    running: t('Running {tool}…'),
   }
   const i18nJson = JSON.stringify(clientI18n)
   return `<!doctype html>
@@ -129,6 +132,53 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     border-radius: 4px;
   }
   header .badge.lan { background: #3d3218; color: #ffdf7a; }
+  .work-log {
+    margin: 6px 0;
+    padding: 8px 10px;
+    background: #0f1720;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font: 12px var(--mono);
+    color: var(--muted);
+  }
+  .work-log > summary {
+    cursor: pointer;
+    user-select: none;
+    color: var(--muted);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .work-log > summary::-webkit-details-marker { display: none; }
+  .work-log > summary::before {
+    content: '▸';
+    display: inline-block;
+    transition: transform 120ms ease;
+  }
+  .work-log[open] > summary::before { transform: rotate(90deg); }
+  .work-log .spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid transparent;
+    border-top-color: var(--muted);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  .work-log.done .spinner { display: none; }
+  .work-log .items {
+    margin-top: 6px;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .work-log .items > div {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   header .badge.version { background: #1d2a38; color: #7a9abb; }
   header #clear {
     background: transparent;
@@ -468,6 +518,51 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   let currentAssistantEntry = null
   let thinkingEl = null
   let assistantLabel = I18N.assistant
+  // Current turn's collapsible work-log block. Opened on first tool
+  // event, sealed (marked done) on terminal events. All tool_use_start
+  // / tool_stdout / tool_progress events of the turn accumulate here
+  // so non-engineer users see one tidy "Operation log" instead of a
+  // flood of raw stdout / JSON-argument blocks.
+  let currentWorkLog = null
+  // Filter rules for tool_stdout — drop low-signal diagnostic lines
+  // that make the chat feel like a log viewer. These are config probes
+  // and redaction markers, not user-facing progress.
+  const STDOUT_NOISE = /^(NO_SLV_DIR|api_key:|lang:|discord_webhook:|[A-Z][A-Z0-9_]{2,}\s*[:=])/
+  const sealWorkLog = () => {
+    if (!currentWorkLog) return
+    currentWorkLog.el.classList.add('done')
+    // Reset the summary to the generic label so a completed block
+    // doesn't read as "still running X".
+    currentWorkLog.summaryLabel.textContent = I18N.workLog
+    currentWorkLog = null
+  }
+  const ensureWorkLog = () => {
+    if (currentWorkLog) return currentWorkLog
+    const details = document.createElement('details')
+    details.className = 'work-log'
+    const summary = document.createElement('summary')
+    const spin = document.createElement('span')
+    spin.className = 'spinner'
+    const label = document.createElement('span')
+    label.textContent = I18N.workLog
+    summary.appendChild(spin)
+    summary.appendChild(label)
+    details.appendChild(summary)
+    const items = document.createElement('div')
+    items.className = 'items'
+    details.appendChild(items)
+    log.appendChild(details)
+    log.scrollTop = log.scrollHeight
+    currentWorkLog = { el: details, items, summaryLabel: label }
+    return currentWorkLog
+  }
+  const appendWorkLogLine = (text) => {
+    const wl = ensureWorkLog()
+    const row = document.createElement('div')
+    row.textContent = text
+    wl.items.appendChild(row)
+    log.scrollTop = log.scrollHeight
+  }
 
   // Pending image attachments for the NEXT outbound message. Each
   // entry: { mime, base64, dataUri, rawBytes, name, thumbEl }. The
@@ -873,6 +968,10 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
       if (p.type !== 'status') hideThinking()
       switch (p.type) {
         case 'text_delta':
+          // Real response started streaming — seal any pending work
+          // log (so its spinner stops) and render into the assistant
+          // message that appears below it.
+          sealWorkLog()
           if (!currentAssistantEl) {
             const added = addMsg('assistant', assistantLabel, '')
             currentAssistantEl = added.pre
@@ -884,17 +983,37 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
           }
           log.scrollTop = log.scrollHeight
           break
-        case 'tool_use_start':
-          addMsg('tool', '⚡ ' + (p.name || 'tool'), typeof p.args === 'string' ? p.args : JSON.stringify(p.args || {}, null, 2))
+        case 'tool_use_start': {
+          // delegate_to_agent is AI-to-AI routing — user shouldn't see
+          // the nested {agent, task} JSON. Show a clean "Consulting X…"
+          // line in the work log AND update the summary so the spinner
+          // always advertises what's currently happening.
+          const name = p.name || 'tool'
+          const label = name === 'delegate_to_agent'
+            ? I18N.consulting.replace(
+                '{agent}',
+                (p.args && p.args.agent) || 'specialist',
+              )
+            : I18N.running.replace('{tool}', name)
+          appendWorkLogLine(label)
+          if (currentWorkLog) currentWorkLog.summaryLabel.textContent = label
           break
-        case 'tool_stdout':
-          addMsg('tool', '   stdout', p.text || '')
+        }
+        case 'tool_stdout': {
+          const raw = (p.text || '').trimEnd()
+          if (!raw) break
+          // Drop low-signal config-probe lines; they make the chat
+          // feel like a log viewer without telling the user anything.
+          if (STDOUT_NOISE.test(raw)) break
+          appendWorkLogLine(raw)
           break
+        }
         case 'tool_progress':
-          addMsg('tool', '   ' + (p.label || 'progress'), '')
+          if (p.label) appendWorkLogLine(p.label)
           break
         case 'complete':
         case 'aborted':
+          sealWorkLog()
           saveHistory()
           currentAssistantEl = null
           currentAssistantEntry = null
@@ -905,6 +1024,7 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
           }
           break
         case 'error':
+          sealWorkLog()
           addMsg('error', I18N.errorLabel, p.message || '')
           currentAssistantEl = null
           currentAssistantEntry = null

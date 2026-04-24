@@ -267,6 +267,9 @@ export const messages: Record<string, string> = {
   'Drop images here to attach': 'ここに画像をドロップして添付',
   'Remove image': '画像を削除',
   '📎 {n} image(s) attached': '📎 画像 {n} 枚を添付',
+  'Operation log': '作業ログ',
+  'Consulting {agent}…': '{agent} に相談中…',
+  'Running {tool}…': '{tool} を実行中…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':
     'JPEG / PNG / GIF / WebP 画像のみ対応しています。',
   'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':
