@@ -268,6 +268,13 @@ export const messages: Record<string, string> = {
   'Remove image': '画像を削除',
   '📎 {n} image(s) attached': '📎 画像 {n} 枚を添付',
   'Operation log': '作業ログ',
+  'Update to the latest slv version (runs `slv upgrade && slv gateway restart`).':
+    '最新版に更新します（`slv upgrade && slv gateway restart` を実行）',
+  'Update': '更新',
+  'Update → v{version}': '更新 → v{version}',
+  'Update slv on this host to v{version}? The chat will reconnect in ~30 seconds.':
+    'このホストの slv を v{version} に更新しますか？ チャットは 30 秒ほどで再接続します。',
+  'Updating…': '更新中…',
   'Consulting {agent}…': '{agent} に相談中…',
   'Running {tool}…': '{tool} を実行中…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':

@@ -41,7 +41,12 @@ slv backup create --upload -y -r eu --retention 7
 - `--exclude <path>` — add extra excludes on top of the built-in list. Repeatable.
 - `--include <path>` — remove a path from the default exclude list. Repeatable.
 - `--webhook <url>` — Discord webhook for notifications. Omit to reuse `SLV_BACKUP_WEBHOOK` env.
-- `--restic` — use restic instead of tar+zstd. Requires restic installed. Pair with `-y`.
+- `--restic` — use restic instead of tar+zstd. Client-side encrypted
+  (password-protected repository), deduplicated, incremental. Requires
+  restic installed. Pair with `-y`. **Strongly preferred any time the
+  backup contains private material** (wallet.json, validator keypairs,
+  `.env` with API keys). The tar+zstd default is UNENCRYPTED — fine
+  for public config, unsafe for anything that owns funds.
 
 ### List backups
 ```bash
@@ -74,6 +79,37 @@ slv backup restore <remote-file-or-snapshot-id> -y -r eu
 slv backup create --cron daily -r eu --retention 7 -y
 # other values: weekly, monthly, off
 ```
+**Recommend this to non-engineer users** as soon as they finish a
+trade-bot / validator deploy — daily encrypted restic backups are
+the difference between "we lost the wallet" and "we restored it in
+5 minutes". Pair the `--cron` option with `--restic`:
+```bash
+slv backup create --cron daily --restic -r <region> --retention 14 -y
+```
+To stop scheduled backups later: `slv backup create --cron off`.
+
+---
+
+## Agent guidance — when to reach for which mode
+
+Default behavior priority, top-down:
+
+1. **If a wallet.json or signer key exists anywhere under `~/slv/` or
+   `~/.slv/` (including `~/.slv/wallet-rescue/`), use `--restic`.**
+   Prompt the user once for a restic password, remember the chosen
+   region, and never fall back to tar+zstd for these files. Plain tar
+   ships the private key in the clear and the user cannot undo that
+   after the archive is uploaded.
+2. **If the user asks for "a backup" generically and has a bot
+   deployed**, assume case 1 and offer `--restic --cron daily` as a
+   first suggestion (daily encrypted, 14-day retention).
+3. **Config-only / read-heavy states** (template dir, validator
+   inventory YAML, nothing private) — plain `--upload` is fine. Tell
+   the user explicitly that it's unencrypted at rest.
+
+After any `slv backup create`, append a one-line note to MEMORY.md
+recording region + mode (restic/tar) + retention so the next session
+doesn't re-ask.
 
 ---
 

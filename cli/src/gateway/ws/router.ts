@@ -330,7 +330,66 @@ const methods: Record<string, MethodHandler> = {
     state.session?.abort('client requested abort')
     return resOk(req, { wasRunning: was })
   },
+
+  /**
+   * Trigger `slv upgrade && slv gateway restart` asynchronously.
+   *
+   * Gotcha that shaped this: the gateway's systemd unit has
+   * KillMode=control-group, so a plain `Deno.Command` child lives
+   * in our cgroup and gets SIGTERMed when `slv gateway restart`
+   * kills us. That would interrupt `slv upgrade` mid-swap. We
+   * launch the shell via `systemd-run --user --scope` to put it in
+   * its own cgroup, independent of our lifetime. stdout/stderr go
+   * to /tmp/slv-upgrade.log so post-incident debugging is possible
+   * instead of silently losing errors.
+   *
+   * Module-scoped upgradeInFlight flag guards against double-spawn
+   * from rapid clicks or a second tab — overlapping `slv upgrade`
+   * processes can corrupt the binary.
+   */
+  'gateway.upgrade': (req, state) => {
+    if (!state.authenticated) return resErr(req, 'not authenticated')
+    if (upgradeInFlight) {
+      return resErr(req, 'upgrade already in progress')
+    }
+    try {
+      upgradeInFlight = true
+      // Reset after a generous window so a failed upgrade isn't
+      // locked forever — the user can click Update again.
+      setTimeout(() => { upgradeInFlight = false }, 5 * 60 * 1000)
+      const cmdLine =
+        'sleep 2; (slv upgrade && slv gateway restart) >/tmp/slv-upgrade.log 2>&1'
+      const cmd = new Deno.Command('systemd-run', {
+        args: [
+          '--user',
+          '--scope',
+          '--collect',
+          '--unit',
+          `slv-upgrade-${Date.now()}`,
+          'sh',
+          '-c',
+          cmdLine,
+        ],
+        stdin: 'null',
+        stdout: 'null',
+        stderr: 'null',
+      })
+      const child = cmd.spawn()
+      child.unref()
+      return resOk(req, { started: true })
+    } catch (err) {
+      upgradeInFlight = false
+      return resErr(
+        req,
+        `upgrade spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  },
 }
+
+// Module-scoped guard against concurrent upgrades. Cleared on spawn
+// failure or after a 5-minute timeout (see handler above).
+let upgradeInFlight = false
 
 const constantTimeEquals = (a: string, b: string): boolean => {
   if (a.length !== b.length) return false

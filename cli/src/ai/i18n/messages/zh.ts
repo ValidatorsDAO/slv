@@ -260,6 +260,13 @@ export const messages: Record<string, string> = {
   'Remove image': '移除图片',
   '📎 {n} image(s) attached': '📎 已添加 {n} 张图片',
   'Operation log': '操作日志',
+  'Update to the latest slv version (runs `slv upgrade && slv gateway restart`).':
+    '更新到最新 slv 版本（执行 `slv upgrade && slv gateway restart`）。',
+  'Update': '更新',
+  'Update → v{version}': '更新 → v{version}',
+  'Update slv on this host to v{version}? The chat will reconnect in ~30 seconds.':
+    '将此主机上的 slv 更新到 v{version}？ 约 30 秒后聊天将重新连接。',
+  'Updating…': '更新中…',
   'Consulting {agent}…': '正在咨询 {agent}…',
   'Running {tool}…': '正在运行 {tool}…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':

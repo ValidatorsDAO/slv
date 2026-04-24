@@ -275,6 +275,13 @@ export const messages: Record<string, string> = {
   'Remove image': 'Xóa ảnh',
   '📎 {n} image(s) attached': '📎 Đã đính kèm {n} ảnh',
   'Operation log': 'Nhật ký thao tác',
+  'Update to the latest slv version (runs `slv upgrade && slv gateway restart`).':
+    'Cập nhật lên phiên bản slv mới nhất (chạy `slv upgrade && slv gateway restart`).',
+  'Update': 'Cập nhật',
+  'Update → v{version}': 'Cập nhật → v{version}',
+  'Update slv on this host to v{version}? The chat will reconnect in ~30 seconds.':
+    'Cập nhật slv trên máy này lên v{version}? Chat sẽ kết nối lại sau khoảng 30 giây.',
+  'Updating…': 'Đang cập nhật…',
   'Consulting {agent}…': 'Đang hỏi {agent}…',
   'Running {tool}…': 'Đang chạy {tool}…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':
