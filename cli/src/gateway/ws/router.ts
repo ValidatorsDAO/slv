@@ -9,7 +9,10 @@ import { echoDriver, Session } from '/src/ai/core/session.ts'
 import { providerDriver } from '/src/ai/core/drivers/provider.ts'
 import { readAiConfig } from '/src/ai/config.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
-import { loadAgentContext } from '/src/ai/agentConfig/loader.ts'
+import {
+  invalidateAgentContext,
+  loadAgentContext,
+} from '/src/ai/agentConfig/loader.ts'
 import { buildSystemPrompt } from '/src/ai/console/systemPrompt.ts'
 import {
   explainImageParseError,
@@ -41,6 +44,45 @@ export const newConnState = (): ConnState => ({
   session: null,
   sessionKind: null,
 })
+
+// Cross-reconnect Session store. Keyed by `token:provider:model`
+// so the same browser reattaches to the same provider instance
+// (preserving its in-memory message history) even when the WS
+// connection drops or the user refreshes the tab. Without this,
+// every reconnect spun up a fresh provider and EL lost all prior
+// turns — the user observed "これが最初のセッションです" after
+// sending a follow-up question.
+type SessionEntry = {
+  session: Session
+  kind: 'provider'
+  // Unsubscribe handle for the previously-attached WS's emitEvent
+  // listener. We drop it before attaching the new connection's
+  // listener so events aren't broadcast to dead sockets.
+  unsubscribe: (() => void) | null
+  lastActiveMs: number
+}
+
+const sessionStore = new Map<string, SessionEntry>()
+// Evict entries idle longer than this. 30 minutes balances "brief
+// laptop-lid close" reconnects against unbounded memory growth for
+// long-lived gateway processes.
+const SESSION_TTL_MS = 30 * 60 * 1000
+// Sweep frequency for GC — cheap (iterate a small Map) so we can
+// run it at the top of each session.send without setInterval
+// plumbing that'd leak across process restarts.
+const SESSION_GC_INTERVAL_MS = 5 * 60 * 1000
+let lastGcMs = 0
+
+const gcSessionStore = (now: number): void => {
+  if (now - lastGcMs < SESSION_GC_INTERVAL_MS) return
+  lastGcMs = now
+  for (const [key, entry] of sessionStore) {
+    if (now - entry.lastActiveMs > SESSION_TTL_MS) {
+      entry.unsubscribe?.()
+      sessionStore.delete(key)
+    }
+  }
+}
 
 import type { SessionEvent } from '/src/ai/core/events.ts'
 
@@ -213,13 +255,17 @@ const methods: Record<string, MethodHandler> = {
       }
     }
 
+    // Invalidate the cached agent context so MEMORY.md / USER.md /
+    // SOUL.md edits made between turns (or by EL itself via
+    // write_file) propagate on the next turn without waiting for
+    // a gateway restart.
+    invalidateAgentContext()
+
     // Hydrate the same system prompt the TUI uses so browser chat has
     // access to SOUL.md (agent identity), USER.md (user profile + name),
     // MEMORY.md (persisted session notes), enabled skills, and the
     // sub-agent team. Without this, `/ui/` just talks to a raw LLM with
     // no context and the conversation feels disconnected from `slv c`.
-    // buildSystemPrompt memoizes via loadAgentContext, so the cost is a
-    // one-time FS read per process.
     let systemPrompt = ''
     try {
       systemPrompt = await buildSystemPrompt()
@@ -230,22 +276,39 @@ const methods: Record<string, MethodHandler> = {
       )
     }
 
-    // Reuse the existing provider Session across turns so message
-    // history accumulates — otherwise the model forgets everything
-    // the user said on the prior turn. Rebuild if this is the
-    // first send on the connection OR the previous session on this
-    // connection was the echo driver (different driver kind).
-    if (state.session === null || state.sessionKind !== 'provider') {
+    // Reuse the existing provider Session across WS reconnects via
+    // the token-keyed sessionStore. `state.session` handles the
+    // same-connection case; the store handles the cross-connection
+    // case (tab refresh, laptop-lid close, network hiccup).
+    const now = Date.now()
+    gcSessionStore(now)
+    const storeKey = `${ctx.token}:${aiCfg.provider}:${aiCfg.model}`
+    let entry = sessionStore.get(storeKey)
+    const stale = !entry || now - entry.lastActiveMs > SESSION_TTL_MS
+
+    if (stale || state.sessionKind === 'echo') {
       const driver = providerDriver({
         kind: aiCfg.provider,
         apiKey,
         model: aiCfg.model,
         systemPrompt,
       })
-      state.session = new Session(driver)
-      state.session.on((event) => ctx.emitEvent(event))
+      const session = new Session(driver)
+      entry = { session, kind: 'provider', unsubscribe: null, lastActiveMs: now }
+      sessionStore.set(storeKey, entry)
+    }
+
+    // Attach this WS's listener if it's a new connection (or a
+    // different WS than the one previously attached to this
+    // Session). Drop the prior listener first so dead sockets
+    // don't silently receive events.
+    if (state.session !== entry!.session) {
+      entry!.unsubscribe?.()
+      entry!.unsubscribe = entry!.session.on((event) => ctx.emitEvent(event))
+      state.session = entry!.session
       state.sessionKind = 'provider'
     }
+    entry!.lastActiveMs = now
 
     state.session.send(input).catch(() => {
       // Session.send swallows errors into `error` events.
