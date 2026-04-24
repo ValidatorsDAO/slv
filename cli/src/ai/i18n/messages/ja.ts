@@ -346,8 +346,8 @@ export const messages: Record<string, string> = {
   'Creating support ticket...': 'サポートチケットを作成中…',
   'Ticket creation failed: {err}': 'チケット作成に失敗しました: {err}',
   'Ticket opened. Follow up here:': 'チケットを作成しました。こちらで確認してください:',
-  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
-    'セキュリティ: 上記の URL をタップしてブラウザで SLV AI を開き、そのまま「ファイアウォール（nftables）とスマホで WireGuard の設定を手伝って」と頼んでください。ターミナル不要、チャット画面だけで進められます。',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.':
+    'セキュリティ: 上記の URL をタップしてブラウザで SLV AI を開き、そのまま「ファイアウォールの設定を手伝って」と頼んでください。ターミナル不要、チャット画面だけで進められます。',
   'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
     'HTTPS と無料の *.erpc.global サブドメインを自動で使うには、SLV VPS または BareMetal 上で SLV を動かしてください（ダッシュボードから調達できます）:',
   'Gateway is already running.': 'ゲートウェイは既に稼働中です。',
@@ -355,8 +355,8 @@ export const messages: Record<string, string> = {
     'IP でのリモートアクセスを有効にしますか？（VPS 推奨）',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     'ゲートウェイを 0.0.0.0 に bind して、スマホやノート PC から直接 http://<server-ip>:{port}/ui/ を開けるようにします。チャットはすべてトークン認証でガードされます。',
-  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
-    '次のステップ: オンボードが完了したら `slv c` を実行して、SLV AI にファイアウォール（nftables）とスマホでの WireGuard 設定を手伝ってもらいましょう。動画解説は後日公開予定。',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.':
+    '次のステップ: オンボードが完了したら `slv c` を実行して、SLV AI にファイアウォールの設定を手伝ってもらいましょう。動画解説は後日公開予定。',
   'Enable remote IP access now?': '今すぐリモート IP アクセスを有効にしますか？',
   'Remote IP access enabled — gateway restarted.':
     'リモート IP アクセスを有効化 — ゲートウェイを再起動しました。',
@@ -372,8 +372,8 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': 'ブラウザから SLV を開けます:',
   'Gateway token (paste on first visit):':
     'ゲートウェイトークン（初回アクセス時に貼り付け）:',
-  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
-    'セキュリティ: `slv c` を実行して、SLV AI にファイアウォール（nftables）とスマホでの WireGuard 設定を手伝ってもらいましょう。',
+  'Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.':
+    'セキュリティ: `slv c` を実行して、SLV AI にファイアウォールの設定を手伝ってもらいましょう。',
   'Video walkthrough: coming soon.': '動画解説: 後日公開予定。',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     'ループバック限定モード — 外から開くには、まず SSH トンネルを張ってください:',

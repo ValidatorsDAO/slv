@@ -354,8 +354,8 @@ export const messages: Record<string, string> = {
   'Creating support ticket...': 'Đang tạo ticket hỗ trợ…',
   'Ticket creation failed: {err}': 'Tạo ticket thất bại: {err}',
   'Ticket opened. Follow up here:': 'Đã mở ticket. Theo dõi tại:',
-  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
-    'Bảo mật: chạm URL phía trên để mở SLV AI trong trình duyệt, rồi nhờ nó hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại). Trò chuyện ngay trong trình duyệt — không cần terminal.',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.':
+    'Bảo mật: chạm URL phía trên để mở SLV AI trong trình duyệt, rồi nhờ nó hướng dẫn cài firewall. Trò chuyện ngay trong trình duyệt — không cần terminal.',
   'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
     'Để tự động có HTTPS và subdomain *.erpc.global miễn phí, hãy chạy SLV trên SLV VPS hoặc BareMetal (tạo qua dashboard):',
   'Gateway is already running.': 'Cổng đang chạy.',
@@ -363,8 +363,8 @@ export const messages: Record<string, string> = {
     'Bật truy cập từ xa bằng IP? (khuyến nghị cho VPS)',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     'Bind cổng vào 0.0.0.0 để bạn có thể mở http://<server-ip>:{port}/ui/ trực tiếp từ điện thoại/laptop. Mọi thao tác chat vẫn được bảo vệ bằng token.',
-  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
-    'Bước tiếp theo: khi onboard hoàn tất, chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại). Video hướng dẫn sẽ có sau.',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.':
+    'Bước tiếp theo: khi onboard hoàn tất, chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall. Video hướng dẫn sẽ có sau.',
   'Enable remote IP access now?': 'Bật truy cập từ xa bằng IP ngay?',
   'Remote IP access enabled — gateway restarted.':
     'Đã bật truy cập từ xa bằng IP — cổng được khởi động lại.',
@@ -380,8 +380,8 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': 'Mở SLV trong trình duyệt:',
   'Gateway token (paste on first visit):':
     'Token cổng (dán khi truy cập lần đầu):',
-  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
-    'Bảo mật: chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall (nftables) và WireGuard (với app trên điện thoại).',
+  'Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.':
+    'Bảo mật: chạy `slv c` và nhờ SLV AI hướng dẫn cài firewall.',
   'Video walkthrough: coming soon.': 'Video hướng dẫn: sẽ có sau.',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     'Chế độ chỉ loopback — Trước khi mở URL từ nơi khác, hãy tạo SSH tunnel trước:',

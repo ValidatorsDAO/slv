@@ -969,7 +969,7 @@ const maybeEnableLanMode = async (
     colors.bold.rgb24(
       `    ⚠ ${
         t(
-          'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.',
+          'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.',
         )
       }`,
       0xffdf7a,
@@ -1118,7 +1118,7 @@ const sendOnboardWebhook = async (opts: {
   }
   msg3Lines.push(
     `⚠️ ${
-      t('Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.')
+      t('Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.')
     }`,
     `• ${t('Video walkthrough: coming soon.')}`,
   )

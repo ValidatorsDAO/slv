@@ -338,8 +338,8 @@ export const messages: Record<string, string> = {
   'Creating support ticket...': '正在创建支持工单…',
   'Ticket creation failed: {err}': '工单创建失败: {err}',
   'Ticket opened. Follow up here:': '工单已创建。请在此跟进:',
-  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall (nftables) and WireGuard (with the app on your phone). The conversation happens right there — no terminal needed.':
-    '安全建议: 点击上方 URL 在浏览器中打开 SLV AI，直接让它帮您配置防火墙（nftables）和手机 WireGuard。对话就在浏览器里进行，无需终端。',
+  'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.':
+    '安全建议: 点击上方 URL 在浏览器中打开 SLV AI，直接让它帮您配置防火墙。对话就在浏览器里进行，无需终端。',
   'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
     '要自动启用 HTTPS 和免费 *.erpc.global 子域名，请在 SLV VPS 或 BareMetal 上运行 SLV（通过仪表板开通）:',
   'Gateway is already running.': '网关已在运行。',
@@ -347,8 +347,8 @@ export const messages: Record<string, string> = {
     '启用 IP 远程访问吗？（VPS 推荐）',
   'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.':
     '将网关绑定到 0.0.0.0，您可以直接从手机/笔记本打开 http://<server-ip>:{port}/ui/。所有聊天操作仍需令牌认证。',
-  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Video walkthrough: coming soon.':
-    '下一步：引导完成后运行 `slv c`，请 SLV AI 帮您配置防火墙（nftables）和手机 WireGuard。视频教程即将发布。',
+  'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.':
+    '下一步：引导完成后运行 `slv c`，请 SLV AI 帮您配置防火墙。视频教程即将发布。',
   'Enable remote IP access now?': '现在启用 IP 远程访问吗？',
   'Remote IP access enabled — gateway restarted.':
     'IP 远程访问已启用 — 网关已重启。',
@@ -363,8 +363,8 @@ export const messages: Record<string, string> = {
   'Open SLV in your browser:': '在浏览器中打开 SLV:',
   'Gateway token (paste on first visit):':
     '网关令牌（首次访问时粘贴）:',
-  'Security: ask SLV AI to help you set up the firewall (nftables) and WireGuard (with the app on your phone). Run `slv c` to start.':
-    '安全提醒: 运行 `slv c`，请 SLV AI 帮您配置防火墙（nftables）和手机 WireGuard。',
+  'Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.':
+    '安全提醒: 运行 `slv c`，请 SLV AI 帮您配置防火墙。',
   'Video walkthrough: coming soon.': '视频教程：即将发布。',
   'Loopback-only mode — open the URL from elsewhere via SSH tunnel first:':
     '仅回环模式 — 从其他地方打开 URL 前，请先建立 SSH 隧道:',
