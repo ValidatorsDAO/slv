@@ -156,7 +156,6 @@ export const runNginxFlow = async (
       `Origin CA issuance skipped after ${originCertResult.attempts} attempt(s): ${originCertResult.reason}`,
     )
   } else {
-    // Exception path: openssl missing, tmp-write failure, network hang.
     console.warn(
       '\n⚠  Origin CA issuance failed — HTTPS will use a self-signed ' +
         'cert and Cloudflare Full (strict) mode will reject it.\n' +
@@ -191,24 +190,45 @@ export const runNginxFlow = async (
   }
 }
 
-type OriginCertOutcome =
-  | { ok: true; certPem: string; keyPem: string }
-  | { ok: false; kind: 'tool_not_found' }
+type OriginCertRetriableFailure =
   | { ok: false; kind: 'mcp_error'; reason: string; attempts: number }
   | { ok: false; kind: 'exception'; reason: string; attempts: number }
 
-// Run the CSR + origin-cert attempt up to ORIGIN_CERT_MAX_ATTEMPTS times
-// with a short backoff. Retries only on transient conditions (caught
-// exceptions, 5xx, 408, 429). Permanent outcomes (tool_not_found,
-// invalid_csr, premium_required, …) short-circuit immediately.
+type OriginCertOutcome =
+  | { ok: true; certPem: string; keyPem: string }
+  | { ok: false; kind: 'tool_not_found' }
+  | OriginCertRetriableFailure
+
+// Retries only on transient conditions. Permanent outcomes —
+// tool_not_found, 4xx other than 408/429, malformed-fqdn throws,
+// and a missing openssl binary — short-circuit immediately so we
+// don't burn backoff on errors that can never succeed.
 const ORIGIN_CERT_MAX_ATTEMPTS = 3
-const ORIGIN_CERT_BACKOFF_MS = [0, 1500, 4000]
+// Waits BETWEEN attempts: [0]=after attempt 1, [1]=after attempt 2.
+const ORIGIN_CERT_BACKOFF_MS = [1500, 4000]
+// Per-attempt ceiling so a hung socket can't freeze the install
+// for the fetch layer's default timeout (~2 min × 3 attempts).
+const ORIGIN_CERT_ATTEMPT_TIMEOUT_MS = 30_000
+
+const isPermanentException = (err: unknown): boolean => {
+  if (err instanceof Deno.errors.NotFound) return true
+  const msg = err instanceof Error ? err.message : String(err)
+  return /refusing malformed fqdn|No such file|ENOENT/i.test(msg)
+}
+
+const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+  Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ])
 
 const issueOriginCertWithRetry = async (
   opts: NginxFlowInput,
   fqdn: string,
 ): Promise<OriginCertOutcome> => {
-  let lastOutcome: OriginCertOutcome = {
+  let lastOutcome: OriginCertRetriableFailure = {
     ok: false,
     kind: 'exception',
     reason: 'no attempts ran',
@@ -216,18 +236,19 @@ const issueOriginCertWithRetry = async (
   }
   for (let attempt = 1; attempt <= ORIGIN_CERT_MAX_ATTEMPTS; attempt++) {
     if (attempt > 1) {
-      const wait = ORIGIN_CERT_BACKOFF_MS[attempt - 1] ?? 4000
+      const wait = ORIGIN_CERT_BACKOFF_MS[attempt - 2]
       console.log(
-        `  Retrying Origin CA issuance (attempt ${attempt}/${ORIGIN_CERT_MAX_ATTEMPTS}, waiting ${wait}ms)...`,
+        `  Retrying Origin CA issuance (attempt ${attempt}/${ORIGIN_CERT_MAX_ATTEMPTS}, waiting ${wait}ms; previous: ${lastOutcome.reason})...`,
       )
       await new Promise((r) => setTimeout(r, wait))
     }
     try {
       const csr = await generateCsr(fqdn)
-      const cert = await requestOriginCert(opts.apiKey, {
-        csr: csr.csrPem,
-        slug: opts.slug,
-      })
+      const cert = await withTimeout(
+        requestOriginCert(opts.apiKey, { csr: csr.csrPem, slug: opts.slug }),
+        ORIGIN_CERT_ATTEMPT_TIMEOUT_MS,
+        'Origin CA request',
+      )
       if (cert.ok) {
         return { ok: true, certPem: cert.data.certificate, keyPem: csr.keyPem }
       }
@@ -244,8 +265,7 @@ const issueOriginCertWithRetry = async (
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       lastOutcome = { ok: false, kind: 'exception', reason, attempts: attempt }
-      // Caught exceptions are almost always transient (network hiccup,
-      // brief openssl PATH gap on a fresh VPS) — keep retrying.
+      if (isPermanentException(err)) return lastOutcome
     }
   }
   return lastOutcome
