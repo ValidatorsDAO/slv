@@ -274,6 +274,9 @@ export const messages: Record<string, string> = {
   'Drop images here to attach': 'Thả ảnh vào đây để đính kèm',
   'Remove image': 'Xóa ảnh',
   '📎 {n} image(s) attached': '📎 Đã đính kèm {n} ảnh',
+  'Operation log': 'Nhật ký thao tác',
+  'Consulting {agent}…': 'Đang hỏi {agent}…',
+  'Running {tool}…': 'Đang chạy {tool}…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':
     'Chỉ chấp nhận ảnh JPEG / PNG / GIF / WebP.',
   'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':

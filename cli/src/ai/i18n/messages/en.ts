@@ -290,6 +290,9 @@ export const messages: Record<string, string> = {
   'Drop images here to attach': 'Drop images here to attach',
   'Remove image': 'Remove image',
   '📎 {n} image(s) attached': '📎 {n} image(s) attached',
+  'Operation log': 'Operation log',
+  'Consulting {agent}…': 'Consulting {agent}…',
+  'Running {tool}…': 'Running {tool}…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':
     'Only JPEG, PNG, GIF, or WebP images are accepted.',
   'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':

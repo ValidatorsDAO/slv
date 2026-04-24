@@ -440,12 +440,33 @@ export const initBotTemplate = async (options: { queue: boolean; template?: stri
       const isRust = templateType.includes('rust') ||
         templateType === 'trade-app'
       console.log(colors.blue('🔧 Initializing git repository...'))
-      await exec(`cd ${appDir} && git init`)
+      // `cd X && git init` never worked — exec() can't spawn `cd`
+      // (shell builtin), so the whole thing ENOENT'd and the repo was
+      // never initialized. Pass cwd directly instead.
+      //
+      // Wrap in try/catch so a host without git installed (minimal
+      // Ubuntu images, distroless, …) still gets a usable app dir —
+      // the user can `git init` themselves later.
       try {
-        await exec(`code ${appDir}`)
-      } catch (_error) {
-        // Ignore error if code command fails
+        await exec('git init', appDir)
+      } catch {
+        console.log(
+          colors.yellow(
+            '  ⚠ git not installed — skipped `git init`. Install it with `sudo apt install -y git` if you want version control.',
+          ),
+        )
       }
+      // Optional VS Code launch — dev-workstation convenience. Silent
+      // no-op if `code` isn't on PATH (headless VPS, non-VSCode users).
+      // Spawn directly so we can swallow the NotFound exception instead
+      // of letting it leak through exec()'s error path.
+      try {
+        await new Deno.Command('code', {
+          args: [appDir],
+          stdout: 'null',
+          stderr: 'null',
+        }).output()
+      } catch { /* silent — non-critical */ }
 
       console.log(
         colors.green(
@@ -465,6 +486,17 @@ $ cp .env.sample .env
 ${msg}
   `),
       )
+      if (isRust) {
+        console.log(
+          colors.yellow(
+            '⚠ Rust first-build note: `cargo build -r` on a Solana app typically\n' +
+              '  takes 5–15 minutes on a modern VPS; on underpowered machines\n' +
+              '  (< 4 GB RAM / 2 vCPU) it may run out of memory or appear to hang.\n' +
+              '  If the build never finishes, consider upgrading your VPS plan\n' +
+              '  (e.g. to core2 or larger) from https://dashboard.erpc.global.',
+          ),
+        )
+      }
     } catch (error) {
       console.error(
         colors.red('❌ Failed to download or extract template:'),

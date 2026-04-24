@@ -259,6 +259,9 @@ export const messages: Record<string, string> = {
   'Drop images here to attach': '拖放图片到此处添加',
   'Remove image': '移除图片',
   '📎 {n} image(s) attached': '📎 已添加 {n} 张图片',
+  'Operation log': '操作日志',
+  'Consulting {agent}…': '正在咨询 {agent}…',
+  'Running {tool}…': '正在运行 {tool}…',
   'Only JPEG, PNG, GIF, or WebP images are accepted.':
     '仅支持 JPEG / PNG / GIF / WebP 图片。',
   'Image "{name}" is too large ({mb} MB). Max per image: {max} MB raw.':
