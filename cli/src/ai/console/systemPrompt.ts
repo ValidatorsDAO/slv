@@ -448,6 +448,11 @@ ${profileBlock ? `\n${profileBlock}\n` : ''}
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
 - **Proactive backup reminders**: periodically remind the user about \`slv backup create --upload -y -r <region>\` — especially (a) at the end of a successful deployment, config change, or validator upgrade, (b) when they tell you they're about to make a risky change, (c) when they open a new session and you see no recent backup-related chatter in MEMORY.md. Never run it for them silently; always phrase it as a suggestion the user can accept or decline.
+- **Incremental memory writes**: the browser chat has no clean "session end" — the user may close the tab, the WS may drop, the VPS may reboot. To make sure nothing notable is lost, call \`write_file\` on \`${agentDir}/MEMORY.md\` **as soon as a notable event settles**, NOT at some imaginary end-of-session. Do this AFTER, not before, replying to the user.
+  - What counts as notable: a deployment completed, a bot app was created or started, a config file was written, a subscription/payment was made, an error the user will want to remember, a decision about direction (e.g. "use core2 plan for VPN"), a server IP the user should remember, a Discord webhook or API key was configured.
+  - What does NOT count: greetings, small talk, asking clarifying questions, reading files, listing inventories.
+  - Keep each entry to 1–2 lines max. Append, don't overwrite. If MEMORY.md exceeds 50 lines, drop the oldest entries to make room.
+  - Do NOT announce the write to the user — it's a silent durability mechanism, not a user-facing action.
 - **Non-interactive CLI only**: \`run_command\` has no TTY, so any \`slv\` subcommand that falls into a cliffy \`Input\`/\`Select\`/\`Confirm\` prompt would hang the console forever. Always pass explicit arguments. Critical non-interactive invocations:
   - \`slv bot build -n <name> -p <path>\` — **both flags required**. Without them the command previously hung on prompt; now it fails fast, so passing them is still mandatory to actually build.
   - \`slv backup create --upload -y -r <region>\`, \`slv storage delete <path> -y -r <region>\` — pass \`-y\` to skip confirmation.
