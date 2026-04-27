@@ -1,18 +1,27 @@
 ---
-- name: Install Jito Solana (agave + solana bins from target/release)
+- name: Install Agave3
   hosts: all
   become: true
   vars_files:
     - ~/.slv/versions.yml
   vars:
-    jito_version: v{{ devnet_rpcs.version_jito }}
-    jito_repo: https://github.com/jito-foundation/jito-solana.git
-    jito_install_dir: '/home/solv/jito-solana'
-    jito_release_dir: '{{ jito_install_dir }}/target/release'
+    agave_repo: https://github.com/anza-xyz/agave.git
+    agave_install_dir: '/home/solv/agave'
+    agave_bin_dir: '{{ agave_install_dir }}/target/release'
     solana_release_dir: '/home/solv/.local/share/solana/install/active_release'
     solana_bin_dir: '{{ solana_release_dir }}/bin'
 
   tasks:
+    - name: Resolve agave version (override with -e agave_version=)
+      set_fact:
+        agave_version_resolved: "v{{ agave_version | default(mainnet_rpcs.version_agave | default('', true), true) }}"
+
+    - name: Ensure agave version is resolved
+      assert:
+        that:
+          - agave_version_resolved != 'v'
+        fail_msg: "agave_version must be provided (via -e agave_version= or mainnet_rpcs.version_agave in ~/.slv/versions.yml)"
+
     - name: Check if Rust is installed
       become: no
       shell: command -v rustc
@@ -20,7 +29,7 @@
       changed_when: false
       failed_when: false
 
-    - name: Install Rust if missing
+    - name: Install Rust
       become: no
       shell: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -44,20 +53,20 @@
         state: present
         update_cache: yes
 
-    - name: Clone Jito Solana repository
+    - name: Git clone Agave3 repository
       become: no
       git:
-        repo: '{{ jito_repo }}'
-        dest: '{{ jito_install_dir }}'
-        version: '{{ jito_version }}'
+        repo: '{{ agave_repo }}'
+        dest: '{{ agave_install_dir }}'
+        version: '{{ agave_version_resolved }}'
         force: yes
 
-    - name: Build Jito Solana (cargo-install-all)
+    - name: Build and install Agave
       become: no
       shell: |
         set -e
         source $HOME/.cargo/env
-        cd {{ jito_install_dir }}
+        cd {{ agave_install_dir }}
         ./scripts/cargo-install-all.sh .
       args:
         executable: /bin/bash
@@ -65,7 +74,15 @@
         PATH: "/home/solv/.cargo/bin:{{ ansible_env.PATH }}"
       register: build_result
 
-    # ====== Symlink agave* / solana / solana* from target/release ======
+    - name: Add Bin to PATH in .profile
+      become: no
+      lineinfile:
+        path: '/home/solv/.profile'
+        line: 'export PATH={{ solana_bin_dir }}:$PATH'
+        state: present
+        create: yes
+
+    # ====== Symlink agave*/solana/solana* into active_release/bin ======
     - name: Ensure Solana active release bin directory exists
       file:
         path: '{{ solana_bin_dir }}'
@@ -76,13 +93,13 @@
 
     - name: Find agave* and solana* binaries in target/release (include 'solana')
       find:
-        paths: '{{ jito_release_dir }}'
+        paths: '{{ agave_bin_dir }}'
         recurse: no
         file_type: file
         patterns:
+          - 'agave-*'
           - 'solana'
           - 'solana-*'
-          - 'agave-*'
       register: found_bins
 
     - name: Filter only real executables (exclude .d/.rlib/.so)
@@ -93,7 +110,7 @@
              | reject('search', '\.(d|rlib|so)$')
              | list }}
 
-    - name: Symlink agave/solana binaries into active_release/bin
+    - name: Symlink binaries into active_release/bin
       become: no
       file:
         src: '{{ item }}'
@@ -103,33 +120,17 @@
       loop: '{{ binary_candidates }}'
       when: build_result is succeeded
 
-    - name: Add Bin to PATH in .profile
-      become: no
-      lineinfile:
-        path: '/home/solv/.profile'
-        line: 'export PATH={{ solana_bin_dir }}:$PATH'
-        state: present
-        create: yes
-
-    - name: Add Bin to PATH in .profile
-      become: no
-      lineinfile:
-        path: '/home/solv/.profile'
-        line: 'export PATH={{ solana_bin_dir }}:$PATH'
-        state: present
-        create: yes
-
-    - name: Verify binaries via active_release/bin
+    - name: Verify Agave installation (via active_release/bin)
       become: no
       shell: |
-        {{ solana_bin_dir }}/solana --version || true
         {{ solana_bin_dir }}/agave-validator --version || true
+        {{ solana_bin_dir }}/solana --version || true
       args:
         executable: /bin/bash
-      register: version_check
+      register: agave_version_check
       changed_when: false
       failed_when: false
 
-    - name: Debug version output
+    - name: Debug Agave version check
       debug:
-        var: version_check.stdout
+        var: agave_version_check.stdout
