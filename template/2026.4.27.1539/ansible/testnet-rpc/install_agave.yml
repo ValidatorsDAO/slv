@@ -5,7 +5,6 @@
   vars_files:
     - ~/.slv/versions.yml
   vars:
-    agave_version: v{{ testnet_rpcs.version_agave }}
     agave_repo: https://github.com/anza-xyz/agave.git
     agave_install_dir: '/home/solv/agave'
     agave_bin_dir: '{{ agave_install_dir }}/target/release'
@@ -13,6 +12,16 @@
     solana_bin_dir: '{{ solana_release_dir }}/bin'
 
   tasks:
+    - name: Resolve agave version (override with -e agave_version=)
+      set_fact:
+        agave_version_resolved: "v{{ agave_version | default(testnet_rpcs.version_agave | default('', true), true) }}"
+
+    - name: Ensure agave version is resolved
+      assert:
+        that:
+          - agave_version_resolved != 'v'
+        fail_msg: "agave_version must be provided (via -e agave_version= or testnet_rpcs.version_agave in ~/.slv/versions.yml)"
+
     - name: Check if Rust is installed
       become: no
       shell: command -v rustc
@@ -49,7 +58,7 @@
       git:
         repo: '{{ agave_repo }}'
         dest: '{{ agave_install_dir }}'
-        version: '{{ agave_version }}'
+        version: '{{ agave_version_resolved }}'
         force: yes
 
     - name: Build and install Agave
