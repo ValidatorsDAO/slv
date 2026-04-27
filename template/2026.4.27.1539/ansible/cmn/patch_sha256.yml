@@ -5,7 +5,6 @@
   gather_facts: false
 
   vars:
-    solana_version: "v3.1.10-jito"
     is_jito_based: >-
       {{
         'jito' in (validator_type | default(''))
@@ -45,6 +44,24 @@
       when: conn_check.unreachable | default(false) or conn_check.failed | default(false)
 
   tasks:
+    - name: Resolve solana version for SHA256 patch
+      set_fact:
+        solana_version_resolved: >-
+          {{ solana_version
+             | default(jito_version_resolved
+                       | default(agave_version_resolved | default('', true),
+                                 true),
+                       true) }}
+
+    - name: Ensure solana version is resolved
+      assert:
+        that:
+          - solana_version_resolved | length > 0
+        fail_msg: >-
+          solana_version must be provided (via -e solana_version=, or set by
+          an upstream build play that defines jito_version_resolved /
+          agave_version_resolved)
+
     - name: Install build dependencies
       ansible.builtin.apt:
         name:
@@ -82,7 +99,7 @@
       ansible.builtin.git:
         repo: "{{ solana_repo_url }}"
         dest: "{{ solana_src_dir }}"
-        version: "{{ solana_version }}"
+        version: "{{ solana_version_resolved }}"
         force: yes
 
     - name: Clone optimized SHA256 repo

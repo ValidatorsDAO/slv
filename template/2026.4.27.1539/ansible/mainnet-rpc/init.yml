@@ -33,6 +33,8 @@
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
 - import_playbook: ../cmn/build_solana.yml
+- import_playbook: ../cmn/patch_sha256.yml
+  when: validator_type in ['agave', 'jito', 'jito-bam']
 - import_playbook: create-symlink.yml
 
 - import_playbook: setup_firedancer.yml
