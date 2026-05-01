@@ -1163,7 +1163,7 @@ For validator deploy, ask the main agent to collect ONLY:
 2. SSH login user (e.g. ubuntu, root, solv — default: solv)
 3. Network: mainnet / testnet
 4. Region: amsterdam / frankfurt / tokyo / ny
-5. Validator type: jito / agave / firedancer-agave / firedancer-jito (NO jito-bam)
+5. Validator type: jito / agave / allnodes-jito / firedancer-agave / firedancer-jito
 6. Identity: existing pubkey or "generate"
 7. Vote account: existing pubkey or "generate"
 
@@ -1271,9 +1271,10 @@ In your completion message, say:
 - For mainnet: "Your staked identity is ready. Switch with \`slv v set:identity\` when you're ready."
 - Do NOT say "staked-identity.json" — that file does not exist.
 
-### Validator types (for user selection — NO jito-bam)
+### Validator types (for user selection)
 - jito — Jito MEV client
 - agave — Standard Agave validator
+- allnodes-jito — Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches)
 - firedancer-agave — Firedancer with Agave consensus
 - firedancer-jito — Firedancer with Jito consensus
 

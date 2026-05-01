@@ -246,7 +246,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `network` | "mainnet, testnet, or devnet?" | `mainnet`, `testnet`, `devnet` |
 | `region` | "Server region?" | String |
 | `rpc_type` | "RPC type?" | `RPC`, `Index RPC`, `Geyser gRPC`, `Index RPC + gRPC` |
-| `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+| `validator_type` | "Underlying client?" | `agave`, `jito`, `allnodes-jito`, `firedancer-agave` |
 | `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
@@ -255,7 +255,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 
 | Variable | Default | When Required |
 |---|---|---|
-| `jito_version` | Matches solana_version | jito/jito-bam types |
+| `jito_version` | Matches solana_version | jito/allnodes-jito types |
 | `firedancer_version` | — | firedancer types |
 | `yellowstone_grpc_version` | — | Yellowstone gRPC plugin |
 | `richat_version` | — | Richat plugin |

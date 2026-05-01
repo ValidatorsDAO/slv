@@ -1,10 +1,6 @@
 import { colors } from '@cliffy/colors'
 import { Row, Table } from '@cliffy/table'
 import { genOrReadInventory } from '/lib/genOrReadInventory.ts'
-import {
-  VERSION_JITO_BAM_MAINNET,
-  VERSION_JITO_BAM_TESTNET,
-} from '@cmn/constants/version.ts'
 import type { NetworkType } from '@cmn/types/config.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 
@@ -68,9 +64,8 @@ const listValidators = async (network: NetworkType, pubkey?: string) => {
     if (network === 'mainnet') {
       if (validator.validator_type.includes('firedancer')) {
         validatorVersion = version.mainnet_validators.version_firedancer
-      } else if (validator.validator_type === 'jito-bam') {
-        validatorVersion = version.mainnet_validators.version_jito_bam ||
-          VERSION_JITO_BAM_MAINNET
+      } else if (validator.validator_type === 'allnodes-jito') {
+        validatorVersion = version.mainnet_validators.version_allnodes_jito
       } else if (validator.validator_type.includes('jito')) {
         validatorVersion = version.mainnet_validators.version_jito
       } else {
@@ -79,9 +74,6 @@ const listValidators = async (network: NetworkType, pubkey?: string) => {
     } else {
       if (validator.validator_type === 'agave') {
         validatorVersion = version.testnet_validators.version_agave
-      } else if (validator.validator_type === 'jito-bam') {
-        validatorVersion = version.testnet_validators.version_jito_bam ||
-          VERSION_JITO_BAM_TESTNET
       } else if (validator.validator_type === 'jito') {
         validatorVersion = version.testnet_validators.version_jito
       } else {

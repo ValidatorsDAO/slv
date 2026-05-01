@@ -41,23 +41,23 @@
   when: validator_type in ['firedancer-agave', 'firedancer-jito']
 
 - import_playbook: setup_solv_service.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
+  when: validator_type in ['agave', 'jito']
 
 - import_playbook: create-start-validator-sh.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
+  when: validator_type in ['agave', 'jito']
 
 - import_playbook: geyser_richat_build.yml
   when:
     - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
-    - validator_type in ['agave', 'jito', 'jito-bam']
+    - validator_type in ['agave', 'jito']
 
 - import_playbook: install_richat.yml
   when:
     - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
-    - validator_type in ['agave', 'jito', 'jito-bam']
+    - validator_type in ['agave', 'jito']
 
 - import_playbook: ../cmn/start_solv.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
+  when: validator_type in ['agave', 'jito']
 
 - import_playbook: ../cmn/start_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']

@@ -17,7 +17,7 @@ all:
     rpc_type: "Geyser gRPC"
 
     # --- Validator Type (underlying client) ---
-    # Options: agave, jito, jito-bam, firedancer-agave
+    # Options: agave, jito, allnodes-jito, firedancer-agave
     validator_type: "agave"
 
     # --- Versions ---

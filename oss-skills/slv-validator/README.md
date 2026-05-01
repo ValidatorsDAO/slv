@@ -11,7 +11,7 @@ This skill gives an AI agent the knowledge and tools to:
 - **Migrate** validators with zero-downtime identity switching
 - **Configure** firewall, systemd services, and log rotation
 
-Supported validator types: `jito`, `jito-bam`, `agave`, `firedancer-agave`, `firedancer-jito`
+Supported validator types: `jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito`
 
 ## Prerequisites
 

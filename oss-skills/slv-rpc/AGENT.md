@@ -91,12 +91,12 @@ Present options:
 ### Step 3: Validator Type (underlying client)
 - `agave` — Standard Agave (recommended for RPC)
 - `jito` — Jito MEV client
-- `jito-bam` — Jito with Block Awareness Module
+- `allnodes-jito` — Allnodes-Jito (jito fork with extra patches)
 - `firedancer-agave` — Firedancer with Agave consensus
 
 ### Step 4: Versions
 - `solana_version` — Solana/Agave version (required, default: `3.1.8`)
-- `jito_version` — **Required** if jito/jito-bam selected (typically matches solana_version)
+- `jito_version` — **Required** if jito/allnodes-jito selected (typically matches solana_version)
 - `firedancer_version` — **Required** if firedancer selected
 - `yellowstone_grpc_version` — If Geyser gRPC selected (Yellowstone plugin)
 - `richat_version` — If Richat plugin selected (e.g., `richat-v8.1.0`)

@@ -35,12 +35,12 @@ const CmnSolanaVersionBaseSchema = z.object({
   version_firedancer: z.string(),
 })
 
-const CmnSolanaVersionWithJitoBamSchema = CmnSolanaVersionBaseSchema.extend({
-  version_jito_bam: z.string(),
+const CmnSolanaVersionValidatorSchema = CmnSolanaVersionBaseSchema.extend({
+  version_allnodes_jito: z.string(),
 })
 
 export const CmnTestnetValidatorTypeSchema = CmnSolanaCliSchema
-  .merge(CmnSolanaVersionWithJitoBamSchema)
+  .merge(CmnSolanaVersionValidatorSchema)
   .merge(CmnAccessListSchema)
 
 export const CmnMainnetValidatorTypeSchema = CmnTestnetValidatorTypeSchema

@@ -14,7 +14,7 @@
       timeout: 20
       args:
         executable: /bin/bash
-      when: validator_type in ['agave', 'jito', 'jito-bam']
+      when: validator_type in ['agave', 'jito']
 
     - name: Set Identity to Unstaked Key
       shell: |
