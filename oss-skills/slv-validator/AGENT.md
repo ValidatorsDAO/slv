@@ -29,8 +29,55 @@ Hand off to another specialist when:
 - Deploy new Solana validators (mainnet/testnet)
 - Manage validator lifecycle (start, stop, restart, update)
 - Handle zero-downtime identity migrations
-- Build Solana from source (Agave, Jito, Firedancer)
+- Build Solana from source (Agave, Jito, allnodes-jito, Firedancer)
 - Configure firewall, systemd services, and log rotation
+
+## Three Core Workflows
+
+Validator operations boil down to three flows. Always think first about which one
+the user is asking for, then drive the right `slv v` commands.
+
+### A. Initial setup — new validator
+```bash
+# 1. Interactive config wizard (writes ~/.slv/inventory.<network>.validators.yml)
+slv v init
+# 2. Deploy: clones source, builds, sets up systemd, fetches snapshot, starts
+slv v deploy -n <network> -p <pubkey>
+```
+Use `examples/inventory.yml` as a reference for the resulting inventory shape.
+Always confirm the user wants `--check` (dry-run) before the real deploy.
+
+### B. Version / config update — already-running validator
+```bash
+# 1. (Optional) Update ~/.slv/versions.yml — set version_<type> to the new tag
+# 2. Rebuild Solana CLI from source (clones target tag, ./cargo build --release)
+slv v build:solana -n <network> -p <pubkey>
+# 3. Re-render start-validator.sh from the Jinja template (picks up inventory changes)
+slv v update:script -n <network> -p <pubkey>
+# 4. Graceful restart (uses agave-validator exit; falls back to systemctl)
+slv v restart -n <network> -p <pubkey>
+```
+`build:solana` reads `validator_type` from inventory and dispatches to the
+right build playbook (`build_agave.yml`, `build_jito.yml`, or
+`build_allnodes_jito.yml`). `update:script` is what picks up newly-added
+inventory fields like `bam_url` or a list-form `shred_receiver_address`.
+
+### C. Zero-downtime identity migration
+```bash
+slv v switch -n <network> -f <from_host> -t <to_host>
+```
+Runs `{net}-validator/nodowntime_migrate.yml` end-to-end:
+1. `wait-for-restart-window` on `from_host`, then `set-identity` to unstaked.
+2. Fetch tower file from `from_host` to local, upload to `to_host`.
+3. `set-identity` on `to_host` to the staked key, add as `authorized-voter`.
+4. Swap the two hosts' values in the inventory file (so the same `slv v ...`
+   commands still target the right physical box afterward).
+
+`from_host` and `to_host` are the inventory **keys** (e.g. `validator-primary`,
+`validator-spare`), not IPs. Both must already have `validator_type` set
+(`agave` / `jito` / `allnodes-jito` are supported) and the appropriate keys
+present (`identity_account` keypair on local at `~/.slv/keys/<id>.json`,
+`unstaked-identity.json` on each host).
 
 ## Validator CLI Build & Install
 
@@ -38,25 +85,39 @@ Hand off to another specialist when:
 
 | validator_type | CLI Binary | Source Repo | Build Playbook |
 |---|---|---|---|
-| `agave` | `agave-validator` (upstream Agave) | https://github.com/anza-xyz/agave.git | `cmn/build_agave.yml` or `{net}-validator/install_agave.yml` |
-| `jito` / `allnodes-jito` | `agave-validator` (Jito build) | https://github.com/jito-foundation/jito-solana.git | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
+| `agave` | `agave-validator` (upstream Agave) | https://github.com/anza-xyz/agave.git, tag `v<version>` | `cmn/build_agave.yml` or `{net}-validator/install_agave.yml` |
+| `jito` | `agave-validator` (Jito build) | https://github.com/jito-foundation/jito-solana.git, tag `v<version>-jito` | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
+| `allnodes-jito` | `agave-validator` (Allnodes-Jito fork) | https://github.com/allnodes/solana-jito.git, tag `v<version>-allnodes` | `cmn/build_allnodes_jito.yml` or `{net}-validator/install_allnodes_jito.yml` |
 | `firedancer-agave` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_agave.yml` |
 | `firedancer-jito` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_jito.yml` |
 
 ### ⚠️ Critical: Jito vs Agave CLI Differences
 
-- **The Jito-built `agave-validator` and upstream Agave `agave-validator` are different binaries**
-  - The Jito build **requires** these flags: `--tip-payment-program-pubkey`, `--tip-distribution-program-pubkey`, `--merkle-root-upload-authority`, `--bam-url`, `--block-engine-url`, `--shred-receiver-address`
-  - Upstream Agave **does not have** these flags
-- **When switching validator_type, the corresponding CLI must also be built and installed**
-  - jito → agave: Build upstream Agave via `install_agave.yml`, then switch start-validator.sh
-  - agave → jito: Build Jito via `install_jito.yml`, then switch
-- **Builds compile from Rust source** — takes 30–60 minutes
+- **The Jito-built `agave-validator` and upstream Agave `agave-validator` are different binaries.**
+  - Jito and allnodes-jito builds **require** these flags: `--tip-payment-program-pubkey`, `--tip-distribution-program-pubkey`, `--merkle-root-upload-authority`, `--block-engine-url`, `--shred-receiver-address`. `--bam-url` is optional.
+  - Upstream Agave **does not have** these flags.
+- **`allnodes-jito` is wire-compatible with `jito`** — same agave-validator flags. Extra flags exposed only by the allnodes fork: `--mostly-confirmed-threshold-config`, `--disable-mostly-confirmed-threshold` (Shinobi voting mod).
+- **When switching validator_type, the corresponding CLI must also be built and installed.**
+  - jito → agave: Build upstream Agave via `install_agave.yml`, then switch start-validator.sh.
+  - agave → jito: Build Jito via `install_jito.yml`, then switch.
+  - jito → allnodes-jito: Build allnodes-jito via `install_allnodes_jito.yml`. Existing inventory fields stay valid; restart picks up the new binary via the active_release symlink.
+- **Builds compile from Rust source.** First build is 30–60 minutes; warm-cache rebuilds are 1–5 minutes on a many-core box.
 
 ### Version Variables
 
-- `solana_version` — Common to all types. For Jito, use format like `v3.1.8-jito`
-- `firedancer_version` — Required for Firedancer types (`firedancer-agave`, `firedancer-jito`)
+Versions live in `~/.slv/versions.yml` per inventory section
+(`mainnet_validators`, `testnet_validators`, etc.). The build playbooks read
+the field that matches the host's `validator_type`:
+
+| `validator_type` | Version field | Resolved git ref |
+|---|---|---|
+| `agave` | `version_agave` | `v<value>` |
+| `jito` | `version_jito` | `v<value>` (operator stores the full `X.Y.Z-jito` string) |
+| `allnodes-jito` | `version_allnodes_jito` | `v<value>-allnodes` (template appends the suffix) |
+| `firedancer-*` | `version_firedancer` | (Firedancer install playbook) |
+
+You can also override per-run with `-e <field>=<value>` (e.g.
+`-e jito_version=3.1.14-jito` for `slv v build:solana`).
 
 ### Testnet Jito-Specific Settings
 
@@ -144,7 +205,8 @@ Ask if user has existing keys or needs to generate:
 
 ### Step 8: Jito-specific (if validator_type is jito/allnodes-jito)
 - `block_engine_url` — Jito block engine URL (auto-select by region)
-- `shred_receiver_address` — Jito shred receiver (auto-select by region)
+- `shred_receiver_address` — Jito shred receiver. Accepts a single string **or a YAML list** for forwarding to multiple receivers (e.g. an additional Jito Frankfurt + a multicast group). Each entry becomes one `--shred-receiver-address` flag.
+- `bam_url` — *Optional.* When set, emits `--bam-url` at startup so the validator joins the BAM pipeline. Leave unset to skip BAM. Replaces the old `jito-bam` validator type.
 
 **Jito Region Defaults:**
 | Region | block_engine_url | shred_receiver_address |
