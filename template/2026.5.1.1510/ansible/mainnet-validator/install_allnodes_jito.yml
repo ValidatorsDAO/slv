@@ -1,0 +1,135 @@
+---
+- name: Install Allnodes Jito Solana (allnodes/solana-jito fork)
+  hosts: all
+  become: true
+  vars_files:
+    - ~/.slv/versions.yml
+  vars:
+    allnodes_jito_version: 'v{{ mainnet_validators.version_allnodes_jito }}-allnodes'
+    allnodes_jito_repo: https://github.com/allnodes/solana-jito.git
+    allnodes_jito_install_dir: '/home/solv/allnodes-jito'
+    allnodes_jito_release_dir: '{{ allnodes_jito_install_dir }}/target/release'
+    solana_release_dir: '/home/solv/.local/share/solana/install/active_release'
+    solana_bin_dir: '{{ solana_release_dir }}/bin'
+    solana_lib_dir: '{{ solana_release_dir }}/lib'
+
+  tasks:
+    - name: Check if Rust is installed
+      become: no
+      shell: command -v rustc
+      register: rust_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Rust if missing
+      become: no
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+        rustup component add rustfmt
+      when: rust_check.rc != 0
+      args:
+        executable: /bin/bash
+
+    - name: Install build dependencies
+      apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - zlib1g-dev
+          - llvm
+          - clang
+          - libclang-dev
+          - cmake
+          - make
+          - libprotobuf-dev
+          - protobuf-compiler
+          - git
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Clone allnodes/solana-jito repository (recursive submodules)
+      become: no
+      git:
+        repo: '{{ allnodes_jito_repo }}'
+        dest: '{{ allnodes_jito_install_dir }}'
+        version: '{{ allnodes_jito_version }}'
+        recursive: yes
+        force: yes
+
+    - name: Build allnodes-jito (./cargo build --release)
+      become: no
+      shell: |
+        set -e
+        source $HOME/.cargo/env
+        cd {{ allnodes_jito_install_dir }}
+        ./cargo build --release
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "/home/solv/.cargo/bin:{{ ansible_env.PATH }}"
+      register: build_result
+
+    # ====== Symlink agave* / solana / solana* from target/release ======
+    - name: Ensure Solana active release bin directory exists
+      file:
+        path: '{{ solana_bin_dir }}'
+        state: directory
+        owner: solv
+        group: solv
+        mode: '0755'
+
+    - name: Find agave* and solana* binaries in target/release (include 'solana')
+      find:
+        paths: '{{ allnodes_jito_release_dir }}'
+        recurse: no
+        file_type: file
+        patterns:
+          - 'solana'
+          - 'solana-*'
+          - 'agave-*'
+      register: found_bins
+
+    - name: Filter only real executables (exclude .d/.rlib/.so)
+      set_fact:
+        binary_candidates: >-
+          {{ found_bins.files
+             | map(attribute='path')
+             | reject('search', '\.(d|rlib|so)$')
+             | list }}
+
+    - name: Symlink agave/solana binaries into active_release/bin
+      become: no
+      file:
+        src: '{{ item }}'
+        dest: '{{ solana_bin_dir }}/{{ item | basename }}'
+        state: link
+        force: yes
+      loop: '{{ binary_candidates }}'
+      when: build_result is succeeded
+
+    - name: Add Bin to PATH in .profile
+      become: no
+      lineinfile:
+        path: '/home/solv/.profile'
+        line: 'export PATH={{ solana_bin_dir }}:$PATH'
+        state: present
+        create: yes
+
+    - name: Verify binaries via active_release/bin
+      become: no
+      shell: |
+        {{ solana_bin_dir }}/solana --version || true
+        {{ solana_bin_dir }}/agave-validator --version || true
+      args:
+        executable: /bin/bash
+      register: version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Debug version output
+      debug:
+        var: version_check.stdout
