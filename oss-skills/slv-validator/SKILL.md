@@ -31,21 +31,22 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 
 | CLI Command | Playbook | Description |
 |---|---|---|
+| `slv v init` | *(no playbook — interactive prompts)* | Generate `~/.slv/inventory.<network>.validators.yml` |
 | `slv v deploy` | `{net}/init.yml` | Full node initialization and deployment |
 | `slv v start` | `{net}/start_node.yml` | Start validator |
 | `slv v stop` | `{net}/stop_node.yml` | Stop validator |
-| `slv v restart` | `{net}/restart_node.yml` | Restart validator |
-| `slv v build:solana` | `{net}/install_solana.yml` | Build Solana from source |
+| `slv v restart` | `{net}/restart_node.yml` | Graceful restart (`agave-validator exit`, then systemd) |
+| `slv v build:solana` | `{net}/install_solana.yml` | Build Solana from source (dispatches by `validator_type`) |
 | `slv v install:solana` | `cmn/install_solana.yml` | Install Solana binary (deprecated, prefer build) |
 | `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer |
 | `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary |
-| `slv v update:script` | `{net}/update_startup_config.yml` | Update start-validator.sh from template |
+| `slv v update:script` | `{net}/update_startup_config.yml` | Re-render start-validator.sh from template |
 | `slv v set:identity` | `{net}/set_identity_key.yml` | Set validator identity key |
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
 | `slv v get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv v cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |
 | `slv disable pwd-login` | `cmn/disable_pwd_login.yml` | Disable SSH password authentication |
-| `slv v switch` | `{net}/nodowntime_migrate.yml` | Zero-downtime identity migration |
+| `slv v switch` | `{net}/nodowntime_migrate.yml` | Zero-downtime identity migration (auto-swaps inventory) |
 | `slv v list` | *(no playbook)* | List validators (CLI only) |
 | `slv v gen:vote-account` | *(no playbook)* | Create vote account (solana CLI) |
 
@@ -164,14 +165,16 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | Variable | Description | Default |
 |---|---|---|
 | `validator_type` | Validator type (`jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito`) | `jito` |
-| `solana_version` | Solana/Agave version to build | — |
-| `jito_version` | Jito version to build | — |
+| `solana_version` | Solana/Agave version to build (used when `validator_type == 'agave'`) | — |
+| `jito_version` | Jito version to build (used when `validator_type == 'jito'`) | — |
+| `allnodes_jito_version` | Allnodes-Jito version (used when `validator_type == 'allnodes-jito'`); template appends `-allnodes` to form the git tag | — |
 | `firedancer_version` | Firedancer version | — |
 | `snapshot_url` | Snapshot download URL | — |
 | `identity_account` | Validator identity pubkey | — |
 | `vote_account` | Vote account pubkey | — |
 | `block_engine_url` | Jito block engine URL | `https://frankfurt.mainnet.block-engine.jito.wtf` |
-| `shred_receiver_address` | Jito shred receiver address | `64.130.50.14:1002` |
+| `shred_receiver_address` | Jito shred receiver. **Accepts a single string or a YAML list** — a list emits one `--shred-receiver-address` flag per entry | `64.130.50.14:1002` |
+| `bam_url` | *Optional.* When set, the validator starts with `--bam-url <value>` and joins the BAM pipeline. Applies to both `jito` and `allnodes-jito`. Replaces the removed `jito-bam` validator_type | — |
 | `commission_bps` | Commission in basis points | `0` |
 | `dynamic_port_range` | Validator port range | `8000-8025` |
 | `limit_ledger_size` | Ledger size limit | `200000000` |
@@ -181,16 +184,59 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `source_host` | Source host for nodowntime migration | — |
 | `target_host` | Target host for nodowntime migration | — |
 
-## Usage
+## Three Core Workflows
 
-All playbooks are designed to be run via `ansible-playbook` with `extra_vars`:
+Almost every validator task is one of these three. Use the `slv v ...` shortcuts
+where possible — they wrap the right ansible command and inventory lookup.
 
+### A. Initial setup
 ```bash
-ansible-playbook -i inventory mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"3.1.8","snapshot_url":"https://..."}'
+slv v init                           # interactive — writes inventory
+slv v deploy -n <network> -p <host>  # ansible: {net}-validator/init.yml
+```
+The `init.yml` playbook handles user creation, package install, disk mount,
+performance tuning, source build, snapshot download, systemd setup, and start.
+
+### B. Version / config update
+```bash
+# 1. Edit ~/.slv/versions.yml (e.g. version_jito: 3.1.13 -> 3.1.14)
+# 2. Build new binary from source
+slv v build:solana -n <network> -p <host>
+# 3. Re-render start-validator.sh (picks up inventory changes such as bam_url
+#    being added or shred_receiver_address turning into a list)
+slv v update:script -n <network> -p <host>
+# 4. Restart
+slv v restart -n <network> -p <host>
 ```
 
-No `versions.yml` required — all variables can be passed via `extra_vars`.
+### C. Zero-downtime identity migration
+```bash
+slv v switch -n <network> -f <from_host> -t <to_host>
+```
+Runs `{net}-validator/nodowntime_migrate.yml`:
+1. `set-identity` to unstaked on `from_host`, copy tower file to local.
+2. Upload tower to `to_host`, `set-identity` to the staked key, register as
+   `authorized-voter`.
+3. Swap the host entries in the inventory file (so `slv v ...` keeps targeting
+   the right physical box afterward).
+
+`from_host` / `to_host` are inventory keys (e.g. `validator-primary`,
+`validator-spare`), not IPs. Both must have `validator_type` set
+(`agave`, `jito`, or `allnodes-jito`), the local key file at
+`~/.slv/keys/<identity_account>.json`, and `unstaked-identity.json` on each
+remote box.
+
+## Direct ansible invocation
+
+If you need to bypass the `slv v` wrapper, the playbooks are designed to run
+directly via `ansible-playbook` with `extra_vars`:
+
+```bash
+ansible-playbook -i inventory.yml mainnet-validator/init.yml \
+  -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"3.1.14","snapshot_url":"https://..."}'
+```
+
+No `versions.yml` required when you pass everything via `extra_vars`.
 
 ## Interactive Deployment Flow
 
