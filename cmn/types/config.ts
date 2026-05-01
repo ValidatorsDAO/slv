@@ -17,14 +17,14 @@ export type InventoryType =
 export type SolanaNodeType =
   | 'agave'
   | 'jito'
-  | 'jito-bam'
+  | 'allnodes-jito'
   | 'firedancer-agave'
   | 'firedancer-jito'
 
 export const SolanaNodeTypes = [
   'agave',
   'jito',
-  'jito-bam',
+  'allnodes-jito',
   'firedancer-agave',
   'firedancer-jito',
 ] as const
@@ -100,15 +100,15 @@ interface CmnSolanaVersionBase {
   version_jito: string
 }
 
-interface CmnSolanaVersionWithJitoBam extends CmnSolanaVersionBase {
-  version_jito_bam: string
+interface CmnSolanaVersionValidator extends CmnSolanaVersionBase {
+  version_allnodes_jito: string
 }
 
 export interface CmnTestnetValidatorType
-  extends CmnSolanaVersionWithJitoBam, CmnAccessList {}
+  extends CmnSolanaVersionValidator, CmnAccessList {}
 
 export interface CmnMainnetValidatorType
-  extends CmnSolanaVersionWithJitoBam, CmnAccessList {}
+  extends CmnSolanaVersionValidator, CmnAccessList {}
 
 export interface CmnMainnetRpcType extends CmnSolanaVersionBase, CmnAccessList {
   geyser_version: string

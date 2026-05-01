@@ -7,7 +7,7 @@ Ansible playbooks and Jinja2 templates for deploying and managing Solana validat
 | Type | Description |
 |---|---|
 | `jito` | Jito MEV client (default for mainnet) |
-| `jito-bam` | Jito with Block Awareness Module |
+| `allnodes-jito` | Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches) |
 | `agave` | Standard Agave validator |
 | `firedancer-agave` | Firedancer with Agave consensus |
 | `firedancer-jito` | Firedancer with Jito consensus |
@@ -163,7 +163,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 
 | Variable | Description | Default |
 |---|---|---|
-| `validator_type` | Validator type (`jito`, `jito-bam`, `agave`, `firedancer-agave`, `firedancer-jito`) | `jito` |
+| `validator_type` | Validator type (`jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito`) | `jito` |
 | `solana_version` | Solana/Agave version to build | — |
 | `jito_version` | Jito version to build | — |
 | `firedancer_version` | Firedancer version | — |
@@ -205,9 +205,9 @@ for the generated output format.
 | `server_ip` | "Target server IP?" | Valid IPv4 |
 | `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
 | `region` | "Server region? (amsterdam, frankfurt, tokyo, ny, ...)" | String |
-| `validator_type` | "Which validator type?" | `jito`, `jito-bam`, `agave`, `firedancer-agave`, `firedancer-jito` |
+| `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito` |
 | `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
-| `jito_version` | "Jito version?" (if jito/jito-bam) | Semver |
+| `jito_version` | "Jito version?" (if jito/allnodes-jito) | Semver |
 | `firedancer_version` | "Firedancer version?" (if firedancer) | String |
 | `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
 | `vote_account` | "Vote account pubkey? (or generate)" | Base58 pubkey or `generate` |

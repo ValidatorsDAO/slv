@@ -39,7 +39,7 @@ Hand off to another specialist when:
 | validator_type | CLI Binary | Source Repo | Build Playbook |
 |---|---|---|---|
 | `agave` | `agave-validator` (upstream Agave) | https://github.com/anza-xyz/agave.git | `cmn/build_agave.yml` or `{net}-validator/install_agave.yml` |
-| `jito` / `jito-bam` | `agave-validator` (Jito build) | https://github.com/jito-foundation/jito-solana.git | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
+| `jito` / `allnodes-jito` | `agave-validator` (Jito build) | https://github.com/jito-foundation/jito-solana.git | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
 | `firedancer-agave` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_agave.yml` |
 | `firedancer-jito` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_jito.yml` |
 
@@ -98,7 +98,7 @@ Ask the user: "Is this a fresh server? If so, we'll create the `solv` user first
 ### Step 2: Validator Type
 Present options and ask the user to choose:
 - `jito` — Jito MEV client (recommended for mainnet)
-- `jito-bam` — Jito with Block Awareness Module
+- `allnodes-jito` — Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches)
 - `agave` — Standard Agave validator
 - `firedancer-agave` — Firedancer with Agave consensus
 - `firedancer-jito` — Firedancer with Jito consensus (default for new deployments)
@@ -106,7 +106,7 @@ Present options and ask the user to choose:
 ### Step 2.5: CLI Build Check
 After the user selects a `validator_type`, verify the corresponding CLI binary is installed on the target server:
 - `agave` → check `agave-validator --version`
-- `jito` / `jito-bam` → check `agave-validator --version` (should show Jito build tag)
+- `jito` / `allnodes-jito` → check `agave-validator --version` (should show Jito build tag)
 - `firedancer-*` → check `fdctl version`
 
 If the CLI is missing or mismatched, run the appropriate build playbook **before** proceeding:
@@ -142,7 +142,7 @@ Ask if user has existing keys or needs to generate:
 - `allowed_ssh_ips` — List of IPs allowed SSH access (strongly recommended)
 - `allowed_ips` — List of IPs for additional firewall rules (optional)
 
-### Step 8: Jito-specific (if validator_type is jito/jito-bam)
+### Step 8: Jito-specific (if validator_type is jito/allnodes-jito)
 - `block_engine_url` — Jito block engine URL (auto-select by region)
 - `shred_receiver_address` — Jito shred receiver (auto-select by region)
 

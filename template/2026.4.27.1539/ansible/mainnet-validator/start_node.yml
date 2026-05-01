@@ -17,7 +17,7 @@
       when: validator_type is not defined
 
 - import_playbook: start_solv.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: start_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']

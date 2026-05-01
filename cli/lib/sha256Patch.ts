@@ -9,7 +9,10 @@ import { runAnsilbe } from '/lib/runAnsible.ts'
 
 type Sha256PatchRole = 'validator' | 'rpc'
 type VersionsSection = keyof CmnType
-type VersionField = 'version_agave' | 'version_jito'
+type VersionField =
+  | 'version_agave'
+  | 'version_jito'
+  | 'version_allnodes_jito'
 
 const getSha256PatchInventoryType = (
   role: Sha256PatchRole,
@@ -55,6 +58,10 @@ const normalizeValidatorTypeToVersionField = (
 ): VersionField | undefined => {
   if (!validatorType) {
     return undefined
+  }
+
+  if (validatorType === 'allnodes-jito') {
+    return 'version_allnodes_jito'
   }
 
   if (validatorType.includes('jito')) {
@@ -116,7 +123,7 @@ const getDefaultSha256Version = async (
     return undefined
   }
 
-  const versionData = versions[section]
+  const versionData = versions[section] as Record<VersionField, string | undefined>
   const rawVersion = versionData[versionField]
 
   if (!rawVersion) {

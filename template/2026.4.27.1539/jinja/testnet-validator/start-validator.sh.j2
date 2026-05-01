@@ -21,12 +21,14 @@ exec agave-validator \
 {% endif %}
 --limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
 --no-port-check \
-{% if validator_type in ['jito', 'jito-bam'] %}
+{% if validator_type in ['jito', 'allnodes-jito'] %}
 --tip-payment-program-pubkey GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy \
 --tip-distribution-program-pubkey DzvGET57TAgEDxvm3ERUM4GNcsAJdqjDLCne9sdfY4wf \
 --merkle-root-upload-authority 7T4inmPmtNBX3MhLwJ9hFsSMnGJYYkKioVABSNTWVRuS \
 --commission-bps {{ commission_bps | default(0) }} \
---bam-url {{ bam_url | default("http://ny.testnet.bam.jito.wtf") }} \
 --block-engine-url {{ block_engine_url | default("https://ny.testnet.block-engine.jito.wtf") }} \
 --shred-receiver-address {{ shred_receiver_address | default("64.130.35.224:1002") }} \
+{% if bam_url is defined and bam_url %}
+--bam-url {{ bam_url }} \
+{% endif %}
 {% endif %}

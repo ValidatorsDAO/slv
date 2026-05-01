@@ -19,12 +19,12 @@ all:
 
   vars:
     # --- Validator Type ---
-    # Options: jito, jito-bam, agave, firedancer-agave, firedancer-jito
+    # Options: jito, allnodes-jito, agave, firedancer-agave, firedancer-jito
     validator_type: "jito"
 
     # --- Versions ---
     solana_version: "3.1.8"
-    # jito_version: "3.1.8"           # Required for jito/jito-bam
+    # jito_version: "3.1.8"           # Required for jito/allnodes-jito
     # firedancer_version: "0.305.20104" # Required for firedancer types
 
     # --- Identity ---
@@ -42,7 +42,7 @@ all:
     dynamic_port_range: "8000-8025"
     limit_ledger_size: 200000000
 
-    # --- Jito (mainnet only, when validator_type is jito/jito-bam) ---
+    # --- Jito (mainnet only, when validator_type is jito/allnodes-jito) ---
     # block_engine_url: "https://frankfurt.mainnet.block-engine.jito.wtf"
     # shred_receiver_address: "64.130.50.14:1002"
 

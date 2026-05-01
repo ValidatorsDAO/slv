@@ -127,7 +127,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `server_ip` | "Target server IP?" | Valid IPv4 |
 | `region` | "Server region?" | String |
 | `rpc_type` | "Geyser gRPC or Index RPC + gRPC?" | `Geyser gRPC`, `Index RPC + gRPC` |
-| `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+| `validator_type` | "Underlying client?" | `agave`, `jito`, `allnodes-jito`, `firedancer-agave` |
 | `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
@@ -146,10 +146,10 @@ Both are built from source (no pre-built binaries). Build time: ~15-30 min.
 
 | Variable | When Required |
 |---|---|
-| `jito_version` | jito/jito-bam types |
+| `jito_version` | jito/allnodes-jito types |
 | `firedancer_version` | firedancer types |
-| `shred_receiver_address` | jito/jito-bam (auto by region) |
-| `block_engine_url` | jito/jito-bam (auto by region) |
+| `shred_receiver_address` | jito/allnodes-jito (auto by region) |
+| `block_engine_url` | jito/allnodes-jito (auto by region) |
 
 ### Optional Variables
 

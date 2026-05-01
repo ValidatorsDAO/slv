@@ -26,14 +26,21 @@ exec agave-validator \
 --no-port-check \
 --staked-nodes-overrides overrides.yml \
 --rpc-bind-address 0.0.0.0 \
-{% if validator_type in ['jito', 'jito-bam'] %}
+{% if validator_type in ['jito', 'allnodes-jito'] %}
 --tip-payment-program-pubkey T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt \
 --tip-distribution-program-pubkey 4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7 \
 --merkle-root-upload-authority 8F4jGUmxF36vQ6yabnsxX6AQVXdKBhs8kGSUuRKSg8Xt \
 --commission-bps {{ commission_bps | default(0) }} \
 --block-engine-url {{ block_engine_url | default("https://frankfurt.mainnet.block-engine.jito.wtf") }} \
---shred-receiver-address {{ shred_receiver_address | default("64.130.50.14:1002") }} \
+{% set _sra = shred_receiver_address | default("64.130.50.14:1002") %}
+{% if _sra is sequence and _sra is not string %}
+{% for addr in _sra %}
+--shred-receiver-address {{ addr }} \
+{% endfor %}
+{% else %}
+--shred-receiver-address {{ _sra }} \
 {% endif %}
-{% if validator_type == 'jito-bam' %}
---bam-url {{ bam_url | default("http://frankfurt.mainnet.bam.jito.wtf") }} \
+{% if bam_url is defined and bam_url %}
+--bam-url {{ bam_url }} \
+{% endif %}
 {% endif %}
