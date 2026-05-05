@@ -15,7 +15,7 @@ exec agave-validator \
 {% if wait_for_supermajority is defined %}
 --wait-for-supermajority {{ wait_for_supermajority }} \
 {% endif %}
---expected-shred-version {{ expected_shred_version | default(27350) }} \
+--expected-shred-version {{ expected_shred_version | default(57087) }} \
 {% if expected_bank_hash is defined %}
 --expected-bank-hash {{ expected_bank_hash }} \
 {% endif %}
