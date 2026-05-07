@@ -1,10 +1,12 @@
 import { Command } from '@cliffy'
-import { Input } from '@cliffy/prompt'
+import { Input, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { exec, spawnSync } from '@elsoul/child-process'
 import { join } from '@std/path'
 import { parse } from '@std/yaml'
 import { checkRpcEndpoint, sanitizeEndpointForDisplay } from '@/check/rpc.ts'
+import { checkBoostForTargets, printTargetReport } from '/lib/checkBoost.ts'
+import type { InventoryType } from '@cmn/types/config.ts'
 
 const userBinDir = join(Deno.env.get('HOME') || '', '.slv', 'bin')
 const slvDir = join(Deno.env.get('HOME') || '', '.slv')
@@ -342,6 +344,115 @@ checkCmd.command('geyserbench')
           ),
         )
       }
+    }
+  })
+
+checkCmd.command('boost')
+  .description(
+    '🚀 Verify CPU performance boost on a deployed validator/RPC node',
+  )
+  .option(
+    '-n, --network <network:string>',
+    'Solana network (mainnet/testnet/devnet)',
+  )
+  .option(
+    '-t, --type <type:string>',
+    'Node type (validator/rpc)',
+  )
+  .option(
+    '-p, --pubkey <pubkey:string>',
+    'Inventory key (identity_account / name) — leave empty to check all',
+  )
+  .action(async (options) => {
+    let network = options.network
+    let type = options.type
+
+    if (!type) {
+      type = await Select.prompt({
+        message: 'Node type to check',
+        options: [
+          { name: 'Validator', value: 'validator' },
+          { name: 'RPC', value: 'rpc' },
+        ],
+        default: 'validator',
+      })
+    }
+    if (!network) {
+      const networkOptions = type === 'rpc'
+        ? ['mainnet', 'testnet', 'devnet']
+        : ['mainnet', 'testnet']
+      network = await Select.prompt({
+        message: 'Solana network',
+        options: networkOptions,
+        default: 'mainnet',
+      })
+    }
+    if (type === 'validator' && !['mainnet', 'testnet'].includes(network)) {
+      console.error(
+        colors.red(
+          `❌ Validator boost-check is only available on mainnet/testnet (got "${network}").`,
+        ),
+      )
+      Deno.exitCode = 1
+      return
+    }
+
+    const inventoryType =
+      (type === 'rpc' ? `${network}_rpcs` : `${network}_validators`) as InventoryType
+
+    console.log(
+      colors.blue(
+        `🔎 Running CPU boost diagnostics on ${type} ${
+          options.pubkey ?? '(all)'
+        } (${network})...`,
+      ),
+    )
+    try {
+      const results = await checkBoostForTargets(
+        inventoryType,
+        options.pubkey,
+      )
+      if (results.length === 0) {
+        console.log(
+          colors.yellow(
+            '⚠️  No hosts matched. Check your inventory and --pubkey.',
+          ),
+        )
+        Deno.exitCode = 1
+        return
+      }
+      let worst: 'OK' | 'WARN' | 'NG' = 'OK'
+      for (const r of results) {
+        printTargetReport(r)
+        if (r.overallStatus === 'NG') worst = 'NG'
+        else if (r.overallStatus === 'WARN' && worst === 'OK') worst = 'WARN'
+      }
+      console.log()
+      if (worst === 'OK') {
+        console.log(
+          colors.green(
+            '🎉 All green! Boost is fully active and the node is ready for prime time.',
+          ),
+        )
+      } else if (worst === 'WARN') {
+        console.log(
+          colors.yellow(
+            '🟡 Boost is partially active. See per-check details above.',
+          ),
+        )
+        Deno.exitCode = 1
+      } else {
+        console.log(
+          colors.red(
+            '🔴 Boost is not active. See per-check details above.',
+          ),
+        )
+        Deno.exitCode = 2
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.error(colors.red(`❌ Boost check failed: ${msg}`))
+      Deno.exitCode = 1
     }
   })
 

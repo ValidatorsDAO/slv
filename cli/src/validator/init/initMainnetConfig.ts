@@ -11,6 +11,7 @@ import { genIdentityKey } from '/src/validator/init/genIdentityKey.ts'
 import type { SSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
 import { genVoteKey } from '/src/validator/init/genVoteKey.ts'
+import { optimizeNode } from '/lib/optimizeNode.ts'
 import type { ValidatorMainnetConfig } from '@cmn/types/config.ts'
 import { DEFAULT_RPC_ADDRESS, SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { addMainnetInventory } from '/lib/addMainnetInventory.ts'
@@ -160,9 +161,21 @@ const initMainnetConfig = async (
   console.log(
     `✔︎ Validator Mainnet Config Saved To ${inventoryPath}`,
   )
+
+  // Pre-deploy node optimization: SMT off + IRQ tune + CPU boost + kernel update
+  if (!isLocalhost) {
+    await optimizeNode({ inventoryType, pubkey: name })
+  } else {
+    console.log(
+      colors.yellow(
+        '⏭  Localhost mode — skipping node optimization (run `cmn/optimize_node.yml` manually if needed).',
+      ),
+    )
+  }
+
   console.log(colors.white(`Now you can deploy with:
 
-$ slv v deploy -n mainnet -p ${name}    
+$ slv v deploy -n mainnet -p ${name}
 `))
 }
 

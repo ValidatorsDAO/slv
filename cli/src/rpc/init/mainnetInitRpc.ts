@@ -19,6 +19,7 @@ import { updateVersionsYml } from '/lib/config/updateVersionsYml.ts'
 import { updateAllowedSshIps } from '/lib/config/updateAllowedSshIps.ts'
 import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
 import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
+import { optimizeNode } from '/lib/optimizeNode.ts'
 import { addMainnetRPCInventory } from '/lib/addMainnetRPCInventory.ts'
 import { updateMainnetRPCInventory } from '/lib/updateMainnetRPCInventory.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
@@ -163,9 +164,27 @@ export const mainnetInitRpc = async (
       )
     }`,
   )
+
+  // Pre-deploy node optimization: SMT off + IRQ tune + CPU boost + kernel update
+  if (!isLocalhost) {
+    await optimizeNode({
+      inventoryType: inventoryType as InventoryType,
+      pubkey: identity_account,
+    })
+  } else {
+    console.log(
+      colors.yellow(
+        '⏭  Localhost mode — skipping node optimization.',
+      ),
+    )
+  }
+
   console.log(colors.white(`Now you can deploy with:
 
-$ slv rpc deploy -n ${network} -p ${identity_account}    
+$ slv rpc deploy -n ${network} -p ${identity_account}
 `))
+  console.log(colors.gray(
+    `(deploy will auto-run \`slv v patch:sha256\` for the configured Solana version at the end)`,
+  ))
   return rpcConfig
 }

@@ -310,41 +310,50 @@ ansible-playbook -i inventory.yml {network}-validator/init.yml \
 
 ## Performance Tuning
 
-The `init.yml` playbook automatically applies performance tuning during first deployment:
+`slv v init` automatically applies node-level performance tuning **after the SSH
+connection check** and **before** `slv v deploy`. The orchestrator playbook
+(`cmn/optimize_node.yml`) chains three sub-skills and reboots the node once
+when GRUB / kernel changes require it.
 
-| Tuning | Description |
-|---|---|
-| SMT Disable | Disables Hyper-Threading via GRUB `nosmt` for better single-thread performance |
-| IRQ Tuning | NIC IRQ 1:1 pinning + RPS/XPS optimization for balanced network interrupt distribution |
-| CPU Boost | HWE kernel + AMD performance governor + boost + C-state optimization |
-
-### Inventory Fields (auto-managed)
-
-| Field | Type | Default | Description |
+| Sub-skill | Playbook | Description | Reboot |
 |---|---|---|---|
-| `smt_disable` | bool | `false` | Set to `true` after SMT disable is applied |
-| `irq_tuning` | bool | `false` | Set to `true` after IRQ tuning is applied |
-| `cpu_boost` | bool | `false` | Set to `true` after CPU boost is applied |
-| `need_reboot` | bool | `false` | Set to `true` when reboot is required |
+| `slv-smt-disable` | `cmn/smt_disable.yml` | Disables Hyper-Threading via GRUB `nosmt=force` | **Yes** (first run) |
+| `slv-irq-tuning` | `cmn/irq_tune.yml` | NIC IRQ 1:1 pin + RPS/XPS + ring 8192 + sysctl + ulimit + THP off + NVMe queue=ncores | Only if NVMe GRUB changed |
+| `slv-performance-boost` | `cmn/boost_performance.yml` | HWE kernel install + amd_pstate=active + governor=performance + EPP + boost + cpuidle disable + scaling_max_freq | **Yes** if AMD < 6.14 or AMD GRUB updated |
+
+### Idempotency markers
+
+Each sub-skill writes a marker file so subsequent runs no-op safely:
+
+| Marker | Skill |
+|---|---|
+| `/var/lib/slv/.smt_disabled` | smt_disable |
+| `/var/lib/slv/.irq_tuned` | irq_tune |
+| `/var/lib/slv/.boost_applied` | boost_performance |
 
 ### Reboot Flow
 
-If performance tuning requires a reboot (kernel update, GRUB changes):
-1. Deployment pauses with a message: "Reboot required"
-2. User reboots the server
-3. User re-runs `slv v deploy`
-4. Tuning steps are skipped (already applied), deployment continues
+`cmn/optimize_node.yml` runs the three sub-playbooks, collects each one's
+`need_reboot` fact, then calls `ansible.builtin.reboot` once if any of them
+requested it (waits up to 15 min for the host to come back). No manual user
+intervention is required.
 
 ### Standalone Usage
 
-Performance tuning can also be run independently:
 ```bash
-ansible-playbook -i inventory.yml cmn/performance_tune.yml
+# Run full optimization stack
+ansible-playbook -i inventory.yml cmn/optimize_node.yml --limit <host>
+
+# Or run a single sub-skill
+ansible-playbook -i inventory.yml cmn/smt_disable.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/irq_tune.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/boost_performance.yml --limit <host> -e amd_pstate_mode=active
 ```
 
 ### CLI Command Mapping
 
 | CLI Command | Playbook |
 |---|---|
-| `slv v deploy` | `{net}/init.yml` (includes performance_tune.yml) |
-| *(standalone)* | `cmn/performance_tune.yml` |
+| `slv v init` (after SSH check) | `cmn/optimize_node.yml` (auto-reboot if needed) |
+| `slv v deploy` | `{net}/init.yml` |
+| *(standalone optimization)* | `cmn/optimize_node.yml` |

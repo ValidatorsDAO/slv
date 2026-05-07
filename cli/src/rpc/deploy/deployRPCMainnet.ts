@@ -5,6 +5,7 @@ import { colors } from '@cliffy/colors'
 import rpcLog from '/lib/config/rpcLog.ts'
 import { listRPCs } from '/src/rpc/listRPCs.ts'
 import { getAnsibleHosts } from '/lib/yml/getAnsibleHost.ts'
+import { runSha256Patch } from '/lib/sha256Patch.ts'
 
 const deployRPCMainnet = async (limit?: string) => {
   const inventoryType = 'mainnet_rpcs'
@@ -29,6 +30,18 @@ const deployRPCMainnet = async (limit?: string) => {
   if (result) {
     console.log('Successfully Deployed RPC on mainnet')
     rpcLog(ansibleHosts)
+    // Auto-apply optimized SHA256 patch for the inventory's Solana version.
+    try {
+      await runSha256Patch('rpc', 'mainnet', limit)
+    } catch (e) {
+      console.warn(
+        colors.yellow(
+          `⚠️  patch:sha256 skipped: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        ),
+      )
+    }
     return true
   }
   console.log('Failed to deploy validator on mainnet')

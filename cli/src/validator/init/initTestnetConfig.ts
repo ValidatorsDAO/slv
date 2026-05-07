@@ -9,6 +9,7 @@ import type { SSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { configRoot, getInventoryPath } from '@cmn/constants/path.ts'
 import { colors } from '@cliffy/colors'
 import { genSolvUser } from '/src/validator/init/genSolvUser.ts'
+import { optimizeNode } from '/lib/optimizeNode.ts'
 import { addInventory } from '/lib/addInventory.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import { updateInventory } from '/lib/updateInventory.ts'
@@ -130,6 +131,18 @@ const initTestnetConfig = async (
   console.log(
     `✔︎ Validator testnet config saved to ${inventoryPath}`,
   )
+
+  // Pre-deploy node optimization: SMT off + IRQ tune + CPU boost + kernel update
+  if (!isLocalhost) {
+    await optimizeNode({ inventoryType, pubkey: name })
+  } else {
+    console.log(
+      colors.yellow(
+        '⏭  Localhost mode — skipping node optimization (run `cmn/optimize_node.yml` manually if needed).',
+      ),
+    )
+  }
+
   console.log(colors.white(`Now you can deploy with:
 
 $ slv v deploy -n testnet -p ${name}
