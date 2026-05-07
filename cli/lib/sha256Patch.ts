@@ -180,6 +180,58 @@ const resolveSha256Version = async (
   return normalizeVersionTag(version)
 }
 
+/**
+ * Apply the SHA256-optimized binary patch to a deployed validator/RPC.
+ *
+ * Resolves the Solana version from `~/.slv/versions.yml` (per-section,
+ * per-validator-type) when `solanaVersion` is not provided.  Returns true
+ * on ansible success, false on failure.  This function is non-interactive:
+ * if no version can be resolved, it throws.  Pass `solanaVersion` directly
+ * when calling from a non-TTY context like an init/deploy pipeline.
+ */
+export const runSha256Patch = async (
+  role: Sha256PatchRole,
+  network: NetworkType,
+  pubkey?: string,
+  solanaVersion?: string,
+): Promise<boolean> => {
+  const label = role === 'validator' ? 'Validator' : 'RPC'
+  const inventoryType = getSha256PatchInventoryType(role, network)
+  let resolvedVersion = solanaVersion
+    ? normalizeVersionTag(solanaVersion)
+    : await getDefaultSha256Version(role, network, pubkey)
+
+  if (!resolvedVersion) {
+    throw new Error(
+      `Could not infer a default Solana version for ${inventoryType}.` +
+        ` Pass solana_version explicitly.`,
+    )
+  }
+
+  console.log(
+    colors.cyan(
+      `🔧 Patching ${label} ${pubkey ?? '(all)'} with SHA256-optimized binary` +
+        ` (Solana ${resolvedVersion})...`,
+    ),
+  )
+
+  const templateRoot = getTemplatePath()
+  const playbook = `${templateRoot}/ansible/cmn/patch_sha256.yml`
+  const extraVars = { solana_version: resolvedVersion }
+  const result = pubkey
+    ? await runAnsilbe(playbook, inventoryType, pubkey, extraVars)
+    : await runAnsilbe(playbook, inventoryType, undefined, extraVars)
+
+  if (result) {
+    console.log(
+      colors.white(
+        `✅ Successfully deployed patched SHA256 ${label} binary (restart not performed)`,
+      ),
+    )
+  }
+  return result
+}
+
 export const registerSha256PatchCommands = (
   parentCmd: Command,
   role: Sha256PatchRole,
