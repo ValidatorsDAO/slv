@@ -1,0 +1,458 @@
+---
+# Install + configure jetstreamer (Solana historical-data backfill engine)
+# alongside an embedded ClickHouse server, on a dedicated node.
+#
+# Prereqs:
+#   - Ubuntu 24.04, kernel 6.14+
+#   - Two large NVMe drives ready to be wiped and combined into RAID0
+#   - Outbound HTTPS to https://files.old-faithful.net (CAR archives) and
+#     https://api.mainnet-beta.solana.com (epoch discovery)
+#
+# Inventory variables (with defaults):
+#   js_data_dir          /mnt/jetstreamer
+#   js_raid_devices      ['/dev/nvme0n1', '/dev/nvme1n1']
+#   js_raid_chunk_kb     1024
+#   js_window_epochs     0       (0 = disable rotation; >0 enables ALTER..DELETE)
+#   js_threads           120
+#   js_buffer_window     64GiB
+#   js_clickhouse_dsn    http://localhost:8123
+#   js_max_server_memory 536870912000   (~500 GiB; tune per node RAM)
+#   js_repo              https://github.com/anza-xyz/jetstreamer
+#   js_repo_ref          main
+#   js_run_initial_ingest  false  (heavy; keep manual unless explicit)
+
+- name: Install jetstreamer + ClickHouse on dedicated analytics node
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    js_data_dir: "{{ jetstreamer_data_dir | default('/mnt/jetstreamer') }}"
+    js_raid_devices: "{{ jetstreamer_raid_devices | default(['/dev/nvme0n1', '/dev/nvme1n1']) }}"
+    js_raid_chunk_kb: "{{ jetstreamer_raid_chunk_kb | default(1024) }}"
+    js_window: "{{ jetstreamer_window_epochs | default(0) }}"
+    js_threads: "{{ jetstreamer_threads | default(120) }}"
+    js_buffer_window: "{{ jetstreamer_buffer_window | default('64GiB') }}"
+    js_clickhouse_dsn: "{{ jetstreamer_clickhouse_dsn | default('http://localhost:8123') }}"
+    js_max_server_memory: "{{ jetstreamer_max_server_memory | default(536870912000) }}"
+    js_repo: "{{ jetstreamer_repo | default('https://github.com/anza-xyz/jetstreamer') }}"
+    js_repo_ref: "{{ jetstreamer_repo_ref | default('main') }}"
+    js_run_initial_ingest: "{{ jetstreamer_run_initial_ingest | default(false) | bool }}"
+
+  tasks:
+    # ── Disk: RAID0 + XFS ─────────────────────────────────────────────────
+    - name: Install mdadm + xfsprogs
+      ansible.builtin.apt:
+        name: [mdadm, xfsprogs, aria2]
+        state: present
+
+    - name: Check whether {{ js_data_dir }} is already mounted
+      ansible.builtin.command: findmnt -no SOURCE "{{ js_data_dir }}"
+      register: js_mount_check
+      changed_when: false
+      failed_when: false
+
+    - name: Wipe RAID device superblocks (only if not yet assembled)
+      ansible.builtin.command: "mdadm --zero-superblock --force {{ item }}"
+      loop: "{{ js_raid_devices }}"
+      when: js_mount_check.rc != 0
+      ignore_errors: true
+
+    - name: Wipe filesystem signatures on RAID member devices
+      ansible.builtin.command: "wipefs -a {{ item }}"
+      loop: "{{ js_raid_devices }}"
+      when: js_mount_check.rc != 0
+
+    - name: Create /dev/md0 (RAID0, {{ js_raid_chunk_kb }}K chunk)
+      ansible.builtin.command: >-
+        mdadm --create /dev/md0 --level=0
+              --raid-devices={{ js_raid_devices | length }}
+              --chunk={{ js_raid_chunk_kb }}
+              --metadata=1.2 --run
+              {{ js_raid_devices | join(' ') }}
+      when: js_mount_check.rc != 0
+      register: js_raid_create
+
+    - name: Persist mdadm.conf and rebuild initramfs
+      when: js_raid_create is changed
+      block:
+        - ansible.builtin.shell: mdadm --detail --scan > /etc/mdadm/mdadm.conf
+          args: { creates: false }
+        - ansible.builtin.command: update-initramfs -u
+
+    - name: Format XFS on /dev/md0
+      ansible.builtin.command: mkfs.xfs -f -d agcount=64 -l size=1g -L jetstreamer /dev/md0
+      when: js_raid_create is changed
+
+    - name: Ensure {{ js_data_dir }} mountpoint
+      ansible.builtin.file:
+        path: "{{ js_data_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Mount /dev/md0 → {{ js_data_dir }} (XFS, tuned)
+      ansible.posix.mount:
+        path: "{{ js_data_dir }}"
+        src: "UUID={{ ansible_facts.cmdline.split() | select('match', 'mdadm.*') | first | default(omit) | regex_replace('.*UUID=', '') | default('') }}"
+        fstype: xfs
+        opts: noatime,nodiratime,inode64,logbufs=8,logbsize=256k
+        state: mounted
+      ignore_errors: true  # blkid lookup happens in next step
+
+    # Re-resolve UUID after mkfs and persist via blkid
+    - name: Resolve /dev/md0 UUID
+      ansible.builtin.command: blkid -s UUID -o value /dev/md0
+      register: js_md0_uuid
+      changed_when: false
+
+    - name: Add /etc/fstab entry for {{ js_data_dir }}
+      ansible.posix.mount:
+        path: "{{ js_data_dir }}"
+        src: "UUID={{ js_md0_uuid.stdout }}"
+        fstype: xfs
+        opts: noatime,nodiratime,inode64,logbufs=8,logbsize=256k
+        state: mounted
+
+    - name: chmod 0755 /mnt (so non-solv users can traverse)
+      ansible.builtin.file:
+        path: /mnt
+        mode: "0755"
+        state: directory
+
+    # ── ClickHouse user + dirs ────────────────────────────────────────────
+    - name: Create clickhouse system user
+      ansible.builtin.user:
+        name: clickhouse
+        system: yes
+        shell: /sbin/nologin
+        home: /var/lib/clickhouse
+        create_home: no
+
+    - name: Create clickhouse dirs
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: clickhouse
+        group: clickhouse
+        mode: "0755"
+      loop:
+        - "{{ js_data_dir }}/clickhouse-data"
+        - "{{ js_data_dir }}/clickhouse-tmp"
+        - "{{ js_data_dir }}/clickhouse-user-files"
+        - "{{ js_data_dir }}/clickhouse-format-schemas"
+        - /var/log/clickhouse-server
+        - /etc/clickhouse-server
+        - /etc/clickhouse-server/config.d
+        - /etc/clickhouse-server/users.d
+
+    # ── Toolchain (Clang 16, Rust, build deps) ────────────────────────────
+    - name: Add LLVM 16 apt repository
+      ansible.builtin.shell: |
+        set -e
+        if [ ! -f /usr/share/keyrings/llvm-archive-keyring.gpg ]; then
+          wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+        fi
+        echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-16 main" \
+          > /etc/apt/sources.list.d/llvm-16.list
+      args:
+        creates: /etc/apt/sources.list.d/llvm-16.list
+
+    - name: apt update
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Install Clang 16 + LLVM 16 + lld + build deps
+      ansible.builtin.apt:
+        name:
+          - clang-16
+          - llvm-16
+          - lld-16
+          - lld
+          - libclang-16-dev
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - cmake
+          - protobuf-compiler
+          - git
+          - zlib1g-dev
+          - libtool
+          - gcc-13
+          - g++-13
+          - curl
+          - python3
+        state: present
+
+    - name: Install Rust toolchain (rustup) for solv
+      become_user: solv
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+          | sh -s -- -y --default-toolchain stable --profile minimal
+      args:
+        creates: /home/solv/.cargo/bin/cargo
+
+    # ── jetstreamer build ─────────────────────────────────────────────────
+    - name: chown {{ js_data_dir }} to solv (will host clone + build)
+      ansible.builtin.file:
+        path: "{{ js_data_dir }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+        recurse: false
+
+    - name: Clone jetstreamer
+      become_user: solv
+      ansible.builtin.git:
+        repo: "{{ js_repo }}"
+        dest: "{{ js_data_dir }}/jetstreamer"
+        version: "{{ js_repo_ref }}"
+        force: no
+
+    - name: cargo build --release (Clang 16, target-cpu=native)
+      become_user: solv
+      ansible.builtin.shell: |
+        source $HOME/.cargo/env
+        export CC=clang-16
+        export CXX=clang++-16
+        export RUSTFLAGS="-C target-cpu=native"
+        cd "{{ js_data_dir }}/jetstreamer"
+        cargo build --release
+      args:
+        creates: "{{ js_data_dir }}/jetstreamer/target/release/jetstreamer"
+      async: 7200
+      poll: 60
+
+    - name: Install jetstreamer binary symlink
+      ansible.builtin.file:
+        src: "{{ js_data_dir }}/jetstreamer/target/release/jetstreamer"
+        dest: /usr/local/bin/jetstreamer
+        state: link
+        force: yes
+
+    # ── ClickHouse server install (use jetstreamer's bundled binary) ──────
+    - name: Discover bundled clickhouse binary path (decompressed by jetstreamer at first run)
+      ansible.builtin.shell: |
+        ls /tmp/.tmp*-clickhouse 2>/dev/null | head -1
+      register: js_bundled_ch
+      changed_when: false
+
+    - name: Stage bundled ClickHouse to /usr/local/bin/clickhouse
+      ansible.builtin.copy:
+        src: "{{ js_bundled_ch.stdout }}"
+        dest: /usr/local/bin/clickhouse
+        mode: "0755"
+        owner: root
+        group: root
+        remote_src: yes
+      when: js_bundled_ch.stdout | length > 0
+
+    # If the binary isn't decompressed yet, fall back to running once with
+    # the auto helper to trigger decompression (manual operator step).
+
+    # ── ClickHouse config files ───────────────────────────────────────────
+    - name: Install ClickHouse base config (placeholder; production sites
+            should override)
+      ansible.builtin.template:
+        src: files/clickhouse-config.xml.j2
+        dest: /etc/clickhouse-server/config.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: "0644"
+      when: false  # template not in repo yet — operator supplies one
+
+    - name: Install ClickHouse perf overrides
+      ansible.builtin.copy:
+        dest: /etc/clickhouse-server/config.d/01-perf.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: "0644"
+        content: |
+          <clickhouse>
+              <max_server_memory_usage>{{ js_max_server_memory }}</max_server_memory_usage>
+              <max_server_memory_usage_to_ram_ratio>0.65</max_server_memory_usage_to_ram_ratio>
+              <max_concurrent_queries>200</max_concurrent_queries>
+              <max_concurrent_insert_queries>100</max_concurrent_insert_queries>
+              <max_concurrent_select_queries>100</max_concurrent_select_queries>
+              <background_pool_size>32</background_pool_size>
+              <background_merges_mutations_concurrency_ratio>4</background_merges_mutations_concurrency_ratio>
+              <background_message_broker_schedule_pool_size>32</background_message_broker_schedule_pool_size>
+              <background_distributed_schedule_pool_size>32</background_distributed_schedule_pool_size>
+              <background_buffer_flush_schedule_pool_size>32</background_buffer_flush_schedule_pool_size>
+              <merge_tree>
+                  <parts_to_throw_insert>10000</parts_to_throw_insert>
+                  <parts_to_delay_insert>8000</parts_to_delay_insert>
+                  <max_parts_in_total>200000</max_parts_in_total>
+                  <max_part_loading_threads>32</max_part_loading_threads>
+                  <max_part_removal_threads>32</max_part_removal_threads>
+              </merge_tree>
+              <logger>
+                  <level>information</level>
+                  <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+                  <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+                  <size>1000M</size>
+                  <count>10</count>
+              </logger>
+          </clickhouse>
+
+    - name: Install ClickHouse user_directories override (point at the
+            standard /etc/clickhouse-server/users.xml)
+      ansible.builtin.copy:
+        dest: /etc/clickhouse-server/config.d/02-users.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: "0644"
+        content: |
+          <clickhouse replace="replace">
+              <user_directories replace="replace">
+                  <users_xml>
+                      <path>/etc/clickhouse-server/users.xml</path>
+                  </users_xml>
+                  <local_directory>
+                      <path>{{ js_data_dir }}/clickhouse-data/access/</path>
+                  </local_directory>
+              </user_directories>
+          </clickhouse>
+
+    - name: Install ClickHouse user profile tuning
+      ansible.builtin.copy:
+        dest: /etc/clickhouse-server/users.d/01-perf.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: "0644"
+        content: |
+          <clickhouse>
+              <profiles>
+                  <default>
+                      <max_memory_usage>32212254720</max_memory_usage>
+                      <max_execution_time>300</max_execution_time>
+                      <use_uncompressed_cache>0</use_uncompressed_cache>
+                      <load_balancing>random</load_balancing>
+                      <max_threads>32</max_threads>
+                      <max_insert_threads>16</max_insert_threads>
+                  </default>
+                  <readonly>
+                      <readonly>2</readonly>
+                      <max_memory_usage>10737418240</max_memory_usage>
+                      <max_execution_time>60</max_execution_time>
+                      <max_threads>16</max_threads>
+                  </readonly>
+              </profiles>
+          </clickhouse>
+
+    # ── ClickHouse systemd unit ───────────────────────────────────────────
+    - name: Install clickhouse-server.service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/clickhouse-server.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=ClickHouse Server
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=notify
+          User=clickhouse
+          Group=clickhouse
+          RuntimeDirectory=clickhouse-server
+          RuntimeDirectoryMode=0755
+          LimitNOFILE=1048576
+          LimitNPROC=131072
+          LimitCORE=infinity
+          ExecStart=/usr/local/bin/clickhouse server \
+              --config-file=/etc/clickhouse-server/config.xml \
+              --pid-file=/run/clickhouse-server/clickhouse-server.pid
+          TimeoutStopSec=600
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: sysctl tuning for ClickHouse
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-clickhouse.conf
+        mode: "0644"
+        content: |
+          vm.max_map_count=2097152
+          vm.swappiness=1
+          net.core.somaxconn=4096
+
+    - name: Apply sysctl
+      ansible.builtin.command: sysctl --system
+
+    - name: Enable + start ClickHouse server
+      ansible.builtin.systemd:
+        name: clickhouse-server.service
+        daemon_reload: yes
+        enabled: yes
+        state: started
+
+    # ── Backfill script + systemd timer ───────────────────────────────────
+    - name: Install jetstreamer-backfill.sh
+      ansible.builtin.copy:
+        src: files/jetstreamer-backfill.sh
+        dest: /usr/local/bin/jetstreamer-backfill.sh
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Install jetstreamer-backfill.service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/jetstreamer-backfill.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Jetstreamer rolling backfill (ingest new epochs into ClickHouse)
+          After=network-online.target clickhouse-server.service
+          Wants=network-online.target
+          Requires=clickhouse-server.service
+
+          [Service]
+          Type=oneshot
+          User=solv
+          Environment=JETSTREAMER_BIN=/usr/local/bin/jetstreamer
+          Environment=JETSTREAMER_CLICKHOUSE_DSN={{ js_clickhouse_dsn }}
+          Environment=JETSTREAMER_THREADS={{ js_threads }}
+          Environment=JETSTREAMER_BUFFER_WINDOW={{ js_buffer_window }}
+          Environment=WINDOW={{ js_window }}
+          ExecStart=/usr/local/bin/jetstreamer-backfill.sh
+          TimeoutStartSec=43200
+
+    - name: Install jetstreamer-backfill.timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/jetstreamer-backfill.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Hourly jetstreamer backfill of newly published epochs
+
+          [Timer]
+          OnCalendar=hourly
+          Persistent=true
+          RandomizedDelaySec=10min
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable + start backfill timer
+      ansible.builtin.systemd:
+        name: jetstreamer-backfill.timer
+        daemon_reload: yes
+        enabled: yes
+        state: started
+
+    - name: Run initial backfill (heavy; only when explicitly requested)
+      ansible.builtin.command: /usr/local/bin/jetstreamer-backfill.sh
+      environment:
+        JETSTREAMER_BIN: /usr/local/bin/jetstreamer
+        JETSTREAMER_CLICKHOUSE_DSN: "{{ js_clickhouse_dsn }}"
+        JETSTREAMER_THREADS: "{{ js_threads }}"
+        JETSTREAMER_BUFFER_WINDOW: "{{ js_buffer_window }}"
+        WINDOW: "{{ js_window }}"
+      become_user: solv
+      async: 86400
+      poll: 60
+      when: js_run_initial_ingest
