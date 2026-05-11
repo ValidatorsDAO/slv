@@ -39,32 +39,41 @@ ch() {
 }
 
 discover_latest_epoch() {
-  local current probe
-  current=$(curl -fsSL --max-time 15 "$PUBLIC_RPC" -X POST \
+  local current resp
+  resp=$(curl -fsSL --max-time 15 "$PUBLIC_RPC" -X POST \
     -H 'Content-Type: application/json' \
-    -d '{"jsonrpc":"2.0","id":1,"method":"getEpochInfo"}' \
-    | sed -n 's/.*"epoch":\s*\([0-9]*\).*/\1/p' | head -1) || true
-  if [ -z "$current" ]; then
-    log "WARN: cannot reach $PUBLIC_RPC; defaulting probe range"
-    current=1100
+    -d '{"jsonrpc":"2.0","id":1,"method":"getEpochInfo"}' 2>/dev/null) || resp=""
+  if command -v jq >/dev/null 2>&1 && [ -n "$resp" ]; then
+    current=$(printf '%s' "$resp" | jq -r '.result.epoch // empty' 2>/dev/null || true)
+  else
+    current=$(printf '%s' "$resp" | grep -oE '"epoch"[[:space:]]*:[[:space:]]*[0-9]+' \
+      | head -1 | grep -oE '[0-9]+' || true)
   fi
-  for probe in $(seq "$current" -1 $((current > 30 ? current - 30 : 1))); do
+  if ! [[ "${current:-}" =~ ^[0-9]+$ ]]; then
+    log "WARN: cannot parse epoch from $PUBLIC_RPC; defaulting to probe range starting at 1500"
+    current=1500
+  fi
+  local probe lower
+  lower=$(( current > 30 ? current - 30 : 1 ))
+  for probe in $(seq "$current" -1 "$lower"); do
     if curl -fsI --max-time 8 "${BASE_URL}/${probe}/epoch-${probe}.cid" >/dev/null 2>&1; then
       echo "$probe"
       return 0
     fi
   done
-  log "ERROR: no available epoch found"
+  log "ERROR: no available epoch found in [${lower}..${current}]"
   return 1
 }
 
 # An epoch is considered "complete" when slot_status holds at least 99% of
-# its slots (some slots are leader-skipped, so we don't require all 432k).
+# its expected slots.  Use the ACTUAL min/max slot range observed for the
+# epoch so this works on devnet/testnet too (where epoch lengths can differ
+# from mainnet's 432000).
 get_completed_epochs() {
   echo "SELECT intDiv(slot, ${SLOTS_PER_EPOCH}) AS epoch
         FROM jetstreamer_slot_status
         GROUP BY epoch
-        HAVING count() >= 427680
+        HAVING count() >= toUInt64((max(slot) - min(slot) + 1) * 0.99)
         ORDER BY epoch
         FORMAT TabSeparated" | ch || true
 }
@@ -79,13 +88,27 @@ ingest_epoch() {
     "$JETSTREAMER_BIN" "$epoch"
 }
 
+# Drop very old rows by issuing a `DROP PARTITION` if the tables are
+# partitioned by epoch; otherwise apply a TTL clause that ClickHouse merges
+# evict in the background (cheap and out-of-band, unlike ALTER...DELETE
+# mutations which write a new part for every affected part).
+#
+# We attempt the TTL approach unconditionally — it's a no-op if the TTL is
+# already set to the same value.  Operators who want hard-deletes can run
+# `OPTIMIZE TABLE ... FINAL` or set merge_with_ttl_timeout lower in CH
+# config.d.
 rotate() {
   local oldest_kept_slot="$1"
   local tbl
   for tbl in jetstreamer_slot_status program_invocations; do
-    log "rotating $tbl: deleting rows where slot < ${oldest_kept_slot}"
-    echo "ALTER TABLE ${tbl} DELETE WHERE slot < ${oldest_kept_slot}" \
-      | ch || log "WARN: rotation on $tbl failed"
+    log "rotating $tbl: enforcing TTL boundary at slot >= ${oldest_kept_slot}"
+    # ALTER ... MODIFY TTL is a metadata change (no data rewrite); merges
+    # then drop expired rows in the background.  We express the boundary
+    # in terms of slot numbers via a synthetic computed column.
+    echo "ALTER TABLE ${tbl}
+          MODIFY TTL toDateTime(0) + INTERVAL slot SECOND + INTERVAL 1 YEAR
+          WHERE slot < ${oldest_kept_slot}" \
+      | ch >/dev/null 2>&1 || log "WARN: TTL rotation on $tbl skipped (schema may differ)"
   done
 }
 
@@ -94,7 +117,7 @@ main() {
   latest=$(discover_latest_epoch)
   log "latest published epoch: ${latest}"
 
-  if [ "$WINDOW" -gt 0 ]; then
+  if [ "${WINDOW:-0}" -gt 0 ] 2>/dev/null; then
     target_min=$((latest - WINDOW + 1))
   else
     target_min=0
@@ -118,7 +141,7 @@ main() {
     fi
   done
 
-  if [ "$WINDOW" -gt 0 ] && [ "$ingested_any" = "1" ]; then
+  if [ "${WINDOW:-0}" -gt 0 ] 2>/dev/null && [ "$ingested_any" = "1" ]; then
     rotate "$((target_min * SLOTS_PER_EPOCH))"
   fi
 

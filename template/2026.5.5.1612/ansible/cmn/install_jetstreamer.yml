@@ -45,43 +45,58 @@
         name: [mdadm, xfsprogs, aria2]
         state: present
 
-    - name: Check whether {{ js_data_dir }} is already mounted
-      ansible.builtin.command: findmnt -no SOURCE "{{ js_data_dir }}"
-      register: js_mount_check
+    # IMPORTANT: this gate decides whether to wipe the configured NVMes.
+    # We use a strong probe (does /dev/md0 exist AND does mdadm recognise
+    # it) instead of `findmnt` which only catches the mounted case — a
+    # half-finished previous run could otherwise see "not mounted" and
+    # destroy an existing array on the second run.
+    - name: Probe whether /dev/md0 already exists as an mdadm array
+      ansible.builtin.shell: |
+        set -e
+        [ -b /dev/md0 ] || exit 1
+        mdadm --detail /dev/md0 >/dev/null 2>&1
+      register: js_md0_present
       changed_when: false
       failed_when: false
 
-    - name: Wipe RAID device superblocks (only if not yet assembled)
-      ansible.builtin.command: "mdadm --zero-superblock --force {{ item }}"
-      loop: "{{ js_raid_devices }}"
-      when: js_mount_check.rc != 0
-      ignore_errors: true
+    - name: Refuse to wipe — operator must manually clear /dev/md0 first
+      ansible.builtin.fail:
+        msg: |
+          /dev/md0 already exists.  Refusing to wipe {{ js_raid_devices | join(', ') }}
+          automatically.  If this is a fresh node and you really want to
+          rebuild the array, run on the host:
+            sudo mdadm --stop /dev/md0
+            sudo mdadm --zero-superblock --force {{ js_raid_devices | join(' ') }}
+          then re-run this playbook.
+      when:
+        - js_md0_present.rc == 0
+        - js_force_raid_rebuild | default(false) | bool == false
+        - not (js_data_dir + '/clickhouse-data') is exists  # only fail on a clean array; if CH dir is there, it's fine to skip RAID setup
 
-    - name: Wipe filesystem signatures on RAID member devices
+    - name: Wipe filesystem signatures on RAID member devices (fresh install only)
       ansible.builtin.command: "wipefs -a {{ item }}"
       loop: "{{ js_raid_devices }}"
-      when: js_mount_check.rc != 0
+      when: js_md0_present.rc != 0
 
-    - name: Create /dev/md0 (RAID0, {{ js_raid_chunk_kb }}K chunk)
+    - name: Create /dev/md0 (RAID0, {{ js_raid_chunk_kb }}K chunk) — fresh install only
       ansible.builtin.command: >-
         mdadm --create /dev/md0 --level=0
               --raid-devices={{ js_raid_devices | length }}
               --chunk={{ js_raid_chunk_kb }}
               --metadata=1.2 --run
               {{ js_raid_devices | join(' ') }}
-      when: js_mount_check.rc != 0
+      when: js_md0_present.rc != 0
       register: js_raid_create
 
     - name: Persist mdadm.conf and rebuild initramfs
-      when: js_raid_create is changed
+      when: js_raid_create is defined and js_raid_create is changed
       block:
         - ansible.builtin.shell: mdadm --detail --scan > /etc/mdadm/mdadm.conf
-          args: { creates: false }
         - ansible.builtin.command: update-initramfs -u
 
-    - name: Format XFS on /dev/md0
+    - name: Format XFS on /dev/md0 (fresh install only)
       ansible.builtin.command: mkfs.xfs -f -d agcount=64 -l size=1g -L jetstreamer /dev/md0
-      when: js_raid_create is changed
+      when: js_raid_create is defined and js_raid_create is changed
 
     - name: Ensure {{ js_data_dir }} mountpoint
       ansible.builtin.file:
@@ -89,22 +104,18 @@
         state: directory
         mode: "0755"
 
-    - name: Mount /dev/md0 → {{ js_data_dir }} (XFS, tuned)
-      ansible.posix.mount:
-        path: "{{ js_data_dir }}"
-        src: "UUID={{ ansible_facts.cmdline.split() | select('match', 'mdadm.*') | first | default(omit) | regex_replace('.*UUID=', '') | default('') }}"
-        fstype: xfs
-        opts: noatime,nodiratime,inode64,logbufs=8,logbsize=256k
-        state: mounted
-      ignore_errors: true  # blkid lookup happens in next step
-
-    # Re-resolve UUID after mkfs and persist via blkid
     - name: Resolve /dev/md0 UUID
       ansible.builtin.command: blkid -s UUID -o value /dev/md0
       register: js_md0_uuid
       changed_when: false
 
-    - name: Add /etc/fstab entry for {{ js_data_dir }}
+    - name: Assert UUID resolution succeeded (otherwise mount would silently
+            land on the root filesystem and CH data would vanish on reboot)
+      ansible.builtin.assert:
+        that: js_md0_uuid.stdout | length > 0
+        fail_msg: "blkid could not resolve UUID for /dev/md0 — refusing to continue"
+
+    - name: Mount /dev/md0 → {{ js_data_dir }} and persist via fstab
       ansible.posix.mount:
         path: "{{ js_data_dir }}"
         src: "UUID={{ js_md0_uuid.stdout }}"
@@ -231,8 +242,11 @@
         state: link
         force: yes
 
-    # ── ClickHouse server install (use jetstreamer's bundled binary) ──────
-    - name: Discover bundled clickhouse binary path (decompressed by jetstreamer at first run)
+    # ── ClickHouse server install ─────────────────────────────────────────
+    # Two paths: (1) use the binary jetstreamer's first run decompressed to
+    # /tmp/.tmp*-clickhouse — fast, no download; (2) fall back to a fresh
+    # download from clickhouse.com if no bundled binary is found yet.
+    - name: Look for a bundled ClickHouse binary already decompressed by jetstreamer
       ansible.builtin.shell: |
         ls /tmp/.tmp*-clickhouse 2>/dev/null | head -1
       register: js_bundled_ch
@@ -246,21 +260,43 @@
         owner: root
         group: root
         remote_src: yes
-      when: js_bundled_ch.stdout | length > 0
+      when:
+        - js_bundled_ch.stdout | length > 0
+        - not (lookup('ansible.builtin.fileglob', '/usr/local/bin/clickhouse', errors='ignore') | length > 0)
 
-    # If the binary isn't decompressed yet, fall back to running once with
-    # the auto helper to trigger decompression (manual operator step).
+    - name: Fall back — download official ClickHouse if no binary present
+      ansible.builtin.shell: |
+        set -e
+        cd /tmp
+        curl -fsSL https://clickhouse.com/ | sh
+        install -m 755 clickhouse /usr/local/bin/clickhouse
+      args:
+        creates: /usr/local/bin/clickhouse
+
+    - name: Verify clickhouse binary works
+      ansible.builtin.command: /usr/local/bin/clickhouse --version
+      register: js_ch_version
+      changed_when: false
 
     # ── ClickHouse config files ───────────────────────────────────────────
-    - name: Install ClickHouse base config (placeholder; production sites
-            should override)
+    - name: Install ClickHouse base config
       ansible.builtin.template:
         src: files/clickhouse-config.xml.j2
         dest: /etc/clickhouse-server/config.xml
         owner: clickhouse
         group: clickhouse
         mode: "0644"
-      when: false  # template not in repo yet — operator supplies one
+
+    - name: Install ClickHouse users.xml (loopback-only, optional SHA256 password)
+      ansible.builtin.template:
+        src: files/clickhouse-users.xml.j2
+        dest: /etc/clickhouse-server/users.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: "0640"
+      vars:
+        js_default_password_sha256: "{{ jetstreamer_default_password_sha256 | default('') }}"
+        js_analytics_password_sha256: "{{ jetstreamer_analytics_password_sha256 | default('') }}"
 
     - name: Install ClickHouse perf overrides
       ansible.builtin.copy:
@@ -371,17 +407,17 @@
           [Install]
           WantedBy=multi-user.target
 
-    - name: sysctl tuning for ClickHouse
-      ansible.builtin.copy:
-        dest: /etc/sysctl.d/99-clickhouse.conf
-        mode: "0644"
-        content: |
-          vm.max_map_count=2097152
-          vm.swappiness=1
-          net.core.somaxconn=4096
-
-    - name: Apply sysctl
-      ansible.builtin.command: sysctl --system
+    - name: sysctl tuning for ClickHouse (per-key, idempotent)
+      ansible.posix.sysctl:
+        name: "{{ item.k }}"
+        value: "{{ item.v }}"
+        sysctl_file: /etc/sysctl.d/99-clickhouse.conf
+        state: present
+        reload: yes
+      loop:
+        - { k: vm.max_map_count, v: '2097152' }
+        - { k: vm.swappiness,    v: '1' }
+        - { k: net.core.somaxconn, v: '4096' }
 
     - name: Enable + start ClickHouse server
       ansible.builtin.systemd:
