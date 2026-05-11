@@ -89,11 +89,24 @@ app.use('*', async (c, next) => {
   return await next()
 })
 
-// Helius-compat WebSocket (transactionSubscribe + standard pubsub forward)
-app.get('/ws', buildWsHandler({
+// Helius-compat WebSocket (transactionSubscribe + standard pubsub forward).
+// Built once and aliased on both `/ws` and `/` so the same YellowstoneBridge
+// instance is shared.
+const wsHandler = buildWsHandler({
   yellowstoneEndpoint: YELLOWSTONE_GRPC,
   pubsubUrl: PUBSUB_WS_URL,
-}))
+})
+app.get('/ws', wsHandler)
+// Alias for clients that hard-code `wss://<host>/?api-key=…` — historical
+// default for richat-pubsub and many existing SDKs.  Only intercept GET /
+// when it is a real WebSocket upgrade; otherwise keep prior 404 behaviour
+// so health probes / accidental browser loads aren't surprised.
+app.get('/', async (c, next) => {
+  if (c.req.header('upgrade')?.toLowerCase() === 'websocket') {
+    return wsHandler(c, next)
+  }
+  return c.notFound()
+})
 
 // Health probe — does NOT touch upstreams (kept cheap).
 app.get('/health', (c) => c.json({ ok: true }))
