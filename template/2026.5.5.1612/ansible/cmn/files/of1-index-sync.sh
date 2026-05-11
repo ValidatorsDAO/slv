@@ -39,6 +39,7 @@ CONNS_PER_FILE="${CONNS_PER_FILE:-8}"
 PUBLIC_RPC="${PUBLIC_RPC:-https://api.mainnet-beta.solana.com}"
 DRY_RUN="${DRY_RUN:-0}"
 SKIP_RESTART="${SKIP_RESTART:-0}"
+LOCK_FILE="${LOCK_FILE:-/var/lock/of1-index-sync.lock}"
 
 INDEX_SUFFIXES=(
   cid-to-offset-and-size
@@ -59,27 +60,53 @@ require() {
 require curl
 require aria2c
 require stat
+require flock
+
+# Cleanup any temp files we leak (aria2c input list, etc).
+TMP_FILES=()
+cleanup() {
+  local f
+  for f in "${TMP_FILES[@]:-}"; do
+    [ -n "$f" ] && rm -f "$f"
+  done
+}
+trap cleanup EXIT INT TERM
+
+mktemp_track() {
+  local t
+  t=$(mktemp)
+  TMP_FILES+=("$t")
+  echo "$t"
+}
 
 # Discover the most recent epoch published on Old Faithful.  Walks down from
 # the on-chain "current" epoch (one finalized epoch lags behind).
 discover_latest_epoch() {
-  local current
-  current=$(curl -fsSL --max-time 15 "$PUBLIC_RPC" -X POST \
+  local current resp
+  resp=$(curl -fsSL --max-time 15 "$PUBLIC_RPC" -X POST \
     -H 'Content-Type: application/json' \
-    -d '{"jsonrpc":"2.0","id":1,"method":"getEpochInfo"}' \
-    | sed -n 's/.*"epoch":\s*\([0-9]*\).*/\1/p' | head -1) || true
-  if [ -z "$current" ]; then
-    log "WARN: cannot reach $PUBLIC_RPC; falling back to probe range 1100..600"
-    current=1100
+    -d '{"jsonrpc":"2.0","id":1,"method":"getEpochInfo"}' 2>/dev/null) || resp=""
+  # Prefer jq when available (correct JSON parsing), fall back to a strict regex.
+  if command -v jq >/dev/null 2>&1 && [ -n "$resp" ]; then
+    current=$(printf '%s' "$resp" | jq -r '.result.epoch // empty' 2>/dev/null || true)
+  else
+    current=$(printf '%s' "$resp" | grep -oE '"epoch"[[:space:]]*:[[:space:]]*[0-9]+' \
+      | head -1 | grep -oE '[0-9]+' || true)
   fi
-  local probe
-  for probe in $(seq "$current" -1 $((current > 30 ? current - 30 : 1))); do
+  # Validate or fall back.
+  if ! [[ "${current:-}" =~ ^[0-9]+$ ]]; then
+    log "WARN: cannot parse epoch from $PUBLIC_RPC; falling back to probe range starting at 1500"
+    current=1500
+  fi
+  local probe lower
+  lower=$(( current > 30 ? current - 30 : 1 ))
+  for probe in $(seq "$current" -1 "$lower"); do
     if curl -fsI --max-time 8 "${BASE_URL}/${probe}/epoch-${probe}.cid" >/dev/null 2>&1; then
       echo "$probe"
       return 0
     fi
   done
-  log "ERROR: no available epoch found in probe range"
+  log "ERROR: no available epoch found in probe range [${lower}..${current}]"
   return 1
 }
 
@@ -123,13 +150,16 @@ download_epoch() {
   mkdir -p "$dir"
   chown "$FAITHFUL_OWNER":"$FAITHFUL_OWNER" "$dir" 2>/dev/null || true
   local input
-  input=$(mktemp)
+  input=$(mktemp_track)
   local suf
+  # Download to *.part filenames; rename to final names only after we
+  # verify the byte count matches Content-Length.  Atomic mv avoids
+  # faithful loading a half-written index after a sync interruption.
   for suf in "${INDEX_SUFFIXES[@]}"; do
     cat >> "$input" <<EOF
 ${BASE_URL}/${epoch}/epoch-${epoch}-${cid}-mainnet-${suf}.index
   dir=${dir}
-  out=epoch-${epoch}-${cid}-mainnet-${suf}.index
+  out=epoch-${epoch}-${cid}-mainnet-${suf}.index.part
 EOF
   done
   log "downloading epoch ${epoch} (cid=${cid:0:18}...)"
@@ -146,7 +176,27 @@ EOF
     --allow-overwrite=true \
     --continue=true >&2
   rm -f "$input"
+
+  # Verify size of every .part file before promoting it to its final name.
+  # Anything that doesn't match its remote Content-Length is left as .part
+  # so the next sync run picks it up via the completeness check.
+  local suf url want got partfile finalfile failed=0
+  for suf in "${INDEX_SUFFIXES[@]}"; do
+    partfile="${dir}/epoch-${epoch}-${cid}-mainnet-${suf}.index.part"
+    finalfile="${dir}/epoch-${epoch}-${cid}-mainnet-${suf}.index"
+    [ -f "$partfile" ] || { log "WARN: missing ${partfile}"; failed=1; continue; }
+    url="${BASE_URL}/${epoch}/epoch-${epoch}-${cid}-mainnet-${suf}.index"
+    want=$(remote_size "$url")
+    got=$(stat -c %s "$partfile" 2>/dev/null || echo 0)
+    if [ -z "$want" ] || [ "$want" != "$got" ]; then
+      log "WARN: epoch ${epoch} ${suf}: size mismatch want=${want:-?} got=${got}; leaving .part"
+      failed=1
+      continue
+    fi
+    mv -f "$partfile" "$finalfile"
+  done
   chown -R "$FAITHFUL_OWNER":"$FAITHFUL_OWNER" "$dir" 2>/dev/null || true
+  return "$failed"
 }
 
 write_config() {
@@ -264,5 +314,14 @@ main() {
 
   log "done. cached epochs: ${cur_epochs[*]:-(none)}"
 }
+
+# Serialize concurrent runs (e.g. timer firing while a manual run is in
+# flight) so we never have two aria2c processes writing into the same
+# `${dir}/*.index.part` files.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  log "another sync is already running; exiting"
+  exit 0
+fi
 
 main "$@"
