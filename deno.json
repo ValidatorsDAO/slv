@@ -1,7 +1,8 @@
 {
   "workspace": [
     "cli",
-    "api/slv-api"
+    "api/slv-api",
+    "api/rpc-gateway"
   ],
   "nodeModulesDir": "auto",
   "tasks": {

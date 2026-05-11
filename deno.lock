@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@elsoul/child-process@1.2.0": "1.2.0",
     "jsr:@hono/hono@4.7.6": "4.7.6",
+    "jsr:@hono/hono@^4.6.13": "4.7.6",
     "jsr:@std/assert@0.224": "0.224.0",
     "jsr:@std/assert@1": "1.0.16",
     "jsr:@std/dotenv@0.225.2": "0.225.2",
@@ -372,7 +373,8 @@
       ],
       "optionalDependencies": [
         "koffi"
-      ]
+      ],
+      "deprecated": true
     },
     "@scalar/core@0.3.30": {
       "integrity": "sha512-eBp1phI8u/GZR+yy9SwRTr07n3+Va+xoZJVT6tczG799eynpXiQJuUQ4S2S1cb0cmOV0ZkwHRNG3ldMQHdJgWQ==",
@@ -1193,6 +1195,11 @@
       "npm:mysql2@3.16.0"
     ],
     "members": {
+      "api/rpc-gateway": {
+        "dependencies": [
+          "jsr:@hono/hono@^4.6.13"
+        ]
+      },
       "cli": {
         "dependencies": [
           "jsr:@std/assert@1",
