@@ -1,0 +1,21 @@
+{
+  "name": "@slv/rpc-gateway",
+  "version": "0.1.0",
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --watch src/main.ts",
+    "start": "deno run --allow-net --allow-env src/main.ts",
+    "compile": "deno compile --allow-net --allow-env --output dist/rpc-gateway src/main.ts",
+    "check": "deno check src/main.ts",
+    "fmt": "deno fmt src/",
+    "lint": "deno lint src/"
+  },
+  "imports": {
+    "@hono/hono": "jsr:@hono/hono@4.7.6"
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "semiColons": false,
+    "singleQuote": true
+  }
+}

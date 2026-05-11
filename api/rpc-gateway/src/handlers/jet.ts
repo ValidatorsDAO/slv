@@ -33,8 +33,42 @@ function asString(v: unknown, name: string): string {
   return v
 }
 
+/**
+ * Defense-in-depth whitelist for date/time strings that reach SQL via
+ * `toDateTime()`.  Accepts:
+ *   - integer unix seconds (10 digits) or millis (13 digits)
+ *   - 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS' (loose, no other chars)
+ * Although `toDateTime` would reject malformed input as a parse error,
+ * we'd rather not let arbitrary content into the SQL string at all.
+ */
+const DATE_RE = /^(?:\d{10}|\d{13}|\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2})?)$/
+
+function asDateString(v: unknown, name: string): string {
+  const s = asString(v, name)
+  if (!DATE_RE.test(s)) {
+    throw new Error(
+      `invalid ${name}: expected unix seconds/millis or 'YYYY-MM-DD[ HH:MM:SS]'`,
+    )
+  }
+  return s
+}
+
+/** Whitelist for Solana base58 pubkeys (32-44 chars, base58 alphabet). */
+const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+
+function asBase58Pubkey(v: unknown, name: string): string {
+  const s = asString(v, name)
+  if (!BASE58_RE.test(s)) throw new Error(`invalid ${name}: not a valid base58 pubkey`)
+  return s
+}
+
 function paramObj(params: unknown): Record<string, unknown> {
-  if (Array.isArray(params)) return (params[0] as Record<string, unknown>) ?? {}
+  if (Array.isArray(params)) {
+    if (params.length > 1) {
+      throw new Error('positional params not supported; pass a single object')
+    }
+    return (params[0] as Record<string, unknown>) ?? {}
+  }
   if (typeof params === 'object' && params !== null) return params as Record<string, unknown>
   return {}
 }
@@ -49,8 +83,8 @@ export class JetHandlers {
   async topPrograms(req: JsonRpcRequest): Promise<JsonRpcResponse> {
     try {
       const p = paramObj(req.params)
-      const since = p.since ? quoteString(asString(p.since, 'since')) : null
-      const until = p.until ? quoteString(asString(p.until, 'until')) : null
+      const since = p.since ? quoteString(asDateString(p.since, 'since')) : null
+      const until = p.until ? quoteString(asDateString(p.until, 'until')) : null
       const includeVotes = asBool(p.includeVotes, false)
       const limit = Math.min(asInt(p.limit, 'limit', 20), 1000)
 
@@ -124,8 +158,8 @@ export class JetHandlers {
   async tpsTimeseries(req: JsonRpcRequest): Promise<JsonRpcResponse> {
     try {
       const p = paramObj(req.params)
-      const from = quoteString(asString(p.from, 'from'))
-      const to = quoteString(asString(p.to, 'to'))
+      const from = quoteString(asDateString(p.from, 'from'))
+      const to = quoteString(asDateString(p.to, 'to'))
       const bucketSec = Math.min(Math.max(asInt(p.bucketSec, 'bucketSec', 300), 1), 86_400)
       const rows = await this.ch.query(`
         SELECT
@@ -200,9 +234,9 @@ export class JetHandlers {
   async programStats(req: JsonRpcRequest): Promise<JsonRpcResponse> {
     try {
       const p = paramObj(req.params)
-      const programB58 = asString(p.programIdBase58, 'programIdBase58')
-      const since = p.since ? quoteString(asString(p.since, 'since')) : null
-      const until = p.until ? quoteString(asString(p.until, 'until')) : null
+      const programB58 = asBase58Pubkey(p.programIdBase58, 'programIdBase58')
+      const since = p.since ? quoteString(asDateString(p.since, 'since')) : null
+      const until = p.until ? quoteString(asDateString(p.until, 'until')) : null
       const bucketSec = Math.min(Math.max(asInt(p.bucketSec, 'bucketSec', 3600), 60), 86_400)
 
       const where: string[] = [

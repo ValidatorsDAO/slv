@@ -22,6 +22,7 @@ import { StandardProxy } from './handlers/proxy.ts'
 import {
   err,
   ERROR_CODES,
+  isNotification,
   type JsonRpcRequest,
   type JsonRpcResponse,
   validate,
@@ -97,6 +98,13 @@ app.get('/ready', async (c) => {
 })
 
 // JSON-RPC entry point.  Accepts a single request or a batch.
+//
+// Conformance notes:
+// - A request whose JSON object has no `id` field is a *notification*; the
+//   server MUST process it but MUST NOT respond.
+// - An empty batch (`[]`) MUST be answered with a single Invalid Request
+//   error, not an empty array.
+// - For a batch of all-notifications, the server returns no body.
 app.post('/', async (c) => {
   let body: unknown
   try {
@@ -105,23 +113,39 @@ app.post('/', async (c) => {
     return c.json(err(null, ERROR_CODES.PARSE_ERROR, 'invalid JSON'), 400)
   }
 
-  const handle = async (raw: unknown): Promise<JsonRpcResponse> => {
+  // Returns null when the request was a notification (no response).
+  const handle = async (raw: unknown): Promise<JsonRpcResponse | null> => {
     const req = validate(raw)
-    if (!req) return err(null, ERROR_CODES.INVALID_REQUEST, 'invalid JSON-RPC request')
+    if (!req) {
+      // For an invalid request that *might* have been a notification we
+      // still respond with INVALID_REQUEST per spec — `id` of an invalid
+      // request is unknown, so we use null.
+      return err(null, ERROR_CODES.INVALID_REQUEST, 'invalid JSON-RPC request')
+    }
+    const notification = isNotification(req)
     try {
-      return await dispatch(req)
+      const resp = await dispatch(req)
+      return notification ? null : resp
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log('dispatch_error', { method: req.method, error: msg })
+      if (notification) return null
       return err(req.id ?? null, ERROR_CODES.INTERNAL_ERROR, msg)
     }
   }
 
   if (Array.isArray(body)) {
-    const out = await Promise.all(body.map(handle))
-    return c.json(out)
+    if (body.length === 0) {
+      return c.json(err(null, ERROR_CODES.INVALID_REQUEST, 'empty batch'), 200)
+    }
+    const responses = (await Promise.all(body.map(handle))).filter(
+      (r): r is JsonRpcResponse => r !== null,
+    )
+    if (responses.length === 0) return c.body(null, 204)
+    return c.json(responses)
   }
   const out = await handle(body)
+  if (out === null) return c.body(null, 204)
   return c.json(out)
 })
 

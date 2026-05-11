@@ -58,3 +58,12 @@ export function validate(body: unknown): JsonRpcRequest | null {
   if (typeof obj.method !== 'string') return null
   return body as JsonRpcRequest
 }
+
+/**
+ * JSON-RPC 2.0 notifications have no `id` field at all.  The spec
+ * requires the server to NOT respond to notifications.  Note this is
+ * different from `id: null` (which is a regular request).
+ */
+export function isNotification(req: JsonRpcRequest): boolean {
+  return !('id' in req)
+}

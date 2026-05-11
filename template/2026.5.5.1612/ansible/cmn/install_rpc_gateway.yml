@@ -28,6 +28,7 @@
     rg_ch_db: "{{ rpc_gateway_ch_db | default('default') }}"
     rg_ch_user: "{{ rpc_gateway_ch_user | default('') }}"
     rg_ch_pass: "{{ rpc_gateway_ch_pass | default('') }}"
+    rg_deno_version: "{{ rpc_gateway_deno_version | default('v2.7.14') }}"
 
   tasks:
     - name: Install unzip (deno installer needs it)
@@ -35,10 +36,10 @@
         name: [unzip, curl, git]
         state: present
 
-    - name: Install Deno for solv user
+    - name: Install Deno for solv user (pinned to {{ rg_deno_version }})
       become_user: solv
       ansible.builtin.shell: |
-        curl -fsSL https://deno.land/install.sh | sh -s -- -y
+        curl -fsSL https://deno.land/install.sh | sh -s -- -y {{ rg_deno_version }}
       args:
         creates: /home/solv/.deno/bin/deno
 
@@ -58,12 +59,18 @@
         version: "{{ rg_ref }}"
         force: no
         depth: 1
+      register: rg_git
 
+    # Sync runs every play (no `creates:`) so updates propagate after a
+    # `git pull`.  rsync is itself idempotent — only files that differ
+    # are written.  When something changes, the registered handler at
+    # the bottom of the play restarts the gateway.
     - name: Sync api/rpc-gateway/ into {{ rg_dir }}
       ansible.builtin.shell: |
-        rsync -aH --delete {{ rg_dir }}/_src/api/rpc-gateway/ {{ rg_dir }}/
-      args:
-        creates: "{{ rg_dir }}/src/main.ts"
+        rsync -aH --delete --out-format='%n' {{ rg_dir }}/_src/api/rpc-gateway/ {{ rg_dir }}/
+      register: rg_sync
+      changed_when: rg_sync.stdout | length > 0
+      notify: restart rpc-gateway
 
     - name: Pre-cache deno deps (one-shot warm-up)
       become_user: solv
@@ -78,6 +85,7 @@
         dest: /etc/systemd/system/rpc-gateway.service
         mode: "0644"
         content: |
+          # systemd unit for slv-rpc-gateway
           [Unit]
           Description=SLV RPC Gateway (JSON-RPC; forwards to of1, routes jet_* to ClickHouse)
           After=network-online.target
@@ -101,13 +109,14 @@
 
           [Install]
           WantedBy=multi-user.target
+      notify: restart rpc-gateway
 
     - name: Enable + start rpc-gateway.service
       ansible.builtin.systemd:
         name: rpc-gateway.service
         daemon_reload: yes
         enabled: yes
-        state: restarted
+        state: started
 
     - name: Wait for /health to respond
       ansible.builtin.uri:
@@ -117,3 +126,13 @@
       retries: 10
       delay: 2
       until: rg_health.status == 200
+
+  handlers:
+    # Restart only on real change (rsync changed, unit file changed).
+    # `state: started` above keeps the service up without bouncing it on
+    # every play execution.
+    - name: restart rpc-gateway
+      ansible.builtin.systemd:
+        name: rpc-gateway.service
+        daemon_reload: yes
+        state: restarted
