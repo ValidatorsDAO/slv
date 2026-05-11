@@ -10,7 +10,8 @@
     "lint": "deno lint src/"
   },
   "imports": {
-    "@hono/hono": "jsr:@hono/hono@4.7.6"
+    "@hono/hono": "jsr:@hono/hono@4.7.6",
+    "@hono/hono/deno": "jsr:@hono/hono@4.7.6/deno"
   },
   "fmt": {
     "lineWidth": 100,
