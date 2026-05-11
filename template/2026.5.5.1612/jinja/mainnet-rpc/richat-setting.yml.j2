@@ -103,3 +103,17 @@ apps:
       enabled: true
       affinity: null
       requests_queue_size: 100
+  pubsub:
+    endpoint: 0.0.0.0:7111
+    tcp_nodelay: true
+    recv_max_message_size: 4KiB
+    enable_block_subscription: true
+    enable_transaction_subscription: true
+    clients_requests_channel_size: 8_192
+    subscriptions_workers_count: 2
+    subscriptions_max_clients_request_per_tick: 32
+    subscriptions_max_messages_per_commitment_per_tick: 256
+    notifications_messages_max_count: 16_777_216
+    notifications_messages_max_bytes: 32GiB
+    signatures_cache_max: 1_228_800
+    signatures_cache_slots_max: 150

@@ -1,24 +1,33 @@
 // SLV RPC Gateway — JSON-RPC 2.0 server that fronts of1 (yellowstone-faithful)
 // and routes `jet_*` analytics methods to ClickHouse (jetstreamer data).
+// Also exposes a Helius-compatible WebSocket at `/ws` with
+// `transactionSubscribe` bridged to an upstream Yellowstone gRPC endpoint
+// and standard Solana pubsub forwarded to richat WS.
 //
 // Standard Solana RPC methods (getTransaction, getBlock, …) are forwarded
 // untouched to OF1_URL. Methods starting with `jet_` are answered locally
 // from ClickHouse via CLICKHOUSE_URL.
 //
 // Configured via env:
-//   PORT              listen port (default 8889 — leaves 8888 for of1)
-//   OF1_URL           upstream JSON-RPC base (default http://localhost:8888)
-//   CLICKHOUSE_URL    ClickHouse HTTP base (default http://localhost:8123)
-//   CLICKHOUSE_DB     database name (default default)
-//   CLICKHOUSE_USER   optional Basic auth username
-//   CLICKHOUSE_PASS   optional Basic auth password
-//   CLICKHOUSE_TIMEOUT_MS  per-query timeout (default 30000)
-//   OF1_TIMEOUT_MS         per-proxy-call timeout (default 60000)
+//   PORT                  listen port (default 8889 — leaves 8888 for of1)
+//   OF1_URL               upstream JSON-RPC base (default http://localhost:8888)
+//   CLICKHOUSE_URL        ClickHouse HTTP base (default http://localhost:8123)
+//   CLICKHOUSE_DB         database name (default default)
+//   CLICKHOUSE_USER       optional Basic auth username
+//   CLICKHOUSE_PASS       optional Basic auth password
+//   CLICKHOUSE_TIMEOUT_MS per-query timeout (default 30000)
+//   OF1_TIMEOUT_MS        per-proxy-call timeout (default 60000)
+//   YELLOWSTONE_GRPC      Yellowstone gRPC host:port for transactionSubscribe
+//                         (default localhost:10000 — richat daemon's
+//                         apps.grpc.server.endpoint)
+//   PUBSUB_WS_URL         upstream Solana pubsub WebSocket for standard
+//                         methods (default ws://localhost:7111)
 
 import { Hono } from '@hono/hono'
 import { ClickHouseClient } from './lib/clickhouse.ts'
 import { JetHandlers } from './handlers/jet.ts'
 import { StandardProxy } from './handlers/proxy.ts'
+import { buildWsHandler } from './handlers/ws.ts'
 import {
   err,
   ERROR_CODES,
@@ -36,6 +45,8 @@ const CLICKHOUSE_USER = Deno.env.get('CLICKHOUSE_USER') ?? undefined
 const CLICKHOUSE_PASS = Deno.env.get('CLICKHOUSE_PASS') ?? undefined
 const CLICKHOUSE_TIMEOUT_MS = parseInt(Deno.env.get('CLICKHOUSE_TIMEOUT_MS') ?? '30000', 10)
 const OF1_TIMEOUT_MS = parseInt(Deno.env.get('OF1_TIMEOUT_MS') ?? '60000', 10)
+const YELLOWSTONE_GRPC = Deno.env.get('YELLOWSTONE_GRPC') ?? 'localhost:10000'
+const PUBSUB_WS_URL = Deno.env.get('PUBSUB_WS_URL') ?? 'ws://localhost:7111'
 
 const ch = new ClickHouseClient({
   url: CLICKHOUSE_URL,
@@ -76,6 +87,25 @@ app.use('*', async (c, next) => {
   c.header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
   if (c.req.method === 'OPTIONS') return c.body(null, 204)
   return await next()
+})
+
+// Helius-compat WebSocket (transactionSubscribe + standard pubsub forward).
+// Built once and aliased on both `/ws` and `/` so the same YellowstoneBridge
+// instance is shared.
+const wsHandler = buildWsHandler({
+  yellowstoneEndpoint: YELLOWSTONE_GRPC,
+  pubsubUrl: PUBSUB_WS_URL,
+})
+app.get('/ws', wsHandler)
+// Alias for clients that hard-code `wss://<host>/?api-key=…` — historical
+// default for richat-pubsub and many existing SDKs.  Only intercept GET /
+// when it is a real WebSocket upgrade; otherwise keep prior 404 behaviour
+// so health probes / accidental browser loads aren't surprised.
+app.get('/', async (c, next) => {
+  if (c.req.header('upgrade')?.toLowerCase() === 'websocket') {
+    return wsHandler(c, next)
+  }
+  return c.notFound()
 })
 
 // Health probe — does NOT touch upstreams (kept cheap).
@@ -149,5 +179,11 @@ app.post('/', async (c) => {
   return c.json(out)
 })
 
-log('starting', { port: PORT, of1: OF1_URL, clickhouse: CLICKHOUSE_URL })
+log('starting', {
+  port: PORT,
+  of1: OF1_URL,
+  clickhouse: CLICKHOUSE_URL,
+  yellowstone_grpc: YELLOWSTONE_GRPC,
+  pubsub_ws: PUBSUB_WS_URL,
+})
 Deno.serve({ port: PORT }, app.fetch)
