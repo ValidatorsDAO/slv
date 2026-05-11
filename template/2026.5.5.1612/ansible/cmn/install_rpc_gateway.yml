@@ -13,6 +13,8 @@
 #   rpc_gateway_ch_db       default
 #   rpc_gateway_ch_user     (unset)
 #   rpc_gateway_ch_pass     (unset)
+#   rpc_gateway_yellowstone_grpc  localhost:10000   (richat Yellowstone gRPC)
+#   rpc_gateway_pubsub_ws         ws://localhost:7111  (richat Solana pubsub WS)
 
 - name: Install + start the SLV RPC Gateway
   hosts: all
@@ -22,12 +24,19 @@
     rg_repo: "{{ rpc_gateway_repo | default('https://github.com/ValidatorsDAO/slv') }}"
     rg_ref: "{{ rpc_gateway_repo_ref | default('main') }}"
     rg_dir: "{{ rpc_gateway_install_dir | default('/opt/rpc-gateway') }}"
+    # Git checkout lives in a sibling dir, NOT inside rg_dir.  When the
+    # checkout was under {{ rg_src }}, the `rsync --delete` from
+    # _src/api/rpc-gateway/ → rg_dir/ wiped its own source mid-transfer
+    # (rsync sees _src/ in dest, doesn't see it in source list, deletes it).
+    rg_src: "{{ rpc_gateway_src_dir | default('/opt/rpc-gateway-src') }}"
     rg_port: "{{ rpc_gateway_port | default(8889) }}"
     rg_of1: "{{ rpc_gateway_of1_url | default('http://localhost:8888') }}"
     rg_ch: "{{ rpc_gateway_ch_url | default('http://localhost:8123') }}"
     rg_ch_db: "{{ rpc_gateway_ch_db | default('default') }}"
     rg_ch_user: "{{ rpc_gateway_ch_user | default('') }}"
     rg_ch_pass: "{{ rpc_gateway_ch_pass | default('') }}"
+    rg_yellowstone: "{{ rpc_gateway_yellowstone_grpc | default('localhost:10000') }}"
+    rg_pubsub: "{{ rpc_gateway_pubsub_ws | default('ws://localhost:7111') }}"
     rg_deno_version: "{{ rpc_gateway_deno_version | default('v2.7.14') }}"
 
   tasks:
@@ -45,19 +54,26 @@
 
     - name: Ensure install dir
       ansible.builtin.file:
-        path: "{{ rg_dir }}"
+        path: "{{ item }}"
         state: directory
         owner: solv
         group: solv
         mode: "0755"
+      loop:
+        - "{{ rg_dir }}"
+        - "{{ rg_src }}"
 
     - name: Clone slv repo (sparse — we only need api/rpc-gateway/)
       become_user: solv
       ansible.builtin.git:
         repo: "{{ rg_repo }}"
-        dest: "{{ rg_dir }}/_src"
+        dest: "{{ rg_src }}"
         version: "{{ rg_ref }}"
-        force: no
+        # force: yes so re-running with a different rpc_gateway_repo_ref
+        # (e.g. switching from a feature branch to main after merge) updates
+        # the working tree.  We never edit {{ rg_src }} by hand — changes go
+        # through git on a workstation.
+        force: yes
         depth: 1
       register: rg_git
 
@@ -67,7 +83,7 @@
     # the bottom of the play restarts the gateway.
     - name: Sync api/rpc-gateway/ into {{ rg_dir }}
       ansible.builtin.shell: |
-        rsync -aH --delete --out-format='%n' {{ rg_dir }}/_src/api/rpc-gateway/ {{ rg_dir }}/
+        rsync -aH --delete --out-format='%n' {{ rg_src }}/api/rpc-gateway/ {{ rg_dir }}/
       register: rg_sync
       changed_when: rg_sync.stdout | length > 0
       notify: restart rpc-gateway
@@ -102,7 +118,11 @@
           Environment=CLICKHOUSE_DB={{ rg_ch_db }}
           {% if rg_ch_user %}Environment=CLICKHOUSE_USER={{ rg_ch_user }}{% endif %}
           {% if rg_ch_pass %}Environment=CLICKHOUSE_PASS={{ rg_ch_pass }}{% endif %}
-          ExecStart=/home/solv/.deno/bin/deno run --allow-net --allow-env src/main.ts
+          Environment=YELLOWSTONE_GRPC={{ rg_yellowstone }}
+          Environment=PUBSUB_WS_URL={{ rg_pubsub }}
+          # --allow-read is required because yellowstone-grpc loads a .wasm
+          # file via require('fs').readFileSync from deno's npm cache.
+          ExecStart=/home/solv/.deno/bin/deno run --allow-net --allow-env --allow-read src/main.ts
           Restart=always
           RestartSec=5
           LimitNOFILE=65536
