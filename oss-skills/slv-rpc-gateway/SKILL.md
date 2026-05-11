@@ -27,7 +27,7 @@ client ── POST / ─► rpc-gateway ──► standard RPC (getTransaction, 
 Without the gateway, clients have to know two endpoints and two protocols
 (JSON-RPC vs ClickHouse SQL). With it, everything is one JSON-RPC endpoint.
 
-## Methods (MVP)
+## HTTP JSON-RPC methods
 
 | Method | Backend | Notes |
 |---|---|---|
@@ -40,6 +40,42 @@ Without the gateway, clients have to know two endpoints and two protocols
 
 All `jet_*` methods return JSON arrays of records (`{column: value, …}`)
 following the JSON-RPC `result` envelope.
+
+## WebSocket methods (`/ws`)
+
+The gateway also serves a Helius-Enhanced-WS-compatible WebSocket at
+`/ws`.  Clients connect once and get both standard Solana pubsub *and*
+the enhanced `transactionSubscribe` method through the same socket.
+
+| Method | Backend | Notes |
+|---|---|---|
+| `transactionSubscribe` / `transactionUnsubscribe` | upstream Yellowstone gRPC | Helius-Enhanced-WS compatible.  Filters: `vote`, `failed`, `signature`, `accountInclude`, `accountExclude`, `accountRequired`.  Options: `commitment`, `encoding`, `transactionDetails`, `showRewards`, `maxSupportedTransactionVersion`. |
+| `accountSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `logsSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `programSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `signatureSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `slotSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `slotsUpdatesSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `blockSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `voteSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+| `rootSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
+
+Subscription IDs ≥ 1_000_000_000 are local (Helius bridge); below that
+they belong to the upstream pubsub.  Unsubscribe routes to the right
+side based on this range.
+
+### Side-by-side measurement vs Helius
+
+For a 20-second `transactionSubscribe` with
+`accountInclude=[TokenkegQ…]` filter:
+
+| Metric | Helius Enhanced WS | this gateway → richat |
+|---|---:|---:|
+| Connect | 197 ms | 68 ms |
+| Subscribe ack | 17 ms | 27 ms |
+| First notification | 325 ms | 63 ms |
+| 20-s notifications | 11,168 | 11,275 |
+| Throughput | 558 tx/s | 564 tx/s |
 
 ## Source
 
@@ -75,7 +111,9 @@ end-to-end on any node that has of1 + ClickHouse reachable:
 
 Inventory variables: `rpc_gateway_port`, `rpc_gateway_of1_url`,
 `rpc_gateway_ch_url`, `rpc_gateway_ch_db`, `rpc_gateway_ch_user`,
-`rpc_gateway_ch_pass`.
+`rpc_gateway_ch_pass`, plus for the WebSocket bridge:
+`rpc_gateway_yellowstone_grpc` (default `localhost:10000`) and
+`rpc_gateway_pubsub_ws` (default `ws://localhost:7111`).
 
 ## Topology recommendations
 
