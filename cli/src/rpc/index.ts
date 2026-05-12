@@ -13,6 +13,7 @@ import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
+import type { VersionSection } from '/lib/config/updateAllowedIps.ts'
 
 // rpc Command
 export const rpcCmd = new Command()
@@ -331,7 +332,10 @@ rpcCmd.command('update:allowed-ips')
   })
   .description('🛡️ Update allowed IPs for mainnet RPC nodes')
   .action(async (options) => {
-    const inventoryType = options.network + '_rpcs' as InventoryType
+    // `slv rpc update:allowed-ips` is rpc-only; cast narrows InventoryType
+    // (now also includes hermes/pythnet) to the VersionSection subset
+    // that allowed_ips actually supports.
+    const inventoryType = options.network + '_rpcs' as VersionSection
     await updateAllowedIps(inventoryType)
   })
 

@@ -1,0 +1,36 @@
+# SLV Hermes — Example Inventory
+#
+# Usage:
+#   cp examples/inventory.yml ~/.slv/inventory.mainnet.hermes.yml
+#   # edit ansible_host + (optionally) endpoints
+#   ansible-playbook -i ~/.slv/inventory.mainnet.hermes.yml \
+#     ~/.slv/mainnet-hermes/init.yml
+
+all:
+  hosts:
+    hermes-1:
+      ansible_host: "<vps-ip>"
+      ansible_user: "solv"
+      ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+  vars:
+    # --- Pythnet RPC endpoints (Hermes reads accumulator from here) ---
+    # Defaults below talk to public Pythnet — fine for bootstrap.  Once
+    # you have a self-hosted Pythnet RPC (see slv-pythnet skill), swap
+    # these for your own and run `slv hermes restart`.
+    hermes_pythnet_http_addr: "https://pythnet.rpcpool.com"
+    hermes_pythnet_ws_addr:   "wss://pythnet.rpcpool.com"
+
+    # --- Wormhole environment ---
+    hermes_wormhole_env: "mainnet"
+
+    # --- Repo refs (pin to a tag if you want reproducible builds) ---
+    # hermes_repo_ref: "v2.5.0"        # default: main
+    # beacon_repo_ref: "v0.4.0"        # default: main
+
+    # --- Listen addresses ---
+    hermes_rpc_listen_addr: "0.0.0.0:7575"
+    hermes_metrics_listen_addr: "127.0.0.1:7576"
+    beacon_listen_port: 8999
+    beacon_spy_grpc_addr: "127.0.0.1:7072"
+    nats_port: 4222

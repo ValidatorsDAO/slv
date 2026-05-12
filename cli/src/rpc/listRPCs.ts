@@ -2,14 +2,20 @@ import { colors } from '@cliffy/colors'
 import { Row, Table } from '@cliffy/table'
 import { genOrReadInventory } from '/lib/genOrReadInventory.ts'
 import type {
+  CmnType,
   InventoryType,
   NetworkType,
   RpcConfig,
 } from '@cmn/types/config.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 
+// `listRPCs` is rpc-only — narrow inventoryType to the keys of CmnType so
+// `versions[inventoryType]` indexes without InventoryType (which also
+// contains hermes/pythnet now) widening to `any`.
+type RpcInventoryType = Extract<InventoryType, keyof CmnType>
+
 const listRPCs = async (network: NetworkType, identityKey?: string) => {
-  const inventoryType = network + '_rpcs' as InventoryType
+  const inventoryType = `${network}_rpcs` as RpcInventoryType
   const inventory = await genOrReadInventory(inventoryType)
   const header = [
     'Identity Key',

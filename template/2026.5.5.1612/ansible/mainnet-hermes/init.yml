@@ -1,0 +1,17 @@
+---
+# Full Hermes node initialization.  Delegates the heavy lift (build +
+# systemd) to cmn/install_hermes_stack.yml so the same recipe can be
+# reused if Pyth ever ships a separate beta/testnet with its own Pythnet RPC.
+#
+# Usage:
+#   ansible-playbook -i ~/.slv/inventory.mainnet.hermes.yml \
+#     template/2026.5.5.1612/ansible/mainnet-hermes/init.yml
+#
+# Hermes does not need an identity key, snapshots, or ledger storage — it's
+# a stateless API service.  All it does is bridge Pythnet + Wormhole to
+# REST/WS, so a modest VPS (4 vCPU / 8 GB / 80 GB) handles it comfortably.
+
+- import_playbook: ../cmn/fix_permissions.yml
+- import_playbook: ../cmn/create_user.yml
+- import_playbook: ../cmn/update_ubuntu.yml
+- import_playbook: ../cmn/install_hermes_stack.yml

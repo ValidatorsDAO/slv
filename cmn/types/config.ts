@@ -13,6 +13,8 @@ export type InventoryType =
   | 'mainnet_rpcs'
   | 'devnet_rpcs'
   | 'testnet_rpcs'
+  | 'mainnet_hermes'
+  | 'mainnet_pythnet'
 
 export type SolanaNodeType =
   | 'agave'

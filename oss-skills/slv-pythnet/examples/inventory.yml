@@ -1,0 +1,41 @@
+# SLV Pythnet — Example Inventory
+#
+# Usage:
+#   cp examples/inventory.yml ~/.slv/inventory.mainnet.pythnet.yml
+#   # edit ansible_host + (optionally) device/mount
+#   ansible-playbook -i ~/.slv/inventory.mainnet.pythnet.yml \
+#     ~/.slv/mainnet-pythnet/init.yml
+
+all:
+  hosts:
+    pythnet-1:
+      ansible_host: "<bm-ip>"
+      ansible_user: "solv"
+      ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+  vars:
+    # --- Disk layout ---
+    # If your BM has an unused secondary NVMe you want the recipe to
+    # format and mount, set pythnet_format_disk: true.  Otherwise leave
+    # this false and ensure pythnet_ledger_mount already exists with
+    # enough free space (~500 GB recommended; 50 GB minimum for testing).
+    pythnet_format_disk: false
+    pythnet_ledger_device: "/dev/nvme0n1"
+    pythnet_ledger_mount: "/mnt/ledger"
+
+    # --- Repo pinning (optional) ---
+    # pythnet_ref: "pyth-v1.14.17"   # default; currently the only supported branch
+
+    # --- RPC binding ---
+    pythnet_rpc_port: 8899
+    pythnet_rpc_bind: "0.0.0.0"
+    pythnet_dynamic_port_range: "8000-8020"
+    pythnet_gossip_port: 8001
+
+    # --- Network parameters (immutable Pythnet constants — leave as-is) ---
+    # pythnet_entrypoint:      "pythnet.rpcpool.com:8001"
+    # pythnet_genesis_hash:    "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq"
+    # pythnet_shred_version:   35891
+    # pythnet_known_validators:
+    #   - DzZov8p2kwXJeYx2hnVyaxNFugYVF4up9AWwRvtYWU4u
+    #   - 6Rr1vUgRZmqDuzzU6Sf3QAfUTYV3aa4wqxKrL6uBGXdU
