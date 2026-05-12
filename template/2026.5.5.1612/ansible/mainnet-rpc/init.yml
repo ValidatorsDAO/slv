@@ -69,3 +69,10 @@
 - import_playbook: install_of1_service.yml
   when:
     - rpc_type in ['Index RPC', 'Index RPC + gRPC']
+
+# Rolling cache: keep last N (default 30) epochs of indexes locally so
+# getTransaction etc. answer in ~70ms instead of ~300ms.  CAR files stay
+# remote.  Maintained by a daily systemd timer.
+- import_playbook: ../cmn/of1_index_cache_sync.yml
+  when:
+    - rpc_type in ['Index RPC', 'Index RPC + gRPC']

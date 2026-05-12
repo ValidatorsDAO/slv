@@ -111,6 +111,7 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `install_richat.yml` | Install Richat gRPC plugin |
 | `install_of1.yml` | Install Old Faithful (yellowstone-faithful) |
 | `install_of1_service.yml` | Setup Old Faithful systemd service |
+| `cmn/of1_index_cache_sync.yml` | Install rolling-cache sync script + daily timer |
 | `geyser_build.yml` | Build Yellowstone gRPC from source |
 | `geyser_richat_build.yml` | Build Richat gRPC plugin from source |
 | `update_geyser.yml` | Update Geyser plugin |
@@ -262,6 +263,9 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `of1_version` | — | Index RPC (Old Faithful) |
 | `epoch` | — | Index RPC (faithful service) |
 | `faithful_proxy_target_url` | — | Index RPC |
+| `index_rpc_window_epochs` | `30` | Index RPC (rolling cache window) |
+| `of1_index_cache_dir` | `/mnt/ledger/car/indexes` | Index RPC (rolling cache disk) |
+| `of1_run_initial_sync` | `true` | Index RPC (foreground first-time fill) |
 
 ### Optional Variables
 
@@ -349,3 +353,53 @@ slv r patch:sha256 -n <network> -p <pubkey>
 | `slv r init` (after SSH check) | `cmn/optimize_node.yml` (auto-reboot if needed) |
 | `slv r deploy` | `{net}-rpc/init.yml` + auto `runSha256Patch` |
 | `slv r patch:sha256` | `cmn/patch_sha256.yml` (standalone) |
+
+## Index RPC: Rolling Index Cache
+
+`Index RPC` and `Index RPC + gRPC` deploys add a rolling cache of
+yellowstone-faithful indexes for the most recent N epochs (default 30) so
+historical RPC queries answer locally instead of round-tripping to
+`files.old-faithful.net` on every lookup.
+
+### How it works
+
+The index files (cid-to-offset, slot-to-cid, sig-to-cid, sig-exists,
+slot-to-blocktime) are kept on local disk; CAR files stay remote and are
+fetched via HTTP Range requests as needed. A daily systemd timer
+(`of1-index-sync.timer`) calls `/usr/local/bin/of1-index-sync.sh`, which:
+
+1. Discovers the latest available epoch on Old Faithful.
+2. Downloads any missing indexes for the last `index_rpc_window_epochs` epochs (parallel `aria2c`).
+3. Regenerates per-epoch config YAMLs in `/home/solv/configs/` with `file://` URIs for indexes + `https://` URI for CAR.
+4. Evicts caches older than the window.
+5. Restarts `faithful.service` only if anything changed.
+
+`faithful.service` runs through `/usr/local/bin/start-faithful.sh`, which
+globs `config-epoch*.yaml` so the timer can add or remove epochs without
+editing the systemd unit.
+
+### Disk budget
+
+A recent epoch is ~30 GB of indexes (CAR is excluded — it would be
+500-800 GB per epoch). 30 epochs ≈ ~1 TB on local disk and covers ~63
+days of mainnet history.
+
+### Measured impact (representative production RPC node)
+
+| Method | Before (all-remote URIs) | After (local indexes) | Improvement |
+|---|---:|---:|---|
+| `getTransaction` | 313 ms p50 / 481 ms p95 | 73 ms p50 / 96 ms p95 | **~6× faster** |
+| `getBlockTime` | 34 ms p50 | 34 ms p50 | unchanged (already fast) |
+| `getBlock` | 141 ms p50 | 161-194 ms p50 | CAR-fetch dominated |
+
+`getTransaction` is the win because it traverses three indexes; with all
+of them remote each query becomes an HTTP-Range chain. Localizing
+collapses that to a single CAR roundtrip.
+
+### Standalone control
+
+```bash
+sudo systemctl start of1-index-sync.service        # ad-hoc sync
+WINDOW=10 sudo /usr/local/bin/of1-index-sync.sh    # smaller window
+DRY_RUN=1 sudo /usr/local/bin/of1-index-sync.sh    # show plan without DL
+```
