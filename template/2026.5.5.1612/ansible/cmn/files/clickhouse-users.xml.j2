@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse users.xml.  Admin user `default` is restricted to loopback,
+  optionally with a SHA-256 password.  An additional read-only `analytics`
+  user is bound to the same loopback for the rpc-gateway to use.
+-->
+<clickhouse>
+    <profiles>
+        <default>
+            <max_memory_usage>32212254720</max_memory_usage>
+            <max_execution_time>300</max_execution_time>
+            <use_uncompressed_cache>0</use_uncompressed_cache>
+            <load_balancing>random</load_balancing>
+        </default>
+        <readonly>
+            <readonly>2</readonly>
+            <max_memory_usage>10737418240</max_memory_usage>
+            <max_execution_time>60</max_execution_time>
+        </readonly>
+    </profiles>
+
+    <quotas>
+        <default>
+            <interval>
+                <duration>3600</duration>
+                <queries>0</queries>
+                <errors>0</errors>
+                <result_rows>0</result_rows>
+                <read_rows>0</read_rows>
+                <execution_time>0</execution_time>
+            </interval>
+        </default>
+    </quotas>
+
+    <users>
+        <default>
+            {% if js_default_password_sha256 %}<password_sha256_hex>{{ js_default_password_sha256 }}</password_sha256_hex>
+            {% else %}<password></password>
+            {% endif %}
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </default>
+
+        {% if js_analytics_password_sha256 %}<analytics>
+            <password_sha256_hex>{{ js_analytics_password_sha256 }}</password_sha256_hex>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+            <profile>readonly</profile>
+            <quota>default</quota>
+        </analytics>
+        {% endif %}
+    </users>
+</clickhouse>
