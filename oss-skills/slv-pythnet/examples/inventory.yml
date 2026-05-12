@@ -39,3 +39,32 @@ all:
     # pythnet_known_validators:
     #   - DzZov8p2kwXJeYx2hnVyaxNFugYVF4up9AWwRvtYWU4u
     #   - 6Rr1vUgRZmqDuzzU6Sf3QAfUTYV3aa4wqxKrL6uBGXdU
+
+    # --- nftables (used by `slv pythnet firewall`) ---
+    # ★ mgmt_ips_v4 must contain every IP that should retain admin / SSH
+    # access.  The playbook refuses to deploy with an empty list.
+    mgmt_ips_v4:
+      - "<your-admin-ip>"
+    # ban_ips_v4: []
+    # ssh_port: 22
+    # Gossip (8001) + the TPU/QUIC dynamic-port range are public so the
+    # validator can fan-out to gossip peers; downsize to your actual
+    # pythnet_dynamic_port_range if you customized it above.
+    public_tcp_ports:
+      - 8001
+      - "8000-8020"
+    public_udp_ports:
+      - 8001
+      - "8000-8020"
+    # JSON-RPC is restricted to known clients (typically your Hermes
+    # node).  Each entry maps a port (or range string) → list of IPv4
+    # addresses/CIDRs allowed to connect.
+    restricted_ports:
+      - port: 8899          # HTTP RPC
+        tcp: true
+        allow_ipv4:
+          - "<hermes-vps-ip>"
+      - port: 8900          # WebSocket RPC
+        tcp: true
+        allow_ipv4:
+          - "<hermes-vps-ip>"

@@ -34,3 +34,17 @@ all:
     beacon_listen_port: 8999
     beacon_spy_grpc_addr: "127.0.0.1:7072"
     nats_port: 4222
+
+    # --- nftables (used by `slv hermes firewall`) ---
+    # ★ mgmt_ips_v4 must contain every IP that should retain admin / SSH
+    # access.  The playbook refuses to deploy with an empty list because
+    # applying nftables without mgmt IPs would drop the current SSH session.
+    mgmt_ips_v4:
+      - "<your-admin-ip>"
+    # ban_ips_v4: []
+    # ssh_port: 22
+    public_tcp_ports:
+      - 7575          # Hermes REST/WS API
+    public_udp_ports:
+      - 8999          # Wormhole P2P (QUIC) — must be externally reachable
+    # restricted_ports: []
