@@ -47,4 +47,11 @@ all:
       - 7575          # Hermes REST/WS API
     public_udp_ports:
       - 8999          # Wormhole P2P (QUIC) — must be externally reachable
-    # restricted_ports: []
+    # Optional :443 whitelist for Cloudflare.  `cf_ipv4` is auto-loaded
+    # from ~/.slv/cmn/files/cf_ipv4.yml (shipped with slv, refreshed
+    # against https://www.cloudflare.com/ips-v4).  Remove this block if
+    # the Hermes node does not sit behind a CF Worker / Tunnel.
+    # restricted_ports:
+    #   - port: 443
+    #     tcp: true
+    #     allow_ipv4: "{{ cf_ipv4 | default([]) }}"

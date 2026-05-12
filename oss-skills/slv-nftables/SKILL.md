@@ -121,6 +121,33 @@ all:
     public_udp_ports: [8999]         # Wormhole P2P
 ```
 
+## Example: Hermes node behind Cloudflare (:443 whitelist)
+
+The slv templates ship `cmn/files/cf_ipv4.yml` containing the official
+Cloudflare IPv4 ranges (refreshed against
+<https://www.cloudflare.com/ips-v4>).  The playbook auto-loads it via
+`include_vars` if present, exposing the `cf_ipv4` list to your
+inventory:
+
+```yaml
+all:
+  hosts:
+    hermes-1: { ansible_host: "<vps-ip>", ansible_user: "solv" }
+  vars:
+    mgmt_ips_v4: ["<your-admin-ip>"]
+    public_tcp_ports: [7575]
+    public_udp_ports: [8999]
+    restricted_ports:
+      - port: 443
+        tcp: true
+        allow_ipv4: "{{ cf_ipv4 | default([]) }}"
+```
+
+Refresh the list any time CF updates its ranges — edit
+`template/<version>/jinja/cmn/files/cf_ipv4.yml`, re-run
+`slv hermes deploy` (or just re-copy the file into `~/.slv/cmn/files/`),
+then re-run `slv hermes firewall`.
+
 ## Example: Pythnet RPC (restricted JSON-RPC + public gossip)
 
 ```yaml

@@ -54,9 +54,23 @@
     nft_python_interpreter: "{{ ansible_facts.python.executable | default('/usr/bin/python3') }}"
 
   pre_tasks:
-    # Hard fail-safe: empty mgmt_ips_v4 + nonzero restricted/public means
-    # the operator likely forgot to pass their IP, which would lock them
-    # out the moment we apply.  Refuse to proceed.
+    # Load the optional shared variable files.  `cf_ipv4.yml` ships with
+    # the slv templates (refreshed against https://www.cloudflare.com/ips-v4)
+    # — operators referring to `{{ cf_ipv4 | default([]) }}` in inventory
+    # get the current list without copying it by hand.  The lookup is
+    # best-effort: missing file → variable just stays undefined, default
+    # filter handles the empty case.
+    - name: Load optional cmn/files/cf_ipv4.yml (Cloudflare IPv4 ranges)
+      ansible.builtin.include_vars:
+        file: "{{ lookup('env', 'HOME') }}/.slv/cmn/files/cf_ipv4.yml"
+      failed_when: false
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    # Hard fail-safe: empty mgmt_ips_v4 means the operator likely forgot
+    # to pass their IP, which would lock them out the moment we apply.
+    # Refuse to proceed.
     - name: Sanity-check that mgmt_ips_v4 is non-empty
       ansible.builtin.assert:
         that:

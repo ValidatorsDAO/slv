@@ -11,6 +11,13 @@
 # `tasks/persist_nftables_ruleset.yml` which exports the live ruleset
 # back into this file on every deploy.
 
+# `flush ruleset` is the only safe way to re-apply: without it, `nft -f`
+# merges the new table into the existing one, accumulating duplicate
+# rules on every deploy.  The flush is atomic with the subsequent table
+# definition (nft -f loads the whole file as a single transaction), so
+# there's no observable window where the chain is empty.
+flush ruleset
+
 table inet filter {
   include "/etc/nftables.sets.d/*.nft";
 
