@@ -2,17 +2,22 @@
 // by the `gtfa_tx_mentions` ClickHouse table emitted by slv-gtfa-plugin
 // (see vs2-app/elsoul-proxy/slv_gtfa_plugin).
 //
-// Phase 1: `transactionDetails: "signatures"` only.  Full mode (with of1
-// `getTransaction` fan-out) lands in a follow-up.
+// Two modes:
+//   `signatures` — index-only response from ClickHouse
+//   `full`       — same index lookup, then per-sig `getTransaction` fan-out
+//                  to the upstream of1 (yellowstone-faithful + rolling cache)
 //
 // Request:
 //   { jsonrpc: "2.0", id, method: "getTransactionsForAddress",
 //     params: [ "<base58 pubkey>", {
-//       transactionDetails?: "signatures" | "full",     // "full" rejected in v1
+//       transactionDetails?: "signatures" | "full",     // default "signatures"
 //       sortOrder?:          "desc" | "asc",            // default "desc"
-//       limit?:              <int, max 1000>,           // default 100
+//       limit?:              <int>,                     // default 100 (max 1000
+//                                                       //   sigs / 100 full)
 //       paginationToken?:    "<slot>:<txIndex>",        // cursor
 //       commitment?:         "finalized" | "confirmed", // no-op (always finalized)
+//       encoding?:           "json" | "base64" | "base58",  // full mode only
+//       maxSupportedTransactionVersion?: 0,              // full mode only
 //       filters?: {
 //         slot?:      { gte?: int, gt?: int, lte?: int, lt?: int, eq?: int },
 //         blockTime?: { gte?: int, gt?: int, lte?: int, lt?: int, eq?: int },
@@ -21,15 +26,33 @@
 //       },
 //     } ] }
 //
-// Response:
+// Response (signatures mode):
 //   { result: { transactions: [{ signature, slot, transactionIndex,
 //       blockTime, status }], paginationToken: "<slot>:<txIndex>" | null } }
+//
+// Response (full mode):
+//   same shape plus `transaction`, `meta`, `version` per entry (taken from
+//   the of1 `getTransaction` response).  If of1 lookup for a single sig
+//   fails, the entry still appears but with `transaction: null` and an
+//   `error: "<msg>"` field — the caller can retry that one sig if needed.
 
 import { ClickHouseClient, quoteString } from '../lib/clickhouse.ts'
 import { err, ERROR_CODES, type JsonRpcRequest, type JsonRpcResponse, ok } from '../jsonrpc.ts'
 
 const DEFAULT_LIMIT = 100
 const MAX_LIMIT_SIGNATURES = 1000
+const MAX_LIMIT_FULL = 100
+
+type Encoding = 'json' | 'jsonParsed' | 'base64' | 'base58'
+const VALID_ENCODINGS: ReadonlyArray<Encoding> = ['json', 'jsonParsed', 'base64', 'base58']
+const FULL_MODE_SUPPORTED_ENCODINGS: ReadonlyArray<Encoding> = ['json', 'base64', 'base58']
+
+export type GtfaConfig = {
+  of1Url: string
+  of1TimeoutMs?: number
+  /** Cap on simultaneous of1 getTransaction calls in full mode. */
+  fullConcurrency?: number
+}
 
 const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 const BASE58_SIG_RE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/
@@ -122,19 +145,34 @@ function parsePaginationToken(s: string): { slot: number; txIndex: number } {
   return { slot, txIndex }
 }
 
+type SigRow = {
+  signature: string
+  slot: number
+  transactionIndex: number
+  blockTime: number
+  status: 'succeeded' | 'failed'
+}
+
 export class GtfaHandlers {
-  constructor(private ch: ClickHouseClient) {}
+  private of1Url: string
+  private of1TimeoutMs: number
+  private fullConcurrency: number
+
+  constructor(private ch: ClickHouseClient, cfg: GtfaConfig) {
+    this.of1Url = cfg.of1Url
+    this.of1TimeoutMs = cfg.of1TimeoutMs ?? 60_000
+    this.fullConcurrency = Math.max(1, cfg.fullConcurrency ?? 20)
+  }
 
   /**
-   * Helius-wire-compatible.  Phase 1: signatures mode only.
+   * Helius-wire-compatible.  Supports `signatures` and `full` modes.
    *
    * Notes:
-   * - `commitment` is a no-op in v1.  All data in `gtfa_tx_mentions` comes
-   *   from yellowstone-faithful via slv-jetstreamer, which by definition
-   *   only carries finalized slots.
-   * - `transactionDetails: "full"` is rejected with METHOD_NOT_FOUND-style
-   *   message in v1 (will be added with of1 fan-out in Phase 2).
-   * - `tokenAccounts` and `encoding=jsonParsed` are Phase 3.
+   * - `commitment` is a no-op.  All data in `gtfa_tx_mentions` comes from
+   *   yellowstone-faithful via slv-jetstreamer, which by definition only
+   *   carries finalized slots.
+   * - `tokenAccounts != "none"` and `encoding="jsonParsed"` return
+   *   INVALID_PARAMS until the Phase 3 work lands.
    */
   async getTransactionsForAddress(req: JsonRpcRequest): Promise<JsonRpcResponse> {
     try {
@@ -143,12 +181,39 @@ export class GtfaHandlers {
       const transactionDetails = options.transactionDetails === undefined
         ? 'signatures'
         : asString(options.transactionDetails, 'transactionDetails')
-      if (transactionDetails !== 'signatures') {
+      if (transactionDetails !== 'signatures' && transactionDetails !== 'full') {
+        throw new Error(
+          `invalid transactionDetails: expected "signatures" or "full"`,
+        )
+      }
+      const fullMode = transactionDetails === 'full'
+
+      // Encoding is only meaningful in full mode; in signatures mode it's
+      // silently ignored.  We still validate it so a typo isn't masked.
+      let encoding: Encoding = 'json'
+      if (options.encoding !== undefined) {
+        const e = asString(options.encoding, 'encoding')
+        if (!(VALID_ENCODINGS as ReadonlyArray<string>).includes(e)) {
+          throw new Error(
+            `invalid encoding: expected one of ${VALID_ENCODINGS.join(', ')}`,
+          )
+        }
+        encoding = e as Encoding
+      }
+      if (fullMode && !FULL_MODE_SUPPORTED_ENCODINGS.includes(encoding)) {
         return err(
           req.id ?? null,
           ERROR_CODES.INVALID_PARAMS,
-          `transactionDetails="${transactionDetails}" not yet supported; ` +
-            `only "signatures" is implemented in this version`,
+          `encoding="${encoding}" not yet supported; ` +
+            `full mode supports ${FULL_MODE_SUPPORTED_ENCODINGS.join(', ')}`,
+        )
+      }
+
+      let maxSupportedTransactionVersion = 0
+      if (options.maxSupportedTransactionVersion !== undefined) {
+        maxSupportedTransactionVersion = asInt(
+          options.maxSupportedTransactionVersion,
+          'maxSupportedTransactionVersion',
         )
       }
 
@@ -160,9 +225,10 @@ export class GtfaHandlers {
       }
       const desc = sortOrderRaw === 'desc'
 
+      const maxLimit = fullMode ? MAX_LIMIT_FULL : MAX_LIMIT_SIGNATURES
       const limit = options.limit === undefined
-        ? DEFAULT_LIMIT
-        : Math.min(asInt(options.limit, 'limit'), MAX_LIMIT_SIGNATURES)
+        ? Math.min(DEFAULT_LIMIT, maxLimit)
+        : Math.min(asInt(options.limit, 'limit'), maxLimit)
       if (limit === 0) {
         return ok(req.id ?? null, { transactions: [], paginationToken: null })
       }
@@ -257,13 +323,7 @@ export class GtfaHandlers {
         ORDER BY slot ${orderDir}, transaction_index ${orderDir}
       `
 
-      const rows = await this.ch.query<{
-        signature: string
-        slot: number
-        transactionIndex: number
-        blockTime: number
-        status: 'succeeded' | 'failed'
-      }>(sql)
+      const rows = await this.ch.query<SigRow>(sql)
 
       let paginationToken: string | null = null
       if (rows.length > limit) {
@@ -272,9 +332,130 @@ export class GtfaHandlers {
         rows.length = limit
       }
 
-      return ok(req.id ?? null, { transactions: rows, paginationToken })
+      if (!fullMode) {
+        return ok(req.id ?? null, { transactions: rows, paginationToken })
+      }
+
+      // Full mode: fan out to of1 with a concurrency cap.  We keep CH-sourced
+      // fields authoritative (the index lookup is what the user asked for);
+      // of1 contributes `transaction`, `meta`, `version`.
+      const fullRows = await mapWithConcurrency(
+        rows,
+        this.fullConcurrency,
+        async (row): Promise<FullRow> => {
+          const fetched = await this.of1GetTransaction(
+            row.signature,
+            encoding,
+            maxSupportedTransactionVersion,
+          )
+          if (fetched.kind === 'ok') {
+            return {
+              ...row,
+              transaction: fetched.transaction,
+              meta: fetched.meta,
+              version: fetched.version,
+            }
+          }
+          return {
+            ...row,
+            transaction: null,
+            meta: null,
+            version: null,
+            error: fetched.error,
+          }
+        },
+      )
+
+      return ok(req.id ?? null, { transactions: fullRows, paginationToken })
     } catch (e) {
       return err(req.id ?? null, ERROR_CODES.INVALID_PARAMS, (e as Error).message)
     }
   }
+
+  private async of1GetTransaction(
+    signature: string,
+    encoding: Encoding,
+    maxSupportedTransactionVersion: number,
+  ): Promise<Of1Result> {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.of1TimeoutMs)
+    try {
+      const res = await fetch(this.of1Url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTransaction',
+          params: [signature, { encoding, maxSupportedTransactionVersion }],
+        }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) {
+        return { kind: 'err', error: `of1 HTTP ${res.status}` }
+      }
+      const body = await res.json() as Record<string, unknown>
+      if (body.error) {
+        const e = body.error as { message?: string }
+        return { kind: 'err', error: e.message ?? 'of1 error' }
+      }
+      const result = body.result as
+        | { transaction?: unknown; meta?: unknown; version?: unknown }
+        | null
+        | undefined
+      if (result == null) {
+        // of1 returns null when the tx is outside the indexed window.  Keep
+        // the entry in the response with `transaction: null` so the client
+        // sees which signatures are missing without a separate retry path.
+        return { kind: 'err', error: 'transaction not found in of1 window' }
+      }
+      return {
+        kind: 'ok',
+        transaction: result.transaction ?? null,
+        meta: result.meta ?? null,
+        version: result.version ?? null,
+      }
+    } catch (e) {
+      return { kind: 'err', error: e instanceof Error ? e.message : String(e) }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+}
+
+type FullRow = SigRow & {
+  transaction: unknown
+  meta: unknown
+  version: unknown
+  error?: string
+}
+
+type Of1Result =
+  | { kind: 'ok'; transaction: unknown; meta: unknown; version: unknown }
+  | { kind: 'err'; error: string }
+
+/**
+ * Run `fn` over each `items` element with at most `concurrency` in flight at
+ * a time.  Preserves input order in the output.  Used for the of1 fan-out
+ * so we don't open `limit` (up to 100) sockets simultaneously.
+ */
+async function mapWithConcurrency<T, R>(
+  items: ReadonlyArray<T>,
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const workers: Promise<void>[] = []
+  for (let i = 0; i < Math.min(concurrency, items.length); i++) {
+    workers.push((async () => {
+      while (true) {
+        const idx = next++
+        if (idx >= items.length) return
+        out[idx] = await fn(items[idx])
+      }
+    })())
+  }
+  await Promise.all(workers)
+  return out
 }

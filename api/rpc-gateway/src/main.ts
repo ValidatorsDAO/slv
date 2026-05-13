@@ -22,6 +22,9 @@
 //                         apps.grpc.server.endpoint)
 //   PUBSUB_WS_URL         upstream Solana pubsub WebSocket for standard
 //                         methods (default ws://localhost:7111)
+//   GTFA_FULL_CONCURRENCY max parallel of1 getTransaction calls when
+//                         `transactionDetails: "full"` is requested
+//                         (default 20)
 
 import { Hono } from '@hono/hono'
 import { ClickHouseClient } from './lib/clickhouse.ts'
@@ -48,6 +51,7 @@ const CLICKHOUSE_TIMEOUT_MS = parseInt(Deno.env.get('CLICKHOUSE_TIMEOUT_MS') ?? 
 const OF1_TIMEOUT_MS = parseInt(Deno.env.get('OF1_TIMEOUT_MS') ?? '60000', 10)
 const YELLOWSTONE_GRPC = Deno.env.get('YELLOWSTONE_GRPC') ?? 'localhost:10000'
 const PUBSUB_WS_URL = Deno.env.get('PUBSUB_WS_URL') ?? 'ws://localhost:7111'
+const GTFA_FULL_CONCURRENCY = parseInt(Deno.env.get('GTFA_FULL_CONCURRENCY') ?? '20', 10)
 
 const ch = new ClickHouseClient({
   url: CLICKHOUSE_URL,
@@ -57,7 +61,11 @@ const ch = new ClickHouseClient({
   timeoutMs: CLICKHOUSE_TIMEOUT_MS,
 })
 const jet = new JetHandlers(ch)
-const gtfa = new GtfaHandlers(ch)
+const gtfa = new GtfaHandlers(ch, {
+  of1Url: OF1_URL,
+  of1TimeoutMs: OF1_TIMEOUT_MS,
+  fullConcurrency: GTFA_FULL_CONCURRENCY,
+})
 const proxy = new StandardProxy({ upstream: OF1_URL, timeoutMs: OF1_TIMEOUT_MS })
 
 const log = (msg: string, extra?: Record<string, unknown>) => {
