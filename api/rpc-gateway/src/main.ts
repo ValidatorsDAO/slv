@@ -26,6 +26,7 @@
 import { Hono } from '@hono/hono'
 import { ClickHouseClient } from './lib/clickhouse.ts'
 import { JetHandlers } from './handlers/jet.ts'
+import { GtfaHandlers } from './handlers/gtfa.ts'
 import { StandardProxy } from './handlers/proxy.ts'
 import { buildWsHandler } from './handlers/ws.ts'
 import {
@@ -56,6 +57,7 @@ const ch = new ClickHouseClient({
   timeoutMs: CLICKHOUSE_TIMEOUT_MS,
 })
 const jet = new JetHandlers(ch)
+const gtfa = new GtfaHandlers(ch)
 const proxy = new StandardProxy({ upstream: OF1_URL, timeoutMs: OF1_TIMEOUT_MS })
 
 const log = (msg: string, extra?: Record<string, unknown>) => {
@@ -66,11 +68,20 @@ const log = (msg: string, extra?: Record<string, unknown>) => {
 async function dispatch(req: JsonRpcRequest): Promise<JsonRpcResponse> {
   // Whitelist of jet_* methods — any other jet_* is method-not-found.
   switch (req.method) {
-    case 'jet_topPrograms':    return jet.topPrograms(req)
-    case 'jet_slotStats':      return jet.slotStats(req)
-    case 'jet_tpsTimeseries':  return jet.tpsTimeseries(req)
-    case 'jet_epochSummary':   return jet.epochSummary(req)
-    case 'jet_programStats':   return jet.programStats(req)
+    case 'jet_topPrograms':
+      return jet.topPrograms(req)
+    case 'jet_slotStats':
+      return jet.slotStats(req)
+    case 'jet_tpsTimeseries':
+      return jet.tpsTimeseries(req)
+    case 'jet_epochSummary':
+      return jet.epochSummary(req)
+    case 'jet_programStats':
+      return jet.programStats(req)
+    // Helius-wire-compatible address index, backed by jetstreamer's
+    // gtfa_tx_mentions table (NOT proxied to of1).
+    case 'getTransactionsForAddress':
+      return gtfa.getTransactionsForAddress(req)
   }
   if (req.method.startsWith('jet_')) {
     return err(req.id ?? null, ERROR_CODES.METHOD_NOT_FOUND, `unknown jet_ method: ${req.method}`)
