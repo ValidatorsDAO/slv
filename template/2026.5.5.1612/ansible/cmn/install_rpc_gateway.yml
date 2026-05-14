@@ -9,12 +9,30 @@
 #   rpc_gateway_port        8889
 #   rpc_gateway_of1_url     http://localhost:8888
 #   rpc_gateway_ch_url      http://localhost:8123     (when CH lives elsewhere,
-#                                                      point to that host:port)
+#                                                      point to that host:port,
+#                                                      OR set rpc_gateway_ch_tunnel_*
+#                                                      below to auto-build an SSH
+#                                                      tunnel to a loopback CH)
 #   rpc_gateway_ch_db       default
 #   rpc_gateway_ch_user     (unset)
 #   rpc_gateway_ch_pass     (unset)
 #   rpc_gateway_yellowstone_grpc  localhost:10000   (richat Yellowstone gRPC)
 #   rpc_gateway_pubsub_ws         ws://localhost:7111  (richat Solana pubsub WS)
+#
+# Optional CH tunnel mode (used when the jetstreamer host's ClickHouse
+# binds 127.0.0.1 only and no LAN-direct path exists — typical security
+# default).  When `rpc_gateway_ch_tunnel_via` is set, this play will:
+#   - generate a dedicated ed25519 key for the tunnel only
+#   - install a systemd-managed `ch-tunnel.service` (ssh -N -L) that
+#     auto-restarts and survives reboots
+#   - override `rpc_gateway_ch_url` to point at the local tunnel port
+#   - print the public key with the exact `authorized_keys` line so the
+#     CH host operator can authorize it once
+#   - clean up obsolete drop-in conf files from the earlier manual setup
+#
+#   rpc_gateway_ch_tunnel_via         (unset, e.g. "root@<jetstreamer host>")
+#   rpc_gateway_ch_tunnel_target      127.0.0.1:8123    (remote bind to forward)
+#   rpc_gateway_ch_tunnel_local_port  18123             (local bind port)
 
 - name: Install + start the SLV RPC Gateway
   hosts: all
@@ -38,6 +56,14 @@
     rg_yellowstone: "{{ rpc_gateway_yellowstone_grpc | default('localhost:10000') }}"
     rg_pubsub: "{{ rpc_gateway_pubsub_ws | default('ws://localhost:7111') }}"
     rg_deno_version: "{{ rpc_gateway_deno_version | default('v2.7.14') }}"
+    # CH tunnel mode (see header comment).  Empty string disables.
+    rg_ch_tunnel_via: "{{ rpc_gateway_ch_tunnel_via | default('') }}"
+    rg_ch_tunnel_target: "{{ rpc_gateway_ch_tunnel_target | default('127.0.0.1:8123') }}"
+    rg_ch_tunnel_local_port: "{{ rpc_gateway_ch_tunnel_local_port | default(18123) }}"
+    # When tunnel mode is on, force rg_ch onto the local tunnel port —
+    # ignore any rpc_gateway_ch_url the operator set, since pointing the
+    # gateway at the tunnel is the whole point of enabling tunnel mode.
+    rg_ch_effective: "{% if rg_ch_tunnel_via | length > 0 %}http://127.0.0.1:{{ rg_ch_tunnel_local_port }}{% else %}{{ rg_ch }}{% endif %}"
 
   tasks:
     - name: Install unzip (deno installer needs it)
@@ -96,6 +122,94 @@
         chdir: "{{ rg_dir }}"
       changed_when: false
 
+    # ---------------------------------------------------------------
+    # Optional CH SSH tunnel.  Skipped entirely when
+    # `rpc_gateway_ch_tunnel_via` is unset.
+    # ---------------------------------------------------------------
+    - name: Generate dedicated SSH key for CH tunnel
+      ansible.builtin.openssh_keypair:
+        path: /root/.ssh/id_ed25519_ch_tunnel
+        type: ed25519
+        comment: "rpc-gateway CH tunnel from {{ inventory_hostname }}"
+      when: rg_ch_tunnel_via | length > 0
+
+    - name: Read tunnel pubkey
+      ansible.builtin.slurp:
+        src: /root/.ssh/id_ed25519_ch_tunnel.pub
+      register: ch_tunnel_pubkey
+      when: rg_ch_tunnel_via | length > 0
+
+    - name: Show authorized_keys line for the CH host operator
+      ansible.builtin.debug:
+        msg: |
+          The CH host ({{ rg_ch_tunnel_via }}) must authorize this gateway with
+          the line below.  Append it to /root/.ssh/authorized_keys on that host
+          (idempotent — a `grep -qF` first is fine).  The `restrict` +
+          `port-forwarding` + `permitopen` combo limits this credential to
+          forwarding the single CH port; `command="..."` blocks shell access:
+
+            restrict,port-forwarding,permitopen="{{ rg_ch_tunnel_target }}",command="echo forward-only-no-shell" {{ ch_tunnel_pubkey.content | b64decode | trim }}
+      when: rg_ch_tunnel_via | length > 0
+
+    - name: Install ch-tunnel.service systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ch-tunnel.service
+        mode: "0644"
+        content: |
+          # Persistent SSH tunnel from this gateway to the jetstreamer
+          # ClickHouse loopback port.  Managed by install_rpc_gateway.yml
+          # (rpc_gateway_ch_tunnel_* inventory vars).
+          [Unit]
+          Description=Persistent SSH tunnel for ClickHouse via {{ rg_ch_tunnel_via }}
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=exec
+          User=root
+          ExecStart=/usr/bin/ssh -N \
+              -i /root/.ssh/id_ed25519_ch_tunnel \
+              -o ExitOnForwardFailure=yes \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=3 \
+              -o StrictHostKeyChecking=accept-new \
+              -L 127.0.0.1:{{ rg_ch_tunnel_local_port }}:{{ rg_ch_tunnel_target }} \
+              {{ rg_ch_tunnel_via }}
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      when: rg_ch_tunnel_via | length > 0
+      notify: restart ch-tunnel
+
+    - name: Enable + start ch-tunnel.service
+      ansible.builtin.systemd:
+        name: ch-tunnel.service
+        daemon_reload: yes
+        enabled: yes
+        state: started
+      when: rg_ch_tunnel_via | length > 0
+
+    # Earlier manual setup wrote per-env drop-in files into
+    # rpc-gateway.service.d/.  Now that the main unit is regenerated below
+    # with the right values directly, the drop-ins are redundant.  We
+    # only remove them when the operator has opted into the tunnel flow
+    # (= rg_ch_tunnel_via set) — that signals their inventory has been
+    # reviewed and `rpc_gateway_of1_url` etc. carry the right values.
+    # Without that opt-in, leaving stale drop-ins is safer than deleting
+    # them and regenerating the unit with default values that may not
+    # match the host's actual upstream wiring.
+    - name: Remove obsolete rpc-gateway drop-ins from earlier manual setup
+      ansible.builtin.file:
+        path: "/etc/systemd/system/rpc-gateway.service.d/{{ item }}"
+        state: absent
+      loop:
+        - 10-clickhouse-url.conf
+        - 11-of1-url.conf
+      when: rg_ch_tunnel_via | length > 0
+      notify: restart rpc-gateway
+
     - name: Install rpc-gateway.service
       ansible.builtin.copy:
         dest: /etc/systemd/system/rpc-gateway.service
@@ -114,7 +228,7 @@
           WorkingDirectory={{ rg_dir }}
           Environment=PORT={{ rg_port }}
           Environment=OF1_URL={{ rg_of1 }}
-          Environment=CLICKHOUSE_URL={{ rg_ch }}
+          Environment=CLICKHOUSE_URL={{ rg_ch_effective }}
           Environment=CLICKHOUSE_DB={{ rg_ch_db }}
           {% if rg_ch_user %}Environment=CLICKHOUSE_USER={{ rg_ch_user }}{% endif %}
           {% if rg_ch_pass %}Environment=CLICKHOUSE_PASS={{ rg_ch_pass }}{% endif %}
@@ -154,5 +268,11 @@
     - name: restart rpc-gateway
       ansible.builtin.systemd:
         name: rpc-gateway.service
+        daemon_reload: yes
+        state: restarted
+
+    - name: restart ch-tunnel
+      ansible.builtin.systemd:
+        name: ch-tunnel.service
         daemon_reload: yes
         state: restarted
