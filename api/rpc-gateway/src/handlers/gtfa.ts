@@ -26,14 +26,30 @@
 //       },
 //     } ] }
 //
-// Response (signatures mode):
-//   { result: { transactions: [{ signature, slot, transactionIndex,
-//       blockTime, status }], paginationToken: "<slot>:<txIndex>" | null } }
+// Response (signatures mode, Helius wire-compat):
+//   { result: { data: [{ signature, slot, transactionIndex, err, memo,
+//       blockTime, confirmationStatus }],
+//     paginationToken: "<slot>:<txIndex>" | null } }
 //
-// Response (full mode):
-//   same shape plus `transaction`, `meta`, `version` per entry (taken from
-//   the of1 `getTransaction` response).  If of1 lookup for a single sig
-//   fails, the entry still appears but with `transaction: null` and an
+// `err` is `null` when the tx succeeded.  When failed, signatures mode
+// returns `{ unknown: true }` as a placeholder — the underlying
+// `gtfa_tx_mentions.status` is just a UInt8 (1=ok / 0=failed) and the
+// structured `meta.err` Helius returns isn't in CH yet.  Full parity
+// requires an `err_json` column on `gtfa_tx_mentions`; tracked separately.
+// In full mode `err` is taken from of1's `meta.err` directly, so it is
+// accurate there.
+//
+// `memo` is always `null` until the slv-gtfa-plugin starts extracting
+// MEMO program ix data (parity TODO).
+//
+// `confirmationStatus` is always `"finalized"` because jetstreamer only
+// ingests Old Faithful (= finalized) blocks.
+//
+// Response (full mode, Helius wire-compat):
+//   same shape; each `data[]` entry adds `transaction`, `meta`, `version`
+//   (taken from the of1 `getTransaction` response).  If of1 lookup for a
+//   single sig fails, the entry still appears but with
+//   `transaction: null` + `meta: null` + `version: null` and an
 //   `error: "<msg>"` field — the caller can retry that one sig if needed.
 
 import { ClickHouseClient, quoteString } from '../lib/clickhouse.ts'
@@ -230,7 +246,7 @@ export class GtfaHandlers {
         ? Math.min(DEFAULT_LIMIT, maxLimit)
         : Math.min(asInt(options.limit, 'limit'), maxLimit)
       if (limit === 0) {
-        return ok(req.id ?? null, { transactions: [], paginationToken: null })
+        return ok(req.id ?? null, { data: [], paginationToken: null })
       }
 
       const where: string[] = [
@@ -333,7 +349,10 @@ export class GtfaHandlers {
       }
 
       if (!fullMode) {
-        return ok(req.id ?? null, { transactions: rows, paginationToken })
+        // Helius wire-compat: rename root → `data`, derive `err` from
+        // status (placeholder for failed; full-mode sets it from of1).
+        const data = rows.map((r) => sigRowToHeliusEntry(r))
+        return ok(req.id ?? null, { data, paginationToken })
       }
 
       // Full mode: fan out to of1 with a concurrency cap.  We keep CH-sourced
@@ -366,7 +385,8 @@ export class GtfaHandlers {
         },
       )
 
-      return ok(req.id ?? null, { transactions: fullRows, paginationToken })
+      const data = fullRows.map((r) => fullRowToHeliusEntry(r))
+      return ok(req.id ?? null, { data, paginationToken })
     } catch (e) {
       return err(req.id ?? null, ERROR_CODES.INVALID_PARAMS, (e as Error).message)
     }
@@ -433,6 +453,71 @@ type FullRow = SigRow & {
 type Of1Result =
   | { kind: 'ok'; transaction: unknown; meta: unknown; version: unknown }
   | { kind: 'err'; error: string }
+
+/**
+ * Map an internal SigRow to the Helius-compatible signatures-mode entry.
+ * `err` is `null` on success and a `{ unknown: true }` placeholder on
+ * failure (until `gtfa_tx_mentions.err_json` is added).
+ */
+function sigRowToHeliusEntry(r: SigRow): {
+  signature: string
+  slot: number
+  transactionIndex: number
+  err: null | Record<string, unknown>
+  memo: null
+  blockTime: number
+  confirmationStatus: 'finalized'
+} {
+  return {
+    signature: r.signature,
+    slot: r.slot,
+    transactionIndex: r.transactionIndex,
+    err: r.status === 'succeeded' ? null : { unknown: true },
+    memo: null,
+    blockTime: r.blockTime,
+    confirmationStatus: 'finalized',
+  }
+}
+
+/**
+ * Map a FullRow (= SigRow + of1 fields) to the Helius-compatible full-mode
+ * entry.  In full mode `err` comes from of1's `meta.err` directly when
+ * available — accurate, unlike the placeholder in signatures mode.
+ */
+function fullRowToHeliusEntry(r: FullRow): {
+  signature: string
+  slot: number
+  transactionIndex: number
+  err: unknown
+  memo: null
+  blockTime: number
+  confirmationStatus: 'finalized'
+  transaction: unknown
+  meta: unknown
+  version: unknown
+  error?: string
+} {
+  const metaErr = r.meta && typeof r.meta === 'object'
+    ? (r.meta as { err?: unknown }).err ?? null
+    : undefined
+  const out: ReturnType<typeof fullRowToHeliusEntry> = {
+    signature: r.signature,
+    slot: r.slot,
+    transactionIndex: r.transactionIndex,
+    // Prefer of1's accurate meta.err; fall back to the placeholder if of1
+    // didn't return meta (e.g. of1 failed → r.meta === null, and we have
+    // an `error` field set by the of1-fetch fallback path).
+    err: metaErr === undefined ? (r.status === 'succeeded' ? null : { unknown: true }) : metaErr,
+    memo: null,
+    blockTime: r.blockTime,
+    confirmationStatus: 'finalized',
+    transaction: r.transaction,
+    meta: r.meta,
+    version: r.version,
+  }
+  if (r.error) out.error = r.error
+  return out
+}
 
 /**
  * Run `fn` over each `items` element with at most `concurrency` in flight at
