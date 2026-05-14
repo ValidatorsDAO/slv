@@ -31,6 +31,7 @@ import { Hono } from '@hono/hono'
 import { ClickHouseClient } from './lib/clickhouse.ts'
 import { JetHandlers } from './handlers/jet.ts'
 import { GtfaHandlers } from './handlers/gtfa.ts'
+import { TransfersHandlers } from './handlers/transfers.ts'
 import { StandardProxy } from './handlers/proxy.ts'
 import { buildWsHandler } from './handlers/ws.ts'
 import {
@@ -67,6 +68,7 @@ const gtfa = new GtfaHandlers(ch, {
   of1TimeoutMs: OF1_TIMEOUT_MS,
   fullConcurrency: GTFA_FULL_CONCURRENCY,
 })
+const transfers = new TransfersHandlers(ch)
 const proxy = new StandardProxy({ upstream: OF1_URL, timeoutMs: OF1_TIMEOUT_MS })
 
 const log = (msg: string, extra?: Record<string, unknown>) => {
@@ -98,6 +100,10 @@ async function dispatch(req: JsonRpcRequest): Promise<JsonRpcResponse> {
     // gtfa_tx_mentions table (NOT proxied to of1).
     case 'getTransactionsForAddress':
       return gtfa.getTransactionsForAddress(req)
+    // Helius-wire-compatible token-transfer index, backed by jetstreamer's
+    // token_transfers + token_transfers_by_to (slv-transfers-plugin).
+    case 'getTransfersByAddress':
+      return transfers.getTransfersByAddress(req)
   }
   if (JET_NAMESPACE_RE.test(req.method)) {
     return err(
