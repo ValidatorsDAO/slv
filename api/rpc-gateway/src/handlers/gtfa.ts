@@ -173,11 +173,46 @@ export class GtfaHandlers {
   private of1Url: string
   private of1TimeoutMs: number
   private fullConcurrency: number
+  // Cached `min(slot)` from gtfa_tx_mentions.  ~30-epoch retention TTL
+  // means this slowly advances forward as old partitions drop; refresh
+  // every 60 s is way faster than a partition turnover.
+  private windowStartCache: { value: number | null; expiresAt: number } | null = null
 
   constructor(private ch: ClickHouseClient, cfg: GtfaConfig) {
     this.of1Url = cfg.of1Url
     this.of1TimeoutMs = cfg.of1TimeoutMs ?? 60_000
     this.fullConcurrency = Math.max(1, cfg.fullConcurrency ?? 20)
+  }
+
+  /**
+   * Oldest slot currently retained in `gtfa_tx_mentions`.  Returned as
+   * `windowStart` in every response so clients know the retention floor
+   * — anything older than this slot is permanently gone from this
+   * gateway's window (currently ~30 epochs, set by the plugin's TTL).
+   * `null` is returned when the table is empty or CH is unreachable;
+   * in that case clients should treat the window as unknown.
+   */
+  private async getWindowStart(): Promise<number | null> {
+    const now = Date.now()
+    if (this.windowStartCache && this.windowStartCache.expiresAt > now) {
+      return this.windowStartCache.value
+    }
+    let value: number | null = null
+    try {
+      const rows = await this.ch.query<{ min_slot: string | null }>(
+        `SELECT toString(min(slot)) AS min_slot FROM gtfa_tx_mentions`,
+      )
+      const raw = rows[0]?.min_slot
+      if (raw && raw !== '\\N') {
+        const n = parseInt(raw, 10)
+        if (Number.isFinite(n) && n > 0) value = n
+      }
+    } catch {
+      // CH unreachable — leave value as null; cached briefly so we
+      // don't hammer CH on every request.
+    }
+    this.windowStartCache = { value, expiresAt: now + 60_000 }
+    return value
   }
 
   /**
@@ -246,7 +281,8 @@ export class GtfaHandlers {
         ? Math.min(DEFAULT_LIMIT, maxLimit)
         : Math.min(asInt(options.limit, 'limit'), maxLimit)
       if (limit === 0) {
-        return ok(req.id ?? null, { data: [], paginationToken: null })
+        const windowStart = await this.getWindowStart()
+        return ok(req.id ?? null, { data: [], paginationToken: null, windowStart })
       }
 
       const where: string[] = [
@@ -352,7 +388,8 @@ export class GtfaHandlers {
         // Helius wire-compat: rename root → `data`, derive `err` from
         // status (placeholder for failed; full-mode sets it from of1).
         const data = rows.map((r) => sigRowToHeliusEntry(r))
-        return ok(req.id ?? null, { data, paginationToken })
+        const windowStart = await this.getWindowStart()
+        return ok(req.id ?? null, { data, paginationToken, windowStart })
       }
 
       // Full mode: fan out to of1 with a concurrency cap.  We keep CH-sourced
@@ -386,7 +423,8 @@ export class GtfaHandlers {
       )
 
       const data = fullRows.map((r) => fullRowToHeliusEntry(r))
-      return ok(req.id ?? null, { data, paginationToken })
+      const windowStart = await this.getWindowStart()
+      return ok(req.id ?? null, { data, paginationToken, windowStart })
     } catch (e) {
       return err(req.id ?? null, ERROR_CODES.INVALID_PARAMS, (e as Error).message)
     }

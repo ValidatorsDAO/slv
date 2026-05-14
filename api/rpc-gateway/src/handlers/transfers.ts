@@ -213,7 +213,39 @@ type RawRow = {
 const ZERO_PUBKEY_B58 = '11111111111111111111111111111111' // 32-zero-bytes base58 encoding
 
 export class TransfersHandlers {
+  // Cached `min(slot)` from token_transfers.  Refresh every 60 s; the
+  // table's TTL drops whole partitions roughly daily so the value
+  // advances slowly relative to the cache window.
+  private windowStartCache: { value: number | null; expiresAt: number } | null = null
+
   constructor(private ch: ClickHouseClient) {}
+
+  /**
+   * Oldest slot currently retained in `token_transfers`.  Returned as
+   * `windowStart` in every response so clients know the retention floor.
+   * `null` when CH is unreachable or the table is empty.
+   */
+  private async getWindowStart(): Promise<number | null> {
+    const now = Date.now()
+    if (this.windowStartCache && this.windowStartCache.expiresAt > now) {
+      return this.windowStartCache.value
+    }
+    let value: number | null = null
+    try {
+      const rows = await this.ch.query<{ min_slot: string | null }>(
+        `SELECT toString(min(slot)) AS min_slot FROM token_transfers`,
+      )
+      const raw = rows[0]?.min_slot
+      if (raw && raw !== '\\N') {
+        const n = parseInt(raw, 10)
+        if (Number.isFinite(n) && n > 0) value = n
+      }
+    } catch {
+      // CH unreachable — leave value as null; cached briefly.
+    }
+    this.windowStartCache = { value, expiresAt: now + 60_000 }
+    return value
+  }
 
   /**
    * Helius-wire-compatible.  Phase 2 of the slv-transfers-plugin work.
@@ -245,7 +277,8 @@ export class TransfersHandlers {
         ? DEFAULT_LIMIT
         : Math.min(asInt(options.limit, 'limit'), MAX_LIMIT)
       if (limit === 0) {
-        return ok(req.id ?? null, { data: [], paginationToken: null })
+        const windowStart = await this.getWindowStart()
+        return ok(req.id ?? null, { data: [], paginationToken: null, windowStart })
       }
 
       const solMode = options.solMode === undefined
@@ -386,8 +419,8 @@ export class TransfersHandlers {
       }
 
       const data = rows.map((r) => rawRowToHeliusEntry(r, solMode))
-
-      return ok(req.id ?? null, { data, paginationToken })
+      const windowStart = await this.getWindowStart()
+      return ok(req.id ?? null, { data, paginationToken, windowStart })
     } catch (e) {
       return err(req.id ?? null, ERROR_CODES.INVALID_PARAMS, (e as Error).message)
     }
