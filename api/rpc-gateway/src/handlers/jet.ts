@@ -6,7 +6,7 @@
 // as the JSON-RPC `result`.
 
 import { ClickHouseClient, quoteString } from '../lib/clickhouse.ts'
-import { err, ERROR_CODES, ok, type JsonRpcRequest, type JsonRpcResponse } from '../jsonrpc.ts'
+import { err, ERROR_CODES, type JsonRpcRequest, type JsonRpcResponse, ok } from '../jsonrpc.ts'
 
 const SLOTS_PER_EPOCH = 432_000
 
@@ -77,7 +77,7 @@ export class JetHandlers {
   constructor(private ch: ClickHouseClient) {}
 
   /**
-   * jet_topPrograms({ since?, until?, includeVotes?, limit? })
+   * jetTopPrograms({ since?, until?, includeVotes?, limit? })
    * Top-N programs by invocation count over a time window.
    */
   async topPrograms(req: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -118,7 +118,7 @@ export class JetHandlers {
   }
 
   /**
-   * jet_slotStats({ slot } | { fromSlot, toSlot })
+   * jetSlotStats({ slot } | { fromSlot, toSlot })
    * Per-slot transaction counts, vote/non-vote split, blocktime.
    */
   async slotStats(req: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -152,7 +152,7 @@ export class JetHandlers {
   }
 
   /**
-   * jet_tpsTimeseries({ from, to, bucketSec? })
+   * jetTpsTimeseries({ from, to, bucketSec? })
    * TPS time series (non-vote and total) over a time window.
    */
   async tpsTimeseries(req: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -179,7 +179,7 @@ export class JetHandlers {
   }
 
   /**
-   * jet_epochSummary({ epoch })
+   * jetEpochSummary({ epoch })
    * Aggregate stats for a single epoch.
    */
   async epochSummary(req: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -228,7 +228,7 @@ export class JetHandlers {
   }
 
   /**
-   * jet_programStats({ programIdBase58, since?, until?, bucketSec? })
+   * jetProgramStats({ programIdBase58, since?, until?, bucketSec? })
    * Time series for a single program.
    */
   async programStats(req: JsonRpcRequest): Promise<JsonRpcResponse> {
