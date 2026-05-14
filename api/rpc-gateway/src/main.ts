@@ -1,11 +1,12 @@
 // SLV RPC Gateway — JSON-RPC 2.0 server that fronts of1 (yellowstone-faithful)
-// and routes `jet_*` analytics methods to ClickHouse (jetstreamer data).
+// and routes `jet*` analytics methods to ClickHouse (jetstreamer data).
 // Also exposes a Helius-compatible WebSocket at `/ws` with
 // `transactionSubscribe` bridged to an upstream Yellowstone gRPC endpoint
 // and standard Solana pubsub forwarded to richat WS.
 //
 // Standard Solana RPC methods (getTransaction, getBlock, …) are forwarded
-// untouched to OF1_URL. Methods starting with `jet_` are answered locally
+// untouched to OF1_URL. Methods starting with `jet` followed by an
+// uppercase letter (jetTopPrograms, jetSlotStats, …) are answered locally
 // from ClickHouse via CLICKHOUSE_URL.
 //
 // Configured via env:
@@ -30,7 +31,6 @@ import { Hono } from '@hono/hono'
 import { ClickHouseClient } from './lib/clickhouse.ts'
 import { JetHandlers } from './handlers/jet.ts'
 import { GtfaHandlers } from './handlers/gtfa.ts'
-import { TransfersHandlers } from './handlers/transfers.ts'
 import { StandardProxy } from './handlers/proxy.ts'
 import { buildWsHandler } from './handlers/ws.ts'
 import {
@@ -67,7 +67,6 @@ const gtfa = new GtfaHandlers(ch, {
   of1TimeoutMs: OF1_TIMEOUT_MS,
   fullConcurrency: GTFA_FULL_CONCURRENCY,
 })
-const transfers = new TransfersHandlers(ch)
 const proxy = new StandardProxy({ upstream: OF1_URL, timeoutMs: OF1_TIMEOUT_MS })
 
 const log = (msg: string, extra?: Record<string, unknown>) => {
@@ -75,31 +74,37 @@ const log = (msg: string, extra?: Record<string, unknown>) => {
   console.log(JSON.stringify(payload))
 }
 
+// Methods in the `jet*` namespace (camelCase, prefix `jet` + uppercase
+// 4th char): `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`,
+// `jetEpochSummary`, `jetProgramStats`.  Any unknown name in this
+// namespace is short-circuited with METHOD_NOT_FOUND below — without
+// the catch, an unknown `jetFooBar` would be forwarded to of1 which
+// would just confuse the client with an of1 error message.
+const JET_NAMESPACE_RE = /^jet[A-Z]/
+
 async function dispatch(req: JsonRpcRequest): Promise<JsonRpcResponse> {
-  // Whitelist of jet_* methods — any other jet_* is method-not-found.
   switch (req.method) {
-    case 'jet_topPrograms':
+    case 'jetTopPrograms':
       return jet.topPrograms(req)
-    case 'jet_slotStats':
+    case 'jetSlotStats':
       return jet.slotStats(req)
-    case 'jet_tpsTimeseries':
+    case 'jetTpsTimeseries':
       return jet.tpsTimeseries(req)
-    case 'jet_epochSummary':
+    case 'jetEpochSummary':
       return jet.epochSummary(req)
-    case 'jet_programStats':
+    case 'jetProgramStats':
       return jet.programStats(req)
     // Helius-wire-compatible address index, backed by jetstreamer's
     // gtfa_tx_mentions table (NOT proxied to of1).
     case 'getTransactionsForAddress':
       return gtfa.getTransactionsForAddress(req)
-    // Helius-wire-compatible per-address transfer event stream, backed
-    // by jetstreamer's `token_transfers` table (slv-transfers-plugin
-    // landing in vs2-app, not proxied to of1).
-    case 'getTransfersByAddress':
-      return transfers.getTransfersByAddress(req)
   }
-  if (req.method.startsWith('jet_')) {
-    return err(req.id ?? null, ERROR_CODES.METHOD_NOT_FOUND, `unknown jet_ method: ${req.method}`)
+  if (JET_NAMESPACE_RE.test(req.method)) {
+    return err(
+      req.id ?? null,
+      ERROR_CODES.METHOD_NOT_FOUND,
+      `unknown jet* method: ${req.method}`,
+    )
   }
   // Anything else → forward to of1.
   return proxy.handle(req)
