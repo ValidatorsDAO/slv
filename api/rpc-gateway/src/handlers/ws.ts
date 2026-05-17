@@ -30,11 +30,23 @@ import {
 import { PubsubForward } from '../lib/pubsub-forward.ts'
 import { SlotBridge } from '../lib/slot-bridge.ts'
 import { SlotMultiplex } from '../lib/slot-multiplex.ts'
+import { SlotFirstShredBridge } from '../lib/slot-first-shred.ts'
 
 export type WsConfig = {
   yellowstoneEndpoint: string // host:port — passed straight to gRPC client
   pubsubUrl: string // ws://… upstream Solana pubsub (richat)
   // Optional dedicated source for slotSubscribe.  Two flavours:
+  //
+  // - `slotFirstShredUrl` (ws://…): subscribe to `slotsUpdatesSubscribe`
+  //   on this Solana-pubsub-compat endpoint and emit `firstShredReceived`
+  //   events as `slotNotification`.  This matches what Helius beta does
+  //   internally and was the only configuration in our 2026-05-17
+  //   measurements that closed the Helius latency gap meaningfully
+  //   (Helius avg lead +5.6 ms → +2.5 ms; ERPC win share 6.7 % → 23 %).
+  //   Trade-off: clients see slot ticks ~5 ms earlier but the bank for
+  //   that slot does not yet exist — downstream `getAccountInfo` may
+  //   race the validator's own replay.  Off by default; opt in when
+  //   slot freshness > consistency.
   //
   // - `slotMultiplexUrls` (ws://… list): subscribe to slotSubscribe on
   //   EACH url, dedupe by slot number, and deliver the first-arrival.
@@ -53,9 +65,10 @@ export type WsConfig = {
   //   SLOWER than richat — the bridge code itself is fine but the
   //   upstream shred feed lags turbine on a co-located validator.
   //
-  // Priority: `slotMultiplexUrls` > `slotPubsubUrl` > `slotBridgeEndpoint`
-  // > falls through to the standard pubsub forward (= same as every
-  // other pubsub method).
+  // Priority: `slotFirstShredUrl` > `slotMultiplexUrls` > `slotPubsubUrl`
+  // > `slotBridgeEndpoint` > falls through to the standard pubsub
+  // forward (= same as every other pubsub method).
+  slotFirstShredUrl?: string
   slotMultiplexUrls?: string[]
   slotPubsubUrl?: string
   slotBridgeEndpoint?: string
@@ -87,6 +100,9 @@ const STANDARD_PUBSUB_METHODS = new Set([
 export function buildWsHandler(cfg: WsConfig) {
   const bridge = new YellowstoneBridge(cfg.yellowstoneEndpoint)
   // Process-wide singletons for slot sources.  Null when not configured.
+  const slotFirstShred = cfg.slotFirstShredUrl
+    ? new SlotFirstShredBridge(cfg.slotFirstShredUrl)
+    : null
   const slotMultiplex = cfg.slotMultiplexUrls && cfg.slotMultiplexUrls.length > 0
     ? new SlotMultiplex(cfg.slotMultiplexUrls)
     : null
@@ -250,8 +266,21 @@ export function buildWsHandler(cfg: WsConfig) {
             return
           }
           case 'slotSubscribe': {
-            // Priority: slotMultiplex > slotPubsubUrl > slotBridge >
-            // standard pubsub forward.  See WsConfig docs.
+            // Priority: slotFirstShred > slotMultiplex > slotPubsubUrl >
+            // slotBridge > standard pubsub forward.  See WsConfig docs.
+            if (slotFirstShred) {
+              const subId = ++localSubCounter
+              const handle = slotFirstShred.subscribe((u) => {
+                send({
+                  jsonrpc: '2.0',
+                  method: 'slotNotification',
+                  params: { result: u, subscription: subId },
+                })
+              })
+              localSubs.set(subId, handle)
+              send(ok(req.id ?? null, subId))
+              return
+            }
             if (slotMultiplex) {
               const subId = ++localSubCounter
               const handle = slotMultiplex.subscribe((u) => {
@@ -287,7 +316,7 @@ export function buildWsHandler(cfg: WsConfig) {
             return
           }
           case 'slotUnsubscribe': {
-            if (slotMultiplex || slotBridge) {
+            if (slotFirstShred || slotMultiplex || slotBridge) {
               const params = (req.params as unknown[]) ?? []
               const subId = Number(params[0])
               const handle = Number.isFinite(subId) ? localSubs.get(subId) : undefined
