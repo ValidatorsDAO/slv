@@ -53,9 +53,11 @@ const CLICKHOUSE_TIMEOUT_MS = parseInt(Deno.env.get('CLICKHOUSE_TIMEOUT_MS') ?? 
 const OF1_TIMEOUT_MS = parseInt(Deno.env.get('OF1_TIMEOUT_MS') ?? '60000', 10)
 const YELLOWSTONE_GRPC = Deno.env.get('YELLOWSTONE_GRPC') ?? 'localhost:10000'
 const PUBSUB_WS_URL = Deno.env.get('PUBSUB_WS_URL') ?? 'ws://localhost:7111'
-// Optional override: when set, slotSubscribe notifications come from
-// this dedicated Yellowstone-gRPC endpoint (typically a shred-bridge)
-// instead of falling through to richat WS / validator geyser.
+// Optional overrides for the slotSubscribe upstream.  See WsConfig
+// docstrings in handlers/ws.ts for the latency rationale.
+// Priority: SLOT_PUBSUB_URL > SLOT_BRIDGE_GRPC > falls through to
+// PUBSUB_WS_URL (richat).
+const SLOT_PUBSUB_URL = Deno.env.get('SLOT_PUBSUB_URL') || undefined
 const SLOT_BRIDGE_GRPC = Deno.env.get('SLOT_BRIDGE_GRPC') || undefined
 const GTFA_FULL_CONCURRENCY = parseInt(Deno.env.get('GTFA_FULL_CONCURRENCY') ?? '20', 10)
 
@@ -136,6 +138,7 @@ app.use('*', async (c, next) => {
 const wsHandler = buildWsHandler({
   yellowstoneEndpoint: YELLOWSTONE_GRPC,
   pubsubUrl: PUBSUB_WS_URL,
+  slotPubsubUrl: SLOT_PUBSUB_URL,
   slotBridgeEndpoint: SLOT_BRIDGE_GRPC,
 })
 app.get('/ws', wsHandler)
