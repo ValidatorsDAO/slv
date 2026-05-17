@@ -32,12 +32,23 @@ import { SlotBridge } from '../lib/slot-bridge.ts'
 
 export type WsConfig = {
   yellowstoneEndpoint: string // host:port — passed straight to gRPC client
-  pubsubUrl: string // ws://… upstream Solana pubsub
-  // Optional dedicated source for slotSubscribe.  When set, slotSubscribe
-  // notifications come from this Yellowstone-gRPC endpoint (typically a
-  // shred-bridge that fires first-shred-of-next-slot ~5–8 ms earlier than
-  // validator-replay-complete).  When unset, slotSubscribe falls through
-  // to the standard pubsub forward like every other pubsub method.
+  pubsubUrl: string // ws://… upstream Solana pubsub (richat)
+  // Optional dedicated source for slotSubscribe.  Two flavours:
+  //
+  // - `slotPubsubUrl` (ws://…): forward `slotSubscribe` / `slotUnsubscribe`
+  //   to this Solana-pubsub-compat WebSocket (typically the validator's
+  //   own pubsub on `:rpc-port + 1`).  Empirically ~3 ms faster than
+  //   richat for slot notifications on this codebase as of 2026-05.
+  //
+  // - `slotBridgeEndpoint` (Yellowstone-gRPC): fan slot events out from
+  //   a shared gRPC stream.  Intended for shred-derived slot sources.
+  //   Note: jito-shredstream-derived sources have been measured ~400 ms
+  //   SLOWER than richat — the bridge code itself is fine but the
+  //   upstream shred feed lags turbine on a co-located validator.
+  //
+  // Priority: `slotPubsubUrl` > `slotBridgeEndpoint` > falls through to
+  // the standard pubsub forward (= same as every other pubsub method).
+  slotPubsubUrl?: string
   slotBridgeEndpoint?: string
 }
 
@@ -79,6 +90,10 @@ export function buildWsHandler(cfg: WsConfig) {
     const localSubs = new Map<number, { cancel: () => void }>()
     let localSubCounter = HELIUS_ID_BASE
     let pubsub: PubsubForward | null = null
+    // Separate forward for slotSubscribe when `slotPubsubUrl` is
+    // configured.  Each WS client gets its own upstream connection so
+    // subscription IDs from upstream stay namespaced per-client.
+    let slotPubsub: PubsubForward | null = null
     let socket: WebSocket | null = null
 
     const send = (msg: unknown) => {
@@ -109,6 +124,28 @@ export function buildWsHandler(cfg: WsConfig) {
         },
       })
       return pubsub
+    }
+
+    const ensureSlotPubsub = (): PubsubForward | null => {
+      if (!cfg.slotPubsubUrl) return null
+      if (slotPubsub) return slotPubsub
+      slotPubsub = new PubsubForward({
+        upstreamUrl: cfg.slotPubsubUrl,
+        onUpstreamMessage: (raw) => {
+          try {
+            socket?.send(raw)
+          } catch { /* closed */ }
+        },
+        onUpstreamClose: () => {},
+        onUpstreamError: (e) => {
+          console.error(JSON.stringify({
+            ts: new Date().toISOString(),
+            msg: 'slot_pubsub_upstream_error',
+            error: String(e),
+          }))
+        },
+      })
+      return slotPubsub
     }
 
     const handleHeliusTransactionSubscribe = async (
@@ -204,6 +241,13 @@ export function buildWsHandler(cfg: WsConfig) {
             return
           }
           case 'slotSubscribe': {
+            // Priority: slotPubsubUrl (WS) > slotBridge (gRPC) > standard
+            // pubsub forward.  See WsConfig docs for the latency rationale.
+            const sp = ensureSlotPubsub()
+            if (sp) {
+              sp.send(text)
+              return
+            }
             if (slotBridge) {
               const subId = ++localSubCounter
               const handle = slotBridge.subscribe((u) => {
@@ -217,11 +261,15 @@ export function buildWsHandler(cfg: WsConfig) {
               send(ok(req.id ?? null, subId))
               return
             }
-            // Fall through to pubsub forward.
             ensurePubsub().send(text)
             return
           }
           case 'slotUnsubscribe': {
+            const sp = ensureSlotPubsub()
+            if (sp) {
+              sp.send(text)
+              return
+            }
             if (slotBridge) {
               const params = (req.params as unknown[]) ?? []
               const subId = Number(params[0])
@@ -232,7 +280,6 @@ export function buildWsHandler(cfg: WsConfig) {
                 send(ok(req.id ?? null, true))
                 return
               }
-              // Unknown id — could be an upstream pubsub id, forward through.
               if (subId < HELIUS_ID_BASE) {
                 ensurePubsub().send(text)
                 return
@@ -257,6 +304,8 @@ export function buildWsHandler(cfg: WsConfig) {
         localSubs.clear()
         pubsub?.close()
         pubsub = null
+        slotPubsub?.close()
+        slotPubsub = null
         socket = null
       },
       onError(_e) {
@@ -264,6 +313,8 @@ export function buildWsHandler(cfg: WsConfig) {
         localSubs.clear()
         pubsub?.close()
         pubsub = null
+        slotPubsub?.close()
+        slotPubsub = null
         socket = null
       },
     }
