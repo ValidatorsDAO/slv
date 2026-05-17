@@ -29,11 +29,18 @@ import {
 } from '../lib/yellowstone-bridge.ts'
 import { PubsubForward } from '../lib/pubsub-forward.ts'
 import { SlotBridge } from '../lib/slot-bridge.ts'
+import { SlotMultiplex } from '../lib/slot-multiplex.ts'
 
 export type WsConfig = {
   yellowstoneEndpoint: string // host:port — passed straight to gRPC client
   pubsubUrl: string // ws://… upstream Solana pubsub (richat)
   // Optional dedicated source for slotSubscribe.  Two flavours:
+  //
+  // - `slotMultiplexUrls` (ws://… list): subscribe to slotSubscribe on
+  //   EACH url, dedupe by slot number, and deliver the first-arrival.
+  //   Best latency in our measurements: native pubsub + richat together
+  //   roughly halve the win rate where Helius beats us.  Use this when
+  //   you have multiple slot sources with different jitter profiles.
   //
   // - `slotPubsubUrl` (ws://…): forward `slotSubscribe` / `slotUnsubscribe`
   //   to this Solana-pubsub-compat WebSocket (typically the validator's
@@ -46,8 +53,10 @@ export type WsConfig = {
   //   SLOWER than richat — the bridge code itself is fine but the
   //   upstream shred feed lags turbine on a co-located validator.
   //
-  // Priority: `slotPubsubUrl` > `slotBridgeEndpoint` > falls through to
-  // the standard pubsub forward (= same as every other pubsub method).
+  // Priority: `slotMultiplexUrls` > `slotPubsubUrl` > `slotBridgeEndpoint`
+  // > falls through to the standard pubsub forward (= same as every
+  // other pubsub method).
+  slotMultiplexUrls?: string[]
   slotPubsubUrl?: string
   slotBridgeEndpoint?: string
 }
@@ -77,10 +86,10 @@ const STANDARD_PUBSUB_METHODS = new Set([
 
 export function buildWsHandler(cfg: WsConfig) {
   const bridge = new YellowstoneBridge(cfg.yellowstoneEndpoint)
-  // Process-wide single subscription, fanned out to all WS clients that
-  // call slotSubscribe.  Null when no override endpoint is configured —
-  // in that case slotSubscribe falls through to STANDARD_PUBSUB_METHODS
-  // and is forwarded to richat WS untouched.
+  // Process-wide singletons for slot sources.  Null when not configured.
+  const slotMultiplex = cfg.slotMultiplexUrls && cfg.slotMultiplexUrls.length > 0
+    ? new SlotMultiplex(cfg.slotMultiplexUrls)
+    : null
   const slotBridge = cfg.slotBridgeEndpoint
     ? new SlotBridge(cfg.slotBridgeEndpoint)
     : null
@@ -241,8 +250,21 @@ export function buildWsHandler(cfg: WsConfig) {
             return
           }
           case 'slotSubscribe': {
-            // Priority: slotPubsubUrl (WS) > slotBridge (gRPC) > standard
-            // pubsub forward.  See WsConfig docs for the latency rationale.
+            // Priority: slotMultiplex > slotPubsubUrl > slotBridge >
+            // standard pubsub forward.  See WsConfig docs.
+            if (slotMultiplex) {
+              const subId = ++localSubCounter
+              const handle = slotMultiplex.subscribe((u) => {
+                send({
+                  jsonrpc: '2.0',
+                  method: 'slotNotification',
+                  params: { result: u, subscription: subId },
+                })
+              })
+              localSubs.set(subId, handle)
+              send(ok(req.id ?? null, subId))
+              return
+            }
             const sp = ensureSlotPubsub()
             if (sp) {
               sp.send(text)
@@ -265,12 +287,7 @@ export function buildWsHandler(cfg: WsConfig) {
             return
           }
           case 'slotUnsubscribe': {
-            const sp = ensureSlotPubsub()
-            if (sp) {
-              sp.send(text)
-              return
-            }
-            if (slotBridge) {
+            if (slotMultiplex || slotBridge) {
               const params = (req.params as unknown[]) ?? []
               const subId = Number(params[0])
               const handle = Number.isFinite(subId) ? localSubs.get(subId) : undefined
@@ -285,6 +302,11 @@ export function buildWsHandler(cfg: WsConfig) {
                 return
               }
               send(ok(req.id ?? null, false))
+              return
+            }
+            const sp = ensureSlotPubsub()
+            if (sp) {
+              sp.send(text)
               return
             }
             ensurePubsub().send(text)
