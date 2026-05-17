@@ -55,8 +55,12 @@ const YELLOWSTONE_GRPC = Deno.env.get('YELLOWSTONE_GRPC') ?? 'localhost:10000'
 const PUBSUB_WS_URL = Deno.env.get('PUBSUB_WS_URL') ?? 'ws://localhost:7111'
 // Optional overrides for the slotSubscribe upstream.  See WsConfig
 // docstrings in handlers/ws.ts for the latency rationale.
-// Priority: SLOT_PUBSUB_URL > SLOT_BRIDGE_GRPC > falls through to
-// PUBSUB_WS_URL (richat).
+// Priority: SLOT_MULTIPLEX_URLS > SLOT_PUBSUB_URL > SLOT_BRIDGE_GRPC >
+// falls through to PUBSUB_WS_URL (richat).
+const SLOT_MULTIPLEX_URLS = (Deno.env.get('SLOT_MULTIPLEX_URLS') ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0)
 const SLOT_PUBSUB_URL = Deno.env.get('SLOT_PUBSUB_URL') || undefined
 const SLOT_BRIDGE_GRPC = Deno.env.get('SLOT_BRIDGE_GRPC') || undefined
 const GTFA_FULL_CONCURRENCY = parseInt(Deno.env.get('GTFA_FULL_CONCURRENCY') ?? '20', 10)
@@ -138,6 +142,7 @@ app.use('*', async (c, next) => {
 const wsHandler = buildWsHandler({
   yellowstoneEndpoint: YELLOWSTONE_GRPC,
   pubsubUrl: PUBSUB_WS_URL,
+  slotMultiplexUrls: SLOT_MULTIPLEX_URLS.length > 0 ? SLOT_MULTIPLEX_URLS : undefined,
   slotPubsubUrl: SLOT_PUBSUB_URL,
   slotBridgeEndpoint: SLOT_BRIDGE_GRPC,
 })
