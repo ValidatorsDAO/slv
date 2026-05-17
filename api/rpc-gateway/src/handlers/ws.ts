@@ -28,10 +28,17 @@ import {
   YellowstoneBridge,
 } from '../lib/yellowstone-bridge.ts'
 import { PubsubForward } from '../lib/pubsub-forward.ts'
+import { SlotBridge } from '../lib/slot-bridge.ts'
 
 export type WsConfig = {
   yellowstoneEndpoint: string // host:port — passed straight to gRPC client
   pubsubUrl: string // ws://… upstream Solana pubsub
+  // Optional dedicated source for slotSubscribe.  When set, slotSubscribe
+  // notifications come from this Yellowstone-gRPC endpoint (typically a
+  // shred-bridge that fires first-shred-of-next-slot ~5–8 ms earlier than
+  // validator-replay-complete).  When unset, slotSubscribe falls through
+  // to the standard pubsub forward like every other pubsub method.
+  slotBridgeEndpoint?: string
 }
 
 const HELIUS_ID_BASE = 1_000_000_000
@@ -45,8 +52,8 @@ const STANDARD_PUBSUB_METHODS = new Set([
   'programUnsubscribe',
   'signatureSubscribe',
   'signatureUnsubscribe',
-  'slotSubscribe',
-  'slotUnsubscribe',
+  // slotSubscribe / slotUnsubscribe are intercepted below when a
+  // slotBridge endpoint is configured; otherwise they fall through here.
   'slotsUpdatesSubscribe',
   'slotsUpdatesUnsubscribe',
   'blockSubscribe',
@@ -59,6 +66,13 @@ const STANDARD_PUBSUB_METHODS = new Set([
 
 export function buildWsHandler(cfg: WsConfig) {
   const bridge = new YellowstoneBridge(cfg.yellowstoneEndpoint)
+  // Process-wide single subscription, fanned out to all WS clients that
+  // call slotSubscribe.  Null when no override endpoint is configured —
+  // in that case slotSubscribe falls through to STANDARD_PUBSUB_METHODS
+  // and is forwarded to richat WS untouched.
+  const slotBridge = cfg.slotBridgeEndpoint
+    ? new SlotBridge(cfg.slotBridgeEndpoint)
+    : null
 
   return upgradeWebSocket(() => {
     // Per-connection state.
@@ -187,6 +201,46 @@ export function buildWsHandler(cfg: WsConfig) {
           }
           case 'transactionUnsubscribe': {
             send(handleHeliusTransactionUnsubscribe(req))
+            return
+          }
+          case 'slotSubscribe': {
+            if (slotBridge) {
+              const subId = ++localSubCounter
+              const handle = slotBridge.subscribe((u) => {
+                send({
+                  jsonrpc: '2.0',
+                  method: 'slotNotification',
+                  params: { result: u, subscription: subId },
+                })
+              })
+              localSubs.set(subId, handle)
+              send(ok(req.id ?? null, subId))
+              return
+            }
+            // Fall through to pubsub forward.
+            ensurePubsub().send(text)
+            return
+          }
+          case 'slotUnsubscribe': {
+            if (slotBridge) {
+              const params = (req.params as unknown[]) ?? []
+              const subId = Number(params[0])
+              const handle = Number.isFinite(subId) ? localSubs.get(subId) : undefined
+              if (handle) {
+                handle.cancel()
+                localSubs.delete(subId)
+                send(ok(req.id ?? null, true))
+                return
+              }
+              // Unknown id — could be an upstream pubsub id, forward through.
+              if (subId < HELIUS_ID_BASE) {
+                ensurePubsub().send(text)
+                return
+              }
+              send(ok(req.id ?? null, false))
+              return
+            }
+            ensurePubsub().send(text)
             return
           }
           default: {
