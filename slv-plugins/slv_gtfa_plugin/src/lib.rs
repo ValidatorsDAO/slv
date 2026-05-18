@@ -1,5 +1,5 @@
 //! `slv-gtfa-plugin` — jetstreamer plugin emitting per-(tx, pubkey) rows
-//! for Helius-style `getTransactionsForAddress` queries.
+//! that back the `getTransactionsForAddress` RPC method.
 //!
 //! anza's three built-in plugins (program-tracking, instruction-tracking,
 //! pubkey-stats) are all aggregations: they collapse counts and lose the
@@ -142,18 +142,16 @@ impl Plugin for SlvGtfaPlugin {
         async move {
             // Skip votes — gTFA users never ask for them and they would
             // dominate row counts on busy slots (>50% of mainnet txs are
-            // vote txs).  Helius gTFA already excludes votes when the
-            // client requests them and the SDK doesn't expose a way to
-            // filter on chain-side for vote-only.
+            // vote txs).
             if tx.is_vote {
                 return Ok(());
             }
 
             // Combine static account_keys + ALT-loaded (writable, readonly)
-            // so cards subscriptions that only show in V0 loaded_addresses
-            // still match the address-scan.  Helius returns transactions
-            // even when the user's account is only referenced via an
-            // address lookup table, so we mirror that.
+            // so addresses that only show in V0 `loaded_addresses` still
+            // match the address-scan — clients expect a transaction to be
+            // returned even when the queried account is only referenced
+            // via an address lookup table.
             let static_keys: &[Address] = match &tx.transaction.message {
                 VersionedMessage::Legacy(msg) => &msg.account_keys,
                 VersionedMessage::V0(msg) => &msg.account_keys,
@@ -175,7 +173,8 @@ impl Plugin for SlvGtfaPlugin {
 
             // Deduplicate by pubkey within this transaction — if the same
             // account appears as both static and ALT-loaded (legal in V0),
-            // emit one row, not two.  Helius treats it as one mention.
+            // emit one row, not two.  Each distinct account counts as one
+            // mention.
             let mut seen = ahash::AHashSet::with_capacity(total_keys);
             let mut batch = Vec::with_capacity(total_keys);
             for pk in static_keys

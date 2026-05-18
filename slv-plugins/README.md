@@ -5,8 +5,8 @@ Rust workspace for slv-flavoured plugins on top of
 
 Each member crate is a thin extension that emits rows into a
 ClickHouse schema served by [`../api/rpc-gateway`](../api/rpc-gateway).
-Pair them with the gateway's Helius-wire-compatible JSON-RPC methods
-to serve queries that vanilla Solana RPC can't answer.
+Pair them with the gateway's extended JSON-RPC methods to serve queries
+that vanilla Solana RPC can't answer.
 
 ## Crates
 
