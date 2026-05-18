@@ -31,11 +31,19 @@ import { PubsubForward } from '../lib/pubsub-forward.ts'
 import { SlotBridge } from '../lib/slot-bridge.ts'
 import { SlotMultiplex } from '../lib/slot-multiplex.ts'
 import { SlotFirstShredBridge } from '../lib/slot-first-shred.ts'
+import { SlotFirstShredMultiplex } from '../lib/slot-first-shred-multiplex.ts'
 
 export type WsConfig = {
   yellowstoneEndpoint: string // host:port — passed straight to gRPC client
   pubsubUrl: string // ws://… upstream Solana pubsub (richat)
   // Optional dedicated source for slotSubscribe.  Two flavours:
+  //
+  // - `slotFirstShredMultiplexUrls` (ws://… list): combines the
+  //   `firstShredReceived` semantic with N-URL first-arrival-wins
+  //   multiplexing.  Best single knob for slot latency: stack the
+  //   early-signal of `slotFirstShredUrl` on top of the jitter-
+  //   smoothing of `slotMultiplexUrls`.  Same trade-off as
+  //   `slotFirstShredUrl` (= bank not yet frozen at notify time).
   //
   // - `slotFirstShredUrl` (ws://…): subscribe to `slotsUpdatesSubscribe`
   //   on this Solana-pubsub-compat endpoint and emit `firstShredReceived`
@@ -65,9 +73,11 @@ export type WsConfig = {
   //   SLOWER than richat — the bridge code itself is fine but the
   //   upstream shred feed lags turbine on a co-located validator.
   //
-  // Priority: `slotFirstShredUrl` > `slotMultiplexUrls` > `slotPubsubUrl`
-  // > `slotBridgeEndpoint` > falls through to the standard pubsub
-  // forward (= same as every other pubsub method).
+  // Priority: `slotFirstShredMultiplexUrls` > `slotFirstShredUrl` >
+  // `slotMultiplexUrls` > `slotPubsubUrl` > `slotBridgeEndpoint` >
+  // falls through to the standard pubsub forward (= same as every
+  // other pubsub method).
+  slotFirstShredMultiplexUrls?: string[]
   slotFirstShredUrl?: string
   slotMultiplexUrls?: string[]
   slotPubsubUrl?: string
@@ -100,15 +110,17 @@ const STANDARD_PUBSUB_METHODS = new Set([
 export function buildWsHandler(cfg: WsConfig) {
   const bridge = new YellowstoneBridge(cfg.yellowstoneEndpoint)
   // Process-wide singletons for slot sources.  Null when not configured.
+  const slotFirstShredMultiplex =
+    cfg.slotFirstShredMultiplexUrls && cfg.slotFirstShredMultiplexUrls.length > 0
+      ? new SlotFirstShredMultiplex(cfg.slotFirstShredMultiplexUrls)
+      : null
   const slotFirstShred = cfg.slotFirstShredUrl
     ? new SlotFirstShredBridge(cfg.slotFirstShredUrl)
     : null
   const slotMultiplex = cfg.slotMultiplexUrls && cfg.slotMultiplexUrls.length > 0
     ? new SlotMultiplex(cfg.slotMultiplexUrls)
     : null
-  const slotBridge = cfg.slotBridgeEndpoint
-    ? new SlotBridge(cfg.slotBridgeEndpoint)
-    : null
+  const slotBridge = cfg.slotBridgeEndpoint ? new SlotBridge(cfg.slotBridgeEndpoint) : null
 
   return upgradeWebSocket(() => {
     // Per-connection state.
@@ -266,8 +278,22 @@ export function buildWsHandler(cfg: WsConfig) {
             return
           }
           case 'slotSubscribe': {
-            // Priority: slotFirstShred > slotMultiplex > slotPubsubUrl >
-            // slotBridge > standard pubsub forward.  See WsConfig docs.
+            // Priority: slotFirstShredMultiplex > slotFirstShred >
+            // slotMultiplex > slotPubsubUrl > slotBridge > standard
+            // pubsub forward.  See WsConfig docs.
+            if (slotFirstShredMultiplex) {
+              const subId = ++localSubCounter
+              const handle = slotFirstShredMultiplex.subscribe((u) => {
+                send({
+                  jsonrpc: '2.0',
+                  method: 'slotNotification',
+                  params: { result: u, subscription: subId },
+                })
+              })
+              localSubs.set(subId, handle)
+              send(ok(req.id ?? null, subId))
+              return
+            }
             if (slotFirstShred) {
               const subId = ++localSubCounter
               const handle = slotFirstShred.subscribe((u) => {
@@ -316,7 +342,7 @@ export function buildWsHandler(cfg: WsConfig) {
             return
           }
           case 'slotUnsubscribe': {
-            if (slotFirstShred || slotMultiplex || slotBridge) {
+            if (slotFirstShredMultiplex || slotFirstShred || slotMultiplex || slotBridge) {
               const params = (req.params as unknown[]) ?? []
               const subId = Number(params[0])
               const handle = Number.isFinite(subId) ? localSubs.get(subId) : undefined
@@ -346,7 +372,13 @@ export function buildWsHandler(cfg: WsConfig) {
               ensurePubsub().send(text)
               return
             }
-            send(err(req.id ?? null, ERROR_CODES.METHOD_NOT_FOUND, `unsupported WS method: ${req.method}`))
+            send(
+              err(
+                req.id ?? null,
+                ERROR_CODES.METHOD_NOT_FOUND,
+                `unsupported WS method: ${req.method}`,
+              ),
+            )
           }
         }
       },
