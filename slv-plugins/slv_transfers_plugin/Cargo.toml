@@ -1,6 +1,6 @@
 [package]
 name = "slv_transfers_plugin"
-description = "Jetstreamer plugin that emits per-transfer rows for Helius-style getTransfersByAddress queries"
+description = "Jetstreamer plugin that emits per-transfer rows backing the getTransfersByAddress RPC method"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

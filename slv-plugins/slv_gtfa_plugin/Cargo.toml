@@ -1,6 +1,6 @@
 [package]
 name = "slv_gtfa_plugin"
-description = "Jetstreamer plugin that emits per-(tx, mentioned-pubkey) rows for Helius-style getTransactionsForAddress queries"
+description = "Jetstreamer plugin that emits per-(tx, mentioned-pubkey) rows backing the getTransactionsForAddress RPC method"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

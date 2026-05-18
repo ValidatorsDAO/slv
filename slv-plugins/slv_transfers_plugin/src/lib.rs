@@ -1,5 +1,5 @@
 //! `slv-transfers-plugin` — jetstreamer plugin emitting per-transfer rows
-//! for Helius-style `getTransfersByAddress` queries.
+//! that back the `getTransfersByAddress` RPC method.
 //!
 //! Phase 1 scope (this file): SPL Token v1 `Transfer` (3) and
 //! `TransferChecked` (12) **top-level instructions only**.  Phase 3 will
@@ -243,9 +243,9 @@ impl Plugin for SlvTransfersPlugin {
             // Walk top-level instructions AND inner instructions (CPIs).
             // Inner-ix coverage is the dominant Phase 3 gap-closer: most
             // DEX/router transfers are emitted as CPIs from a top-level
-            // router/aggregator ix, not as top-level Token.Transfer.  In
-            // the 2026-05-14 Helius-diff probe, top-level-only coverage
-            // was 15.5%; adding inner-ix is expected to push it >80%.
+            // router/aggregator ix, not as top-level Token.Transfer.  A
+            // 2026-05-14 coverage probe found top-level-only coverage was
+            // 15.5%; adding inner-ix is expected to push it >80%.
             let instructions = match &tx.transaction.message {
                 VersionedMessage::Legacy(msg) => &msg.instructions,
                 VersionedMessage::V0(msg) => &msg.instructions,
@@ -292,8 +292,8 @@ impl Plugin for SlvTransfersPlugin {
             // 2. Inner instructions per top-level ix.  `group.index` is
             //    the parent top-level ix index; `pos` within
             //    `group.instructions` is what we store as `inner_index`.
-            //    `stack_height` exists but isn't part of Helius's wire
-            //    format, so we ignore it (Helius reports a flat
+            //    `stack_height` exists but isn't part of the wire format
+            //    we expose, so we ignore it (the API reports a flat
             //    `innerInstructionIdx`).
             for group in inner_groups {
                 let parent_idx = group.index as u16;
