@@ -7,6 +7,7 @@
 
 pub mod gtfa;
 pub mod jet;
+pub mod transfers;
 
 use serde_json::Value;
 

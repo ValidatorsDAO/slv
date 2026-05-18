@@ -11,8 +11,8 @@
 //! |---|---|---|
 //! | 0 | dispatch shell + `/health` | merged |
 //! | 1 | `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`, `jetEpochSummary`, `jetProgramStats` | merged |
-//! | 2 | `getTransactionsForAddress` | this PR |
-//! | 2b | `getTransfersByAddress` | next |
+//! | 2a | `getTransactionsForAddress` | merged |
+//! | 2b | `getTransfersByAddress` | this PR |
 //! | 3 | Pass-through proxy for every other Solana JSON-RPC method | next |
 //! | 4 | WebSocket: `transactionSubscribe`/`Unsubscribe`, `slotSubscribe` multiplex, standard pubsub | next |
 //!
