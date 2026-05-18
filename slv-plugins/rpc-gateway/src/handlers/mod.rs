@@ -5,6 +5,7 @@
 //! wraps into a JSON-RPC error object.  Param parsing helpers live
 //! in this module so handler implementations stay focused on SQL.
 
+pub mod gtfa;
 pub mod jet;
 
 use serde_json::Value;

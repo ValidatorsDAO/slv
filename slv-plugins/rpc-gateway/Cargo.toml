@@ -32,3 +32,5 @@ reqwest.workspace = true
 thiserror.workspace = true
 base64.workspace = true
 url.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
