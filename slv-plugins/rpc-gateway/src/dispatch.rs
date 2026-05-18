@@ -16,6 +16,7 @@ use crate::clickhouse::ClickHouseClient;
 use crate::handlers::{gtfa::GtfaHandlers, jet, transfers::TransfersHandlers};
 use crate::jsonrpc::{error_codes, Id, Request, Response};
 use crate::of1::Of1Client;
+use crate::ws::WsConfig;
 
 /// Methods in the `jet*` namespace (camelCase, prefix `jet` + uppercase
 /// 4th char): `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`,
@@ -29,17 +30,26 @@ static JET_NAMESPACE_RE: LazyLock<Regex> =
 pub struct Gateway {
     pub ch: Arc<ClickHouseClient>,
     pub of1: Arc<Of1Client>,
+    /// WebSocket-side configuration consumed by `crate::ws`.  Owned
+    /// here so the WebSocket handler can borrow it through the same
+    /// `Arc<Gateway>` Axum injects via `State`.
+    pub ws: WsConfig,
     gtfa: GtfaHandlers,
     transfers: TransfersHandlers,
 }
 
 impl Gateway {
-    pub fn new(ch: ClickHouseClient, of1: Of1Client, full_concurrency: usize) -> Self {
+    pub fn new(
+        ch: ClickHouseClient,
+        of1: Of1Client,
+        full_concurrency: usize,
+        ws: WsConfig,
+    ) -> Self {
         let ch = Arc::new(ch);
         let of1 = Arc::new(of1);
         let gtfa = GtfaHandlers::new(ch.clone(), of1.clone(), full_concurrency);
         let transfers = TransfersHandlers::new(ch.clone());
-        Self { ch, of1, gtfa, transfers }
+        Self { ch, of1, ws, gtfa, transfers }
     }
 
     pub async fn dispatch(&self, req: Request) -> Response {

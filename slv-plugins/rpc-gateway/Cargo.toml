@@ -34,3 +34,4 @@ base64.workspace = true
 url.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
+tokio-tungstenite.workspace = true

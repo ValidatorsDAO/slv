@@ -79,3 +79,4 @@ base64 = "0.22"
 url = "2"
 futures = "0.3"
 parking_lot = "0.12"
+tokio-tungstenite = { version = "0.27", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
