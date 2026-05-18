@@ -62,31 +62,37 @@ impl Request {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorObject {
     pub code: i32,
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// JSON-RPC 2.0 response.  Used both for handler output and for
+/// parsing the upstream response when the dispatcher forwards an
+/// unrecognised method to the standard-RPC upstream.  `jsonrpc` is
+/// `String` rather than `&'static` so the Deserialize derive works;
+/// every constructed `Response` from inside this crate sets it to
+/// `"2.0"` and the serialised wire format is identical.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
-    pub jsonrpc: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jsonrpc: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorObject>,
     pub id: Id,
 }
 
 impl Response {
     pub fn ok(id: Id, result: Value) -> Self {
-        Self { jsonrpc: "2.0", result: Some(result), error: None, id }
+        Self { jsonrpc: "2.0".into(), result: Some(result), error: None, id }
     }
     pub fn err(id: Id, code: i32, message: impl Into<String>) -> Self {
         Self {
-            jsonrpc: "2.0",
+            jsonrpc: "2.0".into(),
             result: None,
             error: Some(ErrorObject { code, message: message.into(), data: None }),
             id,
