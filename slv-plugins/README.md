@@ -4,7 +4,7 @@ Rust workspace for slv-flavoured plugins on top of
 [anza-xyz/jetstreamer](https://github.com/anza-xyz/jetstreamer).
 
 Each member crate is a thin extension that emits rows into a
-ClickHouse schema served by [`../api/rpc-gateway`](../api/rpc-gateway).
+ClickHouse schema served by [`rpc-gateway`](./rpc-gateway).
 Pair them with the gateway's extended JSON-RPC methods to serve queries
 that vanilla Solana RPC can't answer.
 
