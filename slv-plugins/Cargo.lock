@@ -5553,6 +5553,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
+ "h2 0.4.14",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
@@ -5572,12 +5573,14 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-rustls 0.26.4",
+ "tokio-util 0.7.18",
  "tower 0.5.3",
  "tower-http",
  "tower-service",
  "url 2.5.8",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams 0.4.2",
  "web-sys",
  "webpki-roots 1.0.7",
 ]
@@ -5625,7 +5628,7 @@ dependencies = [
  "url 2.5.8",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
+ "wasm-streams 0.5.0",
  "web-sys",
 ]
 
@@ -6366,15 +6369,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
+ "base64 0.22.1",
  "hyper 1.9.0",
  "regex",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "tokio",
  "tower 0.5.3",
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url 2.5.8",
 ]
 
 [[package]]
@@ -11128,6 +11135,19 @@ dependencies = [
  "indexmap 2.14.0",
  "wasm-encoder",
  "wasmparser",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

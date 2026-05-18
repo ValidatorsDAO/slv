@@ -1,25 +1,28 @@
 //! `slv-rpc-gateway` binary entry point.
 //!
-//! Scaffold scope: bind an HTTP server, serve `/health`, and accept
-//! JSON-RPC 2.0 requests on `/` (single or batch).  The dispatcher
-//! returns `METHOD_NOT_FOUND` for every method until handlers land
-//! in follow-up PRs — see `lib.rs` for the per-phase roadmap.
-//!
 //! Configured via env:
 //!   PORT                  listen port (default 8889 — matches the
 //!                         Deno gateway so a host can swap binaries
 //!                         without changing the load balancer pool)
+//!   CLICKHOUSE_URL        ClickHouse HTTP base (default http://localhost:8123)
+//!   CLICKHOUSE_DB         database name (default `default`)
+//!   CLICKHOUSE_USER       optional Basic-auth username
+//!   CLICKHOUSE_PASS       optional Basic-auth password
+//!   CLICKHOUSE_TIMEOUT_MS per-query timeout (default 30000)
 //!   RUST_LOG              tracing-subscriber filter (default `info`)
 
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
 
-use axum::extract::Json;
+use axum::extract::{Json, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
 use serde_json::{json, Value};
-use slv_rpc_gateway::dispatch::dispatch;
+use slv_rpc_gateway::clickhouse::{ClickHouseClient, ClickHouseConfig};
+use slv_rpc_gateway::dispatch::Gateway;
 use slv_rpc_gateway::jsonrpc::{error_codes, Id, Request, Response};
 use tower_http::cors::{Any, CorsLayer};
 
@@ -39,6 +42,21 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(8889);
     let addr: SocketAddr = SocketAddr::from(([0, 0, 0, 0], port));
 
+    let ch_cfg = ClickHouseConfig {
+        url: env_or("CLICKHOUSE_URL", "http://localhost:8123"),
+        database: Some(env_or("CLICKHOUSE_DB", "default")),
+        username: std::env::var("CLICKHOUSE_USER").ok(),
+        password: std::env::var("CLICKHOUSE_PASS").ok(),
+        timeout: Duration::from_millis(
+            std::env::var("CLICKHOUSE_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30_000),
+        ),
+    };
+    let ch = ClickHouseClient::new(ch_cfg)?;
+    let gateway = Arc::new(Gateway::new(ch));
+
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -47,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/", post(rpc_entry))
+        .with_state(gateway)
         .layer(cors);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -55,29 +74,33 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn env_or(key: &str, fallback: &str) -> String {
+    std::env::var(key).unwrap_or_else(|_| fallback.into())
+}
+
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
-/// JSON-RPC entry point.  Accepts a single request or a batch.
-///
-/// - A request without `id` is a notification — process but do not
-///   respond.  A batch consisting only of notifications returns no
-///   body (HTTP 204).
-/// - An empty batch (`[]`) is answered with a single
-///   `INVALID_REQUEST` error per spec.
-async fn rpc_entry(Json(body): Json<Value>) -> impl IntoResponse {
+async fn rpc_entry(
+    State(gateway): State<Arc<Gateway>>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
     if let Value::Array(items) = body {
         if items.is_empty() {
-            return Json(serde_json::to_value(Response::err(
-                Id::Null,
-                error_codes::INVALID_REQUEST,
-                "invalid JSON-RPC request",
-            )).expect("error response always serialises")).into_response();
+            return Json(
+                serde_json::to_value(Response::err(
+                    Id::Null,
+                    error_codes::INVALID_REQUEST,
+                    "invalid JSON-RPC request",
+                ))
+                .expect("error response always serialises"),
+            )
+            .into_response();
         }
         let mut out = Vec::with_capacity(items.len());
         for item in items {
-            if let Some(resp) = handle_one(item).await {
+            if let Some(resp) = handle_one(&gateway, item).await {
                 out.push(resp);
             }
         }
@@ -85,16 +108,14 @@ async fn rpc_entry(Json(body): Json<Value>) -> impl IntoResponse {
             return StatusCode::NO_CONTENT.into_response();
         }
         Json(Value::Array(out)).into_response()
+    } else if let Some(resp) = handle_one(&gateway, body).await {
+        Json(resp).into_response()
     } else {
-        if let Some(resp) = handle_one(body).await {
-            Json(resp).into_response()
-        } else {
-            StatusCode::NO_CONTENT.into_response()
-        }
+        StatusCode::NO_CONTENT.into_response()
     }
 }
 
-async fn handle_one(raw: Value) -> Option<Value> {
+async fn handle_one(gateway: &Gateway, raw: Value) -> Option<Value> {
     let Some(req) = Request::validate(raw) else {
         return Some(
             serde_json::to_value(Response::err(
@@ -106,7 +127,7 @@ async fn handle_one(raw: Value) -> Option<Value> {
         );
     };
     let notification = req.is_notification();
-    let resp = dispatch(req).await;
+    let resp = gateway.dispatch(req).await;
     if notification {
         None
     } else {

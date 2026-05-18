@@ -28,3 +28,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 regex.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+base64.workspace = true
+url.workspace = true

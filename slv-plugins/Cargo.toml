@@ -72,3 +72,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1"
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "stream"] }
+thiserror = "2"
+async-trait = "0.1"
+base64 = "0.22"
+url = "2"
