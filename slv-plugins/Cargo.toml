@@ -1,0 +1,62 @@
+# slv-plugins — Rust workspace for slv-flavoured jetstreamer plugins.
+#
+# Each member is a thin extension on top of `anza-xyz/jetstreamer` that
+# emits rows into a ClickHouse schema served by `api/rpc-gateway`.
+#
+# Member crates ship two artifacts each:
+#   - a library (`lib.rs`) for embedding in another jetstreamer binary,
+#   - a binary (`src/main.rs`) that runs the firehose with this plugin
+#     pre-wired (drop-in replacement for vanilla `jetstreamer` in the
+#     systemd unit on the slv-jetstreamer host).
+#
+# Why a workspace: both plugins share an identical dependency set
+# (jetstreamer @ 0.6, clickhouse, solana-* etc.).  Pinning them in
+# `[workspace.dependencies]` keeps Cargo.lock unified across the
+# crates so the resolver can't ever pick mismatched versions for the
+# transitive types that ClickHouse Row derives + Solana types depend
+# on.
+
+[workspace]
+resolver = "2"
+members = [
+  "slv_gtfa_plugin",
+  "slv_transfers_plugin",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["ELSOUL LABO B.V. <labo@elsoul.nl>"]
+homepage = "https://elsoul.nl/"
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# Pinned to the version validated against the slv jetstreamer host
+# (anza-xyz/jetstreamer @ ae96830, May 2026).  Bumping minor requires
+# re-checking the Plugin trait + TransactionData fields didn't change
+# shape.
+jetstreamer = "0.6"
+jetstreamer-firehose = "0.6"
+jetstreamer-plugin = "0.6"
+
+# Match anza/jetstreamer's workspace.dependencies versions to avoid
+# resolver conflicts on shared transitive crates (clickhouse Row,
+# dashmap entries, etc).
+clickhouse = { version = "0.14", default-features = false }
+dashmap = "5"
+futures-util = { version = "0.3", default-features = false }
+once_cell = "1"
+serde = { version = "1", default-features = false, features = ["derive"] }
+ahash = "0.8"
+log = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Solana types — versions copied verbatim from anza/jetstreamer's
+# workspace.dependencies pins.
+solana-address = "1"
+solana-message = "3"
+solana-signature = { version = "3", default-features = false }
+solana-transaction-status = "3"
+
+env_logger = "0.11"
