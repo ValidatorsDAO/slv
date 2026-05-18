@@ -39,6 +39,10 @@ pub struct Gateway {
     pub slot_first_shred_multi: Option<Arc<SlotPubsubMultiplex>>,
     pub slot_first_shred: Option<Arc<SlotPubsubMultiplex>>,
     pub slot_multiplex: Option<Arc<SlotPubsubMultiplex>>,
+    /// Yellowstone-gRPC endpoint used by the extended
+    /// `transactionSubscribe` WS method.  Stored as a plain string
+    /// (host:port or full URL) — the bridge does scheme coercion.
+    pub yellowstone_endpoint: String,
     gtfa: GtfaHandlers,
     transfers: TransfersHandlers,
 }
@@ -50,6 +54,7 @@ pub struct GatewayBuilder {
     pub slot_first_shred_multiplex_urls: Vec<String>,
     pub slot_first_shred_url: Option<String>,
     pub slot_multiplex_urls: Vec<String>,
+    pub yellowstone_endpoint: String,
 }
 
 impl Gateway {
@@ -62,6 +67,7 @@ impl Gateway {
         Self::with_slot_sources(ch, of1, ws, GatewayBuilder {
             full_concurrency,
             ws: None,
+            yellowstone_endpoint: "localhost:10000".into(),
             ..GatewayBuilder::default()
         })
     }
@@ -94,6 +100,11 @@ impl Gateway {
             slot_first_shred_multi,
             slot_first_shred,
             slot_multiplex,
+            yellowstone_endpoint: if builder.yellowstone_endpoint.is_empty() {
+                "localhost:10000".into()
+            } else {
+                builder.yellowstone_endpoint
+            },
             gtfa,
             transfers,
         }

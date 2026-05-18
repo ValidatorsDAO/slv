@@ -35,6 +35,9 @@
 //!                         `slotSubscribe` only (the validator's
 //!                         native pubsub on `rpc-port + 1` is
 //!                         empirically ~3 ms faster than richat)
+//!   YELLOWSTONE_GRPC      Yellowstone-gRPC endpoint for the
+//!                         extended `transactionSubscribe` WS
+//!                         method (default `localhost:10000`)
 //!   RUST_LOG              tracing-subscriber filter (default `info`)
 
 use std::net::SocketAddr;
@@ -114,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .filter(|s| !s.is_empty()),
         slot_multiplex_urls: comma_list("SLOT_MULTIPLEX_URLS"),
+        yellowstone_endpoint: env_or("YELLOWSTONE_GRPC", "localhost:10000"),
     };
     let gateway = Arc::new(Gateway::with_slot_sources(ch, of1, ws_cfg, builder));
 
