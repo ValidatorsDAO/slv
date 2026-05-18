@@ -55,8 +55,13 @@ const YELLOWSTONE_GRPC = Deno.env.get('YELLOWSTONE_GRPC') ?? 'localhost:10000'
 const PUBSUB_WS_URL = Deno.env.get('PUBSUB_WS_URL') ?? 'ws://localhost:7111'
 // Optional overrides for the slotSubscribe upstream.  See WsConfig
 // docstrings in handlers/ws.ts for the latency rationale.
-// Priority: SLOT_FIRST_SHRED_URL > SLOT_MULTIPLEX_URLS > SLOT_PUBSUB_URL
-// > SLOT_BRIDGE_GRPC > falls through to PUBSUB_WS_URL (richat).
+// Priority: SLOT_FIRST_SHRED_MULTIPLEX_URLS > SLOT_FIRST_SHRED_URL >
+// SLOT_MULTIPLEX_URLS > SLOT_PUBSUB_URL > SLOT_BRIDGE_GRPC >
+// falls through to PUBSUB_WS_URL (richat).
+const SLOT_FIRST_SHRED_MULTIPLEX_URLS = (Deno.env.get('SLOT_FIRST_SHRED_MULTIPLEX_URLS') ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0)
 const SLOT_FIRST_SHRED_URL = Deno.env.get('SLOT_FIRST_SHRED_URL') || undefined
 const SLOT_MULTIPLEX_URLS = (Deno.env.get('SLOT_MULTIPLEX_URLS') ?? '')
   .split(',')
@@ -143,6 +148,9 @@ app.use('*', async (c, next) => {
 const wsHandler = buildWsHandler({
   yellowstoneEndpoint: YELLOWSTONE_GRPC,
   pubsubUrl: PUBSUB_WS_URL,
+  slotFirstShredMultiplexUrls: SLOT_FIRST_SHRED_MULTIPLEX_URLS.length > 0
+    ? SLOT_FIRST_SHRED_MULTIPLEX_URLS
+    : undefined,
   slotFirstShredUrl: SLOT_FIRST_SHRED_URL,
   slotMultiplexUrls: SLOT_MULTIPLEX_URLS.length > 0 ? SLOT_MULTIPLEX_URLS : undefined,
   slotPubsubUrl: SLOT_PUBSUB_URL,
