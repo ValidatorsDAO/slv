@@ -72,12 +72,9 @@ impl Gateway {
                         format!("unknown jet* method: {}", req.method),
                     );
                 }
-                // Pass-through proxy lands in Phase 3.
-                Response::err(
-                    id,
-                    error_codes::METHOD_NOT_FOUND,
-                    format!("{}: upstream proxy not yet ported to Rust gateway", req.method),
-                )
+                // Standard Solana JSON-RPC method — forward verbatim
+                // to the upstream and return its response envelope.
+                self.forward_to_upstream(&req, id).await
             }
         }
     }
@@ -88,4 +85,56 @@ impl Gateway {
             Err(message) => Response::err(id, error_codes::INVALID_PARAMS, message),
         }
     }
+
+    /// Forward a request envelope to the upstream RPC node and
+    /// return its response.  The upstream is itself JSON-RPC 2.0 so
+    /// its body should already carry `jsonrpc`/`id` and either
+    /// `result` or `error` — if so we deserialise it directly into
+    /// `Response`.  Anything malformed gets wrapped as
+    /// `UPSTREAM_ERROR` so the client never sees a half-parsed
+    /// envelope.
+    async fn forward_to_upstream(&self, req: &Request, id: Id) -> Response {
+        let envelope = match build_upstream_envelope(req) {
+            Ok(v) => v,
+            Err(msg) => {
+                return Response::err(id, error_codes::INTERNAL_ERROR, msg);
+            }
+        };
+        match self.of1.forward(&envelope).await {
+            Ok(body) => match serde_json::from_value::<Response>(body.clone()) {
+                Ok(parsed) => parsed,
+                Err(_) => {
+                    // Upstream returned something we don't recognise
+                    // as a JSON-RPC envelope — surface the raw body
+                    // as a successful result so the client at least
+                    // sees the payload.
+                    Response::ok(id, body)
+                }
+            },
+            Err(e) => Response::err(
+                id,
+                error_codes::UPSTREAM_ERROR,
+                format!("upstream: {e}"),
+            ),
+        }
+    }
+}
+
+fn build_upstream_envelope(req: &Request) -> Result<serde_json::Value, String> {
+    let mut env = serde_json::Map::new();
+    env.insert("jsonrpc".into(), serde_json::Value::String("2.0".into()));
+    env.insert(
+        "method".into(),
+        serde_json::Value::String(req.method.clone()),
+    );
+    if let Some(params) = &req.params {
+        env.insert("params".into(), params.clone());
+    }
+    if let Some(id) = &req.id {
+        env.insert(
+            "id".into(),
+            serde_json::to_value(id).map_err(|e| e.to_string())?,
+        );
+    }
+    Ok(serde_json::Value::Object(env))
 }

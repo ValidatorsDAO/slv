@@ -58,13 +58,60 @@ mod tests {
         );
     }
 
+    /// Spawn a tiny axum server that echoes a canned JSON-RPC response
+    /// for one POST.  Used by the proxy round-trip test below so we
+    /// can verify the forward path end-to-end without a live upstream.
+    async fn spawn_mock_upstream(canned: serde_json::Value) -> (String, tokio::task::JoinHandle<()>) {
+        use axum::{routing::post, Json, Router};
+        let app = Router::new().route(
+            "/",
+            post(move |Json(_body): Json<serde_json::Value>| {
+                let canned = canned.clone();
+                async move { Json(canned) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (format!("http://{addr}"), handle)
+    }
+
     #[tokio::test]
-    async fn standard_rpc_method_reports_proxy_pending() {
+    async fn proxy_forwards_full_envelope_and_returns_upstream_body() {
+        let canned = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "result": { "context": { "slot": 1 }, "value": 42 },
+        });
+        let (url, server) = spawn_mock_upstream(canned.clone()).await;
+        let ch = ClickHouseClient::new(ClickHouseConfig::default()).unwrap();
+        let of1 = Of1Client::new(Of1Config { url, ..Of1Config::default() }).unwrap();
+        let gw = Gateway::new(ch, of1, 20);
+        let req = Request::validate(json!({
+            "jsonrpc": "2.0", "method": "getBalance", "id": 7,
+            "params": ["SomeAddress"],
+        })).unwrap();
+        let resp = gw.dispatch(req).await;
+        assert!(resp.error.is_none(), "expected ok, got {:?}", resp.error);
+        assert_eq!(resp.result.unwrap(), canned.get("result").unwrap().clone());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn standard_rpc_method_now_forwards_to_upstream() {
+        // With Phase 3 the gateway pass-throughs unknown methods to
+        // the upstream RPC node.  The default config points at
+        // `http://localhost:8888` which isn't running in CI, so the
+        // forward fails — that surfaces as `UPSTREAM_ERROR`, not
+        // METHOD_NOT_FOUND.  Either way the dispatcher no longer
+        // short-circuits with "not yet ported".
         let gw = gateway();
         let r = gw.dispatch(req("getBalance")).await;
-        let e = r.error.expect("should error");
-        assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
-        assert!(e.message.contains("upstream proxy not yet ported"));
+        let e = r.error.expect("should error in CI without an upstream");
+        assert_eq!(e.code, error_codes::UPSTREAM_ERROR);
+        assert!(e.message.starts_with("upstream:"));
     }
 
     #[tokio::test]

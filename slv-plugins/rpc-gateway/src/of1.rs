@@ -61,6 +61,25 @@ impl Of1Client {
         Ok(Self { url: cfg.url, http })
     }
 
+    /// Forward an entire JSON-RPC request envelope to the upstream
+    /// and return the entire response envelope unchanged.  Used by
+    /// the dispatcher for every method that does not have a
+    /// gateway-side handler — the standard Solana RPC surface
+    /// (`getBalance`, `getBlock`, `getTransaction`, etc.).
+    ///
+    /// Wire-shape invariant: the upstream is itself JSON-RPC 2.0, so
+    /// the returned `Value` should already have `jsonrpc`, `id`, and
+    /// either `result` or `error` populated.  When that invariant is
+    /// violated the caller can synthesise a wrapper.
+    pub async fn forward(&self, req_envelope: &Value) -> Result<Value, Of1Error> {
+        let res = self.http.post(&self.url).json(req_envelope).send().await?;
+        if !res.status().is_success() {
+            return Err(Of1Error::Http(res.status().as_u16()));
+        }
+        let body: Value = res.json().await?;
+        Ok(body)
+    }
+
     /// `getTransaction(signature, { encoding, maxSupportedTransactionVersion })`.
     /// Returns the unwrapped `transaction` / `meta` / `version` fields on
     /// success; `Err(Of1Error::NotFound)` when of1 returns a `null`
