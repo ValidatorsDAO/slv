@@ -65,12 +65,18 @@ pub async fn top_programs(ch: &ClickHouseClient, params: &Option<Value>) -> Resu
         LIMIT {limit}
         "#
     );
+    // ClickHouse JSONEachRow emits UInt64 sums as numbers (not
+    // quoted strings) when `output_format_json_quote_64bit_integers`
+    // is at its server default of `false`.  The slv-jetstreamer host
+    // runs with that default, so deserialise as `u64`.  Matches the
+    // Deno gateway's actual output where JS coerces the number back
+    // to a JSON number in `JSON.stringify`.
     #[derive(Deserialize, Serialize)]
     struct Row {
         program: String,
-        invocations: String,
-        errors: String,
-        total_cus: String,
+        invocations: u64,
+        errors: u64,
+        total_cus: u64,
     }
     let rows: Vec<Row> = ch.query(&sql).await.map_err(|e| e.to_string())?;
     Ok(json!(rows))
@@ -183,17 +189,16 @@ pub async fn epoch_summary(ch: &ClickHouseClient, params: &Option<Value>) -> Res
     );
     #[derive(Deserialize, Serialize)]
     struct SummaryRow {
-        slots: String,
-        non_vote_txs: Option<String>,
-        vote_txs: Option<String>,
-        total_txs: Option<String>,
+        slots: u64,
+        non_vote_txs: Option<u64>,
+        vote_txs: Option<u64>,
+        total_txs: Option<u64>,
         first_block_time: Option<u64>,
         last_block_time: Option<u64>,
     }
     let row: Option<SummaryRow> = ch.query_one(&summary_sql).await.map_err(|e| e.to_string())?;
     let Some(row) = row else { return Ok(Value::Null); };
-    let slots_count: i64 = row.slots.parse().unwrap_or(0);
-    if slots_count == 0 {
+    if row.slots == 0 {
         return Ok(Value::Null);
     }
 
@@ -208,26 +213,26 @@ pub async fn epoch_summary(ch: &ClickHouseClient, params: &Option<Value>) -> Res
     );
     #[derive(Deserialize)]
     struct ProgRow {
-        programs: Option<String>,
-        invocations: Option<String>,
+        programs: Option<u64>,
+        invocations: Option<u64>,
     }
     let prog: Option<ProgRow> = ch.query_one(&programs_sql).await.map_err(|e| e.to_string())?;
 
     Ok(json!({
         "epoch": epoch,
         "slots": row.slots,
-        "non_vote_txs": row.non_vote_txs.unwrap_or_else(|| "0".into()),
-        "vote_txs": row.vote_txs.unwrap_or_else(|| "0".into()),
-        "total_txs": row.total_txs.unwrap_or_else(|| "0".into()),
+        "non_vote_txs": row.non_vote_txs.unwrap_or(0),
+        "vote_txs": row.vote_txs.unwrap_or(0),
+        "total_txs": row.total_txs.unwrap_or(0),
         "first_block_time": row.first_block_time,
         "last_block_time": row.last_block_time,
         "distinct_programs": prog
             .as_ref()
-            .and_then(|p| p.programs.clone())
-            .unwrap_or_else(|| "0".into()),
+            .and_then(|p| p.programs)
+            .unwrap_or(0),
         "program_invocations": prog
             .and_then(|p| p.invocations)
-            .unwrap_or_else(|| "0".into()),
+            .unwrap_or(0),
     }))
 }
 
@@ -283,9 +288,9 @@ pub async fn program_stats(
     #[derive(Deserialize, Serialize)]
     struct Row {
         bucket: u64,
-        invocations: String,
-        errors: String,
-        total_cus: String,
+        invocations: u64,
+        errors: u64,
+        total_cus: u64,
     }
     let rows: Vec<Row> = ch.query(&sql).await.map_err(|e| e.to_string())?;
     Ok(json!(rows))

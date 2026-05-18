@@ -349,22 +349,33 @@ fn parse_pagination_token(s: &str) -> Result<Cursor, String> {
     let inner_instr_idx: i64 = parts[3]
         .parse()
         .map_err(|_| "invalid paginationToken.innerInstrIdx".to_string())?;
-    let type_name = parts[4];
-    if !TRANSFER_TYPE_NAMES[1..].contains(&type_name) {
-        return Err(format!("invalid paginationToken.type: {type_name}"));
+    // Accept both the integer form the encoder now emits and the
+    // legacy name form (`"transfer"`, `"mint"`, …) the early Deno
+    // gateway's parser was written against, so a client paging
+    // through historical tokens doesn't break across the cutover.
+    let type_str = parts[4];
+    let valid = type_str
+        .parse::<u8>()
+        .ok()
+        .map(|n| n >= 1 && (n as usize) < TRANSFER_TYPE_NAMES.len())
+        .unwrap_or(false)
+        || TRANSFER_TYPE_NAMES[1..].contains(&type_str);
+    if !valid {
+        return Err(format!("invalid paginationToken.type: {type_str}"));
     }
     Ok(Cursor { slot, tx_idx, instr_idx, inner_instr_idx })
 }
 
 fn encode_pagination_token(r: &RawRow) -> String {
+    // Emit the raw `transfer_type` UInt8 (= 1..7) rather than its
+    // string name.  Matches the Deno gateway's byte-for-byte wire
+    // shape: it interpolates `RawRow.transfer_type` directly with
+    // `${}` so a CH-emitted integer surfaces as `"1"` in the
+    // token's last segment.
     let type_idx = transfer_type_index(&r.transfer_type);
-    let type_name = TRANSFER_TYPE_NAMES
-        .get(type_idx as usize)
-        .copied()
-        .unwrap_or("transfer");
     format!(
         "{}:{}:{}:{}:{}",
-        r.slot, r.tx_index, r.instr_index, r.inner_index, type_name,
+        r.slot, r.tx_index, r.instr_index, r.inner_index, type_idx,
     )
 }
 
@@ -612,9 +623,11 @@ mod tests {
     }
 
     #[test]
-    fn pagination_token_round_trip() {
-        let tok = "12345:67:8:0:transfer";
-        let cur = parse_pagination_token(tok).unwrap();
+    fn pagination_token_accepts_integer_type() {
+        // The encoder now emits the raw UInt8 (matches the Deno
+        // gateway's wire); the parser must accept `"1".."7"` as
+        // the trailing segment.
+        let cur = parse_pagination_token("12345:67:8:0:1").unwrap();
         assert_eq!(cur.slot, 12345);
         assert_eq!(cur.tx_idx, 67);
         assert_eq!(cur.instr_idx, 8);
@@ -622,7 +635,11 @@ mod tests {
     }
 
     #[test]
-    fn pagination_token_accepts_minus_one_inner() {
+    fn pagination_token_accepts_legacy_name_type() {
+        // Older tokens stored client-side carry the name form
+        // (`"transfer"`, `"mint"`, …).  Keep them parseable so a
+        // client paging through historical state doesn't break
+        // across the cutover.
         let cur = parse_pagination_token("100:0:0:-1:mint").unwrap();
         assert_eq!(cur.inner_instr_idx, -1);
     }
@@ -631,12 +648,37 @@ mod tests {
     fn pagination_token_rejects_unknown_type() {
         let err = parse_pagination_token("1:2:3:0:bogus").unwrap_err();
         assert!(err.contains("invalid paginationToken.type"));
+        // Integer out of range also rejected.
+        let err = parse_pagination_token("1:2:3:0:99").unwrap_err();
+        assert!(err.contains("invalid paginationToken.type"));
     }
 
     #[test]
     fn pagination_token_rejects_wrong_arity() {
         assert!(parse_pagination_token("1:2:3:4").is_err());
         assert!(parse_pagination_token("1:2:3:4:5:6").is_err());
+    }
+
+    #[test]
+    fn encoded_pagination_token_emits_integer_type_segment() {
+        let r = RawRow {
+            signature: "sig".into(),
+            slot: 12345,
+            block_time: 0,
+            transfer_type: json!(1),
+            from_owner: "from".into(),
+            to_owner: "to".into(),
+            from_token_account: None,
+            to_token_account: None,
+            mint: "mint".into(),
+            amount: "0".into(),
+            fee_amount: "0".into(),
+            decimals: 0,
+            tx_index: 67,
+            instr_index: 8,
+            inner_index: 2,
+        };
+        assert_eq!(encode_pagination_token(&r), "12345:67:8:2:1");
     }
 
     #[test]
