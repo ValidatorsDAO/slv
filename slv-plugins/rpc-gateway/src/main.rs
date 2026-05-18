@@ -9,6 +9,13 @@
 //!   CLICKHOUSE_USER       optional Basic-auth username
 //!   CLICKHOUSE_PASS       optional Basic-auth password
 //!   CLICKHOUSE_TIMEOUT_MS per-query timeout (default 30000)
+//!   OF1_URL               upstream JSON-RPC base for the pass-through proxy
+//!                         + `full` mode on `getTransactionsForAddress`
+//!                         (default http://localhost:8888)
+//!   OF1_TIMEOUT_MS        per-call timeout for of1 (default 60000)
+//!   GTFA_FULL_CONCURRENCY max parallel of1 `getTransaction` calls when
+//!                         `transactionDetails: "full"` is requested
+//!                         (default 20)
 //!   RUST_LOG              tracing-subscriber filter (default `info`)
 
 use std::net::SocketAddr;
@@ -24,6 +31,7 @@ use serde_json::{json, Value};
 use slv_rpc_gateway::clickhouse::{ClickHouseClient, ClickHouseConfig};
 use slv_rpc_gateway::dispatch::Gateway;
 use slv_rpc_gateway::jsonrpc::{error_codes, Id, Request, Response};
+use slv_rpc_gateway::of1::{Of1Client, Of1Config};
 use tower_http::cors::{Any, CorsLayer};
 
 #[tokio::main]
@@ -55,7 +63,22 @@ async fn main() -> anyhow::Result<()> {
         ),
     };
     let ch = ClickHouseClient::new(ch_cfg)?;
-    let gateway = Arc::new(Gateway::new(ch));
+
+    let of1_cfg = Of1Config {
+        url: env_or("OF1_URL", "http://localhost:8888"),
+        timeout: Duration::from_millis(
+            std::env::var("OF1_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60_000),
+        ),
+    };
+    let of1 = Of1Client::new(of1_cfg)?;
+    let full_concurrency: usize = std::env::var("GTFA_FULL_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
+    let gateway = Arc::new(Gateway::new(ch, of1, full_concurrency));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)

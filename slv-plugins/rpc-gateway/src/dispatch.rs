@@ -1,20 +1,21 @@
 //! JSON-RPC method dispatcher.
 //!
-//! Owns one shared `ClickHouseClient` and routes incoming methods
-//! to the right handler module.  Methods that are not yet ported
-//! return `METHOD_NOT_FOUND` with an explicit "handler not yet
-//! ported" message so production callers see the same wire shape
-//! they will eventually see for missing methods after the full
-//! migration.
+//! Owns one shared `ClickHouseClient`, `Of1Client`, and per-method
+//! handler structs (= those that carry caches or other state).
+//! Routes incoming methods to the right handler; methods not yet
+//! ported return `METHOD_NOT_FOUND` with an explicit "handler not
+//! yet ported" message so callers see the same wire shape they
+//! will eventually see for missing methods.
 
 use std::sync::Arc;
-
-use regex::Regex;
 use std::sync::LazyLock;
 
+use regex::Regex;
+
 use crate::clickhouse::ClickHouseClient;
-use crate::handlers::jet;
+use crate::handlers::{gtfa::GtfaHandlers, jet};
 use crate::jsonrpc::{error_codes, Id, Request, Response};
+use crate::of1::Of1Client;
 
 /// Methods in the `jet*` namespace (camelCase, prefix `jet` + uppercase
 /// 4th char): `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`,
@@ -25,14 +26,18 @@ use crate::jsonrpc::{error_codes, Id, Request, Response};
 static JET_NAMESPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^jet[A-Z]").expect("static regex compiles"));
 
-#[derive(Clone)]
 pub struct Gateway {
     pub ch: Arc<ClickHouseClient>,
+    pub of1: Arc<Of1Client>,
+    gtfa: GtfaHandlers,
 }
 
 impl Gateway {
-    pub fn new(ch: ClickHouseClient) -> Self {
-        Self { ch: Arc::new(ch) }
+    pub fn new(ch: ClickHouseClient, of1: Of1Client, full_concurrency: usize) -> Self {
+        let ch = Arc::new(ch);
+        let of1 = Arc::new(of1);
+        let gtfa = GtfaHandlers::new(ch.clone(), of1.clone(), full_concurrency);
+        Self { ch, of1, gtfa }
     }
 
     pub async fn dispatch(&self, req: Request) -> Response {
@@ -50,8 +55,11 @@ impl Gateway {
             "jetProgramStats" => {
                 self.wrap(id, jet::program_stats(&self.ch, &req.params).await)
             }
-            // Address-indexed methods — ports landing in Phase 2.
-            "getTransactionsForAddress" | "getTransfersByAddress" => Response::err(
+            // Address-indexed methods (= ClickHouse-backed, handled locally).
+            "getTransactionsForAddress" => {
+                self.wrap(id, self.gtfa.handle(&req.params).await)
+            }
+            "getTransfersByAddress" => Response::err(
                 id,
                 error_codes::METHOD_NOT_FOUND,
                 format!("{}: handler not yet ported to Rust gateway", req.method),

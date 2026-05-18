@@ -9,6 +9,7 @@ mod tests {
     use crate::clickhouse::{ClickHouseClient, ClickHouseConfig};
     use crate::dispatch::Gateway;
     use crate::jsonrpc::{error_codes, Request};
+    use crate::of1::{Of1Client, Of1Config};
     use serde_json::json;
 
     fn req(method: &str) -> Request {
@@ -21,22 +22,35 @@ mod tests {
     }
 
     fn gateway() -> Gateway {
-        // Bogus URL is fine for routing tests — every handler in this
+        // Bogus URLs are fine for routing tests — every handler in this
         // file's assertions short-circuits before touching the network.
         let ch = ClickHouseClient::new(ClickHouseConfig::default())
-            .expect("default config builds");
-        Gateway::new(ch)
+            .expect("default ch config builds");
+        let of1 = Of1Client::new(Of1Config::default())
+            .expect("default of1 config builds");
+        Gateway::new(ch, of1, 20)
     }
 
     #[tokio::test]
-    async fn address_indexed_methods_return_handler_pending() {
+    async fn transfers_method_returns_handler_pending() {
+        // Only `getTransfersByAddress` is still pending in this PR.
+        // `getTransactionsForAddress` now reaches the gtfa handler,
+        // which surfaces its own INVALID_PARAMS for missing address
+        // — covered by the handler-level test in handlers::gtfa::tests.
         let gw = gateway();
-        for m in ["getTransactionsForAddress", "getTransfersByAddress"] {
-            let r = gw.dispatch(req(m)).await;
-            let e = r.error.expect("should error");
-            assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
-            assert!(e.message.contains("not yet ported"));
-        }
+        let r = gw.dispatch(req("getTransfersByAddress")).await;
+        let e = r.error.expect("should error");
+        assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
+        assert!(e.message.contains("not yet ported"));
+    }
+
+    #[tokio::test]
+    async fn gtfa_with_missing_address_surfaces_invalid_params() {
+        let gw = gateway();
+        let r = gw.dispatch(req("getTransactionsForAddress")).await;
+        let e = r.error.expect("should error");
+        assert_eq!(e.code, error_codes::INVALID_PARAMS);
+        assert!(e.message.contains("missing"));
     }
 
     #[tokio::test]

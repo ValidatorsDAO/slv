@@ -10,8 +10,9 @@
 //! | Phase | Methods | Status |
 //! |---|---|---|
 //! | 0 | dispatch shell + `/health` | merged |
-//! | 1 | `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`, `jetEpochSummary`, `jetProgramStats` | this PR |
-//! | 2 | `getTransactionsForAddress`, `getTransfersByAddress` | next |
+//! | 1 | `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`, `jetEpochSummary`, `jetProgramStats` | merged |
+//! | 2 | `getTransactionsForAddress` | this PR |
+//! | 2b | `getTransfersByAddress` | next |
 //! | 3 | Pass-through proxy for every other Solana JSON-RPC method | next |
 //! | 4 | WebSocket: `transactionSubscribe`/`Unsubscribe`, `slotSubscribe` multiplex, standard pubsub | next |
 //!
@@ -27,6 +28,7 @@ pub mod clickhouse;
 pub mod dispatch;
 pub mod handlers;
 pub mod jsonrpc;
+pub mod of1;
 
 #[cfg(test)]
 mod dispatch_test;
