@@ -23,10 +23,12 @@
 //! WebSocket tears everything down.
 
 pub mod pubsub_forward;
+pub mod slot_source;
 
 #[cfg(test)]
 mod ws_test;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -34,12 +36,14 @@ use axum::extract::State;
 use axum::response::IntoResponse;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use futures::SinkExt;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::dispatch::Gateway;
 use crate::jsonrpc::{error_codes, Id, Request, Response};
 use crate::ws::pubsub_forward::PubsubForward;
+use crate::ws::slot_source::SlotPubsubMultiplex;
 
 /// Methods Solana clients call against the validator's native
 /// pubsub endpoint.  Forwarded verbatim to the upstream WebSocket
@@ -66,13 +70,25 @@ const STANDARD_PUBSUB_METHODS: &[&str] = &[
     "rootUnsubscribe",
 ];
 
+/// Local-subscription ID floor.  Subscription IDs we mint for
+/// gateway-side multiplex handlers always start at this number so
+/// they can never collide with the upstream-pubsub IDs (which are
+/// small positive ints assigned by the validator).  Matches the
+/// Deno gateway's `LOCAL_SUB_ID_BASE`.
+pub const LOCAL_SUB_ID_BASE: u64 = 1_000_000_000;
+
 #[derive(Clone)]
 pub struct WsConfig {
     /// `ws://…` upstream Solana pubsub endpoint (typically richat
-    /// on the same host).  Used as the destination for every
-    /// standard pubsub method until Phase 4b adds the multi-source
-    /// slot fast-path.
+    /// on the same host).  Default destination for every standard
+    /// pubsub method; `slotSubscribe` may take a faster path below.
     pub pubsub_url: String,
+    /// `ws://…` per-client upstream specifically for `slotSubscribe`.
+    /// When set, slot subscriptions use a separate `PubsubForward`
+    /// to this endpoint (typically the validator's own pubsub on
+    /// `rpc-port + 1`, which is ~3 ms faster than richat).  When
+    /// unset, slot subscriptions fall through to `pubsub_url`.
+    pub slot_pubsub_url: Option<String>,
 }
 
 /// Axum handler for `GET /ws` (and the `/` alias when a real
@@ -112,7 +128,7 @@ async fn receive_loop(
     tx: mpsc::UnboundedSender<Message>,
     gateway: Arc<Gateway>,
 ) {
-    let mut pubsub: Option<PubsubForward> = None;
+    let mut state = ConnectionState::new(tx);
     while let Some(msg) = stream.next().await {
         let Ok(msg) = msg else { break };
         let text = match msg {
@@ -122,27 +138,67 @@ async fn receive_loop(
                 Err(_) => continue,
             },
             Message::Ping(p) => {
-                let _ = tx.send(Message::Pong(p));
+                let _ = state.tx.send(Message::Pong(p));
                 continue;
             }
             Message::Pong(_) => continue,
             Message::Close(_) => break,
         };
-        handle_text(&text, &tx, &mut pubsub, &gateway).await;
+        handle_text(&text, &mut state, &gateway).await;
+    }
+    state.shutdown();
+}
+
+/// Per-connection mutable bookkeeping that the receive loop and
+/// every spawned helper share.  Owns the outgoing mpsc, the lazily-
+/// opened upstream `PubsubForward`s, and the gateway-local
+/// subscription map keyed by the locally-assigned sub_id.
+struct ConnectionState {
+    tx: mpsc::UnboundedSender<Message>,
+    pubsub: Option<PubsubForward>,
+    /// Optional second `PubsubForward` for `slotSubscribe` when
+    /// `WsConfig::slot_pubsub_url` is set.
+    slot_pubsub: Option<PubsubForward>,
+    /// `JoinHandle`s for tasks we spawned for gateway-local
+    /// subscriptions (slot multiplex listeners).  Aborted on
+    /// matching `*Unsubscribe` or connection close.
+    local_subs: HashMap<u64, JoinHandle<()>>,
+    next_local_sub_id: u64,
+}
+
+impl ConnectionState {
+    fn new(tx: mpsc::UnboundedSender<Message>) -> Self {
+        Self {
+            tx,
+            pubsub: None,
+            slot_pubsub: None,
+            local_subs: HashMap::new(),
+            next_local_sub_id: LOCAL_SUB_ID_BASE,
+        }
+    }
+
+    fn next_sub_id(&mut self) -> u64 {
+        self.next_local_sub_id += 1;
+        self.next_local_sub_id
+    }
+
+    fn shutdown(&mut self) {
+        for (_, handle) in self.local_subs.drain() {
+            handle.abort();
+        }
     }
 }
 
 async fn handle_text(
     text: &str,
-    tx: &mpsc::UnboundedSender<Message>,
-    pubsub: &mut Option<PubsubForward>,
+    state: &mut ConnectionState,
     gateway: &Arc<Gateway>,
 ) {
     let body: Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => {
             send_response(
-                tx,
+                &state.tx,
                 Response::err(Id::Null, error_codes::PARSE_ERROR, "invalid JSON"),
             );
             return;
@@ -150,7 +206,7 @@ async fn handle_text(
     };
     let Some(req) = Request::validate(body) else {
         send_response(
-            tx,
+            &state.tx,
             Response::err(
                 Id::Null,
                 error_codes::INVALID_REQUEST,
@@ -162,11 +218,9 @@ async fn handle_text(
     let id = Id::or_null(req.id.clone());
 
     match req.method.as_str() {
-        // Phase 4c will land the gRPC bridge that backs this; for now
-        // tell the client it's unsupported so they can fall back.
         "transactionSubscribe" | "transactionUnsubscribe" => {
             send_response(
-                tx,
+                &state.tx,
                 Response::err(
                     id,
                     error_codes::METHOD_NOT_FOUND,
@@ -174,13 +228,15 @@ async fn handle_text(
                 ),
             );
         }
+        "slotSubscribe" => handle_slot_subscribe(req, id, text, state, gateway),
+        "slotUnsubscribe" => handle_slot_unsubscribe(req, id, text, state, gateway),
         other if STANDARD_PUBSUB_METHODS.contains(&other) => {
-            let forward = ensure_pubsub(pubsub, gateway, tx.clone());
+            let forward = ensure_pubsub(&mut state.pubsub, gateway, state.tx.clone());
             forward.send(text.to_owned());
         }
         _ => {
             send_response(
-                tx,
+                &state.tx,
                 Response::err(
                     id,
                     error_codes::METHOD_NOT_FOUND,
@@ -189,6 +245,131 @@ async fn handle_text(
             );
         }
     }
+}
+
+/// Priority cascade for `slotSubscribe`:
+///
+///   slot_first_shred_multi   →   N-URL × firstShredReceived
+///     ↓ when None
+///   slot_first_shred         →   single URL × firstShredReceived
+///     ↓ when None
+///   slot_multiplex           →   N-URL × slotSubscribe (dedup)
+///     ↓ when None
+///   slot_pubsub_url          →   per-client PubsubForward (= different
+///                                 URL than `pubsub_url`, e.g. the
+///                                 validator's native pubsub)
+///     ↓ when None
+///   pubsub_url               →   reuse the shared standard pubsub
+fn handle_slot_subscribe(
+    _req: Request,
+    id: Id,
+    raw_text: &str,
+    state: &mut ConnectionState,
+    gateway: &Arc<Gateway>,
+) {
+    if let Some(multi) = gateway.slot_first_shred_multi.clone() {
+        spawn_slot_forwarder(state, id, multi);
+        return;
+    }
+    if let Some(multi) = gateway.slot_first_shred.clone() {
+        spawn_slot_forwarder(state, id, multi);
+        return;
+    }
+    if let Some(multi) = gateway.slot_multiplex.clone() {
+        spawn_slot_forwarder(state, id, multi);
+        return;
+    }
+    if gateway.ws.slot_pubsub_url.is_some() {
+        let forward = ensure_slot_pubsub(state, gateway);
+        forward.send(raw_text.to_owned());
+        return;
+    }
+    let forward = ensure_pubsub(&mut state.pubsub, gateway, state.tx.clone());
+    forward.send(raw_text.to_owned());
+}
+
+fn handle_slot_unsubscribe(
+    req: Request,
+    id: Id,
+    raw_text: &str,
+    state: &mut ConnectionState,
+    gateway: &Arc<Gateway>,
+) {
+    // Local subscription? -> abort the forwarder task.
+    let params = req.params.as_ref().and_then(|v| v.as_array()).cloned();
+    let local_sub_id = params
+        .as_ref()
+        .and_then(|arr| arr.first())
+        .and_then(|v| v.as_u64());
+    if let Some(sub_id) = local_sub_id {
+        if sub_id >= LOCAL_SUB_ID_BASE {
+            if let Some(handle) = state.local_subs.remove(&sub_id) {
+                handle.abort();
+                send_response(&state.tx, Response::ok(id, Value::Bool(true)));
+                return;
+            }
+            send_response(&state.tx, Response::ok(id, Value::Bool(false)));
+            return;
+        }
+    }
+    // Otherwise forward to the same upstream as slotSubscribe took.
+    if gateway.ws.slot_pubsub_url.is_some() {
+        let forward = ensure_slot_pubsub(state, gateway);
+        forward.send(raw_text.to_owned());
+        return;
+    }
+    let forward = ensure_pubsub(&mut state.pubsub, gateway, state.tx.clone());
+    forward.send(raw_text.to_owned());
+}
+
+fn spawn_slot_forwarder(
+    state: &mut ConnectionState,
+    id: Id,
+    multi: Arc<SlotPubsubMultiplex>,
+) {
+    let sub_id = state.next_sub_id();
+    let mut subscription = multi.subscribe();
+    let tx = state.tx.clone();
+    let handle = tokio::spawn(async move {
+        while let Some(update) = subscription.rx.recv().await {
+            let frame = json!({
+                "jsonrpc": "2.0",
+                "method": "slotNotification",
+                "params": {
+                    "result": {
+                        "slot": update.slot,
+                        "parent": update.parent,
+                        "root": update.root,
+                    },
+                    "subscription": sub_id,
+                },
+            });
+            let raw = match serde_json::to_string(&frame) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if tx.send(Message::Text(raw.into())).is_err() {
+                break;
+            }
+        }
+    });
+    state.local_subs.insert(sub_id, handle);
+    send_response(&state.tx, Response::ok(id, Value::from(sub_id)));
+}
+
+fn ensure_slot_pubsub<'a>(
+    state: &'a mut ConnectionState,
+    gateway: &Arc<Gateway>,
+) -> &'a PubsubForward {
+    if state.slot_pubsub.is_none() {
+        let url = gateway
+            .ws
+            .slot_pubsub_url
+            .clone()
+            .expect("caller checks slot_pubsub_url is set");
+        state.slot_pubsub = Some(PubsubForward::new(url, state.tx.clone()));
+    }
+    state.slot_pubsub.as_ref().expect("populated above")
 }
 
 fn ensure_pubsub<'a>(
