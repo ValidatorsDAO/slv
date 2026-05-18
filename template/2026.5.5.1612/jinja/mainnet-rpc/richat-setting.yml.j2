@@ -110,9 +110,19 @@ apps:
     enable_block_subscription: true
     enable_transaction_subscription: true
     clients_requests_channel_size: 8_192
-    subscriptions_workers_count: 2
+    # richat's pubsub uses a single tracker loop that drains messages
+    # per-commitment up to `max_messages_per_commitment_per_tick`, then
+    # fans them out to clients via a rayon pool sized to
+    # `subscriptions_workers_count`.  The upstream defaults (2 workers,
+    # 256 msg/tick) were measured to cause slotSubscribe lag of 5-10
+    # slots when block + transaction subscriptions are also enabled —
+    # tx notifications saturate the per-tick budget and slot
+    # notifications queue up behind them.  These tuned values keep the
+    # slot stream within 0-1 slot of Helius / api.mainnet-beta on a
+    # 64-core mainnet RPC host.
+    subscriptions_workers_count: 8
     subscriptions_max_clients_request_per_tick: 32
-    subscriptions_max_messages_per_commitment_per_tick: 256
+    subscriptions_max_messages_per_commitment_per_tick: 4096
     notifications_messages_max_count: 16_777_216
     notifications_messages_max_bytes: 32GiB
     signatures_cache_max: 1_228_800
