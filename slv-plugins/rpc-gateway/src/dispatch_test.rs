@@ -14,7 +14,10 @@ mod tests {
     use serde_json::json;
 
     fn default_ws_cfg() -> WsConfig {
-        WsConfig { pubsub_url: "ws://127.0.0.1:1".into() }
+        WsConfig {
+            pubsub_url: "ws://127.0.0.1:1".into(),
+            slot_pubsub_url: None,
+        }
     }
 
     fn req(method: &str) -> Request {

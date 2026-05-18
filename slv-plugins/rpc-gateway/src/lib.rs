@@ -14,8 +14,8 @@
 //! | 2a | `getTransactionsForAddress` | merged |
 //! | 2b | `getTransfersByAddress` | merged |
 //! | 3 | Pass-through proxy for every other Solana JSON-RPC method | merged |
-//! | 4a | WebSocket scaffold + standard pubsub passthrough | this PR |
-//! | 4b | `slotSubscribe` multi-source fan-in fast paths | next |
+//! | 4a | WebSocket scaffold + standard pubsub passthrough | merged |
+//! | 4b | `slotSubscribe` multi-source fan-in fast paths | this PR |
 //! | 4c | `transactionSubscribe` / `transactionUnsubscribe` via Yellowstone gRPC | next |
 //!
 //! ## Workspace co-location

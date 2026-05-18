@@ -19,6 +19,22 @@
 //!   PUBSUB_WS_URL         upstream Solana pubsub WebSocket for
 //!                         standard pubsub methods (default
 //!                         `ws://localhost:7111`)
+//!   SLOT_FIRST_SHRED_MULTIPLEX_URLS
+//!                         comma-separated list of pubsub WebSocket
+//!                         URLs.  When non-empty, `slotSubscribe`
+//!                         opens `slotsUpdatesSubscribe` against
+//!                         each one, dedups `firstShredReceived`
+//!                         events by slot number, and re-emits
+//!                         them as `slotNotification` to the client.
+//!   SLOT_FIRST_SHRED_URL  single URL variant of the above
+//!   SLOT_MULTIPLEX_URLS   comma-separated pubsub URLs that dedup
+//!                         standard `slotSubscribe` notifications
+//!                         from multiple sources (no
+//!                         `firstShredReceived` filter)
+//!   SLOT_PUBSUB_URL       per-client `PubsubForward` URL used for
+//!                         `slotSubscribe` only (the validator's
+//!                         native pubsub on `rpc-port + 1` is
+//!                         empirically ~3 ms faster than richat)
 //!   RUST_LOG              tracing-subscriber filter (default `info`)
 
 use std::net::SocketAddr;
@@ -33,7 +49,7 @@ use axum::Router;
 use serde_json::{json, Value};
 use axum::http::HeaderMap;
 use slv_rpc_gateway::clickhouse::{ClickHouseClient, ClickHouseConfig};
-use slv_rpc_gateway::dispatch::Gateway;
+use slv_rpc_gateway::dispatch::{Gateway, GatewayBuilder};
 use slv_rpc_gateway::jsonrpc::{error_codes, Id, Request, Response};
 use slv_rpc_gateway::of1::{Of1Client, Of1Config};
 use slv_rpc_gateway::ws::{ws_route, WsConfig};
@@ -86,8 +102,20 @@ async fn main() -> anyhow::Result<()> {
 
     let ws_cfg = WsConfig {
         pubsub_url: env_or("PUBSUB_WS_URL", "ws://localhost:7111"),
+        slot_pubsub_url: std::env::var("SLOT_PUBSUB_URL")
+            .ok()
+            .filter(|s| !s.is_empty()),
     };
-    let gateway = Arc::new(Gateway::new(ch, of1, full_concurrency, ws_cfg));
+    let builder = GatewayBuilder {
+        full_concurrency,
+        ws: None,
+        slot_first_shred_multiplex_urls: comma_list("SLOT_FIRST_SHRED_MULTIPLEX_URLS"),
+        slot_first_shred_url: std::env::var("SLOT_FIRST_SHRED_URL")
+            .ok()
+            .filter(|s| !s.is_empty()),
+        slot_multiplex_urls: comma_list("SLOT_MULTIPLEX_URLS"),
+    };
+    let gateway = Arc::new(Gateway::with_slot_sources(ch, of1, ws_cfg, builder));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -113,6 +141,15 @@ async fn main() -> anyhow::Result<()> {
 
 fn env_or(key: &str, fallback: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| fallback.into())
+}
+
+fn comma_list(key: &str) -> Vec<String> {
+    std::env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 async fn health() -> impl IntoResponse {

@@ -16,6 +16,7 @@ use crate::clickhouse::ClickHouseClient;
 use crate::handlers::{gtfa::GtfaHandlers, jet, transfers::TransfersHandlers};
 use crate::jsonrpc::{error_codes, Id, Request, Response};
 use crate::of1::Of1Client;
+use crate::ws::slot_source::SlotPubsubMultiplex;
 use crate::ws::WsConfig;
 
 /// Methods in the `jet*` namespace (camelCase, prefix `jet` + uppercase
@@ -30,12 +31,25 @@ static JET_NAMESPACE_RE: LazyLock<Regex> =
 pub struct Gateway {
     pub ch: Arc<ClickHouseClient>,
     pub of1: Arc<Of1Client>,
-    /// WebSocket-side configuration consumed by `crate::ws`.  Owned
-    /// here so the WebSocket handler can borrow it through the same
-    /// `Arc<Gateway>` Axum injects via `State`.
     pub ws: WsConfig,
+    /// Optional `slotSubscribe` upstream singletons, owned per-
+    /// process so multiple WS clients share one set of outbound
+    /// connections.  Cascade priority (highest first) is enforced
+    /// in `ws::receive_loop`.
+    pub slot_first_shred_multi: Option<Arc<SlotPubsubMultiplex>>,
+    pub slot_first_shred: Option<Arc<SlotPubsubMultiplex>>,
+    pub slot_multiplex: Option<Arc<SlotPubsubMultiplex>>,
     gtfa: GtfaHandlers,
     transfers: TransfersHandlers,
+}
+
+#[derive(Default)]
+pub struct GatewayBuilder {
+    pub full_concurrency: usize,
+    pub ws: Option<WsConfig>,
+    pub slot_first_shred_multiplex_urls: Vec<String>,
+    pub slot_first_shred_url: Option<String>,
+    pub slot_multiplex_urls: Vec<String>,
 }
 
 impl Gateway {
@@ -45,11 +59,44 @@ impl Gateway {
         full_concurrency: usize,
         ws: WsConfig,
     ) -> Self {
+        Self::with_slot_sources(ch, of1, ws, GatewayBuilder {
+            full_concurrency,
+            ws: None,
+            ..GatewayBuilder::default()
+        })
+    }
+
+    pub fn with_slot_sources(
+        ch: ClickHouseClient,
+        of1: Of1Client,
+        ws: WsConfig,
+        builder: GatewayBuilder,
+    ) -> Self {
         let ch = Arc::new(ch);
         let of1 = Arc::new(of1);
-        let gtfa = GtfaHandlers::new(ch.clone(), of1.clone(), full_concurrency);
+        let gtfa = GtfaHandlers::new(ch.clone(), of1.clone(), builder.full_concurrency.max(1));
         let transfers = TransfersHandlers::new(ch.clone());
-        Self { ch, of1, ws, gtfa, transfers }
+        let slot_first_shred_multi = (!builder.slot_first_shred_multiplex_urls.is_empty()).then(
+            || Arc::new(SlotPubsubMultiplex::first_shred_multiplex(
+                builder.slot_first_shred_multiplex_urls,
+            )),
+        );
+        let slot_first_shred = builder
+            .slot_first_shred_url
+            .map(|url| Arc::new(SlotPubsubMultiplex::first_shred(url)));
+        let slot_multiplex = (!builder.slot_multiplex_urls.is_empty()).then(
+            || Arc::new(SlotPubsubMultiplex::slot_subscribe(builder.slot_multiplex_urls)),
+        );
+        Self {
+            ch,
+            of1,
+            ws,
+            slot_first_shred_multi,
+            slot_first_shred,
+            slot_multiplex,
+            gtfa,
+            transfers,
+        }
     }
 
     pub async fn dispatch(&self, req: Request) -> Response {
