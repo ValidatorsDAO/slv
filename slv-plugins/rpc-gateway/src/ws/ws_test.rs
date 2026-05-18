@@ -146,6 +146,7 @@ mod tests {
             slot_first_shred_multiplex_urls: urls,
             slot_first_shred_url: None,
             slot_multiplex_urls: Vec::new(),
+            yellowstone_endpoint: "localhost:10000".into(),
         };
         let gw = Arc::new(Gateway::with_slot_sources(ch, of1, ws_cfg, builder));
         let app = Router::new().route("/ws", get(ws_route)).with_state(gw);
@@ -214,9 +215,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ws_rejects_transaction_subscribe_until_phase4c() {
-        // Phase 4c lands the gRPC bridge; until then the gateway
-        // tells the client transactionSubscribe is not yet ported.
+    async fn ws_accepts_transaction_subscribe_and_returns_local_sub_id() {
+        // Phase 4c spawns the gRPC subscribe task in the background
+        // and immediately ACKs with a local sub-id ≥ LOCAL_SUB_ID_BASE.
+        // The bridge will fail to reach `localhost:10000` in CI and
+        // log a warning — that's expected; the client gets the
+        // sub-id immediately and a real upstream would deliver
+        // notifications later.
         let pubsub_url = spawn_mock_pubsub(json!({})).await;
         let gateway_url = spawn_gateway(pubsub_url).await;
 
@@ -240,11 +245,12 @@ mod tests {
             TM::Text(t) => serde_json::from_str::<Value>(&t).unwrap(),
             other => panic!("unexpected frame: {other:?}"),
         };
-        let err = body.get("error").expect("expected error envelope");
-        assert_eq!(err.get("code").unwrap().as_i64().unwrap(), -32601);
+        assert!(body.get("error").is_none(), "expected ok, got {body:?}");
+        let sub_id = body.get("result").and_then(Value::as_u64).unwrap();
         assert!(
-            err.get("message").unwrap().as_str().unwrap().contains("not yet ported"),
-            "got {body:?}",
+            sub_id >= crate::ws::LOCAL_SUB_ID_BASE,
+            "expected local sub-id ≥ {}, got {sub_id}",
+            crate::ws::LOCAL_SUB_ID_BASE,
         );
     }
 }

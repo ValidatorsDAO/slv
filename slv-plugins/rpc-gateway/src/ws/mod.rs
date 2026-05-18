@@ -24,6 +24,7 @@
 
 pub mod pubsub_forward;
 pub mod slot_source;
+pub mod yellowstone_bridge;
 
 #[cfg(test)]
 mod ws_test;
@@ -44,6 +45,7 @@ use crate::dispatch::Gateway;
 use crate::jsonrpc::{error_codes, Id, Request, Response};
 use crate::ws::pubsub_forward::PubsubForward;
 use crate::ws::slot_source::SlotPubsubMultiplex;
+use crate::ws::yellowstone_bridge::{TxSubscribeFilter, TxSubscribeOpts, YellowstoneBridge};
 
 /// Methods Solana clients call against the validator's native
 /// pubsub endpoint.  Forwarded verbatim to the upstream WebSocket
@@ -218,16 +220,8 @@ async fn handle_text(
     let id = Id::or_null(req.id.clone());
 
     match req.method.as_str() {
-        "transactionSubscribe" | "transactionUnsubscribe" => {
-            send_response(
-                &state.tx,
-                Response::err(
-                    id,
-                    error_codes::METHOD_NOT_FOUND,
-                    format!("{}: handler not yet ported to Rust gateway", req.method),
-                ),
-            );
-        }
+        "transactionSubscribe" => handle_transaction_subscribe(req, id, state, gateway),
+        "transactionUnsubscribe" => handle_transaction_unsubscribe(req, id, state),
         "slotSubscribe" => handle_slot_subscribe(req, id, text, state, gateway),
         "slotUnsubscribe" => handle_slot_unsubscribe(req, id, text, state, gateway),
         other if STANDARD_PUBSUB_METHODS.contains(&other) => {
@@ -355,6 +349,84 @@ fn spawn_slot_forwarder(
     });
     state.local_subs.insert(sub_id, handle);
     send_response(&state.tx, Response::ok(id, Value::from(sub_id)));
+}
+
+fn handle_transaction_subscribe(
+    req: Request,
+    id: Id,
+    state: &mut ConnectionState,
+    gateway: &Arc<Gateway>,
+) {
+    let params = req.params.as_ref().and_then(|v| v.as_array()).cloned();
+    let filter: TxSubscribeFilter = match params.as_ref().and_then(|p| p.first()) {
+        None | Some(Value::Null) => TxSubscribeFilter::default(),
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(f) => f,
+            Err(e) => {
+                send_response(
+                    &state.tx,
+                    Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        format!("invalid filter: {e}"),
+                    ),
+                );
+                return;
+            }
+        },
+    };
+    let opts: TxSubscribeOpts = match params.as_ref().and_then(|p| p.get(1)) {
+        None | Some(Value::Null) => TxSubscribeOpts::default(),
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(o) => o,
+            Err(e) => {
+                send_response(
+                    &state.tx,
+                    Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        format!("invalid opts: {e}"),
+                    ),
+                );
+                return;
+            }
+        },
+    };
+
+    let sub_id = state.next_sub_id();
+    let bridge = YellowstoneBridge::new(gateway.yellowstone_endpoint.clone());
+    let tx = state.tx.clone();
+    let handle = tokio::spawn(async move {
+        let send_for_each = move |notification: Value| -> bool {
+            let raw = match serde_json::to_string(&notification) {
+                Ok(s) => s,
+                Err(_) => return true,
+            };
+            tx.send(Message::Text(raw.into())).is_ok()
+        };
+        if let Err(e) = bridge.run_subscribe(sub_id, filter, opts, send_for_each).await {
+            tracing::warn!(sub_id, error = %e, "transactionSubscribe stream ended");
+        }
+    });
+    state.local_subs.insert(sub_id, handle);
+    send_response(&state.tx, Response::ok(id, Value::from(sub_id)));
+}
+
+fn handle_transaction_unsubscribe(req: Request, id: Id, state: &mut ConnectionState) {
+    let sub_id = req
+        .params
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|v| v.as_u64());
+    if let Some(sub_id) = sub_id {
+        if let Some(handle) = state.local_subs.remove(&sub_id) {
+            handle.abort();
+            send_response(&state.tx, Response::ok(id, Value::Bool(true)));
+            return;
+        }
+    }
+    send_response(&state.tx, Response::ok(id, Value::Bool(false)));
 }
 
 fn ensure_slot_pubsub<'a>(
