@@ -1,0 +1,70 @@
+# SLV Pythnet — Example Inventory
+#
+# Usage:
+#   cp examples/inventory.yml ~/.slv/inventory.mainnet.pythnet.yml
+#   # edit ansible_host + (optionally) device/mount
+#   ansible-playbook -i ~/.slv/inventory.mainnet.pythnet.yml \
+#     ~/.slv/mainnet-pythnet/init.yml
+
+all:
+  hosts:
+    pythnet-1:
+      ansible_host: "<bm-ip>"
+      ansible_user: "solv"
+      ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+  vars:
+    # --- Disk layout ---
+    # If your BM has an unused secondary NVMe you want the recipe to
+    # format and mount, set pythnet_format_disk: true.  Otherwise leave
+    # this false and ensure pythnet_ledger_mount already exists with
+    # enough free space (~500 GB recommended; 50 GB minimum for testing).
+    pythnet_format_disk: false
+    pythnet_ledger_device: "/dev/nvme0n1"
+    pythnet_ledger_mount: "/mnt/ledger"
+
+    # --- Repo pinning (optional) ---
+    # pythnet_ref: "pyth-v1.14.17"   # default; currently the only supported branch
+
+    # --- RPC binding ---
+    pythnet_rpc_port: 8899
+    pythnet_rpc_bind: "0.0.0.0"
+    pythnet_dynamic_port_range: "8000-8020"
+    pythnet_gossip_port: 8001
+
+    # --- Network parameters (immutable Pythnet constants — leave as-is) ---
+    # pythnet_entrypoint:      "pythnet.rpcpool.com:8001"
+    # pythnet_genesis_hash:    "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq"
+    # pythnet_shred_version:   35891
+    # pythnet_known_validators:
+    #   - DzZov8p2kwXJeYx2hnVyaxNFugYVF4up9AWwRvtYWU4u
+    #   - 6Rr1vUgRZmqDuzzU6Sf3QAfUTYV3aa4wqxKrL6uBGXdU
+
+    # --- nftables (used by `slv pythnet firewall`) ---
+    # ★ mgmt_ips_v4 must contain every IP that should retain admin / SSH
+    # access.  The playbook refuses to deploy with an empty list.
+    mgmt_ips_v4:
+      - "<your-admin-ip>"
+    # ban_ips_v4: []
+    # ssh_port: 22
+    # Gossip (8001) + the TPU/QUIC dynamic-port range are public so the
+    # validator can fan-out to gossip peers; downsize to your actual
+    # pythnet_dynamic_port_range if you customized it above.
+    public_tcp_ports:
+      - 8001
+      - "8000-8020"
+    public_udp_ports:
+      - 8001
+      - "8000-8020"
+    # JSON-RPC is restricted to known clients (typically your Hermes
+    # node).  Each entry maps a port (or range string) → list of IPv4
+    # addresses/CIDRs allowed to connect.
+    restricted_ports:
+      - port: 8899          # HTTP RPC
+        tcp: true
+        allow_ipv4:
+          - "<hermes-vps-ip>"
+      - port: 8900          # WebSocket RPC
+        tcp: true
+        allow_ipv4:
+          - "<hermes-vps-ip>"

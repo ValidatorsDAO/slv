@@ -1,0 +1,25 @@
+[Unit]
+Description=Pyth Beacon — Wormhole spy relay (VAAs → NATS)
+After=nats-server.service network-online.target
+Requires=nats-server.service
+
+[Service]
+Type=simple
+User=solv
+Group=solv
+WorkingDirectory=/home/solv
+Environment=WORMHOLE_ENV={{ wormhole_env }}
+Environment=WORMHOLE_LISTEN_PORT={{ beacon_listen_port }}
+Environment=NATS_URL=127.0.0.1:{{ nats_port }}
+Environment=NATS_STREAM={{ wormhole_env }}-vaas
+Environment=SERVER_URL={{ beacon_spy_grpc_addr }}
+Environment=LOG_LEVEL=info
+Environment=WRITER_BATCH_SIZE=1000
+Environment=NODE_KEY_PATH=/home/solv/beacon-node.key
+ExecStart=/home/solv/beacon-bin
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

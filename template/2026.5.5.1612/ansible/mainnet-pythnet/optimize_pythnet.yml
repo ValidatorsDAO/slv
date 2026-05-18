@@ -1,0 +1,27 @@
+---
+# sysctl tuning for Pythnet validator.  Same network buffers Solana
+# expects.  The validator's startup self-check fails fast if the four
+# rmem/wmem values aren't all 128 MiB, so we set defaults to match max.
+- name: Apply sysctl tuning for Pythnet validator
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Drop /etc/sysctl.d/99-pythnet.conf
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-pythnet.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Pythnet (Solana 1.14 fork) network buffers.  Required to pass
+          # solana_core::system_monitor_service's startup self-check.
+          net.core.rmem_default = 134217728
+          net.core.rmem_max = 134217728
+          net.core.wmem_default = 134217728
+          net.core.wmem_max = 134217728
+          vm.max_map_count = 1000000
+
+    - name: Reload sysctl
+      ansible.builtin.command: sysctl --system
+      changed_when: false

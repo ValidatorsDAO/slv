@@ -1,0 +1,55 @@
+# SLV nftables — Example inventory snippets.
+#
+# nftables vars live INSIDE the same inventory that drives the service
+# itself (slv-hermes, slv-pythnet, …) — there's no separate inventory
+# file.  Copy the snippet that matches your host's role into your
+# `~/.slv/inventory.<network>.<role>.yml` and edit the IPs.
+#
+# Then apply:
+#   slv hermes firewall    # uses mainnet_hermes inventory
+#   slv pythnet firewall   # uses mainnet_pythnet inventory
+#   # or directly:
+#   ansible-playbook -i ~/.slv/inventory.<n>.<r>.yml \
+#     template/<version>/ansible/cmn/deploy_nftables.yml
+
+# ---------------------------------------------------------------------
+# Hermes (public REST/WS API + Wormhole P2P)
+# ---------------------------------------------------------------------
+hermes_example:
+  mgmt_ips_v4:
+    - "<your-admin-ip>"
+  public_tcp_ports:
+    - 7575          # Hermes REST/WS
+  public_udp_ports:
+    - 8999          # Wormhole P2P (QUIC)
+
+# ---------------------------------------------------------------------
+# Pythnet RPC (public gossip + TPU range, restricted JSON-RPC)
+# ---------------------------------------------------------------------
+pythnet_example:
+  mgmt_ips_v4:
+    - "<your-admin-ip>"
+  public_tcp_ports:
+    - 8001          # gossip
+    - "8000-8020"   # TPU dynamic range
+  public_udp_ports:
+    - 8001
+    - "8000-8020"
+  restricted_ports:
+    - port: 8899
+      tcp: true
+      allow_ipv4:
+        - "<hermes-vps-ip>"
+    - port: 8900
+      tcp: true
+      allow_ipv4:
+        - "<hermes-vps-ip>"
+
+# ---------------------------------------------------------------------
+# Locked-down (mgmt only) — useful for build hosts, ClickHouse boxes,
+# anything that should not expose any public service.
+# ---------------------------------------------------------------------
+locked_down_example:
+  mgmt_ips_v4:
+    - "<your-admin-ip>"
+  # No public_*_ports, no restricted_ports — only mgmt SSH allowed.

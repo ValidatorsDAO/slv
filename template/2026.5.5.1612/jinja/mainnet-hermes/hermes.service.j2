@@ -1,0 +1,23 @@
+[Unit]
+Description=Pyth Hermes — REST/WS price feed API
+After=beacon.service network-online.target
+Requires=beacon.service
+
+[Service]
+Type=simple
+User=solv
+Group=solv
+WorkingDirectory=/home/solv
+Environment=PYTHNET_HTTP_ADDR={{ pythnet_http_addr }}
+Environment=PYTHNET_WS_ADDR={{ pythnet_ws_addr }}
+Environment=WORMHOLE_SPY_RPC_ADDR=http://{{ beacon_spy_grpc_addr }}
+Environment=RPC_LISTEN_ADDR={{ rpc_listen_addr }}
+Environment=METRICS_SERVER_LISTEN_ADDR={{ metrics_listen_addr }}
+Environment=RUST_LOG=info
+ExecStart=/home/solv/src/pyth-crosschain/apps/hermes/server/target/release/hermes run
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,57 @@
+# SLV Hermes — Example Inventory
+#
+# Usage:
+#   cp examples/inventory.yml ~/.slv/inventory.mainnet.hermes.yml
+#   # edit ansible_host + (optionally) endpoints
+#   ansible-playbook -i ~/.slv/inventory.mainnet.hermes.yml \
+#     ~/.slv/mainnet-hermes/init.yml
+
+all:
+  hosts:
+    hermes-1:
+      ansible_host: "<vps-ip>"
+      ansible_user: "solv"
+      ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+  vars:
+    # --- Pythnet RPC endpoints (Hermes reads accumulator from here) ---
+    # Defaults below talk to public Pythnet — fine for bootstrap.  Once
+    # you have a self-hosted Pythnet RPC (see slv-pythnet skill), swap
+    # these for your own and run `slv hermes restart`.
+    hermes_pythnet_http_addr: "https://pythnet.rpcpool.com"
+    hermes_pythnet_ws_addr:   "wss://pythnet.rpcpool.com"
+
+    # --- Wormhole environment ---
+    hermes_wormhole_env: "mainnet"
+
+    # --- Repo refs (pin to a tag if you want reproducible builds) ---
+    # hermes_repo_ref: "v2.5.0"        # default: main
+    # beacon_repo_ref: "v0.4.0"        # default: main
+
+    # --- Listen addresses ---
+    hermes_rpc_listen_addr: "0.0.0.0:7575"
+    hermes_metrics_listen_addr: "127.0.0.1:7576"
+    beacon_listen_port: 8999
+    beacon_spy_grpc_addr: "127.0.0.1:7072"
+    nats_port: 4222
+
+    # --- nftables (used by `slv hermes firewall`) ---
+    # ★ mgmt_ips_v4 must contain every IP that should retain admin / SSH
+    # access.  The playbook refuses to deploy with an empty list because
+    # applying nftables without mgmt IPs would drop the current SSH session.
+    mgmt_ips_v4:
+      - "<your-admin-ip>"
+    # ban_ips_v4: []
+    # ssh_port: 22
+    public_tcp_ports:
+      - 7575          # Hermes REST/WS API
+    public_udp_ports:
+      - 8999          # Wormhole P2P (QUIC) — must be externally reachable
+    # Optional :443 whitelist for Cloudflare.  `cf_ipv4` is auto-loaded
+    # from ~/.slv/cmn/files/cf_ipv4.yml (shipped with slv, refreshed
+    # against https://www.cloudflare.com/ips-v4).  Remove this block if
+    # the Hermes node does not sit behind a CF Worker / Tunnel.
+    # restricted_ports:
+    #   - port: 443
+    #     tcp: true
+    #     allow_ipv4: "{{ cf_ipv4 | default([]) }}"

@@ -5,6 +5,8 @@ import { skillsCmd } from '@/skills/index.ts'
 import { appCmd } from '@/app/index.ts'
 import { validatorCmd } from '@/validator/index.ts'
 import { rpcCmd } from '@/rpc/index.ts'
+import { hermesCmd } from '@/hermes/index.ts'
+import { pythnetCmd } from '@/pythnet/index.ts'
 import { metalCmd } from '@/metal/index.ts'
 import { loginCmd } from '@/login/index.ts'
 import { logoutCmd } from '@/login/logout.ts'
@@ -77,6 +79,13 @@ program
 program
   .command('rpc', rpcCmd)
   .alias('r')
+
+program
+  .command('hermes', hermesCmd)
+  .alias('h')
+
+program
+  .command('pythnet', pythnetCmd)
 
 program
   .command('install', installCmd)

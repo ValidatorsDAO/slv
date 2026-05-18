@@ -1,0 +1,32 @@
+---
+- name: Install + start Pythnet systemd service
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Drop pythnet.service unit
+      ansible.builtin.template:
+        src: "~/.slv/mainnet-pythnet/pythnet.service.j2"
+        dest: /etc/systemd/system/pythnet.service
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: daemon-reload
+      ansible.builtin.command: systemctl daemon-reload
+      changed_when: false
+
+    - name: Enable + start pythnet
+      ansible.builtin.systemd:
+        name: pythnet.service
+        enabled: yes
+        state: started
+
+    # Pythnet ledger is small enough that snapshot fetch + catch-up
+    # typically finishes in 10-20 minutes (vs hours on mainnet).  We
+    # don't block init.yml on getHealth=ok here — the validator boots
+    # asynchronously and `slv pythnet status` (or a direct curl) is the
+    # right place to verify readiness.
+    - name: Note next step
+      ansible.builtin.debug:
+        msg: "pythnet.service started.  Tail /mnt/ledger/pythnet/log/validator.log to watch snapshot fetch + catch-up; expect ~10-20 min before getHealth='ok'."
