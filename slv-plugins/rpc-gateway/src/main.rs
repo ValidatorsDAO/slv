@@ -1,9 +1,7 @@
 //! `slv-rpc-gateway` binary entry point.
 //!
 //! Configured via env:
-//!   PORT                  listen port (default 8889 — matches the
-//!                         Deno gateway so a host can swap binaries
-//!                         without changing the load balancer pool)
+//!   PORT                  listen port (default 8889)
 //!   CLICKHOUSE_URL        ClickHouse HTTP base (default http://localhost:8123)
 //!   CLICKHOUSE_DB         database name (default `default`)
 //!   CLICKHOUSE_USER       optional Basic-auth username

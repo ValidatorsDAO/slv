@@ -2,15 +2,11 @@
 //! the jetstreamer plugins in this workspace and anza-xyz's built-in
 //! `program-tracking` / `pubkey-stats` plugins.
 //!
-//! Wire-shape parity target: byte-for-byte identical responses to the
-//! Deno gateway at `api/rpc-gateway/src/handlers/jet.ts`.  Each
-//! handler builds a SQL string and returns `serde_json::Value`; the
-//! dispatcher wraps it into a JSON-RPC 2.0 response envelope.
+//! Each handler builds a SQL string and returns `serde_json::Value`;
+//! the dispatcher wraps it into a JSON-RPC 2.0 response envelope.
 //!
-//! All numeric fields that come from `sum()` aggregates land here as
-//! strings because ClickHouse's JSONEachRow format quotes UInt64 to
-//! avoid JS number precision loss — matches what the Deno gateway
-//! emits.
+//! UInt64 aggregate columns surface as JSON numbers (the gateway
+//! sets `output_format_json_quote_64bit_integers=0` on the CH query).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

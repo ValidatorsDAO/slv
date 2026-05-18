@@ -67,7 +67,6 @@ pub fn as_bool_or(v: Option<&Value>, fallback: bool) -> bool {
 }
 
 /// Accepts unix seconds/millis or `'YYYY-MM-DD[ HH:MM:SS]'`.
-/// Mirrors `asDateString` in `api/rpc-gateway/src/handlers/jet.ts`.
 pub fn as_date_string(v: &Value, name: &str) -> Result<String, String> {
     let s = as_string(v, name)?;
     let date_re = regex::Regex::new(

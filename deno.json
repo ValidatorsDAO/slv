@@ -1,7 +1,6 @@
 {
   "workspace": [
-    "cli",
-    "api/rpc-gateway"
+    "cli"
   ],
   "nodeModulesDir": "auto",
   "tasks": {

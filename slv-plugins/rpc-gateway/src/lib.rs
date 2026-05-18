@@ -1,22 +1,22 @@
-//! `slv-rpc-gateway` — JSON-RPC 2.0 gateway in Rust.
+//! `slv-rpc-gateway` — JSON-RPC 2.0 + WebSocket gateway in Rust.
 //!
-//! Successor to the Deno gateway at `api/rpc-gateway/`, delivered
-//! method-by-method so each port can be reviewed in isolation and
-//! the Deno gateway can stay in production until the Rust gateway
-//! reaches parity per method.
+//! Fronts of1 (yellowstone-faithful) for standard Solana JSON-RPC
+//! methods and routes the `jet*` analytics family to ClickHouse
+//! tables emitted by the jetstreamer plugins in this workspace.  The
+//! `/ws` endpoint multiplexes standard pubsub, multi-source
+//! `slotSubscribe`, and a Yellowstone-gRPC-backed
+//! `transactionSubscribe` over a single connection.
 //!
-//! ## Method roadmap
+//! ## Method surface
 //!
-//! | Phase | Methods | Status |
+//! | Group | Methods | Backend |
 //! |---|---|---|
-//! | 0 | dispatch shell + `/health` | merged |
-//! | 1 | `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`, `jetEpochSummary`, `jetProgramStats` | merged |
-//! | 2a | `getTransactionsForAddress` | merged |
-//! | 2b | `getTransfersByAddress` | merged |
-//! | 3 | Pass-through proxy for every other Solana JSON-RPC method | merged |
-//! | 4a | WebSocket scaffold + standard pubsub passthrough | merged |
-//! | 4b | `slotSubscribe` multi-source fan-in fast paths | merged |
-//! | 4c | `transactionSubscribe` / `transactionUnsubscribe` via Yellowstone gRPC | this PR — completes the Deno gateway feature surface |
+//! | HTTP — analytics | `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`, `jetEpochSummary`, `jetProgramStats` | ClickHouse |
+//! | HTTP — address index | `getTransactionsForAddress`, `getTransfersByAddress` | ClickHouse + of1 fan-out |
+//! | HTTP — pass-through | every other Solana JSON-RPC method | of1 |
+//! | WS — standard pubsub | `account/logs/program/signature/slotsUpdates/block/vote/root Subscribe` | upstream pubsub WS |
+//! | WS — slot fast path | `slotSubscribe` | env-var cascade (`SLOT_FIRST_SHRED_MULTIPLEX_URLS` → … → `PUBSUB_WS_URL`) |
+//! | WS — extended | `transactionSubscribe` / `transactionUnsubscribe` | Yellowstone gRPC |
 //!
 //! ## Workspace co-location
 //!
