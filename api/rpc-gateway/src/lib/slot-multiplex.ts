@@ -9,9 +9,9 @@
 // native validator pubsub (:7212) each occasionally beat the other —
 // the two pipelines have different jitter profiles even though native
 // is faster on average.  Multiplexing across both raised the share of
-// slots where ERPC beat Helius beta from 6.7 % (native only) to
-// 12.8 % (native + richat first-wins) while also shaving the average
-// Helius lead by ~0.2 ms.
+// slots where we beat the reference provider from 6.7 % (native only)
+// to 12.8 % (native + richat first-wins) while also shaving the average
+// reference-provider lead by ~0.2 ms.
 //
 // Compared to the earlier per-client `PubsubForward` approach, this
 // shares ONE upstream subscription per URL across the whole process,

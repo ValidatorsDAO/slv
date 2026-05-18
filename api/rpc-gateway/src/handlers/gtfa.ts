@@ -1,6 +1,6 @@
-// getTransactionsForAddress — Helius-wire-compatible JSON-RPC method backed
-// by the `gtfa_tx_mentions` ClickHouse table emitted by slv-gtfa-plugin
-// (see vs2-app/elsoul-proxy/slv_gtfa_plugin).
+// getTransactionsForAddress — per-address transaction-index JSON-RPC method
+// backed by the `gtfa_tx_mentions` ClickHouse table emitted by
+// slv-gtfa-plugin (see vs2-app/elsoul-proxy/slv_gtfa_plugin).
 //
 // Two modes:
 //   `signatures` — index-only response from ClickHouse
@@ -26,15 +26,15 @@
 //       },
 //     } ] }
 //
-// Response (signatures mode, Helius wire-compat):
+// Response (signatures mode):
 //   { result: { data: [{ signature, slot, transactionIndex, err, memo,
 //       blockTime, confirmationStatus }],
 //     paginationToken: "<slot>:<txIndex>" | null } }
 //
 // `err` is `null` when the tx succeeded.  When failed, signatures mode
 // returns `{ unknown: true }` as a placeholder — the underlying
-// `gtfa_tx_mentions.status` is just a UInt8 (1=ok / 0=failed) and the
-// structured `meta.err` Helius returns isn't in CH yet.  Full parity
+// `gtfa_tx_mentions.status` is just a UInt8 (1=ok / 0=failed) and we
+// don't yet store the structured `meta.err` in CH.  Full parity
 // requires an `err_json` column on `gtfa_tx_mentions`; tracked separately.
 // In full mode `err` is taken from of1's `meta.err` directly, so it is
 // accurate there.
@@ -45,7 +45,7 @@
 // `confirmationStatus` is always `"finalized"` because jetstreamer only
 // ingests Old Faithful (= finalized) blocks.
 //
-// Response (full mode, Helius wire-compat):
+// Response (full mode):
 //   same shape; each `data[]` entry adds `transaction`, `meta`, `version`
 //   (taken from the of1 `getTransaction` response).  If of1 lookup for a
 //   single sig fails, the entry still appears but with
@@ -126,9 +126,9 @@ function cmpToSql(col: string, cmp: Cmp): string[] {
 }
 
 /**
- * Parse Helius-style positional params: `[ addressBase58, optionsObj? ]`.
- * Helius also tolerates a single object with `address` inside — we accept
- * that variant for symmetry with `jet_*` ergonomics.
+ * Parse positional params: `[ addressBase58, optionsObj? ]`.  Also accepts
+ * a single object with `address` inside for symmetry with `jet_*`
+ * ergonomics.
  */
 function parseParams(params: unknown): {
   address: string
@@ -216,7 +216,7 @@ export class GtfaHandlers {
   }
 
   /**
-   * Helius-wire-compatible.  Supports `signatures` and `full` modes.
+   * Supports `signatures` and `full` modes.
    *
    * Notes:
    * - `commitment` is a no-op.  All data in `gtfa_tx_mentions` comes from
@@ -385,9 +385,9 @@ export class GtfaHandlers {
       }
 
       if (!fullMode) {
-        // Helius wire-compat: rename root → `data`, derive `err` from
-        // status (placeholder for failed; full-mode sets it from of1).
-        const data = rows.map((r) => sigRowToHeliusEntry(r))
+        // Wire shape: surface rows under `data`; derive `err` from status
+        // (placeholder for failed; full-mode sets it from of1).
+        const data = rows.map((r) => sigRowToEntry(r))
         const windowStart = await this.getWindowStart()
         return ok(req.id ?? null, { data, paginationToken, windowStart })
       }
@@ -422,7 +422,7 @@ export class GtfaHandlers {
         },
       )
 
-      const data = fullRows.map((r) => fullRowToHeliusEntry(r))
+      const data = fullRows.map((r) => fullRowToEntry(r))
       const windowStart = await this.getWindowStart()
       return ok(req.id ?? null, { data, paginationToken, windowStart })
     } catch (e) {
@@ -493,11 +493,11 @@ type Of1Result =
   | { kind: 'err'; error: string }
 
 /**
- * Map an internal SigRow to the Helius-compatible signatures-mode entry.
+ * Map an internal SigRow to the signatures-mode entry shape.
  * `err` is `null` on success and a `{ unknown: true }` placeholder on
  * failure (until `gtfa_tx_mentions.err_json` is added).
  */
-function sigRowToHeliusEntry(r: SigRow): {
+function sigRowToEntry(r: SigRow): {
   signature: string
   slot: number
   transactionIndex: number
@@ -518,11 +518,11 @@ function sigRowToHeliusEntry(r: SigRow): {
 }
 
 /**
- * Map a FullRow (= SigRow + of1 fields) to the Helius-compatible full-mode
- * entry.  In full mode `err` comes from of1's `meta.err` directly when
- * available — accurate, unlike the placeholder in signatures mode.
+ * Map a FullRow (= SigRow + of1 fields) to the full-mode entry shape.
+ * In full mode `err` comes from of1's `meta.err` directly when available
+ * — accurate, unlike the placeholder in signatures mode.
  */
-function fullRowToHeliusEntry(r: FullRow): {
+function fullRowToEntry(r: FullRow): {
   signature: string
   slot: number
   transactionIndex: number
@@ -538,7 +538,7 @@ function fullRowToHeliusEntry(r: FullRow): {
   const metaErr = r.meta && typeof r.meta === 'object'
     ? (r.meta as { err?: unknown }).err ?? null
     : undefined
-  const out: ReturnType<typeof fullRowToHeliusEntry> = {
+  const out: ReturnType<typeof fullRowToEntry> = {
     signature: r.signature,
     slot: r.slot,
     transactionIndex: r.transactionIndex,

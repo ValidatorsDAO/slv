@@ -1,7 +1,7 @@
 // Bidirectional WebSocket pipe: client ↔ upstream Solana JSON-RPC pubsub.
 // Used to relay standard methods (accountSubscribe, logsSubscribe, etc.) to
 // the richat PubSub endpoint (or any Solana-spec WS) while the gateway
-// retains the connection for its Helius-compat methods.
+// retains the connection for its enhanced WS methods.
 
 export type PubsubForwardOptions = {
   upstreamUrl: string

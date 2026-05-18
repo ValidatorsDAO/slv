@@ -1,10 +1,8 @@
-// getTransfersByAddress — Helius-wire-compatible JSON-RPC method backed
+// getTransfersByAddress — per-address token-transfer JSON-RPC method backed
 // by the `token_transfers` ClickHouse table emitted by slv-transfers-plugin
 // (see vs2-app/elsoul-proxy/slv_transfers_plugin — Phase 1 in flight).
 //
-// Helius spec: https://www.helius.dev/docs/rpc/gettransfersbyaddress
-// (verified 2026-05-14 via WebFetch; full per-field details in
-// `.claude/design_slv_transfers_plugin.md`)
+// Per-field details: `.claude/design_slv_transfers_plugin.md`.
 //
 // Request:
 //   { jsonrpc: "2.0", id, method: "getTransfersByAddress",
@@ -24,7 +22,7 @@
 //       },
 //     } ] }
 //
-// Response (Helius wire-compat):
+// Response:
 //   { result: { data: [{ signature, slot, blockTime, type,
 //       fromUserAccount, toUserAccount, fromTokenAccount, toTokenAccount,
 //       mint, amount, decimals, uiAmount, feeAmount, feeUiAmount,
@@ -248,8 +246,8 @@ export class TransfersHandlers {
   }
 
   /**
-   * Helius-wire-compatible.  Phase 2 of the slv-transfers-plugin work.
-   * Schema: see `slv:.claude/design_slv_transfers_plugin.md`.
+   * Per-address token-transfer query.  Phase 2 of the slv-transfers-plugin
+   * work.  Schema: see `slv:.claude/design_slv_transfers_plugin.md`.
    */
   async getTransfersByAddress(req: JsonRpcRequest): Promise<JsonRpcResponse> {
     try {
@@ -418,7 +416,7 @@ export class TransfersHandlers {
         rows.length = limit
       }
 
-      const data = rows.map((r) => rawRowToHeliusEntry(r, solMode))
+      const data = rows.map((r) => rawRowToEntry(r, solMode))
       const windowStart = await this.getWindowStart()
       return ok(req.id ?? null, { data, paginationToken, windowStart })
     } catch (e) {
@@ -427,8 +425,8 @@ export class TransfersHandlers {
   }
 }
 
-/** ClickHouse row → Helius entry. */
-function rawRowToHeliusEntry(r: RawRow, solMode: 'merged' | 'separate') {
+/** ClickHouse row → JSON entry. */
+function rawRowToEntry(r: RawRow, solMode: 'merged' | 'separate') {
   const transferType = TRANSFER_TYPE_NAMES[parseInt(r.transfer_type, 10)] ?? 'transfer'
 
   // Sentinel-zero from_owner/to_owner means "no counterparty" (mint/burn etc.)

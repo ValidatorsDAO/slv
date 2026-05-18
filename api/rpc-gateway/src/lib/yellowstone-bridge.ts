@@ -1,8 +1,9 @@
-// Yellowstone gRPC ↔ Helius Enhanced WebSocket bridge.
+// Yellowstone gRPC ↔ enhanced WebSocket bridge.
 //
 // Opens a streaming Subscribe call against an upstream Yellowstone-compatible
 // gRPC endpoint (e.g. richat daemon on :10000) and translates each
-// SubscribeUpdate into the Helius `transactionNotification` JSON shape.
+// SubscribeUpdate into the `transactionNotification` JSON shape served on
+// the gateway's enhanced WS.
 
 import grpcModule from 'npm:@triton-one/yellowstone-grpc@1.3.0'
 
@@ -49,7 +50,7 @@ type SubscribeUpdate = {
 import { Buffer } from 'node:buffer'
 import bs58 from 'npm:bs58@5.0.0'
 
-export type HeliusTxFilter = {
+export type TxSubscribeFilter = {
   vote?: boolean | null
   failed?: boolean | null
   signature?: string | null
@@ -58,7 +59,7 @@ export type HeliusTxFilter = {
   accountRequired?: string[]
 }
 
-export type HeliusOpts = {
+export type TxSubscribeOpts = {
   commitment?: 'processed' | 'confirmed' | 'finalized'
   encoding?: 'base64' | 'base58' | 'json' | 'jsonParsed'
   transactionDetails?: 'full' | 'signatures' | 'accounts' | 'none'
@@ -66,7 +67,7 @@ export type HeliusOpts = {
   maxSupportedTransactionVersion?: number
 }
 
-export type HeliusNotification = {
+export type TxNotification = {
   transaction?: unknown
   meta?: unknown
   signature?: string
@@ -95,13 +96,14 @@ export class YellowstoneBridge {
   }
 
   /**
-   * Open a Subscribe stream filtered by Helius-style transaction filters.
-   * Returns an async iterator of Helius notifications and a cancel handle.
+   * Open a Subscribe stream filtered by the enhanced transactionSubscribe
+   * filter shape.  Returns an async iterator of notifications and a cancel
+   * handle.
    */
   async subscribeTransactions(
-    filter: HeliusTxFilter,
-    opts: HeliusOpts,
-    onUpdate: (n: HeliusNotification) => void,
+    filter: TxSubscribeFilter,
+    opts: TxSubscribeOpts,
+    onUpdate: (n: TxNotification) => void,
     onError: (e: unknown) => void,
   ): Promise<{ cancel: () => void }> {
     const client = new Client(this.endpoint, undefined, {
@@ -109,7 +111,7 @@ export class YellowstoneBridge {
     })
 
     const stream = await client.subscribe()
-    const subId = `helius-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const subId = `txsub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     const req: SubscribeRequest = {
       slots: {},
@@ -143,7 +145,7 @@ export class YellowstoneBridge {
     stream.on('data', (update: SubscribeUpdate) => {
       try {
         if (update.transaction) {
-          onUpdate(transformToHelius(update, opts))
+          onUpdate(transformToNotification(update, opts))
         }
       } catch (e) {
         onError(e)
@@ -164,7 +166,7 @@ export class YellowstoneBridge {
   }
 }
 
-function transformToHelius(update: SubscribeUpdate, opts: HeliusOpts): HeliusNotification {
+function transformToNotification(update: SubscribeUpdate, opts: TxSubscribeOpts): TxNotification {
   const txu = update.transaction!
   const slot = Number(txu.slot)
   const tx = txu.transaction

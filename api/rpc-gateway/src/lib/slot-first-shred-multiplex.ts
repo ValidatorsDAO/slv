@@ -1,21 +1,22 @@
 // SlotFirstShredMultiplex — N-URL fan-in of `slotsUpdatesSubscribe` →
 // `firstShredReceived` events, first-arrival-wins per slot.
 //
-// Combines the design of `SlotFirstShredBridge` (Helius-parity early
-// signal at first-shred receipt) with `SlotMultiplex` (process-wide
-// dedup across multiple upstream sources).  One outbound WS per URL,
-// one shared listener set per process, first arrival wins per slot.
+// Combines the design of `SlotFirstShredBridge` (early signal at
+// first-shred receipt) with `SlotMultiplex` (process-wide dedup across
+// multiple upstream sources).  One outbound WS per URL, one shared
+// listener set per process, first arrival wins per slot.
 //
 // Why both axes matter:
 //
-//   - `firstShredReceived` semantics close the bulk of the Helius gap
-//     by emitting on shred receipt instead of bank-frozen
-//     (`SlotFirstShredBridge` got Helius avg lead +5.6 ms → +2.5 ms
-//     on FRA-1, 2026-05-17).
+//   - `firstShredReceived` semantics close the bulk of the latency gap
+//     versus earlier-firing reference sources by emitting on shred
+//     receipt instead of bank-frozen (`SlotFirstShredBridge` brought
+//     reference-provider avg lead +5.6 ms → +2.5 ms on FRA-1,
+//     2026-05-17).
 //
 //   - Multiplexing across N upstream pubsub sources catches the slots
 //     where any individual source happened to win the jitter race
-//     (`SlotMultiplex` measured ERPC win share 6.7 % → 12.8 % with
+//     (`SlotMultiplex` measured our win share 6.7 % → 12.8 % with
 //     native + richat, 2026-05-17).
 //
 // Pointing this class at the same N URLs as `SlotMultiplex` but
