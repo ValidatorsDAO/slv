@@ -28,7 +28,6 @@ import { addSshCmd } from '@/addSsh/index.ts'
 import { gatewayCmd } from '@/gateway/index.ts'
 import { dnsCmd } from '@/dns/index.ts'
 import { doctorCmd } from '@/doctor/index.ts'
-import { prepareLocalDb } from '@db/dbInit.ts'
 
 const program = new Command()
   .name('slv')
@@ -52,13 +51,6 @@ program
   .action(async () => {
     await migrateVersionsYml()
     await copyTemplateDirs()
-  })
-
-program
-  .command('db:init')
-  .description('Initialize local TiDB (tiup playground) for SLV API')
-  .action(async () => {
-    await prepareLocalDb()
   })
 
 // Subcommands

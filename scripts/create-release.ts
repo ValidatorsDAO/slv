@@ -38,20 +38,6 @@ async function createRelease() {
 
   console.log(`Creating release v${newVersion}...`)
 
-  // Ensure workspace member config exists so the release branch is usable in CI
-  const apiConfigPath = './api/slv-api/deno.json'
-  try {
-    await Deno.stat(apiConfigPath)
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      console.error(
-        `Error: Missing ${apiConfigPath}. Add it before opening the release PR.`,
-      )
-      Deno.exit(1)
-    }
-    throw error
-  }
-
   // 1. Create the release branch before making release changes
   const branchName = `release/v${newVersion}`
   console.log(`Creating branch ${branchName}...`)
