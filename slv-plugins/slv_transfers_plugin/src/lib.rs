@@ -90,8 +90,7 @@ static SPL_TOKEN_V1_PROGRAM_ID: Lazy<Address> = Lazy::new(|| {
 const ZERO_PUBKEY: [u8; 32] = [0u8; 32];
 
 /// transfer_type Enum8 numeric values — keep in sync with the
-/// gateway handler (`api/rpc-gateway/src/handlers/transfers.ts` in
-/// the slv repo).
+/// gateway handler (`slv-plugins/rpc-gateway/src/handlers/transfers.rs`).
 mod transfer_type {
     pub const TRANSFER: u8 = 1;
     #[allow(dead_code)]
