@@ -10,7 +10,12 @@ mod tests {
     use crate::dispatch::Gateway;
     use crate::jsonrpc::{error_codes, Request};
     use crate::of1::{Of1Client, Of1Config};
+    use crate::ws::WsConfig;
     use serde_json::json;
+
+    fn default_ws_cfg() -> WsConfig {
+        WsConfig { pubsub_url: "ws://127.0.0.1:1".into() }
+    }
 
     fn req(method: &str) -> Request {
         Request::validate(json!({
@@ -28,7 +33,7 @@ mod tests {
             .expect("default ch config builds");
         let of1 = Of1Client::new(Of1Config::default())
             .expect("default of1 config builds");
-        Gateway::new(ch, of1, 20)
+        Gateway::new(ch, of1, 20, default_ws_cfg())
     }
 
     #[tokio::test]
@@ -88,7 +93,7 @@ mod tests {
         let (url, server) = spawn_mock_upstream(canned.clone()).await;
         let ch = ClickHouseClient::new(ClickHouseConfig::default()).unwrap();
         let of1 = Of1Client::new(Of1Config { url, ..Of1Config::default() }).unwrap();
-        let gw = Gateway::new(ch, of1, 20);
+        let gw = Gateway::new(ch, of1, 20, default_ws_cfg());
         let req = Request::validate(json!({
             "jsonrpc": "2.0", "method": "getBalance", "id": 7,
             "params": ["SomeAddress"],

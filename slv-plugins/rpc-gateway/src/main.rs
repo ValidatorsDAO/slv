@@ -16,6 +16,9 @@
 //!   GTFA_FULL_CONCURRENCY max parallel of1 `getTransaction` calls when
 //!                         `transactionDetails: "full"` is requested
 //!                         (default 20)
+//!   PUBSUB_WS_URL         upstream Solana pubsub WebSocket for
+//!                         standard pubsub methods (default
+//!                         `ws://localhost:7111`)
 //!   RUST_LOG              tracing-subscriber filter (default `info`)
 
 use std::net::SocketAddr;
@@ -25,13 +28,15 @@ use std::time::Duration;
 use axum::extract::{Json, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
 use serde_json::{json, Value};
+use axum::http::HeaderMap;
 use slv_rpc_gateway::clickhouse::{ClickHouseClient, ClickHouseConfig};
 use slv_rpc_gateway::dispatch::Gateway;
 use slv_rpc_gateway::jsonrpc::{error_codes, Id, Request, Response};
 use slv_rpc_gateway::of1::{Of1Client, Of1Config};
+use slv_rpc_gateway::ws::{ws_route, WsConfig};
 use tower_http::cors::{Any, CorsLayer};
 
 #[tokio::main]
@@ -78,7 +83,11 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(20);
-    let gateway = Arc::new(Gateway::new(ch, of1, full_concurrency));
+
+    let ws_cfg = WsConfig {
+        pubsub_url: env_or("PUBSUB_WS_URL", "ws://localhost:7111"),
+    };
+    let gateway = Arc::new(Gateway::new(ch, of1, full_concurrency, ws_cfg));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -87,7 +96,12 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/health", get(health))
-        .route("/", post(rpc_entry))
+        .route("/ws", get(ws_route))
+        // Many SDKs hard-code `wss://<host>/` (no path) for pubsub.
+        // Route GET / through the WebSocket upgrade only when the
+        // client actually requests one; otherwise the JSON-RPC POST
+        // handler takes over via the entry below.
+        .route("/", get(root_get).post(rpc_entry))
         .with_state(gateway)
         .layer(cors);
 
@@ -103,6 +117,25 @@ fn env_or(key: &str, fallback: &str) -> String {
 
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({ "ok": true })))
+}
+
+/// GET / — dispatch to the WebSocket upgrade when a real WS handshake
+/// is requested, otherwise 404 so health probes and accidental
+/// browser loads aren't surprised by a hijacked GET.
+async fn root_get(
+    headers: HeaderMap,
+    ws: axum::extract::WebSocketUpgrade,
+    state: State<Arc<Gateway>>,
+) -> axum::response::Response {
+    if headers
+        .get("upgrade")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false)
+    {
+        return ws_route(ws, state).await.into_response();
+    }
+    StatusCode::NOT_FOUND.into_response()
 }
 
 async fn rpc_entry(
