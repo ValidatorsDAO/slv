@@ -1,7 +1,6 @@
 {
   "workspace": [
     "cli",
-    "api/slv-api",
     "api/rpc-gateway"
   ],
   "nodeModulesDir": "auto",
@@ -30,7 +29,6 @@
   "imports": {
     "@/": "./",
     "@cmn/": "./cmn/",
-    "@db/": "./api/slv-api/src/db/",
     "@elsoul/child-process": "jsr:@elsoul/child-process@1.2.0",
     "@hono/hono": "jsr:@hono/hono@4.7.6",
     "@scalar/hono-api-reference": "npm:@scalar/hono-api-reference@0.9.32",
