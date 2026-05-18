@@ -32,25 +32,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transfers_method_returns_handler_pending() {
-        // Only `getTransfersByAddress` is still pending in this PR.
-        // `getTransactionsForAddress` now reaches the gtfa handler,
-        // which surfaces its own INVALID_PARAMS for missing address
-        // — covered by the handler-level test in handlers::gtfa::tests.
+    async fn address_indexed_methods_surface_invalid_params_for_missing_address() {
+        // Both gtfa and transfers handlers validate params before
+        // touching the network; an empty request surfaces the
+        // handler-level error message as INVALID_PARAMS.
         let gw = gateway();
-        let r = gw.dispatch(req("getTransfersByAddress")).await;
-        let e = r.error.expect("should error");
-        assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
-        assert!(e.message.contains("not yet ported"));
-    }
-
-    #[tokio::test]
-    async fn gtfa_with_missing_address_surfaces_invalid_params() {
-        let gw = gateway();
-        let r = gw.dispatch(req("getTransactionsForAddress")).await;
-        let e = r.error.expect("should error");
-        assert_eq!(e.code, error_codes::INVALID_PARAMS);
-        assert!(e.message.contains("missing"));
+        for m in ["getTransactionsForAddress", "getTransfersByAddress"] {
+            let r = gw.dispatch(req(m)).await;
+            let e = r.error.expect("should error");
+            assert_eq!(e.code, error_codes::INVALID_PARAMS, "{m}");
+            assert!(e.message.contains("missing"), "{m} got {:?}", e.message);
+        }
     }
 
     #[tokio::test]

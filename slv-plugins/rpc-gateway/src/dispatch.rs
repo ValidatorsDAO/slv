@@ -13,7 +13,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::clickhouse::ClickHouseClient;
-use crate::handlers::{gtfa::GtfaHandlers, jet};
+use crate::handlers::{gtfa::GtfaHandlers, jet, transfers::TransfersHandlers};
 use crate::jsonrpc::{error_codes, Id, Request, Response};
 use crate::of1::Of1Client;
 
@@ -30,6 +30,7 @@ pub struct Gateway {
     pub ch: Arc<ClickHouseClient>,
     pub of1: Arc<Of1Client>,
     gtfa: GtfaHandlers,
+    transfers: TransfersHandlers,
 }
 
 impl Gateway {
@@ -37,7 +38,8 @@ impl Gateway {
         let ch = Arc::new(ch);
         let of1 = Arc::new(of1);
         let gtfa = GtfaHandlers::new(ch.clone(), of1.clone(), full_concurrency);
-        Self { ch, of1, gtfa }
+        let transfers = TransfersHandlers::new(ch.clone());
+        Self { ch, of1, gtfa, transfers }
     }
 
     pub async fn dispatch(&self, req: Request) -> Response {
@@ -59,11 +61,9 @@ impl Gateway {
             "getTransactionsForAddress" => {
                 self.wrap(id, self.gtfa.handle(&req.params).await)
             }
-            "getTransfersByAddress" => Response::err(
-                id,
-                error_codes::METHOD_NOT_FOUND,
-                format!("{}: handler not yet ported to Rust gateway", req.method),
-            ),
+            "getTransfersByAddress" => {
+                self.wrap(id, self.transfers.handle(&req.params).await)
+            }
             _ => {
                 if JET_NAMESPACE_RE.is_match(&req.method) {
                     return Response::err(
