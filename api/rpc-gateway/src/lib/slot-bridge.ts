@@ -8,10 +8,10 @@
 //
 // Why it exists: routing `slotSubscribe` to the validator-backed pubsub
 // (richat WS → validator geyser → block-replay-complete) costs ~5–8 ms
-// vs Helius, which fires slot notifications from shred receipt
-// (pre-execution).  Pointing this bridge at the yellowstone_shred_bridge
-// (1.5.0+ on 198.13.137.159:10005) gives the same first-shred-of-next-slot
-// semantic and closes that gap.
+// versus shred-receipt-based slot signals (pre-execution).  Pointing
+// this bridge at the yellowstone_shred_bridge (1.5.0+ on
+// 198.13.137.159:10005) gives a first-shred-of-next-slot semantic and
+// closes that gap.
 //
 // `root` field: the shred bridge cannot derive `root` from shreds alone
 // (root requires vote/finality info).  For now we emit a deterministic

@@ -2,13 +2,14 @@
 // instead of the standard `processed` (= bank-frozen) semantic.
 //
 // Why: a standard `slotSubscribe` fires when the validator finishes
-// replaying a slot's last shred and freezes the bank.  Helius beta
-// fires noticeably earlier — measurement on FRA-1 (2026-05-17) showed
-// Helius beat ERPC by avg +5.6 ms on `slotSubscribe`, but only +2.5 ms
-// when ERPC subscribed to `slotsUpdatesSubscribe` and re-emitted the
-// `firstShredReceived` events as `slotNotification`.  The gap closed
-// because `firstShredReceived` fires the instant the validator sees
-// the first shred for a slot — same physics as Helius's signal.
+// replaying a slot's last shred and freezes the bank.  Some providers
+// fire noticeably earlier — measurement on FRA-1 (2026-05-17) showed
+// the reference provider beat us by avg +5.6 ms on `slotSubscribe`,
+// but only +2.5 ms when we subscribed to `slotsUpdatesSubscribe` and
+// re-emitted the `firstShredReceived` events as `slotNotification`.
+// The gap closed because `firstShredReceived` fires the instant the
+// validator sees the first shred for a slot — same physics as the
+// earlier-firing source.
 //
 // Trade-off: clients still see `slotNotification` with `{slot, parent,
 // root}`, but the slot has only just *started* — the bank for that

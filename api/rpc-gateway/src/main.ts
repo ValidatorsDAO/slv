@@ -1,8 +1,8 @@
 // SLV RPC Gateway — JSON-RPC 2.0 server that fronts of1 (yellowstone-faithful)
 // and routes `jet*` analytics methods to ClickHouse (jetstreamer data).
-// Also exposes a Helius-compatible WebSocket at `/ws` with
-// `transactionSubscribe` bridged to an upstream Yellowstone gRPC endpoint
-// and standard Solana pubsub forwarded to richat WS.
+// Also exposes an enhanced WebSocket at `/ws` with `transactionSubscribe`
+// bridged to an upstream Yellowstone gRPC endpoint and standard Solana
+// pubsub forwarded to richat WS.
 //
 // Standard Solana RPC methods (getTransaction, getBlock, …) are forwarded
 // untouched to OF1_URL. Methods starting with `jet` followed by an
@@ -112,11 +112,11 @@ async function dispatch(req: JsonRpcRequest): Promise<JsonRpcResponse> {
       return jet.epochSummary(req)
     case 'jetProgramStats':
       return jet.programStats(req)
-    // Helius-wire-compatible address index, backed by jetstreamer's
+    // Per-address transaction index, backed by jetstreamer's
     // gtfa_tx_mentions table (NOT proxied to of1).
     case 'getTransactionsForAddress':
       return gtfa.getTransactionsForAddress(req)
-    // Helius-wire-compatible token-transfer index, backed by jetstreamer's
+    // Per-address token-transfer index, backed by jetstreamer's
     // token_transfers + token_transfers_by_to (slv-transfers-plugin).
     case 'getTransfersByAddress':
       return transfers.getTransfersByAddress(req)
@@ -142,7 +142,7 @@ app.use('*', async (c, next) => {
   return await next()
 })
 
-// Helius-compat WebSocket (transactionSubscribe + standard pubsub forward).
+// Enhanced WebSocket (transactionSubscribe + standard pubsub forward).
 // Built once and aliased on both `/ws` and `/` so the same YellowstoneBridge
 // instance is shared.
 const wsHandler = buildWsHandler({

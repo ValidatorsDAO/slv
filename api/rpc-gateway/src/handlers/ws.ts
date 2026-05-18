@@ -1,14 +1,14 @@
 // WebSocket entry point for the gateway.  Implements:
 //
-//   - `transactionSubscribe` / `transactionUnsubscribe` (Helius Enhanced WS
-//     compat) — bridged to upstream Yellowstone gRPC.
+//   - `transactionSubscribe` / `transactionUnsubscribe` — bridged to
+//     upstream Yellowstone gRPC.
 //   - All standard Solana JSON-RPC pubsub methods (accountSubscribe,
 //     logsSubscribe, programSubscribe, signatureSubscribe, slotSubscribe,
 //     blockSubscribe, voteSubscribe, …) — forwarded to upstream Solana
 //     pubsub WS untouched.
 //
 // Subscription IDs:
-//   - Helius/local subscriptions are assigned IDs ≥ 1_000_000_000.
+//   - Local (gateway-served) subscriptions are assigned IDs ≥ 1_000_000_000.
 //   - Upstream pubsub subscriptions keep whatever ID upstream returned.
 // Clients see one merged ID space; the unsubscribe handler dispatches
 // based on which side owns the ID.
@@ -23,8 +23,8 @@ import {
   validate,
 } from '../jsonrpc.ts'
 import {
-  type HeliusOpts,
-  type HeliusTxFilter,
+  type TxSubscribeFilter,
+  type TxSubscribeOpts,
   YellowstoneBridge,
 } from '../lib/yellowstone-bridge.ts'
 import { PubsubForward } from '../lib/pubsub-forward.ts'
@@ -47,20 +47,20 @@ export type WsConfig = {
   //
   // - `slotFirstShredUrl` (ws://…): subscribe to `slotsUpdatesSubscribe`
   //   on this Solana-pubsub-compat endpoint and emit `firstShredReceived`
-  //   events as `slotNotification`.  This matches what Helius beta does
-  //   internally and was the only configuration in our 2026-05-17
-  //   measurements that closed the Helius latency gap meaningfully
-  //   (Helius avg lead +5.6 ms → +2.5 ms; ERPC win share 6.7 % → 23 %).
-  //   Trade-off: clients see slot ticks ~5 ms earlier but the bank for
-  //   that slot does not yet exist — downstream `getAccountInfo` may
-  //   race the validator's own replay.  Off by default; opt in when
-  //   slot freshness > consistency.
+  //   events as `slotNotification`.  This was the only configuration in
+  //   our 2026-05-17 measurements that closed the reference-provider
+  //   latency gap meaningfully (avg lead +5.6 ms → +2.5 ms; win share
+  //   6.7 % → 23 %).  Trade-off: clients see slot ticks ~5 ms earlier
+  //   but the bank for that slot does not yet exist — downstream
+  //   `getAccountInfo` may race the validator's own replay.  Off by
+  //   default; opt in when slot freshness > consistency.
   //
   // - `slotMultiplexUrls` (ws://… list): subscribe to slotSubscribe on
   //   EACH url, dedupe by slot number, and deliver the first-arrival.
   //   Best latency in our measurements: native pubsub + richat together
-  //   roughly halve the win rate where Helius beats us.  Use this when
-  //   you have multiple slot sources with different jitter profiles.
+  //   roughly halve the win rate where the reference provider beats us.
+  //   Use this when you have multiple slot sources with different
+  //   jitter profiles.
   //
   // - `slotPubsubUrl` (ws://…): forward `slotSubscribe` / `slotUnsubscribe`
   //   to this Solana-pubsub-compat WebSocket (typically the validator's
@@ -84,7 +84,7 @@ export type WsConfig = {
   slotBridgeEndpoint?: string
 }
 
-const HELIUS_ID_BASE = 1_000_000_000
+const LOCAL_SUB_ID_BASE = 1_000_000_000
 
 const STANDARD_PUBSUB_METHODS = new Set([
   'accountSubscribe',
@@ -125,7 +125,7 @@ export function buildWsHandler(cfg: WsConfig) {
   return upgradeWebSocket(() => {
     // Per-connection state.
     const localSubs = new Map<number, { cancel: () => void }>()
-    let localSubCounter = HELIUS_ID_BASE
+    let localSubCounter = LOCAL_SUB_ID_BASE
     let pubsub: PubsubForward | null = null
     // Separate forward for slotSubscribe when `slotPubsubUrl` is
     // configured.  Each WS client gets its own upstream connection so
@@ -185,13 +185,13 @@ export function buildWsHandler(cfg: WsConfig) {
       return slotPubsub
     }
 
-    const handleHeliusTransactionSubscribe = async (
+    const handleTransactionSubscribe = async (
       req: JsonRpcRequest,
     ): Promise<JsonRpcResponse> => {
       try {
         const params = (req.params as unknown[]) ?? []
-        const filter = (params[0] as HeliusTxFilter) ?? {}
-        const opts = (params[1] as HeliusOpts) ?? {}
+        const filter = (params[0] as TxSubscribeFilter) ?? {}
+        const opts = (params[1] as TxSubscribeOpts) ?? {}
         const subId = ++localSubCounter
 
         const handle = await bridge.subscribeTransactions(
@@ -221,7 +221,7 @@ export function buildWsHandler(cfg: WsConfig) {
       }
     }
 
-    const handleHeliusTransactionUnsubscribe = (
+    const handleTransactionUnsubscribe = (
       req: JsonRpcRequest,
     ): JsonRpcResponse => {
       const params = (req.params as unknown[]) ?? []
@@ -232,7 +232,7 @@ export function buildWsHandler(cfg: WsConfig) {
       const handle = localSubs.get(subId)
       if (!handle) {
         // Could be an upstream pubsub id — forward through if so.
-        if (subId < HELIUS_ID_BASE && pubsub) {
+        if (subId < LOCAL_SUB_ID_BASE && pubsub) {
           // Replay raw frame upstream.
           ensurePubsub().send(JSON.stringify(req))
           // Don't reply locally — upstream will.
@@ -269,12 +269,12 @@ export function buildWsHandler(cfg: WsConfig) {
 
         switch (req.method) {
           case 'transactionSubscribe': {
-            const resp = await handleHeliusTransactionSubscribe(req)
+            const resp = await handleTransactionSubscribe(req)
             send(resp)
             return
           }
           case 'transactionUnsubscribe': {
-            send(handleHeliusTransactionUnsubscribe(req))
+            send(handleTransactionUnsubscribe(req))
             return
           }
           case 'slotSubscribe': {
@@ -352,7 +352,7 @@ export function buildWsHandler(cfg: WsConfig) {
                 send(ok(req.id ?? null, true))
                 return
               }
-              if (subId < HELIUS_ID_BASE) {
+              if (subId < LOCAL_SUB_ID_BASE) {
                 ensurePubsub().send(text)
                 return
               }

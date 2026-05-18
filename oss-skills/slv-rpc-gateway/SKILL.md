@@ -1,15 +1,14 @@
 ---
 name: slv-rpc-gateway
-description: A small Deno+Hono JSON-RPC gateway that fronts yellowstone-faithful (of1) and routes `jet_*` analytics methods to ClickHouse (jetstreamer data). Standard Solana RPC methods pass straight through; new analytic methods are answered from precomputed jetstreamer aggregates. Same pattern Helius uses for its Enhanced Transactions / DAS APIs.
+description: A small Deno+Hono JSON-RPC gateway that fronts yellowstone-faithful (of1) and routes `jet_*` analytics methods to ClickHouse (jetstreamer data). Standard Solana RPC methods pass straight through; new analytic methods are answered from precomputed jetstreamer aggregates.
 ---
 
 # SLV RPC Gateway Skill
 
 A unified JSON-RPC entry point that combines the per-call latency of of1
 (yellowstone-faithful) with the bulk-analytics speed of jetstreamer's
-ClickHouse tables. Same architectural pattern Helius uses for its enhanced
-APIs (Enhanced Transactions, DAS, Priority Fee, …): standard methods go to
-the underlying RPC, new methods go to a custom indexer.
+ClickHouse tables. Standard methods go to the underlying RPC; new methods
+are answered from a custom indexer.
 
 ```
 client ── POST / ─► rpc-gateway ──► standard RPC (getTransaction, …)  ── of1
@@ -43,13 +42,13 @@ following the JSON-RPC `result` envelope.
 
 ## WebSocket methods (`/ws`)
 
-The gateway also serves a Helius-Enhanced-WS-compatible WebSocket at
-`/ws`.  Clients connect once and get both standard Solana pubsub *and*
-the enhanced `transactionSubscribe` method through the same socket.
+The gateway also serves an enhanced WebSocket at `/ws`.  Clients connect
+once and get both standard Solana pubsub *and* the enhanced
+`transactionSubscribe` method through the same socket.
 
 | Method | Backend | Notes |
 |---|---|---|
-| `transactionSubscribe` / `transactionUnsubscribe` | upstream Yellowstone gRPC | Helius-Enhanced-WS compatible.  Filters: `vote`, `failed`, `signature`, `accountInclude`, `accountExclude`, `accountRequired`.  Options: `commitment`, `encoding`, `transactionDetails`, `showRewards`, `maxSupportedTransactionVersion`. |
+| `transactionSubscribe` / `transactionUnsubscribe` | upstream Yellowstone gRPC | Enhanced filter-based transaction subscription.  Filters: `vote`, `failed`, `signature`, `accountInclude`, `accountExclude`, `accountRequired`.  Options: `commitment`, `encoding`, `transactionDetails`, `showRewards`, `maxSupportedTransactionVersion`. |
 | `accountSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
 | `logsSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
 | `programSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
@@ -60,22 +59,22 @@ the enhanced `transactionSubscribe` method through the same socket.
 | `voteSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
 | `rootSubscribe` / `Unsubscribe` | upstream pubsub WS | Forwarded |
 
-Subscription IDs ≥ 1_000_000_000 are local (Helius bridge); below that
+Subscription IDs ≥ 1_000_000_000 are local (gateway-served); below that
 they belong to the upstream pubsub.  Unsubscribe routes to the right
 side based on this range.
 
-### Side-by-side measurement vs Helius
+### Side-by-side measurement
 
 For a 20-second `transactionSubscribe` with
-`accountInclude=[TokenkegQ…]` filter:
+`accountInclude=[TokenkegQ…]` filter, this gateway → richat:
 
-| Metric | Helius Enhanced WS | this gateway → richat |
-|---|---:|---:|
-| Connect | 197 ms | 68 ms |
-| Subscribe ack | 17 ms | 27 ms |
-| First notification | 325 ms | 63 ms |
-| 20-s notifications | 11,168 | 11,275 |
-| Throughput | 558 tx/s | 564 tx/s |
+| Metric | Value |
+|---|---:|
+| Connect | 68 ms |
+| Subscribe ack | 27 ms |
+| First notification | 63 ms |
+| 20-s notifications | 11,275 |
+| Throughput | 564 tx/s |
 
 ## Source
 
@@ -145,11 +144,3 @@ The handler should:
 - Use `quoteString()` for any literal that ends up in SQL.
 - Return `ok(req.id, rows)` or `err(req.id, code, message)`.
 
-## Helius parallel
-
-Helius's Enhanced Transactions (`/v0/transactions`), DAS (`getAsset`,
-`searchAssets`), Priority Fee, etc. are exactly this pattern: standard
-methods reach the underlying validator/RPC; enhanced methods are answered
-from their own indexers (Photon for ZK Compression state, custom indexers
-for parsed transactions / NFT metadata). The mechanics are the same — only
-the dataset and method names differ.

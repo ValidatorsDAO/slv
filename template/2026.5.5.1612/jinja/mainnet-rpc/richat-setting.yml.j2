@@ -118,8 +118,8 @@ apps:
     # slots when block + transaction subscriptions are also enabled —
     # tx notifications saturate the per-tick budget and slot
     # notifications queue up behind them.  These tuned values keep the
-    # slot stream within 0-1 slot of Helius / api.mainnet-beta on a
-    # 64-core mainnet RPC host.
+    # slot stream within 0-1 slot of public reference RPCs on a 64-core
+    # mainnet RPC host.
     subscriptions_workers_count: 8
     subscriptions_max_clients_request_per_tick: 32
     subscriptions_max_messages_per_commitment_per_tick: 4096
