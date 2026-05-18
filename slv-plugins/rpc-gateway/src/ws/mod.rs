@@ -1,21 +1,19 @@
-//! WebSocket entry point for the gateway.  Phase 4a — minimal viable
-//! WebSocket surface so clients that hard-code `wss://<gateway>/`
-//! get the standard Solana pubsub methods working.
+//! WebSocket entry point for the gateway.
 //!
-//! Routed methods (Phase 4a):
+//! Routed methods:
 //!
 //!   - standard Solana JSON-RPC pubsub methods (`accountSubscribe`,
 //!     `logsSubscribe`, `programSubscribe`, `signatureSubscribe`,
-//!     `slotSubscribe`, `slotsUpdatesSubscribe`, `blockSubscribe`,
-//!     `voteSubscribe`, `rootSubscribe`, etc.) — forwarded verbatim
-//!     to an upstream Solana-pubsub-compatible WebSocket
+//!     `slotsUpdatesSubscribe`, `blockSubscribe`, `voteSubscribe`,
+//!     `rootSubscribe`) — forwarded verbatim to an upstream
+//!     Solana-pubsub-compatible WebSocket
 //!
-//!   - `transactionSubscribe` / `transactionUnsubscribe`
-//!     (extended-API) — return `METHOD_NOT_FOUND` until Phase 4c
-//!     ports the gRPC bridge
+//!   - `slotSubscribe` — multi-source latency-tuned fast paths
+//!     (see [`slot_source`]); falls back to the standard pubsub
+//!     upstream when no fast source is configured
 //!
-//!   - multi-source `slotSubscribe` (= the latency-tuned variant
-//!     from `api/rpc-gateway`) — also Phase 4b
+//!   - `transactionSubscribe` / `transactionUnsubscribe` — extended
+//!     API backed by Yellowstone gRPC (see [`yellowstone_bridge`])
 //!
 //! Per-connection state stays small: one upstream WebSocket is
 //! lazily opened on the first standard-pubsub method and shared by
@@ -49,8 +47,7 @@ use crate::ws::yellowstone_bridge::{TxSubscribeFilter, TxSubscribeOpts, Yellowst
 
 /// Methods Solana clients call against the validator's native
 /// pubsub endpoint.  Forwarded verbatim to the upstream WebSocket
-/// configured by `PUBSUB_WS_URL`.  Order matches the Deno gateway
-/// for grep-ability.
+/// configured by `PUBSUB_WS_URL`.
 const STANDARD_PUBSUB_METHODS: &[&str] = &[
     "accountSubscribe",
     "accountUnsubscribe",
@@ -75,8 +72,7 @@ const STANDARD_PUBSUB_METHODS: &[&str] = &[
 /// Local-subscription ID floor.  Subscription IDs we mint for
 /// gateway-side multiplex handlers always start at this number so
 /// they can never collide with the upstream-pubsub IDs (which are
-/// small positive ints assigned by the validator).  Matches the
-/// Deno gateway's `LOCAL_SUB_ID_BASE`.
+/// small positive ints assigned by the validator).
 pub const LOCAL_SUB_ID_BASE: u64 = 1_000_000_000;
 
 #[derive(Clone)]

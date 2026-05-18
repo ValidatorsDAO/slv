@@ -90,3 +90,7 @@ dist/**
 !dist/oss-skills/
 !dist/oss-skills/**
 cli/dist/
+
+# Local Claude design notes / prompts — internal-only context that
+# may reference vendor names, customer IPs, or unmerged PoCs.
+.claude/

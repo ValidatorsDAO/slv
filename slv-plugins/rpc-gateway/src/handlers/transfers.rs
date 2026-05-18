@@ -3,8 +3,8 @@
 //! materialised view) emitted by the `slv_transfers_plugin`
 //! jetstreamer plugin.
 //!
-//! Wire-shape parity target: byte-for-byte identical to the Deno
-//! handler at `api/rpc-gateway/src/handlers/transfers.ts`.
+//! Wire shape is locked: existing clients depend on field order
+//! and the `paginationToken` encoding.
 //!
 //! Highlights:
 //!

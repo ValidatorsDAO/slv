@@ -9,9 +9,8 @@
 //!     each handler can construct the most natural body shape and we
 //!     don't pay for a custom enum until we need one.
 //!
-//! Mirrors the wire shape of `api/rpc-gateway/src/jsonrpc.ts` in the
-//! Deno gateway so a method ported to Rust returns byte-for-byte the
-//! same response the Deno version would have.
+//! Wire shape is kept byte-for-byte stable: existing clients depend
+//! on field ordering and string vs integer typing inside `result`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -101,9 +100,8 @@ impl Response {
 }
 
 /// JSON-RPC 2.0 standard error codes plus a couple of project-local
-/// extensions used by the Deno gateway that the Rust port preserves
-/// (`UPSTREAM_ERROR` for failed forward to `of1`, `INTERNAL_ERROR`
-/// for unexpected dispatcher panics).
+/// extensions: `UPSTREAM_ERROR` for failed forward to `of1`,
+/// `INTERNAL_ERROR` for unexpected dispatcher panics.
 pub mod error_codes {
     pub const PARSE_ERROR: i32 = -32700;
     pub const INVALID_REQUEST: i32 = -32600;

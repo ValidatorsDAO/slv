@@ -16,8 +16,8 @@
 //!   fields from `of1`; failed lookups still appear with those set to
 //!   `null` and an `error: "<msg>"` so the caller can retry that one.
 //!
-//! Wire-shape parity target: byte-for-byte identical to the Deno
-//! handler at `api/rpc-gateway/src/handlers/gtfa.ts`.
+//! Wire shape is locked: existing clients depend on field order and
+//! the `paginationToken` encoding.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

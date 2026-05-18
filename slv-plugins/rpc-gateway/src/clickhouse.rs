@@ -1,7 +1,5 @@
-//! Minimal ClickHouse HTTP client.  Mirrors the Deno gateway's
-//! `lib/clickhouse.ts` shape — HTTP only, JSONEachRow on the wire,
-//! no native protocol — so the SQL strings each handler builds map
-//! 1:1 between the two implementations.
+//! Minimal ClickHouse HTTP client — HTTP only, JSONEachRow on the
+//! wire, no native protocol.
 //!
 //! Keeps the dependency surface to `reqwest` + `serde_json` rather
 //! than pulling in the `clickhouse` crate (= which the jetstreamer
@@ -63,9 +61,8 @@ pub struct ClickHouseClient {
 
 impl ClickHouseClient {
     pub fn new(cfg: ClickHouseConfig) -> Result<Self, ClickHouseError> {
-        // Append ?database=... to the URL if configured.  Match the
-        // Deno gateway, which sets it as a URL search param so any
-        // ClickHouse server that supports HTTP picks it up.
+        // Append ?database=... to the URL if configured — works on
+        // any ClickHouse server that supports the HTTP interface.
         let mut parsed = url::Url::parse(&cfg.url)?;
         if let Some(db) = cfg.database.as_deref() {
             parsed.query_pairs_mut().append_pair("database", db);
