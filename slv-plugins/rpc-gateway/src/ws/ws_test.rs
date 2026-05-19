@@ -205,6 +205,25 @@ mod tests {
                             .pointer("/params/result/slot")
                             .and_then(Value::as_u64)
                             .unwrap();
+                        // `parent` MUST be a number (= the standard
+                        // Solana wire shape, enforced by
+                        // @solana/web3.js's strict superstruct
+                        // validator at the client side).  A `null`
+                        // here would crash dependent JS apps with
+                        // an unhandled rejection.
+                        let parent = body
+                            .pointer("/params/result/parent")
+                            .and_then(Value::as_u64);
+                        assert!(
+                            parent.is_some(),
+                            "slotNotification.parent must be a number, got: {:?}",
+                            body.pointer("/params/result/parent"),
+                        );
+                        // `root` likewise must be a number.
+                        assert!(
+                            body.pointer("/params/result/root").and_then(Value::as_u64).is_some(),
+                            "slotNotification.root must be a number",
+                        );
                         seen.insert(slot);
                     }
                 }

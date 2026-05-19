@@ -339,13 +339,24 @@ fn spawn_slot_forwarder(
     let tx = state.tx.clone();
     let handle = tokio::spawn(async move {
         while let Some(update) = subscription.rx.recv().await {
+            // `parent` MUST be a number per the standard Solana
+            // `slotNotification` wire shape — @solana/web3.js's
+            // strict superstruct validator rejects `null` and
+            // throws an unhandled rejection in client apps.  Our
+            // upstream sources (firstShredReceived filter + UDP
+            // shred header) don't carry the parent, so fall back
+            // to `slot - 1` (= correct for ~95 % of slots, off by
+            // a small skip count in the rest; clients that need
+            // the exact parent should use commitment=confirmed
+            // through the standard RPC).
+            let parent = update.parent.unwrap_or_else(|| update.slot.saturating_sub(1));
             let frame = json!({
                 "jsonrpc": "2.0",
                 "method": "slotNotification",
                 "params": {
                     "result": {
                         "slot": update.slot,
-                        "parent": update.parent,
+                        "parent": parent,
                         "root": update.root,
                     },
                     "subscription": sub_id,
