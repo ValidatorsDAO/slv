@@ -83,3 +83,11 @@ tokio-tungstenite = { version = "0.27", default-features = false, features = ["r
 yellowstone-grpc-client = "10"
 yellowstone-grpc-proto = "10"
 bs58 = "0.5"
+# Minimal gRPC dep set for the in-crate `shredstream.proto` we use to
+# tap jito-shredstream-proxy's `SubscribeEntries` stream as a slot
+# fast-path source.  Versions track the resolved `tonic 0.14.6`
+# already in the dep graph via `yellowstone-grpc-client`.
+tonic = { version = "0.14", default-features = false, features = ["channel", "transport", "codegen"] }
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+prost = "0.14"

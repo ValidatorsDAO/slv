@@ -28,6 +28,10 @@
 #   rpc_gateway_slot_first_shred_multiplex_urls        (unset, comma list) — opt-in
 #   rpc_gateway_slot_multiplex_urls                    (unset, comma list) — opt-in
 #   rpc_gateway_slot_pubsub_url                        (unset)
+#   rpc_gateway_slot_grpc_url                          (unset) — jito-shredstream-proxy
+#                                                       SubscribeEntries endpoint, joins
+#                                                       the SLOT_FIRST_SHRED_MULTIPLEX dedup
+#                                                       window as an extra fast-path source
 #   rpc_gateway_full_concurrency                       20
 #   rpc_gateway_rust_log                               info
 #
@@ -66,6 +70,7 @@
     rg_slot_first_shred_multiplex_urls: "{{ rpc_gateway_slot_first_shred_multiplex_urls | default('') }}"
     rg_slot_multiplex_urls: "{{ rpc_gateway_slot_multiplex_urls | default('') }}"
     rg_slot_pubsub_url: "{{ rpc_gateway_slot_pubsub_url | default('') }}"
+    rg_slot_grpc_url: "{{ rpc_gateway_slot_grpc_url | default('') }}"
     rg_full_concurrency: "{{ rpc_gateway_full_concurrency | default(20) }}"
     rg_rust_log: "{{ rpc_gateway_rust_log | default('info') }}"
     # CH tunnel mode (see header comment).  Empty string disables.
@@ -280,6 +285,7 @@
           {% if rg_slot_first_shred_multiplex_urls %}Environment=SLOT_FIRST_SHRED_MULTIPLEX_URLS={{ rg_slot_first_shred_multiplex_urls }}{% endif %}
           {% if rg_slot_multiplex_urls %}Environment=SLOT_MULTIPLEX_URLS={{ rg_slot_multiplex_urls }}{% endif %}
           {% if rg_slot_pubsub_url %}Environment=SLOT_PUBSUB_URL={{ rg_slot_pubsub_url }}{% endif %}
+          {% if rg_slot_grpc_url %}Environment=SLOT_GRPC_URL={{ rg_slot_grpc_url }}{% endif %}
           Environment=GTFA_FULL_CONCURRENCY={{ rg_full_concurrency }}
           Environment=RUST_LOG={{ rg_rust_log }}
           ExecStart={{ rg_bin_dir }}/slv-rpc-gateway

@@ -1,0 +1,32 @@
+// Minimal wire-compatible subset of jito-shredstream-proxy's gRPC
+// service definition.  We only consume the `slot` field of each
+// streamed Entry to drive the gateway's `slotSubscribe` fast path,
+// so the request type carries no filter fields and we omit the
+// per-message `entries` bytes from runtime decoding (proto3 ignores
+// unknown fields, so the wire encoding stays compatible with the
+// upstream's full definition).
+//
+// Full source-of-truth proto:
+//   https://github.com/jito-foundation/shredstream-proxy/blob/main/proto/shredstream.proto
+
+syntax = "proto3";
+
+package shredstream;
+
+service ShredstreamProxy {
+  rpc SubscribeEntries(SubscribeEntriesRequest) returns (stream Entry);
+}
+
+// Empty in our minimal client.  The upstream defines several filter
+// maps here (`accounts`, `transactions`, `slots`, `commitment`); we
+// want every entry the proxy emits and an empty request is the
+// "no filter" wire form.
+message SubscribeEntriesRequest {}
+
+message Entry {
+  // The slot the entry was decoded from.  This is the only field we
+  // read; the per-tick PoH hash + serialized transaction vector
+  // lands in `entries` and is discarded by the slot fast path.
+  uint64 slot = 1;
+  bytes entries = 2;
+}
