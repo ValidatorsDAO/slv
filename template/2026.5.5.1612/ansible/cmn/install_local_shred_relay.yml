@@ -1,0 +1,198 @@
+---
+# Install + start a *local* jito-shredstream-proxy that:
+#   1. maintains the heartbeat connection to a jito block-engine
+#      (= keeps jito's UDP stream alive for this host's region),
+#   2. accepts incoming UDP shreds on `src_bind_port` (operator-chosen,
+#      e.g. 20001),
+#   3. forwards every received shred via UDP to a local dest
+#      (defaults to 127.0.0.1:20000 = where the SLV RPC Gateway's
+#      `SLOT_UDP_BIND` listener lives in the recommended topology).
+#
+# Why this exists:
+#   The SLV RPC Gateway's `SLOT_UDP_BIND` slot fast-path reads slot
+#   numbers straight off the shred wire header (offset 65, u64 LE).
+#   To feed that listener with shreds from the jito block-engine
+#   path (which is one of the lowest-latency upstreams in many
+#   regions), some process needs to authenticate to jito via the
+#   heartbeat protocol and then push raw shreds to the gateway.
+#   jito-shredstream-proxy does exactly that already, so this play
+#   just installs and configures it in "relay to local gateway"
+#   mode, separate from the kernel-level dest (validator TVU) the
+#   stake-validator shredstream forwarder uses.
+#
+# Inventory variables (with defaults):
+#
+#   Required (no defaults):
+#     local_shred_relay_block_engine_url          e.g. "https://frankfurt.mainnet.block-engine.jito.wtf"
+#                                                  Pick the URL for the region of the
+#                                                  host this play runs against.
+#     local_shred_relay_desired_regions           e.g. "frankfurt"
+#                                                  Comma list, must match the
+#                                                  block-engine URL's region.  Each
+#                                                  region in the list costs heartbeat
+#                                                  budget against the jito tier limit
+#                                                  for the keypair.
+#     local_shred_relay_auth_keypair_src          Path on the *ansible controller* to
+#                                                  the keypair JSON file.  Treated as
+#                                                  a secret — keep it out of any OSS
+#                                                  repo / inventory committed publicly.
+#
+#   Optional (with sensible defaults):
+#     local_shred_relay_binary_version            v0.2.13
+#     local_shred_relay_binary_url                (auto from version, jito-labs releases)
+#     local_shred_relay_user                      solv
+#     local_shred_relay_install_dir               /home/solv
+#     local_shred_relay_keypair_dest              /home/solv/shredstream_keypair.json
+#     local_shred_relay_src_bind_port             20001
+#     local_shred_relay_dest_host                 127.0.0.1
+#     local_shred_relay_dest_port                 20000   (= matches gateway's
+#                                                          SLOT_UDP_BIND default)
+#     local_shred_relay_grpc_port                 19999   (also exposes the legacy
+#                                                          SubscribeEntries gRPC stream
+#                                                          for callers that still need
+#                                                          it; harmless when unused)
+#     local_shred_relay_service_name              shredstream-local.service
+#     local_shred_relay_rust_log                  warn
+#
+# Networking prerequisite (NOT done by this play — operator must set):
+#   nftables (or your equivalent firewall) on this host must allow
+#   inbound UDP on `local_shred_relay_src_bind_port` from jito's
+#   shred-source IPs (currently observed: 64.130.40.0/24 — confirm
+#   per region).  Without that allowlist every shred is silently
+#   dropped at the kernel before it reaches the proxy.
+#
+# Co-deploy with `install_rpc_gateway.yml`:
+#   Set the gateway's `rpc_gateway_slot_udp_bind` to
+#   `0.0.0.0:{{ local_shred_relay_dest_port }}` so the gateway picks
+#   up the shreds this relay forwards.  Then re-run both plays in
+#   any order — both are idempotent.
+
+- name: Install + start local jito-shredstream-proxy (relay to gateway)
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    sr_user: "{{ local_shred_relay_user | default('solv') }}"
+    sr_install_dir: "{{ local_shred_relay_install_dir | default('/home/solv') }}"
+    sr_version: "{{ local_shred_relay_binary_version | default('v0.2.13') }}"
+    sr_binary_url: "{{ local_shred_relay_binary_url | default('https://github.com/jito-labs/shredstream-proxy/releases/download/' + (local_shred_relay_binary_version | default('v0.2.13')) + '/jito-shredstream-proxy-x86_64-unknown-linux-gnu') }}"
+    sr_binary_path: "{{ sr_install_dir }}/jito-shredstream-proxy"
+    sr_keypair_dest: "{{ local_shred_relay_keypair_dest | default(sr_install_dir + '/shredstream_keypair.json') }}"
+    sr_src_bind_port: "{{ local_shred_relay_src_bind_port | default(20001) }}"
+    sr_dest_host: "{{ local_shred_relay_dest_host | default('127.0.0.1') }}"
+    sr_dest_port: "{{ local_shred_relay_dest_port | default(20000) }}"
+    sr_grpc_port: "{{ local_shred_relay_grpc_port | default(19999) }}"
+    sr_service_name: "{{ local_shred_relay_service_name | default('shredstream-local.service') }}"
+    sr_rust_log: "{{ local_shred_relay_rust_log | default('warn') }}"
+
+  pre_tasks:
+    - name: Fail fast when block_engine_url is unset
+      ansible.builtin.fail:
+        msg: "local_shred_relay_block_engine_url is required (e.g. https://frankfurt.mainnet.block-engine.jito.wtf)"
+      when: (local_shred_relay_block_engine_url | default('')) | length == 0
+
+    - name: Fail fast when desired_regions is unset
+      ansible.builtin.fail:
+        msg: "local_shred_relay_desired_regions is required (comma list, e.g. 'frankfurt')"
+      when: (local_shred_relay_desired_regions | default('')) | length == 0
+
+    - name: Fail fast when auth_keypair_src is unset
+      ansible.builtin.fail:
+        msg: "local_shred_relay_auth_keypair_src must point at a keypair JSON file on the ansible controller"
+      when: (local_shred_relay_auth_keypair_src | default('')) | length == 0
+
+  tasks:
+    # -----------------------------------------------------------------
+    # Binary install.  Idempotent via creates: — re-download only when
+    # the binary is missing or the URL changed (= bump
+    # local_shred_relay_binary_version and re-run).
+    # -----------------------------------------------------------------
+    - name: Download jito-shredstream-proxy binary
+      ansible.builtin.get_url:
+        url: "{{ sr_binary_url }}"
+        dest: "{{ sr_binary_path }}"
+        owner: "{{ sr_user }}"
+        group: "{{ sr_user }}"
+        mode: "0755"
+        force: no
+
+    # -----------------------------------------------------------------
+    # Keypair: copied from controller, 600 perms, never logged.
+    # -----------------------------------------------------------------
+    - name: Copy shredstream keypair (secret)
+      ansible.builtin.copy:
+        src: "{{ local_shred_relay_auth_keypair_src }}"
+        dest: "{{ sr_keypair_dest }}"
+        owner: "{{ sr_user }}"
+        group: "{{ sr_user }}"
+        mode: "0600"
+      no_log: true
+
+    # -----------------------------------------------------------------
+    # systemd unit.  Renders ExecStart inline so the operator can
+    # `systemctl cat shredstream-local` to see the exact flags
+    # without grepping ansible vars.
+    # -----------------------------------------------------------------
+    - name: Render shredstream-local systemd unit
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ sr_service_name }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Local jito-shredstream-proxy (relay shreds to SLV RPC Gateway via UDP)
+          After=network.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User={{ sr_user }}
+          WorkingDirectory={{ sr_install_dir }}
+          ExecStart={{ sr_binary_path }} shredstream \
+            --block-engine-url {{ local_shred_relay_block_engine_url }} \
+            --auth-keypair {{ sr_keypair_dest }} \
+            --desired-regions {{ local_shred_relay_desired_regions }} \
+            --src-bind-port {{ sr_src_bind_port }} \
+            --dest-ip-ports {{ sr_dest_host }}:{{ sr_dest_port }} \
+            --grpc-service-port {{ sr_grpc_port }}
+          Restart=on-failure
+          RestartSec=5
+          LimitNOFILE=200000
+          Environment=RUST_LOG={{ sr_rust_log }}
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+      register: sr_unit
+
+    - name: systemd daemon-reload + enable
+      ansible.builtin.systemd:
+        name: "{{ sr_service_name }}"
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Start (or restart if unit changed) shredstream-local
+      ansible.builtin.systemd:
+        name: "{{ sr_service_name }}"
+        state: "{{ 'restarted' if sr_unit.changed else 'started' }}"
+
+    - name: Brief wait for jito heartbeat handshake
+      ansible.builtin.pause:
+        seconds: 6
+
+    - name: Verify service is active
+      ansible.builtin.command: systemctl is-active {{ sr_service_name }}
+      register: sr_active
+      changed_when: false
+      failed_when: sr_active.stdout != "active"
+
+    - name: Show final state (= for operator log)
+      ansible.builtin.debug:
+        msg: >-
+          shredstream-local up on this host —
+          listens UDP :{{ sr_src_bind_port }},
+          forwards to {{ sr_dest_host }}:{{ sr_dest_port }},
+          gRPC on :{{ sr_grpc_port }},
+          block-engine = {{ local_shred_relay_block_engine_url }}
