@@ -145,6 +145,41 @@ Inventory variables: `rpc_gateway_port`, `rpc_gateway_of1_url`,
 `ws://localhost:7111`), and the slot-source env vars listed in the cascade
 table above.
 
+### Companion: local shred relay (= jito UDP fast path)
+
+To feed the gateway's `SLOT_UDP_BIND` listener with shreds from a
+jito block-engine, a separate `jito-shredstream-proxy` instance
+needs to run on the same host:
+
+```
+[ jito block-engine ] ──UDP─► [ shredstream-local :<src_port> ]
+                                       └─UDP─► [ gateway :<udp_bind_port> ]
+```
+
+`template/<VERSION>/ansible/cmn/install_local_shred_relay.yml`
+provisions this relay end-to-end:
+
+1. Downloads the upstream jito-shredstream-proxy release binary.
+2. Copies the operator-supplied keypair (controller → host, 600
+   perms, never logged).
+3. Renders `shredstream-local.service` with the chosen src bind
+   port and dest (defaults to forwarding `127.0.0.1:20000`, which
+   matches the gateway's recommended `SLOT_UDP_BIND=0.0.0.0:20000`).
+4. Enables + starts the systemd unit, waits for the jito heartbeat
+   handshake, fails the play if the unit is not active.
+
+Operator-side prerequisites (NOT done by the play):
+- nftables / firewall must accept inbound UDP on the src bind port
+  from jito's known shred-source IPs (currently observed:
+  `64.130.40.0/24` — confirm per region).
+- The jito tier on the keypair must allow as many concurrent
+  region heartbeats as `local_shred_relay_desired_regions` lists.
+
+Required inventory vars:
+`local_shred_relay_block_engine_url`,
+`local_shred_relay_desired_regions`,
+`local_shred_relay_auth_keypair_src` (path on controller).
+
 ## Topology recommendations
 
 - Co-locate the gateway with each of1 RPC node (cheap, low latency to of1).
