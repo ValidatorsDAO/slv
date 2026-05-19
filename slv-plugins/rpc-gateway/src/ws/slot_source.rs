@@ -89,6 +89,11 @@ pub struct SlotPubsubMultiplex {
     delivered: Mutex<DeliveredWindow>,
     next_listener_id: AtomicU64,
     started: AtomicBool,
+    /// Highest slot number we've observed across every input source.
+    /// Updated lock-free in `deliver()` so the HTTP-RPC `getSlot`
+    /// handler can read it without touching any mutex.  Zero =
+    /// no signal yet (= unset).
+    latest_slot: AtomicU64,
 }
 
 struct DeliveredWindow {
@@ -193,7 +198,24 @@ impl SlotPubsubMultiplex {
             delivered: Mutex::new(DeliveredWindow::new()),
             next_listener_id: AtomicU64::new(1),
             started: AtomicBool::new(false),
+            latest_slot: AtomicU64::new(0),
         }
+    }
+
+    /// Eagerly start all configured input sources without registering
+    /// a listener.  Lets the HTTP-RPC `getSlot` handler read a fresh
+    /// cached value via [`latest_slot`] even when no WS client has
+    /// subscribed yet.  Cheap to call (= no-op after first invocation).
+    pub fn ensure_running(self: &Arc<Self>) {
+        self.ensure_started();
+    }
+
+    /// Highest slot observed across all input sources, or `None` when
+    /// no signal has arrived yet (= just after process start, or the
+    /// multiplex has no live sources).  Lock-free read.
+    pub fn latest_slot(&self) -> Option<u64> {
+        let v = self.latest_slot.load(Ordering::Relaxed);
+        (v != 0).then_some(v)
     }
 
     /// Register a listener; returns a subscription handle.  Dropping
@@ -239,6 +261,11 @@ impl SlotPubsubMultiplex {
         if !self.delivered.lock().observe(update.slot) {
             return;
         }
+        // Track the high-water mark before fanning out so the
+        // HTTP-RPC `getSlot` cache always reflects the latest slot
+        // even when no WS listeners are attached.  `fetch_max`
+        // guarantees monotonicity under concurrent updates.
+        self.latest_slot.fetch_max(update.slot, Ordering::Relaxed);
         // Snapshot the listener set so per-listener `send` doesn't
         // hold the lock across an iteration that might want to
         // remove dropped peers.
@@ -590,6 +617,30 @@ mod tests {
         // probes and by zero-padded packets — must not be delivered.
         let pkt = vec![0u8; 1228];
         assert_eq!(parse_shred_slot(&pkt), None);
+    }
+
+    #[test]
+    fn latest_slot_starts_none_then_tracks_high_water_mark() {
+        let m = Arc::new(SlotPubsubMultiplex::first_shred_multiplex(
+            Vec::new(), None, None,
+        ));
+        // No deliveries yet — `getSlot` would fall through to upstream.
+        assert_eq!(m.latest_slot(), None);
+
+        m.deliver(SlotUpdate { slot: 100, parent: None, root: 100u64.saturating_sub(32) });
+        assert_eq!(m.latest_slot(), Some(100));
+
+        // A later slot updates the high-water mark.
+        m.deliver(SlotUpdate { slot: 101, parent: None, root: 101u64.saturating_sub(32) });
+        assert_eq!(m.latest_slot(), Some(101));
+
+        // An earlier slot (= out-of-order from a slow source) must
+        // NOT regress the cache.  Note `deliver()` also dedupes per
+        // slot number — slot 100 has already been observed so the
+        // second call would be a no-op anyway; we use slot 99 (= a
+        // slot we haven't seen but is older than the high-water).
+        m.deliver(SlotUpdate { slot: 99, parent: None, root: 99u64.saturating_sub(32) });
+        assert_eq!(m.latest_slot(), Some(101));
     }
 
     #[tokio::test]

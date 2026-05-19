@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use serde_json::{json, Value};
 
 use crate::clickhouse::ClickHouseClient;
 use crate::handlers::{gtfa::GtfaHandlers, jet, transfers::TransfersHandlers};
@@ -19,6 +20,42 @@ use crate::of1::Of1Client;
 use crate::ws::billing::BillingClient;
 use crate::ws::slot_source::SlotPubsubMultiplex;
 use crate::ws::WsConfig;
+
+/// Result of inspecting the `commitment` param on a `getSlot`-like
+/// JSON-RPC request.  Only the "processed-or-unset" variant is
+/// safe to answer from the UDP-derived slot cache; everything else
+/// (`confirmed`, `finalized`, or anything the gateway doesn't
+/// recognise) falls through to the upstream so we never serve a
+/// commitment-stronger answer than we can actually guarantee.
+#[derive(Debug, PartialEq, Eq)]
+enum CommitmentParam {
+    ProcessedOrUnset,
+    Other,
+}
+
+/// Solana RPC accepts `commitment` either as the only positional
+/// arg (`[{"commitment": "…"}]`) or, less commonly, as a top-level
+/// `params` object.  We accept both forms and treat anything else
+/// (= malformed shape, unknown value) as `Other` so we err on the
+/// side of forwarding upstream.
+fn slot_commitment(params: &Option<Value>) -> CommitmentParam {
+    let Some(params) = params.as_ref() else {
+        return CommitmentParam::ProcessedOrUnset;
+    };
+    let obj = match params {
+        Value::Array(arr) => arr.first().and_then(Value::as_object),
+        Value::Object(o) => Some(o),
+        _ => None,
+    };
+    let Some(obj) = obj else {
+        // `[]` or unrecognised shape — treat as unset.
+        return CommitmentParam::ProcessedOrUnset;
+    };
+    match obj.get("commitment").and_then(Value::as_str) {
+        None | Some("processed") => CommitmentParam::ProcessedOrUnset,
+        Some(_) => CommitmentParam::Other,
+    }
+}
 
 /// Methods in the `jet*` namespace (camelCase, prefix `jet` + uppercase
 /// 4th char): `jetTopPrograms`, `jetSlotStats`, `jetTpsTimeseries`,
@@ -141,6 +178,13 @@ impl Gateway {
             ))),
             _ => None,
         };
+        // Eagerly warm the primary slot multiplex so the
+        // HTTP-RPC `getSlot` cache works the moment the gateway
+        // is up — without this, `getSlot` would only have a cached
+        // value after the first WS client subscribed.
+        if let Some(m) = slot_first_shred_multi.as_ref() {
+            m.ensure_running();
+        }
         Self {
             ch,
             of1,
@@ -180,6 +224,23 @@ impl Gateway {
             }
             "getTransfersByAddress" => {
                 self.wrap(id, self.transfers.handle(&req.params).await)
+            }
+            // Fast-path `getSlot` for the default `processed`
+            // commitment: read the latest slot from the in-process
+            // UDP-derived cache (sub-µs) instead of round-tripping
+            // to the upstream RPC node.  `confirmed` / `finalized`
+            // still fall through to the upstream because the cache
+            // only tracks shred-arrival ("processed-or-newer")
+            // timing, not validator consensus state.
+            "getSlot" => {
+                if matches!(slot_commitment(&req.params), CommitmentParam::ProcessedOrUnset) {
+                    if let Some(multi) = self.slot_first_shred_multi.as_ref() {
+                        if let Some(slot) = multi.latest_slot() {
+                            return Response::ok(id, json!(slot));
+                        }
+                    }
+                }
+                self.forward_to_upstream(&req, id).await
             }
             _ => {
                 if JET_NAMESPACE_RE.is_match(&req.method) {
@@ -234,6 +295,54 @@ impl Gateway {
                 format!("upstream: {e}"),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod commitment_tests {
+    use super::*;
+
+    fn p(v: Value) -> Option<Value> {
+        Some(v)
+    }
+
+    #[test]
+    fn unset_params_means_processed_or_unset() {
+        assert_eq!(slot_commitment(&None), CommitmentParam::ProcessedOrUnset);
+        assert_eq!(slot_commitment(&p(json!([]))), CommitmentParam::ProcessedOrUnset);
+    }
+
+    #[test]
+    fn processed_explicit_means_processed_or_unset() {
+        assert_eq!(
+            slot_commitment(&p(json!([{"commitment": "processed"}]))),
+            CommitmentParam::ProcessedOrUnset,
+        );
+    }
+
+    #[test]
+    fn confirmed_and_finalized_fall_through() {
+        for c in ["confirmed", "finalized", "single", "max"] {
+            assert_eq!(
+                slot_commitment(&p(json!([{"commitment": c}]))),
+                CommitmentParam::Other,
+                "commitment={c} should fall through to upstream",
+            );
+        }
+    }
+
+    #[test]
+    fn object_form_also_parsed() {
+        // Some SDKs send `{"commitment": …}` as the top-level
+        // params object instead of wrapping in an array.
+        assert_eq!(
+            slot_commitment(&p(json!({"commitment": "processed"}))),
+            CommitmentParam::ProcessedOrUnset,
+        );
+        assert_eq!(
+            slot_commitment(&p(json!({"commitment": "confirmed"}))),
+            CommitmentParam::Other,
+        );
     }
 }
 
