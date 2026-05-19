@@ -26,6 +26,18 @@ exec agave-validator \
 --no-port-check \
 --staked-nodes-overrides overrides.yml \
 --rpc-bind-address 0.0.0.0 \
+{% if xdp_cpu_core is defined %}
+--experimental-retransmit-xdp-cpu-cores {{ xdp_cpu_core }} \
+{% endif %}
+{% if poh_cpu_core is defined %}
+--experimental-poh-pinned-cpu-core {{ poh_cpu_core }} \
+{% endif %}
+{% if xdp_interface is defined %}
+--experimental-retransmit-xdp-interface {{ xdp_interface }} \
+{% endif %}
+{% if xdp_zero_copy | default(false) %}
+--experimental-retransmit-xdp-zero-copy \
+{% endif %}
 {% if validator_type in ['jito', 'allnodes-jito'] %}
 --tip-payment-program-pubkey T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt \
 --tip-distribution-program-pubkey 4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7 \

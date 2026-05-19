@@ -10,6 +10,10 @@ RestartSec=1
 LimitNOFILE=1000000
 LimitMEMLOCK=2000000000
 LogRateLimitIntervalSec=0
+{% if xdp_cpu_core is defined %}
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+{% endif %}
 User=solv
 Environment=PATH=/home/solv/.local/share/solana/install/active_release/bin
 WorkingDirectory=/home/solv
