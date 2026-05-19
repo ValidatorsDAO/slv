@@ -147,6 +147,7 @@ mod tests {
             slot_first_shred_url: None,
             slot_multiplex_urls: Vec::new(),
             slot_grpc_url: None,
+            slot_udp_bind: None,
             yellowstone_endpoint: "localhost:10000".into(),
             metrics_api_url: None,
             metrics_api_bearer: None,

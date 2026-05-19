@@ -81,6 +81,8 @@ Picked by env-var presence, highest first:
 SLOT_FIRST_SHRED_MULTIPLEX_URLS  → N upstreams × slotsUpdatesSubscribe × firstShredReceived filter
   (+ optional SLOT_GRPC_URL       → jito-shredstream-proxy SubscribeEntries, joins the same dedup window
                                     and bypasses the validator's TVU processing step)
+  (+ optional SLOT_UDP_BIND       → raw shred UDP listener, reads slot from shred header directly
+                                    (skips the gRPC proxy's decode round-trip, ~150-450 µs per slot))
   → SLOT_FIRST_SHRED_URL          → single URL  × firstShredReceived filter
   → SLOT_MULTIPLEX_URLS           → N upstreams × standard slotSubscribe (dedup only)
   → SLOT_PUBSUB_URL               → per-client PubsubForward to a slot-only upstream

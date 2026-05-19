@@ -70,6 +70,14 @@ pub struct GatewayBuilder {
     /// `None`; when only this is set, the multiplex runs with the
     /// gRPC source alone.
     pub slot_grpc_url: Option<String>,
+    /// Optional UDP bind address (`host:port`) for raw shred
+    /// reception — gateway reads slot directly from the shred
+    /// header, skipping the gRPC proxy's decode + serialize.  Joins
+    /// the `slot_first_shred_multiplex` dedup window.  Requires the
+    /// upstream sender to include this address in its
+    /// `--dest-ip-ports` list, and a strict nftables allowlist on
+    /// the bind port (no signature verification is done in-process).
+    pub slot_udp_bind: Option<String>,
     pub yellowstone_endpoint: String,
     /// Operator-supplied WS-duration billing config.  When all
     /// three are non-empty, an [`crate::ws::billing::BillingClient`]
@@ -107,11 +115,13 @@ impl Gateway {
         let slot_first_shred_multi = (!builder
             .slot_first_shred_multiplex_urls
             .is_empty()
-            || builder.slot_grpc_url.is_some())
+            || builder.slot_grpc_url.is_some()
+            || builder.slot_udp_bind.is_some())
         .then(|| {
             Arc::new(SlotPubsubMultiplex::first_shred_multiplex(
                 builder.slot_first_shred_multiplex_urls,
                 builder.slot_grpc_url,
+                builder.slot_udp_bind,
             ))
         });
         let slot_first_shred = builder
