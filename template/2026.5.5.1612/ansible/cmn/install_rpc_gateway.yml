@@ -32,6 +32,20 @@
 #                                                       SubscribeEntries endpoint, joins
 #                                                       the SLOT_FIRST_SHRED_MULTIPLEX dedup
 #                                                       window as an extra fast-path source
+#   rpc_gateway_metrics_api_url                        (unset) — operator-supplied metrics
+#                                                       API base URL.  When set with
+#                                                       *_bearer below, WS connection close
+#                                                       events are POSTed to
+#                                                       `{url}/ws-connection-log` so the
+#                                                       central metering pipeline can
+#                                                       charge per-second WS duration.
+#   rpc_gateway_metrics_api_bearer                     (unset) — bearer token for the metrics
+#                                                       API.  Keep this in inventory
+#                                                       group_vars or a vaulted file, never
+#                                                       in the OSS repo.
+#   rpc_gateway_metrics_upstream_ip                    (unset) — optional self-identifier
+#                                                       emitted as `upstreamIp` in the log
+#                                                       body (defaults to empty string).
 #   rpc_gateway_full_concurrency                       20
 #   rpc_gateway_rust_log                               info
 #
@@ -71,6 +85,9 @@
     rg_slot_multiplex_urls: "{{ rpc_gateway_slot_multiplex_urls | default('') }}"
     rg_slot_pubsub_url: "{{ rpc_gateway_slot_pubsub_url | default('') }}"
     rg_slot_grpc_url: "{{ rpc_gateway_slot_grpc_url | default('') }}"
+    rg_metrics_api_url: "{{ rpc_gateway_metrics_api_url | default('') }}"
+    rg_metrics_api_bearer: "{{ rpc_gateway_metrics_api_bearer | default('') }}"
+    rg_metrics_upstream_ip: "{{ rpc_gateway_metrics_upstream_ip | default('') }}"
     rg_full_concurrency: "{{ rpc_gateway_full_concurrency | default(20) }}"
     rg_rust_log: "{{ rpc_gateway_rust_log | default('info') }}"
     # CH tunnel mode (see header comment).  Empty string disables.
@@ -286,6 +303,9 @@
           {% if rg_slot_multiplex_urls %}Environment=SLOT_MULTIPLEX_URLS={{ rg_slot_multiplex_urls }}{% endif %}
           {% if rg_slot_pubsub_url %}Environment=SLOT_PUBSUB_URL={{ rg_slot_pubsub_url }}{% endif %}
           {% if rg_slot_grpc_url %}Environment=SLOT_GRPC_URL={{ rg_slot_grpc_url }}{% endif %}
+          {% if rg_metrics_api_url %}Environment=RPC_METRICS_API_URL={{ rg_metrics_api_url }}{% endif %}
+          {% if rg_metrics_api_bearer %}Environment=RPC_METRICS_API_BEARER={{ rg_metrics_api_bearer }}{% endif %}
+          {% if rg_metrics_upstream_ip %}Environment=RPC_METRICS_UPSTREAM_IP={{ rg_metrics_upstream_ip }}{% endif %}
           Environment=GTFA_FULL_CONCURRENCY={{ rg_full_concurrency }}
           Environment=RUST_LOG={{ rg_rust_log }}
           ExecStart={{ rg_bin_dir }}/slv-rpc-gateway

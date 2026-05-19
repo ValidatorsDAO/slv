@@ -45,6 +45,17 @@
 //!   YELLOWSTONE_GRPC      Yellowstone-gRPC endpoint for the
 //!                         extended `transactionSubscribe` WS
 //!                         method (default `localhost:10000`)
+//!   RPC_METRICS_API_URL   Operator-supplied metrics API base URL.
+//!                         When set together with
+//!                         `RPC_METRICS_API_BEARER`, the WS handler
+//!                         POSTs a `ws-connection-log` body on every
+//!                         WS close so the central metering pipeline
+//!                         can charge per-second WS duration.  Unset
+//!                         = billing emit is a no-op (dev mode).
+//!   RPC_METRICS_API_BEARER  Bearer token for the metrics API.
+//!   RPC_METRICS_UPSTREAM_IP Optional self-identifier emitted as
+//!                         `upstreamIp` in the log body (default
+//!                         empty string).
 //!   RUST_LOG              tracing-subscriber filter (default `info`)
 
 use std::net::SocketAddr;
@@ -126,6 +137,9 @@ async fn main() -> anyhow::Result<()> {
         slot_multiplex_urls: comma_list("SLOT_MULTIPLEX_URLS"),
         slot_grpc_url: std::env::var("SLOT_GRPC_URL").ok().filter(|s| !s.is_empty()),
         yellowstone_endpoint: env_or("YELLOWSTONE_GRPC", "localhost:10000"),
+        metrics_api_url: std::env::var("RPC_METRICS_API_URL").ok().filter(|s| !s.is_empty()),
+        metrics_api_bearer: std::env::var("RPC_METRICS_API_BEARER").ok().filter(|s| !s.is_empty()),
+        metrics_upstream_ip: std::env::var("RPC_METRICS_UPSTREAM_IP").ok().filter(|s| !s.is_empty()),
     };
     let gateway = Arc::new(Gateway::with_slot_sources(ch, of1, ws_cfg, builder));
 
@@ -174,6 +188,7 @@ async fn health() -> impl IntoResponse {
 async fn root_get(
     headers: HeaderMap,
     ws: axum::extract::WebSocketUpgrade,
+    query: axum::extract::Query<std::collections::HashMap<String, String>>,
     state: State<Arc<Gateway>>,
 ) -> axum::response::Response {
     if headers
@@ -182,7 +197,7 @@ async fn root_get(
         .map(|s| s.eq_ignore_ascii_case("websocket"))
         .unwrap_or(false)
     {
-        return ws_route(ws, state).await.into_response();
+        return ws_route(ws, query, state).await.into_response();
     }
     StatusCode::NOT_FOUND.into_response()
 }

@@ -41,6 +41,8 @@ bs58.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
 prost.workspace = true
+chrono.workspace = true
+uuid.workspace = true
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

@@ -16,6 +16,7 @@ use crate::clickhouse::ClickHouseClient;
 use crate::handlers::{gtfa::GtfaHandlers, jet, transfers::TransfersHandlers};
 use crate::jsonrpc::{error_codes, Id, Request, Response};
 use crate::of1::Of1Client;
+use crate::ws::billing::BillingClient;
 use crate::ws::slot_source::SlotPubsubMultiplex;
 use crate::ws::WsConfig;
 
@@ -43,6 +44,13 @@ pub struct Gateway {
     /// `transactionSubscribe` WS method.  Stored as a plain string
     /// (host:port or full URL) — the bridge does scheme coercion.
     pub yellowstone_endpoint: String,
+    /// Optional WS-duration billing emitter.  When configured (=
+    /// `RPC_METRICS_API_URL` env set), posts a connection log to
+    /// `{base}/ws-connection-log` on WS close so the central
+    /// metering path stays consistent with what the Pingora LB used
+    /// to push.  When `None`, WS close is a no-op for billing —
+    /// useful for dev / non-production gateways.
+    pub billing: Option<Arc<BillingClient>>,
     gtfa: GtfaHandlers,
     transfers: TransfersHandlers,
 }
@@ -63,6 +71,12 @@ pub struct GatewayBuilder {
     /// gRPC source alone.
     pub slot_grpc_url: Option<String>,
     pub yellowstone_endpoint: String,
+    /// Operator-supplied WS-duration billing config.  When all
+    /// three are non-empty, an [`crate::ws::billing::BillingClient`]
+    /// is constructed and used by the WS handler on close.
+    pub metrics_api_url: Option<String>,
+    pub metrics_api_bearer: Option<String>,
+    pub metrics_upstream_ip: Option<String>,
 }
 
 impl Gateway {
@@ -106,6 +120,17 @@ impl Gateway {
         let slot_multiplex = (!builder.slot_multiplex_urls.is_empty()).then(
             || Arc::new(SlotPubsubMultiplex::slot_subscribe(builder.slot_multiplex_urls)),
         );
+        let billing = match (
+            builder.metrics_api_url.as_deref().filter(|s| !s.is_empty()),
+            builder.metrics_api_bearer.as_deref().filter(|s| !s.is_empty()),
+        ) {
+            (Some(url), Some(bearer)) => Some(Arc::new(BillingClient::new(
+                url.to_owned(),
+                bearer.to_owned(),
+                builder.metrics_upstream_ip.unwrap_or_default(),
+            ))),
+            _ => None,
+        };
         Self {
             ch,
             of1,
@@ -118,6 +143,7 @@ impl Gateway {
             } else {
                 builder.yellowstone_endpoint
             },
+            billing,
             gtfa,
             transfers,
         }

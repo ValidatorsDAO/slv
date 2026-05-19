@@ -20,6 +20,7 @@
 //! every subscription that client makes; closing the inbound
 //! WebSocket tears everything down.
 
+pub mod billing;
 pub mod pubsub_forward;
 pub mod slot_source;
 pub mod yellowstone_bridge;
@@ -29,9 +30,10 @@ mod ws_test;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use futures::SinkExt;
@@ -90,24 +92,39 @@ pub struct WsConfig {
 }
 
 /// Axum handler for `GET /ws` (and the `/` alias when a real
-/// WebSocket upgrade is requested).  Hands the upgraded socket off
-/// to `handle_socket` which owns the per-connection state.
+/// WebSocket upgrade is requested).  Extracts the `api-key` query
+/// param so the per-connection close emitter can attribute the
+/// billable duration; hands the upgraded socket off to
+/// `handle_socket` which owns the per-connection state.
 pub async fn ws_route(
     ws: WebSocketUpgrade,
+    Query(params): Query<HashMap<String, String>>,
     State(gateway): State<Arc<Gateway>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, gateway))
+    let api_key = params.get("api-key").cloned().unwrap_or_default();
+    ws.on_upgrade(move |socket| handle_socket(socket, gateway, api_key))
 }
 
-async fn handle_socket(socket: WebSocket, gateway: Arc<Gateway>) {
+async fn handle_socket(socket: WebSocket, gateway: Arc<Gateway>, api_key: String) {
+    let connection_id = uuid::Uuid::new_v4().to_string();
+    let start_time = SystemTime::now();
     let (sink, stream) = socket.split();
     // mpsc gives both the inbound-message loop and the upstream
     // forwarder a way to enqueue outgoing frames without contending
     // for the sink directly.
     let (tx, rx) = mpsc::unbounded_channel::<Message>();
     let sender_task = tokio::spawn(client_sender(sink, rx));
-    receive_loop(stream, tx, gateway).await;
+    receive_loop(stream, tx, gateway.clone()).await;
     sender_task.abort();
+    let end_time = SystemTime::now();
+    // Emit the WS-duration billing record so the central metering
+    // path stays consistent with what the Pingora LB used to push
+    // via Redis → consumer_ws.  No-op when no billing client is
+    // configured (= dev / non-production gateway) or when api_key
+    // is empty (= internal probe).
+    if let Some(billing) = gateway.billing.as_ref() {
+        billing.emit_close(api_key, connection_id, start_time, end_time);
+    }
 }
 
 async fn client_sender(
