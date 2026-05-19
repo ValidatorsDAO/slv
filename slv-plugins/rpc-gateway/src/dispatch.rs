@@ -66,9 +66,50 @@ fn slot_commitment(params: &Option<Value>) -> CommitmentParam {
 static JET_NAMESPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^jet[A-Z]").expect("static regex compiles"));
 
+/// Methods served by a historical-archive backend (e.g.
+/// `yellowstone-faithful`) — they read CAR files of past epochs and
+/// answer transaction / block lookups out of those archives.  Live-
+/// state methods (`getSlot`, `getBalance`, `sendTransaction`, …) must
+/// NOT route here because the archive only updates when the next CAR
+/// file is imported — answers would be days behind the live chain.
+///
+/// Match is case-sensitive and exact.  Aliases the protocol no longer
+/// advertises (`getConfirmedTransaction` etc.) are included so any
+/// client still using them stays archive-backed.
+const HISTORICAL_METHODS: &[&str] = &[
+    "getTransaction",
+    "getBlock",
+    "getBlocks",
+    "getBlocksWithLimit",
+    "getBlockTime",
+    "getBlockCommitment",
+    "getBlockProduction",
+    "getSignaturesForAddress",
+    // Pre-rename aliases for the same archive-backed lookups.
+    "getConfirmedBlock",
+    "getConfirmedBlocks",
+    "getConfirmedBlocksWithLimit",
+    "getConfirmedTransaction",
+    "getConfirmedSignaturesForAddress2",
+];
+
+fn is_historical_method(method: &str) -> bool {
+    HISTORICAL_METHODS.contains(&method)
+}
+
 pub struct Gateway {
     pub ch: Arc<ClickHouseClient>,
+    /// Historical-archive RPC backend (e.g. yellowstone-faithful).
+    /// Serves transaction / block lookups out of imported CAR files.
     pub of1: Arc<Of1Client>,
+    /// Optional live-state RPC backend (= an agave-validator JSON-RPC
+    /// port or any live full-history RPC).  When set, every method
+    /// NOT in [`HISTORICAL_METHODS`] is routed here instead of
+    /// `of1` so callers get current chain state.  When `None`, all
+    /// methods continue to forward to `of1` (= prior behaviour, kept
+    /// for backward compat with deployments that only have an
+    /// archive backend).
+    pub live_rpc: Option<Arc<Of1Client>>,
     pub ws: WsConfig,
     /// Optional `slotSubscribe` upstream singletons, owned per-
     /// process so multiple WS clients share one set of outbound
@@ -115,6 +156,14 @@ pub struct GatewayBuilder {
     /// `--dest-ip-ports` list, and a strict nftables allowlist on
     /// the bind port (no signature verification is done in-process).
     pub slot_udp_bind: Option<String>,
+    /// Optional live-state RPC URL.  When set, the gateway routes
+    /// every non-historical method (see [`HISTORICAL_METHODS`]) here
+    /// instead of to `of1`.  See `Gateway::live_rpc` for the rationale.
+    pub live_rpc_url: Option<String>,
+    /// Per-call timeout for the live RPC client (= different default
+    /// from `of1_timeout` because `getTransaction` reads from CAR
+    /// archive which can be slow; live RPC calls should be fast).
+    pub live_rpc_timeout: Option<std::time::Duration>,
     pub yellowstone_endpoint: String,
     /// Operator-supplied WS-duration billing config.  When all
     /// three are non-empty, an [`crate::ws::billing::BillingClient`]
@@ -167,6 +216,26 @@ impl Gateway {
         let slot_multiplex = (!builder.slot_multiplex_urls.is_empty()).then(
             || Arc::new(SlotPubsubMultiplex::slot_subscribe(builder.slot_multiplex_urls)),
         );
+        // Construct an optional live-RPC client when the operator
+        // wired one up.  Uses a separate `Of1Client` instance so the
+        // historical and live backends can have independent timeouts
+        // and connection pools without competing for the same
+        // reqwest::Client's connection slots.
+        let live_rpc = builder
+            .live_rpc_url
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|url| {
+                Arc::new(
+                    Of1Client::new(crate::of1::Of1Config {
+                        url: url.to_owned(),
+                        timeout: builder
+                            .live_rpc_timeout
+                            .unwrap_or(std::time::Duration::from_secs(10)),
+                    })
+                    .expect("live_rpc client builds with operator-supplied URL"),
+                )
+            });
         let billing = match (
             builder.metrics_api_url.as_deref().filter(|s| !s.is_empty()),
             builder.metrics_api_bearer.as_deref().filter(|s| !s.is_empty()),
@@ -188,6 +257,7 @@ impl Gateway {
         Self {
             ch,
             of1,
+            live_rpc,
             ws,
             slot_first_shred_multi,
             slot_first_shred,
@@ -264,13 +334,20 @@ impl Gateway {
         }
     }
 
-    /// Forward a request envelope to the upstream RPC node and
-    /// return its response.  The upstream is itself JSON-RPC 2.0 so
-    /// its body should already carry `jsonrpc`/`id` and either
-    /// `result` or `error` — if so we deserialise it directly into
-    /// `Response`.  Anything malformed gets wrapped as
-    /// `UPSTREAM_ERROR` so the client never sees a half-parsed
-    /// envelope.
+    /// Forward a request envelope to the appropriate upstream RPC
+    /// node and return its response.  Routing:
+    ///
+    ///   - methods in [`HISTORICAL_METHODS`] → always `self.of1`
+    ///     (= the historical archive, e.g. yellowstone-faithful).
+    ///   - everything else → `self.live_rpc` when configured (= an
+    ///     agave-validator live RPC port), falling back to `self.of1`
+    ///     when no live backend is wired up.
+    ///
+    /// The upstream is itself JSON-RPC 2.0 so its body should already
+    /// carry `jsonrpc`/`id` and either `result` or `error`; we
+    /// deserialise it directly into `Response`.  Anything malformed
+    /// gets wrapped as `UPSTREAM_ERROR` so the client never sees a
+    /// half-parsed envelope.
     async fn forward_to_upstream(&self, req: &Request, id: Id) -> Response {
         let envelope = match build_upstream_envelope(req) {
             Ok(v) => v,
@@ -278,7 +355,12 @@ impl Gateway {
                 return Response::err(id, error_codes::INTERNAL_ERROR, msg);
             }
         };
-        match self.of1.forward(&envelope).await {
+        let backend: &Arc<Of1Client> = if is_historical_method(&req.method) {
+            &self.of1
+        } else {
+            self.live_rpc.as_ref().unwrap_or(&self.of1)
+        };
+        match backend.forward(&envelope).await {
             Ok(body) => match serde_json::from_value::<Response>(body.clone()) {
                 Ok(parsed) => parsed,
                 Err(_) => {
@@ -343,6 +425,48 @@ mod commitment_tests {
             slot_commitment(&p(json!({"commitment": "confirmed"}))),
             CommitmentParam::Other,
         );
+    }
+
+    #[test]
+    fn historical_method_classification() {
+        // Historical archive lookups.
+        for m in [
+            "getTransaction",
+            "getBlock",
+            "getBlocks",
+            "getBlocksWithLimit",
+            "getBlockTime",
+            "getBlockCommitment",
+            "getBlockProduction",
+            "getSignaturesForAddress",
+            "getConfirmedBlock",
+            "getConfirmedTransaction",
+            "getConfirmedSignaturesForAddress2",
+        ] {
+            assert!(
+                is_historical_method(m),
+                "{m} must be classified as historical (= archive-backed)",
+            );
+        }
+        // Live-state methods.
+        for m in [
+            "getSlot",
+            "getBlockHeight",
+            "getLatestBlockhash",
+            "getEpochInfo",
+            "getBalance",
+            "getAccountInfo",
+            "sendTransaction",
+            "simulateTransaction",
+            "getRecentPrioritizationFees",
+            "getVoteAccounts",
+            "getHealth",
+        ] {
+            assert!(
+                !is_historical_method(m),
+                "{m} must NOT be classified as historical (= needs live state)",
+            );
+        }
     }
 }
 

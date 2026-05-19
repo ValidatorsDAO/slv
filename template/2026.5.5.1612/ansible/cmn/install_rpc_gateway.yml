@@ -42,6 +42,19 @@
 #                                                       this address to --dest-ip-ports
 #                                                       and a strict nftables allowlist
 #                                                       on the bind port.
+#   rpc_gateway_live_rpc_url                           (unset) — live-state RPC backend
+#                                                       (e.g. http://127.0.0.1:7211 for
+#                                                       a co-located agave-validator).
+#                                                       When set, every non-historical
+#                                                       method is routed here instead of
+#                                                       to OF1_URL.  Required when OF1_URL
+#                                                       points at a historical-only
+#                                                       backend (e.g. yellowstone-faithful)
+#                                                       to keep getSlot / getBlockHeight
+#                                                       / sendTransaction etc. answering
+#                                                       with live chain state.
+#   rpc_gateway_live_rpc_timeout_ms                    10000 — per-call timeout
+#                                                       for the live RPC client
 #   rpc_gateway_metrics_api_url                        (unset) — operator-supplied metrics
 #                                                       API base URL.  When set with
 #                                                       *_bearer below, WS connection close
@@ -96,6 +109,8 @@
     rg_slot_pubsub_url: "{{ rpc_gateway_slot_pubsub_url | default('') }}"
     rg_slot_grpc_url: "{{ rpc_gateway_slot_grpc_url | default('') }}"
     rg_slot_udp_bind: "{{ rpc_gateway_slot_udp_bind | default('') }}"
+    rg_live_rpc_url: "{{ rpc_gateway_live_rpc_url | default('') }}"
+    rg_live_rpc_timeout_ms: "{{ rpc_gateway_live_rpc_timeout_ms | default('') }}"
     rg_metrics_api_url: "{{ rpc_gateway_metrics_api_url | default('') }}"
     rg_metrics_api_bearer: "{{ rpc_gateway_metrics_api_bearer | default('') }}"
     rg_metrics_upstream_ip: "{{ rpc_gateway_metrics_upstream_ip | default('') }}"
@@ -315,6 +330,8 @@
           {% if rg_slot_pubsub_url %}Environment=SLOT_PUBSUB_URL={{ rg_slot_pubsub_url }}{% endif %}
           {% if rg_slot_grpc_url %}Environment=SLOT_GRPC_URL={{ rg_slot_grpc_url }}{% endif %}
           {% if rg_slot_udp_bind %}Environment=SLOT_UDP_BIND={{ rg_slot_udp_bind }}{% endif %}
+          {% if rg_live_rpc_url %}Environment=LIVE_RPC_URL={{ rg_live_rpc_url }}{% endif %}
+          {% if rg_live_rpc_timeout_ms %}Environment=LIVE_RPC_TIMEOUT_MS={{ rg_live_rpc_timeout_ms }}{% endif %}
           {% if rg_metrics_api_url %}Environment=RPC_METRICS_API_URL={{ rg_metrics_api_url }}{% endif %}
           {% if rg_metrics_api_bearer %}Environment=RPC_METRICS_API_BEARER={{ rg_metrics_api_bearer }}{% endif %}
           {% if rg_metrics_upstream_ip %}Environment=RPC_METRICS_UPSTREAM_IP={{ rg_metrics_upstream_ip }}{% endif %}
