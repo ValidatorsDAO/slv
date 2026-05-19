@@ -148,6 +148,9 @@ mod tests {
             slot_multiplex_urls: Vec::new(),
             slot_grpc_url: None,
             yellowstone_endpoint: "localhost:10000".into(),
+            metrics_api_url: None,
+            metrics_api_bearer: None,
+            metrics_upstream_ip: None,
         };
         let gw = Arc::new(Gateway::with_slot_sources(ch, of1, ws_cfg, builder));
         let app = Router::new().route("/ws", get(ws_route)).with_state(gw);

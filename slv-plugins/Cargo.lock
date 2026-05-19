@@ -903,6 +903,7 @@ dependencies = [
  "axum-core 0.5.6",
  "base64 0.22.1",
  "bytes",
+ "form_urlencoded",
  "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
@@ -918,6 +919,7 @@ dependencies = [
  "serde_core",
  "serde_json",
  "serde_path_to_error",
+ "serde_urlencoded",
  "sha1",
  "sync_wrapper 1.0.2",
  "tokio",
@@ -6475,6 +6477,7 @@ dependencies = [
  "axum 0.8.9",
  "base64 0.22.1",
  "bs58",
+ "chrono",
  "futures 0.3.32",
  "hyper 1.9.0",
  "parking_lot 0.12.5",
@@ -6494,6 +6497,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url 2.5.8",
+ "uuid",
  "yellowstone-grpc-client",
  "yellowstone-grpc-proto",
 ]
@@ -11219,6 +11223,17 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "uuid"
+version = "1.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
+dependencies = [
+ "getrandom 0.4.2",
+ "js-sys",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "valuable"
