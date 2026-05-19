@@ -54,6 +54,14 @@ pub struct GatewayBuilder {
     pub slot_first_shred_multiplex_urls: Vec<String>,
     pub slot_first_shred_url: Option<String>,
     pub slot_multiplex_urls: Vec<String>,
+    /// jito-shredstream-proxy `ShredstreamProxy.SubscribeEntries`
+    /// endpoint (`http://host:port`).  When set, it joins the
+    /// `slot_first_shred_multiplex` dedup window as an additional
+    /// input — see [`crate::ws::slot_source`].  Has no effect when
+    /// `slot_first_shred_multiplex_urls` is empty AND this is
+    /// `None`; when only this is set, the multiplex runs with the
+    /// gRPC source alone.
+    pub slot_grpc_url: Option<String>,
     pub yellowstone_endpoint: String,
 }
 
@@ -82,11 +90,16 @@ impl Gateway {
         let of1 = Arc::new(of1);
         let gtfa = GtfaHandlers::new(ch.clone(), of1.clone(), builder.full_concurrency.max(1));
         let transfers = TransfersHandlers::new(ch.clone());
-        let slot_first_shred_multi = (!builder.slot_first_shred_multiplex_urls.is_empty()).then(
-            || Arc::new(SlotPubsubMultiplex::first_shred_multiplex(
+        let slot_first_shred_multi = (!builder
+            .slot_first_shred_multiplex_urls
+            .is_empty()
+            || builder.slot_grpc_url.is_some())
+        .then(|| {
+            Arc::new(SlotPubsubMultiplex::first_shred_multiplex(
                 builder.slot_first_shred_multiplex_urls,
-            )),
-        );
+                builder.slot_grpc_url,
+            ))
+        });
         let slot_first_shred = builder
             .slot_first_shred_url
             .map(|url| Arc::new(SlotPubsubMultiplex::first_shred(url)));

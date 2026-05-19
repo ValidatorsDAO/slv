@@ -33,5 +33,13 @@ pub mod jsonrpc;
 pub mod of1;
 pub mod ws;
 
+/// Generated gRPC client + message types for the minimal
+/// `shredstream.proto` we ship in `proto/`.  See `build.rs`.
+pub mod proto {
+    pub mod shredstream {
+        tonic::include_proto!("shredstream");
+    }
+}
+
 #[cfg(test)]
 mod dispatch_test;

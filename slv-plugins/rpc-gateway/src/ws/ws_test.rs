@@ -146,6 +146,7 @@ mod tests {
             slot_first_shred_multiplex_urls: urls,
             slot_first_shred_url: None,
             slot_multiplex_urls: Vec::new(),
+            slot_grpc_url: None,
             yellowstone_endpoint: "localhost:10000".into(),
         };
         let gw = Arc::new(Gateway::with_slot_sources(ch, of1, ws_cfg, builder));

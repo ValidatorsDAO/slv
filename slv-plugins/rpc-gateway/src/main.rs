@@ -29,6 +29,15 @@
 //!                         standard `slotSubscribe` notifications
 //!                         from multiple sources (no
 //!                         `firstShredReceived` filter)
+//!   SLOT_GRPC_URL         jito-shredstream-proxy `SubscribeEntries`
+//!                         gRPC endpoint (`http://host:port`).
+//!                         When set, joins the
+//!                         `SLOT_FIRST_SHRED_MULTIPLEX_URLS` dedup
+//!                         window as an additional input — bypasses
+//!                         the validator's TVU processing step for
+//!                         slots where the proxy reports the entry
+//!                         before the validator finishes shred
+//!                         verification.
 //!   SLOT_PUBSUB_URL       per-client `PubsubForward` URL used for
 //!                         `slotSubscribe` only (the validator's
 //!                         native pubsub on `rpc-port + 1` is
@@ -115,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .filter(|s| !s.is_empty()),
         slot_multiplex_urls: comma_list("SLOT_MULTIPLEX_URLS"),
+        slot_grpc_url: std::env::var("SLOT_GRPC_URL").ok().filter(|s| !s.is_empty()),
         yellowstone_endpoint: env_or("YELLOWSTONE_GRPC", "localhost:10000"),
     };
     let gateway = Arc::new(Gateway::with_slot_sources(ch, of1, ws_cfg, builder));

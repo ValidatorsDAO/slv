@@ -9,10 +9,22 @@
 //! | `first_shred(url)` | `slotsUpdatesSubscribe` | `firstShredReceived` | early-signal slot ticks from one source |
 //! | `first_shred_multiplex(urls)` | `slotsUpdatesSubscribe` | `firstShredReceived` | both axes combined |
 //!
+//! The `first_shred_multiplex` variant additionally accepts an
+//! optional gRPC URL pointing at a jito-shredstream-proxy's
+//! `ShredstreamProxy.SubscribeEntries` endpoint.  The proxy emits
+//! per-tick `Entry` messages with the slot number in the proto
+//! header — we read that header and feed it into the same
+//! dedup window the WS sources share, so the earliest signal
+//! across all three transports (validator native pubsub, richat
+//! pubsub, jito-shredstream-proxy gRPC) wins.  This bypasses the
+//! validator's TVU processing step (typically 1–5 ms) when the
+//! shred arrives via the proxy first.
+//!
 //! Each variant opens N persistent WebSocket connections (one per
-//! URL) when the first client subscribes, dedupes incoming slot
-//! numbers in a 1024-slot sliding window, and fans the resulting
-//! `SlotUpdate` events out to all currently-registered listeners.
+//! URL) — plus the gRPC stream when configured — when the first
+//! client subscribes, dedupes incoming slot numbers in a 1024-slot
+//! sliding window, and fans the resulting `SlotUpdate` events out
+//! to all currently-registered listeners.
 //!
 //! Listeners are removed automatically when the returned
 //! `SlotSubscription` is dropped — the WS handler abort()s the
@@ -52,6 +64,12 @@ pub struct SlotPubsubMultiplex {
     /// Used in log lines so operators can tell which singleton emitted what.
     label: &'static str,
     urls: Vec<String>,
+    /// Optional jito-shredstream-proxy `SubscribeEntries` endpoint
+    /// (`http://host:port`) used as an additional fast-path source
+    /// for `first_shred_multiplex`.  Sent through the same dedup
+    /// window as the WS sources.  Only honoured by
+    /// `first_shred_multiplex` — other variants ignore it.
+    grpc_url: Option<String>,
     subscribe_method: &'static str,
     notification_method: &'static str,
     filter_type: Option<&'static str>,
@@ -90,7 +108,7 @@ impl SlotPubsubMultiplex {
     /// Dedup'd `slotSubscribe` fan-in (= jitter smoothing across
     /// multiple upstream pubsubs).
     pub fn slot_subscribe(urls: Vec<String>) -> Self {
-        Self::new("slot_multiplex", urls, "slotSubscribe", "slotNotification", None)
+        Self::new("slot_multiplex", urls, None, "slotSubscribe", "slotNotification", None)
     }
 
     /// Single upstream re-emitting `firstShredReceived` events from
@@ -99,17 +117,26 @@ impl SlotPubsubMultiplex {
         Self::new(
             "slot_first_shred",
             vec![url],
+            None,
             "slotsUpdatesSubscribe",
             "slotsUpdatesNotification",
             Some("firstShredReceived"),
         )
     }
 
-    /// Dedup'd `firstShredReceived` fan-in across N upstreams.
-    pub fn first_shred_multiplex(urls: Vec<String>) -> Self {
+    /// Dedup'd `firstShredReceived` fan-in across N upstreams.  When
+    /// `grpc_url` is `Some`, a jito-shredstream-proxy
+    /// `ShredstreamProxy.SubscribeEntries` stream is added as an
+    /// additional input — the proxy bypasses the validator's TVU
+    /// processing and reports slot numbers from the raw shred
+    /// header, which can win the multiplex race when a shred
+    /// arrives via the proxy before the validator finishes shred
+    /// verification.
+    pub fn first_shred_multiplex(urls: Vec<String>, grpc_url: Option<String>) -> Self {
         Self::new(
             "slot_first_shred_multiplex",
             urls,
+            grpc_url,
             "slotsUpdatesSubscribe",
             "slotsUpdatesNotification",
             Some("firstShredReceived"),
@@ -119,6 +146,7 @@ impl SlotPubsubMultiplex {
     fn new(
         label: &'static str,
         urls: Vec<String>,
+        grpc_url: Option<String>,
         subscribe_method: &'static str,
         notification_method: &'static str,
         filter_type: Option<&'static str>,
@@ -126,6 +154,7 @@ impl SlotPubsubMultiplex {
         Self {
             label,
             urls,
+            grpc_url,
             subscribe_method,
             notification_method,
             filter_type,
@@ -156,6 +185,10 @@ impl SlotPubsubMultiplex {
         for url in self.urls.clone() {
             let me = Arc::clone(self);
             tokio::spawn(connect_loop(me, url));
+        }
+        if let Some(grpc_url) = self.grpc_url.clone() {
+            let me = Arc::clone(self);
+            tokio::spawn(connect_grpc_loop(me, grpc_url));
         }
     }
 
@@ -225,6 +258,63 @@ async fn connect_loop(me: Arc<SlotPubsubMultiplex>, url: String) {
         tokio::time::sleep(delay).await;
         delay = (delay * 2).min(RECONNECT_MAX);
     }
+}
+
+async fn connect_grpc_loop(me: Arc<SlotPubsubMultiplex>, url: String) {
+    let mut delay = RECONNECT_MIN;
+    loop {
+        match try_grpc_once(&me, &url).await {
+            Ok(()) => {
+                tracing::warn!(
+                    label = %me.label,
+                    url = %url,
+                    "slot_grpc_stream_ended",
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    label = %me.label,
+                    url = %url,
+                    error = %e,
+                    "slot_grpc_connect_failed",
+                );
+            }
+        }
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(RECONNECT_MAX);
+    }
+}
+
+async fn try_grpc_once(
+    me: &Arc<SlotPubsubMultiplex>,
+    url: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use crate::proto::shredstream::shredstream_proxy_client::ShredstreamProxyClient;
+    use crate::proto::shredstream::SubscribeEntriesRequest;
+
+    let endpoint = tonic::transport::Endpoint::from_shared(url.to_string())?
+        .connect_timeout(Duration::from_secs(10))
+        .tcp_keepalive(Some(Duration::from_secs(30)));
+    let channel = endpoint.connect().await?;
+    let mut client = ShredstreamProxyClient::new(channel);
+    tracing::info!(
+        label = %me.label,
+        url = %url,
+        "slot_grpc_connected",
+    );
+    let request = tonic::Request::new(SubscribeEntriesRequest {});
+    let mut stream = client.subscribe_entries(request).await?.into_inner();
+    while let Some(entry) = stream.message().await? {
+        if entry.slot == 0 {
+            continue;
+        }
+        me.deliver(SlotUpdate {
+            slot: entry.slot,
+            parent: None,
+            root: entry.slot.saturating_sub(32),
+        });
+    }
+    Ok(())
 }
 
 async fn run_one(
@@ -311,5 +401,37 @@ mod tests {
         for slot in 0..50 {
             assert!(w.observe(slot), "slot {slot} should re-enter after eviction");
         }
+    }
+
+    #[test]
+    fn first_shred_multiplex_stores_grpc_url_alongside_ws_urls() {
+        let m = SlotPubsubMultiplex::first_shred_multiplex(
+            vec!["ws://127.0.0.1:7212".into(), "ws://127.0.0.1:7111".into()],
+            Some("http://127.0.0.1:10000".into()),
+        );
+        assert_eq!(m.urls.len(), 2);
+        assert_eq!(m.grpc_url.as_deref(), Some("http://127.0.0.1:10000"));
+        assert_eq!(m.label, "slot_first_shred_multiplex");
+    }
+
+    #[test]
+    fn first_shred_multiplex_grpc_only_is_valid() {
+        // The dispatcher activates the multiplex when EITHER the
+        // WS-URLs list is non-empty OR the gRPC URL is set; the
+        // gRPC-only variant must be representable.
+        let m = SlotPubsubMultiplex::first_shred_multiplex(
+            Vec::new(),
+            Some("http://127.0.0.1:10000".into()),
+        );
+        assert!(m.urls.is_empty());
+        assert!(m.grpc_url.is_some());
+    }
+
+    #[test]
+    fn other_constructors_ignore_grpc() {
+        let m = SlotPubsubMultiplex::slot_subscribe(vec!["ws://x".into()]);
+        assert!(m.grpc_url.is_none());
+        let m = SlotPubsubMultiplex::first_shred("ws://x".into());
+        assert!(m.grpc_url.is_none());
     }
 }
