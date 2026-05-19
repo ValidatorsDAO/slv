@@ -148,6 +148,8 @@ mod tests {
             slot_multiplex_urls: Vec::new(),
             slot_grpc_url: None,
             slot_udp_bind: None,
+            live_rpc_url: None,
+            live_rpc_timeout: None,
             yellowstone_endpoint: "localhost:10000".into(),
             metrics_api_url: None,
             metrics_api_bearer: None,

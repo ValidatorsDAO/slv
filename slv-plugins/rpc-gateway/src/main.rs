@@ -7,10 +7,27 @@
 //!   CLICKHOUSE_USER       optional Basic-auth username
 //!   CLICKHOUSE_PASS       optional Basic-auth password
 //!   CLICKHOUSE_TIMEOUT_MS per-query timeout (default 30000)
-//!   OF1_URL               upstream JSON-RPC base for the pass-through proxy
-//!                         + `full` mode on `getTransactionsForAddress`
+//!   OF1_URL               upstream JSON-RPC base for the historical-
+//!                         archive backend (e.g. yellowstone-faithful).
+//!                         Used for `getTransaction`, `getBlock`,
+//!                         `getSignaturesForAddress`, etc. — every
+//!                         method in `dispatch::HISTORICAL_METHODS`.
+//!                         Also handles `full` mode on
+//!                         `getTransactionsForAddress`.
 //!                         (default http://localhost:8888)
 //!   OF1_TIMEOUT_MS        per-call timeout for of1 (default 60000)
+//!   LIVE_RPC_URL          upstream JSON-RPC base for live-state
+//!                         methods (`getSlot`, `getBlockHeight`,
+//!                         `getLatestBlockhash`, `sendTransaction`,
+//!                         `getBalance`, …).  Set this to an
+//!                         agave-validator RPC port (typically
+//!                         `http://127.0.0.1:7211`) when the of1
+//!                         backend is historical-only — otherwise
+//!                         live-state methods would return stale or
+//!                         "not found" answers.  Unset = all methods
+//!                         continue to forward to OF1_URL (= prior
+//!                         behaviour, backward compat).
+//!   LIVE_RPC_TIMEOUT_MS   per-call timeout for live RPC (default 10000)
 //!   GTFA_FULL_CONCURRENCY max parallel of1 `getTransaction` calls when
 //!                         `transactionDetails: "full"` is requested
 //!                         (default 20)
@@ -148,6 +165,11 @@ async fn main() -> anyhow::Result<()> {
         slot_multiplex_urls: comma_list("SLOT_MULTIPLEX_URLS"),
         slot_grpc_url: std::env::var("SLOT_GRPC_URL").ok().filter(|s| !s.is_empty()),
         slot_udp_bind: std::env::var("SLOT_UDP_BIND").ok().filter(|s| !s.is_empty()),
+        live_rpc_url: std::env::var("LIVE_RPC_URL").ok().filter(|s| !s.is_empty()),
+        live_rpc_timeout: std::env::var("LIVE_RPC_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(Duration::from_millis),
         yellowstone_endpoint: env_or("YELLOWSTONE_GRPC", "localhost:10000"),
         metrics_api_url: std::env::var("RPC_METRICS_API_URL").ok().filter(|s| !s.is_empty()),
         metrics_api_bearer: std::env::var("RPC_METRICS_API_BEARER").ok().filter(|s| !s.is_empty()),
