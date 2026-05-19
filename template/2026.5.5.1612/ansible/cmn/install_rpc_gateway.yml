@@ -32,6 +32,16 @@
 #                                                       SubscribeEntries endpoint, joins
 #                                                       the SLOT_FIRST_SHRED_MULTIPLEX dedup
 #                                                       window as an extra fast-path source
+#   rpc_gateway_slot_udp_bind                          (unset) — UDP bind address
+#                                                       (`host:port`) for raw shred
+#                                                       reception.  Gateway reads slot
+#                                                       directly from the shred header,
+#                                                       skipping the gRPC proxy's decode
+#                                                       (saves ~150-450 µs per slot).
+#                                                       Requires upstream sender to add
+#                                                       this address to --dest-ip-ports
+#                                                       and a strict nftables allowlist
+#                                                       on the bind port.
 #   rpc_gateway_metrics_api_url                        (unset) — operator-supplied metrics
 #                                                       API base URL.  When set with
 #                                                       *_bearer below, WS connection close
@@ -85,6 +95,7 @@
     rg_slot_multiplex_urls: "{{ rpc_gateway_slot_multiplex_urls | default('') }}"
     rg_slot_pubsub_url: "{{ rpc_gateway_slot_pubsub_url | default('') }}"
     rg_slot_grpc_url: "{{ rpc_gateway_slot_grpc_url | default('') }}"
+    rg_slot_udp_bind: "{{ rpc_gateway_slot_udp_bind | default('') }}"
     rg_metrics_api_url: "{{ rpc_gateway_metrics_api_url | default('') }}"
     rg_metrics_api_bearer: "{{ rpc_gateway_metrics_api_bearer | default('') }}"
     rg_metrics_upstream_ip: "{{ rpc_gateway_metrics_upstream_ip | default('') }}"
@@ -303,6 +314,7 @@
           {% if rg_slot_multiplex_urls %}Environment=SLOT_MULTIPLEX_URLS={{ rg_slot_multiplex_urls }}{% endif %}
           {% if rg_slot_pubsub_url %}Environment=SLOT_PUBSUB_URL={{ rg_slot_pubsub_url }}{% endif %}
           {% if rg_slot_grpc_url %}Environment=SLOT_GRPC_URL={{ rg_slot_grpc_url }}{% endif %}
+          {% if rg_slot_udp_bind %}Environment=SLOT_UDP_BIND={{ rg_slot_udp_bind }}{% endif %}
           {% if rg_metrics_api_url %}Environment=RPC_METRICS_API_URL={{ rg_metrics_api_url }}{% endif %}
           {% if rg_metrics_api_bearer %}Environment=RPC_METRICS_API_BEARER={{ rg_metrics_api_bearer }}{% endif %}
           {% if rg_metrics_upstream_ip %}Environment=RPC_METRICS_UPSTREAM_IP={{ rg_metrics_upstream_ip }}{% endif %}

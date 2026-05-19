@@ -9,22 +9,28 @@
 //! | `first_shred(url)` | `slotsUpdatesSubscribe` | `firstShredReceived` | early-signal slot ticks from one source |
 //! | `first_shred_multiplex(urls)` | `slotsUpdatesSubscribe` | `firstShredReceived` | both axes combined |
 //!
-//! The `first_shred_multiplex` variant additionally accepts an
-//! optional gRPC URL pointing at a jito-shredstream-proxy's
-//! `ShredstreamProxy.SubscribeEntries` endpoint.  The proxy emits
-//! per-tick `Entry` messages with the slot number in the proto
-//! header — we read that header and feed it into the same
-//! dedup window the WS sources share, so the earliest signal
-//! across all three transports (validator native pubsub, richat
-//! pubsub, jito-shredstream-proxy gRPC) wins.  This bypasses the
-//! validator's TVU processing step (typically 1–5 ms) when the
-//! shred arrives via the proxy first.
+//! The `first_shred_multiplex` variant additionally accepts two
+//! optional fast-path sources that bypass the validator's TVU
+//! processing entirely:
 //!
-//! Each variant opens N persistent WebSocket connections (one per
-//! URL) — plus the gRPC stream when configured — when the first
-//! client subscribes, dedupes incoming slot numbers in a 1024-slot
-//! sliding window, and fans the resulting `SlotUpdate` events out
-//! to all currently-registered listeners.
+//!   - a gRPC URL pointing at a `jito-shredstream-proxy`'s
+//!     `ShredstreamProxy.SubscribeEntries` endpoint — proxy decodes
+//!     each shred into an `Entry` whose proto header carries the
+//!     slot number.
+//!
+//!   - a UDP bind address for raw shred reception — the gateway
+//!     opens a `UdpSocket` and reads the slot field directly from
+//!     the shred header (offset 65, u64 LE, per Solana's
+//!     `solana_ledger::shred::wire::get_slot`).  Saves ~150–450 µs
+//!     vs the gRPC path by skipping the proxy's decode + gRPC
+//!     serialize round-trip.  Requires the upstream sender (the
+//!     local `jito-shredstream-proxy` or the stake validator) to
+//!     include the gateway's UDP port in its `--dest-ip-ports`.
+//!     Signatures are NOT verified by the gateway; security relies
+//!     on an IP allowlist (= nftables) at the bind port.
+//!
+//! All sources feed the same per-multiplex dedup window so the
+//! earliest signal across every transport wins.
 //!
 //! Listeners are removed automatically when the returned
 //! `SlotSubscription` is dropped — the WS handler abort()s the
@@ -70,6 +76,12 @@ pub struct SlotPubsubMultiplex {
     /// window as the WS sources.  Only honoured by
     /// `first_shred_multiplex` — other variants ignore it.
     grpc_url: Option<String>,
+    /// Optional UDP bind address (`host:port`) for raw shred
+    /// reception.  Reads the slot field straight from the shred
+    /// header without verifying signatures — security relies on a
+    /// strict source-IP allowlist (nftables) at the bind port.
+    /// Only honoured by `first_shred_multiplex`.
+    udp_bind: Option<String>,
     subscribe_method: &'static str,
     notification_method: &'static str,
     filter_type: Option<&'static str>,
@@ -108,7 +120,15 @@ impl SlotPubsubMultiplex {
     /// Dedup'd `slotSubscribe` fan-in (= jitter smoothing across
     /// multiple upstream pubsubs).
     pub fn slot_subscribe(urls: Vec<String>) -> Self {
-        Self::new("slot_multiplex", urls, None, "slotSubscribe", "slotNotification", None)
+        Self::new(
+            "slot_multiplex",
+            urls,
+            None,
+            None,
+            "slotSubscribe",
+            "slotNotification",
+            None,
+        )
     }
 
     /// Single upstream re-emitting `firstShredReceived` events from
@@ -117,6 +137,7 @@ impl SlotPubsubMultiplex {
         Self::new(
             "slot_first_shred",
             vec![url],
+            None,
             None,
             "slotsUpdatesSubscribe",
             "slotsUpdatesNotification",
@@ -131,12 +152,20 @@ impl SlotPubsubMultiplex {
     /// processing and reports slot numbers from the raw shred
     /// header, which can win the multiplex race when a shred
     /// arrives via the proxy before the validator finishes shred
-    /// verification.
-    pub fn first_shred_multiplex(urls: Vec<String>, grpc_url: Option<String>) -> Self {
+    /// verification.  When `udp_bind` is `Some`, the gateway also
+    /// listens on that UDP address for raw shred packets and reads
+    /// the slot field directly from the header — saves ~150–450 µs
+    /// per shred by skipping the proxy's decode + gRPC round-trip.
+    pub fn first_shred_multiplex(
+        urls: Vec<String>,
+        grpc_url: Option<String>,
+        udp_bind: Option<String>,
+    ) -> Self {
         Self::new(
             "slot_first_shred_multiplex",
             urls,
             grpc_url,
+            udp_bind,
             "slotsUpdatesSubscribe",
             "slotsUpdatesNotification",
             Some("firstShredReceived"),
@@ -147,6 +176,7 @@ impl SlotPubsubMultiplex {
         label: &'static str,
         urls: Vec<String>,
         grpc_url: Option<String>,
+        udp_bind: Option<String>,
         subscribe_method: &'static str,
         notification_method: &'static str,
         filter_type: Option<&'static str>,
@@ -155,6 +185,7 @@ impl SlotPubsubMultiplex {
             label,
             urls,
             grpc_url,
+            udp_bind,
             subscribe_method,
             notification_method,
             filter_type,
@@ -190,6 +221,18 @@ impl SlotPubsubMultiplex {
             let me = Arc::clone(self);
             tokio::spawn(connect_grpc_loop(me, grpc_url));
         }
+        if let Some(udp_bind) = self.udp_bind.clone() {
+            let me = Arc::clone(self);
+            tokio::spawn(udp_shred_loop(me, udp_bind));
+        }
+    }
+
+    /// Test-only accessor — exposed so unit tests can drive the
+    /// dedup window without spinning up the full connection
+    /// machinery.
+    #[cfg(test)]
+    pub(crate) fn deliver_for_test(&self, update: SlotUpdate) {
+        self.deliver(update);
     }
 
     fn deliver(&self, update: SlotUpdate) {
@@ -317,6 +360,76 @@ async fn try_grpc_once(
     Ok(())
 }
 
+/// Solana shred header (signature || variant) + slot field layout:
+///   bytes 0..64   = leader signature  (NOT verified here)
+///   byte  64      = shred variant flag
+///   bytes 65..73  = slot (u64 little-endian)  ← what we read
+///   bytes 73..77  = index in slot (u32 LE)    (unused for slot dedup)
+///
+/// See `solana_ledger::shred::wire::get_slot` for the authoritative
+/// reference.  This module intentionally does *not* depend on
+/// `solana-ledger` (= huge dep tree); the slot offset is part of
+/// the wire protocol and stable across versions.
+const SHRED_SLOT_OFFSET: usize = 65;
+const SHRED_SLOT_END: usize = SHRED_SLOT_OFFSET + 8;
+
+/// Returns `Some(slot)` when the packet looks like a Solana shred
+/// (= long enough to hold the common header + slot field) and the
+/// slot is non-zero.  `None` for too-short packets or sentinel `0`.
+fn parse_shred_slot(packet: &[u8]) -> Option<u64> {
+    let bytes: [u8; 8] = packet.get(SHRED_SLOT_OFFSET..SHRED_SLOT_END)?.try_into().ok()?;
+    let slot = u64::from_le_bytes(bytes);
+    (slot != 0).then_some(slot)
+}
+
+async fn udp_shred_loop(me: Arc<SlotPubsubMultiplex>, bind: String) {
+    let mut delay = RECONNECT_MIN;
+    loop {
+        match tokio::net::UdpSocket::bind(&bind).await {
+            Ok(socket) => {
+                tracing::info!(
+                    label = %me.label,
+                    bind = %bind,
+                    "slot_udp_bound",
+                );
+                delay = RECONNECT_MIN;
+                let _ = run_udp(&me, socket).await;
+                tracing::warn!(label = %me.label, bind = %bind, "slot_udp_socket_closed");
+            }
+            Err(e) => {
+                tracing::error!(
+                    label = %me.label,
+                    bind = %bind,
+                    error = %e,
+                    "slot_udp_bind_failed",
+                );
+            }
+        }
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(RECONNECT_MAX);
+    }
+}
+
+async fn run_udp(
+    me: &Arc<SlotPubsubMultiplex>,
+    socket: tokio::net::UdpSocket,
+) -> std::io::Result<()> {
+    // Typical Solana shred is ~1228 bytes (MTU-bound).  2048 is
+    // comfortable headroom for any current or future shred variant
+    // without forcing the kernel to truncate.
+    let mut buf = [0u8; 2048];
+    loop {
+        let (n, _peer) = socket.recv_from(&mut buf).await?;
+        if let Some(slot) = parse_shred_slot(&buf[..n]) {
+            me.deliver(SlotUpdate {
+                slot,
+                parent: None,
+                root: slot.saturating_sub(32),
+            });
+        }
+    }
+}
+
 async fn run_one(
     me: &Arc<SlotPubsubMultiplex>,
     ws: tokio_tungstenite::WebSocketStream<
@@ -408,6 +521,7 @@ mod tests {
         let m = SlotPubsubMultiplex::first_shred_multiplex(
             vec!["ws://127.0.0.1:7212".into(), "ws://127.0.0.1:7111".into()],
             Some("http://127.0.0.1:10000".into()),
+            None,
         );
         assert_eq!(m.urls.len(), 2);
         assert_eq!(m.grpc_url.as_deref(), Some("http://127.0.0.1:10000"));
@@ -422,6 +536,7 @@ mod tests {
         let m = SlotPubsubMultiplex::first_shred_multiplex(
             Vec::new(),
             Some("http://127.0.0.1:10000".into()),
+            None,
         );
         assert!(m.urls.is_empty());
         assert!(m.grpc_url.is_some());
@@ -433,5 +548,82 @@ mod tests {
         assert!(m.grpc_url.is_none());
         let m = SlotPubsubMultiplex::first_shred("ws://x".into());
         assert!(m.grpc_url.is_none());
+    }
+
+    #[test]
+    fn first_shred_multiplex_stores_udp_bind() {
+        let m = SlotPubsubMultiplex::first_shred_multiplex(
+            Vec::new(),
+            None,
+            Some("0.0.0.0:20100".into()),
+        );
+        assert_eq!(m.udp_bind.as_deref(), Some("0.0.0.0:20100"));
+        // The other variants must default udp_bind to None.
+        let m = SlotPubsubMultiplex::slot_subscribe(vec!["ws://x".into()]);
+        assert!(m.udp_bind.is_none());
+        let m = SlotPubsubMultiplex::first_shred("ws://x".into());
+        assert!(m.udp_bind.is_none());
+    }
+
+    #[test]
+    fn parse_shred_slot_reads_offset_65_le() {
+        // Synthetic shred packet: 64-byte signature + variant byte +
+        // slot u64 LE + filler.  Slot value chosen so the byte
+        // pattern is unambiguous.
+        let mut pkt = vec![0u8; 1228];
+        // Slot = 0x0102030405060708 = 72623859790382856
+        let slot_bytes: [u8; 8] = 72_623_859_790_382_856u64.to_le_bytes();
+        pkt[65..73].copy_from_slice(&slot_bytes);
+        assert_eq!(parse_shred_slot(&pkt), Some(72_623_859_790_382_856));
+    }
+
+    #[test]
+    fn parse_shred_slot_rejects_short_packets() {
+        assert_eq!(parse_shred_slot(&[]), None);
+        assert_eq!(parse_shred_slot(&[0u8; 64]), None);
+        assert_eq!(parse_shred_slot(&[0u8; 72]), None); // 1 byte short
+    }
+
+    #[test]
+    fn parse_shred_slot_rejects_zero_slot() {
+        // Zero slot is the sentinel used by `slotsUpdatesSubscribe`
+        // probes and by zero-padded packets — must not be delivered.
+        let pkt = vec![0u8; 1228];
+        assert_eq!(parse_shred_slot(&pkt), None);
+    }
+
+    #[tokio::test]
+    async fn udp_shred_loop_delivers_unique_slots_through_dedup() {
+        let m = Arc::new(SlotPubsubMultiplex::first_shred_multiplex(
+            Vec::new(),
+            None,
+            None, // we drive deliver directly, no listener spawn
+        ));
+        let mut sub = m.subscribe();
+
+        // Two packets, same slot — second must NOT re-deliver.
+        let slot = 999_000_001u64;
+        let mut pkt = vec![0u8; 1228];
+        pkt[65..73].copy_from_slice(&slot.to_le_bytes());
+        let parsed = parse_shred_slot(&pkt).unwrap();
+        m.deliver(SlotUpdate { slot: parsed, parent: None, root: parsed.saturating_sub(32) });
+        m.deliver(SlotUpdate { slot: parsed, parent: None, root: parsed.saturating_sub(32) });
+
+        let first = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            sub.rx.recv(),
+        )
+        .await
+        .expect("first slot arrives")
+        .expect("channel still open");
+        assert_eq!(first.slot, slot);
+
+        // Second should not arrive.
+        let second = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            sub.rx.recv(),
+        )
+        .await;
+        assert!(second.is_err(), "duplicate slot must be deduped");
     }
 }

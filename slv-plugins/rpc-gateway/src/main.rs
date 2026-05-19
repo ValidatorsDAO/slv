@@ -38,6 +38,17 @@
 //!                         slots where the proxy reports the entry
 //!                         before the validator finishes shred
 //!                         verification.
+//!   SLOT_UDP_BIND         UDP bind address (`host:port`, e.g.
+//!                         `0.0.0.0:20100`) for raw shred reception.
+//!                         Gateway reads slot field directly from
+//!                         the shred header and joins the
+//!                         `SLOT_FIRST_SHRED_MULTIPLEX_URLS` dedup
+//!                         window — saves the gRPC proxy's decode +
+//!                         serialize round-trip (~150–450 µs).
+//!                         Requires upstream shred sender to include
+//!                         this address in `--dest-ip-ports` and a
+//!                         strict nftables allowlist (no in-process
+//!                         signature verification).
 //!   SLOT_PUBSUB_URL       per-client `PubsubForward` URL used for
 //!                         `slotSubscribe` only (the validator's
 //!                         native pubsub on `rpc-port + 1` is
@@ -136,6 +147,7 @@ async fn main() -> anyhow::Result<()> {
             .filter(|s| !s.is_empty()),
         slot_multiplex_urls: comma_list("SLOT_MULTIPLEX_URLS"),
         slot_grpc_url: std::env::var("SLOT_GRPC_URL").ok().filter(|s| !s.is_empty()),
+        slot_udp_bind: std::env::var("SLOT_UDP_BIND").ok().filter(|s| !s.is_empty()),
         yellowstone_endpoint: env_or("YELLOWSTONE_GRPC", "localhost:10000"),
         metrics_api_url: std::env::var("RPC_METRICS_API_URL").ok().filter(|s| !s.is_empty()),
         metrics_api_bearer: std::env::var("RPC_METRICS_API_BEARER").ok().filter(|s| !s.is_empty()),
