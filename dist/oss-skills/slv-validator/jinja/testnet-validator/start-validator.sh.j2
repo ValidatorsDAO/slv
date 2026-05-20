@@ -21,6 +21,19 @@ exec agave-validator \
 {% endif %}
 --limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
 --no-port-check \
+--rpc-bind-address 0.0.0.0 \
+{% if xdp_cpu_core is defined %}
+--experimental-retransmit-xdp-cpu-cores {{ xdp_cpu_core }} \
+{% endif %}
+{% if poh_cpu_core is defined %}
+--experimental-poh-pinned-cpu-core {{ poh_cpu_core }} \
+{% endif %}
+{% if xdp_interface is defined %}
+--experimental-retransmit-xdp-interface {{ xdp_interface }} \
+{% endif %}
+{% if xdp_zero_copy | default(false) %}
+--experimental-retransmit-xdp-zero-copy \
+{% endif %}
 {% if validator_type in ['jito', 'jito-bam'] %}
 --tip-payment-program-pubkey GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy \
 --tip-distribution-program-pubkey DzvGET57TAgEDxvm3ERUM4GNcsAJdqjDLCne9sdfY4wf \
