@@ -1,0 +1,148 @@
+---
+# of1_index_cache_sync — set up a rolling cache of yellowstone-faithful
+# indexes for the last N epochs.  The CAR files stay remote (1 epoch ≈
+# 500-800 GB each) but the indexes (~30 GB / recent epoch) live on local
+# disk so the multi-step lookup chain (sig-to-cid → cid-to-offset → CAR
+# byte-range) collapses to a single CAR roundtrip.  Phase 1 measurements
+# show ~6x faster getTransaction.
+#
+# Inventory variables (with defaults):
+#   index_rpc_window_epochs   default 30
+#   of1_index_cache_dir       default /mnt/ledger/car/indexes
+#   of1_config_dir            default /home/solv/configs
+#   faithful_service_name     default faithful.service
+#   of1_run_initial_sync      default true   (run a foreground sync once on first apply)
+#   of1_initial_sync_async    default 14400  (seconds; 4h max for the initial 30-epoch fill)
+
+- name: Setup yellowstone-faithful index rolling cache
+  hosts: all
+  become: yes
+  gather_facts: no
+  vars:
+    of1_window: "{{ index_rpc_window_epochs | default(30) }}"
+    of1_cache_dir: "{{ of1_index_cache_dir | default('/mnt/ledger/car/indexes') }}"
+    of1_config_dir_var: "{{ of1_config_dir | default('/home/solv/configs') }}"
+    of1_service: "{{ faithful_service_name | default('faithful.service') }}"
+    of1_run_initial_sync_var: "{{ of1_run_initial_sync | default(true) | bool }}"
+    of1_initial_sync_async_var: "{{ of1_initial_sync_async | default(14400) | int }}"
+
+  tasks:
+    - name: Ensure aria2 is installed
+      ansible.builtin.apt:
+        name: aria2
+        state: present
+      when: ansible_os_family == 'Debian'
+
+    - name: Ensure index cache directory exists
+      ansible.builtin.file:
+        path: "{{ of1_cache_dir }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    - name: Ensure config directory exists
+      ansible.builtin.file:
+        path: "{{ of1_config_dir_var }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    - name: Install of1-index-sync.sh
+      ansible.builtin.copy:
+        src: files/of1-index-sync.sh
+        dest: /usr/local/bin/of1-index-sync.sh
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Install start-faithful.sh wrapper
+      ansible.builtin.copy:
+        src: files/start-faithful.sh
+        dest: /usr/local/bin/start-faithful.sh
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Install of1-index-sync.service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/of1-index-sync.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Sync yellowstone-faithful indexes (rolling cache)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=root
+          Environment=WINDOW={{ of1_window }}
+          Environment=CACHE_DIR={{ of1_cache_dir }}
+          Environment=CONFIG_DIR={{ of1_config_dir_var }}
+          Environment=SERVICE_NAME={{ of1_service }}
+          ExecStart=/usr/local/bin/of1-index-sync.sh
+          # downloads can be slow, allow up to 4h
+          TimeoutStartSec=14400
+      register: sync_service_unit
+
+    - name: Install of1-index-sync.timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/of1-index-sync.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Daily sync of yellowstone-faithful indexes
+
+          [Timer]
+          OnCalendar=daily
+          Persistent=true
+          RandomizedDelaySec=15min
+
+          [Install]
+          WantedBy=timers.target
+      register: sync_timer_unit
+
+    - name: Switch faithful.service ExecStart to start-faithful.sh wrapper
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/system/{{ of1_service }}
+        regexp: '^ExecStart='
+        line: 'ExecStart=/usr/local/bin/start-faithful.sh'
+        backup: yes
+      register: faithful_unit_changed
+
+    - name: Reload systemd
+      ansible.builtin.command: systemctl daemon-reload
+      when: sync_service_unit is changed or sync_timer_unit is changed or faithful_unit_changed is changed
+
+    - name: Enable and start of1-index-sync.timer
+      ansible.builtin.systemd:
+        name: of1-index-sync.timer
+        enabled: yes
+        state: started
+
+    - name: Restart faithful so wrapper script picks up
+      ansible.builtin.systemd:
+        name: "{{ of1_service }}"
+        state: restarted
+      when: faithful_unit_changed is changed
+
+    - name: Run initial sync (foreground, may fetch up to {{ of1_window }} epochs)
+      ansible.builtin.command: /usr/local/bin/of1-index-sync.sh
+      environment:
+        WINDOW: "{{ of1_window }}"
+        CACHE_DIR: "{{ of1_cache_dir }}"
+        CONFIG_DIR: "{{ of1_config_dir_var }}"
+        SERVICE_NAME: "{{ of1_service }}"
+      async: "{{ of1_initial_sync_async_var }}"
+      poll: 60
+      when: of1_run_initial_sync_var
+      register: initial_sync
+
+    - name: Show initial sync result
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'initial sync finished rc=' ~ (initial_sync.rc | default('skipped'))
+             if of1_run_initial_sync_var
+             else 'initial sync skipped (of1_run_initial_sync=false)' }}

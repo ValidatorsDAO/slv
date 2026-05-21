@@ -1,0 +1,336 @@
+---
+# Deploy an nftables ruleset on a single host.  OSS-clean version: no
+# hardcoded management IPs, no external service integrations.  All
+# allow lists come from inventory or `-e` extra-vars.
+#
+# Required inventory variables (deploy refuses to run without them):
+#   mgmt_ips_v4    list of IPv4 addresses that should retain full
+#                  access.  ★ Lockout warning ★ — this list MUST
+#                  include the operator's own source IP, otherwise the
+#                  SSH session will be dropped the moment the ruleset
+#                  is applied.
+#
+# Optional inventory variables (all default to empty / sensible):
+#   mgmt_ips_v6        list of IPv6 mgmt addresses
+#   ban_ips_v4         list of IPv4 (or CIDR) to block at highest priority
+#   ssh_port           SSH listen port (default 22)
+#   public_tcp_ports   list of TCP ports/ranges to accept from anywhere
+#   public_udp_ports   list of UDP ports/ranges to accept from anywhere
+#   restricted_ports   list of dicts — each declares a port + tcp/udp
+#                      flags + an allow_ipv4 list.  Example:
+#                        restricted_ports:
+#                          - port: 8899
+#                            tcp: true
+#                            allow_ipv4: ["198.51.100.10"]
+#                          - port: "8000-8020"
+#                            tcp: true
+#                            udp: true
+#                            allow_ipv4: []
+#   disable_ufw        true (default) — stop ufw to avoid conflict
+#   preserve_existing  true (default) — keep current allowAll_v4 /
+#                      banAll_v4 elements across re-runs
+#
+# Usage:
+#   ansible-playbook -i <inventory> \
+#     template/.../ansible/cmn/deploy_nftables.yml \
+#     -e '{"mgmt_ips_v4": ["1.2.3.4"], "public_tcp_ports": [7575], "public_udp_ports": [8999]}'
+
+- name: Deploy slv-nftables ruleset (atomic + rollback-safe)
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  # Internal-state vars only.  All operator-tunable inputs
+  # (mgmt_ips_v4, public_tcp_ports, restricted_ports, …) come from
+  # inventory; do NOT put their defaults here — playbook-vars override
+  # inventory-vars, so any default here silently masks what the
+  # operator wrote in inventory.yml.  Default values are applied
+  # inline via the `| default(...)` filter at point of use.
+  vars:
+    nft_conf_path: /etc/nftables.conf
+    nft_frag_dir: /etc/nftables.d
+    nft_sets_dir: /etc/nftables.sets.d
+    nft_template_root: "~/.slv/cmn/nftables"
+    nft_python_interpreter: "{{ ansible_facts.python.executable | default('/usr/bin/python3') }}"
+
+  pre_tasks:
+    # Load the optional shared variable files.  `cf_ipv4.yml` ships with
+    # the slv templates (refreshed against https://www.cloudflare.com/ips-v4)
+    # — operators referring to `{{ cf_ipv4 | default([]) }}` in inventory
+    # get the current list without copying it by hand.  The lookup is
+    # best-effort: missing file → variable just stays undefined, default
+    # filter handles the empty case.
+    - name: Load optional cmn/files/cf_ipv4.yml (Cloudflare IPv4 ranges)
+      ansible.builtin.include_vars:
+        file: "{{ lookup('env', 'HOME') }}/.slv/cmn/files/cf_ipv4.yml"
+      failed_when: false
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    # Hard fail-safe: empty mgmt_ips_v4 means the operator likely forgot
+    # to pass their IP, which would lock them out the moment we apply.
+    # Refuse to proceed.
+    - name: Sanity-check that mgmt_ips_v4 is non-empty
+      ansible.builtin.assert:
+        that:
+          - (mgmt_ips_v4 | default([]) | length) > 0
+        fail_msg: >-
+          mgmt_ips_v4 is empty.  Applying nftables now would drop your
+          SSH session.  Pass at least one admin IP via inventory or
+          `-e '{"mgmt_ips_v4": ["YOUR.IP.HERE"]}'`.
+
+    - name: Ensure nftables package
+      ansible.builtin.apt:
+        name: nftables
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Optionally disable ufw to avoid rule conflicts
+      when: (disable_ufw | default(true)) | bool
+      ansible.builtin.service:
+        name: ufw
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+  tasks:
+    # ---- Preserve existing runtime additions ----------------------------
+    - name: Initialize preserved set fact lists
+      ansible.builtin.set_fact:
+        existing_allowAll_v4: []
+        existing_banAll_v4: []
+        existing_restricted_sets: {}
+
+    - name: Capture existing allowAll_v4 elements
+      when: (preserve_existing | default(true)) | bool
+      ansible.builtin.shell: |
+        set -o pipefail
+        nft list set inet filter allowAll_v4 2>/dev/null | {{ nft_python_interpreter }} - <<'PY'
+        import re, sys
+        data = sys.stdin.read()
+        m = re.search(r'elements\s*=\s*\{([^}]*)\}', data, re.S)
+        if not m:
+            sys.exit(0)
+        for tok in m.group(1).split(','):
+            tok = tok.strip()
+            if tok:
+                print(tok)
+        PY
+      args: { executable: /bin/bash }
+      register: current_allowAll_v4
+      changed_when: false
+      failed_when: false
+
+    - name: Capture existing banAll_v4 elements
+      when: (preserve_existing | default(true)) | bool
+      ansible.builtin.shell: |
+        set -o pipefail
+        nft list set inet filter banAll_v4 2>/dev/null | {{ nft_python_interpreter }} - <<'PY'
+        import re, sys
+        data = sys.stdin.read()
+        m = re.search(r'elements\s*=\s*\{([^}]*)\}', data, re.S)
+        if not m:
+            sys.exit(0)
+        for tok in m.group(1).split(','):
+            tok = tok.strip()
+            if tok:
+                print(tok)
+        PY
+      args: { executable: /bin/bash }
+      register: current_banAll_v4
+      changed_when: false
+      failed_when: false
+
+    - name: Set preserved seed lists
+      ansible.builtin.set_fact:
+        seed_allowAll_v4: >-
+          {{
+            ((current_allowAll_v4.stdout_lines | default([])
+              if (current_allowAll_v4.rc | default(1) == 0) else []))
+            | map('trim') | reject('equalto','') | list | unique
+          }}
+        seed_banAll_v4: >-
+          {{
+            ((current_banAll_v4.stdout_lines | default([])
+              if (current_banAll_v4.rc | default(1) == 0) else [])
+            + (ban_ips_v4 | default([])))
+            | map('trim') | reject('equalto','') | list | unique
+          }}
+
+    # ---- Render fragments ------------------------------------------------
+    - name: Ensure fragment directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ nft_frag_dir }}"
+        - "{{ nft_sets_dir }}"
+
+    - name: Backup current nftables.conf if present
+      ansible.builtin.copy:
+        src: "{{ nft_conf_path }}"
+        dest: "{{ nft_conf_path }}.bak"
+        owner: root
+        group: root
+        mode: "0644"
+        remote_src: true
+      failed_when: false
+
+    - name: Clean old fragments
+      ansible.builtin.shell: |
+        rm -f {{ nft_frag_dir }}/*.nft {{ nft_sets_dir }}/*.nft
+        mkdir -p {{ nft_frag_dir }} {{ nft_sets_dir }}
+      changed_when: true
+
+    - name: Render base + sets + rules
+      block:
+        - name: Render nftables.conf (base)
+          ansible.builtin.template:
+            src: "{{ nft_template_root }}/nftables.conf.j2"
+            dest: "{{ nft_conf_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Render common set definitions
+          ansible.builtin.template:
+            src: "{{ nft_template_root }}/00-sets-common.nft.j2"
+            dest: "{{ nft_sets_dir }}/00-sets-common.nft"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Render ban check
+          ansible.builtin.template:
+            src: "{{ nft_template_root }}/00-ban-check.nft.j2"
+            dest: "{{ nft_frag_dir }}/00-ban-check.nft"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Render mgmt allow-all
+          ansible.builtin.template:
+            src: "{{ nft_template_root }}/01-mgmt-allow.nft.j2"
+            dest: "{{ nft_frag_dir }}/01-mgmt-allow.nft"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Render SSH safety net
+          ansible.builtin.template:
+            src: "{{ nft_template_root }}/01-ssh-accept.nft.j2"
+            dest: "{{ nft_frag_dir }}/01-ssh-accept.nft"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Render public ports
+          ansible.builtin.template:
+            src: "{{ nft_template_root }}/02-public-ports.nft.j2"
+            dest: "{{ nft_frag_dir }}/02-public-ports.nft"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Render restricted ports
+          ansible.builtin.template:
+            src: "{{ nft_template_root }}/03-restricted-ports.nft.j2"
+            dest: "{{ nft_frag_dir }}/03-restricted-ports.nft"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Validate the rendered config (dry-run)
+          ansible.builtin.command: "nft -c -f {{ nft_conf_path }}"
+          changed_when: false
+
+      rescue:
+        - name: Restore previous nftables.conf
+          ansible.builtin.copy:
+            src: "{{ nft_conf_path }}.bak"
+            dest: "{{ nft_conf_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+            remote_src: true
+          failed_when: false
+
+        - name: Fail after restore
+          ansible.builtin.fail:
+            msg: "nftables config validation failed; previous config restored."
+
+    - name: Apply the new ruleset atomically
+      ansible.builtin.command: "nft -f {{ nft_conf_path }}"
+
+    # ---- Seed set elements (idempotent — `nft add` is a no-op on dup) ---
+    - name: Seed banAll_v4
+      vars: { ip_list: "{{ seed_banAll_v4 | default([]) }}" }
+      when: ip_list | length > 0
+      ansible.builtin.shell: |
+        set -e
+        for ip in {{ ip_list | join(' ') }}; do
+          nft add element inet filter banAll_v4 { $ip } || true
+        done
+      args: { executable: /bin/bash }
+      changed_when: true
+
+    - name: Seed allowAll_v4
+      vars: { ip_list: "{{ seed_allowAll_v4 | default([]) }}" }
+      when: ip_list | length > 0
+      ansible.builtin.shell: |
+        set -e
+        for ip in {{ ip_list | join(' ') }}; do
+          nft add element inet filter allowAll_v4 { $ip } || true
+        done
+      args: { executable: /bin/bash }
+      changed_when: true
+
+    - name: Seed restricted port allow lists
+      vars:
+        ip_list: "{{ (item.allow_ipv4 | default([])) | map('trim') | reject('equalto','') | list | unique }}"
+        slug: "{{ item.port | string | regex_replace('[^0-9]+', '_') }}"
+      when: ip_list | length > 0
+      ansible.builtin.shell: |
+        set -e
+        for ip in {{ ip_list | join(' ') }}; do
+          nft add element inet filter allow_{{ slug }}_v4 { $ip } || true
+        done
+      args: { executable: /bin/bash }
+      loop: "{{ restricted_ports | default([]) }}"
+      loop_control:
+        label: "{{ item.port }} (allow_{{ item.port | string | regex_replace('[^0-9]+', '_') }}_v4)"
+      changed_when: true
+
+    # ---- Persist live ruleset (survives reboot) ------------------------
+    - name: Persist live nftables ruleset
+      ansible.builtin.import_tasks: tasks/persist_nftables_ruleset.yml
+
+    - name: Show effective ruleset summary
+      vars:
+        sets: >-
+          {{
+            ['allowAll_v4', 'banAll_v4']
+            + ((restricted_ports | default([]))
+               | map(attribute='port')
+               | map('string')
+               | map('regex_replace', '[^0-9]+', '_')
+               | map('regex_replace', '^', 'allow_')
+               | map('regex_replace', '$', '_v4')
+               | list)
+          }}
+      ansible.builtin.shell: |
+        for s in {{ sets | join(' ') }}; do
+          echo "--- $s ---"
+          nft list set inet filter "$s" 2>/dev/null || echo "(not present)"
+        done
+      register: effective_summary
+      changed_when: false
+
+    - name: Display summary
+      ansible.builtin.debug:
+        var: effective_summary.stdout_lines

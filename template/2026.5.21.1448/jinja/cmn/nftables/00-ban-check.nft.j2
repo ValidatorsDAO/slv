@@ -1,0 +1,4 @@
+# Ban list — must be FIRST priority.  A packet from a banned IP is
+# dropped here before any allow rule has a chance to match.  Counter is
+# bumped so `nft list counter c_ban_drop` shows ban effectiveness.
+ip saddr @banAll_v4 counter name c_ban_drop drop;

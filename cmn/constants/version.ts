@@ -2,7 +2,7 @@
 // e.g.: VERSION + SOLANA CLI NAME + NETWORK = '0.0.1' only numbers and dots
 
 // SLV version
-export const VERSION = '2026.5.5.1612'
+export const VERSION = '2026.5.21.1448'
 
 // Component versions
 export const VERSION_SOLANA_TESTNET = '4.0.0-beta.2'

@@ -1,0 +1,19 @@
+---
+# Pythnet's pyth-v1.14.17 branch pins rust-toolchain = "1.60.0".  rustup
+# auto-downloads 1.60 when building inside the repo, so we only need a
+# bootstrap toolchain — 1.78.0 is recent enough to run rustup itself and
+# small enough to install quickly.
+- name: Install Rust toolchain for solv
+  hosts: all
+  become: true
+  gather_facts: no
+  vars:
+    pythnet_rust_toolchain: "{{ pythnet_rust_toolchain | default('1.78.0') }}"
+  tasks:
+    - name: Install rustup via the official installer
+      become_user: solv
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+          | sh -s -- -y --default-toolchain {{ pythnet_rust_toolchain }} --profile minimal
+      args:
+        creates: /home/solv/.cargo/bin/cargo

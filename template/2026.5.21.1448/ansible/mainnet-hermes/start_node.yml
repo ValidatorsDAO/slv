@@ -1,0 +1,23 @@
+---
+# Start the Hermes stack (nats → beacon → hermes).  Useful after a host
+# reboot or as a no-op idempotent kickstart.
+- name: Start Hermes stack
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Start nats-server
+      ansible.builtin.systemd:
+        name: nats-server.service
+        state: started
+        enabled: yes
+    - name: Start beacon
+      ansible.builtin.systemd:
+        name: beacon.service
+        state: started
+        enabled: yes
+    - name: Start hermes
+      ansible.builtin.systemd:
+        name: hermes.service
+        state: started
+        enabled: yes

@@ -1,0 +1,21 @@
+---
+# Restart the Hermes stack.  Beacon and Hermes pick up env changes on
+# restart (e.g. switching PYTHNET_HTTP_ADDR from a public URL to a
+# self-hosted Pythnet RPC).
+- name: Restart Hermes stack
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Restart nats-server
+      ansible.builtin.systemd:
+        name: nats-server.service
+        state: restarted
+    - name: Restart beacon
+      ansible.builtin.systemd:
+        name: beacon.service
+        state: restarted
+    - name: Restart hermes
+      ansible.builtin.systemd:
+        name: hermes.service
+        state: restarted

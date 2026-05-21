@@ -1,0 +1,9 @@
+---
+- name: Stop Pythnet validator
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - ansible.builtin.systemd:
+        name: pythnet.service
+        state: stopped
