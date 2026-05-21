@@ -1,0 +1,23 @@
+---
+# Pythnet RPC node initialization.
+#
+# Pythnet is an application-specific Solana fork operated by Pyth's data
+# providers.  Running a Pythnet RPC node lets you serve Pythnet HTTP+WS
+# directly to a self-hosted Hermes (see ../mainnet-hermes/), eliminating
+# the dependency on public Pythnet endpoints.
+#
+# Usage:
+#   ansible-playbook -i ~/.slv/inventory.mainnet.pythnet.yml \
+#     template/2026.5.5.1612/ansible/mainnet-pythnet/init.yml
+
+- import_playbook: ../cmn/fix_permissions.yml
+- import_playbook: ../cmn/create_user.yml
+- import_playbook: ../cmn/update_ubuntu.yml
+- import_playbook: install_package.yml
+- import_playbook: install_rust.yml
+- import_playbook: mount_disks.yml
+- import_playbook: optimize_pythnet.yml
+- import_playbook: build_pythnet.yml
+- import_playbook: gen_identity.yml
+- import_playbook: create-start-pythnet-sh.yml
+- import_playbook: setup-pythnet-service.yml

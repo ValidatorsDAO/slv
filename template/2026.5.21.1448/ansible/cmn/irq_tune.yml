@@ -1,0 +1,150 @@
+---
+# IRQ / NIC / sysctl / ulimit tuning for Solana / Shredstream
+# Idempotent. Configures NVMe queue limits via GRUB (need_reboot=true if changed).
+- name: IRQ + sysctl + NIC tuning for Solana
+  hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    grub_default: /etc/default/grub
+    irq_marker_file: /var/lib/slv/.irq_tuned
+    files_dir: "{{ playbook_dir }}/files"
+  tasks:
+    - name: Ensure /var/lib/slv exists
+      ansible.builtin.file:
+        path: /var/lib/slv
+        state: directory
+        mode: "0755"
+
+    - name: Install ethtool / cpupower / linux-tools deps
+      ansible.builtin.apt:
+        name:
+          - ethtool
+          - python3
+        state: present
+        update_cache: yes
+      ignore_errors: true
+
+    - name: Install vs2-irq-tune.sh script
+      ansible.builtin.copy:
+        src: files/vs2-irq-tune.sh
+        dest: /usr/local/bin/vs2-irq-tune.sh
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Install vs2-irq-tune.service unit
+      ansible.builtin.copy:
+        src: files/vs2-irq-tune.service
+        dest: /etc/systemd/system/vs2-irq-tune.service
+        mode: "0644"
+        owner: root
+        group: root
+      register: irq_service_unit
+
+    - name: Reload systemd if unit changed
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when: irq_service_unit is changed
+
+    - name: Enable and start vs2-irq-tune.service
+      ansible.builtin.systemd:
+        name: vs2-irq-tune.service
+        enabled: yes
+        state: started
+
+    - name: Disable & stop irqbalance (conflicts with manual pinning)
+      ansible.builtin.systemd:
+        name: irqbalance
+        enabled: no
+        state: stopped
+      ignore_errors: true
+
+    - name: Install sysctl tuning (99-vs2-solana.conf)
+      ansible.builtin.copy:
+        src: files/99-vs2-solana.conf
+        dest: /etc/sysctl.d/99-vs2-solana.conf
+        mode: "0644"
+        owner: root
+        group: root
+      register: sysctl_file
+
+    - name: Apply sysctl tuning
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/99-vs2-solana.conf
+      when: sysctl_file is changed
+      changed_when: true
+
+    - name: Install ulimit nofile (limits.d)
+      ansible.builtin.copy:
+        src: files/99-vs2-solana-limits.conf
+        dest: /etc/security/limits.d/99-vs2-solana.conf
+        mode: "0644"
+        owner: root
+        group: root
+
+    - name: Ensure systemd system.conf.d directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Install systemd DefaultLimitNOFILE drop-in
+      ansible.builtin.copy:
+        src: files/vs2-limits.conf
+        dest: /etc/systemd/system.conf.d/vs2-limits.conf
+        mode: "0644"
+      register: systemd_limits
+
+    - name: systemctl daemon-reexec to pick up DefaultLimitNOFILE
+      ansible.builtin.command: systemctl daemon-reexec
+      when: systemd_limits is changed
+      changed_when: true
+
+    - name: Configure NVMe queue parameters in GRUB (require reboot)
+      ansible.builtin.shell: |
+        set -e
+        CORES=$(nproc)
+        # shellcheck disable=SC1091
+        . /etc/default/grub
+        CURRENT="${GRUB_CMDLINE_LINUX_DEFAULT:-}"
+        if echo "$CURRENT" | grep -q "nvme.io_queues="; then
+          # Already configured — replace values to match current core count
+          NEW=$(echo "$CURRENT" | sed -E "s/nvme\.io_queues=[0-9]+/nvme.io_queues=${CORES}/; s/nvme\.write_queues=[0-9]+/nvme.write_queues=${CORES}/; s/nvme\.poll_queues=[0-9]+/nvme.poll_queues=0/")
+        else
+          NEW="$CURRENT nvme.io_queues=${CORES} nvme.write_queues=${CORES} nvme.poll_queues=0"
+        fi
+        NEW=$(echo "$NEW" | sed 's/  */ /g; s/^ //; s/ $//')
+        if [ "$NEW" != "$CURRENT" ]; then
+          sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$NEW\"|" {{ grub_default }}
+          update-grub
+          echo CHANGED
+        else
+          echo UNCHANGED
+        fi
+      args:
+        executable: /bin/bash
+      register: nvme_grub
+      changed_when: "'CHANGED' in nvme_grub.stdout"
+
+    - name: Run vs2-irq-tune now (immediate effect, no reboot needed for NIC/RPS/THP)
+      ansible.builtin.command: /usr/local/bin/vs2-irq-tune.sh
+      changed_when: true
+      ignore_errors: true
+
+    - name: Mark IRQ tuning applied
+      ansible.builtin.copy:
+        dest: "{{ irq_marker_file }}"
+        content: "applied at {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }}\n"
+        mode: "0644"
+
+    - name: Set need_reboot fact (NVMe GRUB change requires reboot)
+      ansible.builtin.set_fact:
+        irq_tune_reboot_required: "{{ nvme_grub is changed }}"
+        need_reboot: "{{ (need_reboot | default(false)) or (nvme_grub is changed) }}"
+
+    - name: Report IRQ tuning status
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'IRQ tuning applied (NVMe GRUB changed — reboot required)'
+             if irq_tune_reboot_required
+             else 'IRQ tuning applied (no reboot needed)' }}

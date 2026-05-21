@@ -1,0 +1,15 @@
+---
+# Pull updates from pythnet_ref, rebuild, restart.  Safe to run between
+# upstream releases — the build is idempotent and only restarts when the
+# binary changes.
+- import_playbook: build_pythnet.yml
+- import_playbook: create-start-pythnet-sh.yml
+
+- name: Restart pythnet
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - ansible.builtin.systemd:
+        name: pythnet.service
+        state: restarted

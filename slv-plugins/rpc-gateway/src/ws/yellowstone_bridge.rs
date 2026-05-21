@@ -32,9 +32,9 @@ pub enum BridgeError {
 }
 
 /// Per-call filter parsed out of the JSON-RPC params.  Matches the
-/// extended-`transactionSubscribe` shape used by web3.js Helius-
-/// compatible clients but uses neutral names; see the Deno
-/// gateway's `TxSubscribeFilter` for the historical mapping.
+/// extended-`transactionSubscribe` shape used by web3.js clients
+/// that support filter-based transaction subscriptions; see the
+/// Deno gateway's `TxSubscribeFilter` for the historical mapping.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TxSubscribeFilter {

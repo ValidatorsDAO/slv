@@ -1,0 +1,129 @@
+---
+logs:
+  json: false
+
+metrics:
+  endpoint: 0.0.0.0:10124
+
+channel:
+  tokio:
+    worker_threads: null
+    affinity: null
+
+  sources:
+    - name: plugin-grpc
+      parser: prost
+      disable_accounts: false
+      reconnect: null
+      source: richat
+      transport: grpc
+      endpoint: http://127.0.0.1:10004
+      ca_certificate: null
+      connect_timeout: null
+      buffer_size: null
+      http2_adaptive_window: true
+      http2_keep_alive_interval: 30s
+      initial_connection_window_size: 67108864   # 64MiB
+      initial_stream_window_size: 16777216       # 16MiB
+      keep_alive_timeout: 10s
+      keep_alive_while_idle: false
+      tcp_keepalive: 30s
+      tcp_nodelay: true
+      timeout: null
+      max_decoding_message_size: 16MiB
+      compression:
+        accept: []
+        send: []
+      x_token: null
+
+  config:
+    max_messages: 2_097_152
+    max_bytes: 16GiB
+
+apps:
+  tokio:
+    worker_threads: null
+    affinity: null
+
+  richat:
+    grpc:
+      endpoint: "0.0.0.0:10100"
+      compression:
+        accept:
+          - gzip
+          - zstd
+        send:
+          - zstd
+      max_decoding_message_size: 16MiB
+      server_tcp_keepalive: 30s
+      server_tcp_nodelay: true
+      server_http2_adaptive_window: true
+      server_http2_keepalive_interval: 30s
+      server_http2_keepalive_timeout: 10s
+      server_initial_connection_window_size: 67108864
+      server_initial_stream_window_size: 16777216
+
+    quic:
+      endpoint: "0.0.0.0:10101"
+      tls_config:
+        self_signed_alt_names:
+          - localhost
+      expected_rtt: 100
+      max_stream_bandwidth: 12_500_000
+      max_idle_timeout: 30
+      max_recv_streams: 16
+      max_request_size: 1024
+      x_tokens: []
+
+  grpc:
+    server:
+      endpoint: 0.0.0.0:10000
+      compression:
+        accept:
+          - gzip
+          - zstd
+        send:
+          - zstd
+      max_decoding_message_size: 16MiB
+      server_tcp_keepalive: 30s
+      server_tcp_nodelay: true
+      server_http2_adaptive_window: true
+      server_http2_keepalive_interval: 30s
+      server_http2_keepalive_timeout: 10s
+      server_initial_connection_window_size: 67108864
+      server_initial_stream_window_size: 16777216
+
+    stream:
+      messages_len_max: 16MiB
+      messages_max_per_tick: 100
+      messages_replay_len_max: 256MiB
+      ping_interval: 30s
+
+    unary:
+      enabled: true
+      affinity: null
+      requests_queue_size: 100
+  pubsub:
+    endpoint: 0.0.0.0:7111
+    tcp_nodelay: true
+    recv_max_message_size: 4KiB
+    enable_block_subscription: true
+    enable_transaction_subscription: true
+    clients_requests_channel_size: 8_192
+    # richat's pubsub uses a single tracker loop that drains messages
+    # per-commitment up to `max_messages_per_commitment_per_tick`, then
+    # fans them out to clients via a rayon pool sized to
+    # `subscriptions_workers_count`.  The upstream defaults (2 workers,
+    # 256 msg/tick) were measured to cause slotSubscribe lag of 5-10
+    # slots when block + transaction subscriptions are also enabled —
+    # tx notifications saturate the per-tick budget and slot
+    # notifications queue up behind them.  These tuned values keep the
+    # slot stream within 0-1 slot of public reference RPCs on a 64-core
+    # mainnet RPC host.
+    subscriptions_workers_count: 8
+    subscriptions_max_clients_request_per_tick: 32
+    subscriptions_max_messages_per_commitment_per_tick: 4096
+    notifications_messages_max_count: 16_777_216
+    notifications_messages_max_bytes: 32GiB
+    signatures_cache_max: 1_228_800
+    signatures_cache_slots_max: 150

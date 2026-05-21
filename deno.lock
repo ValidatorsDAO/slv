@@ -2,8 +2,6 @@
   "version": "5",
   "specifiers": {
     "jsr:@elsoul/child-process@1.2.0": "1.2.0",
-    "jsr:@hono/hono@4.7.6": "4.7.6",
-    "jsr:@hono/hono@^4.6.13": "4.7.6",
     "jsr:@std/assert@0.224": "0.224.0",
     "jsr:@std/assert@1": "1.0.16",
     "jsr:@std/dotenv@0.225.2": "0.225.2",
@@ -27,9 +25,6 @@
   "jsr": {
     "@elsoul/child-process@1.2.0": {
       "integrity": "8148246ce496c17dbb007613d0e7addcdc71492ce6f7141872f5d7606de23389"
-    },
-    "@hono/hono@4.7.6": {
-      "integrity": "407da752c13d4644bb9d363f8349db7542e21abc3db8c13ca90cf69d8ab675ad"
     },
     "@std/assert@0.224.0": {
       "integrity": "8643233ec7aec38a940a8264a6e3eed9bfa44e7a71cc6b3c8874213ff401967f"
@@ -1195,11 +1190,6 @@
       "npm:mysql2@3.16.0"
     ],
     "members": {
-      "api/rpc-gateway": {
-        "dependencies": [
-          "jsr:@hono/hono@^4.6.13"
-        ]
-      },
       "cli": {
         "dependencies": [
           "jsr:@std/assert@1",

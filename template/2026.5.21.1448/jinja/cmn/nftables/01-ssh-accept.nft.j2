@@ -1,0 +1,9 @@
+# SSH safety net.  `01-mgmt-allow.nft` already grants management IPs
+# unconditional access, but explicitly accepting tcp/{{ ssh_port | default(22) }}
+# from mgmt addresses guarantees we never lose admin access even if the
+# allow-all rule is removed by hand.
+{% set v4 = (mgmt_ips_v4 | default([])) | map('trim') | reject('equalto','') | list %}
+{% set v6 = (mgmt_ips_v6 | default([])) | map('trim') | reject('equalto','') | list %}
+{% set p = ssh_port | default(22) %}
+{% if v4 | length > 0 %}ip saddr { {{ v4 | join(', ') }} } tcp dport {{ p }} accept;{% endif %}
+{% if v6 | length > 0 %}ip6 saddr { {{ v6 | join(', ') }} } tcp dport {{ p }} accept;{% endif %}

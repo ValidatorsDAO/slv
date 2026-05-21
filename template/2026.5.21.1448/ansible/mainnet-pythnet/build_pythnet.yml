@@ -1,0 +1,77 @@
+---
+# Clone pyth-network/pythnet and build solana-validator + solana-keygen +
+# solana-gossip.
+#
+# Pythnet is a Solana 1.14 fork — the bundled rocksdb (v7.4.4) fails to
+# compile under modern GCC because it relies on the legacy implicit-include
+# behavior for <cstdint>.  We work around this by setting CXXFLAGS for the
+# build only (NOT CFLAGS — blake3 uses cc to assemble .S files and
+# -include cstdint would be prepended to assembly source, breaking it).
+
+- name: Build Pythnet validator from source
+  hosts: all
+  become: true
+  vars:
+    pythnet_repo: "{{ pythnet_repo | default('https://github.com/pyth-network/pythnet') }}"
+    pythnet_ref: "{{ pythnet_ref | default('pyth-v1.14.17') }}"
+    pythnet_ledger_mount: "{{ pythnet_ledger_mount | default('/mnt/ledger') }}"
+    src_dir: "{{ pythnet_ledger_mount }}/src/pythnet"
+
+  tasks:
+    - name: Ensure src dir exists
+      ansible.builtin.file:
+        path: "{{ src_dir | dirname }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    - name: Clone pythnet repo (shallow, pinned branch)
+      become_user: solv
+      ansible.builtin.git:
+        repo: "{{ pythnet_repo }}"
+        dest: "{{ src_dir }}"
+        version: "{{ pythnet_ref }}"
+        depth: 1
+        force: yes
+      register: pythnet_git
+
+    # CXXFLAGS workaround: rocksdb's data_block_hash_index.h drops
+    # uint*_t under modern GCC because <cstdint> isn't transitively
+    # included.  -include cstdint fixes the build without patching
+    # upstream sources.  Scoped to C++ only — blake3's build.rs uses cc
+    # to assemble .S files and a C-level -include would corrupt those.
+    - name: Build solana-validator + keygen + gossip
+      become_user: solv
+      ansible.builtin.shell: 'source $HOME/.cargo/env && export CXXFLAGS="-include cstdint" && unset CFLAGS && cargo build --release --bin solana-validator --bin solana-keygen --bin solana-gossip'
+      args:
+        chdir: "{{ src_dir }}"
+        executable: /bin/bash
+      register: build_result
+      changed_when: build_result.rc == 0
+      when: pythnet_git.changed
+
+    - name: Verify binaries exist
+      ansible.builtin.stat:
+        path: "{{ src_dir }}/target/release/{{ item }}"
+      loop:
+        - solana-validator
+        - solana-keygen
+        - solana-gossip
+      register: bin_stat
+
+    - name: Fail if any binary is missing
+      ansible.builtin.assert:
+        that: bin_stat.results | map(attribute='stat.exists') | list | min
+        fail_msg: "build_pythnet: one or more binaries missing under {{ src_dir }}/target/release/"
+
+    - name: Symlink binaries to /usr/local/bin
+      ansible.builtin.file:
+        src: "{{ src_dir }}/target/release/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - solana-validator
+        - solana-keygen
+        - solana-gossip
