@@ -11,4 +11,4 @@
 
     - name: Display Command output
       debug:
-        msg: '{{ inventory_hostname }} ({{ hostvars[inventory_hostname].name }}): Stop Solv: {{ command_output.stdout }}'
+        msg: 'Stop Solv: {{ command_output.stdout }}'

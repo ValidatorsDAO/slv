@@ -14,4 +14,4 @@
 
     - name: Display Command output
       debug:
-        msg: '{{ inventory_hostname }} ({{ hostvars[inventory_hostname].name }}): Start Firedancer: {{ command_output.stdout }}'
+        msg: 'Start Firedancer: {{ command_output.stdout }}'
