@@ -12,6 +12,23 @@ Ansible playbooks and Jinja2 templates for deploying and managing Solana validat
 | `firedancer-agave` | Firedancer with Agave consensus |
 | `firedancer-jito` | Firedancer with Jito consensus |
 
+## Mainnet Safety
+
+Before any mainnet stop/start/restart/build/update, verify the running validator identity. Do not use `/home/solv/identity.json` symlink target as the active/spare signal because hot identity swap can leave it pointing to `unstaked-identity.json`.
+
+Read-only verification:
+
+```bash
+agave-validator -l /mnt/ledger monitor
+curl -s http://127.0.0.1:7211 -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getIdentity"}'
+solana-keygen pubkey /home/solv/mainnet-validator-keypair.json
+solana-keygen pubkey /home/solv/unstaked-identity.json
+```
+
+- Running identity equals `mainnet-validator-keypair.json` pubkey: active mainnet validator. Read-only only; do not stop, restart, build, or run load-heavy work.
+- Running identity equals `unstaked-identity.json` pubkey: spare. Operational changes may proceed.
+- Unknown or inconclusive identity: refuse changes and ask for confirmation.
+
 ## Directory Structure
 
 ```

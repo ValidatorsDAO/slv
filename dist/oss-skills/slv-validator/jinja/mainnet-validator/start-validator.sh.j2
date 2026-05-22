@@ -26,13 +26,31 @@ exec agave-validator \
 --no-port-check \
 --staked-nodes-overrides overrides.yml \
 --rpc-bind-address 0.0.0.0 \
-{% if validator_type in ['jito', 'jito-bam'] %}
+{% if xdp_cpu_core is defined %}
+--experimental-retransmit-xdp-cpu-cores {{ xdp_cpu_core }} \
+{% endif %}
+{% if poh_cpu_core is defined %}
+--experimental-poh-pinned-cpu-core {{ poh_cpu_core }} \
+{% endif %}
+{% if xdp_interface is defined %}
+--experimental-retransmit-xdp-interface {{ xdp_interface }} \
+{% endif %}
+{% if xdp_zero_copy | default(false) %}
+--experimental-retransmit-xdp-zero-copy \
+{% endif %}
+{% if validator_type in ['jito', 'jito-bam', 'allnodes-jito'] %}
 --tip-payment-program-pubkey T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt \
 --tip-distribution-program-pubkey 4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7 \
 --merkle-root-upload-authority 8F4jGUmxF36vQ6yabnsxX6AQVXdKBhs8kGSUuRKSg8Xt \
 --commission-bps {{ commission_bps | default(0) }} \
 --block-engine-url {{ block_engine_url | default("https://frankfurt.mainnet.block-engine.jito.wtf") }} \
+{% if shred_receiver_address is sequence and shred_receiver_address is not string %}
+{% for receiver in shred_receiver_address %}
+--shred-receiver-address {{ receiver }} \
+{% endfor %}
+{% else %}
 --shred-receiver-address {{ shred_receiver_address | default("64.130.50.14:1002") }} \
+{% endif %}
 {% endif %}
 {% if validator_type == 'jito-bam' %}
 --bam-url {{ bam_url | default("http://frankfurt.mainnet.bam.jito.wtf") }} \
