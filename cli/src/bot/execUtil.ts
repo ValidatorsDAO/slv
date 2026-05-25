@@ -1,10 +1,6 @@
 import { colors } from '@cliffy/colors'
 import type { BotConfig } from '@cmn/zod/bot.ts'
-import {
-  buildRemoteCmd,
-  sshExec,
-  testSSHConnection,
-} from '/src/bot/sshUtil.ts'
+import { buildRemoteCmd, sshExec, testSSHConnection } from '/src/bot/sshUtil.ts'
 
 export type ExecResult = {
   success: boolean
@@ -26,7 +22,7 @@ export const isLocalhost = (config: Pick<BotConfig, 'ip'>): boolean =>
 export const localExec = async (
   cmd: string,
   args: string[],
-  opts: { stdin?: 'null' | 'inherit' } = {},
+  opts: { stdin?: 'null' | 'inherit'; env?: Record<string, string> } = {},
 ): Promise<ExecResult> => {
   try {
     const c = new Deno.Command(cmd, {
@@ -34,6 +30,7 @@ export const localExec = async (
       stdin: opts.stdin ?? 'null',
       stdout: 'piped',
       stderr: 'piped',
+      env: opts.env,
     })
     const out = await c.output()
     const decoder = new TextDecoder()

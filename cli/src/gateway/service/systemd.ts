@@ -73,7 +73,8 @@ WantedBy=default.target
 // running, so the timer can fire safely. Users who WANT the
 // gateway to stay down (maintenance) can `systemctl --user stop
 // slv-gateway-heal.timer` as well.
-const renderHealerService = (): string => `[Unit]
+const renderHealerService = (): string =>
+  `[Unit]
 Description=SLV Gateway watchdog — restart slv-gateway if it's down
 After=slv-gateway.service
 
@@ -85,7 +86,8 @@ ExecStart=/bin/bash -c 'systemctl --user is-active --quiet slv-gateway.service |
 // Timer: fire 30s after boot, then every 2 minutes. Short enough
 // that a 6-minute outage like the one we hit tops out at ~2 min,
 // long enough that we don't thrash systemd or log-spam.
-const renderHealerTimer = (): string => `[Unit]
+const renderHealerTimer = (): string =>
+  `[Unit]
 Description=Periodic check + restart for slv-gateway
 
 [Timer]
@@ -109,10 +111,28 @@ const shellQuote = (s: string): string => {
   ) + '"'
 }
 
+const currentUid = async (): Promise<string | null> => {
+  const out = await localExec('id', ['-u'])
+  if (!out.success) return null
+  const uid = out.stdout.trim()
+  return uid.length > 0 ? uid : null
+}
+
+const systemdUserEnv = async (): Promise<
+  Record<string, string> | undefined
+> => {
+  if (Deno.env.get('XDG_RUNTIME_DIR')) return undefined
+  const uid = await currentUid()
+  if (!uid) return undefined
+  return { XDG_RUNTIME_DIR: `/run/user/${uid}` }
+}
+
 const systemctl = async (
   ...args: string[]
 ): Promise<{ success: boolean; stdout: string; stderr: string }> => {
-  const out = await localExec('systemctl', ['--user', ...args])
+  const out = await localExec('systemctl', ['--user', ...args], {
+    env: await systemdUserEnv(),
+  })
   return { success: out.success, stdout: out.stdout, stderr: out.stderr }
 }
 
@@ -131,17 +151,48 @@ const ensureLinger = async (): Promise<void> => {
   // Fast path: already lingering?
   const probe = await localExec('loginctl', ['show-user', user])
   if (probe.success && /Linger=yes/.test(probe.stdout)) return
-  const enable = await localExec('sudo', [
-    '-n',
-    'loginctl',
-    'enable-linger',
-    user,
-  ])
+  const uid = await currentUid()
+  const enable = uid === '0'
+    ? await localExec('loginctl', ['enable-linger', user])
+    : await localExec('sudo', [
+      '-n',
+      'loginctl',
+      'enable-linger',
+      user,
+    ])
   if (!enable.success) {
     console.warn(
       `  ⚠ could not enable systemd linger for user "${user}": ${
         enable.stderr.trim() || 'sudo refused'
       }\n     Run \`sudo loginctl enable-linger ${user}\` manually so the gateway survives SSH disconnects.`,
+    )
+  }
+}
+
+// Bare-metal root SSH sessions can have linger enabled but still lack
+// an active user manager and XDG runtime dir. Start user@UID.service
+// before the first `systemctl --user` call so the bus exists.
+const ensureUserManager = async (): Promise<void> => {
+  const probe = await systemctl('show-environment')
+  if (probe.success) return
+  if (
+    !/Failed to connect to bus|No medium found|No such file or directory/i.test(
+      probe.stderr,
+    )
+  ) return
+
+  const uid = await currentUid()
+  if (!uid) return
+  const userUnit = `user@${uid}.service`
+  const start = uid === '0'
+    ? await localExec('systemctl', ['start', userUnit])
+    : await localExec('sudo', ['-n', 'systemctl', 'start', userUnit])
+  if (!start.success) {
+    const user = Deno.env.get('USER') || Deno.env.get('LOGNAME') || uid
+    console.warn(
+      `  ⚠ could not start systemd user manager (${userUnit}): ${
+        start.stderr.trim() || 'unknown'
+      }\n     Run \`sudo loginctl enable-linger ${user}\` and \`sudo systemctl start ${userUnit}\` manually, then retry.`,
     )
   }
 }
@@ -155,6 +206,7 @@ export class SystemdUserService implements GatewayService {
     // avoids a race where the service is enabled but the user
     // session tears down on SSH logout, killing the gateway.
     await ensureLinger()
+    await ensureUserManager()
     const path = systemdUnitPath()
     await Deno.mkdir(dirname(path), { recursive: true })
     await Deno.writeTextFile(path, renderSystemdUnit(opts))
