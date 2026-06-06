@@ -19,9 +19,9 @@ exec agave-validator \
 --expected-bank-hash {{ expected_bank_hash | default("YFxSkDcvSPiA7EQpSTbCsWbJvNYMAsWXGvwGc3bXHEA") }} \
 --limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
 --no-port-check \
-{% if xdp_enabled | default(false) %}
+{% if xdp_enabled | default(false) and xdp_interface | default('') %}
 --experimental-retransmit-xdp-interface {{ xdp_interface }} \
---experimental-retransmit-xdp-cpu-cores {{ xdp_cpu_cores | default(1) }} \
+--experimental-retransmit-xdp-cpu-cores {{ xdp_cpu_cores | default(1, true) }} \
 {% if xdp_zero_copy | default(false) %}
 --experimental-retransmit-xdp-zero-copy \
 {% endif %}

@@ -1,6 +1,5 @@
 import { parse } from '@std/yaml'
 import { colors } from '@cliffy/colors'
-import { spawnSync } from '@elsoul/child-process'
 import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
 import { getInventoryPath } from '@cmn/constants/path.ts'
 
@@ -43,7 +42,9 @@ const getBlsPubkey = async (
     }).output()
     if (!out.success) return null
     const json = JSON.parse(new TextDecoder().decode(out.stdout))
-    return json?.blsPubkeyCompressed ?? null
+    const bls = json?.blsPubkeyCompressed
+    // Treat null/empty as "unset" so a non-empty base58 key is the only "set".
+    return typeof bls === 'string' && bls.length > 0 ? bls : null
   } catch {
     return null
   }
@@ -61,7 +62,19 @@ const readBlsHosts = async (
     console.error(colors.red(`❌ Failed to read inventory file: ${filePath}`))
     return []
   }
-  const data = parse(yamlText) as Record<string, any>
+  let data: Record<string, any>
+  try {
+    data = parse(yamlText) as Record<string, any>
+  } catch (e) {
+    console.error(
+      colors.red(
+        `❌ Failed to parse inventory file ${filePath}: ${
+          e instanceof Error ? e.message : e
+        }`,
+      ),
+    )
+    return []
+  }
   const allHosts = data?.[inventoryType]?.hosts ?? {}
   const names = limit && limit.trim().toLowerCase() !== 'all'
     ? limit.split(',').map((s) => s.trim()).filter(Boolean)
@@ -100,11 +113,25 @@ const registerBlsPubkey = async (
   network: NetworkType,
   limit?: string,
 ): Promise<boolean> => {
+  if (network !== 'testnet' && network !== 'mainnet') {
+    console.warn(
+      colors.yellow(
+        `⚠️ BLS registration supports testnet/mainnet only (got "${network}") — skipping.`,
+      ),
+    )
+    return false
+  }
   const inventoryType: InventoryType = network === 'mainnet'
     ? 'mainnet_validators'
     : 'testnet_validators'
   const rpcUrl = RPC_URLS[network]
   const home = Deno.env.get('HOME') || ''
+  if (!home) {
+    console.error(
+      colors.red('❌ HOME is not set — cannot locate ~/.slv/keys keypairs.'),
+    )
+    return false
+  }
 
   const hosts = await readBlsHosts(inventoryType, limit)
   if (hosts.length === 0) {
@@ -134,10 +161,22 @@ const registerBlsPubkey = async (
     // mutating state — unlike the auto-detect path, which silently falls back
     // to a plain voter re-authorization (a wasted tx that also burns the
     // once-per-epoch voter-change slot). The authorized voter is unchanged.
+    // Use an argv array (not a shell string) so keypair paths containing
+    // spaces are passed as a single argument rather than word-split.
     const keypair = `${home}/.slv/keys/${h.identity_account}.json`
-    const cmd =
-      `solana vote-authorize-voter-checked ${h.vote_account} ${keypair} ${keypair} --use-v2-instruction --url ${rpcUrl}`
-    const result = await spawnSync(cmd)
+    const result = await new Deno.Command('solana', {
+      args: [
+        'vote-authorize-voter-checked',
+        h.vote_account,
+        keypair,
+        keypair,
+        '--use-v2-instruction',
+        '--url',
+        rpcUrl,
+      ],
+      stdout: 'inherit',
+      stderr: 'inherit',
+    }).output()
     if (!result.success) {
       console.warn(
         colors.yellow(

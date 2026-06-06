@@ -10,6 +10,25 @@ export interface XdpConfig {
   xdp_poh_pinned_cpu_core?: number
 }
 
+// Parses a non-negative integer from prompt input, or returns `fallback` when
+// the input is blank or not a valid integer. Prevents NaN/garbage from reaching
+// the inventory (and the validator launch flags) on a fat-fingered entry.
+const parseNonNegativeInt = (
+  raw: unknown,
+  fallback: number | null,
+): number | null => {
+  const s = String(raw ?? '').trim()
+  if (!s) return fallback
+  const n = Number(s)
+  if (!Number.isInteger(n) || n < 0) {
+    console.log(
+      colors.yellow(`⚠️ "${s}" is not a valid non-negative integer — ignored.`),
+    )
+    return fallback
+  }
+  return n
+}
+
 // XDP (eXpress Data Path) accelerates Turbine retransmit. Only Agave/Jito
 // validators take these flags; Firedancer uses its own XDP path natively, so
 // for those types we return an empty config and skip the prompt entirely.
@@ -67,12 +86,12 @@ const promptXdpConfig = async (
   const cfg: XdpConfig = {
     xdp_enabled: true,
     xdp_interface: iface,
-    xdp_cpu_cores: Number(answers.cores) || 1,
+    xdp_cpu_cores: parseNonNegativeInt(answers.cores, 1) ?? 1,
     xdp_zero_copy: Boolean(answers.zeroCopy),
   }
-  const poh = String(answers.pohCore || '').trim()
-  if (poh) {
-    cfg.xdp_poh_pinned_cpu_core = Number(poh)
+  const poh = parseNonNegativeInt(answers.pohCore, null)
+  if (poh !== null) {
+    cfg.xdp_poh_pinned_cpu_core = poh
   }
   return cfg
 }
