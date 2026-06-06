@@ -15,7 +15,7 @@ exec agave-validator \
 --known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ \
 --known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
 --expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
---expected-shred-version 50093 \
+--expected-shred-version {{ expected_shred_version | default("50093") }} \
 --only-known-rpc \
 --full-rpc-api \
 --no-voting \
