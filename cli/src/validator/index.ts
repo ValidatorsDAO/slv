@@ -19,6 +19,7 @@ import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
+import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -58,6 +59,29 @@ validatorCmd.command('deploy')
     } else {
       await deployValidatorMainnet(options.pubkey)
     }
+  })
+
+validatorCmd.command('register:bls')
+  .description(
+    '🔑 Register the BLS public key on vote accounts (SIMD-0387). Runs automatically after deploy; use this to re-run.',
+  )
+  .option('-n, --network <network>', 'Solana Network')
+  .option('-p, --pubkey <pubkey>', 'Inventory host name (defaults to all)')
+  .action(async (options) => {
+    let network = options.network as NetworkType | undefined
+    if (!network) {
+      const res = await prompt([
+        {
+          name: 'network',
+          message: 'Select Solana Network',
+          type: Select,
+          options: ['testnet', 'mainnet'],
+          default: 'testnet',
+        },
+      ])
+      network = res.network as NetworkType
+    }
+    await registerBlsPubkey(network, options.pubkey)
   })
 
 validatorCmd.command('list')

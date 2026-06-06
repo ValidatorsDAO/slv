@@ -23,6 +23,7 @@ import {
 import type { SolanaNodeType } from '@cmn/types/config.ts'
 import { findNearestSnapshotUrl } from '/lib/snapshot/findNearestSnapshot.ts'
 import { getAllRegions } from '/lib/jito/jitoRegions.ts'
+import { promptXdpConfig } from '/src/validator/init/promptXdpConfig.ts'
 
 const initMainnetConfig = async (
   sshConnection: SSHConnection,
@@ -136,6 +137,8 @@ const initMainnetConfig = async (
   const blockEngineRegion = getNearRegion.info.blockEngineUrl
   const shredstream_address = getNearRegion.info.shredReceiver
   const relayer_url = getNearRegion.info.relayerUrl
+  // XDP retransmit acceleration (agave/jito only)
+  const xdpConfig = await promptXdpConfig(validatorType as SolanaNodeType)
   // Generate Vote Key
   const { voteAccount, authAccount } = await genVoteKey(identityAccount)
   const configMainnet: Partial<ValidatorMainnetConfig> = {
@@ -152,6 +155,7 @@ const initMainnetConfig = async (
     shred_receiver_address: String(shredstream_address),
     snapshot_url: snapshotUrl,
     staked_rpc_identity_account: rpcAccount,
+    ...xdpConfig,
   }
   // await updateAllowedSshIps()
   // await updateAllowedIps()

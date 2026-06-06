@@ -47,6 +47,14 @@ export interface NodeConfigBase extends AnsibleHostConfig {
   dynamic_port_range: string
   validator_type: SolanaNodeType
   shred_receiver_address: string
+  // XDP (eXpress Data Path) retransmit acceleration. Only honored for
+  // `agave` / `jito` validator types; Firedancer uses its own XDP path.
+  // Values are per-host because they depend on the NIC driver and CPU layout.
+  xdp_enabled?: boolean
+  xdp_interface?: string
+  xdp_cpu_cores?: number
+  xdp_zero_copy?: boolean
+  xdp_poh_pinned_cpu_core?: number
 }
 
 export interface ValidatorConfigBase extends NodeConfigBase {

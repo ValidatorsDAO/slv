@@ -18,6 +18,7 @@ import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
 import { getAllRegions } from '/lib/jito/jitoRegions.ts'
+import { promptXdpConfig } from '/src/validator/init/promptXdpConfig.ts'
 
 const initTestnetConfig = async (
   sshConnection: SSHConnection,
@@ -94,6 +95,8 @@ const initTestnetConfig = async (
     console.log(colors.red('❌ Failed to measure latencies. Please try again.'))
     return
   }
+  // XDP retransmit acceleration (agave/jito only)
+  const xdpConfig = await promptXdpConfig(validatorType as SolanaNodeType)
   // Generate Vote Key
   const { voteAccount, authAccount } = await genVoteKey(identityAccount)
   // Generate or Add Inventory
@@ -124,6 +127,7 @@ const initTestnetConfig = async (
     snapshot_url: '',
     port_rpc: 7211,
     dynamic_port_range: '8900-8925',
+    ...xdpConfig,
   }
   await updateInventory(name, configTestnet)
   // Create solv User on Ubuntu Server
