@@ -12,7 +12,7 @@
         dest: /home/solv/firedancer
         update: yes
         force: yes
-        version: "v{{ vars[group_names | difference(['all', 'ungrouped']) | first].version_firedancer | default(mainnet_validators.version_firedancer) }}"
+        version: v{{ mainnet_validators.version_firedancer }}
 
     - name: Initialize git submodules
       command: git submodule update --init --recursive
