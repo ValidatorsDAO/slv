@@ -85,15 +85,12 @@ const warmCache = (): Promise<void> => {
 export const spawnGateway = async (
   opts: {
     port?: number
-    homePrefix?: string
     homeSeed?: (home: string) => void | Promise<void>
     envPort?: string // override SLV_GATEWAY_PORT literally (bad-port tests)
   } = {},
 ): Promise<Proc> => {
   await warmCache()
-  const home = await Deno.makeTempDir({
-    prefix: opts.homePrefix ?? 'slv-gw-it-',
-  })
+  const home = await Deno.makeTempDir({ prefix: 'slv-gw-it-' })
   if (opts.homeSeed) await opts.homeSeed(home)
   const port = opts.port ?? pickPort()
   const env: Record<string, string> = {
@@ -180,7 +177,6 @@ export const stopGateway = cleanup
 export const startGateway = async (
   opts: {
     port?: number
-    homePrefix?: string
   } = {},
 ): Promise<Gw> => {
   const proc = await spawnGateway(opts)
