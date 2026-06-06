@@ -36,7 +36,7 @@ const addMainnetInventory = async (
       validator_type: 'firedancer-jito',
       region: '',
       port_rpc: 8899,
-      dynamic_port_range: '8000-8025',
+      dynamic_port_range: '8000-8030',
       relayer_url: 'http://localhost:11226',
       block_engine_url: 'http://ny.mainnet.relayer.jito.wtf:8100',
       shred_receiver_address: '',

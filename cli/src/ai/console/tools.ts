@@ -12,10 +12,7 @@ import {
 } from '@/ai/console/systemPrompt.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
-import {
-  isKnownAgentId,
-  ALL_AGENT_IDS,
-} from '@/ai/agentConfig/registry.ts'
+import { ALL_AGENT_IDS, isKnownAgentId } from '@/ai/agentConfig/registry.ts'
 import {
   resolveAgentMdPath,
   resolveSkillMdPath,
@@ -159,7 +156,6 @@ export type ToolDefinition = {
   description: string
   parameters: Record<string, unknown>
 }
-
 
 // Core tools — safe orchestration helpers available after bootstrap
 export const CORE_TOOLS: ToolDefinition[] = [
@@ -522,7 +518,8 @@ function checkWalletGuard(command: string): string | null {
     },
     {
       re: />\s*wallet\.json\b/,
-      reason: 'refusing to truncate or overwrite wallet.json via shell redirect',
+      reason:
+        'refusing to truncate or overwrite wallet.json via shell redirect',
     },
     {
       re: new RegExp(`\\brm${rmFlags}\\s+[^\\n]*${home}/\\.slv(/|\\s|$|['"])`),
@@ -546,8 +543,7 @@ function checkWalletGuard(command: string): string | null {
 async function executeRunCommand(command: string): Promise<string> {
   const guardReason = checkWalletGuard(command)
   if (guardReason !== null) {
-    const msg =
-      `Command blocked by wallet safety guard: ${guardReason}\n\n` +
+    const msg = `Command blocked by wallet safety guard: ${guardReason}\n\n` +
       `Command: ${command}\n\n` +
       `This is a hard guard that runs before confirmation to protect wallet.json and ~/.slv from accidental deletion. Do not retry with a rephrased command — either delegate to the Setzer sub-agent (agent='Setzer') for bot/app work, or ask the user to run the command manually if they truly intend it.`
     if (!tuiInstance) {
@@ -1199,7 +1195,7 @@ Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
       region: <region>
       snapshot_url: ""  # Auto-detected from nearest region
       commission_bps: 0
-      dynamic_port_range: "8900-8925"
+      dynamic_port_range: "8900-8930"
       port_rpc: 7211
 \`\`\`
 

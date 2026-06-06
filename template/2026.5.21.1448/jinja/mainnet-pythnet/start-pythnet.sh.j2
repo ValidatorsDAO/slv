@@ -22,7 +22,7 @@ exec /usr/local/bin/solana-validator \
   --rpc-bind-address {{ pythnet_rpc_bind | default('0.0.0.0') }} \
   --full-rpc-api \
   --enable-rpc-transaction-history \
-  --dynamic-port-range {{ pythnet_dynamic_port_range | default('8000-8020') }} \
+  --dynamic-port-range {{ pythnet_dynamic_port_range | default('8000-8030') }} \
   --gossip-port {{ pythnet_gossip_port | default(8001) }} \
   --account-index program-id \
   --ledger {{ pythnet_ledger_mount | default('/mnt/ledger') }}/pythnet/ledger \
