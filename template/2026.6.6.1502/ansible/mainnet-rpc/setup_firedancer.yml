@@ -14,7 +14,7 @@
         dest: /home/solv/firedancer
         update: yes
         force: yes
-        version: v{{ mainnet_validators.version_firedancer }}
+        version: v{{ mainnet_rpcs.version_firedancer }}
 
     - name: Initialize git submodules
       command: git submodule update --init --recursive
@@ -53,6 +53,7 @@
         src: /home/solv/firedancer/build/native/gcc/bin/fdctl
         dest: /usr/local/bin/fdctl
         state: link
+        force: yes
       become: yes
       become_user: root
 

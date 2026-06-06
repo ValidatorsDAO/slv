@@ -51,6 +51,7 @@
         src: /home/solv/firedancer/build/native/gcc/bin/fdctl
         dest: /usr/local/bin/fdctl
         state: link
+        force: yes
       become: yes
       become_user: root
 
