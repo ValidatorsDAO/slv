@@ -1,0 +1,6 @@
+---
+# Re-run the build step against a (possibly updated) hermes_repo_ref to pull
+# in upstream changes.  Safe to run any time — the install_hermes_stack
+# playbook is idempotent and only restarts services when the binary
+# actually changed.
+- import_playbook: ../cmn/install_hermes_stack.yml

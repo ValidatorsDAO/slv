@@ -1,0 +1,12 @@
+# Management IPs — full access (all ports, all protocols).
+#
+# `mgmt_ips_v4` / `mgmt_ips_v6` come from inventory; the playbook
+# refuses to deploy if `mgmt_ips_v4` is empty (no SSH lockout).
+{% set v4 = (mgmt_ips_v4 | default([])) | map('trim') | reject('equalto','') | list %}
+{% set v6 = (mgmt_ips_v6 | default([])) | map('trim') | reject('equalto','') | list %}
+{% if v4 | length > 0 %}ip saddr { {{ v4 | join(', ') }} } accept;{% endif %}
+{% if v6 | length > 0 %}ip6 saddr { {{ v6 | join(', ') }} } accept;{% endif %}
+
+# allowAll_v4 set — IPs added at runtime via `nft add element ...`
+# also get unconditional access.
+ip saddr @allowAll_v4 counter name c_allowall accept;

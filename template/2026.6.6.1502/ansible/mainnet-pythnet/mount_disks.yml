@@ -1,0 +1,82 @@
+---
+# Format and mount the ledger disk for Pythnet.
+#
+# Pythnet ledger is much smaller than Solana mainnet (~10 GB/day vs
+# 200+ GB/day) so a single NVMe (or even a directory on the OS disk) is
+# sufficient.  This playbook is opt-in via `pythnet_format_disk` — leave
+# the default (false) if you'd rather manage the mount yourself or use a
+# directory on the root filesystem.
+#
+# Inventory variables:
+#   pythnet_format_disk    false      Set to true to actually run mkfs+mount
+#   pythnet_ledger_device  /dev/nvme0n1
+#   pythnet_ledger_mount   /mnt/ledger
+
+- name: Provision ledger disk for Pythnet
+  hosts: all
+  become: true
+  gather_facts: yes
+  vars:
+    do_format: "{{ pythnet_format_disk | default(false) | bool }}"
+    device: "{{ pythnet_ledger_device | default('/dev/nvme0n1') }}"
+    mount_point: "{{ pythnet_ledger_mount | default('/mnt/ledger') }}"
+
+  tasks:
+    - name: Ensure mount point exists
+      ansible.builtin.file:
+        path: "{{ mount_point }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    # Guard: refuse to format an already-mounted or partitioned device unless
+    # the operator explicitly asks for a rebuild.  Without this guard a
+    # re-run of init.yml could wipe an existing ledger.
+    - name: Probe device for existing partition table / FS
+      ansible.builtin.command: "blkid -p {{ device }}"
+      register: dev_probe
+      changed_when: false
+      failed_when: false
+      when: do_format
+
+    - name: Refuse to wipe a non-empty device unless pythnet_force_format=true
+      ansible.builtin.fail:
+        msg: "{{ device }} already has a filesystem/partition table; set pythnet_force_format=true to rebuild"
+      when:
+        - do_format
+        - dev_probe.rc == 0
+        - dev_probe.stdout | length > 0
+        - not (pythnet_force_format | default(false) | bool)
+
+    - name: Wipe device (XFS — single agcount=32 stripe)
+      ansible.builtin.shell: |
+        wipefs -a {{ device }}
+        mkfs.xfs -f -d agcount=32 {{ device }}
+      when:
+        - do_format
+        - (dev_probe.rc != 0) or (pythnet_force_format | default(false) | bool)
+
+    - name: Add to fstab + mount
+      ansible.posix.mount:
+        path: "{{ mount_point }}"
+        src: "{{ device }}"
+        fstype: xfs
+        opts: "noatime,nodiratime,inode64,logbufs=8,logbsize=256k"
+        state: mounted
+      when: do_format
+
+    - name: Ensure ledger sub-dirs exist
+      ansible.builtin.file:
+        path: "{{ mount_point }}/{{ item }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      loop:
+        - "pythnet"
+        - "pythnet/ledger"
+        - "pythnet/accounts"
+        - "pythnet/snapshots"
+        - "pythnet/log"
+        - "src"

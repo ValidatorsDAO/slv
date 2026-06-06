@@ -1,0 +1,46 @@
+---
+# Node-level performance optimization orchestrator.
+#
+# Runs SMT disable + IRQ tune + boost performance (kernel update) in order.
+# Reboots the node at the end IF any step required it (NVMe GRUB / nosmt /
+# HWE kernel / amd_pstate cmdline). Waits for the host to come back online.
+#
+# Idempotent: each step uses a marker file so repeated runs no-op.
+
+- import_playbook: smt_disable.yml
+- import_playbook: irq_tune.yml
+- import_playbook: boost_performance.yml
+
+- name: Reboot if any tuning step requested it
+  hosts: all
+  become: yes
+  gather_facts: false
+  tasks:
+    - name: Check if reboot is required by any tuning step
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: pkg_reboot
+
+    - name: Read SLV reboot flag (if previous play set it)
+      ansible.builtin.set_fact:
+        slv_reboot_required: "{{ (need_reboot | default(false)) or pkg_reboot.stat.exists }}"
+
+    - name: Show reboot decision
+      ansible.builtin.debug:
+        msg: "slv_reboot_required={{ slv_reboot_required }}"
+
+    - name: Reboot host (and wait for it to come back)
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+        post_reboot_delay: 30
+        test_command: uptime
+      when: slv_reboot_required
+
+    - name: Confirm post-reboot kernel
+      ansible.builtin.command: uname -r
+      register: post_reboot_kernel
+      changed_when: false
+
+    - name: Report final kernel
+      ansible.builtin.debug:
+        msg: "Optimization complete — running kernel: {{ post_reboot_kernel.stdout }}"

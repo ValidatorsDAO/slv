@@ -1,0 +1,31 @@
+---
+# Generate the validator identity keypair if not already present.
+#
+# Pythnet RPC nodes run with --no-voting, so this key is only used as a
+# gossip identity — it does not hold stake or sign votes.  Losing it has
+# no monetary consequence; the validator just rejoins gossip under a new
+# pubkey on next start.
+- name: Generate Pythnet validator identity
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Create identity.json (no-bip39-passphrase) if absent
+      become_user: solv
+      ansible.builtin.shell: |
+        /usr/local/bin/solana-keygen new \
+          --no-bip39-passphrase \
+          --outfile /home/solv/pythnet-identity.json \
+          --silent
+      args:
+        creates: /home/solv/pythnet-identity.json
+
+    - name: Read pubkey
+      become_user: solv
+      ansible.builtin.command: /usr/local/bin/solana-keygen pubkey /home/solv/pythnet-identity.json
+      register: pubkey_result
+      changed_when: false
+
+    - name: Show pubkey
+      ansible.builtin.debug:
+        msg: "Pythnet identity pubkey: {{ pubkey_result.stdout }}"

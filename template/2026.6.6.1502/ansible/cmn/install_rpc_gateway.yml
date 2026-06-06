@@ -1,0 +1,379 @@
+---
+# Install + start the SLV RPC Gateway.
+#
+# Build path: clone the slv repo, `cargo build --release -p
+# slv-rpc-gateway`, install the resulting binary, render the
+# systemd unit, start it.  All steps are idempotent — re-running
+# the play after a `git push` is the way to roll a new gateway
+# build to a host.
+#
+# Inventory variables (with defaults):
+#   rpc_gateway_repo        https://github.com/ValidatorsDAO/slv
+#   rpc_gateway_repo_ref    main
+#   rpc_gateway_build_dir   /opt/slv-build/slv     (= where the repo lives)
+#   rpc_gateway_bin_dir     /opt/rpc-gateway-rust  (= where the built binary lives)
+#   rpc_gateway_port        8889
+#   rpc_gateway_of1_url     http://localhost:8888
+#   rpc_gateway_ch_url      http://localhost:8123     (when CH lives elsewhere,
+#                                                      point to that host:port,
+#                                                      OR set rpc_gateway_ch_tunnel_*
+#                                                      below to auto-build an SSH
+#                                                      tunnel to a loopback CH)
+#   rpc_gateway_ch_db       default
+#   rpc_gateway_ch_user     (unset)
+#   rpc_gateway_ch_pass     (unset)
+#   rpc_gateway_yellowstone_grpc                       localhost:10000
+#   rpc_gateway_pubsub_ws                              ws://localhost:7111
+#   rpc_gateway_slot_first_shred_url                   (unset) — opt-in latency tweak
+#   rpc_gateway_slot_first_shred_multiplex_urls        (unset, comma list) — opt-in
+#   rpc_gateway_slot_multiplex_urls                    (unset, comma list) — opt-in
+#   rpc_gateway_slot_pubsub_url                        (unset)
+#   rpc_gateway_slot_grpc_url                          (unset) — jito-shredstream-proxy
+#                                                       SubscribeEntries endpoint, joins
+#                                                       the SLOT_FIRST_SHRED_MULTIPLEX dedup
+#                                                       window as an extra fast-path source
+#   rpc_gateway_slot_udp_bind                          (unset) — UDP bind address
+#                                                       (`host:port`) for raw shred
+#                                                       reception.  Gateway reads slot
+#                                                       directly from the shred header,
+#                                                       skipping the gRPC proxy's decode
+#                                                       (saves ~150-450 µs per slot).
+#                                                       Requires upstream sender to add
+#                                                       this address to --dest-ip-ports
+#                                                       and a strict nftables allowlist
+#                                                       on the bind port.
+#   rpc_gateway_live_rpc_url                           (unset) — live-state RPC backend
+#                                                       (e.g. http://127.0.0.1:7211 for
+#                                                       a co-located agave-validator).
+#                                                       When set, every non-historical
+#                                                       method is routed here instead of
+#                                                       to OF1_URL.  Required when OF1_URL
+#                                                       points at a historical-only
+#                                                       backend (e.g. yellowstone-faithful)
+#                                                       to keep getSlot / getBlockHeight
+#                                                       / sendTransaction etc. answering
+#                                                       with live chain state.
+#   rpc_gateway_live_rpc_timeout_ms                    10000 — per-call timeout
+#                                                       for the live RPC client
+#   rpc_gateway_metrics_api_url                        (unset) — operator-supplied metrics
+#                                                       API base URL.  When set with
+#                                                       *_bearer below, WS connection close
+#                                                       events are POSTed to
+#                                                       `{url}/ws-connection-log` so the
+#                                                       central metering pipeline can
+#                                                       charge per-second WS duration.
+#   rpc_gateway_metrics_api_bearer                     (unset) — bearer token for the metrics
+#                                                       API.  Keep this in inventory
+#                                                       group_vars or a vaulted file, never
+#                                                       in the OSS repo.
+#   rpc_gateway_metrics_upstream_ip                    (unset) — optional self-identifier
+#                                                       emitted as `upstreamIp` in the log
+#                                                       body (defaults to empty string).
+#   rpc_gateway_full_concurrency                       20
+#   rpc_gateway_rust_log                               info
+#
+# Optional CH tunnel mode (used when the jetstreamer host's ClickHouse
+# binds 127.0.0.1 only and no LAN-direct path exists — typical security
+# default).  When `rpc_gateway_ch_tunnel_via` is set, this play will:
+#   - generate a dedicated ed25519 key for the tunnel only
+#   - install a systemd-managed `ch-tunnel.service` (ssh -N -L) that
+#     auto-restarts and survives reboots
+#   - override `rpc_gateway_ch_url` to point at the local tunnel port
+#   - print the public key with the exact `authorized_keys` line so the
+#     CH host operator can authorize it once
+#
+#   rpc_gateway_ch_tunnel_via         (unset, e.g. "root@<jetstreamer host>")
+#   rpc_gateway_ch_tunnel_target      127.0.0.1:8123    (remote bind to forward)
+#   rpc_gateway_ch_tunnel_local_port  18123             (local bind port)
+
+- name: Install + start the SLV RPC Gateway
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    rg_repo: "{{ rpc_gateway_repo | default('https://github.com/ValidatorsDAO/slv') }}"
+    rg_ref: "{{ rpc_gateway_repo_ref | default('main') }}"
+    rg_build_dir: "{{ rpc_gateway_build_dir | default('/opt/slv-build/slv') }}"
+    rg_bin_dir: "{{ rpc_gateway_bin_dir | default('/opt/rpc-gateway-rust') }}"
+    rg_port: "{{ rpc_gateway_port | default(8889) }}"
+    rg_of1: "{{ rpc_gateway_of1_url | default('http://localhost:8888') }}"
+    rg_ch: "{{ rpc_gateway_ch_url | default('http://localhost:8123') }}"
+    rg_ch_db: "{{ rpc_gateway_ch_db | default('default') }}"
+    rg_ch_user: "{{ rpc_gateway_ch_user | default('') }}"
+    rg_ch_pass: "{{ rpc_gateway_ch_pass | default('') }}"
+    rg_yellowstone: "{{ rpc_gateway_yellowstone_grpc | default('localhost:10000') }}"
+    rg_pubsub: "{{ rpc_gateway_pubsub_ws | default('ws://localhost:7111') }}"
+    rg_slot_first_shred_url: "{{ rpc_gateway_slot_first_shred_url | default('') }}"
+    rg_slot_first_shred_multiplex_urls: "{{ rpc_gateway_slot_first_shred_multiplex_urls | default('') }}"
+    rg_slot_multiplex_urls: "{{ rpc_gateway_slot_multiplex_urls | default('') }}"
+    rg_slot_pubsub_url: "{{ rpc_gateway_slot_pubsub_url | default('') }}"
+    rg_slot_grpc_url: "{{ rpc_gateway_slot_grpc_url | default('') }}"
+    rg_slot_udp_bind: "{{ rpc_gateway_slot_udp_bind | default('') }}"
+    rg_live_rpc_url: "{{ rpc_gateway_live_rpc_url | default('') }}"
+    rg_live_rpc_timeout_ms: "{{ rpc_gateway_live_rpc_timeout_ms | default('') }}"
+    rg_metrics_api_url: "{{ rpc_gateway_metrics_api_url | default('') }}"
+    rg_metrics_api_bearer: "{{ rpc_gateway_metrics_api_bearer | default('') }}"
+    rg_metrics_upstream_ip: "{{ rpc_gateway_metrics_upstream_ip | default('') }}"
+    rg_full_concurrency: "{{ rpc_gateway_full_concurrency | default(20) }}"
+    rg_rust_log: "{{ rpc_gateway_rust_log | default('info') }}"
+    # CH tunnel mode (see header comment).  Empty string disables.
+    rg_ch_tunnel_via: "{{ rpc_gateway_ch_tunnel_via | default('') }}"
+    rg_ch_tunnel_target: "{{ rpc_gateway_ch_tunnel_target | default('127.0.0.1:8123') }}"
+    rg_ch_tunnel_local_port: "{{ rpc_gateway_ch_tunnel_local_port | default(18123) }}"
+    # When tunnel mode is on, force the gateway's CLICKHOUSE_URL onto
+    # the local tunnel port regardless of any rpc_gateway_ch_url the
+    # operator passed — pointing the gateway at the tunnel is the
+    # whole point of enabling tunnel mode.
+    rg_ch_effective: "{% if rg_ch_tunnel_via | length > 0 %}http://127.0.0.1:{{ rg_ch_tunnel_local_port }}{% else %}{{ rg_ch }}{% endif %}"
+
+  tasks:
+    # ---------------------------------------------------------------
+    # Build deps.
+    # ---------------------------------------------------------------
+    - name: Install build deps
+      ansible.builtin.apt:
+        name:
+          # librocksdb-sys (transitive via jetstreamer / clickhouse-rs)
+          # invokes clang at build time and dlopens libclang at runtime
+          # — both packages are required.
+          - clang
+          - libclang-dev
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - git
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Install rustup for solv user (idempotent — skipped when cargo present)
+      become_user: solv
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+          | sh -s -- -y --default-toolchain stable --profile minimal
+      args:
+        creates: /home/solv/.cargo/bin/cargo
+
+    # ---------------------------------------------------------------
+    # Source checkout + build.
+    # ---------------------------------------------------------------
+    - name: Ensure build + binary install dirs
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+      loop:
+        - "{{ rg_build_dir | dirname }}"
+        - "{{ rg_build_dir }}"
+        - "{{ rg_bin_dir }}"
+
+    - name: Clone / update slv repo
+      become_user: solv
+      ansible.builtin.git:
+        repo: "{{ rg_repo }}"
+        dest: "{{ rg_build_dir }}"
+        version: "{{ rg_ref }}"
+        # force: yes so re-running with a different rpc_gateway_repo_ref
+        # (e.g. switching to a release tag) updates the working tree.
+        # Source is never edited on the host — changes go through git
+        # on a workstation.
+        force: yes
+        depth: 1
+      register: rg_git
+
+    # Re-build only when git updated something or the binary is
+    # missing.  `cargo build` is itself incremental but a no-op git
+    # pull still spawns 30 s of cargo work, so this check keeps the
+    # idempotent path cheap.
+    - name: Stat current binary
+      ansible.builtin.stat:
+        path: "{{ rg_bin_dir }}/slv-rpc-gateway"
+      register: rg_bin_stat
+
+    - name: Build slv-rpc-gateway (release)
+      become_user: solv
+      ansible.builtin.shell: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        # librocksdb-sys's bindgen needs libclang at build time; the
+        # exact path differs by libclang-dev version (libclang-N).
+        # `find` here picks whatever the distro installed without
+        # hard-coding a version.
+        export LIBCLANG_PATH=$(dirname $(find /usr/lib/llvm-* -name libclang.so* 2>/dev/null | head -1) 2>/dev/null || true)
+        cargo build --release --manifest-path {{ rg_build_dir }}/slv-plugins/Cargo.toml -p slv-rpc-gateway
+      args:
+        executable: /bin/bash
+      register: rg_build
+      when: rg_git is changed or not rg_bin_stat.stat.exists
+      notify: restart rpc-gateway
+
+    - name: Install built binary
+      ansible.builtin.copy:
+        src: "{{ rg_build_dir }}/slv-plugins/target/release/slv-rpc-gateway"
+        dest: "{{ rg_bin_dir }}/slv-rpc-gateway"
+        remote_src: yes
+        owner: solv
+        group: solv
+        mode: "0755"
+      when: rg_git is changed or not rg_bin_stat.stat.exists
+      notify: restart rpc-gateway
+
+    # ---------------------------------------------------------------
+    # Optional CH SSH tunnel.  Skipped entirely when
+    # `rpc_gateway_ch_tunnel_via` is unset.
+    # ---------------------------------------------------------------
+    - name: Generate dedicated SSH key for CH tunnel
+      ansible.builtin.openssh_keypair:
+        path: /root/.ssh/id_ed25519_ch_tunnel
+        type: ed25519
+        comment: "rpc-gateway CH tunnel from {{ inventory_hostname }}"
+      when: rg_ch_tunnel_via | length > 0
+
+    - name: Read tunnel pubkey
+      ansible.builtin.slurp:
+        src: /root/.ssh/id_ed25519_ch_tunnel.pub
+      register: ch_tunnel_pubkey
+      when: rg_ch_tunnel_via | length > 0
+
+    - name: Show authorized_keys line for the CH host operator
+      ansible.builtin.debug:
+        msg: |
+          The CH host ({{ rg_ch_tunnel_via }}) must authorize this gateway with
+          the line below.  Append it to /root/.ssh/authorized_keys on that host
+          (idempotent — a `grep -qF` first is fine).  The `restrict` +
+          `port-forwarding` + `permitopen` combo limits this credential to
+          forwarding the single CH port; `command="..."` blocks shell access:
+
+            restrict,port-forwarding,permitopen="{{ rg_ch_tunnel_target }}",command="echo forward-only-no-shell" {{ ch_tunnel_pubkey.content | b64decode | trim }}
+      when: rg_ch_tunnel_via | length > 0
+
+    - name: Install ch-tunnel.service systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ch-tunnel.service
+        mode: "0644"
+        content: |
+          # Persistent SSH tunnel from this gateway to the jetstreamer
+          # ClickHouse loopback port.  Managed by install_rpc_gateway.yml
+          # (rpc_gateway_ch_tunnel_* inventory vars).
+          [Unit]
+          Description=Persistent SSH tunnel for ClickHouse via {{ rg_ch_tunnel_via }}
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=exec
+          User=root
+          ExecStart=/usr/bin/ssh -N \
+              -i /root/.ssh/id_ed25519_ch_tunnel \
+              -o ExitOnForwardFailure=yes \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=3 \
+              -o StrictHostKeyChecking=accept-new \
+              -L 127.0.0.1:{{ rg_ch_tunnel_local_port }}:{{ rg_ch_tunnel_target }} \
+              {{ rg_ch_tunnel_via }}
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      when: rg_ch_tunnel_via | length > 0
+      notify: restart ch-tunnel
+
+    - name: Enable + start ch-tunnel.service
+      ansible.builtin.systemd:
+        name: ch-tunnel.service
+        daemon_reload: yes
+        enabled: yes
+        state: started
+      when: rg_ch_tunnel_via | length > 0
+
+    # ---------------------------------------------------------------
+    # Earlier rollout used a 30-binary-swap.conf drop-in to swap the
+    # Deno ExecStart for the Rust binary without touching the base
+    # unit.  Now that the base unit is regenerated directly with the
+    # right ExecStart, the swap drop-in is redundant — remove it on
+    # every play so older hosts converge to the canonical layout.
+    # ---------------------------------------------------------------
+    - name: Remove obsolete swap drop-in
+      ansible.builtin.file:
+        path: /etc/systemd/system/rpc-gateway.service.d/30-binary-swap.conf
+        state: absent
+      notify: restart rpc-gateway
+
+    - name: Install rpc-gateway.service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/rpc-gateway.service
+        mode: "0644"
+        content: |
+          # systemd unit for slv-rpc-gateway (Rust binary, slv-plugins workspace).
+          [Unit]
+          Description=SLV RPC Gateway (JSON-RPC; forwards to of1, routes jet* to ClickHouse)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=solv
+          Group=solv
+          Environment=PORT={{ rg_port }}
+          Environment=OF1_URL={{ rg_of1 }}
+          Environment=CLICKHOUSE_URL={{ rg_ch_effective }}
+          Environment=CLICKHOUSE_DB={{ rg_ch_db }}
+          {% if rg_ch_user %}Environment=CLICKHOUSE_USER={{ rg_ch_user }}{% endif %}
+          {% if rg_ch_pass %}Environment=CLICKHOUSE_PASS={{ rg_ch_pass }}{% endif %}
+          Environment=YELLOWSTONE_GRPC={{ rg_yellowstone }}
+          Environment=PUBSUB_WS_URL={{ rg_pubsub }}
+          {% if rg_slot_first_shred_url %}Environment=SLOT_FIRST_SHRED_URL={{ rg_slot_first_shred_url }}{% endif %}
+          {% if rg_slot_first_shred_multiplex_urls %}Environment=SLOT_FIRST_SHRED_MULTIPLEX_URLS={{ rg_slot_first_shred_multiplex_urls }}{% endif %}
+          {% if rg_slot_multiplex_urls %}Environment=SLOT_MULTIPLEX_URLS={{ rg_slot_multiplex_urls }}{% endif %}
+          {% if rg_slot_pubsub_url %}Environment=SLOT_PUBSUB_URL={{ rg_slot_pubsub_url }}{% endif %}
+          {% if rg_slot_grpc_url %}Environment=SLOT_GRPC_URL={{ rg_slot_grpc_url }}{% endif %}
+          {% if rg_slot_udp_bind %}Environment=SLOT_UDP_BIND={{ rg_slot_udp_bind }}{% endif %}
+          {% if rg_live_rpc_url %}Environment=LIVE_RPC_URL={{ rg_live_rpc_url }}{% endif %}
+          {% if rg_live_rpc_timeout_ms %}Environment=LIVE_RPC_TIMEOUT_MS={{ rg_live_rpc_timeout_ms }}{% endif %}
+          {% if rg_metrics_api_url %}Environment=RPC_METRICS_API_URL={{ rg_metrics_api_url }}{% endif %}
+          {% if rg_metrics_api_bearer %}Environment=RPC_METRICS_API_BEARER={{ rg_metrics_api_bearer }}{% endif %}
+          {% if rg_metrics_upstream_ip %}Environment=RPC_METRICS_UPSTREAM_IP={{ rg_metrics_upstream_ip }}{% endif %}
+          Environment=GTFA_FULL_CONCURRENCY={{ rg_full_concurrency }}
+          Environment=RUST_LOG={{ rg_rust_log }}
+          ExecStart={{ rg_bin_dir }}/slv-rpc-gateway
+          Restart=always
+          RestartSec=5
+          LimitNOFILE=65536
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart rpc-gateway
+
+    - name: Enable + start rpc-gateway.service
+      ansible.builtin.systemd:
+        name: rpc-gateway.service
+        daemon_reload: yes
+        enabled: yes
+        state: started
+
+    - name: Wait for /health to respond
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ rg_port }}/health"
+        status_code: 200
+      register: rg_health
+      retries: 10
+      delay: 2
+      until: rg_health.status == 200
+
+  handlers:
+    # Restart only on real change (= built binary updated, unit file
+    # changed).  `state: started` above keeps the service up without
+    # bouncing it on every play execution.
+    - name: restart rpc-gateway
+      ansible.builtin.systemd:
+        name: rpc-gateway.service
+        daemon_reload: yes
+        state: restarted
+
+    - name: restart ch-tunnel
+      ansible.builtin.systemd:
+        name: ch-tunnel.service
+        daemon_reload: yes
+        state: restarted

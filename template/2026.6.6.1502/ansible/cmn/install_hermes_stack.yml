@@ -1,0 +1,240 @@
+---
+# Install the full Pyth Hermes stack on a single host:
+#   - nats-server (JetStream)        for Beacon VAA dedup/stream
+#   - pyth-network/beacon            HA Wormhole spy that pushes VAAs into NATS
+#   - pyth-network/pyth-crosschain   apps/hermes/server (Rust) — REST/WS API
+#
+# Hermes needs a Pythnet RPC (HTTP + WS) as a *source* of accumulator
+# messages and a Wormhole spy (or Beacon) for VAAs.  Both endpoints come
+# from inventory variables — by default they point to public infrastructure,
+# but the recommended pattern is to swap them for a self-hosted Pythnet RPC
+# deployed via `mainnet-pythnet/init.yml`.
+#
+# Inventory variables (with defaults — override per-host or per-group):
+#   hermes_repo                 https://github.com/pyth-network/pyth-crosschain
+#   hermes_repo_ref             main
+#   beacon_repo                 https://github.com/pyth-network/beacon
+#   beacon_repo_ref             main
+#   nats_version                v2.10.22
+#   hermes_rust_toolchain       1.82.0
+#   hermes_pythnet_http_addr    https://pythnet.rpcpool.com
+#   hermes_pythnet_ws_addr      wss://pythnet.rpcpool.com
+#   hermes_wormhole_env         mainnet
+#   hermes_rpc_listen_addr      0.0.0.0:7575
+#   hermes_metrics_listen_addr  127.0.0.1:7576
+#   beacon_listen_port          8999
+#   beacon_spy_grpc_addr        127.0.0.1:7072
+#   nats_port                   4222
+
+- name: Install Pyth Hermes stack (nats + beacon + hermes)
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    hermes_repo: "{{ hermes_repo | default('https://github.com/pyth-network/pyth-crosschain') }}"
+    hermes_repo_ref: "{{ hermes_repo_ref | default('main') }}"
+    beacon_repo: "{{ beacon_repo | default('https://github.com/pyth-network/beacon') }}"
+    beacon_repo_ref: "{{ beacon_repo_ref | default('main') }}"
+    nats_version: "{{ nats_version | default('v2.10.22') }}"
+    rust_toolchain: "{{ hermes_rust_toolchain | default('1.82.0') }}"
+
+    # Endpoints — override these in inventory.  The defaults talk to the
+    # public Pyth infrastructure so a fresh install boots end-to-end; in
+    # production swap pythnet_http/ws for your own pythnet RPC.
+    pythnet_http_addr: "{{ hermes_pythnet_http_addr | default('https://pythnet.rpcpool.com') }}"
+    pythnet_ws_addr: "{{ hermes_pythnet_ws_addr | default('wss://pythnet.rpcpool.com') }}"
+    wormhole_env: "{{ hermes_wormhole_env | default('mainnet') }}"
+
+    rpc_listen_addr: "{{ hermes_rpc_listen_addr | default('0.0.0.0:7575') }}"
+    metrics_listen_addr: "{{ hermes_metrics_listen_addr | default('127.0.0.1:7576') }}"
+    beacon_listen_port: "{{ beacon_listen_port | default(8999) }}"
+    beacon_spy_grpc_addr: "{{ beacon_spy_grpc_addr | default('127.0.0.1:7072') }}"
+    nats_port: "{{ nats_port | default(4222) }}"
+
+    hermes_src_dir: "/home/solv/src/pyth-crosschain"
+    hermes_binary: "/home/solv/src/pyth-crosschain/apps/hermes/server/target/release/hermes"
+    beacon_src_dir: "/home/solv/src/beacon"
+    beacon_binary: "/home/solv/beacon-bin"
+
+  tasks:
+    - name: Install OS packages (build deps + nats prerequisites)
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - clang
+          - protobuf-compiler
+          - git
+          - curl
+          - jq
+          - golang-go
+          - ca-certificates
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    # nats-server is shipped as a single static binary.  We install it
+    # ourselves because Ubuntu's repo lags releases and we want to pin a
+    # version that matches the Beacon NATS client we build below.
+    - name: Check installed nats-server version
+      ansible.builtin.command: /usr/local/bin/nats-server --version
+      register: nats_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Download nats-server {{ nats_version }} tarball
+      ansible.builtin.get_url:
+        url: "https://github.com/nats-io/nats-server/releases/download/{{ nats_version }}/nats-server-{{ nats_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/nats-{{ nats_version }}.tgz"
+        mode: "0644"
+      when: nats_version not in nats_installed.stdout
+
+    - name: Unpack nats-server
+      ansible.builtin.unarchive:
+        src: "/tmp/nats-{{ nats_version }}.tgz"
+        dest: /tmp
+        remote_src: yes
+      when: nats_version not in nats_installed.stdout
+
+    - name: Install nats-server binary
+      ansible.builtin.copy:
+        src: "/tmp/nats-server-{{ nats_version }}-linux-amd64/nats-server"
+        dest: /usr/local/bin/nats-server
+        mode: "0755"
+        remote_src: yes
+      when: nats_version not in nats_installed.stdout
+
+    - name: Install Rust toolchain for solv
+      become_user: solv
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+          | sh -s -- -y --default-toolchain {{ rust_toolchain }} --profile minimal
+      args:
+        creates: /home/solv/.cargo/bin/cargo
+
+    - name: Ensure source dir exists
+      ansible.builtin.file:
+        path: /home/solv/src
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    # Build Beacon (Go) first — it's fast (~30s) and lets us start NATS+spy
+    # while the heavier Hermes (Rust) compile runs.
+    - name: Clone beacon repo
+      become_user: solv
+      ansible.builtin.git:
+        repo: "{{ beacon_repo }}"
+        dest: "{{ beacon_src_dir }}"
+        version: "{{ beacon_repo_ref }}"
+        depth: 1
+        force: yes
+      register: beacon_git
+
+    - name: Build beacon binary
+      become_user: solv
+      ansible.builtin.shell: |
+        export PATH=$PATH:/usr/local/go/bin
+        go build -o {{ beacon_binary }} .
+      args:
+        chdir: "{{ beacon_src_dir }}"
+        executable: /bin/bash
+      when: beacon_git.changed or not (beacon_binary | length > 0)
+      register: beacon_build
+      changed_when: beacon_build.rc == 0
+
+    # Clone Hermes server crate.  The crate lives at apps/hermes/server in the
+    # pyth-crosschain monorepo; the build pulls in ~200 Cargo deps but
+    # finishes in ~60s on modern hardware (Cargo build cache reuses across
+    # re-runs).
+    - name: Clone pyth-crosschain repo
+      become_user: solv
+      ansible.builtin.git:
+        repo: "{{ hermes_repo }}"
+        dest: "{{ hermes_src_dir }}"
+        version: "{{ hermes_repo_ref }}"
+        depth: 1
+        force: yes
+      register: hermes_git
+
+    - name: Build hermes binary
+      become_user: solv
+      ansible.builtin.shell: |
+        source $HOME/.cargo/env
+        cargo build --release
+      args:
+        chdir: "{{ hermes_src_dir }}/apps/hermes/server"
+        executable: /bin/bash
+      register: hermes_build
+      changed_when: hermes_build.rc == 0
+      when: hermes_git.changed
+
+    - name: NATS data dir
+      ansible.builtin.file:
+        path: /home/solv/nats-data
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0755"
+
+    - name: Install nats-server systemd unit
+      ansible.builtin.template:
+        src: "~/.slv/mainnet-hermes/nats-server.service.j2"
+        dest: /etc/systemd/system/nats-server.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload systemd
+
+    - name: Install beacon systemd unit
+      ansible.builtin.template:
+        src: "~/.slv/mainnet-hermes/beacon.service.j2"
+        dest: /etc/systemd/system/beacon.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload systemd
+
+    - name: Install hermes systemd unit
+      ansible.builtin.template:
+        src: "~/.slv/mainnet-hermes/hermes.service.j2"
+        dest: /etc/systemd/system/hermes.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload systemd
+
+    - name: Flush handlers so daemon-reload runs before enable+start
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start the stack (nats → beacon → hermes)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      loop:
+        - nats-server.service
+        - beacon.service
+        - hermes.service
+
+    # Smoke test — fail fast if the API isn't responding.  Hermes binds
+    # its REST/WS listener as soon as it starts so this should be ready
+    # within a few seconds; the retry loop forgives slow boot.
+    - name: Wait for hermes /v2/price_feeds
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ rpc_listen_addr.split(':')[1] }}/v2/price_feeds"
+        status_code: 200
+      register: hermes_health
+      retries: 15
+      delay: 2
+      until: hermes_health.status == 200
+
+    - name: Report endpoint
+      ansible.builtin.debug:
+        msg: "Hermes API listening on {{ rpc_listen_addr }} — POST/GET /v2/* and /ws supported."
+
+  handlers:
+    - name: reload systemd
+      ansible.builtin.command: systemctl daemon-reload

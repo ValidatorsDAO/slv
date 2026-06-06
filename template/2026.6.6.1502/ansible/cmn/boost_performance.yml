@@ -1,0 +1,268 @@
+---
+# CPU performance boost: kernel update (HWE) + amd_pstate=active
+# + governor=performance + EPP=performance + boost=enabled + cpuidle disable
+# + scaling_max_freq=cpuinfo_max_freq.
+#
+# Sets need_reboot=true when kernel/GRUB changes require a reboot.
+- name: CPU performance boost optimization
+  hosts: all
+  become: yes
+  gather_facts: true
+  vars:
+    boost_marker_file: /var/lib/slv/.boost_applied
+    grub_default: /etc/default/grub
+    amd_pstate_mode: "{{ amd_pstate_mode | default('active') }}"
+    min_kernel_major: 6
+    min_kernel_minor: 14
+  tasks:
+    - name: Ensure /var/lib/slv exists
+      ansible.builtin.file:
+        path: /var/lib/slv
+        state: directory
+        mode: "0755"
+
+    - name: Detect CPU vendor (AMD / Intel)
+      ansible.builtin.shell: grep -m1 'vendor_id' /proc/cpuinfo | awk '{print $3}'
+      register: cpu_vendor
+      changed_when: false
+
+    - name: Detect CPU model
+      ansible.builtin.shell: |
+        lscpu | awk -F: '/Model name/ {gsub(/^[ \t]+/, "", $2); print $2; exit}'
+      register: cpu_model
+      changed_when: false
+
+    - name: Set is_amd / is_intel facts
+      ansible.builtin.set_fact:
+        is_amd: "{{ 'AMD' in cpu_vendor.stdout or ('amd' in (cpu_model.stdout | lower)) or ('epyc' in (cpu_model.stdout | lower)) or ('ryzen' in (cpu_model.stdout | lower)) }}"
+        is_intel: "{{ 'GenuineIntel' in cpu_vendor.stdout }}"
+
+    - name: Detect current kernel version
+      ansible.builtin.command: uname -r
+      register: kernel_version
+      changed_when: false
+
+    - name: Parse kernel major.minor
+      ansible.builtin.set_fact:
+        kernel_major: "{{ (kernel_version.stdout.split('.')[0] | int) }}"
+        kernel_minor: "{{ (kernel_version.stdout.split('.')[1] | int) }}"
+
+    - name: Determine if kernel upgrade needed (AMD CPUs need 6.14+)
+      ansible.builtin.set_fact:
+        kernel_upgrade_needed: "{{ is_amd and ((kernel_major | int) < min_kernel_major or ((kernel_major | int) == min_kernel_major and (kernel_minor | int) < min_kernel_minor)) }}"
+
+    - name: Show kernel decision
+      ansible.builtin.debug:
+        msg: "kernel={{ kernel_version.stdout }} amd={{ is_amd }} upgrade_needed={{ kernel_upgrade_needed }}"
+
+    - name: apt-get update
+      ansible.builtin.apt:
+        update_cache: yes
+      retries: 3
+      delay: 5
+
+    - name: Upgrade existing packages (current kernel security & userland)
+      ansible.builtin.apt:
+        upgrade: dist
+        force_apt_get: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      retries: 3
+      delay: 10
+      register: apt_upgrade_result
+
+    - name: Install HWE kernel + linux-tools (Ubuntu 24.04, AMD only when < 6.14)
+      ansible.builtin.apt:
+        name:
+          - linux-image-generic-hwe-24.04
+          - linux-tools-generic-hwe-24.04
+          - linux-tools-common
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when:
+        - ansible_distribution == 'Ubuntu'
+        - ansible_distribution_version is version('24.04', '>=')
+        - kernel_upgrade_needed
+      register: hwe_install
+      retries: 3
+      delay: 10
+
+    - name: Install cpupower / linux-tools (always)
+      ansible.builtin.apt:
+        name:
+          - linux-tools-common
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      ignore_errors: true
+
+    - name: Add amd_pstate / processor.max_cstate / cpufreq.default_governor to GRUB (AMD only)
+      ansible.builtin.shell: |
+        set -e
+        # shellcheck disable=SC1091
+        . /etc/default/grub
+        CURRENT="${GRUB_CMDLINE_LINUX_DEFAULT:-}"
+        CLEAN=$(echo "$CURRENT" \
+          | sed 's/amd_pstate=[^ ]*//g; s/processor\.max_cstate=[^ ]*//g; s/cpufreq\.default_governor=[^ ]*//g' \
+          | sed 's/  */ /g; s/^ //; s/ $//')
+        NEW="$CLEAN amd_pstate={{ amd_pstate_mode }} processor.max_cstate=0 cpufreq.default_governor=performance"
+        NEW=$(echo "$NEW" | sed 's/  */ /g; s/^ //; s/ $//')
+        if [ "$NEW" != "$CURRENT" ]; then
+          sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$NEW\"|" {{ grub_default }}
+          update-grub
+          echo CHANGED
+        else
+          echo UNCHANGED
+        fi
+      args:
+        executable: /bin/bash
+      register: amd_grub
+      changed_when: "'CHANGED' in amd_grub.stdout"
+      when: is_amd
+
+    - name: Try to load amd_pstate driver at runtime (best effort)
+      ansible.builtin.shell: |
+        modprobe amd_pstate 2>/dev/null || true
+        sleep 1
+        [ -d /sys/devices/system/cpu/cpu0/cpufreq ] && echo PRESENT || echo MISSING
+      args:
+        executable: /bin/bash
+      register: cpufreq_present
+      changed_when: false
+      when: is_amd
+
+    - name: Apply amd_pstate runtime mode (if sysfs present)
+      ansible.builtin.shell: |
+        if [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
+          echo {{ amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
+        fi
+      args:
+        executable: /bin/bash
+      when: is_amd
+      ignore_errors: true
+
+    - name: Apply governor=performance to all CPUs
+      ansible.builtin.shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+          [ -w "$f" ] && echo performance > "$f"
+        done
+        true
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Apply EPP=performance to all CPUs
+      ansible.builtin.shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+          [ -w "$f" ] && echo performance > "$f"
+        done
+        true
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Enable boost / disable Intel turbo no_turbo
+      ansible.builtin.shell: |
+        [ -f /sys/devices/system/cpu/cpufreq/boost ] && echo 1 > /sys/devices/system/cpu/cpufreq/boost || true
+        [ -f /sys/devices/system/cpu/intel_pstate/no_turbo ] && echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo || true
+        true
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Disable cpuidle states
+      ansible.builtin.shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpuidle/state*/disable; do
+          [ -w "$f" ] && echo 1 > "$f"
+        done
+        true
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Set scaling_max_freq = cpuinfo_max_freq
+      ansible.builtin.shell: |
+        for cpu in /sys/devices/system/cpu/cpu*/cpufreq; do
+          max=$(cat "$cpu/cpuinfo_max_freq" 2>/dev/null || echo "")
+          [ -n "$max" ] && [ -w "$cpu/scaling_max_freq" ] && echo "$max" > "$cpu/scaling_max_freq"
+        done
+        true
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Install systemd persistence service (apply boost on every boot)
+      ansible.builtin.copy:
+        dest: /usr/local/bin/slv-cpu-boost.sh
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          # SLV CPU boost runtime apply — runs on every boot.
+          set +e
+          if [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
+            echo {{ amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null
+          fi
+          for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+            [ -w "$f" ] && echo performance > "$f"
+          done
+          for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+            [ -w "$f" ] && echo performance > "$f"
+          done
+          [ -f /sys/devices/system/cpu/cpufreq/boost ] && echo 1 > /sys/devices/system/cpu/cpufreq/boost
+          [ -f /sys/devices/system/cpu/intel_pstate/no_turbo ] && echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo
+          for f in /sys/devices/system/cpu/cpu*/cpuidle/state*/disable; do
+            [ -w "$f" ] && echo 1 > "$f"
+          done
+          for cpu in /sys/devices/system/cpu/cpu*/cpufreq; do
+            max=$(cat "$cpu/cpuinfo_max_freq" 2>/dev/null || echo "")
+            [ -n "$max" ] && [ -w "$cpu/scaling_max_freq" ] && echo "$max" > "$cpu/scaling_max_freq"
+          done
+          exit 0
+
+    - name: Install slv-cpu-boost systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/slv-cpu-boost.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=SLV CPU boost runtime apply
+          After=multi-user.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/slv-cpu-boost.sh
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+      register: boost_unit
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when: boost_unit is changed
+
+    - name: Enable & start slv-cpu-boost.service
+      ansible.builtin.systemd:
+        name: slv-cpu-boost.service
+        enabled: yes
+        state: started
+
+    - name: Mark boost applied
+      ansible.builtin.copy:
+        dest: "{{ boost_marker_file }}"
+        content: "applied at {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }} mode={{ amd_pstate_mode }} kernel={{ kernel_version.stdout }}\n"
+        mode: "0644"
+
+    - name: Set need_reboot fact (HWE kernel install or AMD GRUB change)
+      ansible.builtin.set_fact:
+        boost_reboot_required: "{{ (hwe_install is defined and hwe_install is changed) or (amd_grub is defined and amd_grub is changed) }}"
+        need_reboot: "{{ (need_reboot | default(false)) or (hwe_install is defined and hwe_install is changed) or (amd_grub is defined and amd_grub is changed) }}"
+
+    - name: Report boost status
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Boost applied — kernel/GRUB changed, reboot required'
+             if boost_reboot_required
+             else 'Boost applied — runtime only, no reboot needed' }}

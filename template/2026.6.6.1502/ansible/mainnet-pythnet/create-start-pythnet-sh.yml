@@ -1,0 +1,13 @@
+---
+- name: Render start-pythnet.sh from Jinja template
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Drop start-pythnet.sh
+      ansible.builtin.template:
+        src: "~/.slv/mainnet-pythnet/start-pythnet.sh.j2"
+        dest: /home/solv/start-pythnet.sh
+        owner: solv
+        group: solv
+        mode: "0755"

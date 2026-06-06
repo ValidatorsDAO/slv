@@ -1,0 +1,23 @@
+---
+- name: Install build dependencies for Pythnet (Solana 1.14 fork)
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: apt install
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - clang
+          - cmake
+          - protobuf-compiler
+          - git
+          - curl
+          - jq
+          - ca-certificates
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
