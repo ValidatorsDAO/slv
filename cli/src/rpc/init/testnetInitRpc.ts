@@ -102,7 +102,7 @@ export const testnetInitRpc = async (
     name: identity_account,
     rpc_type: rpc_type as RpcType,
     port_rpc: 7211,
-    dynamic_port_range: '8000-8025',
+    dynamic_port_range: '8000-8030',
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: getNearRegion.region,
     limit_ledger_size: 200000000,

@@ -58,7 +58,7 @@ export const devnetInitRpc = async (
     rpc_type: rpc_type as RpcType,
     port_rpc: 7211,
     richat_version: VERSION_RICHAT,
-    dynamic_port_range: '8000-8025',
+    dynamic_port_range: '8000-8030',
     validator_type: rpcTypes.validatorType as SolanaNodeType,
     region: 'ny',
     limit_ledger_size: 200000000,

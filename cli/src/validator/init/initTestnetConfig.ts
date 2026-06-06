@@ -126,7 +126,7 @@ const initTestnetConfig = async (
     shred_receiver_address: String(getNearRegion.info.shredReceiver),
     snapshot_url: '',
     port_rpc: 7211,
-    dynamic_port_range: '8900-8925',
+    dynamic_port_range: '8900-8930',
     ...xdpConfig,
   }
   await updateInventory(name, configTestnet)

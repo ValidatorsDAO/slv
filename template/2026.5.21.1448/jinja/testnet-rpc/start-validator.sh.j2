@@ -15,7 +15,7 @@ exec agave-validator \
 --known-validator 9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv \
 --only-known-rpc \
 --expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
---dynamic-port-range {{ dynamic_port_range | default("8900-8925") }}  \
+--dynamic-port-range {{ dynamic_port_range | default("8900-8930") }}  \
 --no-voting \
 --full-rpc-api \
 --rpc-port {{ port_rpc | default(8899, true) }} \

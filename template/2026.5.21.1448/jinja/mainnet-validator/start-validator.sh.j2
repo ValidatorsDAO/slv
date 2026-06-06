@@ -18,7 +18,7 @@ exec agave-validator \
 --only-known-rpc \
 --expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
 --expected-shred-version 50093 \
---dynamic-port-range {{ dynamic_port_range | default("8000-8025") }} \
+--dynamic-port-range {{ dynamic_port_range | default("8000-8030") }} \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
 --use-snapshot-archives-at-startup when-newest \
