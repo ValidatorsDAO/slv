@@ -1,82 +1,16 @@
 import { assert, assertEquals } from '@std/assert'
-import { join } from '@std/path'
+import {
+  startGateway,
+  stopGateway,
+  sub,
+} from '/test/integration/_gateway_helpers.ts'
 
 // End-to-end tests for Phase 2D-v3: one persistent WS that carries
 // both the chat and the mid-stream `session.abort`. Verifies the
 // abort sequence fires a single `aborted` terminal with NO trailing
 // `complete`, and that the same connection can be reused for a
-// follow-up `session.echo` without re-authenticating.
-
-const CLI_ENTRY = new URL('../../src/index.ts', import.meta.url).pathname
-const pickPort = (): number => 30000 + Math.floor(Math.random() * 10000)
-
-type Gw = {
-  child: Deno.ChildProcess
-  home: string
-  port: number
-  token: string
-  stderr: Promise<string>
-}
-
-const startGateway = async (): Promise<Gw> => {
-  const home = await Deno.makeTempDir({ prefix: 'slv-gw-abort-' })
-  const port = pickPort()
-  const child = new Deno.Command(Deno.execPath(), {
-    args: ['run', '-A', '--no-check', CLI_ENTRY, 'gateway', 'run'],
-    env: {
-      HOME: home,
-      PATH: Deno.env.get('PATH') ?? '/usr/bin:/bin',
-      SLV_GATEWAY_PORT: String(port),
-    },
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-  }).spawn()
-  const drain = async (s: ReadableStream<Uint8Array>): Promise<string> => {
-    const r = s.getReader()
-    const chunks: Uint8Array[] = []
-    while (true) {
-      const { value, done } = await r.read()
-      if (done) break
-      if (value) chunks.push(value)
-    }
-    const total = chunks.reduce((n, c) => n + c.length, 0)
-    const buf = new Uint8Array(total)
-    let o = 0
-    for (const c of chunks) {
-      buf.set(c, o)
-      o += c.length
-    }
-    return new TextDecoder().decode(buf)
-  }
-  drain(child.stdout).catch(() => {})
-  const stderr = drain(child.stderr).catch(() => '')
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/healthz`)
-      if (res.ok) {
-        await res.body?.cancel()
-        break
-      }
-      await res.body?.cancel()
-    } catch { /* retry */ }
-    await new Promise((r) => setTimeout(r, 100))
-  }
-  const cfg = JSON.parse(
-    await Deno.readTextFile(join(home, '.slv/gateway/gateway.json')),
-  ) as { token: string }
-  return { child, home, port, token: cfg.token, stderr }
-}
-
-const stopGateway = async (gw: Gw): Promise<void> => {
-  try {
-    gw.child.kill('SIGTERM')
-  } catch { /* already dead */ }
-  await gw.child.status.catch(() => {})
-  await gw.stderr
-  await Deno.remove(gw.home, { recursive: true }).catch(() => {})
-}
+// follow-up `session.echo` without re-authenticating. Shared
+// spawn/health/cleanup lives in _gateway_helpers.ts.
 
 type EventFrame = {
   kind: 'event'
@@ -128,7 +62,10 @@ const openWs = (port: number): Promise<{
               resW(found)
               return
             }
-            const timer = setTimeout(() => rejW(new Error('timeout')), timeoutMs)
+            const timer = setTimeout(
+              () => rejW(new Error('timeout')),
+              timeoutMs,
+            )
             waiters.push({
               check: pred,
               resolve: (e) => {
@@ -160,8 +97,6 @@ const openWs = (port: number): Promise<{
     ws.onerror = (e) => reject(e)
   })
 
-const sub = { sanitizeResources: false, sanitizeOps: false } as const
-
 Deno.test(
   'ws: session.abort mid-stream cancels echo with `aborted`, no `complete`',
   sub,
@@ -186,9 +121,7 @@ Deno.test(
 
         await c.waitForEvent((e) => e.payload?.type === 'aborted')
 
-        const completes = c.events.filter((e) =>
-          e.payload?.type === 'complete'
-        )
+        const completes = c.events.filter((e) => e.payload?.type === 'complete')
         assertEquals(
           completes.length,
           0,

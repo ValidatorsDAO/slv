@@ -1,110 +1,18 @@
 import { assert, assertEquals, assertMatch } from '@std/assert'
 import { join } from '@std/path'
+import {
+  cleanup,
+  pickPort,
+  spawnGateway,
+  sub,
+  waitForHealthz,
+} from '/test/integration/_gateway_helpers.ts'
 
 // Integration tests for `slv gateway run`. Each test spawns the CLI as
 // a subprocess with an isolated HOME + port so they don't pollute the
 // developer's real ~/.slv/gateway/ nor collide with each other. Tests
 // interact via HTTP /healthz, the JSON pidfile on disk, and exit codes.
-//
-// Deno's resource/op sanitizers flag subprocess streams as leaks even
-// when we fully manage them, so each test opts out (sanitizeResources
-// and sanitizeOps both false). We still cancel streams + await status
-// in the shared cleanup helper, so nothing actually leaks at the OS
-// level.
-
-const CLI_ENTRY = new URL('../../src/index.ts', import.meta.url).pathname
-
-const pickPort = (): number => 30000 + Math.floor(Math.random() * 10000)
-
-type Proc = {
-  child: Deno.ChildProcess
-  home: string
-  port: number
-  stderr: Promise<string> // eagerly-drained stderr text
-}
-
-const spawnGateway = async (
-  opts: {
-    port?: number
-    homeSeed?: (home: string) => void | Promise<void>
-    envPort?: string // override SLV_GATEWAY_PORT literally (bad-port tests)
-  } = {},
-): Promise<Proc> => {
-  const home = await Deno.makeTempDir({ prefix: 'slv-gw-it-' })
-  if (opts.homeSeed) await opts.homeSeed(home)
-  const port = opts.port ?? pickPort()
-  const env: Record<string, string> = {
-    HOME: home,
-    PATH: Deno.env.get('PATH') ?? '/usr/bin:/bin',
-    SLV_GATEWAY_PORT: opts.envPort ?? String(port),
-  }
-  const child = new Deno.Command(Deno.execPath(), {
-    args: ['run', '-A', '--no-check', CLI_ENTRY, 'gateway', 'run'],
-    env,
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-  }).spawn()
-  // Eagerly drain stdout so the subprocess can't block on a full pipe
-  // during tests that don't care about it. The stderr future is
-  // returned for tests that assert on it.
-  const drain = async (s: ReadableStream<Uint8Array>): Promise<string> => {
-    const chunks: Uint8Array[] = []
-    const reader = s.getReader()
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      if (value) chunks.push(value)
-    }
-    const total = chunks.reduce((n, c) => n + c.length, 0)
-    const out = new Uint8Array(total)
-    let o = 0
-    for (const c of chunks) {
-      out.set(c, o)
-      o += c.length
-    }
-    return new TextDecoder().decode(out)
-  }
-  drain(child.stdout).catch(() => {})
-  const stderr = drain(child.stderr).catch(() => '')
-  return { child, home, port, stderr }
-}
-
-const waitForHealthz = async (
-  port: number,
-  timeoutMs = 10_000,
-): Promise<{ ok: boolean; pid: number; port: number; startedAt: string }> => {
-  const deadline = Date.now() + timeoutMs
-  let lastErr: unknown
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/healthz`)
-      if (res.ok) return await res.json()
-      await res.body?.cancel()
-    } catch (err) {
-      lastErr = err
-    }
-    await new Promise((r) => setTimeout(r, 100))
-  }
-  throw new Error(
-    `gateway did not become healthy on :${port} within ${timeoutMs}ms${
-      lastErr ? ` (last: ${lastErr})` : ''
-    }`,
-  )
-}
-
-const cleanup = async (p: Proc) => {
-  try {
-    p.child.kill('SIGTERM')
-  } catch { /* already dead */ }
-  await p.child.status.catch(() => {})
-  await p.stderr // ensure stderr drain has completed
-  await Deno.remove(p.home, { recursive: true }).catch(() => {})
-}
-
-// Shared options for every subprocess test: subprocess streams are
-// owned by the helper + drained; Deno's sanitizer doesn't know that.
-const sub = { sanitizeResources: false, sanitizeOps: false } as const
+// Shared spawn/health/port/cleanup plumbing lives in _gateway_helpers.ts.
 
 Deno.test(
   'gateway run: fresh start writes config + pidfile, /healthz works, SIGTERM cleans up',
@@ -112,7 +20,7 @@ Deno.test(
   async () => {
     const p = await spawnGateway()
     try {
-      const body = await waitForHealthz(p.port)
+      const body = await waitForHealthz(p)
       assertEquals(body.ok, true)
       assertEquals(body.port, p.port)
       assert(typeof body.pid === 'number' && body.pid > 0)
@@ -188,7 +96,7 @@ Deno.test(
   async () => {
     const first = await spawnGateway()
     try {
-      await waitForHealthz(first.port)
+      await waitForHealthz(first)
       const firstPid = first.child.pid
 
       // Second run with a different HOME but sharing the first's
@@ -249,7 +157,7 @@ Deno.test(
       },
     })
     try {
-      const body = await waitForHealthz(p.port)
+      const body = await waitForHealthz(p)
       assertEquals(body.ok, true)
       // Lock was replaced with our fresh pid
       const pid = JSON.parse(
@@ -292,7 +200,7 @@ Deno.test(
   async () => {
     const p = await spawnGateway()
     try {
-      await waitForHealthz(p.port)
+      await waitForHealthz(p)
       const res = await fetch(`http://127.0.0.1:${p.port}/`)
       const body = await res.json()
       assertEquals(body.service, 'slv-gateway')

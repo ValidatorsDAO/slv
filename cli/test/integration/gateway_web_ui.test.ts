@@ -1,64 +1,13 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert'
-import { join } from '@std/path'
+import {
+  startGateway,
+  stopGateway,
+  sub,
+} from '/test/integration/_gateway_helpers.ts'
 
 // Verifies the browser-UI endpoints serve the expected HTML with
 // the gateway's token inlined as a data-attribute. Loopback only.
-
-const CLI_ENTRY = new URL('../../src/index.ts', import.meta.url).pathname
-const pickPort = (): number => 30000 + Math.floor(Math.random() * 10000)
-
-const startGateway = async () => {
-  const home = await Deno.makeTempDir({ prefix: 'slv-gw-ui-' })
-  const port = pickPort()
-  const child = new Deno.Command(Deno.execPath(), {
-    args: ['run', '-A', '--no-check', CLI_ENTRY, 'gateway', 'run'],
-    env: {
-      HOME: home,
-      PATH: Deno.env.get('PATH') ?? '/usr/bin:/bin',
-      SLV_GATEWAY_PORT: String(port),
-    },
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-  }).spawn()
-  const drain = async (s: ReadableStream<Uint8Array>) => {
-    const r = s.getReader()
-    while (true) {
-      const { done } = await r.read()
-      if (done) break
-    }
-  }
-  drain(child.stdout).catch(() => {})
-  drain(child.stderr).catch(() => '')
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/healthz`)
-      if (res.ok) {
-        await res.body?.cancel()
-        break
-      }
-      await res.body?.cancel()
-    } catch { /* retry */ }
-    await new Promise((r) => setTimeout(r, 100))
-  }
-  const cfg = JSON.parse(
-    await Deno.readTextFile(join(home, '.slv/gateway/gateway.json')),
-  ) as { token: string }
-  return { child, home, port, token: cfg.token }
-}
-
-const stopGateway = async (
-  gw: { child: Deno.ChildProcess; home: string },
-) => {
-  try {
-    gw.child.kill('SIGTERM')
-  } catch { /* already dead */ }
-  await gw.child.status.catch(() => {})
-  await Deno.remove(gw.home, { recursive: true }).catch(() => {})
-}
-
-const sub = { sanitizeResources: false, sanitizeOps: false } as const
+// Shared spawn/health/cleanup lives in _gateway_helpers.ts.
 
 Deno.test('ui: GET /ui/ serves HTML with token inlined', sub, async () => {
   const gw = await startGateway()

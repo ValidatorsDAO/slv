@@ -1,80 +1,14 @@
 import { assert, assertEquals } from '@std/assert'
-import { join } from '@std/path'
+import {
+  startGateway,
+  stopGateway,
+  sub,
+} from '/test/integration/_gateway_helpers.ts'
 
 // End-to-end WS tests for Phase 2B's `session.echo` + `session.abort`
 // methods. Boots a real gateway subprocess, authenticates, issues the
-// session methods, and collects streaming event frames.
-
-const CLI_ENTRY = new URL('../../src/index.ts', import.meta.url).pathname
-const pickPort = (): number => 30000 + Math.floor(Math.random() * 10000)
-
-type Gw = {
-  child: Deno.ChildProcess
-  home: string
-  port: number
-  token: string
-  stderr: Promise<string>
-}
-
-const startGateway = async (): Promise<Gw> => {
-  const home = await Deno.makeTempDir({ prefix: 'slv-gw-sess-' })
-  const port = pickPort()
-  const child = new Deno.Command(Deno.execPath(), {
-    args: ['run', '-A', '--no-check', CLI_ENTRY, 'gateway', 'run'],
-    env: {
-      HOME: home,
-      PATH: Deno.env.get('PATH') ?? '/usr/bin:/bin',
-      SLV_GATEWAY_PORT: String(port),
-    },
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-  }).spawn()
-  const drain = async (s: ReadableStream<Uint8Array>): Promise<string> => {
-    const r = s.getReader()
-    const chunks: Uint8Array[] = []
-    while (true) {
-      const { value, done } = await r.read()
-      if (done) break
-      if (value) chunks.push(value)
-    }
-    const total = chunks.reduce((n, c) => n + c.length, 0)
-    const buf = new Uint8Array(total)
-    let o = 0
-    for (const c of chunks) {
-      buf.set(c, o)
-      o += c.length
-    }
-    return new TextDecoder().decode(buf)
-  }
-  drain(child.stdout).catch(() => {})
-  const stderr = drain(child.stderr).catch(() => '')
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/healthz`)
-      if (res.ok) {
-        await res.body?.cancel()
-        break
-      }
-      await res.body?.cancel()
-    } catch { /* try again */ }
-    await new Promise((r) => setTimeout(r, 100))
-  }
-  const cfg = JSON.parse(
-    await Deno.readTextFile(join(home, '.slv/gateway/gateway.json')),
-  ) as { token: string }
-  return { child, home, port, token: cfg.token, stderr }
-}
-
-const stopGateway = async (gw: Gw): Promise<void> => {
-  try {
-    gw.child.kill('SIGTERM')
-  } catch { /* already dead */ }
-  await gw.child.status.catch(() => {})
-  await gw.stderr
-  await Deno.remove(gw.home, { recursive: true }).catch(() => {})
-}
+// session methods, and collects streaming event frames. Shared
+// spawn/health/cleanup lives in _gateway_helpers.ts.
 
 type Frame =
   | { kind: 'res'; id: string; ok: boolean; payload?: unknown; error?: string }
@@ -126,14 +60,19 @@ const openWs = (port: number): Promise<WsClient> =>
             .map((e) => e.payload),
         waitForEvent: (predicate, timeoutMs = 5000) =>
           new Promise((resolve2, reject2) => {
-            const existing = events.find((e): e is Extract<Frame, { kind: 'event' }> =>
+            const existing = events.find((
+              e,
+            ): e is Extract<Frame, { kind: 'event' }> =>
               e.kind === 'event' && predicate(e)
             )
             if (existing) {
               resolve2(existing)
               return
             }
-            const timer = setTimeout(() => reject2(new Error('event wait timeout')), timeoutMs)
+            const timer = setTimeout(
+              () => reject2(new Error('event wait timeout')),
+              timeoutMs,
+            )
             eventWaiters.push({
               check: predicate,
               resolve: (f) => {
@@ -166,8 +105,6 @@ const openWs = (port: number): Promise<WsClient> =>
     ws.onerror = (e) => reject(e)
   })
 
-const sub = { sanitizeResources: false, sanitizeOps: false } as const
-
 Deno.test(
   'ws: session.echo streams text_delta events then complete',
   sub,
@@ -196,10 +133,15 @@ Deno.test(
 
         // Seq is monotonically increasing
         const seqs = c.events
-          .filter((e): e is Extract<Frame, { kind: 'event' }> => e.kind === 'event')
+          .filter((e): e is Extract<Frame, { kind: 'event' }> =>
+            e.kind === 'event'
+          )
           .map((e) => e.seq)
         for (let i = 1; i < seqs.length; i++) {
-          assert(seqs[i] > seqs[i - 1], `seq must increase: ${seqs[i - 1]} → ${seqs[i]}`)
+          assert(
+            seqs[i] > seqs[i - 1],
+            `seq must increase: ${seqs[i - 1]} → ${seqs[i]}`,
+          )
         }
       } finally {
         c.close()
