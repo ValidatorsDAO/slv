@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Pythnet RPC validator — no-voting, full RPC API.
+#
+# Genesis hash and expected_shred_version are fixed network parameters
+# discoverable via the public Pythnet RPC:
+#   curl -s https://pythnet.rpcpool.com -X POST -H 'content-type: application/json' \
+#        -d '{"jsonrpc":"2.0","id":1,"method":"getGenesisHash"}'
+#
+# The --account-index program-id flag is *mandatory* on Pythnet — the
+# validator panics on startup if it's missing.
+set -euo pipefail
+exec /usr/local/bin/solana-validator \
+  --identity /home/solv/pythnet-identity.json \
+  --no-voting \
+  --entrypoint {{ pythnet_entrypoint | default('pythnet.rpcpool.com:8001') }} \
+{% for kv in (pythnet_known_validators | default(['DzZov8p2kwXJeYx2hnVyaxNFugYVF4up9AWwRvtYWU4u', '6Rr1vUgRZmqDuzzU6Sf3QAfUTYV3aa4wqxKrL6uBGXdU'])) %}
+  --known-validator {{ kv }} \
+{% endfor %}
+  --expected-genesis-hash {{ pythnet_genesis_hash | default('GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq') }} \
+  --expected-shred-version {{ pythnet_shred_version | default(35891) }} \
+  --rpc-port {{ pythnet_rpc_port | default(8899) }} \
+  --rpc-bind-address {{ pythnet_rpc_bind | default('0.0.0.0') }} \
+  --full-rpc-api \
+  --enable-rpc-transaction-history \
+  --dynamic-port-range {{ pythnet_dynamic_port_range | default('8000-8030') }} \
+  --gossip-port {{ pythnet_gossip_port | default(8001) }} \
+  --account-index program-id \
+  --ledger {{ pythnet_ledger_mount | default('/mnt/ledger') }}/pythnet/ledger \
+  --accounts {{ pythnet_ledger_mount | default('/mnt/ledger') }}/pythnet/accounts \
+  --snapshots {{ pythnet_ledger_mount | default('/mnt/ledger') }}/pythnet/snapshots \
+  --log {{ pythnet_ledger_mount | default('/mnt/ledger') }}/pythnet/log/validator.log \
+  --limit-ledger-size {{ pythnet_limit_ledger_size | default(50000000) }} \
+  --wal-recovery-mode skip_any_corrupted_record

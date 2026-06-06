@@ -1,0 +1,20 @@
+---
+# Stop the Hermes stack.  Reverse dependency order so dependents shut down
+# before their backing services.
+- name: Stop Hermes stack
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Stop hermes
+      ansible.builtin.systemd:
+        name: hermes.service
+        state: stopped
+    - name: Stop beacon
+      ansible.builtin.systemd:
+        name: beacon.service
+        state: stopped
+    - name: Stop nats-server
+      ansible.builtin.systemd:
+        name: nats-server.service
+        state: stopped
