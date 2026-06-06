@@ -1,0 +1,24 @@
+[Unit]
+Description=Solana Validator
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+LimitNOFILE=1000000
+LimitMEMLOCK=2000000000
+LogRateLimitIntervalSec=0
+{% if xdp_enabled | default(false) %}
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+{% endif %}
+User=solv
+Environment=PATH=/home/solv/.local/share/solana/install/active_release/bin
+WorkingDirectory=/home/solv
+Environment=SOLANA_METRICS_CONFIG=host=https://metrics.solana.com:8086,db=tds,u=testnet_write,p=c4fa841aa918bf8274e3e2a44d77568d9861b3ea
+ExecStart=/home/solv/start-validator.sh
+
+[Install]
+WantedBy=multi-user.target

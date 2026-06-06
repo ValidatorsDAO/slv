@@ -20,7 +20,7 @@
     "docker:rm": "bash scripts/docker-systemd-rm.sh",
     "upload:script": "deno run -A cli/uploadScript.ts",
     "upload:exe": "deno run -A cli/uploadExe.ts",
-    "create:template": "tar -czf dist/template.tar.gz ./template/2026.6.6.1502",
+    "create:template": "tar -czf dist/template.tar.gz ./template/2026.6.6.2026",
     "generate:checksums": "deno run -A cli/generateChecksums.ts",
     "upload:template": "deno run -A cli/uploadTemplate.ts",
     "purge:cache": "deno run -A cmn/lib/purgeR2Cache.ts"
