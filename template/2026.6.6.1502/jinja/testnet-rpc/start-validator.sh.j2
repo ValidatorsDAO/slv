@@ -21,7 +21,7 @@ exec agave-validator \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
 --expected-shred-version {{ expected_shred_version | default("57087") }} \
-{% if expected_bank_hash is defined %}
+{% if expected_bank_hash is defined and expected_bank_hash %}
 --expected-bank-hash {{ expected_bank_hash }} \
 {% endif %}
 {% if rpc_type == 'Geyser gRPC' -%}

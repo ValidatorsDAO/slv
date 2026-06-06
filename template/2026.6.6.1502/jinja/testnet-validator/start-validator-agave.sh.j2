@@ -14,11 +14,11 @@ exec agave-validator \
 --dynamic-port-range {{ dynamic_port_range | default("8000-8030") }} \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
-{% if wait_for_supermajority is defined %}
+{% if wait_for_supermajority is defined and wait_for_supermajority %}
 --wait-for-supermajority {{ wait_for_supermajority }} \
 {% endif %}
 --expected-shred-version {{ expected_shred_version | default("57087") }} \
-{% if expected_bank_hash is defined %}
+{% if expected_bank_hash is defined and expected_bank_hash %}
 --expected-bank-hash {{ expected_bank_hash }} \
 {% endif %}
 --limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
