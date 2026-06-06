@@ -10,6 +10,8 @@ This skill gives an AI agent the knowledge and tools to:
 - **Build** Solana from source (Agave, Jito, Firedancer)
 - **Migrate** validators with zero-downtime identity switching
 - **Configure** firewall, systemd services, and log rotation
+- **Register** the BLS public key on vote accounts (SIMD-0387 / Alpenglow readiness)
+- **Accelerate** Turbine retransmit with XDP (agave/jito) and join Jito BAM
 
 Supported validator types: `jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito`
 
