@@ -20,8 +20,10 @@ exec agave-validator \
 --full-rpc-api \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
---expected-shred-version 57087 \
---expected-bank-hash YFxSkDcvSPiA7EQpSTbCsWbJvNYMAsWXGvwGc3bXHEA \
+--expected-shred-version {{ expected_shred_version | default("57087") }} \
+{% if expected_bank_hash is defined %}
+--expected-bank-hash {{ expected_bank_hash }} \
+{% endif %}
 {% if rpc_type == 'Geyser gRPC' -%}
 --limit-ledger-size 50000000 \
 --no-snapshot-fetch \
