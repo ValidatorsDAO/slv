@@ -83,7 +83,7 @@ The AI Console (`slv c`) includes specialist agents for different tasks:
 | **Cecil** | Validator deployments (Jito, Agave, Firedancer) |
 | **Tina** | RPC & gRPC Geyser deployments |
 | **Figaro** | Server procurement and pricing |
-| **Setzer** | Trading bots and Solana apps |
+| **Setzer** | Solana app development |
 
 Just describe what you need in plain language. The agent handles SSH, keys, builds, snapshots, firewall, and monitoring.
 
