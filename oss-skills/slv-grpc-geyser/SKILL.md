@@ -80,6 +80,7 @@ gRPC Geyser nodes are managed via `slv r` (RPC) commands with `rpc_type` set to 
 | `snapshot_url` | Snapshot download URL | — |
 | `port_grpc` | gRPC listen port | `10000` |
 | `limit_ledger_size` | Ledger size limit | `100000000` |
+| `enable_rpc_transaction_history` | Enable `--enable-rpc-transaction-history` on the validator (adds ledger write/compaction load) | `false` |
 
 ## Jinja Templates
 
