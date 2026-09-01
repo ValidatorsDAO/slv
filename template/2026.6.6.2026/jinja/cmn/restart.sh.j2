@@ -50,8 +50,32 @@ else
   echo 'Restarter snapshot network is unset or unsupported; refusing to alter live state.' >&2
   exit 1
 fi
-if (( ${#candidate_urls[@]} == 0 )); then
+if [[ -z "${candidate_urls[0]+configured}" ]]; then
   echo 'No snapshot URL is configured for this network; live state preserved.' >&2
+  exit 1
+fi
+
+# Reconcile only an unambiguous interrupted rollback, restart the recovered
+# service, and stop. A fresh invocation/approval is required to move forward.
+shopt -s nullglob
+interrupted_rollbacks=("${snapshot_root}"/.rollback.*)
+shopt -u nullglob
+rollback_count=0
+for _rollback in "${interrupted_rollbacks[@]}"; do rollback_count=$((rollback_count + 1)); done
+if [[ ! -e "${live_snapshot}" && ${rollback_count} -eq 1 ]]; then
+  if ! mv -- "${interrupted_rollbacks[0]}" "${live_snapshot}"; then
+    echo 'Interrupted rollback could not be restored.' >&2
+    exit 1
+  fi
+  if ! sudo systemctl start "${service_name}"; then
+    echo 'Interrupted rollback restored, but service restart failed.' >&2
+    exit 1
+  fi
+  echo 'Interrupted rollback restored; stop before a forward retry.' >&2
+  exit 1
+fi
+if [[ ${rollback_count} -gt 0 ]]; then
+  echo 'Ambiguous live/rollback state requires operator recovery.' >&2
   exit 1
 fi
 
@@ -94,7 +118,7 @@ for index in "${!candidate_urls[@]}"; do
   base=${candidate_urls[$index]}
   staging="${staging_root}/${candidate_names[$index]}"
   mkdir -p -- "${staging}"
-  echo "Downloading snapshot from ${base}" >&2
+  echo "Downloading snapshot source ${candidate_names[$index]}" >&2
   remaining=$((download_deadline - SECONDS))
   (( remaining > 0 )) || break
   if timeout "${remaining}s" wget -c --trust-server-names "${base}/snapshot.tar.bz2" -P "${staging}"; then

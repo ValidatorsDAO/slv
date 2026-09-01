@@ -42,5 +42,5 @@
 - import_playbook: geyser_build.yml
   when: rpc_type == 'Geyser gRPC'
 
-- import_playbook: wget_snapshot.yml
+- import_playbook: ../cmn/wget_snapshot.yml
 - import_playbook: start-solv-service.yml

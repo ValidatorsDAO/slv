@@ -12,6 +12,11 @@ wget_dist="$root/dist/oss-skills/slv-validator/ansible/cmn/wget_snapshot.yml"
 cmp -s "$template" "$dist"
 cmp -s "$copy" "$wcopy"
 cmp -s "$wget_source" "$wget_dist"
+for sibling in slv-rpc slv-grpc-geyser; do
+  cmp -s "$template" "$root/dist/oss-skills/$sibling/jinja/cmn/restart.sh.j2"
+  cmp -s "$copy" "$root/dist/oss-skills/$sibling/ansible/cmn/copy_restart_sh.yml"
+  cmp -s "$wget_source" "$root/dist/oss-skills/$sibling/ansible/cmn/wget_snapshot.yml"
+done
 grep -Fq 'wget -c --trust-server-names' "$template"
 grep -Fq 'https://solana-snapshot-fra.erpc.global' "$template"
 grep -Fq 'https://solana-snapshot-ams.erpc.global' "$template"
@@ -53,6 +58,17 @@ for caller in \
 done
 grep -Fq 'restarter_snapshot_network: devnet' \
   "$root/template/2026.6.6.2026/ansible/devnet-rpc/init.yml"
+for caller in \
+  "$root/dist/oss-skills/slv-rpc/ansible/mainnet-rpc/init.yml" \
+  "$root/dist/oss-skills/slv-rpc/ansible/mainnet-rpc/init-old.yml" \
+  "$root/dist/oss-skills/slv-grpc-geyser/ansible/mainnet-rpc/init.yml" \
+  "$root/dist/oss-skills/slv-grpc-geyser/ansible/mainnet-rpc/init-old.yml"; do
+  grep -Fq 'restarter_snapshot_network: mainnet' "$caller"
+done
+grep -Fq 'restarter_snapshot_network: testnet' \
+  "$root/dist/oss-skills/slv-rpc/ansible/testnet-rpc/init.yml"
+grep -Fq 'restarter_snapshot_network: devnet' \
+  "$root/dist/oss-skills/slv-rpc/ansible/devnet-rpc/init.yml"
 test ! -e "$root/dist/oss-skills/slv-validator/ansible/mainnet-validator/init-allnodes-jito.yml"
 
 behavior_root=$(mktemp -d /tmp/slv-restarter-test.XXXXXX)
@@ -139,6 +155,17 @@ test -n "$(find "$behavior_root/live" -maxdepth 1 -type d -name '.rollback.*' -p
 ! grep -Fxq 'start solv' "$behavior_root/systemctl.log"
 rm -rf "$behavior_root/live/.rollback."* "$behavior_root/live/.restarter-staging-mainnet"
 mkdir -p "$behavior_root/live/remote"
+printf sentinel > "$behavior_root/live/remote/sentinel"
+# A next invocation recovers one stranded rollback, restarts, and stops before
+# any forward download/promotion retry.
+rm -rf "$behavior_root/live/remote"
+mkdir -p "$behavior_root/live/.rollback.interrupted"
+printf interrupted > "$behavior_root/live/.rollback.interrupted/sentinel"
+: > "$behavior_root/systemctl.log"
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" bash "$rendered"; then exit 1; fi
+test "$(cat "$behavior_root/live/remote/sentinel")" = interrupted
+grep -Fxq 'start solv' "$behavior_root/systemctl.log"
+test ! -e "$behavior_root/live/.rollback.interrupted"
 printf sentinel > "$behavior_root/live/remote/sentinel"
 # A concurrent invocation cannot enter the download or stop/promotion path.
 exec 8>"$behavior_root/live/.restarter-mainnet.lock"

@@ -13,5 +13,6 @@
         group: solv
         mode: "0700"
       vars:
-        snapshot_url: "{{ hostvars[inventory_hostname].snapshot_url }}"
-        validator_type: "solv"
+        snapshot_direct_fra_url: "{{ hostvars[inventory_hostname].snapshot_direct_fra_url | default('') }}"
+        snapshot_url: "{{ hostvars[inventory_hostname].snapshot_url | default('') }}"
+        validator_type: "{{ hostvars[inventory_hostname].validator_type }}"
