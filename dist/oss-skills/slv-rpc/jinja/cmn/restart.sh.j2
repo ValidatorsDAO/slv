@@ -43,6 +43,8 @@ if [[ "${snapshot_network}" == mainnet ]]; then
   candidate_names+=(fra-https ams-https)
   candidate_urls+=("https://solana-snapshot-fra.erpc.global" "https://solana-snapshot-ams.erpc.global")
 elif [[ "${snapshot_network}" == testnet || "${snapshot_network}" == devnet ]]; then
+  # Keep the rendered branch syntactically valid when snapshot_url is empty.
+  :
   {% if snapshot_url | default('') != '' %}candidate_names+=(network-explicit)
   candidate_urls+=("{{ snapshot_url }}")
   {% endif %}
@@ -143,6 +145,10 @@ done
 # error occurs immediately after a successful stop.
 restore_service() {
   if (( promoted == 1 )) && [[ -e "${live_snapshot}" ]]; then
+    if ! sudo systemctl stop "${service_name}"; then
+      echo 'CRITICAL: could not stop the partially started service before rollback.' >&2
+      return 1
+    fi
     mkdir -p -- "$(dirname "${selected_staging}")"
     mv -- "${live_snapshot}" "${selected_staging}" || rm -rf -- "${live_snapshot}"
     promoted=0
@@ -198,10 +204,17 @@ while (( SECONDS < deadline )); do
   if sudo systemctl is-active --quiet "${service_name}" \
       && command -v solana >/dev/null 2>&1 \
       && timeout 30s solana catchup --our-localhost >/dev/null 2>&1; then
-    rm -rf -- "${rollback}" "${staging_root}"
+    completed_rollback=${rollback}
+    # Positive catch-up makes the promoted live snapshot canonical. Disarm
+    # rollback before best-effort cleanup so a partial rm failure cannot move
+    # the healthy live snapshot out from under the running service.
     rollback=""
     promoted=0
     rollback_required=0
+    if ! rm -rf -- "${completed_rollback}" "${staging_root}"; then
+      echo 'Snapshot promotion succeeded, but rollback/staging cleanup failed.' >&2
+      exit 1
+    fi
     exit 0
   fi
   sleep 5

@@ -74,6 +74,14 @@ test ! -e "$root/dist/oss-skills/slv-validator/ansible/mainnet-validator/init-al
 behavior_root=$(mktemp -d /tmp/slv-restarter-test.XXXXXX)
 trap 'rm -rf -- "$behavior_root"' EXIT
 mkdir -p "$behavior_root/bin" "$behavior_root/live/remote" "$behavior_root/live/ledger" "$behavior_root/fixtures"
+# Render the default-empty URL path with the real Ansible/Jinja engine; the
+# behavior harness below intentionally substitutes paths and is not a render
+# correctness proof.
+ansible localhost -i 'localhost,' -c local -m ansible.builtin.template \
+  -a "src=$template dest=$behavior_root/jinja-mainnet-empty.sh mode=0700" \
+  -e '{"validator_type":"solv","restarter_snapshot_network":"mainnet","snapshot_direct_fra_url":"","snapshot_url":""}' \
+  >/dev/null
+bash -n "$behavior_root/jinja-mainnet-empty.sh"
 printf sentinel > "$behavior_root/live/remote/sentinel"
 printf ledger-sentinel > "$behavior_root/live/ledger/sentinel"
 printf contact > "$behavior_root/live/ledger/contact-info.bin"
@@ -116,6 +124,19 @@ source_path=$1
 if [[ "${MV_ROLLBACK_FAIL:-0}" == 1 && "${source_path}" == *'/.rollback.'* ]]; then exit 10; fi
 exec /usr/bin/mv "$@"
 EOF
+cat > "$behavior_root/bin/rm" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${CLEANUP_FAIL:-0}" == 1 && "$*" == *'/.rollback.'* ]]; then
+  for candidate in "$@"; do
+    [[ "${candidate}" == *'/.rollback.'* ]] || continue
+    /usr/bin/rm -rf -- "${candidate}"
+    break
+  done
+  exit 11
+fi
+exec /usr/bin/rm "$@"
+EOF
 cat > "$behavior_root/bin/solana" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -134,6 +155,16 @@ test ! -e "$behavior_root/live/remote/remote"
 test ! -e "$behavior_root/live/.rollback"*
 test ! -e "$behavior_root/live/ledger/sentinel"
 test -f "$behavior_root/live/ledger/contact-info.bin"
+# A partial post-catch-up cleanup failure must not roll the healthy promoted
+# snapshot out of the live path or leave the service running without it.
+rm -rf "$behavior_root/live/remote" "$behavior_root/live/ledger"
+mkdir -p "$behavior_root/live/remote" "$behavior_root/live/ledger"
+printf previous > "$behavior_root/live/remote/sentinel"
+printf contact > "$behavior_root/live/ledger/contact-info.bin"
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" CLEANUP_FAIL=1 SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"; then exit 1; fi
+test -d "$behavior_root/live/remote"
+test -f "$behavior_root/live/remote/snapshot-100-abc.tar.bz2"
+test ! -e "$behavior_root/live/remote/remote"
 # A stop failure must happen before promotion and preserve both sentinels.
 rm -rf "$behavior_root/live/remote" "$behavior_root/live/ledger"
 mkdir -p "$behavior_root/live/remote" "$behavior_root/live/ledger"
