@@ -1,5 +1,172 @@
-sudo systemctl stop {{ 'firedancer' if validator_type in ['firedancer-jito', 'firedancer-agave'] else 'solv' }}
-sudo rm -rf /mnt/snapshot/*
-sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -delete
-cd /mnt/snapshot && wget --trust-server-names {{ snapshot_url }}/snapshot.tar.bz2 && wget --trust-server-names {{ snapshot_url }}/incremental-snapshot.tar.bz2
-sudo systemctl start {{ 'firedancer' if validator_type in ['firedancer-jito', 'firedancer-agave'] else 'solv' }}
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly snapshot_root=/mnt/snapshot
+readonly ledger_root="${SLV_RESTARTER_LEDGER_ROOT:-/mnt/ledger}"
+readonly live_snapshot="${snapshot_root}/remote"
+readonly service_name="{{ 'firedancer' if validator_type in ['firedancer-jito', 'firedancer-agave'] else 'solv' }}"
+readonly direct_fra_url="{{ snapshot_direct_fra_url | default('') }}"
+readonly snapshot_network="{{ restarter_snapshot_network | default('') }}"
+readonly catchup_timeout="${SLV_RESTARTER_CATCHUP_TIMEOUT:-1800}"
+readonly staging_root="${snapshot_root}/.restarter-staging-${snapshot_network}"
+readonly lock_path="${snapshot_root}/.restarter-${snapshot_network}.lock"
+
+mkdir -p -- "${snapshot_root}"
+exec 9>"${lock_path}"
+if ! flock -n 9; then
+  echo 'Another snapshot restarter invocation owns the network lock.' >&2
+  exit 1
+fi
+
+selected_staging=""
+rollback=""
+promoted=0
+rollback_required=0
+on_exit() {
+  local status=$?
+  trap - EXIT
+  if (( rollback_required == 1 )); then restore_service || true; fi
+  exit "${status}"
+}
+trap on_exit EXIT
+
+candidate_names=()
+candidate_urls=()
+if [[ "${snapshot_network}" == mainnet ]]; then
+  if [[ -n "${direct_fra_url}" ]]; then
+    candidate_names+=(direct-fra)
+    candidate_urls+=("${direct_fra_url%/}")
+  fi
+  candidate_names+=(fra-https ams-https)
+  candidate_urls+=("https://solana-snapshot-fra.erpc.global" "https://solana-snapshot-ams.erpc.global")
+elif [[ "${snapshot_network}" == testnet ]]; then
+  {% if snapshot_url | default('') != '' %}candidate_names+=(testnet-explicit)
+  candidate_urls+=("{{ snapshot_url }}")
+  {% endif %}
+else
+  echo 'Restarter snapshot network is unset or unsupported; refusing to alter live state.' >&2
+  exit 1
+fi
+if (( ${#candidate_urls[@]} == 0 )); then
+  echo 'No snapshot URL is configured for this network; live state preserved.' >&2
+  exit 1
+fi
+
+find_valid_snapshot() {
+  local directory=$1 full_path full_name full_slot incremental_path
+  local incremental_name incremental_base incremental_slot
+  while IFS= read -r full_path; do
+    [[ -n "${full_path}" ]] || continue
+    full_name=$(basename "${full_path}")
+    full_slot=$(sed -E 's/^snapshot-([0-9]+).*/\1/' <<<"${full_name}")
+    incremental_path=$(find "${directory}" -maxdepth 1 -type f -regextype posix-extended \
+      -regex ".*/incremental-snapshot-${full_slot}-[0-9]+(-[^/]*)?\\.tar\\.(bz2|zst)" \
+      -print | sort -V | tail -n1)
+    [[ -n "${incremental_path}" ]] || continue
+    incremental_name=$(basename "${incremental_path}")
+    [[ "${full_name}" != *.part && "${incremental_name}" != *.part ]] || continue
+    incremental_base=$(sed -E 's/^incremental-snapshot-([0-9]+)-.*/\1/' <<<"${incremental_name}")
+    incremental_slot=$(sed -E 's/^incremental-snapshot-[0-9]+-([0-9]+).*/\1/' <<<"${incremental_name}")
+    [[ "${full_slot}" == "${incremental_base}" ]] || continue
+    [[ "${incremental_slot}" -ge "${full_slot}" ]] || continue
+    [[ -s "${full_path}" && -s "${incremental_path}" ]] || continue
+    readable_archive "${full_path}" && readable_archive "${incremental_path}" && return 0
+  done < <(find "${directory}" -maxdepth 1 -type f -regextype posix-extended \
+    -regex '.*/snapshot-[0-9]+(-[^/]*)?\.tar\.(bz2|zst)' -print | sort -Vr)
+  return 1
+}
+
+readable_archive() {
+  case "$1" in
+    *.tar.bz2) tar -tjf "$1" >/dev/null ;;
+    *.tar.zst) tar --zstd -tf "$1" >/dev/null ;;
+    *) echo "Unsupported snapshot archive: $1" >&2; return 1 ;;
+  esac
+}
+
+validated=0
+mkdir -p -- "${staging_root}"
+for index in "${!candidate_urls[@]}"; do
+  base=${candidate_urls[$index]}
+  staging="${staging_root}/${candidate_names[$index]}"
+  mkdir -p -- "${staging}"
+  echo "Downloading snapshot from ${base}" >&2
+  if wget -c --trust-server-names "${base}/snapshot.tar.bz2" -P "${staging}" \
+      && wget -c --trust-server-names "${base}/incremental-snapshot.tar.bz2" -P "${staging}"; then
+    if find_valid_snapshot "${staging}"; then
+      validated=1
+      selected_staging=${staging}
+      break
+    fi
+    # Both downloads completed in this invocation but did not form a valid
+    # pair. Remove only this source's invalid files; a failed/interrupted wget
+    # keeps its partials for the next invocation's `-c` resume.
+    rm -rf -- "${staging}"
+  fi
+done
+(( validated == 1 )) || { echo 'No valid snapshot pair; live state preserved.' >&2; exit 1; }
+
+# Defined before stopping so the EXIT trap can recover even if an unexpected
+# error occurs immediately after a successful stop.
+restore_service() {
+  if (( promoted == 1 )) && [[ -e "${live_snapshot}" ]]; then
+    mkdir -p -- "$(dirname "${selected_staging}")"
+    mv -- "${live_snapshot}" "${selected_staging}" || rm -rf -- "${live_snapshot}"
+    promoted=0
+  fi
+  if [[ -e "${rollback}" ]]; then mv -- "${rollback}" "${live_snapshot}" || true; fi
+  if sudo systemctl start "${service_name}"; then
+    rollback_required=0
+    return 0
+  fi
+  echo 'CRITICAL: rollback snapshot was restored but service restart failed.' >&2
+  return 1
+}
+
+if ! sudo systemctl stop "${service_name}"; then
+  echo 'Service stop failed; live snapshot and ledger preserved.' >&2
+  exit 1
+fi
+rollback_required=1
+
+# Staging and live path are on the same filesystem, so promotion is atomic.
+rollback="${snapshot_root}/.rollback.$(date +%s).$$"
+if [[ -e "${live_snapshot}" ]] && ! mv -- "${live_snapshot}" "${rollback}"; then
+  restore_service || true
+  echo 'Could not preserve the previous live snapshot; aborting.' >&2
+  exit 1
+fi
+if ! mv -- "${selected_staging}" "${live_snapshot}"; then
+  restore_service
+  echo 'Snapshot promotion failed; previous live snapshot restored.' >&2
+  exit 1
+fi
+promoted=1
+
+if ! sudo find "${ledger_root}/" -mindepth 1 -not -name 'contact-info.bin' -delete; then
+  restore_service
+  exit 1
+fi
+if ! sudo systemctl start "${service_name}"; then
+  restore_service
+  exit 1
+fi
+
+# Do not discard rollback until service health and catch-up are positive.
+deadline=$((SECONDS + catchup_timeout))
+while (( SECONDS < deadline )); do
+  if sudo systemctl is-active --quiet "${service_name}" \
+      && command -v solana >/dev/null 2>&1 \
+      && timeout 30s solana catchup --our-localhost >/dev/null 2>&1; then
+    rm -rf -- "${rollback}" "${staging_root}"
+    rollback=""
+    promoted=0
+    rollback_required=0
+    exit 0
+  fi
+  sleep 5
+done
+echo 'Validator did not become active and caught up; rolling back.' >&2
+sudo systemctl stop "${service_name}" || true
+restore_service
+exit 1

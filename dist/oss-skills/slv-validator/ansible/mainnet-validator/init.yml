@@ -19,6 +19,8 @@
 # 共通処理
 - import_playbook: ../cmn/fix_permissions.yml
 - import_playbook: ../cmn/copy_restart_sh.yml
+  vars:
+    restarter_snapshot_network: mainnet
 - import_playbook: copy_keys.yml
 - import_playbook: ../cmn/add_solv.yml
 
@@ -31,7 +33,6 @@
 - import_playbook: ../cmn/disable_swap.yml
 - import_playbook: ../cmn/mount_disks.yml
 - import_playbook: ../cmn/optimize_system.yml
-- import_playbook: ../cmn/performance_tune.yml
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
 - import_playbook: ../cmn/build_solana.yml
@@ -44,15 +45,15 @@
   when: validator_type in ['firedancer-agave', 'firedancer-jito']
 
 - import_playbook: setup_solv_service.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: create-start-validator-sh.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: ../cmn/wget_snapshot.yml
 
 - import_playbook: start_solv.yml
-  when: validator_type in ['agave', 'jito', 'jito-bam']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: start_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']
