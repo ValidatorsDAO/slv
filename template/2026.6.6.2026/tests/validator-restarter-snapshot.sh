@@ -20,6 +20,8 @@ grep -Fq 'snapshot_network}" == testnet' "$template"
 grep -Fq 'readonly live_snapshot="${snapshot_root}/remote"' "$template"
 grep -Fq 'readonly staging_root="${snapshot_root}/.restarter-staging-${snapshot_network}"' "$template"
 grep -Fq 'flock -n 9' "$template"
+grep -Fq 'download_deadline=$((SECONDS + download_timeout))' "$template"
+grep -Fq 'timeout "${remaining}s" wget -c' "$template"
 grep -Fq 'trap on_exit EXIT' "$template"
 grep -Fq 'mv -- "${selected_staging}" "${live_snapshot}"' "$template"
 grep -Fq 'incremental_base' "$template"
@@ -44,6 +46,14 @@ stop_line=$(grep -n 'systemctl stop' "$template" | head -n1 | cut -d: -f1)
 promote_line=$(grep -n 'mv -- "${selected_staging}" "${live_snapshot}"' "$template" | head -n1 | cut -d: -f1)
 test "$stop_line" -lt "$promote_line"
 grep -Fq 'restore_service' "$template"
+for caller in \
+  "$root/template/2026.6.6.2026/ansible/mainnet-rpc/init.yml" \
+  "$root/template/2026.6.6.2026/ansible/mainnet-rpc/init-old.yml"; do
+  grep -Fq 'restarter_snapshot_network: mainnet' "$caller"
+done
+grep -Fq 'restarter_snapshot_network: devnet' \
+  "$root/template/2026.6.6.2026/ansible/devnet-rpc/init.yml"
+test ! -e "$root/dist/oss-skills/slv-validator/ansible/mainnet-validator/init-allnodes-jito.yml"
 
 behavior_root=$(mktemp -d /tmp/slv-restarter-test.XXXXXX)
 trap 'rm -rf -- "$behavior_root"' EXIT
@@ -77,9 +87,18 @@ exec "$@"
 EOF
 cat > "$behavior_root/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SYSTEMCTL_LOG:?}"
 [[ "${STOP_FAIL:-0}" == 1 && "$1" == stop ]] && exit 9
 [[ "$1" == is-active ]] && exit 0
 exit 0
+EOF
+cat > "$behavior_root/bin/mv" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+source_path=$1
+[[ "${source_path}" == -- ]] && source_path=$2
+if [[ "${MV_ROLLBACK_FAIL:-0}" == 1 && "${source_path}" == *'/.rollback.'* ]]; then exit 10; fi
+exec /usr/bin/mv "$@"
 EOF
 cat > "$behavior_root/bin/solana" <<'EOF'
 #!/usr/bin/env bash
@@ -93,7 +112,7 @@ sed -e "s#readonly snapshot_root=/mnt/snapshot#readonly snapshot_root=$behavior_
   -e 's#readonly snapshot_network=.*#readonly snapshot_network="mainnet"#' \
   -e '/{% if snapshot_url/,/{% endif %}/c\  :' "$template" > "$rendered"
 bash -n "$rendered"
-PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"
+PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"
 test -f "$behavior_root/live/remote/snapshot-100-abc.tar.bz2"
 test ! -e "$behavior_root/live/remote/remote"
 test ! -e "$behavior_root/live/.rollback"*
@@ -104,17 +123,27 @@ rm -rf "$behavior_root/live/remote" "$behavior_root/live/ledger"
 mkdir -p "$behavior_root/live/remote" "$behavior_root/live/ledger"
 printf sentinel > "$behavior_root/live/remote/sentinel"
 printf ledger-sentinel > "$behavior_root/live/ledger/sentinel"
-if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" STOP_FAIL=1 SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"; then exit 1; fi
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" STOP_FAIL=1 SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"; then exit 1; fi
 test "$(cat "$behavior_root/live/remote/sentinel")" = sentinel
 test "$(cat "$behavior_root/live/ledger/sentinel")" = ledger-sentinel
 # A post-promotion ledger failure restores the previous snapshot and service.
-if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" LEDGER_FAIL=1 SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"; then exit 1; fi
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" LEDGER_FAIL=1 SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"; then exit 1; fi
 test "$(cat "$behavior_root/live/remote/sentinel")" = sentinel
 test "$(cat "$behavior_root/live/ledger/sentinel")" = ledger-sentinel
+# If rollback rename itself fails, never start without a live snapshot and keep
+# the rollback directory for operator recovery.
+: > "$behavior_root/systemctl.log"
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" LEDGER_FAIL=1 MV_ROLLBACK_FAIL=1 SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"; then exit 1; fi
+test ! -e "$behavior_root/live/remote"
+test -n "$(find "$behavior_root/live" -maxdepth 1 -type d -name '.rollback.*' -print -quit)"
+! grep -Fxq 'start solv' "$behavior_root/systemctl.log"
+rm -rf "$behavior_root/live/.rollback."* "$behavior_root/live/.restarter-staging-mainnet"
+mkdir -p "$behavior_root/live/remote"
+printf sentinel > "$behavior_root/live/remote/sentinel"
 # A concurrent invocation cannot enter the download or stop/promotion path.
 exec 8>"$behavior_root/live/.restarter-mainnet.lock"
 flock -n 8
-if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" bash "$rendered"; then exit 1; fi
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" bash "$rendered"; then exit 1; fi
 test "$(cat "$behavior_root/live/remote/sentinel")" = sentinel
 test "$(cat "$behavior_root/live/ledger/sentinel")" = ledger-sentinel
 flock -u 8
@@ -126,18 +155,18 @@ sed -e "s#readonly snapshot_root=/mnt/snapshot#readonly snapshot_root=$behavior_
   -e 's#readonly snapshot_network=.*#readonly snapshot_network="testnet"#' \
   -e '/{% if snapshot_url/,/{% endif %}/c\  :' "$template" > "$testnet_rendered"
 bash -n "$testnet_rendered"
-if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" bash "$testnet_rendered"; then exit 1; fi
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" bash "$testnet_rendered"; then exit 1; fi
 test "$(cat "$behavior_root/live/remote/sentinel")" = sentinel
 test "$(cat "$behavior_root/live/ledger/sentinel")" = ledger-sentinel
 rm -rf "$behavior_root/live/remote" "$behavior_root/live/ledger" "$behavior_root/live/.restarter-staging-mainnet"
 mkdir -p "$behavior_root/live/remote" "$behavior_root/live/ledger"
 printf sentinel > "$behavior_root/live/remote/sentinel"
 printf ledger-sentinel > "$behavior_root/live/ledger/sentinel"
-if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" WGET_FAIL=1 bash "$rendered"; then exit 1; fi
+if PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" WGET_FAIL=1 bash "$rendered"; then exit 1; fi
 test "$(cat "$behavior_root/live/remote/sentinel")" = sentinel
 test "$(cat "$behavior_root/live/ledger/sentinel")" = ledger-sentinel
 # The next invocation resumes the preserved per-source files and can promote.
-PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"
+PATH="$behavior_root/bin:$PATH" FIXTURES="$behavior_root/fixtures" WGET_LOG="$behavior_root/wget.log" SYSTEMCTL_LOG="$behavior_root/systemctl.log" SLV_RESTARTER_LEDGER_ROOT="$behavior_root/live/ledger" SLV_RESTARTER_CATCHUP_TIMEOUT=2 bash "$rendered"
 grep -Fq 'resume:snapshot-100-abc.tar.bz2' "$behavior_root/wget.log"
 
 echo 'validator restarter snapshot contract: PASS'

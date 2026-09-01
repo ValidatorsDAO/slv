@@ -8,6 +8,7 @@ readonly service_name="{{ 'firedancer' if validator_type in ['firedancer-jito', 
 readonly direct_fra_url="{{ snapshot_direct_fra_url | default('') }}"
 readonly snapshot_network="{{ restarter_snapshot_network | default('') }}"
 readonly catchup_timeout="${SLV_RESTARTER_CATCHUP_TIMEOUT:-1800}"
+readonly download_timeout="${SLV_RESTARTER_DOWNLOAD_TIMEOUT:-10800}"
 readonly staging_root="${snapshot_root}/.restarter-staging-${snapshot_network}"
 readonly lock_path="${snapshot_root}/.restarter-${snapshot_network}.lock"
 
@@ -22,6 +23,8 @@ selected_staging=""
 rollback=""
 promoted=0
 rollback_required=0
+[[ "${catchup_timeout}" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid catch-up timeout.' >&2; exit 1; }
+[[ "${download_timeout}" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid download timeout.' >&2; exit 1; }
 on_exit() {
   local status=$?
   trap - EXIT
@@ -39,8 +42,8 @@ if [[ "${snapshot_network}" == mainnet ]]; then
   fi
   candidate_names+=(fra-https ams-https)
   candidate_urls+=("https://solana-snapshot-fra.erpc.global" "https://solana-snapshot-ams.erpc.global")
-elif [[ "${snapshot_network}" == testnet ]]; then
-  {% if snapshot_url | default('') != '' %}candidate_names+=(testnet-explicit)
+elif [[ "${snapshot_network}" == testnet || "${snapshot_network}" == devnet ]]; then
+  {% if snapshot_url | default('') != '' %}candidate_names+=(network-explicit)
   candidate_urls+=("{{ snapshot_url }}")
   {% endif %}
 else
@@ -86,22 +89,28 @@ readable_archive() {
 
 validated=0
 mkdir -p -- "${staging_root}"
+download_deadline=$((SECONDS + download_timeout))
 for index in "${!candidate_urls[@]}"; do
   base=${candidate_urls[$index]}
   staging="${staging_root}/${candidate_names[$index]}"
   mkdir -p -- "${staging}"
   echo "Downloading snapshot from ${base}" >&2
-  if wget -c --trust-server-names "${base}/snapshot.tar.bz2" -P "${staging}" \
-      && wget -c --trust-server-names "${base}/incremental-snapshot.tar.bz2" -P "${staging}"; then
-    if find_valid_snapshot "${staging}"; then
-      validated=1
-      selected_staging=${staging}
-      break
+  remaining=$((download_deadline - SECONDS))
+  (( remaining > 0 )) || break
+  if timeout "${remaining}s" wget -c --trust-server-names "${base}/snapshot.tar.bz2" -P "${staging}"; then
+    remaining=$((download_deadline - SECONDS))
+    (( remaining > 0 )) || break
+    if timeout "${remaining}s" wget -c --trust-server-names "${base}/incremental-snapshot.tar.bz2" -P "${staging}"; then
+      if find_valid_snapshot "${staging}"; then
+        validated=1
+        selected_staging=${staging}
+        break
+      fi
+      # Both downloads completed in this invocation but did not form a valid
+      # pair. Remove only this source's invalid files; a failed/interrupted wget
+      # keeps its partials for the next invocation's `-c` resume.
+      rm -rf -- "${staging}"
     fi
-    # Both downloads completed in this invocation but did not form a valid
-    # pair. Remove only this source's invalid files; a failed/interrupted wget
-    # keeps its partials for the next invocation's `-c` resume.
-    rm -rf -- "${staging}"
   fi
 done
 (( validated == 1 )) || { echo 'No valid snapshot pair; live state preserved.' >&2; exit 1; }
@@ -114,7 +123,14 @@ restore_service() {
     mv -- "${live_snapshot}" "${selected_staging}" || rm -rf -- "${live_snapshot}"
     promoted=0
   fi
-  if [[ -e "${rollback}" ]]; then mv -- "${rollback}" "${live_snapshot}" || true; fi
+  if [[ -e "${rollback}" ]] && ! mv -- "${rollback}" "${live_snapshot}"; then
+    echo 'CRITICAL: previous live snapshot could not be restored.' >&2
+    return 1
+  fi
+  if [[ ! -e "${live_snapshot}" ]]; then
+    echo 'CRITICAL: no live snapshot exists after rollback.' >&2
+    return 1
+  fi
   if sudo systemctl start "${service_name}"; then
     rollback_required=0
     return 0
