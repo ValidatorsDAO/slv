@@ -123,10 +123,10 @@ for index in "${!candidate_urls[@]}"; do
   echo "Downloading snapshot source ${candidate_names[$index]}" >&2
   remaining=$((download_deadline - SECONDS))
   (( remaining > 0 )) || break
-  if timeout "${remaining}s" wget -c --trust-server-names "${base}/snapshot.tar.bz2" -P "${staging}"; then
+  if timeout "${remaining}s" wget -q -c --trust-server-names "${base}/snapshot.tar.bz2" -P "${staging}"; then
     remaining=$((download_deadline - SECONDS))
     (( remaining > 0 )) || break
-    if timeout "${remaining}s" wget -c --trust-server-names "${base}/incremental-snapshot.tar.bz2" -P "${staging}"; then
+    if timeout "${remaining}s" wget -q -c --trust-server-names "${base}/incremental-snapshot.tar.bz2" -P "${staging}"; then
       if find_valid_snapshot "${staging}"; then
         validated=1
         selected_staging=${staging}

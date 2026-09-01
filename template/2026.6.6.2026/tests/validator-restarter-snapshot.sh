@@ -17,7 +17,7 @@ for sibling in slv-rpc slv-grpc-geyser; do
   cmp -s "$copy" "$root/dist/oss-skills/$sibling/ansible/cmn/copy_restart_sh.yml"
   cmp -s "$wget_source" "$root/dist/oss-skills/$sibling/ansible/cmn/wget_snapshot.yml"
 done
-grep -Fq 'wget -c --trust-server-names' "$template"
+grep -Fq 'wget -q -c --trust-server-names' "$template"
 grep -Fq 'https://solana-snapshot-fra.erpc.global' "$template"
 grep -Fq 'https://solana-snapshot-ams.erpc.global' "$template"
 grep -Fq 'snapshot_network}" == mainnet' "$template"
@@ -26,7 +26,7 @@ grep -Fq 'readonly live_snapshot="${snapshot_root}/remote"' "$template"
 grep -Fq 'readonly staging_root="${snapshot_root}/.restarter-staging-${snapshot_network}"' "$template"
 grep -Fq 'flock -n 9' "$template"
 grep -Fq 'download_deadline=$((SECONDS + download_timeout))' "$template"
-grep -Fq 'timeout "${remaining}s" wget -c' "$template"
+grep -Fq 'timeout "${remaining}s" wget -q -c' "$template"
 grep -Fq 'trap on_exit EXIT' "$template"
 grep -Fq 'mv -- "${selected_staging}" "${live_snapshot}"' "$template"
 grep -Fq 'incremental_base' "$template"
@@ -74,6 +74,10 @@ test ! -e "$root/dist/oss-skills/slv-validator/ansible/mainnet-validator/init-al
 behavior_root=$(mktemp -d /tmp/slv-restarter-test.XXXXXX)
 trap 'rm -rf -- "$behavior_root"' EXIT
 mkdir -p "$behavior_root/bin" "$behavior_root/live/remote" "$behavior_root/live/ledger" "$behavior_root/fixtures"
+# GNU wget's own diagnostics must not reveal an operator-supplied direct URL.
+private_probe='http://127.0.0.1:1/private-direct-fra?token=must-not-log'
+if wget -q "$private_probe" 2>"$behavior_root/wget-private-probe.log"; then exit 1; fi
+! grep -Fq 'private-direct-fra' "$behavior_root/wget-private-probe.log"
 # Render the default-empty URL path with the real Ansible/Jinja engine; the
 # behavior harness below intentionally substitutes paths and is not a render
 # correctness proof.
