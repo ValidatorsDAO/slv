@@ -5,6 +5,14 @@
 //! Inbound (`PubsubForward::send`) → upstream; upstream → inbound
 //! mpsc channel that feeds the client sender task.  Buffered until
 //! the upstream handshake completes.
+//!
+//! The upstream socket's lifetime is tied to this struct: dropping it
+//! (= the client connection ended) drops `_closed`, which resolves the
+//! paired receiver inside `connect_loop` and tears the socket down.
+//! Without that link the task can block forever — `writer` waits on a
+//! channel whose senders `connect_loop` itself still owns, and `reader`
+//! waits on an upstream that never speaks again for a client that
+//! subscribed to something quiet.
 
 use std::sync::Arc;
 
@@ -12,11 +20,15 @@ use axum::extract::ws::Message;
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use parking_lot::Mutex;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 
 pub struct PubsubForward {
     inner: Arc<Inner>,
+    /// Dropped together with this struct when the client connection
+    /// ends.  `connect_loop` selects on the paired receiver, so the
+    /// drop is what closes the upstream socket.
+    _closed: oneshot::Sender<()>,
 }
 
 struct Inner {
@@ -34,8 +46,17 @@ impl PubsubForward {
         let inner = Arc::new(Inner {
             state: Mutex::new(State::Connecting { buffered: Vec::new() }),
         });
-        tokio::spawn(connect_loop(upstream_url, inner.clone(), client_tx));
-        Self { inner }
+        let (closed_tx, closed_rx) = oneshot::channel::<()>();
+        tokio::spawn(connect_loop(
+            upstream_url,
+            inner.clone(),
+            client_tx,
+            closed_rx,
+        ));
+        Self {
+            inner,
+            _closed: closed_tx,
+        }
     }
 
     /// Forward one frame to the upstream.  Buffers if upstream isn't
@@ -58,6 +79,7 @@ async fn connect_loop(
     upstream_url: String,
     inner: Arc<Inner>,
     client_tx: mpsc::UnboundedSender<Message>,
+    closed_rx: oneshot::Receiver<()>,
 ) {
     let connect_result = tokio_tungstenite::connect_async(&upstream_url).await;
     let (mut sink, mut stream) = match connect_result {
@@ -118,6 +140,13 @@ async fn connect_loop(
     tokio::select! {
         _ = writer => {},
         _ = reader => {},
+        // The client went away: `PubsubForward` was dropped, so the
+        // sender half of this channel is gone and the receiver
+        // resolves with `Err`.  Neither `writer` nor `reader` can be
+        // relied on here — `writer`'s channel still has senders that
+        // this task owns, and `reader` only wakes when the upstream
+        // sends a frame, which never happens for a quiet subscription.
+        _ = closed_rx => {},
     }
     *inner.state.lock() = State::Closed;
 }
