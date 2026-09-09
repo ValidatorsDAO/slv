@@ -22,8 +22,8 @@ export const messages: Record<string, string> = {
   'Setup cancelled.': 'セットアップを中止しました。',
 
   'SLV API Key': 'SLV API キー',
-  'Get your free API key: https://discord.gg/S2gEbJTGJA':
-    '無料 API キーの取得: https://discord.gg/S2gEbJTGJA',
+  'Get your API key: https://dashboard.erpc.global':
+    'API キーの取得: https://dashboard.erpc.global',
   '🔑 SLV API Key (or press Enter to skip)':
     '🔑 SLV API キー（Enter でスキップ）',
   'SLV API Key saved.': 'SLV API キーを保存しました。',

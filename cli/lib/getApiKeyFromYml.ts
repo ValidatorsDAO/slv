@@ -1,6 +1,5 @@
 import { parse } from 'https://deno.land/std@0.202.0/yaml/parse.ts'
 import { defaultApiKeyYml } from '/lib/config/defaultApiKeyYml.ts'
-import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { colors } from '@cliffy/colors'
 
 /**
@@ -67,10 +66,9 @@ const getApiKeyFromYml = async (ignoreError = false) => {
 $ slv signup # For new users
 $ slv login  # If you already have an API key
 
-A Discord login URL will appear in your terminal.
-Just open it in your browser and log in, your API key will be visible in the discord dashboard.
-
-👉 Grab your free API key here: ${DISCORD_LINK}`
+$ slv signup prints the ERPC dashboard URL.
+Open it in your browser, create your account, and activate your API key there.
+Then run $ slv login to save the key on this machine.`
     console.log(colors.white(text))
     Deno.exit(1)
   }

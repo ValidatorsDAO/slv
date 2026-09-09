@@ -72,8 +72,6 @@ The Enhanced Solana RPC is a high-performance Solana RPC API service that
 provides a reliable and scalable infrastructure for Solana developers and
 validators.
 
-New! Geyser gRPC Connection Free Trial is now available!
-
 website: [https://erpc.validators.solutions](https://erpc.validators.solutions)
 
 ## Contributing

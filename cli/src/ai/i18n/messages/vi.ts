@@ -22,8 +22,8 @@ export const messages: Record<string, string> = {
   'Setup cancelled.': 'Đã hủy cài đặt.',
 
   'SLV API Key': 'Khóa SLV API',
-  'Get your free API key: https://discord.gg/S2gEbJTGJA':
-    'Nhận khóa API miễn phí: https://discord.gg/S2gEbJTGJA',
+  'Get your API key: https://dashboard.erpc.global':
+    'Nhận khóa API: https://dashboard.erpc.global',
   '🔑 SLV API Key (or press Enter to skip)':
     '🔑 Khóa SLV API (nhấn Enter để bỏ qua)',
   'SLV API Key saved.': 'Đã lưu khóa SLV API.',

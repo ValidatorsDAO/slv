@@ -3,6 +3,7 @@ import { exec, spawnSync } from '@elsoul/child-process'
 import { colors } from '@cliffy/colors'
 import { join } from '@std/path'
 import { configRoot } from '@cmn/constants/path.ts'
+import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { createVoteAccount } from '/src/validator/init/createVoteAccount.ts'
 import { airdropAction } from '@/airdrop/airdropAction.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
@@ -87,7 +88,7 @@ And Then, Create a Vote Account with the command:
 
 ${colors.white('$ slv v gen:vote-account')}
 
-If you don't have SOL, ask for it in the Validators DAO's Discord Channel: https://discord.gg/VX38HynP7Y`
+If you don't have SOL, ask for it in the Validators DAO's Discord Channel: ${DISCORD_LINK}`
         console.log(colors.yellow(msg))
         return { voteAccount, authAccount }
       }

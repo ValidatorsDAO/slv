@@ -1,12 +1,11 @@
 import { Command } from '@cliffy'
 import { prompt, Secret } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
-import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { parse, stringify } from '@std/yaml'
 
 export const loginCmd = new Command()
-  .description('Login to SLV using Discord')
+  .description('Save your SLV API key on this machine')
   .action(async () => {
     const loginTxt = `⚡️ SLV Login to unlock full features ⚡️\n`
     console.log(colors.bold.blue(loginTxt))

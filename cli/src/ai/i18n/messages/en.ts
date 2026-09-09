@@ -26,8 +26,8 @@ export const messages: Record<string, string> = {
   'Setup cancelled.': 'Setup cancelled.',
 
   'SLV API Key': 'SLV API Key',
-  'Get your free API key: https://discord.gg/S2gEbJTGJA':
-    'Get your free API key: https://discord.gg/S2gEbJTGJA',
+  'Get your API key: https://dashboard.erpc.global':
+    'Get your API key: https://dashboard.erpc.global',
   '🔑 SLV API Key (or press Enter to skip)':
     '🔑 SLV API Key (or press Enter to skip)',
   'SLV API Key saved.': 'SLV API Key saved.',

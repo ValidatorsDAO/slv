@@ -1,4 +1,5 @@
 import { colors } from '@cliffy/colors'
+import { ERPC_DASHBOARD_URL } from '/lib/slvCloudMcp.ts'
 
 const loginLiners = (ansibleHosts: string[]) => {
   let contenxt = ''
@@ -18,14 +19,11 @@ const rpcLog = (ansibleHosts = ['<your-node-ip>']) => {
     )
   }
 
-We're excited to offer a free API key exclusively for the Validators DAO community 🎉
-It's our way of supporting the community and empowering you with fast, reliable connections.
+Create your API key on the ERPC dashboard:
 
-To get your Free API key, simply join us through the link below:
+${colors.white(ERPC_DASHBOARD_URL)}
 
-Validators DAO: ${colors.white('`https://discord.gg/X4BgkBHavp`')}
-
-Unlock fast connections and elevate your experience with your very own API key 🚀
+Then run ${colors.white(`$ slv login`)} to save it on this machine 🚀
 `
   console.log(colors.cyan(msg))
   const monitorLog = `You can monitor your Node with the following steps:

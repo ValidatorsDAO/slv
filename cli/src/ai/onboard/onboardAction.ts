@@ -387,7 +387,7 @@ export const onboardAction = async (
     )
     console.log(
       colors.white(
-        `  ${t('Get your free API key: https://discord.gg/S2gEbJTGJA')}\n`,
+        `  ${t('Get your API key: https://dashboard.erpc.global')}\n`,
       ),
     )
 

@@ -21,8 +21,8 @@ export const messages: Record<string, string> = {
   'Setup cancelled.': '已取消设置。',
 
   'SLV API Key': 'SLV API 密钥',
-  'Get your free API key: https://discord.gg/S2gEbJTGJA':
-    '获取免费 API 密钥: https://discord.gg/S2gEbJTGJA',
+  'Get your API key: https://dashboard.erpc.global':
+    '获取 API 密钥: https://dashboard.erpc.global',
   '🔑 SLV API Key (or press Enter to skip)': '🔑 SLV API 密钥（按 Enter 跳过）',
   'SLV API Key saved.': 'SLV API 密钥已保存。',
   'Skipped. You can run `slv login` later.':

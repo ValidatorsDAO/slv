@@ -1,25 +1,23 @@
 import { Command } from '@cliffy'
 import { colors } from '@cliffy/colors'
-
-// Discord login URL - replace with the actual URL if needed
-const DISCORD_LOGIN_URL = ''
+import { ERPC_DASHBOARD_URL } from '/lib/slvCloudMcp.ts'
 
 export const signupCmd = new Command()
-  .description('Signup to SLV using Discord')
+  .description('Sign up for SLV and activate an API key')
   .action(() => {
     console.log(colors.bold.green('\n✏️ SLV Signup\n'))
     console.log(
-      colors.white(`👇 Please visit the following URL to login with Discord:`),
+      colors.white(`👇 Open the ERPC dashboard and create your account:`),
     )
-    console.log(colors.blue.underline(DISCORD_LOGIN_URL))
+    console.log(colors.blue.underline(ERPC_DASHBOARD_URL))
     console.log(
       colors.white(
-        `\nAfter logging in,\nYou will get a validation link to your email.\nAPI Key will be showed on the discord dashboard after validation.\n`,
+        `\nRegister there, then complete the €5 payment authorization to activate your API key.\n`,
       ),
     )
     console.log(
       colors.white(
-        `This login is required to access certain SLV features.\n\n$ slv login\n\nTo login after signup.\n`,
+        `Save the key on this machine with:\n\n$ slv login\n`,
       ),
     )
   })

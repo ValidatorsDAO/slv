@@ -22,8 +22,8 @@ export const messages: Record<string, string> = {
   'Setup cancelled.': 'Настройка отменена.',
 
   'SLV API Key': 'SLV API ключ',
-  'Get your free API key: https://discord.gg/S2gEbJTGJA':
-    'Получите бесплатный API-ключ: https://discord.gg/S2gEbJTGJA',
+  'Get your API key: https://dashboard.erpc.global':
+    'Получите API-ключ: https://dashboard.erpc.global',
   '🔑 SLV API Key (or press Enter to skip)':
     '🔑 SLV API ключ (Enter чтобы пропустить)',
   'SLV API Key saved.': 'SLV API ключ сохранён.',
