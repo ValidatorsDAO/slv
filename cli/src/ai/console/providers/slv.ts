@@ -136,7 +136,7 @@ async function buildInsufficientTokenMessage(
 
   if (authState === 'unauthorized') {
     lines.push(
-      `  • Complete Authorization (€5) to receive 100,000 free AI tokens${
+      `  • Complete the one-time €5 payment to receive 100,000 AI tokens${
         authorizationLink ? ':' : ''
       }`,
     )

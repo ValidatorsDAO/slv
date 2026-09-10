@@ -12,7 +12,7 @@ export const signupCmd = new Command()
     console.log(colors.blue.underline(ERPC_DASHBOARD_URL))
     console.log(
       colors.white(
-        `\nRegister there, then complete the €5 payment authorization to activate your API key.\n`,
+        `\nRegister there, then complete the one-time €5 payment to activate your API key.\n`,
       ),
     )
     console.log(

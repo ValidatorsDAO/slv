@@ -6,6 +6,7 @@ import { join } from '@std/path'
 import { parse } from '@std/yaml'
 import { checkRpcEndpoint, sanitizeEndpointForDisplay } from '@/check/rpc.ts'
 import { checkBoostForTargets, printTargetReport } from '/lib/checkBoost.ts'
+import { ERPC_DASHBOARD_URL } from '/lib/slvCloudMcp.ts'
 import type { InventoryType } from '@cmn/types/config.ts'
 
 const userBinDir = join(Deno.env.get('HOME') || '', '.slv', 'bin')
@@ -55,7 +56,7 @@ async function ensureGeyserbenchConfig(options: {
   const apiKey = await readSlvApiKey()
   if (!apiKey) {
     throw new Error(
-      'No SLV API key found in ~/.slv/api.yml. Get a free API key and configure it first.',
+      `No SLV API key found in ~/.slv/api.yml. Get your API key at ${ERPC_DASHBOARD_URL} and configure it first.`,
     )
   }
 
@@ -340,7 +341,7 @@ checkCmd.command('geyserbench')
       if (errorMessage.includes('No SLV API key found')) {
         console.log(
           colors.yellow(
-            'Get a free API key and configure ~/.slv/api.yml, then run this command again.',
+            `Get your API key at ${ERPC_DASHBOARD_URL} and configure ~/.slv/api.yml, then run this command again.`,
           ),
         )
       }
