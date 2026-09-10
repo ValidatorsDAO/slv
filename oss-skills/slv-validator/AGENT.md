@@ -299,7 +299,7 @@ After restarting or deploying a validator, monitor startup completion:
 ### Optional: ERPC API Key
 
 For full slot sync monitoring, an ERPC API key can be configured as `reference_rpc_url`.
-ERPC API keys are free to obtain at https://erpc.global — **recommended for full monitoring**.
+Get an ERPC API key at https://dashboard.erpc.global — **recommended for full monitoring**.
 
 Without an API key, health check falls back to local `/health` endpoint and gossip check only.
 

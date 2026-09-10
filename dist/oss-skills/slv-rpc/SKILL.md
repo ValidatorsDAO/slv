@@ -248,7 +248,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 |---|---|---|
 | `reference_rpc_url` | Reference RPC endpoint for slot sync comparison (e.g., ERPC) | — |
 
-ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
+Get an ERPC API key at https://dashboard.erpc.global — enables full slot sync monitoring during deployment and updates.
 
 ### Pre-flight: Fresh Server Setup (MANDATORY before deploy)
 
