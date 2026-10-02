@@ -28,12 +28,12 @@ There is no `call_mcp` tool for generating a payment link. Once the user confirm
 - `call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "<TYPE>"})` — List products by type
 
 ### Server Types
+`get_baremetal_list_public_node_type` only accepts these `nodeType` values — never pass a premium/top-tier suffix like `MV+`:
+
 | nodeType | Use Case |
 |------------|----------|
 | `APP`      | Testnet validators, dev/test, apps |
-| `MV`       | Mainnet validators |
-| `MV+`      | Mainnet validators (premium) |
-| `MV++`     | Mainnet validators (top-tier) |
+| `MV`       | Mainnet validators — premium and top-tier hardware are separate products inside the `MV` list, not separate nodeType values |
 | `RPC`      | RPC nodes (Index RPC, gRPC Geyser, combos) |
 
 ### Status Tracking
@@ -41,9 +41,9 @@ There is no `call_mcp` tool for generating a payment link. Once the user confirm
 - `call_mcp(tool_name="get_vps_status")` — Check user's VPS status
 - `call_mcp(tool_name="get_vps_list_public")` — List VPS plans
 
-## Mapping: User request -> serverType
+## Mapping: User request -> nodeType
 - "testnet validator" -> APP (128GB+ RAM minimum)
-- "mainnet validator" -> MV or MV+
+- "mainnet validator" -> MV (pick the higher-tier product from the MV list for premium/top-tier)
 - "RPC node" / "gRPC node" -> RPC
 - "dev server" / "app server" -> APP
 
@@ -55,7 +55,7 @@ There is no `call_mcp` tool for generating a payment link. Once the user confirm
 - Index RPC + gRPC: 1TB RAM minimum
 
 ## Procurement Flow
-1. Determine serverType from user request
+1. Determine nodeType from user request
 2. Check availability first (get_baremetal_availability / get_vps_search_available_vps)
 3. If user has unassigned subscriptions, recommend using those
 4. Otherwise, get product list and recommend ONE product
@@ -66,7 +66,7 @@ There is no `call_mcp` tool for generating a payment link. Once the user confirm
 1. NEVER fabricate a payment link. There is no call_mcp tool that generates one — send the user to https://dashboard.erpc.global.
 2. If a product list response carries a link, output it exactly as-is, on its own line, not inside markdown link syntax.
 3. Recommend ONE product. Show alternatives only if asked.
-4. Use correct serverType mapping.
+4. Use correct nodeType mapping.
 5. Do NOT run shell commands. MCP only.
 
 ## Regions

@@ -26,6 +26,8 @@ export const READ_TOOLS: Record<string, ReadToolEntry> = {
   get_user_profile_avatar_user_id_file_name: {
     method: 'GET',
     path: '/v3/user/profile/avatar/{userId}/{fileName}',
+    // Tokened avatar URLs carry `?token=…` and 404 without it.
+    query: ['token'],
   },
   get_user_subscription: { method: 'GET', path: '/v3/user/subscription' },
   get_user_unsubscribe_success: {

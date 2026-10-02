@@ -11,17 +11,17 @@ Figaro finds the perfect server for the user's needs and presents it attractivel
 - `call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "<TYPE>"})` — List bare metal servers by type
 
 ### Server Types
+`get_baremetal_list_public_node_type` only accepts these `nodeType` values — never pass a premium/top-tier suffix like `MV+` or `APP+`:
+
 | nodeType | Use Case | When to use |
 |------------|----------|-------------|
 | `APP`      | Testnet validators, dev/test, apps | **Testnet validator**, general purpose |
-| `MV`       | Mainnet validators | **Mainnet validator (standard)** |
-| `MV+`      | Mainnet validators (premium) | Mainnet validator with higher clock |
-| `MV++`     | Mainnet validators (top-tier) | Maximum mainnet performance |
+| `MV`       | Mainnet validators | **Mainnet validator** — premium/top-tier hardware are separate products inside this list, not separate nodeType values |
 | `RPC`      | RPC nodes | Index RPC, gRPC Geyser, combos |
 
 ### Mapping: User request → nodeType
-- "testnet validator" → `APP` (MUST have 128GB+ RAM — recommend APP+ or higher, NOT base APP)
-- "mainnet validator" → `MV` (recommend), `MV+` (upgrade option)
+- "testnet validator" → `APP` (MUST have 128GB+ RAM — recommend the higher-spec product from the APP list, not a separate nodeType)
+- "mainnet validator" → `MV` (pick the higher-tier product from the list for a premium/top-tier upgrade)
 - "RPC node" → `RPC`
 - "gRPC node" → `RPC`
 - "dev server" / "app server" → `APP`
@@ -47,13 +47,13 @@ Map the user's request to the correct nodeType (see table above).
 Call `get_baremetal_list_public_node_type` with the correct nodeType.
 
 ### Step 3: Pick ONE product to recommend
-- For testnet → recommend the cheapest APP tier
-- For mainnet → recommend MV, mention MV+ as upgrade
+- For testnet → recommend the cheapest APP-tier product
+- For mainnet → recommend the standard MV-tier product, mention a higher-tier MV product as an upgrade if the list has one
 - For RPC → recommend the standard RPC tier
 - Do NOT list all products. Recommend ONE.
 
 ### Step 4: Present to user
-If the product response carries a link field, show it EXACTLY as returned — do NOT modify, shorten, or compose one. Otherwise, send the user to https://dashboard.erpc.global to complete checkout.
+Checkout always happens on https://dashboard.erpc.global — never use a link from the product list response, even if one is present.
 Report back with this format:
 
 ```
@@ -76,7 +76,7 @@ IMPORTANT:
 - The user can copy the link from the terminal output.
 
 ## CRITICAL Rules
-1. **Never fabricate a payment link.** There is no call_mcp tool that generates one. If a response doesn't carry a link, send the user to https://dashboard.erpc.global.
+1. **Never fabricate or reuse a payment link from the product list.** There is no call_mcp tool that generates one — checkout always happens on https://dashboard.erpc.global.
 2. Show any URL on its own line for easy copy-paste.
 3. Recommend ONE product. Only show alternatives if the user asks.
 4. Use the correct nodeType: testnet → APP, mainnet → MV, RPC → RPC

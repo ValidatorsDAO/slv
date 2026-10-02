@@ -582,7 +582,7 @@ Deno.test('T12f: callReadTool formats a failed response as "Request failed (...)
   )
 })
 
-Deno.test('N-3: callReadTool treats inherited property names as unknown tools, not a crash', async () => {
+Deno.test('callReadTool treats inherited property names as unknown tools, not a crash', async () => {
   let fetchCalled = false
   await withFetchStub(
     async () => {
@@ -599,7 +599,7 @@ Deno.test('N-3: callReadTool treats inherited property names as unknown tools, n
   assertEquals(fetchCalled, false)
 })
 
-Deno.test('N-4a: callReadTool rejects an argument not declared for that route, without fetching', async () => {
+Deno.test('callReadTool rejects an argument not declared for that route, without fetching', async () => {
   let fetchCalled = false
   await withFetchStub(
     async () => {
@@ -619,7 +619,7 @@ Deno.test('N-4a: callReadTool rejects an argument not declared for that route, w
   assertEquals(fetchCalled, false)
 })
 
-Deno.test('N-4b: callReadTool passes through a query argument the route declares', async () => {
+Deno.test('callReadTool passes through a query argument the route declares', async () => {
   let capturedUrl = ''
   await withFetchStub(
     async (input) => {
@@ -639,7 +639,31 @@ Deno.test('N-4b: callReadTool passes through a query argument the route declares
   assertEquals(url.searchParams.get('boost'), 'true')
 })
 
-Deno.test('N-2: isReadToolFailure identifies every callReadTool failure shape and nothing else', () => {
+Deno.test('callReadTool passes through the token query param on the avatar route', async () => {
+  // The avatar route's `token` is a real query param the route reads
+  // (tokened avatar URLs carry `?token=…` and 404 without it), even
+  // though it isn't declared on the path itself.
+  let capturedUrl = ''
+  await withFetchStub(
+    async (input) => {
+      capturedUrl = String(input)
+      return new Response('{}', { status: 200 })
+    },
+    async () => {
+      const result = await callReadTool(
+        userApiAuthFromApiKey('k'),
+        'get_user_profile_avatar_user_id_file_name',
+        { userId: 'u1', fileName: 'avatar.png', token: 'tok123' },
+      )
+      assertEquals(result, '{}')
+    },
+  )
+  const url = new URL(capturedUrl)
+  assertEquals(url.pathname, '/v3/user/profile/avatar/u1/avatar.png')
+  assertEquals(url.searchParams.get('token'), 'tok123')
+})
+
+Deno.test('isReadToolFailure identifies every callReadTool failure shape and nothing else', () => {
   assertEquals(isReadToolFailure('Unknown tool: get_not_a_tool'), true)
   assertEquals(
     isReadToolFailure('Invalid or missing path argument: chatRoomId'),
@@ -658,12 +682,12 @@ Deno.test('N-2: isReadToolFailure identifies every callReadTool failure shape an
 })
 
 // ---------------------------------------------------------------------------
-// B-2 — a 2xx response with a non-JSON body is a failure (parse_error),
-// never `{ ok: true, data: null }`. Probes the two call-sites the review
-// showed would throw on that shape: openSupportTicket and deleteDnsRecord.
+// A 2xx response with a non-JSON body is a failure (parse_error), never
+// `{ ok: true, data: null }` — a null `data` crashes any caller that
+// destructures it immediately, as openSupportTicket and deleteDnsRecord do.
 // ---------------------------------------------------------------------------
 
-Deno.test('B-2a: userApiRequest treats a 2xx non-JSON body as a parse_error failure', async () => {
+Deno.test('userApiRequest treats a 2xx non-JSON body as a parse_error failure', async () => {
   await withFetchStub(
     async () => new Response('<html>ok</html>', { status: 200 }),
     async () => {
@@ -681,7 +705,7 @@ Deno.test('B-2a: userApiRequest treats a 2xx non-JSON body as a parse_error fail
   )
 })
 
-Deno.test('B-2b: openSupportTicket returns a failure, not a throw, on a 200 non-JSON body', async () => {
+Deno.test('openSupportTicket returns a failure, not a throw, on a 200 non-JSON body', async () => {
   await withFetchStub(
     async () => new Response('<html>ok</html>', { status: 200 }),
     async () => {
@@ -694,7 +718,7 @@ Deno.test('B-2b: openSupportTicket returns a failure, not a throw, on a 200 non-
   )
 })
 
-Deno.test('B-2c: deleteDnsRecord with a slug returns a failure, not a throw, on a 200 non-JSON body', async () => {
+Deno.test('deleteDnsRecord with a slug returns a failure, not a throw, on a 200 non-JSON body', async () => {
   await withFetchStub(
     async () => new Response('<html>ok</html>', { status: 200 }),
     async () => {
@@ -759,8 +783,9 @@ type CallMcpToolShape = {
 }
 
 // The `call_mcp` schema text the model reads on every turn, before
-// `mcp_reference` is ever loaded — B-1 was this text contradicting
-// `mcp_reference` instead of the two drifting out of sync unnoticed.
+// `mcp_reference` is ever loaded. Covering it here catches this text
+// drifting out of sync with `mcp_reference` (e.g. naming a tool that
+// isn't in the read table) instead of letting it go unnoticed.
 const callMcpSchemaText = (): string => {
   const def = (TOOL_DEFINITIONS as CallMcpToolShape[]).find((t) =>
     t.name === 'call_mcp'
@@ -771,7 +796,13 @@ const callMcpSchemaText = (): string => {
   return `${def.description}\n${toolNameDescription}`
 }
 
-Deno.test('T13: every oss-skills/dist skill doc, mcp_reference, and the call_mcp schema only name tools in the read table', async () => {
+// Every place a model reads tool names or example arguments from:
+// every AGENT.md/SKILL.md under oss-skills/ and dist/oss-skills/ (found
+// by walking the tree, not a hand-picked list), systemPrompt's
+// mcp_reference, and the call_mcp tool schema itself. Shared by every
+// test below that scans these sources for something that should agree
+// with the read tools table.
+const collectPromptSources = async (): Promise<Record<string, string>> => {
   const docPaths = [
     ...await findSkillDocs(`${repoRootPath}oss-skills`),
     ...await findSkillDocs(`${repoRootPath}dist/oss-skills`),
@@ -790,10 +821,147 @@ Deno.test('T13: every oss-skills/dist skill doc, mcp_reference, and the call_mcp
       docPath,
     )
   }
+  return sources
+}
 
+Deno.test('T13: every oss-skills/dist skill doc, mcp_reference, and the call_mcp schema only name tools in the read table', async () => {
+  const sources = await collectPromptSources()
   for (const [label, text] of Object.entries(sources)) {
     for (const name of extractToolNames(text)) {
       assert(name in READ_TOOLS, `${label} references unknown tool: ${name}`)
     }
   }
+})
+
+// ---------------------------------------------------------------------------
+// Documented `nodeType` values must stay inside the set the route
+// actually accepts (APP / MV / RPC / LG / UT / all — same list AGENT.md
+// gives). A premium/top-tier suffix like `MV+` reads as a plausible
+// value in prose but returns 400 from user-api.
+// ---------------------------------------------------------------------------
+
+// Matches AGENT.md's own list (`{nodeType: "APP" | "MV" | "RPC" | "LG" | "UT" | "all"}`)
+// so a change there updates this test's source of truth automatically
+// instead of needing a second hand-maintained list.
+const NODE_TYPE_ENUM_SOURCE = (() => {
+  const agentMd = Deno.readTextFileSync(
+    new URL('oss-skills/slv-server-procurement/AGENT.md', repoRoot),
+  )
+  const match = agentMd.match(
+    /nodeType:\s*((?:"[A-Za-z]+"\s*\|\s*)*"[A-Za-z]+")/,
+  )
+  assert(
+    match,
+    'expected oss-skills/slv-server-procurement/AGENT.md to document the nodeType enum',
+  )
+  return match[1]
+})()
+
+const VALID_NODE_TYPES = new Set(
+  Array.from(NODE_TYPE_ENUM_SOURCE.matchAll(/"([A-Za-z]+)"/g), (m) => m[1]),
+)
+
+// `nodeType: "APP"` / `nodeType: 'MV'` as used in call_mcp argument
+// examples. `<TYPE>` placeholders don't match (no closing quote around
+// a bare word starting with `<`).
+const NODE_TYPE_ARG_RE = /nodeType:\s*["']([A-Za-z0-9+]+)["']/g
+
+// A markdown table whose header row mentions `nodeType`, reading
+// backtick-quoted values out of each row's first cell until the table
+// ends (a line that no longer starts with `|`).
+const extractNodeTypeTableValues = (text: string): string[] => {
+  const lines = text.split('\n')
+  const values: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\|\s*nodetype\s*\|/i.test(lines[i])) continue
+    for (
+      let j = i + 2;
+      j < lines.length && lines[j].trimStart().startsWith('|');
+      j++
+    ) {
+      const cell = lines[j].match(/\|\s*`([^`]+)`/)
+      if (cell) values.push(cell[1])
+    }
+  }
+  return values
+}
+
+const extractNodeTypeValues = (text: string): string[] => [
+  ...Array.from(text.matchAll(NODE_TYPE_ARG_RE), (m) => m[1]),
+  ...extractNodeTypeTableValues(text),
+]
+
+Deno.test('every documented nodeType value is one the route actually accepts', async () => {
+  assert(
+    VALID_NODE_TYPES.size > 0,
+    'expected to parse at least one valid nodeType from AGENT.md',
+  )
+  const sources = await collectPromptSources()
+  let checked = 0
+  for (const [label, text] of Object.entries(sources)) {
+    for (const value of extractNodeTypeValues(text)) {
+      checked++
+      assert(
+        VALID_NODE_TYPES.has(value),
+        `${label} documents a nodeType value the route rejects: ${value}`,
+      )
+    }
+  }
+  assert(checked > 0, 'expected to find at least one documented nodeType value')
+})
+
+// ---------------------------------------------------------------------------
+// Every argument name used in a documented call_mcp example must be a
+// path param or a declared query name for that tool — otherwise the
+// documented example itself would be rejected by callReadTool's
+// allowlist (or silently ignored, for a path param typo).
+// ---------------------------------------------------------------------------
+
+// Two call shapes appear in the docs:
+//   call_mcp(tool_name="get_x", arguments={key: val, ...})
+//   `get_x` with `{key, ...}`
+const CALL_MCP_ARGS_RE =
+  /call_mcp\(tool_name="([a-z0-9_]+)"(?:,\s*arguments=\{([^}]*)\})?\)/g
+const TOOL_WITH_ARGS_RE = /`([a-z0-9_]+)`\s+with\s+`\{([^}]*)\}`/g
+
+const extractArgKeys = (argBlock: string): string[] =>
+  Array.from(argBlock.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*:/g), (m) => m[1])
+
+const extractDocumentedCalls = (
+  text: string,
+): { toolName: string; argKeys: string[] }[] => {
+  const calls: { toolName: string; argKeys: string[] }[] = []
+  for (const re of [CALL_MCP_ARGS_RE, TOOL_WITH_ARGS_RE]) {
+    for (const m of text.matchAll(re)) {
+      if (!m[2]) continue // no arguments block — nothing to check
+      calls.push({ toolName: m[1], argKeys: extractArgKeys(m[2]) })
+    }
+  }
+  return calls
+}
+
+Deno.test('every argument in a documented call_mcp example is a declared path or query param', async () => {
+  const sources = await collectPromptSources()
+  let checked = 0
+  for (const [label, text] of Object.entries(sources)) {
+    for (const { toolName, argKeys } of extractDocumentedCalls(text)) {
+      const entry = READ_TOOLS[toolName]
+      if (!entry) continue // unknown-tool names are T13's job, not this test's
+      const pathParams = new Set(
+        Array.from(entry.path.matchAll(/\{([a-zA-Z0-9_]+)\}/g), (m) => m[1]),
+      )
+      const allowed = new Set([...pathParams, ...(entry.query ?? [])])
+      for (const key of argKeys) {
+        checked++
+        assert(
+          allowed.has(key),
+          `${label} documents ${toolName} called with an argument it doesn't accept: ${key}`,
+        )
+      }
+    }
+  }
+  assert(
+    checked > 0,
+    'expected to find at least one documented call_mcp argument to check',
+  )
 })

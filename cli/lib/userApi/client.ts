@@ -14,6 +14,13 @@ export type UserApiResult<T> =
   | { ok: true; status: number; data: T }
   | { ok: false; status: number; body: UserApiErrorBody | null; raw: string }
 
+export type UserApiRawResponse = {
+  ok: boolean
+  status: number
+  statusText: string
+  raw: string
+}
+
 type ParseResult<T> = { ok: true; value: T } | { ok: false }
 
 // Distinguishes "the body is valid JSON `null`" from "the body did
@@ -50,21 +57,20 @@ const normalizeErrorBody = (raw: string): UserApiErrorBody | null => {
 }
 
 /**
- * JSON-parsing request function for the direct user-api REST client.
- * This file (`client.ts`) is the only place in the package that calls
- * `fetch` or attaches the `Authorization` header — `userApiRequestRaw`
- * below is the other such call, for callers that want the raw text
- * instead of a parsed body. No other module touches either.
- * Network failures (DNS, connection reset, …) are never caught here —
- * they throw and propagate to the caller, since masking them would
- * hide a real outage behind a misleading result value.
+ * The one `fetch` call in this package — `userApiRequest` (JSON) and
+ * `userApiRequestRaw` (raw text) both build their request through
+ * this, so there is exactly one place that attaches the
+ * `Authorization` header. Network failures (DNS, connection reset,
+ * …) are never caught here — they throw and propagate to the caller,
+ * since masking them would hide a real outage behind a misleading
+ * result value.
  */
-export const userApiRequest = async <T>(
+const send = async (
   auth: UserApiAuth,
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
   body?: Record<string, unknown>,
-): Promise<UserApiResult<T>> => {
+): Promise<UserApiRawResponse> => {
   const headers: Record<string, string> = {
     'Authorization': userApiAuthHeader(auth),
   }
@@ -76,10 +82,26 @@ export const userApiRequest = async <T>(
 
   const res = await fetch(`${USER_API_ORIGIN}${path}`, init)
   const raw = await res.text()
+  return { ok: res.ok, status: res.status, statusText: res.statusText, raw }
+}
+
+/** JSON-parsing request function for the direct user-api REST client. */
+export const userApiRequest = async <T>(
+  auth: UserApiAuth,
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<UserApiResult<T>> => {
+  const res = await send(auth, method, path, body)
   if (!res.ok) {
-    return { ok: false, status: res.status, body: normalizeErrorBody(raw), raw }
+    return {
+      ok: false,
+      status: res.status,
+      body: normalizeErrorBody(res.raw),
+      raw: res.raw,
+    }
   }
-  const parsed = tryParseJson<T>(raw)
+  const parsed = tryParseJson<T>(res.raw)
   if (!parsed.ok) {
     // A 2xx with a body that isn't valid JSON (an HTML error page from
     // a proxy in front of user-api, an empty body, …) is not success —
@@ -90,35 +112,19 @@ export const userApiRequest = async <T>(
       ok: false,
       status: res.status,
       body: { error: 'parse_error', message: 'response was not valid JSON' },
-      raw,
+      raw: res.raw,
     }
   }
   return { ok: true, status: res.status, data: parsed.value }
 }
 
-export type UserApiRawResponse = {
-  ok: boolean
-  status: number
-  statusText: string
-  raw: string
-}
-
 /**
  * Raw-text variant for callers that format their own success/failure
  * text instead of parsing JSON (the console's fixed read-tools
- * table). Shares the same `fetch` call, URL building, and
- * `Authorization` header construction as `userApiRequest` — there is
- * exactly one place that attaches that header.
+ * table).
  */
-export const userApiRequestRaw = async (
+export const userApiRequestRaw = (
   auth: UserApiAuth,
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
-): Promise<UserApiRawResponse> => {
-  const res = await fetch(`${USER_API_ORIGIN}${path}`, {
-    method,
-    headers: { 'Authorization': userApiAuthHeader(auth) },
-  })
-  const raw = await res.text()
-  return { ok: res.ok, status: res.status, statusText: res.statusText, raw }
-}
+): Promise<UserApiRawResponse> => send(auth, method, path)
