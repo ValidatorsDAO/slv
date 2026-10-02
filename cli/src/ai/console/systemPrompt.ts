@@ -258,7 +258,7 @@ for any of those actions.
   - Testnet validator → nodeType "APP" (NOT "MV")
   - Mainnet validator → nodeType "MV"
   - RPC → nodeType "RPC"
-  - Any payment/purchase link in the response: show the FULL URL as-is, NEVER modify or truncate it
+  - Purchase always happens on https://dashboard.erpc.global — never treat a link in this response as a checkout link
 - call_mcp(tool_name="get_baremetal_search_available_baremetal", arguments={region: "amsterdam"}) — Find vacant stock matching a spec
 - call_mcp(tool_name="get_baremetal_availability") — Your available (unassigned) subscriptions
 - call_mcp(tool_name="get_baremetal_status") — Your BareMetal status

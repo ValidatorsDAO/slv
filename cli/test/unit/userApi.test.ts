@@ -861,10 +861,11 @@ const VALID_NODE_TYPES = new Set(
   Array.from(NODE_TYPE_ENUM_SOURCE.matchAll(/"([A-Za-z]+)"/g), (m) => m[1]),
 )
 
-// `nodeType: "APP"` / `nodeType: 'MV'` as used in call_mcp argument
-// examples. `<TYPE>` placeholders don't match (no closing quote around
-// a bare word starting with `<`).
-const NODE_TYPE_ARG_RE = /nodeType:\s*["']([A-Za-z0-9+]+)["']/g
+// `nodeType: "APP"` (call_mcp argument syntax) and the prose form
+// `→ nodeType "APP"` / `-> nodeType "APP"` (the colon is optional) —
+// `<TYPE>` placeholders don't match (no closing quote around a bare
+// word starting with `<`).
+const NODE_TYPE_ARG_RE = /nodeType\s*:?\s*["']([A-Za-z0-9+]+)["']/g
 
 // A markdown table whose header row mentions `nodeType`, reading
 // backtick-quoted values out of each row's first cell until the table
@@ -886,9 +887,18 @@ const extractNodeTypeTableValues = (text: string): string[] => {
   return values
 }
 
+// Mapping list lines: `- "mainnet validator" -> MV (…)` / `- "…" →
+// \`MV\``, including lines that join several quoted request phrases
+// with `/` before the arrow (`- "dev server" / "app server" -> APP`).
+// The heading `## Mapping: User request -> nodeType` doesn't match —
+// it isn't a `-` list item.
+const NODE_TYPE_MAPPING_RE =
+  /^\s*-\s*(?:"[^"]*"\s*\/?\s*)+(?:->|→)\s*`?([A-Za-z0-9+]+)`?/gm
+
 const extractNodeTypeValues = (text: string): string[] => [
   ...Array.from(text.matchAll(NODE_TYPE_ARG_RE), (m) => m[1]),
   ...extractNodeTypeTableValues(text),
+  ...Array.from(text.matchAll(NODE_TYPE_MAPPING_RE), (m) => m[1]),
 ]
 
 Deno.test('every documented nodeType value is one the route actually accepts', async () => {
@@ -924,8 +934,26 @@ const CALL_MCP_ARGS_RE =
   /call_mcp\(tool_name="([a-z0-9_]+)"(?:,\s*arguments=\{([^}]*)\})?\)/g
 const TOOL_WITH_ARGS_RE = /`([a-z0-9_]+)`\s+with\s+`\{([^}]*)\}`/g
 
-const extractArgKeys = (argBlock: string): string[] =>
-  Array.from(argBlock.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*:/g), (m) => m[1])
+// Handles both shapes an argument block appears in: `key: value` pairs
+// (JS-object-literal style, e.g. `{region: "amsterdam"}`) and bare
+// comma-separated names with no value (AGENT.md's shorthand, e.g.
+// `{region, cpu, ram, …}`). An ellipsis token (`…` or `...`) is a
+// "there's more" marker, not an argument name, and is skipped.
+const extractArgKeys = (argBlock: string): string[] => {
+  const keys: string[] = []
+  for (const rawPart of argBlock.split(',')) {
+    const part = rawPart.trim()
+    if (!part || part === '…' || part === '...') continue
+    const colonMatch = part.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:/)
+    if (colonMatch) {
+      keys.push(colonMatch[1])
+      continue
+    }
+    const bareMatch = part.match(/^([A-Za-z_][A-Za-z0-9_]*)$/)
+    if (bareMatch) keys.push(bareMatch[1])
+  }
+  return keys
+}
 
 const extractDocumentedCalls = (
   text: string,

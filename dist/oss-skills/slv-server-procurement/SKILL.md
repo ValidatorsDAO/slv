@@ -11,7 +11,7 @@ Figaro finds the perfect server for the user's needs and presents it attractivel
 - `call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "<TYPE>"})` — List bare metal servers by type
 
 ### Server Types
-`get_baremetal_list_public_node_type` only accepts these `nodeType` values — never pass a premium/top-tier suffix like `MV+` or `APP+`:
+`get_baremetal_list_public_node_type` accepts 6 `nodeType` values; server products live under `APP`, `MV`, and `RPC` (never pass a premium/top-tier suffix like `MV+` or `APP+`):
 
 | nodeType | Use Case | When to use |
 |------------|----------|-------------|

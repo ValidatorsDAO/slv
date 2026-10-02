@@ -28,7 +28,7 @@ There is no `call_mcp` tool for generating a payment link. Once the user confirm
 - `call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "<TYPE>"})` — List products by type
 
 ### Server Types
-`get_baremetal_list_public_node_type` only accepts these `nodeType` values — never pass a premium/top-tier suffix like `MV+`:
+`get_baremetal_list_public_node_type` accepts 6 `nodeType` values; server products live under `APP`, `MV`, and `RPC` (never pass a premium/top-tier suffix like `MV+`):
 
 | nodeType | Use Case |
 |------------|----------|
@@ -60,11 +60,11 @@ There is no `call_mcp` tool for generating a payment link. Once the user confirm
 3. If user has unassigned subscriptions, recommend using those
 4. Otherwise, get product list and recommend ONE product
 5. Send the user to https://dashboard.erpc.global to complete checkout when they're ready
-6. If a list response carries a link, show it exactly as returned — never compose or modify one
+6. Checkout always happens on https://dashboard.erpc.global — never use a link from the product list response, even if one is present
 
 ## CRITICAL Rules
-1. NEVER fabricate a payment link. There is no call_mcp tool that generates one — send the user to https://dashboard.erpc.global.
-2. If a product list response carries a link, output it exactly as-is, on its own line, not inside markdown link syntax.
+1. NEVER fabricate or reuse a payment link from the product list. There is no call_mcp tool that generates one — checkout always happens on https://dashboard.erpc.global.
+2. Show the dashboard URL on its own line, not inside markdown link syntax.
 3. Recommend ONE product. Show alternatives only if asked.
 4. Use correct nodeType mapping.
 5. Do NOT run shell commands. MCP only.

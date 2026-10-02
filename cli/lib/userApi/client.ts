@@ -57,10 +57,13 @@ const normalizeErrorBody = (raw: string): UserApiErrorBody | null => {
 }
 
 /**
- * The one `fetch` call in this package — `userApiRequest` (JSON) and
- * `userApiRequestRaw` (raw text) both build their request through
- * this, so there is exactly one place that attaches the
- * `Authorization` header. Network failures (DNS, connection reset,
+ * The one `fetch` call in `cli/lib/userApi/` — `userApiRequest`
+ * (JSON) and `userApiRequestRaw` (raw text) both build their request
+ * through this, so there is exactly one place in this directory that
+ * attaches the `Authorization` header. (Other parts of the `@slv/cli`
+ * package, such as `src/ai/authorization.ts`, call user-api directly
+ * with their own header — this claim is scoped to `cli/lib/userApi/`.)
+ * Network failures (DNS, connection reset,
  * …) are never caught here — they throw and propagate to the caller,
  * since masking them would hide a real outage behind a misleading
  * result value.
