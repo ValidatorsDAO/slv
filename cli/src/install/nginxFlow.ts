@@ -3,7 +3,8 @@ import {
   getDnsStatus,
   requestOriginCert,
   setDnsRecord,
-} from '/lib/slvCloudMcp.ts'
+} from '/lib/userApi/dns.ts'
+import { type UserApiAuth, userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { runAnsibleLocal } from '/lib/runAnsibleLocal.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
@@ -75,10 +76,12 @@ export type NginxFlowResult = NginxFlowSuccess | NginxFlowFailure
 export const runNginxFlow = async (
   opts: NginxFlowInput,
 ): Promise<NginxFlowResult> => {
+  const auth = userApiAuthFromApiKey(opts.apiKey)
+
   // 1. Read the user's DNS state to learn their default slug.
   // We also honor a `--slug` override here; the endpoint will
   // reject paid-tier names until the Stripe product is live.
-  const status = await getDnsStatus(opts.apiKey)
+  const status = await getDnsStatus(auth)
   if (!status.ok) {
     return {
       ok: false,
@@ -115,7 +118,7 @@ export const runNginxFlow = async (
     defaultRec.exists &&
     defaultRec.ip === ip
   if (!alreadyCorrect) {
-    const setResult = await setDnsRecord(opts.apiKey, {
+    const setResult = await setDnsRecord(auth, {
       ip,
       slug: opts.slug,
     })
@@ -128,10 +131,10 @@ export const runNginxFlow = async (
     }
   }
 
-  // 4. Try to get a Cloudflare Origin CA cert via the erpc MCP.
+  // 4. Try to get a Cloudflare Origin CA cert via the erpc user-api.
   // With this cert in place on origin, the erpc.global zone can
   // run in Cloudflare Full (strict) mode — no origin-pull cert
-  // validation failures (526). The fetch goes out to the MCP and
+  // validation failures (526). The request goes out to user-api and
   // then Cloudflare's Origin CA API, both of which occasionally
   // stall or 5xx under load — so we retry a few times with a
   // short backoff before falling back to self-signed.
@@ -140,15 +143,15 @@ export const runNginxFlow = async (
     upstream_port: String(opts.port),
   }
   let originCertIssued = false
-  const originCertResult = await issueOriginCertWithRetry(opts, fqdn)
+  const originCertResult = await issueOriginCertWithRetry(auth, opts, fqdn)
   if (originCertResult.ok) {
     extraVars.origin_cert_b64 = b64(originCertResult.certPem)
     extraVars.origin_key_b64 = b64(originCertResult.keyPem)
     originCertIssued = true
-  } else if (originCertResult.kind === 'tool_not_found') {
+  } else if (originCertResult.kind === 'not_available') {
     // erpc hasn't shipped POST /v3/dns/origin-cert yet; silently
     // fall back. Callers see this via `originCertIssued: false`.
-  } else if (originCertResult.kind === 'mcp_error') {
+  } else if (originCertResult.kind === 'api_error') {
     // Endpoint exists but refused (invalid_csr, premium_required,
     // cloudflare_error, …). Non-fatal — self-signed still yields a
     // working nginx in Full (not strict) mode.
@@ -191,16 +194,16 @@ export const runNginxFlow = async (
 }
 
 type OriginCertRetriableFailure =
-  | { ok: false; kind: 'mcp_error'; reason: string; attempts: number }
+  | { ok: false; kind: 'api_error'; reason: string; attempts: number }
   | { ok: false; kind: 'exception'; reason: string; attempts: number }
 
 type OriginCertOutcome =
   | { ok: true; certPem: string; keyPem: string }
-  | { ok: false; kind: 'tool_not_found' }
+  | { ok: false; kind: 'not_available' }
   | OriginCertRetriableFailure
 
 // Retries only on transient conditions. Permanent outcomes —
-// tool_not_found, 4xx other than 408/429, malformed-fqdn throws,
+// not_available, 4xx other than 408/429, malformed-fqdn throws,
 // and a missing openssl binary — short-circuit immediately so we
 // don't burn backoff on errors that can never succeed.
 const ORIGIN_CERT_MAX_ATTEMPTS = 3
@@ -225,6 +228,7 @@ const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
   ])
 
 const issueOriginCertWithRetry = async (
+  auth: UserApiAuth,
   opts: NginxFlowInput,
   fqdn: string,
 ): Promise<OriginCertOutcome> => {
@@ -245,22 +249,22 @@ const issueOriginCertWithRetry = async (
     try {
       const csr = await generateCsr(fqdn)
       const cert = await withTimeout(
-        requestOriginCert(opts.apiKey, { csr: csr.csrPem, slug: opts.slug }),
+        requestOriginCert(auth, { csr: csr.csrPem, slug: opts.slug }),
         ORIGIN_CERT_ATTEMPT_TIMEOUT_MS,
         'Origin CA request',
       )
       if (cert.ok) {
         return { ok: true, certPem: cert.data.certificate, keyPem: csr.keyPem }
       }
-      if (cert.kind === 'tool_not_found') {
-        return { ok: false, kind: 'tool_not_found' }
+      if (cert.kind === 'not_available') {
+        return { ok: false, kind: 'not_available' }
       }
       const reason = `status=${cert.status} ${cert.body?.error ?? ''} ${
         cert.body?.message ?? ''
       }`.trim()
       const transient = cert.status >= 500 || cert.status === 408 ||
         cert.status === 429
-      lastOutcome = { ok: false, kind: 'mcp_error', reason, attempts: attempt }
+      lastOutcome = { ok: false, kind: 'api_error', reason, attempts: attempt }
       if (!transient) return lastOutcome
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)

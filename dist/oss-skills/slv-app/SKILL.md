@@ -91,44 +91,35 @@ short version:
 3. Always snapshot `wallet.json` before any action that could touch the
    app directory.
 
-## ERPC Cloud MCP — Endpoint & Storage Provisioning
+## ERPC Cloud — Endpoint & Storage Provisioning
 
-MCP Server URL: `https://mcp-slv-cloud.erpc.global/mcp`
+When users don't have a gRPC or Shredstream endpoint, direct them to
+https://dashboard.erpc.global to browse plans and complete a purchase or
+IP registration — those actions aren't available from `slv c`. Once a plan
+is active, check its live status with `call_mcp`.
 
-When users don't have a gRPC or Shredstream endpoint, use this MCP to look
-up products and provide purchase links.
-
-### Shared (recommended to start)
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/v3/grpc/list` | Shared gRPC product plans + payment links |
-| `POST` | `/v3/grpc/register-ip-grpc` | Register IP → get gRPC endpoint (after purchase) |
-| `POST` | `/v3/grpc/remove-ip-grpc` | Remove registered IP |
-| `GET` | `/v3/shreds-shared/list` | Shared Shredstream product plans + payment links |
-
-### Dedicated (higher performance)
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/v3/dedicated/list` | Dedicated gRPC product plans |
-| `GET` | `/v3/geyser-grpc/status` | Check dedicated gRPC endpoint (after purchase) |
-| `GET` | `/v3/shreds-dedicated/list` | Dedicated Shredstream product plans |
-| `GET` | `/v3/shreds-dedicated/status` | Check dedicated Shredstream endpoint (after purchase) |
-
-### Storage
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/v3/storage/product-list` | Storage/backup products (trade history, position data) |
+### Status checks (read-only, via `call_mcp`)
+| Tool name | Purpose |
+|-----------|---------|
+| `get_grpc_status` | Shared gRPC status (registered IP + endpoint) |
+| `get_shreds_shared_status` | Shared Shredstream status |
+| `get_dedicated_status` | Dedicated gRPC/Shredstream status |
+| `get_geyser_grpc_status` | Dedicated Geyser gRPC status (after purchase) |
+| `get_shreds_dedicated_status` | Dedicated Shredstream status (after purchase) |
+| `get_storage_usage` | Current storage usage |
 
 ### Flow
-1. `/v3/grpc/list` → show products + payment links → user purchases →
-   `/v3/grpc/register-ip-grpc` → get endpoint → set in `.env`
-2. For higher performance: `/v3/dedicated/list` → purchase →
-   `/v3/geyser-grpc/status` for endpoint
+1. Check `get_grpc_status` — if a slot is already active, use its endpoint.
+2. Otherwise send the user to https://dashboard.erpc.global to purchase a
+   plan and register their IPv4 (`curl -4 -s ifconfig.me`).
+3. For higher performance: point the user at the dedicated plans on the
+   dashboard, then verify with `get_geyser_grpc_status` /
+   `get_shreds_dedicated_status`.
 
 ### Important: Backup storage
 Trade history and position data need persistent storage. Without backup,
-data is lost on restart or crash. Use `/v3/storage/product-list` to show
-backup options proactively.
+data is lost on restart or crash. Check `get_storage_usage` and point the
+user to https://dashboard.erpc.global for backup storage plans.
 
 ## Operator Notes
 - `wallet.json` contains a private key — never commit it.
@@ -136,5 +127,5 @@ backup options proactively.
   endpoints.
 - After local testing succeeds, recommend `slv bot deploy` to deploy to a
   VPS.
-- If the user lacks gRPC/Shredstream endpoints, use ERPC Cloud MCP to show
-  products and purchase links.
+- If the user lacks gRPC/Shredstream endpoints, direct them to
+  https://dashboard.erpc.global to show products and purchase links.

@@ -7,11 +7,12 @@ import {
   explainDnsSetError,
   getDnsStatus,
   setDnsRecord,
-} from '/lib/slvCloudMcp.ts'
+} from '/lib/userApi/dns.ts'
+import { type UserApiAuth, userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 
-const requireSlvApiKey = async (): Promise<string> => {
+const requireSlvApiKey = async (): Promise<UserApiAuth> => {
   let key: string | null = null
   try {
     key = await getApiKeyFromYml(true)
@@ -20,7 +21,7 @@ const requireSlvApiKey = async (): Promise<string> => {
     console.error(colors.red('❌ no SLV API key — run `slv login` first.'))
     Deno.exit(1)
   }
-  return key
+  return userApiAuthFromApiKey(key)
 }
 
 /**
@@ -39,8 +40,8 @@ dnsCmd.command('status')
     'Show the caller\'s DNS state: the default `<slug>.erpc.global` subdomain and any paid custom slugs, with the IP they currently point at.',
   )
   .action(async () => {
-    const apiKey = await requireSlvApiKey()
-    const result = await getDnsStatus(apiKey)
+    const auth = await requireSlvApiKey()
+    const result = await getDnsStatus(auth)
     if (!result.ok) {
       if (result.status === 401) {
         console.error(
@@ -93,7 +94,7 @@ dnsCmd.command('set')
       proxied?: boolean
       yes?: boolean
     }) => {
-      const apiKey = await requireSlvApiKey()
+      const auth = await requireSlvApiKey()
 
       let ip = opts.ip
       if (!ip) {
@@ -124,7 +125,7 @@ dnsCmd.command('set')
         }
       }
 
-      const result = await setDnsRecord(apiKey, {
+      const result = await setDnsRecord(auth, {
         ip,
         slug: opts.slug,
         proxied: opts.proxied,
@@ -152,7 +153,7 @@ dnsCmd.command('delete')
   .option('--slug <slug:string>', 'Custom slug to delete (omit for the default)')
   .option('-y, --yes', 'Skip the confirmation prompt', { default: false })
   .action(async (opts: { slug?: string; yes?: boolean }) => {
-    const apiKey = await requireSlvApiKey()
+    const auth = await requireSlvApiKey()
 
     const target = opts.slug
       ? `${opts.slug}.erpc.global`
@@ -169,7 +170,7 @@ dnsCmd.command('delete')
       }
     }
 
-    const result = await deleteDnsRecord(apiKey, { slug: opts.slug })
+    const result = await deleteDnsRecord(auth, { slug: opts.slug })
     if (!result.ok) {
       console.error(colors.red(`❌ ${explainDnsDeleteError(result)}`))
       Deno.exit(1)

@@ -14,7 +14,8 @@ import {
   type AuthorizationStatus,
   fetchAuthorizationStatus,
 } from '@/ai/authorization.ts'
-import { callMcpTool } from '/lib/slvCloudMcp.ts'
+import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import { userApiRequest } from '/lib/userApi/client.ts'
 
 type Product = {
   name?: string
@@ -33,26 +34,18 @@ type Product = {
 }
 
 /**
- * Thin wrapper over the shared `callMcpTool` that flattens the
- * typed discriminated-union result down to the "raw text" shape
- * this file's existing product-list rendering code expects. New
- * call-sites should prefer `callMcpTool` directly.
+ * Fetch `/v3/ai/product-list` directly. Flattens the typed
+ * discriminated-union result down to the "raw text" shape this
+ * file's existing product-list rendering code expects — on failure
+ * it returns an empty string, same contract the old MCP wrapper had.
  */
-async function callMcp(
-  apiKey: string,
-  toolName: string,
-  args: Record<string, unknown> = {},
-): Promise<string> {
-  const r = await callMcpTool<Record<string, unknown>>(apiKey, toolName, args)
-  if (r.ok) {
-    // callMcpTool already JSON-parsed the content text; re-stringify
-    // so legacy consumers that `JSON.parse` the return continue to
-    // work. The double-round-trip is cheap relative to the network
-    // call itself.
-    return JSON.stringify(r.data)
-  }
-  // On failure the original helper returned an empty string; keep
-  // that contract so no rendering code changes.
+async function fetchProductListRaw(apiKey: string): Promise<string> {
+  const r = await userApiRequest<Record<string, unknown>>(
+    userApiAuthFromApiKey(apiKey),
+    'GET',
+    '/v3/ai/product-list',
+  )
+  if (r.ok) return JSON.stringify(r.data)
   return ''
 }
 
@@ -109,7 +102,7 @@ export const aiProductAction = async () => {
 
   try {
     const [raw, authorizationStatus] = await Promise.all([
-      callMcp(apiKey, 'get_ai_product_list'),
+      fetchProductListRaw(apiKey),
       fetchAuthorizationStatus(apiKey),
     ])
 

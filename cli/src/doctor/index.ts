@@ -3,7 +3,8 @@ import { colors } from '@cliffy/colors'
 import { VERSION } from '@cmn/constants/version.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
-import { getDnsStatus } from '/lib/slvCloudMcp.ts'
+import { getDnsStatus } from '/lib/userApi/dns.ts'
+import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
 import { pickGatewayService } from '/src/gateway/service/pick.ts'
 import { localExec } from '/src/bot/execUtil.ts'
 
@@ -184,7 +185,7 @@ const checkDns = async (): Promise<CheckResult> => {
   }
   // Fetch status + local public IP in parallel — independent network calls.
   const [status, ip] = await Promise.all([
-    getDnsStatus(apiKey).catch((err) => ({
+    getDnsStatus(userApiAuthFromApiKey(apiKey)).catch((err) => ({
       ok: false as const,
       status: 0,
       body: {

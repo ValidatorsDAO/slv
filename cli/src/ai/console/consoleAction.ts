@@ -46,6 +46,8 @@ import {
   setTuiInstance,
 } from '@/ai/console/tools.ts'
 import { errToString } from '/lib/errToString.ts'
+import { callReadTool } from '/lib/userApi/readTools.ts'
+import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
 import {
   classifyIntent,
   type DeploymentMode,
@@ -1161,25 +1163,14 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
           slvApiKey = ctx.raw.api.slv.api_key ?? ''
         }
         if (slvApiKey) {
-          const res = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${slvApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'tools/call',
-              params: { name: 'get_user_get', arguments: {} },
-            }),
-          })
-          const data = await res.json()
+          const text = await callReadTool(
+            userApiAuthFromApiKey(slvApiKey),
+            'get_user_get',
+            {},
+          )
           hydratedUserContextBlocks.set(
             kind,
-            `## User Account (from MCP)\n${
-              data.result?.content?.[0]?.text || 'Unable to fetch'
-            }`,
+            `## User Account\n${text || 'Unable to fetch'}`,
           )
           hydratedUserContextKinds.add(kind)
         }

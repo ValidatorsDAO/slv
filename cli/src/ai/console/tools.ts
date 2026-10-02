@@ -11,6 +11,8 @@ import {
   loadContextModules,
 } from '@/ai/console/systemPrompt.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
+import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
+import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
 import { ALL_AGENT_IDS, isKnownAgentId } from '@/ai/agentConfig/registry.ts'
 import {
@@ -934,32 +936,15 @@ async function executeCallMcp(
   if (!apiKey) return 'Error: No SLV API key found. Run `slv login` first.'
 
   try {
-    const response = await fetch('https://mcp-slv-cloud.erpc.global/mcp', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'tools/call',
-        params: {
-          name: toolName,
-          arguments: args || {},
-        },
-      }),
-    })
-
-    const data = await response.json()
-    if (data.error) return `MCP Error: ${JSON.stringify(data.error)}`
-
-    const content = data.result?.content?.[0]?.text ||
-      JSON.stringify(data.result)
+    const content = await callReadTool(
+      userApiAuthFromApiKey(apiKey),
+      toolName,
+      args || {},
+    )
     const result = content.length > MCP_MAX_RESPONSE_CHARS
       ? content.slice(0, MCP_MAX_RESPONSE_CHARS) + '\n... (truncated)'
       : content
-    if (cacheable) {
+    if (cacheable && !isReadToolFailure(content)) {
       mcpResponseCache.set(cacheKey, result)
     }
     return result
