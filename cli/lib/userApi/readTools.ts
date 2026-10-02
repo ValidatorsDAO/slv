@@ -2,8 +2,8 @@
  * Fixed, read-only user-api route table for the AI console's
  * `call_mcp` tool. Every entry is a GET — there is no mutation path
  * through this table by construction (the `method` field is typed
- * to the `'GET'` literal). Names and paths follow the convention in
- * vs2-app `cmn/mcp/openapiTools.ts`.
+ * to the `'GET'` literal). Names follow the existing `call_mcp` tool
+ * names (`<method>_<path segments>`, with `/v3` dropped).
  *
  * `{param}` segments in `path` are filled from the caller's
  * arguments and percent-encoded; any argument not consumed by the
