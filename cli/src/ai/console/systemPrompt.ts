@@ -238,38 +238,45 @@ After deployment, the target node has this key layout:
 | \`slv check\` | Check endpoint health |
 | \`slv install\` | Install software (Redis, TiDB, Grafana, etc.) |`,
 
-  mcp_reference: `## SLV Cloud MCP API
-You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
+  mcp_reference: `## SLV Cloud API
+You have access to a fixed set of read-only SLV Cloud endpoints via the
+call_mcp tool. Every tool below is a GET — there is no purchase, payment,
+or IP-registration tool here. Send the user to https://dashboard.erpc.global
+for any of those actions.
 
 ### User & Subscription
 - call_mcp(tool_name="get_user_get") — Get user info
 - call_mcp(tool_name="get_user_subscription") — Get active subscriptions
 - call_mcp(tool_name="get_user_dashboard") — Full dashboard data
+- call_mcp(tool_name="get_user_billing_address") — Billing address
+- call_mcp(tool_name="get_user_credit_snapshot") — Current credit balance snapshot
 
 ### BareMetal Servers
-- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "APP"}) — Testnet validators, dev, apps
-- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "MV"}) — Mainnet validators
-- call_mcp(tool_name="get_baremetal_server_list_server_type", arguments={serverType: "RPC"}) — RPC nodes (Index RPC, gRPC Geyser)
-  - Testnet validator → serverType "APP" (NOT "MV")
-  - Mainnet validator → serverType "MV"
-  - RPC → serverType "RPC"
-  - Response includes paymentLink — show the FULL URL as-is, NEVER modify or truncate it
+- call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "APP"}) — Testnet validators, dev, apps
+- call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "MV"}) — Mainnet validators
+- call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "RPC"}) — RPC nodes (Index RPC, gRPC Geyser)
+  - Testnet validator → nodeType "APP" (NOT "MV")
+  - Mainnet validator → nodeType "MV"
+  - RPC → nodeType "RPC"
+  - Purchase always happens on https://dashboard.erpc.global — never treat a link in this response as a checkout link
+- call_mcp(tool_name="get_baremetal_search_available_baremetal", arguments={region: "amsterdam"}) — Find vacant stock matching a spec
 - call_mcp(tool_name="get_baremetal_availability") — Your available (unassigned) subscriptions
 - call_mcp(tool_name="get_baremetal_status") — Your BareMetal status
 
 ### VPS
 - call_mcp(tool_name="get_vps_status") — Your VPS status
-- call_mcp(tool_name="get_vps_list") — VPS plans available
-- call_mcp(tool_name="get_vps_search_available_vps", arguments={region: "eu", spec: "..."}) — Find available VPS
+- call_mcp(tool_name="get_vps_list_public") — VPS plans available
+- call_mcp(tool_name="get_vps_search_available_vps", arguments={region: "amsterdam"}) — Find available VPS
+- Premium / Super VPS equivalents: get_premium_vps_list_public, get_premium_vps_my_vps, get_super_vps_list_public, get_super_vps_my_vps
 
-### Purchase
-- call_mcp(tool_name="post_billing_generate_payment_link", arguments={items: [{price: "<priceId>", quantity: 1}], region: "amsterdam"})
-  - Get priceId from product list first (e.g. get_baremetal_list_public_node_type)
-  - items is REQUIRED (array of {price, quantity})
-  - region is optional (amsterdam/frankfurt/ny/tokyo/london/singapore/sydney)
+### Purchase and IP registration
+There is no call_mcp tool for generating a payment link or registering an
+IP. Once the user has picked a plan, send them to
+https://dashboard.erpc.global to complete checkout and any IP registration.
 
 ### Storage
 - call_mcp(tool_name="get_storage_usage") — Storage usage
+- call_mcp(tool_name="get_storage_list") — Stored backups
 
 ### Services — Status
 - call_mcp(tool_name="get_grpc_status") — Shared gRPC status (shows registered IPs and endpoints)
@@ -277,24 +284,17 @@ You have access to the SLV Cloud MCP API via the call_mcp tool. Key tools:
 - call_mcp(tool_name="get_rpc_index_status") — RPC Index status
 - call_mcp(tool_name="get_shreds_shared_status") — Shared Shreds status
 - call_mcp(tool_name="get_shreds_dedicated_status") — Dedicated Shreds status
+- call_mcp(tool_name="get_dedicated_status") — Dedicated gRPC/Shreds status
 
-### Services — Product Lists
-- call_mcp(tool_name="get_v3_grpc_list") — Shared gRPC product plans + payment links
-- call_mcp(tool_name="get_v3_dedicated_list") — Dedicated gRPC product plans
-- call_mcp(tool_name="get_v3_shreds_shared_list") — Shared Shredstream product plans
-- call_mcp(tool_name="get_v3_shreds_dedicated_list") — Dedicated Shredstream product plans
-- call_mcp(tool_name="get_v3_storage_product_list") — Storage/backup products
-
-### Services — IP Registration (after purchase)
-- call_mcp(tool_name="post_v3_grpc_register_ip_grpc", arguments={ip: "1.2.3.4"}) — Register IPv4 to activate shared gRPC endpoint
-- call_mcp(tool_name="post_v3_grpc_remove_ip_grpc", arguments={ip: "1.2.3.4"}) — Remove registered IP from shared gRPC
-  - ip is REQUIRED (must be an IPv4 address string)
-  - After registration, call get_grpc_status to see the activated endpoint
+### Billing
+- call_mcp(tool_name="get_billing_my_subscriptions") — All active subscriptions
+- call_mcp(tool_name="get_billing_credit_balance") — Credit balance
+- call_mcp(tool_name="get_billing_credit_transactions") — Credit transaction history
 
 ### Services — Flow
 1. Check existing subscriptions: get_grpc_status (if slots show "available", user already has a plan)
-2. If no plan: get_v3_grpc_list → show payment link → user purchases
-3. Register IP: post_v3_grpc_register_ip_grpc with {ip: "x.x.x.x"}
+2. If no plan: send the user to https://dashboard.erpc.global to purchase one
+3. IP registration also happens on the dashboard
 4. Verify: get_grpc_status → shows endpoint URL and token`,
 }
 

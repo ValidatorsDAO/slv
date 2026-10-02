@@ -1,6 +1,6 @@
 import { Command } from '@cliffy'
 import { colors } from '@cliffy/colors'
-import { ERPC_DASHBOARD_URL } from '/lib/slvCloudMcp.ts'
+import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
 
 export const signupCmd = new Command()
   .description('Sign up for SLV and activate an API key')

@@ -32,11 +32,10 @@ import {
   writeGatewayConfig,
 } from '/src/gateway/config.ts'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
-import {
-  ERPC_DASHBOARD_URL,
-  getDnsStatus,
-  openSupportTicket,
-} from '/lib/slvCloudMcp.ts'
+import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
+import { getDnsStatus } from '/lib/userApi/dns.ts'
+import { openSupportTicket } from '/lib/userApi/support.ts'
+import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
 
@@ -1259,7 +1258,7 @@ const maybeSetupHttps = async (
   }
 
   // Pre-flight DNS status check.
-  const status = await getDnsStatus(apiKey)
+  const status = await getDnsStatus(userApiAuthFromApiKey(apiKey))
   if (!status.ok) {
     console.log(
       colors.yellow(
@@ -1468,7 +1467,7 @@ const handleSubdomainConflict = async (
       `Current free subdomain: ${fqdn} → ${currentIp}\n` +
       `This new VPS IP: ${thisHostIp}\n` +
       `Use case: user is onboarding a second SLV host and wants an additional subdomain for it.`
-    const ticket = await openSupportTicket(apiKey, {
+    const ticket = await openSupportTicket(userApiAuthFromApiKey(apiKey), {
       title: `Request 2nd erpc.global subdomain for ${thisHostIp}`,
       description,
     })

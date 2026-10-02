@@ -170,31 +170,27 @@ pgrep -f "target/release/$BINARY" && echo "already running — do NOT launch aga
 If it's running, use the template's REST API / CLI instead of restarting.
 Restart only when the user explicitly asks.
 
-## ERPC Cloud MCP — Endpoint Acquisition Flow
-
-MCP Server URL: `https://mcp-slv-cloud.erpc.global/mcp` (auto-configured
-in `slv c`).
+## ERPC Cloud — Endpoint Acquisition Flow
 
 ### Endpoint acquisition flow
 1. **Check existing** — call `get_grpc_status` first to see if user
    already has available slots
-2. **If no plan** — call `get_v3_grpc_list` for product plans + payment
-   links → user purchases
+2. **If no plan** — send the user to https://dashboard.erpc.global to
+   browse gRPC plans and complete the purchase
 3. **Get IPv4** — run `curl -4 -s ifconfig.me` (always use `-4` flag to
    force IPv4)
-4. **Register IP** — call `post_v3_grpc_register_ip_grpc` with
-   `{ip: "x.x.x.x"}` (IPv4 required)
+4. **Register IP** — IP registration happens on
+   https://dashboard.erpc.global, not from `slv c`
 5. **Verify** — call `get_grpc_status` to see endpoint URL and token
-6. **Remove IP** — call `post_v3_grpc_remove_ip_grpc` with
-   `{ip: "x.x.x.x"}` when changing servers
 
 For dedicated upgrades and storage products, refer to SKILL.md for the
-full MCP endpoint reference.
+full tool reference.
 
 ### When to suggest storage
 - Bots that keep trade history and position data need persistent storage
 - Without backup storage, **data is lost on restart or crash**
-- Proactively call `/v3/storage/product-list` to show backup options
+- Proactively call `get_storage_usage` to show current usage, and point
+  the user to https://dashboard.erpc.global for backup storage plans
 
 ## Behavior
 
@@ -225,8 +221,9 @@ full MCP endpoint reference.
 8. When a build fails, diagnose the error (check the companion skill for
    known issues).
 9. Explain what each env var does in simple terms when asked.
-10. If the user lacks a gRPC / Shredstream endpoint, proactively use
-    ERPC Cloud MCP to show products and purchase links.
+10. If the user lacks a gRPC / Shredstream endpoint, proactively point them
+    to https://dashboard.erpc.global to purchase one, and verify with
+    `get_grpc_status` once they have.
 11. Remind users that persistent data requires backup storage; suggest
     storage products when relevant.
 12. `wallet.json` contains a private key; always warn users to keep it

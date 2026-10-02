@@ -369,8 +369,9 @@ and apply to every template.
    automatically when the app benefits from persistent local trade history.
    Only ask the user about Redis if automation fails or a host-specific
    choice is required.
-7. Remind users that persistent data requires backup storage — suggest the
-   storage products (`/v3/storage/product-list`) when relevant.
+7. Remind users that persistent data requires backup storage — check
+   `get_storage_usage` and point them to https://dashboard.erpc.global for
+   backup storage plans when relevant.
 8. **Ask the user what they'd like to improve** after showing initial
    status — config tuning, more positions, different profit targets, etc.
 
