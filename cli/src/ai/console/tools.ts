@@ -299,14 +299,14 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'call_mcp',
     description:
-      'Call the SLV Cloud MCP API. Use this to check user subscriptions, list products, generate payment links, manage servers, etc. The API key from ~/.slv/api.yml is used automatically.',
+      'Call one of a fixed set of read-only SLV Cloud endpoints (all GET) — check user info, subscriptions, server/VPS inventory, usage, and status. There is no purchase, payment-link, or IP-registration tool here; send the user to https://dashboard.erpc.global for those. The API key from ~/.slv/api.yml is used automatically.',
     parameters: {
       type: 'object',
       properties: {
         tool_name: {
           type: 'string',
           description:
-            'MCP tool name (e.g. get_user_get, get_baremetal_list_public_node_type, post_billing_generate_payment_link)',
+            'MCP tool name (e.g. get_user_get, get_baremetal_list_public_node_type, get_grpc_status)',
         },
         arguments: {
           type: 'object',

@@ -17,7 +17,8 @@ export const userApiAuthFromApiKey = (token: string): UserApiAuth => ({
 /**
  * Turn an auth value into its `Authorization` header value. Only
  * `client.ts` calls this — every other module reaches the API
- * through `userApiRequest` instead of touching headers directly.
+ * through `client.ts`'s `userApiRequest` / `userApiRequestRaw`
+ * instead of touching headers directly.
  */
 export const userApiAuthHeader = (auth: UserApiAuth): string => {
   switch (auth.kind) {

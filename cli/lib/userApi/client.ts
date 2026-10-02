@@ -14,11 +14,17 @@ export type UserApiResult<T> =
   | { ok: true; status: number; data: T }
   | { ok: false; status: number; body: UserApiErrorBody | null; raw: string }
 
-const tryParseJson = <T>(raw: string): T | null => {
+type ParseResult<T> = { ok: true; value: T } | { ok: false }
+
+// Distinguishes "the body is valid JSON `null`" from "the body did
+// not parse at all" — both would collapse to the same `null` if this
+// just returned `T | null`, which is what let a 2xx non-JSON body
+// silently become `{ ok: true, data: null }` before this fix.
+const tryParseJson = <T>(raw: string): ParseResult<T> => {
   try {
-    return JSON.parse(raw) as T
+    return { ok: true, value: JSON.parse(raw) as T }
   } catch {
-    return null
+    return { ok: false }
   }
 }
 
@@ -31,20 +37,27 @@ const tryParseJson = <T>(raw: string): T | null => {
  */
 const normalizeErrorBody = (raw: string): UserApiErrorBody | null => {
   const parsed = tryParseJson<Record<string, unknown>>(raw)
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (
+    !parsed.ok || parsed.value === null || typeof parsed.value !== 'object' ||
+    Array.isArray(parsed.value)
+  ) {
     return null
   }
-  const body: UserApiErrorBody = { ...parsed }
+  const body: UserApiErrorBody = { ...parsed.value }
   if (typeof body.error !== 'string') delete body.error
   if (typeof body.message !== 'string') delete body.message
   return body
 }
 
 /**
- * Single fetch entry point for the direct user-api REST client.
- * Network failures (DNS, connection reset, …) are never caught
- * here — they throw and propagate to the caller, since masking
- * them would hide a real outage behind a misleading result value.
+ * JSON-parsing request function for the direct user-api REST client.
+ * This file (`client.ts`) is the only place in the package that calls
+ * `fetch` or attaches the `Authorization` header — `userApiRequestRaw`
+ * below is the other such call, for callers that want the raw text
+ * instead of a parsed body. No other module touches either.
+ * Network failures (DNS, connection reset, …) are never caught here —
+ * they throw and propagate to the caller, since masking them would
+ * hide a real outage behind a misleading result value.
  */
 export const userApiRequest = async <T>(
   auth: UserApiAuth,
@@ -66,5 +79,46 @@ export const userApiRequest = async <T>(
   if (!res.ok) {
     return { ok: false, status: res.status, body: normalizeErrorBody(raw), raw }
   }
-  return { ok: true, status: res.status, data: tryParseJson<T>(raw) as T }
+  const parsed = tryParseJson<T>(raw)
+  if (!parsed.ok) {
+    // A 2xx with a body that isn't valid JSON (an HTML error page from
+    // a proxy in front of user-api, an empty body, …) is not success —
+    // callers destructure `data` immediately, so letting this through
+    // as `{ ok: true, data: null }` turned into a crash at the call
+    // site instead of a handled failure.
+    return {
+      ok: false,
+      status: res.status,
+      body: { error: 'parse_error', message: 'response was not valid JSON' },
+      raw,
+    }
+  }
+  return { ok: true, status: res.status, data: parsed.value }
+}
+
+export type UserApiRawResponse = {
+  ok: boolean
+  status: number
+  statusText: string
+  raw: string
+}
+
+/**
+ * Raw-text variant for callers that format their own success/failure
+ * text instead of parsing JSON (the console's fixed read-tools
+ * table). Shares the same `fetch` call, URL building, and
+ * `Authorization` header construction as `userApiRequest` — there is
+ * exactly one place that attaches that header.
+ */
+export const userApiRequestRaw = async (
+  auth: UserApiAuth,
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+): Promise<UserApiRawResponse> => {
+  const res = await fetch(`${USER_API_ORIGIN}${path}`, {
+    method,
+    headers: { 'Authorization': userApiAuthHeader(auth) },
+  })
+  const raw = await res.text()
+  return { ok: res.ok, status: res.status, statusText: res.statusText, raw }
 }

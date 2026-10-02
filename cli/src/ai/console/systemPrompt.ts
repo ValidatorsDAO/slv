@@ -259,14 +259,14 @@ for any of those actions.
   - Mainnet validator → nodeType "MV"
   - RPC → nodeType "RPC"
   - Any payment/purchase link in the response: show the FULL URL as-is, NEVER modify or truncate it
-- call_mcp(tool_name="get_baremetal_search_available_baremetal", arguments={region: "eu"}) — Find vacant stock matching a spec
+- call_mcp(tool_name="get_baremetal_search_available_baremetal", arguments={region: "amsterdam"}) — Find vacant stock matching a spec
 - call_mcp(tool_name="get_baremetal_availability") — Your available (unassigned) subscriptions
 - call_mcp(tool_name="get_baremetal_status") — Your BareMetal status
 
 ### VPS
 - call_mcp(tool_name="get_vps_status") — Your VPS status
 - call_mcp(tool_name="get_vps_list_public") — VPS plans available
-- call_mcp(tool_name="get_vps_search_available_vps", arguments={region: "eu"}) — Find available VPS
+- call_mcp(tool_name="get_vps_search_available_vps", arguments={region: "amsterdam"}) — Find available VPS
 - Premium / Super VPS equivalents: get_premium_vps_list_public, get_premium_vps_my_vps, get_super_vps_list_public, get_super_vps_my_vps
 
 ### Purchase and IP registration
