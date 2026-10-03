@@ -216,6 +216,7 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `snapshot_url` | Snapshot download URL | — |
 | `tpu_peer_address` | TPU peer address (for Index RPC transaction forwarding) | — |
 | `limit_ledger_size` | Ledger size limit | `200000000` (Index), `100000000` (others) |
+| `enable_rpc_transaction_history` | Enable transaction history RPC on `Geyser gRPC` nodes (other RPC types are unaffected) | `false` |
 | `dynamic_port_range` | Port range | `8000-8025` |
 | `port_rpc` | RPC port | `8899` |
 | `port_grpc` | gRPC port | `10000` |
