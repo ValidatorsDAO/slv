@@ -169,7 +169,7 @@ Both are built from source (no pre-built binaries). Build time: ~15-30 min.
 |---|---|---|
 | `reference_rpc_url` | Reference RPC endpoint for slot sync comparison (e.g., ERPC) | — |
 
-ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
+Get an ERPC API key at https://dashboard.erpc.global — enables full slot sync monitoring during deployment and updates.
 
 ### Pre-flight: Fresh Server Setup
 

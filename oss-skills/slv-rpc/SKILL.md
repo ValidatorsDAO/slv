@@ -43,7 +43,7 @@ For `shredstream` and `grpc` benchmark flows, the agent should be able to genera
 - two endpoint URLs
 - ERPC API key from `~/.slv/api.yml`
 
-If `~/.slv/api.yml` does not contain the required ERPC API key, instruct the user to get a free key and configure it first.
+If `~/.slv/api.yml` does not contain the required ERPC API key, instruct the user to get their API key at https://dashboard.erpc.global and configure it first.
 
 Example config:
 
@@ -287,7 +287,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 |---|---|---|
 | `reference_rpc_url` | Reference RPC endpoint for slot sync comparison (e.g., ERPC) | — |
 
-ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
+Get an ERPC API key at https://dashboard.erpc.global — enables full slot sync monitoring during deployment and updates.
 
 ### Pre-flight: Fresh Server Setup
 

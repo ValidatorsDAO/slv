@@ -123,7 +123,7 @@ kind = "shredstream"
 set one up:
 
 ```
-You'll need an ERPC API key first. Get a free one and add it to ~/.slv/api.yml:
+You'll need an ERPC API key first. Get one at https://dashboard.erpc.global and add it to ~/.slv/api.yml:
 
 slv:
   api_key: YOUR_API_KEY

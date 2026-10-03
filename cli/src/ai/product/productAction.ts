@@ -70,7 +70,7 @@ function normalizeDescription(product: Product): string {
   }
 
   if (name.includes('secure authorization')) {
-    return 'Complete Authorization to receive 100,000 free AI tokens and unlock additional shared SLV services.'
+    return 'Complete the one-time payment to receive 100,000 AI tokens and unlock additional shared SLV services.'
   }
 
   return String(product.description ?? '').trim()
@@ -187,7 +187,7 @@ export const aiProductAction = async () => {
         authorizationStatus.state === 'unauthorized'
       ) {
         if (authorizationCtaLink) {
-          lines.push(formatLink('Authorization', authorizationCtaLink, width))
+          lines.push(formatLink('Payment', authorizationCtaLink, width))
         }
       }
 

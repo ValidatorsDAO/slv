@@ -62,7 +62,8 @@ kind = "shredstream"
 ## API key handling
 
 If `~/.slv/api.yml` does not contain the required ERPC API key, instruct the
-user to get a free API key and configure it first.
+user to get their API key at https://dashboard.erpc.global and configure it
+first.
 
 ## Binary installation
 
