@@ -16,6 +16,7 @@ import { buildExcludeList, printExcludes } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
 import { resticBackup, type ResticBackupOptions } from '@/backup/restic.ts'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
+import { listAllBackups } from '@/backup/listAllBackups.ts'
 
 /**
  * Resolve the webhook URL from (in priority order):
@@ -621,12 +622,12 @@ async function cleanupOldBackups(
 ): Promise<void> {
   const prefix = `backups/backup-${hostname}-`
   try {
-    const list = await storageList(apiKey, { prefix, region })
+    const files = await listAllBackups(apiKey, { prefix, region }, storageList)
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - retentionDays)
 
     let deleted = 0
-    for (const file of list.files) {
+    for (const file of files) {
       const filename = file.path.split('/').pop() || ''
       const ts = parseTimestampFromFilename(filename)
       if (ts && ts < cutoff) {
