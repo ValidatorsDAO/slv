@@ -1,14 +1,14 @@
 import { Confirm, prompt, Select } from '@cliffy/prompt'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { getStatus } from '/src/metal/getStatus.ts'
 import { cancelSubscription } from '/src/metal/cancelSubscription.ts'
 
 const cancelAction = async () => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
   console.log(colors.yellow('🔍 Searching for Bare Metals...'))
 
-  const metals = await getStatus(apiKey)
+  const metals = await getStatus(auth)
   if (metals.success) {
     const metalProducts = metals.message
     const options = metalProducts.map((product) => {
@@ -49,7 +49,7 @@ const cancelAction = async () => {
       return false
     }
     console.log(colors.yellow('🔍 Cancelling Bare Metal...'))
-    const res = await cancelSubscription(apiKey, cancelSubscriptionId)
+    const res = await cancelSubscription(auth, cancelSubscriptionId)
     if (res.success) {
       console.log(colors.green('✅ Your Bare Metal Cancelled'))
       return true

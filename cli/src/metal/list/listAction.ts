@@ -1,7 +1,7 @@
 import { prompt, Select } from '@cliffy/prompt'
 import { getMetals, type MetalType } from '/src/metal/getMetals.ts'
 import { getMetalsPublic } from '/src/metal/getMetalsPublic.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { Row, Table } from '@cliffy/table'
@@ -61,12 +61,12 @@ const listAction = async (defaultMetalType?: MetalType) => {
     }
   }
 
-  const apiKey = await getApiKeyFromYml(true)
+  const auth = await findUserApiAuth()
   const searching = colors.cyan('🔍 Searching for SLV BareMetals...')
   const spinner = new Kia(searching)
   spinner.start()
-  const metals = apiKey
-    ? await getMetals(apiKey, metalType)
+  const metals = auth
+    ? await getMetals(auth, metalType)
     : await getMetalsPublic(metalType)
   if (!metals.success) {
     console.log(colors.yellow('Please try again later...'))
@@ -132,7 +132,7 @@ const listAction = async (defaultMetalType?: MetalType) => {
   ])
   table.render()
   console.log('')
-  const paymentLinkText = apiKey
+  const paymentLinkText = auth
     ? `🔗 Payment Link:`
     : `You can get payment links after $ slv login\n\n📝 SignUp Link:`
   const text = `${paymentLinkText}

@@ -7,7 +7,8 @@ import {
   isInventoryFilePath,
   resolveIpsFromInventoryFile,
 } from '/src/install/inventoryTargets.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { runNginxFlow } from '/src/install/nginxFlow.ts'
 import {
   ALLOW_IPS_HELP,
@@ -366,13 +367,15 @@ const nginxCmd = new Command()
       ip?: string
       yes?: boolean
     }) => {
-      let apiKey: string | null = null
+      let auth: UserApiAuth | null = null
       try {
-        apiKey = await getApiKeyFromYml(true)
+        auth = await findUserApiAuth()
       } catch { /* fall through */ }
-      if (!apiKey) {
+      if (!auth) {
         console.error(
-          colors.red('❌ no SLV API key found — run `slv login` first.'),
+          colors.red(
+            '❌ no account access token found — run `slv login` first.',
+          ),
         )
         return
       }
@@ -406,7 +409,7 @@ const nginxCmd = new Command()
       }
 
       const result = await runNginxFlow({
-        apiKey,
+        auth,
         port: options.port,
         slug: options.slug,
         ip: options.ip,

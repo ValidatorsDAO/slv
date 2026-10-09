@@ -1,7 +1,8 @@
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import {
   presignDownload,
+  refuseStorageTransfer,
   StorageApiError,
   type StorageRegion,
 } from '/src/storage/api.ts'
@@ -14,14 +15,18 @@ export const downloadAction = async (
   remotePath: string | undefined,
   options: { output?: string; region?: StorageRegion },
 ) => {
-  const apiKey = await getApiKeyFromYml()
+  // File transfer does not work with an account access token (see
+  // refuseStorageTransfer). Stop here, before anything is asked or sent.
+  if (refuseStorageTransfer()) return false
+
+  const auth = await getUserApiAuth()
 
   // Interactive: prompt for region if not provided
   const region = options.region ?? await promptRegion()
 
   // Interactive: select file from list if path not provided
   if (!remotePath) {
-    const selected = await promptSelectFile(apiKey, region)
+    const selected = await promptSelectFile(auth, region)
     if (!selected) return false
     remotePath = selected.path
   }
@@ -30,7 +35,7 @@ export const downloadAction = async (
   spinner.start()
 
   try {
-    const presign = await presignDownload(apiKey, remotePath, region)
+    const presign = await presignDownload(auth, remotePath, region)
     spinner.succeed('Got presigned URL')
 
     const downloadSpinner = new Kia(

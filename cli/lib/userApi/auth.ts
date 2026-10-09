@@ -1,29 +1,32 @@
 /**
- * Auth value for the direct user-api client. `kind` is a
- * discriminant so a future `{ kind: 'management-token'; token }`
- * variant only needs a new case in `userApiAuthHeader` below — no
- * caller changes.
+ * Auth value for every request the CLI sends to user-api. `kind` is a
+ * discriminant so a future variant (for example a different kind of
+ * token) only needs a new case in `userApiAuthHeader` below — no caller
+ * changes.
+ *
+ * There is deliberately no variant that carries an API key: the API key
+ * is for the RPC endpoints, and user-api is called with the account
+ * access token (`slv.access_token` in `~/.slv/api.yml`) only.
  */
 export type UserApiAuth = {
-  kind: 'api-key'
+  kind: 'access-token'
   token: string
 }
 
-export const userApiAuthFromApiKey = (token: string): UserApiAuth => ({
-  kind: 'api-key',
+export const userApiAuthFromAccessToken = (token: string): UserApiAuth => ({
+  kind: 'access-token',
   token,
 })
 
 /**
- * Turn an auth value into its `Authorization` header value. Only
- * `client.ts` calls this — every other module under `cli/lib/userApi/`
- * reaches the API through `client.ts`'s `userApiRequest` /
- * `userApiRequestRaw` instead of touching headers directly. (Other
- * parts of the `@slv/cli` package build their own header separately.)
+ * Turn an auth value into its `Authorization` header value. This is the
+ * only place in the CLI that builds a user-api `Authorization` header;
+ * every module that calls user-api goes through it, directly or through
+ * `client.ts`'s `userApiRequest` / `userApiRequestRaw`.
  */
 export const userApiAuthHeader = (auth: UserApiAuth): string => {
   switch (auth.kind) {
-    case 'api-key':
+    case 'access-token':
       return `Bearer ${auth.token}`
   }
 }

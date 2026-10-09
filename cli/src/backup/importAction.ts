@@ -1,8 +1,10 @@
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getStorageAccessKey, getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   presignDownload,
+  refuseStorageTransfer,
   storageList,
   StorageApiError,
   type StorageRegion,
@@ -47,14 +49,14 @@ async function downloadFile(
 }
 
 async function selectRemoteBackup(
-  apiKey: string,
+  auth: UserApiAuth,
   region?: StorageRegion,
 ): Promise<string | null> {
   const spinner = new Kia(colors.cyan('Fetching backup list...'))
   spinner.start()
 
   try {
-    const list = await storageList(apiKey, { prefix: 'backups/', region })
+    const list = await storageList(auth, { prefix: 'backups/', region })
     spinner.stop()
 
     if (list.files.length === 0) {
@@ -74,7 +76,7 @@ async function selectRemoteBackup(
       value: f.path,
     }))
 
-    const selected = await Select.prompt({
+    const selected = await Select.prompt<string>({
       message: 'Select a backup to restore',
       options: choices,
     })
@@ -120,7 +122,7 @@ export const importAction = async (
       Deno.exit(1)
     }
 
-    const apiKey = await getApiKeyFromYml()
+    const storageKey = await getStorageAccessKey()
 
     console.log(colors.bold(colors.red('\n⚠️  WARNING: This will restore restic snapshot over the current filesystem.')))
     console.log(colors.white(`\n  Snapshot: ${file}`))
@@ -138,7 +140,7 @@ export const importAction = async (
       }
     }
 
-    await resticRestore(apiKey, file, options.region)
+    await resticRestore(storageKey, file, options.region)
     console.log(colors.green('\n✅ Restore completed. Please reboot to apply changes:'))
     console.log(colors.white('   $ sudo reboot\n'))
     return
@@ -166,7 +168,7 @@ export const importAction = async (
           Deno.exit(1)
         }
 
-        const apiKey = await getApiKeyFromYml()
+        const storageKey = await getStorageAccessKey()
         if (!options.yes) {
           const { Confirm } = await import('@cliffy/prompt')
           const proceed = await Confirm.prompt({
@@ -179,7 +181,7 @@ export const importAction = async (
           }
         }
 
-        await resticRestore(apiKey, undefined, options.region)
+        await resticRestore(storageKey, undefined, options.region)
         console.log(colors.green('\n✅ Restore completed. Please reboot to apply changes:'))
         console.log(colors.white('   $ sudo reboot\n'))
         return
@@ -196,8 +198,11 @@ export const importAction = async (
     // Local file provided
     localFile = file
   } else {
-    // Download from cloud storage
-    const apiKey = await getApiKeyFromYml()
+    // Download from cloud storage: the presigned download route does not
+    // accept an account access token, so stop before listing or requesting.
+    if (refuseStorageTransfer()) return
+
+    const auth = await getUserApiAuth()
     const region = options.region as StorageRegion | undefined
 
     let remotePath: string | null
@@ -223,7 +228,7 @@ export const importAction = async (
       return
     } else {
       // Interactive selection (TTY users only)
-      remotePath = await selectRemoteBackup(apiKey, region)
+      remotePath = await selectRemoteBackup(auth, region)
     }
 
     if (!remotePath) {
@@ -235,7 +240,7 @@ export const importAction = async (
     spinner.start()
 
     try {
-      const presign = await presignDownload(apiKey, remotePath, region)
+      const presign = await presignDownload(auth, remotePath, region)
       spinner.succeed('Got download URL')
 
       const filename = remotePath.split('/').pop() || 'backup.tar.zst'

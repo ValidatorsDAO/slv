@@ -21,16 +21,20 @@ export const messages: Record<string, string> = {
   'No': 'Không',
   'Setup cancelled.': 'Đã hủy cài đặt.',
 
-  'SLV API Key': 'Khóa SLV API',
-  'Get your API key: https://dashboard.erpc.global':
-    'Nhận khóa API: https://dashboard.erpc.global',
-  '🔑 SLV API Key (or press Enter to skip)':
-    '🔑 Khóa SLV API (nhấn Enter để bỏ qua)',
-  'SLV API Key saved.': 'Đã lưu khóa SLV API.',
+  'SLV Account Access Token':
+    'Mã thông báo truy cập tài khoản SLV',
+  'Get your account access token: https://dashboard.erpc.global':
+    'Nhận mã thông báo truy cập tài khoản: https://dashboard.erpc.global',
+  '🔑 SLV account access token (or press Enter to skip)':
+    '🔑 Mã thông báo truy cập tài khoản SLV (nhấn Enter để bỏ qua)',
+  'SLV account access token saved.':
+    'Đã lưu mã thông báo truy cập tài khoản SLV.',
+  'That does not look like an account access token.':
+    'Giá trị này không giống mã thông báo truy cập tài khoản.',
   'Skipped. You can run `slv login` later.':
     'Đã bỏ qua. Bạn có thể chạy `slv login` sau.',
-  'Using SLV AI (powered by your SLV API Key).':
-    'Đang sử dụng SLV AI (dùng khóa SLV API của bạn).',
+  'Using SLV AI (powered by your SLV account access token).':
+    'Đang sử dụng SLV AI (dùng mã thông báo truy cập tài khoản SLV của bạn).',
 
   'Agent Setup': 'Cài đặt Agent',
   'Your name': 'Tên của bạn',
@@ -210,8 +214,8 @@ export const messages: Record<string, string> = {
   'Installing solana-cli (agave)...': 'Đang cài đặt solana-cli (agave)...',
   '✓ solana-cli installed': '✓ Đã cài đặt solana-cli',
 
-  'SLV API Key not found. Run `slv login` first.':
-    'Không tìm thấy khóa SLV API. Vui lòng chạy `slv login` trước.',
+  'SLV account access token not found. Run `slv login` first.':
+    'Không tìm thấy mã thông báo truy cập tài khoản SLV. Vui lòng chạy `slv login` trước.',
   'Checking for new versions…': 'Đang kiểm tra phiên bản mới…',
   '🔄 New versions available:': '🔄 Đã có phiên bản mới:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -338,10 +342,10 @@ export const messages: Record<string, string> = {
   'Browser chat UI': 'Giao diện chat trình duyệt',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Đang cài dịch vụ chạy nền để bạn có thể trò chuyện với SLV từ trình duyệt tại http://127.0.0.1:{port}/ui/ mà không cần mở terminal.',
-  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'SLV API key cho phép trỏ subdomain erpc.global miễn phí của bạn đến VPS này để có HTTPS ngay.',
-  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
-    '🔑 Dán SLV API key tại đây (Enter để bỏ qua HTTPS):',
+  'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'Mã thông báo truy cập tài khoản SLV cho phép trỏ subdomain erpc.global miễn phí của bạn đến VPS này để có HTTPS ngay.',
+  '🔑 Paste your SLV account access token here (Enter to skip HTTPS):':
+    '🔑 Dán mã thông báo truy cập tài khoản SLV tại đây (Enter để bỏ qua HTTPS):',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     'Đã bỏ qua. Chạy `slv login` rồi `slv install nginx` sau để bật HTTPS.',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':

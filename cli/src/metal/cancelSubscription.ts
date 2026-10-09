@@ -1,11 +1,12 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 
-const cancelSubscription = async (apiKey: string, subscriptionId: string) => {
+const cancelSubscription = async (auth: UserApiAuth, subscriptionId: string) => {
   try {
     const myHeaders = new Headers()
     myHeaders.append(
       'Authorization',
-      `Bearer ${apiKey}`,
+      userApiAuthHeader(auth),
     )
     myHeaders.append('Content-Type', 'application/json')
     const requestOptions = {

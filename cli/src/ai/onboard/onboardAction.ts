@@ -18,8 +18,9 @@ import {
 } from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
 import {
-  getApiKeyFromYml,
-  isValidApiKey,
+  findUserApiAuth,
+  isValidAccessToken,
+  mergeSlvCredentials,
   resolveHome,
 } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
@@ -35,7 +36,10 @@ import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
 import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
 import { getDnsStatus } from '/lib/userApi/dns.ts'
 import { openSupportTicket } from '/lib/userApi/support.ts'
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import {
+  type UserApiAuth,
+  userApiAuthFromAccessToken,
+} from '/lib/userApi/auth.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
 
@@ -370,48 +374,45 @@ export const onboardAction = async (
     return
   }
 
-  // Check for existing SLV API key
+  // Check for an existing account access token
   const home = resolveHome()
-  const apiYmlPath = `${home}/.slv/api.yml`
-  let hasSlvKey = false
-  try {
-    const raw = await Deno.readTextFile(apiYmlPath)
-    const yml = parse(raw) as { slv?: { api_key?: string } } | null
-    hasSlvKey = !!(yml?.slv?.api_key && isValidApiKey(String(yml.slv.api_key)))
-  } catch { /* file doesn't exist yet */ }
+  const hasSlvKey = (await findUserApiAuth(home)) !== null
 
   if (!hasSlvKey) {
     console.log(
-      colors.bold.rgb24(`│  ${t('SLV API Key')}`, 0x14f195),
+      colors.bold.rgb24(`│  ${t('SLV Account Access Token')}`, 0x14f195),
     )
     console.log(
       colors.white(
-        `  ${t('Get your API key: https://dashboard.erpc.global')}\n`,
+        `  ${t('Get your account access token: https://dashboard.erpc.global')}\n`,
       ),
     )
 
-    const slvApiKey = currentCfg.slv_api_key !== undefined
-      ? currentCfg.slv_api_key
+    const slvAccessToken = currentCfg.slv_access_token !== undefined
+      ? currentCfg.slv_access_token
       : await Secret.prompt({
-        message: t('🔑 SLV API Key (or press Enter to skip)'),
+        message: t('🔑 SLV account access token (or press Enter to skip)'),
       })
 
-    if (slvApiKey && slvApiKey.trim().length > 0) {
-      await Deno.mkdir(`${home}/.slv`, { recursive: true })
-      // Read existing or create new
-      let existing: Record<string, unknown> = {}
-      try {
-        const content = await Deno.readTextFile(apiYmlPath)
-        existing = (parse(content) as Record<string, unknown>) ?? {}
-      } catch { /* file doesn't exist */ }
-      existing.slv = { api_key: slvApiKey.trim() }
-      await Deno.writeTextFile(apiYmlPath, stringify(existing))
-      await Deno.chmod(apiYmlPath, 0o600)
-      console.log(colors.green(`  ✔ ${t('SLV API Key saved.')}\n`))
-      // The just-entered SLV key unlocks AI translation for non-builtin langs.
-      const currentLang = await readLang()
-      if (!BUILTIN_LANGS[currentLang]) {
-        await initI18n()
+    if (slvAccessToken && slvAccessToken.trim().length > 0) {
+      if (isValidAccessToken(slvAccessToken.trim())) {
+        // Merge into `slv:` so a saved API key / storage key stays.
+        await mergeSlvCredentials({ access_token: slvAccessToken.trim() }, home)
+        console.log(colors.green(`  ✔ ${t('SLV account access token saved.')}\n`))
+        // The just-entered token unlocks AI translation for non-builtin langs.
+        const currentLang = await readLang()
+        if (!BUILTIN_LANGS[currentLang]) {
+          await initI18n()
+        }
+      } else {
+        console.log(
+          colors.yellow(
+            `  ${t('That does not look like an account access token.')}`,
+          ),
+        )
+        console.log(
+          colors.rgb24(`  ${t('Skipped. You can run `slv login` later.')}\n`, 0x888888),
+        )
       }
     } else {
       console.log(
@@ -422,7 +423,7 @@ export const onboardAction = async (
 
   // Default to SLV AI — no provider selection needed
   // Users can manually configure OpenAI/Anthropic in ~/.slv/api.yml if desired
-  console.log(colors.green(`  ✔ ${t('Using SLV AI (powered by your SLV API Key).')}\n`))
+  console.log(colors.green(`  ✔ ${t('Using SLV AI (powered by your SLV account access token).')}\n`))
 
   await writeAiConfig({
     provider: 'slv' as AiProvider,
@@ -1197,7 +1198,7 @@ const sendOnboardWebhook = async (opts: {
  * message that works from any phone/laptop with no SSH tunnel.
  *
  * Skipped silently when:
- *   - no SLV API key is configured (user still needs `slv login`)
+ *   - no account access token is configured (user still needs `slv login`)
  *   - we can't read DNS status (offline / API down)
  *   - the user's default slug is already set to an IP we can't
  *     confirm (we leave whatever they have alone rather than
@@ -1226,23 +1227,30 @@ const maybeSetupHttps = async (
     colors.bold.rgb24(`\n│  ${t('Public HTTPS URL (optional)')}`, 0x14f195),
   )
 
-  // FIX 1: re-read api.yml fresh (getApiKeyFromYml already bypasses
-  // any cache). If it's still missing after the onboard SLV-key
+  // FIX 1: re-read api.yml fresh (findUserApiAuth already bypasses
+  // any cache). If it's still missing after the onboard token
   // step, offer to paste one now so HTTPS isn't blocked on a
   // single skipped prompt earlier in the flow.
-  let apiKey = await readSlvKeyOrEmpty()
-  if (!apiKey) {
+  let auth = await readSlvAuthOrNull()
+  if (!auth) {
     console.log(
       colors.white(
         `  ${
-          t('An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
+          t('An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
         }`,
       ),
     )
     const pasted = (await Secret.prompt({
-      message: t('🔑 Paste your SLV API key here (Enter to skip HTTPS):'),
+      message: t('🔑 Paste your SLV account access token here (Enter to skip HTTPS):'),
     })).trim()
-    if (!pasted) {
+    if (!pasted || !isValidAccessToken(pasted)) {
+      if (pasted) {
+        console.log(
+          colors.yellow(
+            `  ${t('That does not look like an account access token.')}`,
+          ),
+        )
+      }
       console.log(
         colors.rgb24(
           `  ${
@@ -1253,12 +1261,12 @@ const maybeSetupHttps = async (
       )
       return null
     }
-    await persistSlvKey(pasted)
-    apiKey = pasted
+    await mergeSlvCredentials({ access_token: pasted })
+    auth = userApiAuthFromAccessToken(pasted)
   }
 
   // Pre-flight DNS status check.
-  const status = await getDnsStatus(userApiAuthFromApiKey(apiKey))
+  const status = await getDnsStatus(auth)
   if (!status.ok) {
     console.log(
       colors.yellow(
@@ -1282,7 +1290,7 @@ const maybeSetupHttps = async (
     def.exists && def.ip &&
     thisHostIp && def.ip !== thisHostIp
   ) {
-    return await handleSubdomainConflict(t, apiKey, fqdn, def.ip, thisHostIp)
+    return await handleSubdomainConflict(t, auth, fqdn, def.ip, thisHostIp)
   }
 
   console.log(
@@ -1312,7 +1320,7 @@ const maybeSetupHttps = async (
 
   console.log(colors.cyan(`🌐 Registering ${fqdn} + installing nginx...`))
   const result = await runNginxFlow({
-    apiKey,
+    auth,
     port: GATEWAY_DEFAULT_PORT,
     ip: thisHostIp ?? undefined,
   })
@@ -1365,38 +1373,16 @@ const maybeSetupHttps = async (
 }
 
 /**
- * Read the SLV API key from ~/.slv/api.yml without erroring out
- * when absent — the HTTPS step treats "missing" as a prompt trigger,
- * not a fatal.
+ * Read the account access token from ~/.slv/api.yml without erroring
+ * out when absent — the HTTPS step treats "missing" as a prompt
+ * trigger, not a fatal.
  */
-const readSlvKeyOrEmpty = async (): Promise<string> => {
+const readSlvAuthOrNull = async (): Promise<UserApiAuth | null> => {
   try {
-    const k = await getApiKeyFromYml(true)
-    return k ?? ''
+    return await findUserApiAuth()
   } catch {
-    return ''
+    return null
   }
-}
-
-/**
- * Write a pasted SLV API key back into ~/.slv/api.yml, preserving
- * whatever other fields (lang, notifications, ai, …) were already
- * there. Mirror of the write in the SLV-key onboard step.
- */
-const persistSlvKey = async (apiKey: string): Promise<void> => {
-  const home = resolveHome()
-  const apiYmlPath = `${home}/.slv/api.yml`
-  await Deno.mkdir(`${home}/.slv`, { recursive: true })
-  let existing: Record<string, unknown> = {}
-  try {
-    const content = await Deno.readTextFile(apiYmlPath)
-    existing = (parse(content) as Record<string, unknown>) ?? {}
-  } catch { /* file doesn't exist yet */ }
-  const slv = (existing.slv as Record<string, unknown> | undefined) ?? {}
-  slv.api_key = apiKey
-  existing.slv = slv
-  await Deno.writeTextFile(apiYmlPath, stringify(existing))
-  await Deno.chmod(apiYmlPath, 0o600)
 }
 
 /**
@@ -1407,7 +1393,7 @@ const persistSlvKey = async (apiKey: string): Promise<void> => {
  */
 const handleSubdomainConflict = async (
   t: (key: string) => string,
-  apiKey: string,
+  auth: UserApiAuth,
   fqdn: string,
   currentIp: string,
   thisHostIp: string,
@@ -1467,7 +1453,7 @@ const handleSubdomainConflict = async (
       `Current free subdomain: ${fqdn} → ${currentIp}\n` +
       `This new VPS IP: ${thisHostIp}\n` +
       `Use case: user is onboarding a second SLV host and wants an additional subdomain for it.`
-    const ticket = await openSupportTicket(userApiAuthFromApiKey(apiKey), {
+    const ticket = await openSupportTicket(auth, {
       title: `Request 2nd erpc.global subdomain for ${thisHostIp}`,
       description,
     })
@@ -1492,7 +1478,7 @@ const handleSubdomainConflict = async (
   // overwrite the old record.
   console.log(colors.cyan(`🌐 Re-pointing ${fqdn} at ${thisHostIp}...`))
   const result = await runNginxFlow({
-    apiKey,
+    auth,
     port: GATEWAY_DEFAULT_PORT,
     ip: thisHostIp,
   })

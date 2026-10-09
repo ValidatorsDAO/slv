@@ -7,7 +7,7 @@ const rescueAction = async () => {
   const selection = await selectNode()
   if (!selection) return false
 
-  const { apiKey, ip, node } = selection
+  const { auth, ip, node } = selection
 
   console.log(colors.white(`\n🖥️  Node: ${node.productName || ip}`))
   console.log(colors.white(`📍 IP: ${ip}\n`))
@@ -55,8 +55,8 @@ const rescueAction = async () => {
 
   try {
     const result = isEnter
-      ? await metalRescue(apiKey, ip)
-      : await metalRescueBack(apiKey, ip)
+      ? await metalRescue(auth, ip)
+      : await metalRescueBack(auth, ip)
 
     if (result.success) {
       if (isEnter) {

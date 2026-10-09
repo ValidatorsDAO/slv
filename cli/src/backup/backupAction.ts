@@ -1,11 +1,17 @@
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
-import { getApiKeyFromYml, sanitizeSudoUser } from '/lib/getApiKeyFromYml.ts'
+import {
+  getStorageAccessKey,
+  getUserApiAuth,
+  sanitizeSudoUser,
+} from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   multipartComplete,
   multipartCreate,
   multipartUploadPart,
   presignUpload,
+  refuseStorageTransfer,
   storageDelete,
   storageList,
   StorageApiError,
@@ -136,20 +142,23 @@ export const backupAction = async (options: {
     return
   }
 
+  // Uploading the archive (and a cron job that does it) goes through the
+  // file transfer routes, which do not accept an account access token. Stop
+  // before anything is scheduled, archived or sent. --restic does not use them.
+  const wantsUpload = !options.restic &&
+    (options.upload || (options.cron && options.cron !== 'off'))
+  if (wantsUpload && refuseStorageTransfer()) return
+
   // --cron: set up cron job
   if (options.cron) {
     await setupCron(options.cron, options.retention ?? 7, !!options.restic)
     if (!options.upload && !options.restic) return // cron-only mode
   }
 
-  // Pre-flight: restic or upload requires API key
-  if (options.upload || options.restic) {
-    await getApiKeyFromYml()
-  }
-
   // --restic: use restic for incremental backup
   if (options.restic) {
-    const apiKey = await getApiKeyFromYml()
+    // Pre-flight: restic connects with the storage access key
+    const storageKey = await getStorageAccessKey()
     const hostname = await getHostname()
     const resticOpts: ResticBackupOptions = {
       region: options.region,
@@ -176,7 +185,7 @@ export const backupAction = async (options: {
     }
 
     try {
-      await resticBackup(apiKey, resticOpts)
+      await resticBackup(storageKey, resticOpts)
       if (webhookUrl) {
         await notifyWebhook(
           webhookUrl,
@@ -374,7 +383,7 @@ async function uploadBackup(
   retention = 7,
   webhookUrl?: string,
 ): Promise<void> {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
   const filename = filePath.includes('/') ? filePath.split('/').pop()! : filePath
   const remotePath = `backups/${filename}`
   const fileInfo = await Deno.stat(filePath)
@@ -390,12 +399,12 @@ async function uploadBackup(
           `\n📦 Large backup detected (${formatBytes(fileSize)}). Using multipart upload.\n`,
         ),
       )
-      const result = await uploadBackupMultipart(apiKey, filePath, remotePath, fileSize, region)
+      const result = await uploadBackupMultipart(auth, filePath, remotePath, fileSize, region)
       if (!result) return
       uploadRegion = result.region
     } else {
       // ── Single presigned PUT ──
-      const result = await uploadBackupSingle(apiKey, filePath, filename, remotePath, fileSize, region)
+      const result = await uploadBackupSingle(auth, filePath, filename, remotePath, fileSize, region)
       if (!result) return
       uploadRegion = result.region
     }
@@ -416,7 +425,7 @@ async function uploadBackup(
 
     // Retention cleanup
     if (retention > 0) {
-      await cleanupOldBackups(apiKey, hostname, retention, region)
+      await cleanupOldBackups(auth, hostname, retention, region)
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
@@ -444,7 +453,7 @@ async function uploadBackup(
 }
 
 async function uploadBackupSingle(
-  apiKey: string,
+  auth: UserApiAuth,
   filePath: string,
   filename: string,
   remotePath: string,
@@ -455,7 +464,7 @@ async function uploadBackupSingle(
   spinner.start()
 
   try {
-    const presign = await presignUpload(apiKey, remotePath, region)
+    const presign = await presignUpload(auth, remotePath, region)
     spinner.succeed('Got presigned URL')
 
     const uploadSpinner = new Kia(
@@ -495,7 +504,7 @@ async function uploadBackupSingle(
 }
 
 async function uploadBackupMultipart(
-  apiKey: string,
+  auth: UserApiAuth,
   filePath: string,
   remotePath: string,
   fileSize: number,
@@ -509,7 +518,7 @@ async function uploadBackupMultipart(
 
   let upload: Awaited<ReturnType<typeof multipartCreate>>
   try {
-    upload = await multipartCreate(apiKey, remotePath, fileSize, region, 'application/octet-stream')
+    upload = await multipartCreate(auth, remotePath, fileSize, region, 'application/octet-stream')
     initSpinner.succeed(
       `Multipart upload initiated (${totalParts} parts × ${formatBytes(MULTIPART_CHUNK_SIZE)})`,
     )
@@ -554,7 +563,7 @@ async function uploadBackupMultipart(
 
         // Upload the chunk directly via Workers API
         const result = await multipartUploadPart(
-          apiKey,
+          auth,
           upload.uploadId,
           upload.key,
           desc.partNumber,
@@ -599,7 +608,7 @@ async function uploadBackupMultipart(
   try {
     completedParts.sort((a, b) => a.partNumber - b.partNumber)
     const result = await multipartComplete(
-      apiKey,
+      auth,
       upload.uploadId,
       upload.key,
       completedParts,
@@ -614,14 +623,14 @@ async function uploadBackupMultipart(
 }
 
 async function cleanupOldBackups(
-  apiKey: string,
+  auth: UserApiAuth,
   hostname: string,
   retentionDays: number,
   region?: StorageRegion,
 ): Promise<void> {
   const prefix = `backups/backup-${hostname}-`
   try {
-    const list = await storageList(apiKey, { prefix, region })
+    const list = await storageList(auth, { prefix, region })
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - retentionDays)
 
@@ -630,7 +639,7 @@ async function cleanupOldBackups(
       const filename = file.path.split('/').pop() || ''
       const ts = parseTimestampFromFilename(filename)
       if (ts && ts < cutoff) {
-        await storageDelete(apiKey, file.path, region)
+        await storageDelete(auth, file.path, region)
         console.log(colors.dim(`  🗑️  Deleted old backup: ${file.path}`))
         deleted++
       }

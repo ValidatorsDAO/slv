@@ -1,4 +1,4 @@
-import { resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
@@ -12,7 +12,7 @@ import {
 } from '@/ai/console/systemPrompt.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
 import { ALL_AGENT_IDS, isKnownAgentId } from '@/ai/agentConfig/registry.ts'
 import {
@@ -299,7 +299,7 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'call_mcp',
     description:
-      'Call one of a fixed set of read-only SLV Cloud endpoints (all GET) — check user info, subscriptions, server/VPS inventory, usage, and status. There is no purchase, payment-link, or IP-registration tool here; send the user to https://dashboard.erpc.global for those. The API key from ~/.slv/api.yml is used automatically.',
+      'Call one of a fixed set of read-only SLV Cloud endpoints (all GET) — check user info, subscriptions, server/VPS inventory, usage, and status. There is no purchase, payment-link, or IP-registration tool here; send the user to https://dashboard.erpc.global for those. The account access token from ~/.slv/api.yml is used automatically.',
     parameters: {
       type: 'object',
       properties: {
@@ -931,13 +931,14 @@ async function executeCallMcp(
     if (cached) return `${cached}\n\n[session cache hit]`
   }
 
-  const mcpCtx = await loadAgentContext()
-  const apiKey = mcpCtx.raw.api.slv.api_key ?? ''
-  if (!apiKey) return 'Error: No SLV API key found. Run `slv login` first.'
+  const auth = await findUserApiAuth()
+  if (!auth) {
+    return 'Error: No SLV account access token found. Run `slv login` first.'
+  }
 
   try {
     const content = await callReadTool(
-      userApiAuthFromApiKey(apiKey),
+      auth,
       toolName,
       args || {},
     )
@@ -1284,13 +1285,12 @@ When running ansible-playbook or slv commands that connect to servers:
         task,
       )
     } else if (config.provider === 'slv') {
-      const subCtx = await loadAgentContext()
-      const slvApiKey = subCtx.raw.api.slv.api_key ?? ''
-      if (!slvApiKey) {
-        return 'Error: SLV API Key not found. Run `slv login` first.'
+      const slvAuth = await findUserApiAuth()
+      if (!slvAuth) {
+        return 'Error: SLV account access token not found. Run `slv login` first.'
       }
       return await runSlvSubAgent(
-        slvApiKey,
+        slvAuth,
         config.model,
         subSystemPrompt,
         task,
@@ -1380,7 +1380,7 @@ async function runAnthropicSubAgent(
 const SLV_AI_CHAT_URL = 'https://user-api.erpc.global/v3/ai/chat'
 
 async function runSlvSubAgent(
-  apiKey: string,
+  auth: UserApiAuth,
   model: string,
   systemPrompt: string,
   task: string,
@@ -1400,7 +1400,7 @@ async function runSlvSubAgent(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': userApiAuthHeader(auth),
       },
       body: JSON.stringify({
         model,

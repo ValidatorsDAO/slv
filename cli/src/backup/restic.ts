@@ -1,5 +1,5 @@
 import { colors } from '@cliffy/colors'
-import { resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { resolveHome, type StorageAccessKey } from '/lib/getApiKeyFromYml.ts'
 import { buildExcludeList } from '@/backup/excludes.ts'
 
 const RESTIC_PASSWORD_FILE_NAME = '.slv/restic-password'
@@ -9,18 +9,21 @@ const RESTIC_REPO_PATH = '/v3/storage/restic'
 /**
  * NOTE on REST backend authentication:
  *
- * restic uses Basic Auth for REST backend URLs.  We embed the API key as the
- * username in the URL: rest:https://<apiKey>:x@host/path
+ * restic uses Basic Auth for REST backend URLs.  We embed the storage access
+ * key in the URL: rest:https://<keyId>:<secret>@host/path — the key id is the
+ * username and the secret is the password.  The REST path accepts only a
+ * storage access key; an account access token or an API key is not accepted
+ * there.
  *
- * The user-api accepts both Bearer and Basic auth.  With Basic auth the
- * username is treated as the API key and the password is ignored.
- *
- * This works with all restic versions (0.14+).
+ * The credentials stay in the URL (rather than RESTIC_REST_USERNAME /
+ * RESTIC_REST_PASSWORD) because restic 0.16, which Ubuntu 24.04 ships, does
+ * not read those variables.  The URL works with all restic versions (0.14+).
  */
 
 /** Build the restic repository URL with embedded Basic Auth credentials. */
-function resticRepoUrl(apiKey: string, region?: string): string {
-  const base = `rest:https://${encodeURIComponent(apiKey)}:x@${RESTIC_REPO_HOST}${RESTIC_REPO_PATH}`
+function resticRepoUrl(key: StorageAccessKey, region?: string): string {
+  const base =
+    `rest:https://${encodeURIComponent(key.id)}:${encodeURIComponent(key.secret)}@${RESTIC_REPO_HOST}${RESTIC_REPO_PATH}`
   if (region) {
     return `${base}?region=${encodeURIComponent(region)}`
   }
@@ -136,7 +139,7 @@ export interface ResticBackupOptions {
  * Create a backup using restic.
  */
 export async function resticBackup(
-  apiKey: string,
+  key: StorageAccessKey,
   options: ResticBackupOptions,
 ): Promise<void> {
   if (!(await hasRestic())) {
@@ -145,7 +148,7 @@ export async function resticBackup(
   }
 
   await getOrCreateResticPassword() // ensure password file exists
-  const repo = resticRepoUrl(apiKey, options.region)
+  const repo = resticRepoUrl(key, options.region)
 
   // Use RESTIC_PASSWORD_FILE instead of RESTIC_PASSWORD to avoid
   // leaking the passphrase via /proc/{pid}/environ.
@@ -235,7 +238,7 @@ export async function resticBackup(
  * Restore from a restic snapshot.
  */
 export async function resticRestore(
-  apiKey: string,
+  key: StorageAccessKey,
   snapshotId?: string,
   region?: string,
 ): Promise<void> {
@@ -245,7 +248,7 @@ export async function resticRestore(
   }
 
   await getResticPassword() // validate password file exists
-  const repo = resticRepoUrl(apiKey, region)
+  const repo = resticRepoUrl(key, region)
 
   const env = {
     RESTIC_REPOSITORY: repo,
@@ -277,7 +280,7 @@ export async function resticRestore(
  * Returns raw JSON output from restic.
  */
 export async function resticSnapshots(
-  apiKey: string,
+  key: StorageAccessKey,
   region?: string,
 ): Promise<string> {
   if (!(await hasRestic())) {
@@ -286,7 +289,7 @@ export async function resticSnapshots(
   }
 
   await getResticPassword() // validate password file exists
-  const repo = resticRepoUrl(apiKey, region)
+  const repo = resticRepoUrl(key, region)
 
   const env = {
     ...Deno.env.toObject(),

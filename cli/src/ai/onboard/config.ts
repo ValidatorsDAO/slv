@@ -19,9 +19,9 @@ export type OnboardConfig = {
   /** When true, skips the "I understand this is risky" Select. */
   security_warning_accepted?: boolean
 
-  // --- Step 3: SLV API key ---
-  /** Pre-populates ~/.slv/api.yml slv.api_key. Skipped if absent. */
-  slv_api_key?: string
+  // --- Step 3: SLV account access token ---
+  /** Pre-populates ~/.slv/api.yml slv.access_token. Skipped if absent. */
+  slv_access_token?: string
 
   // --- Step 4/5: agent setup ---
   user_name?: string

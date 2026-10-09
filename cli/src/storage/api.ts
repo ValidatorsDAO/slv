@@ -1,15 +1,39 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
+import { colors } from '@cliffy/colors'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 
-
-const storageHeaders = (apiKey: string) => {
+const storageHeaders = (auth: UserApiAuth) => {
   const headers = new Headers()
-  headers.append('Authorization', `Bearer ${apiKey}`)
+  headers.append('Authorization', userApiAuthHeader(auth))
   headers.append('Content-Type', 'application/json')
   return headers
 }
 
+/**
+ * The presigned URL and multipart routes (the file transfer part of
+ * storage) do not accept an account access token. Commands that would call
+ * them stop at their entry with this message, before any request is made.
+ * Listing, deleting, usage, sync, products and upgrades work with the token.
+ */
+export const STORAGE_TRANSFER_UNAVAILABLE_MESSAGE =
+  'File upload and download are currently not available with an account access token. For backups, use `slv backup create --restic` with a storage access key (save one with `slv login`).'
+
+const STORAGE_TRANSFER_AVAILABLE = false
+
+/**
+ * Entry guard for commands that upload or download through the presigned /
+ * multipart routes. Returns true when the transfer was refused: the message
+ * is printed and the exit code is set to 1, so the caller only has to stop.
+ */
+export const refuseStorageTransfer = (): boolean => {
+  if (STORAGE_TRANSFER_AVAILABLE) return false
+  console.log(colors.yellow(STORAGE_TRANSFER_UNAVAILABLE_MESSAGE))
+  Deno.exitCode = 1
+  return true
+}
+
 export class StorageApiError extends Error {
-  name = 'StorageApiError'
+  override name = 'StorageApiError'
   status: number
   constructor(status: number, message: string) {
     super(message)
@@ -30,7 +54,7 @@ const handleErrorResponse = async (response: Response): Promise<never> => {
     case 401:
       throw new StorageApiError(
         401,
-        'Authentication failed. Please run `slv login` to set your API key.',
+        'Authentication failed. Please run `slv login` to set your account access token.',
       )
     case 403:
       throw new StorageApiError(
@@ -103,7 +127,7 @@ export type StorageUsageRes = {
 }
 
 export const presignUpload = async (
-  apiKey: string,
+  auth: UserApiAuth,
   path: string,
   region?: StorageRegion,
   contentType?: string,
@@ -113,7 +137,7 @@ export const presignUpload = async (
   if (contentType) body.contentType = contentType
   const response = await fetch(`${METAL_API_URL}/storage/presign/upload`, {
     method: 'POST',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
     body: JSON.stringify(body),
   })
   if (!response.ok) await handleErrorResponse(response)
@@ -121,7 +145,7 @@ export const presignUpload = async (
 }
 
 export const presignDownload = async (
-  apiKey: string,
+  auth: UserApiAuth,
   path: string,
   region?: StorageRegion,
 ): Promise<PresignDownloadRes> => {
@@ -129,7 +153,7 @@ export const presignDownload = async (
   if (region) body.region = region
   const response = await fetch(`${METAL_API_URL}/storage/presign/download`, {
     method: 'POST',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
     body: JSON.stringify(body),
   })
   if (!response.ok) await handleErrorResponse(response)
@@ -137,7 +161,7 @@ export const presignDownload = async (
 }
 
 export const storageList = async (
-  apiKey: string,
+  auth: UserApiAuth,
   options?: {
     prefix?: string
     region?: StorageRegion
@@ -154,14 +178,14 @@ export const storageList = async (
   const url = `${METAL_API_URL}/storage/list${qs ? `?${qs}` : ''}`
   const response = await fetch(url, {
     method: 'GET',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
   })
   if (!response.ok) await handleErrorResponse(response)
   return await response.json() as StorageListRes
 }
 
 export const storageDelete = async (
-  apiKey: string,
+  auth: UserApiAuth,
   path: string,
   region?: StorageRegion,
 ): Promise<{ success: boolean }> => {
@@ -169,7 +193,7 @@ export const storageDelete = async (
   if (region) body.region = region
   const response = await fetch(`${METAL_API_URL}/storage/delete`, {
     method: 'DELETE',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
     body: JSON.stringify(body),
   })
   if (!response.ok) await handleErrorResponse(response)
@@ -199,11 +223,11 @@ export type StorageProductListRes = {
 }
 
 export const storageProductList = async (
-  apiKey: string,
+  auth: UserApiAuth,
 ): Promise<StorageProductListRes> => {
   const response = await fetch(`${METAL_API_URL}/storage/product-list`, {
     method: 'GET',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
   })
   if (!response.ok) await handleErrorResponse(response)
   return await response.json() as StorageProductListRes
@@ -220,12 +244,12 @@ export type StorageUpgradeRes = {
 }
 
 export const storageUpgradePlan = async (
-  apiKey: string,
+  auth: UserApiAuth,
   quantity: number,
 ): Promise<StorageUpgradeRes> => {
   const response = await fetch(`${METAL_API_URL}/storage/upgrade-plan`, {
     method: 'POST',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
     body: JSON.stringify({ quantity }),
   })
   if (!response.ok) await handleErrorResponse(response)
@@ -233,11 +257,11 @@ export const storageUpgradePlan = async (
 }
 
 export const storageUsage = async (
-  apiKey: string,
+  auth: UserApiAuth,
 ): Promise<StorageUsageRes> => {
   const response = await fetch(`${METAL_API_URL}/storage/usage`, {
     method: 'GET',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
   })
   if (!response.ok) await handleErrorResponse(response)
   return await response.json() as StorageUsageRes
@@ -255,14 +279,14 @@ export type StorageSyncRes = {
 }
 
 export const storageSync = async (
-  apiKey: string,
+  auth: UserApiAuth,
   region?: StorageRegion,
 ): Promise<StorageSyncRes> => {
   const body: Record<string, string> = {}
   if (region) body.region = region
   const response = await fetch(`${METAL_API_URL}/storage/sync`, {
     method: 'POST',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
     body: JSON.stringify(body),
   })
   if (!response.ok) await handleErrorResponse(response)
@@ -289,7 +313,7 @@ export type MultipartCompleteRes = {
 }
 
 export const multipartCreate = async (
-  apiKey: string,
+  auth: UserApiAuth,
   path: string,
   fileSize: number,
   region?: StorageRegion,
@@ -300,7 +324,7 @@ export const multipartCreate = async (
   if (contentType) body.contentType = contentType
   const response = await fetch(`${METAL_API_URL}/storage/multipart/create`, {
     method: 'POST',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
     body: JSON.stringify(body),
   })
   if (!response.ok) await handleErrorResponse(response)
@@ -308,11 +332,11 @@ export const multipartCreate = async (
 }
 
 export const multipartUploadPart = async (
-  apiKey: string,
+  auth: UserApiAuth,
   uploadId: string,
   key: string,
   partNumber: number,
-  body: Uint8Array,
+  body: Uint8Array<ArrayBuffer>,
   region?: StorageRegion,
 ): Promise<MultipartUploadPartRes> => {
   const params = new URLSearchParams({
@@ -327,7 +351,7 @@ export const multipartUploadPart = async (
     {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': userApiAuthHeader(auth),
         'Content-Type': 'application/octet-stream',
       },
       body,
@@ -338,7 +362,7 @@ export const multipartUploadPart = async (
 }
 
 export const multipartComplete = async (
-  apiKey: string,
+  auth: UserApiAuth,
   uploadId: string,
   key: string,
   parts: { partNumber: number; etag: string }[],
@@ -348,7 +372,7 @@ export const multipartComplete = async (
   if (region) body.region = region
   const response = await fetch(`${METAL_API_URL}/storage/multipart/complete`, {
     method: 'POST',
-    headers: storageHeaders(apiKey),
+    headers: storageHeaders(auth),
     body: JSON.stringify(body),
   })
   if (!response.ok) await handleErrorResponse(response)

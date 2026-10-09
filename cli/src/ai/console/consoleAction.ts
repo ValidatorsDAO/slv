@@ -47,7 +47,7 @@ import {
 } from '@/ai/console/tools.ts'
 import { errToString } from '/lib/errToString.ts'
 import { callReadTool } from '/lib/userApi/readTools.ts'
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   classifyIntent,
   type DeploymentMode,
@@ -57,7 +57,7 @@ import {
   type SpecialistAgent,
   type UserContextKind,
 } from '@/ai/console/intentClassifier.ts'
-import { resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
 import { listAgentsByOrder } from '@/ai/agentConfig/registry.ts'
 import {
@@ -807,7 +807,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider | SLVProvider
-  let slvApiKey = ''
+  let slvAuth: UserApiAuth | null = null
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -1004,12 +1004,11 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   }
 
   if (gatewayBootstrap) {
-    // Swap in the WS-backed provider. SLV api key is still read
-    // because some code paths (authorization checks, token
+    // Swap in the WS-backed provider. The SLV account access token is
+    // still read because some code paths (authorization checks, token
     // purchasing) reach for it.
     if (config.provider === 'slv') {
-      const ctx = await loadAgentContext()
-      slvApiKey = ctx.raw.api.slv.api_key ?? ''
+      slvAuth = await findUserApiAuth()
     }
     const { GatewaySessionProvider } = await import(
       '/src/ai/core/sessionClient.ts'
@@ -1029,17 +1028,16 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       callbacks,
     )
   } else if (config.provider === 'slv') {
-    // SLV AI uses slv.api_key from ~/.slv/api.yml (not ai.api_key)
-    const ctx = await loadAgentContext()
-    slvApiKey = ctx.raw.api.slv.api_key ?? ''
-    if (!slvApiKey) {
+    // SLV AI uses slv.access_token from ~/.slv/api.yml (not ai.api_key)
+    slvAuth = await findUserApiAuth()
+    if (!slvAuth) {
       console.log(
-        `\n  ${t('SLV API Key not found. Run `slv login` first.')}\n`,
+        `\n  ${t('SLV account access token not found. Run `slv login` first.')}\n`,
       )
       return
     }
     provider = new SLVProvider(
-      slvApiKey,
+      slvAuth,
       config.model,
       currentSystemPrompt,
       callbacks,
@@ -1158,13 +1156,12 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
         ),
       )
       try {
-        if (!slvApiKey) {
-          const ctx = await loadAgentContext()
-          slvApiKey = ctx.raw.api.slv.api_key ?? ''
+        if (!slvAuth) {
+          slvAuth = await findUserApiAuth()
         }
-        if (slvApiKey) {
+        if (slvAuth) {
           const text = await callReadTool(
-            userApiAuthFromApiKey(slvApiKey),
+            slvAuth,
             'get_user_get',
             {},
           )
@@ -1290,7 +1287,7 @@ RULES:
         provider: config.provider,
         apiKey: config.api_key,
         model: config.model,
-        slvApiKey,
+        slvAuth: slvAuth ?? undefined,
       },
       {
         message: input,
@@ -1444,12 +1441,11 @@ RULES:
           callbacks,
         )
       } else if (config.provider === 'slv') {
-        const ctx = await loadAgentContext()
-        const slvKey = ctx.raw.api.slv.api_key ?? ''
-        if (slvKey) {
-          slvApiKey = slvKey
+        const freshAuth = await findUserApiAuth()
+        if (freshAuth) {
+          slvAuth = freshAuth
           provider = new SLVProvider(
-            slvKey,
+            freshAuth,
             config.model,
             currentSystemPrompt,
             callbacks,

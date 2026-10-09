@@ -1,5 +1,5 @@
 import { prompt, Select } from '@cliffy/prompt'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { Row, Table } from '@cliffy/table'
@@ -19,13 +19,13 @@ const formatBytes = (bytes: number): string => {
 }
 
 export const productAction = async () => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   const spinner = new Kia(colors.cyan('Fetching storage products...'))
   spinner.start()
 
   try {
-    const result = await storageProductList(apiKey)
+    const result = await storageProductList(auth)
     if (!result.success) {
       spinner.fail('Failed to fetch products')
       console.log(colors.yellow('Please try again later...'))

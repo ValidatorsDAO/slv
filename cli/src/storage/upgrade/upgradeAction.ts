@@ -1,5 +1,5 @@
 import { Confirm, Input } from '@cliffy/prompt'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import {
@@ -14,13 +14,13 @@ export const upgradeAction = async (
   quantity?: number,
   options: { yes?: boolean } = {},
 ) => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   const spinner = new Kia(colors.cyan('Fetching current storage info...'))
   spinner.start()
 
   try {
-    const result = await storageProductList(apiKey)
+    const result = await storageProductList(auth)
     if (!result.success) {
       spinner.fail('Failed to fetch storage info')
       console.log(colors.yellow('Please try again later...'))
@@ -134,7 +134,7 @@ export const upgradeAction = async (
     upgradeSpinner.start()
 
     try {
-      const upgradeResult = await storageUpgradePlan(apiKey, newUnits)
+      const upgradeResult = await storageUpgradePlan(auth, newUnits)
       const prevGB = upgradeResult.message.previousQuantityGB || currentGB
       const resultGB = (upgradeResult.message.newQuantityGB || newUnits) * GB_PER_UNIT
       upgradeSpinner.succeed(

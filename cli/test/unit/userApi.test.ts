@@ -5,7 +5,7 @@ import {
   assertStringIncludes,
 } from '@std/assert'
 
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import { userApiAuthFromAccessToken } from '/lib/userApi/auth.ts'
 import { userApiRequest } from '/lib/userApi/client.ts'
 import {
   deleteDnsRecord,
@@ -76,7 +76,7 @@ Deno.test('T1: getDnsStatus issues a GET to /v3/dns/status with a Bearer header 
       })
     },
     async () => {
-      const result = await getDnsStatus(userApiAuthFromApiKey('test-key'))
+      const result = await getDnsStatus(userApiAuthFromAccessToken('test-key'))
       assertEquals(result.ok, true)
     },
   )
@@ -108,7 +108,7 @@ Deno.test('T2: setDnsRecord POSTs JSON containing only the keys the caller provi
       })
     },
     async () => {
-      const result = await setDnsRecord(userApiAuthFromApiKey('k'), {
+      const result = await setDnsRecord(userApiAuthFromAccessToken('k'), {
         ip: '5.6.7.8',
       })
       assertEquals(result.ok, true)
@@ -130,7 +130,7 @@ Deno.test('T3: explainDnsSetError returns the ip_not_owned guidance text on a 40
   await withFetchStub(
     async () => jsonResponse({ error: 'ip_not_owned' }, { status: 403 }),
     async () => {
-      const result = await setDnsRecord(userApiAuthFromApiKey('k'), {
+      const result = await setDnsRecord(userApiAuthFromAccessToken('k'), {
         ip: '1.1.1.1',
       })
       assertEquals(result.ok, false)
@@ -156,7 +156,7 @@ Deno.test('T4: a 400 with an object error field drops body.error and falls back 
         { status: 400 },
       ),
     async () => {
-      const result = await setDnsRecord(userApiAuthFromApiKey('k'), {
+      const result = await setDnsRecord(userApiAuthFromAccessToken('k'), {
         ip: '1.1.1.1',
       })
       assertEquals(result.ok, false)
@@ -176,7 +176,7 @@ Deno.test('T5: a 401 with {error: "Unauthorized"} maps to the slv login guidance
   await withFetchStub(
     async () => jsonResponse({ error: 'Unauthorized' }, { status: 401 }),
     async () => {
-      const result = await setDnsRecord(userApiAuthFromApiKey('k'), {
+      const result = await setDnsRecord(userApiAuthFromAccessToken('k'), {
         ip: '1.1.1.1',
       })
       assertEquals(result.ok, false)
@@ -207,7 +207,7 @@ Deno.test('T6: deleteDnsRecord with an explicit slug issues exactly one DELETE',
       })
     },
     async () => {
-      const result = await deleteDnsRecord(userApiAuthFromApiKey('k'), {
+      const result = await deleteDnsRecord(userApiAuthFromAccessToken('k'), {
         slug: 'myslug',
       })
       assertEquals(result.ok, true)
@@ -254,7 +254,7 @@ Deno.test('T7a: deleteDnsRecord without a slug reads status first, then DELETEs 
       })
     },
     async () => {
-      const result = await deleteDnsRecord(userApiAuthFromApiKey('k'), {})
+      const result = await deleteDnsRecord(userApiAuthFromAccessToken('k'), {})
       assertEquals(result.ok, true)
     },
   )
@@ -276,7 +276,7 @@ Deno.test('T7b: deleteDnsRecord never DELETEs when the status read fails', async
       return jsonResponse({ error: 'Unauthorized' }, { status: 401 })
     },
     async () => {
-      const result = await deleteDnsRecord(userApiAuthFromApiKey('k'), {})
+      const result = await deleteDnsRecord(userApiAuthFromAccessToken('k'), {})
       assertEquals(result.ok, false)
     },
   )
@@ -295,7 +295,7 @@ Deno.test('T8: deleteDnsRecord 404 no_record surfaces the server message', async
         { status: 404 },
       ),
     async () => {
-      const result = await deleteDnsRecord(userApiAuthFromApiKey('k'), {
+      const result = await deleteDnsRecord(userApiAuthFromAccessToken('k'), {
         slug: 'gone',
       })
       assertEquals(result.ok, false)
@@ -323,7 +323,7 @@ Deno.test('T9a: requestOriginCert treats a 404 with a non-JSON body as not_avail
       return new Response('Not Found', { status: 404 })
     },
     async () => {
-      const result = await requestOriginCert(userApiAuthFromApiKey('k'), {
+      const result = await requestOriginCert(userApiAuthFromAccessToken('k'), {
         csr: 'csr-pem',
       })
       assertEquals(result.ok, false)
@@ -340,7 +340,7 @@ Deno.test('T9b: requestOriginCert surfaces a 502 with a JSON body as a typed err
     async () =>
       jsonResponse({ error: 'upstream_unreachable' }, { status: 502 }),
     async () => {
-      const result = await requestOriginCert(userApiAuthFromApiKey('k'), {
+      const result = await requestOriginCert(userApiAuthFromAccessToken('k'), {
         csr: 'csr-pem',
       })
       assertEquals(result.ok, false)
@@ -370,7 +370,7 @@ Deno.test('T10a: openSupportTicket trims the returned link', async () => {
       })
     },
     async () => {
-      const result = await openSupportTicket(userApiAuthFromApiKey('k'), {
+      const result = await openSupportTicket(userApiAuthFromAccessToken('k'), {
         title: 't',
         description: 'd',
       })
@@ -403,7 +403,7 @@ Deno.test('T10b: openSupportTicket 403 surfaces the server message as error', as
         { status: 403 },
       ),
     async () => {
-      const result = await openSupportTicket(userApiAuthFromApiKey('k'), {
+      const result = await openSupportTicket(userApiAuthFromAccessToken('k'), {
         title: 't',
         description: 'd',
       })
@@ -425,7 +425,7 @@ Deno.test('T11a: a 5xx with a non-JSON body yields body null and the raw text', 
     async () => new Response('upstream exploded', { status: 503 }),
     async () => {
       const result = await userApiRequest(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'GET',
         '/v3/dns/status',
       )
@@ -446,7 +446,7 @@ Deno.test('T11b: a fetch rejection propagates instead of being swallowed', async
     async () => {
       await assertRejects(
         () =>
-          userApiRequest(userApiAuthFromApiKey('k'), 'GET', '/v3/dns/status'),
+          userApiRequest(userApiAuthFromAccessToken('k'), 'GET', '/v3/dns/status'),
         Error,
         'network down',
       )
@@ -468,7 +468,7 @@ Deno.test('T12a: callReadTool returns "Unknown tool" for an unrecognized name wi
     },
     async () => {
       const result = await callReadTool(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'get_not_a_tool',
         {},
       )
@@ -493,7 +493,7 @@ Deno.test('T12b: callReadTool encodes path args and sends declared args as query
       // none) — exercises both path encoding and the query allowlist
       // in one call.
       const result = await callReadTool(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'get_support_chat_rooms_chat_room_id_messages',
         { chatRoomId: 'room/with spaces', limit: 10 },
       )
@@ -520,7 +520,7 @@ Deno.test('T12c: callReadTool does not fetch when a required path argument is mi
     },
     async () => {
       const result = await callReadTool(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'get_support_chat_rooms_chat_room_id',
         {},
       )
@@ -540,7 +540,7 @@ Deno.test('T12d: callReadTool refuses empty, dot, and encoded dot-segment path v
       },
       async () => {
         const result = await callReadTool(
-          userApiAuthFromApiKey('k'),
+          userApiAuthFromAccessToken('k'),
           'get_support_chat_rooms_chat_room_id',
           { chatRoomId: bad },
         )
@@ -561,6 +561,13 @@ Deno.test('T12e: every entry in the read tools table is GET', () => {
   }
 })
 
+Deno.test('f6: the read tools table has no /v3/storage/restic route (restic takes a storage access key, not a Bearer credential)', () => {
+  const restic = Object.entries(READ_TOOLS)
+    .filter(([_name, entry]) => entry.path.startsWith('/v3/storage/restic'))
+    .map(([name]) => name)
+  assertEquals(restic, [])
+})
+
 Deno.test('T12f: callReadTool formats a failed response as "Request failed (...)."', async () => {
   await withFetchStub(
     async () =>
@@ -570,7 +577,7 @@ Deno.test('T12f: callReadTool formats a failed response as "Request failed (...)
       }),
     async () => {
       const result = await callReadTool(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'get_user_get',
         {},
       )
@@ -591,7 +598,7 @@ Deno.test('callReadTool treats inherited property names as unknown tools, not a 
     },
     async () => {
       for (const name of ['constructor', 'toString', 'hasOwnProperty']) {
-        const result = await callReadTool(userApiAuthFromApiKey('k'), name, {})
+        const result = await callReadTool(userApiAuthFromAccessToken('k'), name, {})
         assertEquals(result, `Unknown tool: ${name}`)
       }
     },
@@ -609,7 +616,7 @@ Deno.test('callReadTool rejects an argument not declared for that route, without
     async () => {
       // get_user_get declares no query params at all.
       const result = await callReadTool(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'get_user_get',
         { region: 'amsterdam' },
       )
@@ -628,7 +635,7 @@ Deno.test('callReadTool passes through a query argument the route declares', asy
     },
     async () => {
       const result = await callReadTool(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'get_ai_usage',
         { boost: true },
       )
@@ -651,7 +658,7 @@ Deno.test('callReadTool passes through the token query param on the avatar route
     },
     async () => {
       const result = await callReadTool(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'get_user_profile_avatar_user_id_file_name',
         { userId: 'u1', fileName: 'avatar.png', token: 'tok123' },
       )
@@ -692,7 +699,7 @@ Deno.test('userApiRequest treats a 2xx non-JSON body as a parse_error failure', 
     async () => new Response('<html>ok</html>', { status: 200 }),
     async () => {
       const result = await userApiRequest(
-        userApiAuthFromApiKey('k'),
+        userApiAuthFromAccessToken('k'),
         'GET',
         '/v3/dns/status',
       )
@@ -709,7 +716,7 @@ Deno.test('openSupportTicket returns a failure, not a throw, on a 200 non-JSON b
   await withFetchStub(
     async () => new Response('<html>ok</html>', { status: 200 }),
     async () => {
-      const result = await openSupportTicket(userApiAuthFromApiKey('k'), {
+      const result = await openSupportTicket(userApiAuthFromAccessToken('k'), {
         title: 't',
         description: 'd',
       })
@@ -722,7 +729,7 @@ Deno.test('deleteDnsRecord with a slug returns a failure, not a throw, on a 200 
   await withFetchStub(
     async () => new Response('<html>ok</html>', { status: 200 }),
     async () => {
-      const result = await deleteDnsRecord(userApiAuthFromApiKey('k'), {
+      const result = await deleteDnsRecord(userApiAuthFromAccessToken('k'), {
         slug: 'x',
       })
       assertEquals(result.ok, false)

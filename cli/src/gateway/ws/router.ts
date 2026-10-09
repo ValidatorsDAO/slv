@@ -8,7 +8,8 @@ import { PROTOCOL_VERSION } from '/src/gateway/ws/frames.ts'
 import { echoDriver, Session } from '/src/ai/core/session.ts'
 import { providerDriver } from '/src/ai/core/drivers/provider.ts'
 import { readAiConfig } from '/src/ai/config.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   invalidateAgentContext,
   loadAgentContext,
@@ -234,23 +235,23 @@ const methods: Record<string, MethodHandler> = {
         'no AI provider configured — run `slv onboard` first',
       )
     }
-    // SLV provider reads its bearer from ~/.slv/api.yml's slv.api_key
-    // (not the ai.api_key field, which is used by anthropic/openai
-    // for their own API keys).
-    let apiKey = aiCfg.api_key
+    // SLV provider reads its credential from ~/.slv/api.yml's
+    // slv.access_token (not the ai.api_key field, which is used by
+    // anthropic/openai for their own API keys).
+    let slvAuth: UserApiAuth | null = null
     if (aiCfg.provider === 'slv') {
       try {
-        apiKey = await getApiKeyFromYml(true)
+        slvAuth = await findUserApiAuth()
       } catch (err) {
         return resErr(
           req,
-          `failed to read SLV API key: ${err instanceof Error ? err.message : String(err)}`,
+          `failed to read SLV account access token: ${err instanceof Error ? err.message : String(err)}`,
         )
       }
-      if (!apiKey) {
+      if (!slvAuth) {
         return resErr(
           req,
-          'no SLV API key — run `slv signup` / `slv login` first',
+          'no SLV account access token — run `slv signup` / `slv login` first',
         )
       }
     }
@@ -287,12 +288,21 @@ const methods: Record<string, MethodHandler> = {
     const stale = !entry || now - entry.lastActiveMs > SESSION_TTL_MS
 
     if (stale || state.sessionKind === 'echo') {
-      const driver = providerDriver({
-        kind: aiCfg.provider,
-        apiKey,
-        model: aiCfg.model,
-        systemPrompt,
-      })
+      const driver = providerDriver(
+        slvAuth
+          ? {
+            kind: 'slv',
+            auth: slvAuth,
+            model: aiCfg.model,
+            systemPrompt,
+          }
+          : {
+            kind: aiCfg.provider === 'openai' ? 'openai' : 'anthropic',
+            apiKey: aiCfg.api_key,
+            model: aiCfg.model,
+            systemPrompt,
+          },
+      )
       const session = new Session(driver)
       entry = { session, kind: 'provider', unsubscribe: null, lastActiveMs: now }
       sessionStore.set(storeKey, entry)

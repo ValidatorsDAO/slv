@@ -4,7 +4,7 @@ import {
   requestOriginCert,
   setDnsRecord,
 } from '/lib/userApi/dns.ts'
-import { type UserApiAuth, userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { runAnsibleLocal } from '/lib/runAnsibleLocal.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
@@ -16,8 +16,8 @@ import { generateCsr } from '/lib/generateCsr.ts'
 const b64 = (pem: string): string => btoa(pem)
 
 export type NginxFlowInput = {
-  /** SLV API key (Bearer) used to authenticate against the erpc /v3/dns/* endpoints. */
-  apiKey: string
+  /** Account access token used to authenticate against the erpc /v3/dns/* endpoints. */
+  auth: UserApiAuth
   /** Loopback port on this host to reverse-proxy to. Typically 20026 (gateway). */
   port: number
   /**
@@ -76,7 +76,7 @@ export type NginxFlowResult = NginxFlowSuccess | NginxFlowFailure
 export const runNginxFlow = async (
   opts: NginxFlowInput,
 ): Promise<NginxFlowResult> => {
-  const auth = userApiAuthFromApiKey(opts.apiKey)
+  const auth = opts.auth
 
   // 1. Read the user's DNS state to learn their default slug.
   // We also honor a `--slug` override here; the endpoint will
@@ -87,7 +87,7 @@ export const runNginxFlow = async (
       ok: false,
       stage: 'dns_status',
       error: status.status === 401
-        ? 'SLV API key rejected — run `slv login`.'
+        ? 'SLV account access token rejected — run `slv login`.'
         : `/v3/dns/status returned ${status.status}`,
     }
   }

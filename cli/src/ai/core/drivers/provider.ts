@@ -8,7 +8,7 @@ import {
   killActiveProcess,
   setCommandOutputCallback,
 } from '/src/ai/console/tools.ts'
-import type { AiProvider } from '/src/ai/config.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { errToString } from '/lib/errToString.ts'
 import type { MessageInput } from '/src/ai/core/messageInput.ts'
 
@@ -31,12 +31,24 @@ export type ProviderLike = {
 
 export type ProviderBuilder = (callbacks: ChatCallbacks) => ProviderLike
 
-export type ProviderConfig = {
-  kind: AiProvider
-  apiKey: string
-  model: string
-  systemPrompt: string
-}
+/**
+ * `anthropic` / `openai` take the provider's own API key. `slv` talks to
+ * user-api and takes the account access token as a user-api auth value, so
+ * an API key cannot be passed to it.
+ */
+export type ProviderConfig =
+  | {
+    kind: 'anthropic' | 'openai'
+    apiKey: string
+    model: string
+    systemPrompt: string
+  }
+  | {
+    kind: 'slv'
+    auth: UserApiAuth
+    model: string
+    systemPrompt: string
+  }
 
 /**
  * Default builder that instantiates the real SDK-backed provider
@@ -52,7 +64,7 @@ export const defaultProviderBuilder = (cfg: ProviderConfig): ProviderBuilder =>
     case 'openai':
       return new OpenAIProvider(cfg.apiKey, cfg.model, cfg.systemPrompt, callbacks)
     case 'slv':
-      return new SLVProvider(cfg.apiKey, cfg.model, cfg.systemPrompt, callbacks)
+      return new SLVProvider(cfg.auth, cfg.model, cfg.systemPrompt, callbacks)
   }
 }
 

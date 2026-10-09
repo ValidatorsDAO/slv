@@ -2,9 +2,9 @@ import { Command } from '@cliffy'
 import { colors } from '@cliffy/colors'
 import { VERSION } from '@cmn/constants/version.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { getDnsStatus } from '/lib/userApi/dns.ts'
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { pickGatewayService } from '/src/gateway/service/pick.ts'
 import { localExec } from '/src/bot/execUtil.ts'
 
@@ -172,20 +172,20 @@ const checkNginx = async (): Promise<CheckResult> => {
 }
 
 const checkDns = async (): Promise<CheckResult> => {
-  let apiKey: string | null = null
+  let auth: UserApiAuth | null = null
   try {
-    apiKey = await getApiKeyFromYml(true)
-  } catch { /* no key */ }
-  if (!apiKey) {
+    auth = await findUserApiAuth()
+  } catch { /* no token */ }
+  if (!auth) {
     return {
       name: 'DNS record',
       status: 'skip',
-      message: 'no SLV API key — run `slv login` to enable this check',
+      message: 'no account access token — run `slv login` to enable this check',
     }
   }
   // Fetch status + local public IP in parallel — independent network calls.
   const [status, ip] = await Promise.all([
-    getDnsStatus(userApiAuthFromApiKey(apiKey)).catch((err) => ({
+    getDnsStatus(auth).catch((err) => ({
       ok: false as const,
       status: 0,
       body: {

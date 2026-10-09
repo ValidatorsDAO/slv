@@ -21,16 +21,20 @@ export const messages: Record<string, string> = {
   'No': 'いいえ',
   'Setup cancelled.': 'セットアップを中止しました。',
 
-  'SLV API Key': 'SLV API キー',
-  'Get your API key: https://dashboard.erpc.global':
-    'API キーの取得: https://dashboard.erpc.global',
-  '🔑 SLV API Key (or press Enter to skip)':
-    '🔑 SLV API キー（Enter でスキップ）',
-  'SLV API Key saved.': 'SLV API キーを保存しました。',
+  'SLV Account Access Token':
+    'SLV アカウントアクセストークン',
+  'Get your account access token: https://dashboard.erpc.global':
+    'アカウントアクセストークンの取得: https://dashboard.erpc.global',
+  '🔑 SLV account access token (or press Enter to skip)':
+    '🔑 SLV アカウントアクセストークン（Enter でスキップ）',
+  'SLV account access token saved.':
+    'SLV アカウントアクセストークンを保存しました。',
+  'That does not look like an account access token.':
+    'アカウントアクセストークンの形式ではありません。',
   'Skipped. You can run `slv login` later.':
     'スキップしました。後で `slv login` を実行できます。',
-  'Using SLV AI (powered by your SLV API Key).':
-    'SLV AI を使用します（SLV API キーで動作）。',
+  'Using SLV AI (powered by your SLV account access token).':
+    'SLV AI を使用します（SLV アカウントアクセストークンで動作）。',
 
   'Agent Setup': 'エージェント設定',
   'Your name': 'あなたの名前',
@@ -205,8 +209,8 @@ export const messages: Record<string, string> = {
   'Installing solana-cli (agave)...': 'solana-cli (agave) をインストール中...',
   '✓ solana-cli installed': '✓ solana-cli をインストールしました',
 
-  'SLV API Key not found. Run `slv login` first.':
-    'SLV API キーが見つかりません。先に `slv login` を実行してください。',
+  'SLV account access token not found. Run `slv login` first.':
+    'SLV アカウントアクセストークンが見つかりません。先に `slv login` を実行してください。',
   'Checking for new versions…': '新しいバージョンを確認中…',
   '🔄 New versions available:': '🔄 新しいバージョンが利用可能です:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -330,10 +334,10 @@ export const messages: Record<string, string> = {
   'Browser chat UI': 'ブラウザチャット UI',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'バックグラウンドサービスをインストールして、ターミナルを開いたままにしなくてもブラウザから http://127.0.0.1:{port}/ui/ で SLV とチャットできるようにします。',
-  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'SLV API キーがあれば、無料の erpc.global サブドメインをこの VPS に向けてすぐに HTTPS を有効化できます。',
-  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
-    '🔑 SLV API キーをここに貼り付け（Enter で HTTPS をスキップ）:',
+  'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'SLV アカウントアクセストークンがあれば、無料の erpc.global サブドメインをこの VPS に向けてすぐに HTTPS を有効化できます。',
+  '🔑 Paste your SLV account access token here (Enter to skip HTTPS):':
+    '🔑 SLV アカウントアクセストークンをここに貼り付け（Enter で HTTPS をスキップ）:',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     'スキップしました。後で `slv login` → `slv install nginx` を実行すれば HTTPS を有効化できます。',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':

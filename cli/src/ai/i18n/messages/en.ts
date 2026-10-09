@@ -25,16 +25,20 @@ export const messages: Record<string, string> = {
   'No': 'No',
   'Setup cancelled.': 'Setup cancelled.',
 
-  'SLV API Key': 'SLV API Key',
-  'Get your API key: https://dashboard.erpc.global':
-    'Get your API key: https://dashboard.erpc.global',
-  '🔑 SLV API Key (or press Enter to skip)':
-    '🔑 SLV API Key (or press Enter to skip)',
-  'SLV API Key saved.': 'SLV API Key saved.',
+  'SLV Account Access Token':
+    'SLV Account Access Token',
+  'Get your account access token: https://dashboard.erpc.global':
+    'Get your account access token: https://dashboard.erpc.global',
+  '🔑 SLV account access token (or press Enter to skip)':
+    '🔑 SLV account access token (or press Enter to skip)',
+  'SLV account access token saved.':
+    'SLV account access token saved.',
+  'That does not look like an account access token.':
+    'That does not look like an account access token.',
   'Skipped. You can run `slv login` later.':
     'Skipped. You can run `slv login` later.',
-  'Using SLV AI (powered by your SLV API Key).':
-    'Using SLV AI (powered by your SLV API Key).',
+  'Using SLV AI (powered by your SLV account access token).':
+    'Using SLV AI (powered by your SLV account access token).',
 
   'Agent Setup': 'Agent Setup',
   'Your name': 'Your name',
@@ -223,8 +227,8 @@ export const messages: Record<string, string> = {
   '✓ solana-cli installed': '✓ solana-cli installed',
 
   // --- Startup guard / version check ---
-  'SLV API Key not found. Run `slv login` first.':
-    'SLV API Key not found. Run `slv login` first.',
+  'SLV account access token not found. Run `slv login` first.':
+    'SLV account access token not found. Run `slv login` first.',
   'Checking for new versions…': 'Checking for new versions…',
   '🔄 New versions available:': '🔄 New versions available:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -353,10 +357,10 @@ export const messages: Record<string, string> = {
     'Browser chat UI',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
-  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.',
-  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
-    '🔑 Paste your SLV API key here (Enter to skip HTTPS):',
+  'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.',
+  '🔑 Paste your SLV account access token here (Enter to skip HTTPS):':
+    '🔑 Paste your SLV account access token here (Enter to skip HTTPS):',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':
