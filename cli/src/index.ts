@@ -22,7 +22,6 @@ import { storageCmd } from '@/storage/index.ts'
 import { backupCmd } from '@/backup/index.ts'
 import { aiCmd, onboardCmd } from '@/ai/index.ts'
 import { authCmd } from '@/auth/index.ts'
-import { airdropCmd } from '@/airdrop/index.ts'
 import { disableCmd } from '@/disable/index.ts'
 import { addSshCmd } from '@/addSsh/index.ts'
 import { gatewayCmd } from '@/gateway/index.ts'
@@ -121,9 +120,6 @@ program
 
 program
   .command('auth', authCmd)
-
-program
-  .command('airdrop', airdropCmd)
 
 program
   .command('disable', disableCmd)
