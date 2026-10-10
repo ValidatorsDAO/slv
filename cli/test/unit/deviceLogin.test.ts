@@ -11,6 +11,7 @@ import {
   loggedIn,
   NEW_ACCESS_TOKEN,
   NEW_REFRESH_TOKEN,
+  type RecordedRequest,
   REFRESH_TOKEN,
   runCaptured,
   STORAGE_KEY_ID,
@@ -26,6 +27,17 @@ const DEVICE_CODE = 'test-device-code-must-stay-in-memory'
 const USER_CODE = 'WDJB-MJHT'
 const VERIFICATION_URI = 'https://auth-api.erpc.global/oauth/device'
 const VERIFICATION_URI_COMPLETE = `${VERIFICATION_URI}?user_code=${USER_CODE}`
+const REVOKE_URL = 'https://auth-api.erpc.global/oauth/revoke'
+
+/** The refresh tokens sent to the revoke endpoint, checking the form. */
+const revokedTokens = (requests: RecordedRequest[]): (string | null)[] =>
+  requests.filter((r) => r.url === REVOKE_URL).map((r) => {
+    const fields = new URLSearchParams(r.body ?? '')
+    assertEquals(r.method, 'POST')
+    assertEquals(fields.get('client_id'), 'erpc-cli')
+    assertEquals(fields.get('token_type_hint'), 'refresh_token')
+    return fields.get('token')
+  })
 
 const OTHER_SECTIONS = {
   ai: { provider: 'slv', model: 'SLV AI' },
@@ -149,14 +161,15 @@ Deno.test('d1: slv login runs the device flow, checks the account with the new t
   })
 })
 
-Deno.test('d2: a denied or expired device login, or an account user-api does not know, exits 1 and writes nothing', async () => {
-  const cases: [string, (url: string) => Response][] = [
+Deno.test('d2: a denied or expired device login, or an account user-api does not know, exits 1 and writes nothing (a received refresh token is revoked)', async () => {
+  const cases: [string, (url: string) => Response, (string | null)[]][] = [
     [
       'access_denied',
       (url) =>
         url === AUTH_TOKEN_URL
           ? json({ error: 'access_denied' }, 400)
           : json({ username: 'x' }),
+      [],
     ],
     [
       'expired_token',
@@ -164,6 +177,7 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
         url === AUTH_TOKEN_URL
           ? json({ error: 'expired_token' }, 400)
           : json({ username: 'x' }),
+      [],
     ],
     [
       'user-api 401',
@@ -171,9 +185,10 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
         url === AUTH_TOKEN_URL
           ? tokens()
           : json({ error: 'unauthorized' }, 401),
+      [NEW_REFRESH_TOKEN],
     ],
   ]
-  for (const [name, answer] of cases) {
+  for (const [name, answer, revoked] of cases) {
     await withHome(
       { slv: { api_key: API_KEY }, ...OTHER_SECTIONS },
       async (home) => {
@@ -184,7 +199,7 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
             url === DEVICE_AUTHORIZATION_URL
               ? deviceAuthorization()
               : answer(url),
-          async () => {
+          async (requests) => {
             const outcome = await runCaptured(() =>
               login.loginAction(time.deps)
             )
@@ -192,6 +207,7 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
             assertEquals(outcome.exit, 1, `${name}: ${outcome.output}`)
             assertStringIncludes(outcome.output, 'slv login')
             assertFalse(outcome.output.includes(DEVICE_CODE))
+            assertEquals(revokedTokens(requests), revoked, name)
           },
         )
         assertEquals(
@@ -205,7 +221,6 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
 })
 
 Deno.test('d3: slv login while signed in saves the new session, then revokes the old refresh token once (a 404 does not stop it)', async () => {
-  const REVOKE_URL = 'https://auth-api.erpc.global/oauth/revoke'
   await withHome({
     slv: { api_key: API_KEY, ...loggedIn(FAR_FUTURE) },
   }, async (home) => {
@@ -220,13 +235,7 @@ Deno.test('d3: slv login while signed in saves the new session, then revokes the
       const outcome = await runCaptured(() => login.loginAction(time.deps))
       assertEquals(outcome.error, undefined, outcome.output)
       assertEquals(outcome.exit, null, outcome.output)
-      const revokes = requests.filter((r) => r.url === REVOKE_URL)
-      assertEquals(revokes.length, 1)
-      assertEquals(revokes[0].method, 'POST')
-      assertEquals(
-        new URLSearchParams(revokes[0].body ?? '').get('token'),
-        REFRESH_TOKEN,
-      )
+      assertEquals(revokedTokens(requests), [REFRESH_TOKEN])
       // after the new session is in place: the revoke is the last request
       assertEquals(requests.at(-1)?.url, REVOKE_URL)
       assertFalse(outcome.output.includes('not_found'))
@@ -239,4 +248,34 @@ Deno.test('d3: slv login while signed in saves the new session, then revokes the
     assertEquals(slv.refresh_token, NEW_REFRESH_TOKEN)
     assertEquals(slv.api_key, API_KEY)
   })
+})
+
+Deno.test('d4: when user-api cannot be reached to check the sign-in, slv login says to try again (not to create an account)', async () => {
+  const failures: [string, () => Response | Promise<Response>][] = [
+    ['HTTP 503', () => json({ error: 'unavailable' }, 503)],
+    ['HTTP 429', () => json({ error: 'too_many_requests' }, 429)],
+    ['network error', () => Promise.reject(new TypeError('connection reset'))],
+  ]
+  for (const [name, userGet] of failures) {
+    await withHome({ slv: { api_key: API_KEY } }, async (home) => {
+      const before = await Deno.readTextFile(`${home}/.slv/api.yml`)
+      const time = fakeTime(1_000_000)
+      await withFetch((url) => {
+        if (url === DEVICE_AUTHORIZATION_URL) return deviceAuthorization()
+        if (url === AUTH_TOKEN_URL) return tokens()
+        if (url === USER_GET_URL) return userGet()
+        return json({}, 404)
+      }, async (requests) => {
+        const outcome = await runCaptured(() => login.loginAction(time.deps))
+        assertEquals(outcome.exit, 1, `${name}: ${outcome.output}`)
+        assertStringIncludes(outcome.output, 'try again')
+        assertFalse(
+          outcome.output.includes('Create your account'),
+          `${name}: ${outcome.output}`,
+        )
+        assertEquals(revokedTokens(requests), [NEW_REFRESH_TOKEN], name)
+      })
+      assertEquals(await Deno.readTextFile(`${home}/.slv/api.yml`), before)
+    })
+  }
 })

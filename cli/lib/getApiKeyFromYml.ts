@@ -150,44 +150,80 @@ export const findUserApiAuth = async (
   return userApiAuthFromSession(home)
 }
 
-/**
- * A fresh access token of the saved login. Without a login, or when the login
- * cannot be refreshed, it prints what to do and ends the process with exit
- * code 1 — before any request to user-api.
- */
-const requireLogin = async (home: string): Promise<string> => {
-  if (!hasStoredLogin(await readSlvSection(home))) {
-    console.log(
-      colors.yellow('⚠️ You are not signed in to ERPC on this machine.'),
-    )
-    console.log(colors.white(`
-🚀 Get started with one of the commands below:
+/** Why a command cannot get its credential: a headline, then what to do. */
+export type CredentialProblem = { ok: false; lines: string[] }
 
-$ slv signup # For new users
-$ slv login  # Sign in to ERPC in your browser`))
-    Deno.exit(1)
+/** Print a `CredentialProblem` (no exit). */
+export const printCredentialProblem = (problem: CredentialProblem): void => {
+  console.log(colors.yellow(`⚠️ ${problem.lines[0]}`))
+  if (problem.lines.length > 1) {
+    console.log(colors.white(problem.lines.slice(1).join('\n')))
+  }
+}
+
+const exitWith = (problem: CredentialProblem): never => {
+  printCredentialProblem(problem)
+  Deno.exit(1)
+}
+
+/** A fresh access token of the saved login, or why there is none. */
+const checkLogin = async (
+  home: string,
+): Promise<{ ok: true; accessToken: string } | CredentialProblem> => {
+  if (!hasStoredLogin(await readSlvSection(home))) {
+    return {
+      ok: false,
+      lines: [
+        'You are not signed in to ERPC on this machine.',
+        '',
+        '🚀 Get started with one of the commands below:',
+        '',
+        '$ slv signup # For new users',
+        '$ slv login  # Sign in to ERPC in your browser',
+      ],
+    }
   }
   try {
-    return await ensureFreshAccessToken(home)
+    return { ok: true, accessToken: await ensureFreshAccessToken(home) }
   } catch (error) {
     if (error instanceof SessionExpiredError) {
-      console.log(colors.yellow('⚠️ Your ERPC login has expired.'))
-      console.log(colors.white('Sign in again with:\n\n$ slv login'))
-      Deno.exit(1)
+      return {
+        ok: false,
+        lines: [
+          'Your ERPC login has expired.',
+          'Sign in again with:',
+          '',
+          '$ slv login',
+        ],
+      }
     }
     if (error instanceof SessionRefreshError) {
-      console.log(
-        colors.yellow(
-          `⚠️ Could not refresh your ERPC login (${error.reason}).`,
-        ),
-      )
-      console.log(
-        colors.white('Try again, or sign in again with:\n\n$ slv login'),
-      )
-      Deno.exit(1)
+      return {
+        ok: false,
+        lines: [
+          `Could not refresh your ERPC login (${error.reason}).`,
+          'Try again, or sign in again with:',
+          '',
+          '$ slv login',
+        ],
+      }
     }
     throw error
   }
+}
+
+/**
+ * The saved ERPC login as a user-api auth value, or why it cannot be used
+ * (none saved, expired, or the refresh failed). Sends nothing to user-api.
+ * For callers that report the problem themselves (e.g. a backup that also
+ * posts it to its webhook).
+ */
+export const resolveUserApiAuth = async (): Promise<
+  { ok: true; auth: UserApiAuth } | CredentialProblem
+> => {
+  const home = resolveHome()
+  const login = await checkLogin(home)
+  return login.ok ? { ok: true, auth: userApiAuthFromSession(home) } : login
 }
 
 /**
@@ -195,9 +231,8 @@ $ slv login  # Sign in to ERPC in your browser`))
  * in and ends the process with exit code 1 — before any request is made.
  */
 export const getUserApiAuth = async (): Promise<UserApiAuth> => {
-  const home = resolveHome()
-  await requireLogin(home)
-  return userApiAuthFromSession(home)
+  const login = await resolveUserApiAuth()
+  return login.ok ? login.auth : exitWith(login)
 }
 
 const storageKeyIn = (
@@ -233,7 +268,7 @@ type IssuedStorageKey = {
 
 type IssueResult =
   | { ok: true; key: StorageAccessKey; createdLabel: string | null }
-  | { ok: false; lines: string[] }
+  | CredentialProblem
 
 const STORAGE_PAGE =
   `the Storage page of the ERPC dashboard (${ERPC_DASHBOARD_URL})`
@@ -260,6 +295,8 @@ const issueStorageAccessKey = (
         'POST',
         '/v3/storage/access-keys',
         { permission: 'read_write', label },
+        // the api.yml lock is held: do not wait for an answer forever
+        { timeoutMs: 30_000 },
       )
     } catch (error) {
       return {
@@ -328,23 +365,21 @@ const issueStorageAccessKey = (
   })
 
 /**
- * The storage access key restic connects with. When none is saved, one is
- * created for this machine with the ERPC login and saved. Without a login, or
- * when the key cannot be created, it prints why and ends the process with
- * exit code 1 — restic is not started.
+ * The storage access key restic connects with, or why there is none. When
+ * none is saved, one is created for this machine with the ERPC login and
+ * saved. For callers that report the problem themselves.
  */
-export const getStorageAccessKey = async (): Promise<StorageAccessKey> => {
+export const resolveStorageAccessKey = async (): Promise<
+  { ok: true; key: StorageAccessKey } | CredentialProblem
+> => {
   const home = resolveHome()
   const saved = await findStorageAccessKey(home)
-  if (saved) return saved
+  if (saved) return { ok: true, key: saved }
 
-  const accessToken = await requireLogin(home)
-  const result = await issueStorageAccessKey(home, accessToken)
-  if (!result.ok) {
-    console.log(colors.red(`❌ ${result.lines[0]}`))
-    for (const line of result.lines.slice(1)) console.log(colors.white(line))
-    Deno.exit(1)
-  }
+  const login = await checkLogin(home)
+  if (!login.ok) return login
+  const result = await issueStorageAccessKey(home, login.accessToken)
+  if (!result.ok) return result
   if (result.createdLabel) {
     console.log(
       colors.green(
@@ -352,5 +387,14 @@ export const getStorageAccessKey = async (): Promise<StorageAccessKey> => {
       ),
     )
   }
-  return result.key
+  return { ok: true, key: result.key }
+}
+
+/**
+ * Like `resolveStorageAccessKey`, but without a key it prints why and ends
+ * the process with exit code 1 — restic is not started.
+ */
+export const getStorageAccessKey = async (): Promise<StorageAccessKey> => {
+  const storage = await resolveStorageAccessKey()
+  return storage.ok ? storage.key : exitWith(storage)
 }

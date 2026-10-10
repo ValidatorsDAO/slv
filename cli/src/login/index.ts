@@ -87,37 +87,53 @@ export const runDeviceLogin = async (
   const polled = await pollDeviceToken(authorization, { sleep, now })
   if (!polled.ok) return { ok: false, lines: pollError(polled.error) }
 
-  // user-api answers 401 when no ERPC account belongs to this sign-in.
+  // A session the server issued but this machine does not keep is revoked
+  // (best effort) before the login stops.
+  const dropIssued = async (lines: string[]): Promise<DeviceLoginResult> => {
+    await revokeRefreshToken(polled.tokens.refreshToken)
+    return { ok: false, lines }
+  }
+
   let username: string | null = null
+  let res
   try {
-    const res = await userApiRequest<{ username?: unknown }>(
+    res = await userApiRequest<{ username?: unknown }>(
       userApiAuthFromAccessToken(polled.tokens.accessToken),
       'GET',
       '/v3/user/get',
+      undefined,
+      { timeoutMs: 30_000 },
     )
-    if (!res.ok) {
-      return {
-        ok: false,
-        lines: [
-          'No ERPC account was found for this sign-in.',
-          `Create your account at ${ERPC_DASHBOARD_URL}, then run $ slv login again.`,
-        ],
-      }
-    }
-    if (typeof res.data?.username === 'string') username = res.data.username
   } catch (error) {
-    return {
-      ok: false,
-      lines: [
-        `Could not check the sign-in with user-api (${
-          error instanceof Error ? error.message : String(error)
-        }).`,
-        TRY_AGAIN,
-      ],
-    }
+    return await dropIssued([
+      `Could not reach ERPC to check the sign-in (${
+        error instanceof Error ? error.message : String(error)
+      }).`,
+      TRY_AGAIN,
+    ])
   }
+  // user-api answers 401 when no ERPC account belongs to this sign-in.
+  if (res.status === 401) {
+    return await dropIssued([
+      'No ERPC account was found for this sign-in.',
+      `Create your account at ${ERPC_DASHBOARD_URL}, then run $ slv login again.`,
+    ])
+  }
+  if (!res.ok) {
+    return await dropIssued([
+      `Could not reach ERPC to check the sign-in (HTTP ${res.status}).`,
+      TRY_AGAIN,
+    ])
+  }
+  if (typeof res.data?.username === 'string') username = res.data.username
 
-  const replaced = await saveSession(home, polled.tokens, polled.receivedAt)
+  let replaced: string | null
+  try {
+    replaced = await saveSession(home, polled.tokens, polled.receivedAt)
+  } catch (error) {
+    await revokeRefreshToken(polled.tokens.refreshToken)
+    throw error
+  }
   // The login this one replaced is not needed any more (best effort).
   if (replaced && replaced !== polled.tokens.refreshToken) {
     await revokeRefreshToken(replaced)
@@ -133,7 +149,7 @@ export const loginAction = async (deps: LoginDeps = {}): Promise<void> => {
       `Sign in to ERPC in your browser to link this machine to your ERPC account.
 To switch to another account, run $ slv logout first.
 Sign in on each machine: a copy of ~/.slv/api.yml used on a second machine
-signs both machines out at the next token refresh.
+signs one or both machines out at the next token refresh.
 No account yet? $ slv signup
 `,
     ),

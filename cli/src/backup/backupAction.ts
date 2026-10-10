@@ -1,8 +1,10 @@
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 import {
-  getStorageAccessKey,
-  getUserApiAuth,
+  type CredentialProblem,
+  printCredentialProblem,
+  resolveStorageAccessKey,
+  resolveUserApiAuth,
   sanitizeSudoUser,
 } from '/lib/getApiKeyFromYml.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
@@ -66,6 +68,25 @@ function getWebhookUrl(cliOption?: string): string | undefined {
  */
 const notifyWebhook = (webhookUrl: string, message: string): Promise<unknown> =>
   notifyDiscordWebhook(webhookUrl, message)
+
+/**
+ * The backup cannot get its ERPC credential (no login, an expired login, a
+ * failed refresh, or no storage access key). A scheduled run has nobody
+ * watching its output, so tell the webhook too, then exit 1.
+ */
+async function stopWithoutCredential(
+  problem: CredentialProblem,
+  webhookUrl: string | undefined,
+): Promise<never> {
+  printCredentialProblem(problem)
+  if (webhookUrl) {
+    await notifyWebhook(
+      webhookUrl,
+      `❌ **SLV Backup Failed**\n**Host**: ${await getHostname()}\n**Error**: ${problem.lines[0]}\nRun \`slv login\` on this host to sign in to ERPC again.`,
+    )
+  }
+  Deno.exit(1)
+}
 
 async function getHostname(): Promise<string> {
   const command = new Deno.Command('hostname', { stdout: 'piped', stderr: 'piped' })
@@ -150,13 +171,16 @@ export const backupAction = async (options: {
   // Pre-flight: an upload needs the ERPC login — check it before the archive
   // is created. (--restic checks its storage access key below.)
   if (options.upload && !options.restic) {
-    await getUserApiAuth()
+    const login = await resolveUserApiAuth()
+    if (!login.ok) await stopWithoutCredential(login, webhookUrl)
   }
 
   // --restic: use restic for incremental backup
   if (options.restic) {
     // Pre-flight: restic connects with the storage access key
-    const storageKey = await getStorageAccessKey()
+    const storage = await resolveStorageAccessKey()
+    if (!storage.ok) return await stopWithoutCredential(storage, webhookUrl)
+    const storageKey = storage.key
     const hostname = await getHostname()
     const resticOpts: ResticBackupOptions = {
       region: options.region,
@@ -381,7 +405,9 @@ async function uploadBackup(
   retention = 7,
   webhookUrl?: string,
 ): Promise<void> {
-  const auth = await getUserApiAuth()
+  const login = await resolveUserApiAuth()
+  if (!login.ok) return await stopWithoutCredential(login, webhookUrl)
+  const auth = login.auth
   const filename = filePath.includes('/') ? filePath.split('/').pop()! : filePath
   const remotePath = `backups/${filename}`
   const fileInfo = await Deno.stat(filePath)

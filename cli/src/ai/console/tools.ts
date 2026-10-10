@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
-import { basename, normalize } from '@std/path'
+import { basename, dirname, normalize, resolve } from '@std/path'
 import type { TUI } from '@mariozechner/pi-tui'
 import {
   injectSkillDocs,
@@ -839,12 +839,38 @@ async function executeRunCommand(command: string): Promise<string> {
   }
 }
 
+/**
+ * True for ~/.slv/api.yml, its lock and its temporary files. The AI console
+ * file tools do not handle ~/.slv/api.yml. The path is made absolute and
+ * normalized, and followed through symlinks when it exists.
+ */
+async function isApiYmlPath(path: string): Promise<boolean> {
+  const real = async (p: string) => {
+    try {
+      return await Deno.realPath(p)
+    } catch {
+      return normalize(resolve(p))
+    }
+  }
+  const target = await real(path)
+  const name = basename(target)
+  if (!name.startsWith('api.yml') && !name.startsWith('.api.yml.')) {
+    return false
+  }
+  const slvDir = `${resolveHome()}/.slv`
+  return dirname(target) === normalize(slvDir) ||
+    dirname(target) === await real(slvDir)
+}
+
 async function executeReadFile(
   path: string,
   offset?: number,
   limit?: number,
   refresh = false,
 ): Promise<string> {
+  if (await isApiYmlPath(path)) {
+    return 'Error: read_file does not read ~/.slv/api.yml. The AI console file tools do not handle ~/.slv/api.yml.'
+  }
   const cacheKey = buildReadFileCacheKey(path, offset, limit)
   if (!refresh) {
     const cached = readFileCache.get(cacheKey)
@@ -904,10 +930,9 @@ async function executeWriteFile(
   if (!target.startsWith(slvDir)) {
     return `Error: write_file only allows writing to ~/.slv/ directory. Requested path: ${path}`
   }
-  // api.yml holds the ERPC login, whose refresh token rotates under a lock;
-  // a whole-file write from here would put an old one back.
-  if (basename(target).startsWith('api.yml') || basename(target).startsWith('.api.yml.')) {
-    return `Error: write_file does not write ~/.slv/api.yml (it holds the ERPC login). Use the slv commands (slv login, slv onboard, slv auth) to change it.`
+  // The AI console file tools do not handle ~/.slv/api.yml.
+  if (await isApiYmlPath(target)) {
+    return `Error: write_file does not write ~/.slv/api.yml. Use the slv commands (slv login, slv onboard, slv auth) to change it.`
   }
 
   try {

@@ -36,7 +36,8 @@ const REVOKE_URL = `${AUTH_API_ORIGIN}/oauth/revoke`
 
 /** Refresh the access token this many seconds before it expires. */
 const REFRESH_MARGIN_SECONDS = 60
-const REFRESH_TIMEOUT_MS = 30_000
+/** Upper bound for one request to the auth server, body included. */
+const AUTH_REQUEST_TIMEOUT_MS = 30_000
 const MIN_POLL_INTERVAL_SECONDS = 5
 const SLOW_DOWN_STEP_SECONDS = 5
 
@@ -168,14 +169,57 @@ export const withCredentialLock = async <T>(
 }
 
 /**
+ * api.yml exists but cannot be read, or is not a YAML mapping. Writers stop
+ * with this before anything is replaced, so no section is lost.
+ */
+export class ApiYmlUnreadableError extends Error {
+  override name = 'ApiYmlUnreadableError'
+  constructor(path: string, problem: string) {
+    super(
+      `${path} ${problem}, so it was not changed. If it belongs to root (for example after running slv with sudo), give it back with: sudo chown "$USER" ${path}`,
+    )
+  }
+}
+
+/** The whole file for a writer: only a missing file counts as empty. */
+const readApiYmlForWrite = async (
+  home: string,
+): Promise<Record<string, unknown>> => {
+  const path = apiYmlPathFor(home)
+  let text: string
+  try {
+    text = await Deno.readTextFile(path)
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return {}
+    throw new ApiYmlUnreadableError(
+      path,
+      `could not be read (${error instanceof Error ? error.name : 'error'})`,
+    )
+  }
+  let parsed: unknown
+  try {
+    parsed = parse(text)
+  } catch {
+    throw new ApiYmlUnreadableError(path, 'is not valid YAML')
+  }
+  if (parsed === null || parsed === undefined) return {}
+  if (!isRecord(parsed)) {
+    throw new ApiYmlUnreadableError(path, 'is not a YAML mapping')
+  }
+  return parsed
+}
+
+/**
  * Read api.yml again, let `change` edit it, and replace api.yml (mode 600)
- * with a rename. The caller holds the lock (`withCredentialLock`).
+ * with a rename. The caller holds the lock (`withCredentialLock`). Throws
+ * `ApiYmlUnreadableError` — before anything is written — when the file
+ * exists but cannot be read or parsed.
  */
 const rewriteApiYmlLocked = async (
   home: string,
   change: (yml: Record<string, unknown>) => void,
 ): Promise<void> => {
-  const yml = await readApiYml(home)
+  const yml = await readApiYmlForWrite(home)
   change(yml)
 
   await ensureSlvDir(home)
@@ -317,46 +361,48 @@ export const saveSession = (
     return isJwtShaped(previous) ? previous : null
   })
 
-/** The body as JSON, or `undefined` when it is not JSON. */
-const readJson = async (res: Response): Promise<unknown> => {
-  try {
-    return JSON.parse(await res.text())
-  } catch {
-    return undefined
-  }
-}
+type FormResult = { status: number; ok: boolean; body: unknown }
 
+/**
+ * POST a form to the auth server. The answer, body included, has to arrive
+ * within 30 seconds (a refresh waits for it holding the api.yml lock);
+ * otherwise the request is aborted and this throws. `body` is the parsed
+ * JSON, or `undefined` when the body is not JSON.
+ */
 const postForm = async (
   url: string,
   fields: Record<string, string>,
-  timeoutMs?: number,
-): Promise<Response> => {
+): Promise<FormResult> => {
   const controller = new AbortController()
-  const timer = timeoutMs === undefined
-    ? undefined
-    : setTimeout(() => controller.abort(), timeoutMs)
+  const timer = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS)
   try {
-    return await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(fields),
       signal: controller.signal,
     })
+    const text = await res.text()
+    let body: unknown
+    try {
+      body = JSON.parse(text)
+    } catch {
+      body = undefined
+    }
+    return { status: res.status, ok: res.ok, body }
   } finally {
-    if (timer !== undefined) clearTimeout(timer)
+    clearTimeout(timer)
   }
 }
 
 const requestRefresh = async (refreshToken: string): Promise<TokenSet> => {
-  let res: Response
-  let body: unknown
+  let res: FormResult
   try {
     res = await postForm(TOKEN_URL, {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: ERPC_CLI_CLIENT_ID,
-    }, REFRESH_TIMEOUT_MS)
-    body = await readJson(res)
+    })
   } catch (error) {
     throw new SessionRefreshError(
       error instanceof DOMException && error.name === 'AbortError'
@@ -366,11 +412,14 @@ const requestRefresh = async (refreshToken: string): Promise<TokenSet> => {
         : String(error),
     )
   }
-  if (res.status === 400 && isRecord(body) && body.error === 'invalid_grant') {
+  if (
+    res.status === 400 && isRecord(res.body) &&
+    res.body.error === 'invalid_grant'
+  ) {
     throw new SessionExpiredError()
   }
   if (!res.ok) throw new SessionRefreshError(`HTTP ${res.status}`)
-  const tokens = parseTokenSet(body)
+  const tokens = parseTokenSet(res.body)
   if (!tokens) throw new SessionRefreshError('incomplete token response')
   return tokens
 }
@@ -416,7 +465,7 @@ export const ensureFreshAccessToken = async (
 
 /**
  * Ask the auth server to revoke a refresh token (RFC 7009 token revocation;
- * public client, so no client authentication). Best effort for `slv logout`
+ * a public client sends its client id and no secret). Best effort for `slv logout`
  * and for the login a new `slv login` replaces: true only on a 2xx. Any other
  * answer or a network failure returns false and nothing is printed — the
  * caller goes on either way.
@@ -425,12 +474,11 @@ export const revokeRefreshToken = async (
   refreshToken: string,
 ): Promise<boolean> => {
   try {
-    const res = await postForm(
-      REVOKE_URL,
-      { token: refreshToken },
-      REFRESH_TIMEOUT_MS,
-    )
-    await res.body?.cancel()
+    const res = await postForm(REVOKE_URL, {
+      token: refreshToken,
+      token_type_hint: 'refresh_token',
+      client_id: ERPC_CLI_CLIENT_ID,
+    })
     return res.ok
   } catch {
     return false
@@ -459,20 +507,19 @@ export type DeviceAuthorizationResult =
 export const requestDeviceAuthorization = async (): Promise<
   DeviceAuthorizationResult
 > => {
-  let res: Response
-  let body: unknown
+  let res: FormResult
   try {
     res = await postForm(DEVICE_AUTHORIZATION_URL, {
       client_id: ERPC_CLI_CLIENT_ID,
       scope: DEVICE_SCOPE,
     })
-    body = await readJson(res)
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }
   }
+  const body = res.body
   if (!res.ok) {
     return {
       ok: false,
@@ -545,18 +592,17 @@ export const pollDeviceToken = async (
     await deps.sleep(interval * 1000)
     if (deps.now() >= deadline) return { ok: false, error: 'expired_token' }
 
-    let res: Response
-    let body: unknown
+    let res: FormResult
     try {
       res = await postForm(TOKEN_URL, {
         grant_type: DEVICE_CODE_GRANT,
         client_id: ERPC_CLI_CLIENT_ID,
         device_code: authorization.deviceCode,
       })
-      body = await readJson(res)
     } catch {
-      continue
+      continue // network failure or no answer within 30 seconds
     }
+    const body = res.body
     if (res.status >= 500 || body === undefined) continue
 
     if (res.ok) {

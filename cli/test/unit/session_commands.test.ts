@@ -2,6 +2,7 @@ import {
   assert,
   assertEquals,
   assertFalse,
+  assertRejects,
   assertStringIncludes,
   assertThrows,
 } from '@std/assert'
@@ -27,6 +28,7 @@ import { listAction as backupListAction } from '@/backup/listAction.ts'
 import { dnsCmd } from '@/dns/index.ts'
 import { writeLang } from '@/ai/config.ts'
 import { executeTool } from '@/ai/console/tools.ts'
+import * as session from '/lib/userApi/session.ts'
 
 import {
   ACCESS_TOKEN,
@@ -240,15 +242,38 @@ Deno.test('r3: a refresh that finds api.yml already refreshed by another process
 Deno.test('r5: another api.yml writer that runs during a refresh does not put the old refresh token back', async () => {
   await withHome({ slv: loggedIn(EXPIRED), lang: 'en' }, async (home) => {
     const apiYml = `${home}/.slv/api.yml`
-    const writeTextFile = Deno.writeTextFile // A slow disk for writes straight to api.yml: an unguarded writer then
-     // reads before the refresh saves and writes after it.
-    ;(Deno as unknown as { writeTextFile: unknown }).writeTextFile = async (
+    const original = {
+      writeTextFile: Deno.writeTextFile,
+      rename: Deno.rename,
+      readTextFile: Deno.readTextFile,
+    }
+    // A slow disk: a write of api.yml that still holds the old refresh token
+    // lands only after the refresh has saved the new one. A writer that read
+    // api.yml before the refresh saved (no lock) then puts the old one back.
+    let refreshSaved = () => {}
+    const saved = new Promise<void>((resolve) => {
+      refreshSaved = resolve
+    })
+    const landLate = async (content: string) => {
+      if (content.includes(NEW_REFRESH_TOKEN)) return
+      await Promise.race([
+        saved,
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ])
+    }
+    const deno = Deno as unknown as Record<string, unknown>
+    deno.writeTextFile = async (
       ...args: Parameters<typeof Deno.writeTextFile>
     ) => {
-      if (String(args[0]) === apiYml) {
-        await new Promise((resolve) => setTimeout(resolve, 300))
-      }
-      return await writeTextFile(...args)
+      if (String(args[0]) === apiYml) await landLate(String(args[1]))
+      return await original.writeTextFile(...args)
+    }
+    deno.rename = async (from: string | URL, to: string | URL) => {
+      if (String(to) !== apiYml) return await original.rename(from, to)
+      const content = await original.readTextFile(from)
+      await landLate(content)
+      await original.rename(from, to)
+      if (content.includes(NEW_REFRESH_TOKEN)) refreshSaved()
     }
     let writer: Promise<void> | null = null
     try {
@@ -269,8 +294,8 @@ Deno.test('r5: another api.yml writer that runs during a refresh does not put th
         assertEquals(toTokenEndpoint(requests).length, 1)
       })
     } finally {
-      ;(Deno as unknown as { writeTextFile: unknown }).writeTextFile =
-        writeTextFile
+      deno.writeTextFile = original.writeTextFile
+      deno.rename = original.rename
     }
     const yml = await readYml(home)
     assertEquals(yml.slv.refresh_token, NEW_REFRESH_TOKEN)
@@ -295,6 +320,32 @@ Deno.test('r6: the AI console write_file tool does not write api.yml', async () 
       assert(result.startsWith('Error'), `${path}: ${result}`)
     }
     assertEquals(await Deno.readTextFile(`${home}/.slv/api.yml`), before)
+  })
+})
+
+Deno.test('r7: the AI console read_file tool does not read api.yml, its lock or its temporary files', async () => {
+  await withHome({ slv: loggedIn(FAR_FUTURE) }, async (home) => {
+    await Deno.writeTextFile(`${home}/.slv/api.yml.lock`, '')
+    await Deno.writeTextFile(`${home}/.slv/.api.yml.0000.tmp`, 'slv: {}\n')
+    const cwd = Deno.cwd()
+    try {
+      Deno.chdir(`${home}/.slv`)
+      for (
+        const path of [
+          `${home}/.slv/api.yml`,
+          `${home}/.slv/agent/../api.yml`,
+          'api.yml',
+          `${home}/.slv/api.yml.lock`,
+          `${home}/.slv/.api.yml.0000.tmp`,
+        ]
+      ) {
+        const result = await executeTool('read_file', { path, refresh: true })
+        assert(result.startsWith('Error'), `${path}: ${result}`)
+        assertFalse(result.includes(REFRESH_TOKEN), path)
+      }
+    } finally {
+      Deno.chdir(cwd)
+    }
   })
 })
 
@@ -561,10 +612,10 @@ Deno.test('o2: slv logout revokes the refresh token once, and a 404 from the rev
         assertEquals(revokes.length, 1)
         assertEquals(revokes[0].method, 'POST')
         assertEquals(revokes[0].authorization, null)
-        assertEquals(
-          new URLSearchParams(revokes[0].body ?? '').get('token'),
-          REFRESH_TOKEN,
-        )
+        const fields = new URLSearchParams(revokes[0].body ?? '')
+        assertEquals(fields.get('token'), REFRESH_TOKEN)
+        assertEquals(fields.get('token_type_hint'), 'refresh_token')
+        assertEquals(fields.get('client_id'), 'erpc-cli')
         assertFalse(outcome.output.includes(REFRESH_TOKEN))
         assertFalse(outcome.output.includes('not_found'))
       },
@@ -575,6 +626,93 @@ Deno.test('o2: slv logout revokes the refresh token once, and a 404 from the rev
     }
     assertEquals(yml.ai, OTHER_SECTIONS.ai)
   })
+})
+
+Deno.test('b1: a backup that cannot get the ERPC login or a storage access key posts the failure to its webhook, then exits 1', async () => {
+  const WEBHOOK = 'https://hooks.example.invalid/backup'
+  const cases: [string, Record<string, unknown>, Record<string, unknown>][] = [
+    ['--upload, refresh refused', loggedIn(EXPIRED), { upload: true }],
+    ['--restic, never signed in', { api_key: API_KEY }, { restic: true }],
+  ]
+  for (const [name, slv, mode] of cases) {
+    await withHome({ slv }, async (home) => {
+      await Deno.writeTextFile(
+        `${home}/.slv/restic-password`,
+        'test-password\n',
+      )
+      await withCommandStub(
+        (call) => ({ stdout: call.command === 'hostname' ? 'node-1\n' : '' }),
+        async (calls) => {
+          await withFetch((url) => {
+            if (url === AUTH_TOKEN_URL) {
+              return json({ error: 'invalid_grant' }, 400)
+            }
+            if (url === WEBHOOK) return new Response(null, { status: 204 })
+            return json({}, 500)
+          }, async (requests) => {
+            const outcome = await runCaptured(() =>
+              backupAction({
+                ...mode,
+                yes: true,
+                webhook: WEBHOOK,
+                output: `${home}/backup.tar.gz`,
+              })
+            )
+            assertEquals(outcome.exit, 1, `${name}: ${outcome.output}`)
+            const posts = requests.filter((r) => r.url === WEBHOOK)
+            assertEquals(posts.length, 1, `${name}: webhook posts`)
+            assertStringIncludes(posts[0].body ?? '', 'slv login')
+            assertEquals(toUserApi(requests).length, 0, name)
+          })
+          assertEquals(
+            calls.filter((c) => c.command === 'restic').length,
+            0,
+            `${name}: restic was started`,
+          )
+        },
+      )
+    })
+  }
+})
+
+Deno.test('w1: a writer stops without changing api.yml when it cannot read it or it is not valid YAML', async () => {
+  const writers: [string, (home: string) => Promise<unknown>][] = [
+    ['writeLang', () => writeLang('ja')],
+    [
+      'mergeSlvCredentials',
+      (home) => mergeSlvCredentials({ api_key: API_KEY }, home),
+    ],
+  ]
+  const unreadable = Deno.uid() !== 0 // root reads a mode 000 file anyway
+  for (const [name, write] of writers) {
+    if (unreadable) {
+      await withHome({
+        slv: loggedIn(FAR_FUTURE),
+        ...OTHER_SECTIONS,
+      }, async (home) => {
+        const path = `${home}/.slv/api.yml`
+        const before = await Deno.readTextFile(path)
+        await Deno.chmod(path, 0o000)
+        try {
+          await assertRejects(() => write(home), session.ApiYmlUnreadableError)
+        } finally {
+          await Deno.chmod(path, 0o600)
+        }
+        assertEquals(await Deno.readTextFile(path), before, `${name}: mode 000`)
+      })
+    }
+    await withHome(null, async (home) => {
+      const path = `${home}/.slv/api.yml`
+      const broken = 'slv:\n  api_key: [unclosed\nai: {provider: slv\n'
+      await Deno.writeTextFile(path, broken)
+      await assertRejects(() => write(home), session.ApiYmlUnreadableError)
+      assertEquals(
+        await Deno.readTextFile(path),
+        broken,
+        `${name}: broken YAML`,
+      )
+    })
+  }
 })
 
 Deno.test('c1: slv check asks for the API key when none is saved, saves it, and puts it in the geyserbench config', async () => {
