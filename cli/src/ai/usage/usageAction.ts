@@ -20,7 +20,7 @@ export const aiUsageAction = async () => {
   try {
     const response = await fetch(USER_API_URL, {
       headers: {
-        Authorization: userApiAuthHeader(auth),
+        Authorization: await userApiAuthHeader(auth),
       },
     })
 

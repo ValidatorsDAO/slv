@@ -11,7 +11,6 @@ import {
   multipartCreate,
   multipartUploadPart,
   presignUpload,
-  refuseStorageTransfer,
   storageDelete,
   storageList,
   StorageApiError,
@@ -142,17 +141,16 @@ export const backupAction = async (options: {
     return
   }
 
-  // Uploading the archive (and a cron job that does it) goes through the
-  // file transfer routes, which do not accept an account access token. Stop
-  // before anything is scheduled, archived or sent. --restic does not use them.
-  const wantsUpload = !options.restic &&
-    (options.upload || (options.cron && options.cron !== 'off'))
-  if (wantsUpload && refuseStorageTransfer()) return
-
   // --cron: set up cron job
   if (options.cron) {
     await setupCron(options.cron, options.retention ?? 7, !!options.restic)
     if (!options.upload && !options.restic) return // cron-only mode
+  }
+
+  // Pre-flight: an upload needs the ERPC login — check it before the archive
+  // is created. (--restic checks its storage access key below.)
+  if (options.upload && !options.restic) {
+    await getUserApiAuth()
   }
 
   // --restic: use restic for incremental backup

@@ -74,7 +74,7 @@ export const writeAiConfig = async (config: AiConfig): Promise<void> => {
   await Deno.mkdir(dirname(path), { recursive: true })
   const yml = await readApiYmlForWrite()
 
-  // When provider is 'slv', omit api_key from the YAML (slv.access_token is used instead)
+  // When provider is 'slv', omit api_key from the YAML (the ERPC login from `slv login` is used instead)
   if (config.provider === 'slv') {
     const { api_key: _unused, ...rest } = config
     yml.ai = { ...rest, api_key: '' } as AiConfig

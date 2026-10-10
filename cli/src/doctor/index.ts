@@ -180,7 +180,7 @@ const checkDns = async (): Promise<CheckResult> => {
     return {
       name: 'DNS record',
       status: 'skip',
-      message: 'no account access token — run `slv login` to enable this check',
+      message: 'not signed in to ERPC — run `slv login` to enable this check',
     }
   }
   // Fetch status + local public IP in parallel — independent network calls.

@@ -4,7 +4,6 @@ import { getStorageAccessKey, getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   presignDownload,
-  refuseStorageTransfer,
   storageList,
   StorageApiError,
   type StorageRegion,
@@ -198,10 +197,7 @@ export const importAction = async (
     // Local file provided
     localFile = file
   } else {
-    // Download from cloud storage: the presigned download route does not
-    // accept an account access token, so stop before listing or requesting.
-    if (refuseStorageTransfer()) return
-
+    // Download from cloud storage
     const auth = await getUserApiAuth()
     const region = options.region as StorageRegion | undefined
 

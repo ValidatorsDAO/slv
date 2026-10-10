@@ -29,7 +29,7 @@ export const listAction = async (options: {
     ? await getStorageAccessKey()
     : await findStorageAccessKey()
 
-  // The cloud storage list is read with the account access token.
+  // The cloud storage list is read with the ERPC login.
   const auth = options.restic ? null : await getUserApiAuth()
 
   // Show restic snapshots if available

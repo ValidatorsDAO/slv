@@ -1,200 +1,159 @@
 import { Command } from '@cliffy'
-import { prompt, Secret } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
-import {
-  isValidAccessToken,
-  isValidApiKey,
-  isValidStorageAccessKeyId,
-  isValidStorageSecret,
-  mergeSlvCredentials,
-  resolveHome,
-  type SlvCredentialKey,
-  type SlvCredentialUpdate,
-} from '/lib/getApiKeyFromYml.ts'
+import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { userApiAuthFromAccessToken } from '/lib/userApi/auth.ts'
 import { userApiRequest } from '/lib/userApi/client.ts'
+import {
+  nowInSeconds,
+  openInBrowser,
+  pollDeviceToken,
+  requestDeviceAuthorization,
+  saveSession,
+} from '/lib/userApi/session.ts'
 
-/**
- * What `slv login` asks for. A field that is empty or left out keeps the
- * value that is already saved.
- */
-export type LoginInput = {
-  /** API key (RPC endpoints). */
-  apiKey?: string
-  /** Account access token (user-api). */
-  accessToken?: string
-  /** Storage access key id (restic). Comes together with the secret. */
-  storageAccessKeyId?: string
-  /** Storage access key secret (restic). Comes together with the id. */
-  storageSecret?: string
+/** What `slv login` waits with; tests replace these so nothing really waits. */
+export type LoginDeps = {
+  /** Wait `ms` milliseconds before the next poll. */
+  sleep?: (ms: number) => Promise<void>
+  /** Current time in Unix seconds. */
+  now?: () => number
+  /** Open the sign-in page (desktop sessions only). */
+  openBrowser?: (url: string) => void
 }
 
-export type LoginResult =
-  | { ok: true; saved: SlvCredentialKey[] }
-  | { ok: false; error: string }
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-const clean = (value: string | undefined): string | undefined => {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : undefined
+const TRY_AGAIN = 'Run $ slv login to try again.'
+
+export type DeviceLoginResult =
+  | { ok: true; username: string | null }
+  | { ok: false; lines: string[] }
+
+const pollError = (error: string): string[] => {
+  switch (error) {
+    case 'access_denied':
+      return ['The sign-in was denied in the browser.', TRY_AGAIN]
+    case 'expired_token':
+      return ['The code expired before the sign-in was finished.', TRY_AGAIN]
+    default:
+      return [`The sign-in did not finish (${error}).`, TRY_AGAIN]
+  }
 }
 
 /**
- * Check everything first, then write once: a value of the wrong shape, a
- * half-given storage key, or a token the server does not accept leaves
- * ~/.slv/api.yml untouched. The new values are merged into `slv:` and the
- * rest of the file is kept.
+ * Sign in to ERPC in a browser (OAuth device authorization) and save the
+ * login. Shows the page and the code, waits for the browser, checks the new
+ * access token against user-api, and only then merges the access token, the
+ * refresh token and the expiry into `slv:` of ~/.slv/api.yml (a saved storage
+ * access key and API key stay). A failure returns what to tell the user and
+ * leaves the file as it was.
  */
-export const saveLogin = async (
-  input: LoginInput,
-  home: string = resolveHome(),
-): Promise<LoginResult> => {
-  const apiKey = clean(input.apiKey)
-  const accessToken = clean(input.accessToken)
-  const storageId = clean(input.storageAccessKeyId)
-  const storageSecret = clean(input.storageSecret)
+export const runDeviceLogin = async (
+  deps: LoginDeps = {},
+): Promise<DeviceLoginResult> => {
+  const sleep = deps.sleep ?? wait
+  const now = deps.now ?? nowInSeconds
+  const openBrowser = deps.openBrowser ?? openInBrowser
+  const home = resolveHome()
 
-  if (apiKey && !isValidApiKey(apiKey)) {
+  const started = await requestDeviceAuthorization()
+  if (!started.ok) {
     return {
       ok: false,
-      error: 'The API key does not have the expected format (a UUID).',
+      lines: [`Could not start the sign-in (${started.error}).`, TRY_AGAIN],
     }
   }
-  if (accessToken && !isValidAccessToken(accessToken)) {
-    return {
-      ok: false,
-      error:
-        'The account access token does not have the expected format (erpcat_ followed by 43 characters).',
-    }
-  }
-  if (Boolean(storageId) !== Boolean(storageSecret)) {
-    return {
-      ok: false,
-      error:
-        'A storage access key needs both the key id and the secret. Enter both, or leave both empty.',
-    }
-  }
-  if (storageId && !isValidStorageAccessKeyId(storageId)) {
-    return {
-      ok: false,
-      error:
-        'The storage access key id does not have the expected format (erpcsk_ followed by 16 characters).',
-    }
-  }
-  if (storageSecret && !isValidStorageSecret(storageSecret)) {
-    return {
-      ok: false,
-      error:
-        'The storage access key secret does not have the expected format (43 characters).',
-    }
-  }
+  const authorization = started.authorization
 
-  if (accessToken) {
-    try {
-      const res = await userApiRequest<unknown>(
-        userApiAuthFromAccessToken(accessToken),
-        'GET',
-        '/v3/user/get',
-      )
-      if (!res.ok) {
-        return {
-          ok: false,
-          error:
-            `The account access token was not accepted (HTTP ${res.status}).`,
-        }
-      }
-    } catch (error) {
+  console.log(colors.white('Open this page and confirm the code:\n'))
+  console.log(
+    colors.blue.underline(`  ${authorization.verificationUriComplete}`),
+  )
+  console.log(colors.white(`\n  Code: ${colors.bold(authorization.userCode)}`))
+  console.log(
+    colors.gray(
+      `  (or open ${authorization.verificationUri} and enter the code)\n`,
+    ),
+  )
+  openBrowser(authorization.verificationUriComplete)
+  console.log(
+    colors.white('Waiting for the sign-in to finish in the browser...'),
+  )
+
+  const polled = await pollDeviceToken(authorization, { sleep, now })
+  if (!polled.ok) return { ok: false, lines: pollError(polled.error) }
+
+  // user-api answers 401 when no ERPC account belongs to this sign-in.
+  let username: string | null = null
+  try {
+    const res = await userApiRequest<{ username?: unknown }>(
+      userApiAuthFromAccessToken(polled.tokens.accessToken),
+      'GET',
+      '/v3/user/get',
+    )
+    if (!res.ok) {
       return {
         ok: false,
-        error: `Could not check the account access token: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        lines: [
+          'No ERPC account was found for this sign-in.',
+          `Create your account at ${ERPC_DASHBOARD_URL}, then run $ slv login again.`,
+        ],
       }
+    }
+    if (typeof res.data?.username === 'string') username = res.data.username
+  } catch (error) {
+    return {
+      ok: false,
+      lines: [
+        `Could not check the sign-in with user-api (${
+          error instanceof Error ? error.message : String(error)
+        }).`,
+        TRY_AGAIN,
+      ],
     }
   }
 
-  const update: SlvCredentialUpdate = {}
-  if (apiKey) update.api_key = apiKey
-  if (accessToken) update.access_token = accessToken
-  if (storageId && storageSecret) {
-    update.storage_access_key_id = storageId
-    update.storage_secret = storageSecret
-  }
-  const saved = Object.keys(update) as SlvCredentialKey[]
-  if (saved.length > 0) await mergeSlvCredentials(update, home)
-  return { ok: true, saved }
+  await saveSession(home, polled.tokens, polled.receivedAt)
+  return { ok: true, username }
 }
 
-const LABELS: Record<SlvCredentialKey, string> = {
-  api_key: 'API key',
-  access_token: 'account access token',
-  storage_access_key_id: 'storage access key id',
-  storage_secret: 'storage access key secret',
+/** `slv login`. Asks for nothing in the terminal; any failure exits with 1. */
+export const loginAction = async (deps: LoginDeps = {}): Promise<void> => {
+  console.log(colors.bold.blue(`⚡️ SLV Login ⚡️\n`))
+  console.log(
+    colors.white(
+      `Sign in to ERPC in your browser to link this machine to your ERPC account.
+To switch to another account, run $ slv logout first.
+Sign in on each machine: a copy of ~/.slv/api.yml used on a second machine
+signs both machines out at the next token refresh.
+No account yet? $ slv signup
+`,
+    ),
+  )
+
+  const result = await runDeviceLogin(deps)
+  if (!result.ok) {
+    console.log(colors.red(`\n❌ ${result.lines[0]}`))
+    for (const line of result.lines.slice(1)) console.log(colors.white(line))
+    console.log(colors.white('Nothing was saved.\n'))
+    Deno.exit(1)
+  }
+
+  console.log(
+    colors.green(
+      `\n✔️ ${
+        result.username
+          ? `Signed in as ${result.username}.`
+          : 'Signed in to ERPC.'
+      } Saved to ~/.slv/api.yml.\n`,
+    ),
+  )
+  console.log(colors.white(`🚀 Full Features Unlocked\n`))
+  console.log(colors.blue(`👉 $ slv metal product\n`))
 }
 
 export const loginCmd = new Command()
-  .description(
-    'Save your API key, account access token and storage access key on this machine',
-  )
-  .action(async () => {
-    const loginTxt = `⚡️ SLV Login to unlock full features ⚡️\n`
-    console.log(colors.bold.blue(loginTxt))
-    console.log(
-      colors.white(
-        `If you don't have an account yet:
-
-$ slv signup
-
-Create your account access token and your storage access key in the ERPC dashboard:
-${ERPC_DASHBOARD_URL} (storage access keys are on the Storage page).
-Press Enter to keep a value that is already saved.
-A storage access key with read_write permission is needed for --retention in
-$ slv backup create --restic
-
-`,
-      ),
-    )
-    const answers = await prompt([
-      {
-        name: 'apiKey',
-        message: '🔑 API key (for RPC; Enter to skip)',
-        type: Secret,
-      },
-      {
-        name: 'accessToken',
-        message: '🔑 Account access token (Enter to skip)',
-        type: Secret,
-      },
-      {
-        name: 'storageAccessKeyId',
-        message: '🔑 Storage access key id (optional; Enter to skip)',
-        type: Secret,
-      },
-      {
-        name: 'storageSecret',
-        message: '🔑 Storage access key secret (optional; Enter to skip)',
-        type: Secret,
-      },
-    ])
-
-    const result = await saveLogin(answers)
-    if (!result.ok) {
-      console.log(colors.red(`\n❌ ${result.error}`))
-      console.log(colors.white('Nothing was saved.\n'))
-      Deno.exit(1)
-    }
-    if (result.saved.length === 0) {
-      console.log(
-        colors.yellow('\nNothing new was entered. Nothing was changed.\n'),
-      )
-      return
-    }
-
-    console.log(
-      colors.green('\n✔️ Saved to ~/.slv/api.yml:'),
-      result.saved.map((key) => LABELS[key]).join(', '),
-      '\n',
-    )
-    console.log(colors.white(`🚀 Full Features Unlocked\n`))
-    console.log(colors.blue(`👉 $ slv metal product\n`))
-  })
+  .description('Sign in to ERPC in your browser and link this machine')
+  .action(() => loginAction())

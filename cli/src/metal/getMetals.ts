@@ -13,7 +13,7 @@ const getMetals = async (
     const myHeaders = new Headers()
     myHeaders.append(
       'Authorization',
-      userApiAuthHeader(auth),
+      await userApiAuthHeader(auth),
     )
     myHeaders.append('Content-Type', 'application/json')
     const requestOptions = {

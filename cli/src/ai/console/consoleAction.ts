@@ -1004,9 +1004,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   }
 
   if (gatewayBootstrap) {
-    // Swap in the WS-backed provider. The SLV account access token is
-    // still read because some code paths (authorization checks, token
-    // purchasing) reach for it.
+    // Swap in the WS-backed provider. The ERPC login is still read
+    // because some code paths (authorization checks, token purchasing)
+    // reach for it.
     if (config.provider === 'slv') {
       slvAuth = await findUserApiAuth()
     }
@@ -1028,11 +1028,11 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       callbacks,
     )
   } else if (config.provider === 'slv') {
-    // SLV AI uses slv.access_token from ~/.slv/api.yml (not ai.api_key)
+    // SLV AI uses the ERPC login from ~/.slv/api.yml (not ai.api_key)
     slvAuth = await findUserApiAuth()
     if (!slvAuth) {
       console.log(
-        `\n  ${t('SLV account access token not found. Run `slv login` first.')}\n`,
+        `\n  ${t('Not signed in to ERPC. Run `slv login` first.')}\n`,
       )
       return
     }

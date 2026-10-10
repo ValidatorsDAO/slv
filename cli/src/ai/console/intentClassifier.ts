@@ -59,7 +59,7 @@ type ClassifierConfig = {
   provider: 'openai' | 'anthropic' | 'slv'
   apiKey: string
   model: string
-  /** Account access token for the `slv` provider (user-api). */
+  /** ERPC login for the `slv` provider (user-api). */
   slvAuth?: UserApiAuth
 }
 
@@ -274,7 +274,7 @@ async function callSlvClassifier(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': userApiAuthHeader(config.slvAuth),
+      'Authorization': await userApiAuthHeader(config.slvAuth),
     },
     body: JSON.stringify({
       model: config.model === 'SLV AI' ? 'slv-ai-default' : config.model,

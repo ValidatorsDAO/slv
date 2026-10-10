@@ -75,7 +75,7 @@ const send = async (
   body?: Record<string, unknown>,
 ): Promise<UserApiRawResponse> => {
   const headers: Record<string, string> = {
-    'Authorization': userApiAuthHeader(auth),
+    'Authorization': await userApiAuthHeader(auth),
   }
   const init: RequestInit = { method, headers }
   if (body !== undefined) {

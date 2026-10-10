@@ -374,7 +374,7 @@ const nginxCmd = new Command()
       if (!auth) {
         console.error(
           colors.red(
-            '❌ no account access token found — run `slv login` first.',
+            '❌ not signed in to ERPC — run `slv login` first.',
           ),
         )
         return

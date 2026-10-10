@@ -16,7 +16,7 @@ import { generateCsr } from '/lib/generateCsr.ts'
 const b64 = (pem: string): string => btoa(pem)
 
 export type NginxFlowInput = {
-  /** Account access token used to authenticate against the erpc /v3/dns/* endpoints. */
+  /** ERPC login used to authenticate against the erpc /v3/dns/* endpoints. */
   auth: UserApiAuth
   /** Loopback port on this host to reverse-proxy to. Typically 20026 (gateway). */
   port: number
@@ -87,7 +87,7 @@ export const runNginxFlow = async (
       ok: false,
       stage: 'dns_status',
       error: status.status === 401
-        ? 'SLV account access token rejected — run `slv login`.'
+        ? 'ERPC login rejected — run `slv login` again.'
         : `/v3/dns/status returned ${status.status}`,
     }
   }

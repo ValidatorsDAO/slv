@@ -61,7 +61,7 @@ const getSlvAuth = async (): Promise<UserApiAuth | null> => {
 }
 
 // Batch-translate the English dictionary to `lang` via SLV AI.
-// Returns null if no account access token or the call fails (caller falls
+// Returns null if not signed in to ERPC or the call fails (caller falls
 // back to English).
 const translateViaSlvAi = async (
   lang: string,
@@ -84,7 +84,7 @@ const translateViaSlvAi = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: userApiAuthHeader(auth),
+        Authorization: await userApiAuthHeader(auth),
       },
       body: JSON.stringify({
         model: 'slv-ai-default',

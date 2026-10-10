@@ -21,20 +21,20 @@ export const messages: Record<string, string> = {
   'No': 'Không',
   'Setup cancelled.': 'Đã hủy cài đặt.',
 
-  'SLV Account Access Token':
-    'Mã thông báo truy cập tài khoản SLV',
-  'Get your account access token: https://dashboard.erpc.global':
-    'Nhận mã thông báo truy cập tài khoản: https://dashboard.erpc.global',
-  '🔑 SLV account access token (or press Enter to skip)':
-    '🔑 Mã thông báo truy cập tài khoản SLV (nhấn Enter để bỏ qua)',
-  'SLV account access token saved.':
-    'Đã lưu mã thông báo truy cập tài khoản SLV.',
-  'That does not look like an account access token.':
-    'Giá trị này không giống mã thông báo truy cập tài khoản.',
+  'ERPC Login':
+    'Đăng nhập ERPC',
+  'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
+    'Đăng nhập ERPC trên trình duyệt để dùng SLV AI và tài khoản ERPC của bạn từ máy này.',
+  'Sign in to ERPC now?':
+    'Đăng nhập ERPC ngay bây giờ?',
+  'Signed in to ERPC.':
+    'Đã đăng nhập ERPC.',
+  'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
+    'Chưa đăng nhập ERPC. Hãy chạy `slv login` trên máy này để dùng SLV AI và HTTPS.',
   'Skipped. You can run `slv login` later.':
     'Đã bỏ qua. Bạn có thể chạy `slv login` sau.',
-  'Using SLV AI (powered by your SLV account access token).':
-    'Đang sử dụng SLV AI (dùng mã thông báo truy cập tài khoản SLV của bạn).',
+  'Using SLV AI (powered by your ERPC login).':
+    'Đang sử dụng SLV AI (dùng thông tin đăng nhập ERPC của bạn).',
 
   'Agent Setup': 'Cài đặt Agent',
   'Your name': 'Tên của bạn',
@@ -214,8 +214,8 @@ export const messages: Record<string, string> = {
   'Installing solana-cli (agave)...': 'Đang cài đặt solana-cli (agave)...',
   '✓ solana-cli installed': '✓ Đã cài đặt solana-cli',
 
-  'SLV account access token not found. Run `slv login` first.':
-    'Không tìm thấy mã thông báo truy cập tài khoản SLV. Vui lòng chạy `slv login` trước.',
+  'Not signed in to ERPC. Run `slv login` first.':
+    'Chưa đăng nhập ERPC. Hãy chạy `slv login` trước.',
   'Checking for new versions…': 'Đang kiểm tra phiên bản mới…',
   '🔄 New versions available:': '🔄 Đã có phiên bản mới:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -342,10 +342,8 @@ export const messages: Record<string, string> = {
   'Browser chat UI': 'Giao diện chat trình duyệt',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Đang cài dịch vụ chạy nền để bạn có thể trò chuyện với SLV từ trình duyệt tại http://127.0.0.1:{port}/ui/ mà không cần mở terminal.',
-  'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'Mã thông báo truy cập tài khoản SLV cho phép trỏ subdomain erpc.global miễn phí của bạn đến VPS này để có HTTPS ngay.',
-  '🔑 Paste your SLV account access token here (Enter to skip HTTPS):':
-    '🔑 Dán mã thông báo truy cập tài khoản SLV tại đây (Enter để bỏ qua HTTPS):',
+  'Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'Đăng nhập ERPC giúp trỏ tên miền phụ erpc.global miễn phí của bạn tới VPS này để bật HTTPS ngay.',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     'Đã bỏ qua. Chạy `slv login` rồi `slv install nginx` sau để bật HTTPS.',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':

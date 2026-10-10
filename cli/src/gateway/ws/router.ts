@@ -235,8 +235,8 @@ const methods: Record<string, MethodHandler> = {
         'no AI provider configured — run `slv onboard` first',
       )
     }
-    // SLV provider reads its credential from ~/.slv/api.yml's
-    // slv.access_token (not the ai.api_key field, which is used by
+    // SLV provider uses the ERPC login saved in ~/.slv/api.yml by
+    // `slv login` (not the ai.api_key field, which is used by
     // anthropic/openai for their own API keys).
     let slvAuth: UserApiAuth | null = null
     if (aiCfg.provider === 'slv') {
@@ -245,13 +245,13 @@ const methods: Record<string, MethodHandler> = {
       } catch (err) {
         return resErr(
           req,
-          `failed to read SLV account access token: ${err instanceof Error ? err.message : String(err)}`,
+          `failed to read the ERPC login: ${err instanceof Error ? err.message : String(err)}`,
         )
       }
       if (!slvAuth) {
         return resErr(
           req,
-          'no SLV account access token — run `slv signup` / `slv login` first',
+          'not signed in to ERPC — run `slv signup` / `slv login` first',
         )
       }
     }

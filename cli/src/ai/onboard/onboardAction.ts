@@ -1,4 +1,4 @@
-import { Checkbox, Input, Secret, Select } from '@cliffy/prompt'
+import { Checkbox, Input, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { parse, stringify } from '@std/yaml'
 import { slvAA } from '/lib/slvAA.ts'
@@ -19,10 +19,11 @@ import {
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
 import {
   findUserApiAuth,
-  isValidAccessToken,
+  isValidApiKey,
   mergeSlvCredentials,
   resolveHome,
 } from '/lib/getApiKeyFromYml.ts'
+import { runDeviceLogin } from '@/login/index.ts'
 import { Confirm } from '@cliffy/prompt'
 import { installAction as installGatewayAction } from '/src/gateway/install.ts'
 import { pickGatewayService } from '/src/gateway/service/pick.ts'
@@ -36,10 +37,7 @@ import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
 import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
 import { getDnsStatus } from '/lib/userApi/dns.ts'
 import { openSupportTicket } from '/lib/userApi/support.ts'
-import {
-  type UserApiAuth,
-  userApiAuthFromAccessToken,
-} from '/lib/userApi/auth.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
 
@@ -51,6 +49,13 @@ import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
  * single-invocation CLI command — there's no concurrency to race.
  */
 let currentCfg: OnboardConfig = {}
+
+/**
+ * True when the answers come from `--config <path>` (for example from
+ * cloud-init). Such a run never starts a browser sign-in: nobody is there to
+ * finish it, and the run would wait for up to 15 minutes.
+ */
+let fromConfigFile = false
 
 /** Return the preset value if present, otherwise run the prompt. */
 const orPrompt = async <T>(
@@ -289,6 +294,7 @@ export const onboardAction = async (
   opts: { configPath?: string } = {},
 ) => {
   currentCfg = opts.configPath ? await loadOnboardConfig(opts.configPath) : {}
+  fromConfigFile = Boolean(opts.configPath)
   if (opts.configPath) {
     console.log(
       colors.gray(
@@ -374,56 +380,59 @@ export const onboardAction = async (
     return
   }
 
-  // Check for an existing account access token
+  // The RPC API key from --config. It is used for RPC only — the ERPC
+  // account features below use the ERPC login (`slv login`).
   const home = resolveHome()
-  const hasSlvKey = (await findUserApiAuth(home)) !== null
+  const configApiKey = currentCfg.slv_api_key?.trim()
+  if (configApiKey && isValidApiKey(configApiKey)) {
+    await mergeSlvCredentials({ api_key: configApiKey }, home)
+  }
 
-  if (!hasSlvKey) {
-    console.log(
-      colors.bold.rgb24(`│  ${t('SLV Account Access Token')}`, 0x14f195),
-    )
-    console.log(
-      colors.white(
-        `  ${t('Get your account access token: https://dashboard.erpc.global')}\n`,
-      ),
-    )
+  // ERPC login: SLV AI and the HTTPS step call user-api with it.
+  const signedIn = (await findUserApiAuth(home)) !== null
 
-    const slvAccessToken = currentCfg.slv_access_token !== undefined
-      ? currentCfg.slv_access_token
-      : await Secret.prompt({
-        message: t('🔑 SLV account access token (or press Enter to skip)'),
+  if (!signedIn) {
+    console.log(
+      colors.bold.rgb24(`│  ${t('ERPC Login')}`, 0x14f195),
+    )
+    if (fromConfigFile) {
+      console.log(
+        colors.rgb24(
+          `  ${
+            t('Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.')
+          }\n`,
+          0x888888,
+        ),
+      )
+    } else {
+      console.log(
+        colors.white(
+          `  ${
+            t('Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.')
+          }\n`,
+        ),
+      )
+      const signIn = await Confirm.prompt({
+        message: t('Sign in to ERPC now?'),
+        default: true,
       })
-
-    if (slvAccessToken && slvAccessToken.trim().length > 0) {
-      if (isValidAccessToken(slvAccessToken.trim())) {
-        // Merge into `slv:` so a saved API key / storage key stays.
-        await mergeSlvCredentials({ access_token: slvAccessToken.trim() }, home)
-        console.log(colors.green(`  ✔ ${t('SLV account access token saved.')}\n`))
-        // The just-entered token unlocks AI translation for non-builtin langs.
+      if (signIn && await signInToErpc(t)) {
+        // The new login unlocks AI translation for non-builtin langs.
         const currentLang = await readLang()
         if (!BUILTIN_LANGS[currentLang]) {
           await initI18n()
         }
       } else {
         console.log(
-          colors.yellow(
-            `  ${t('That does not look like an account access token.')}`,
-          ),
-        )
-        console.log(
           colors.rgb24(`  ${t('Skipped. You can run `slv login` later.')}\n`, 0x888888),
         )
       }
-    } else {
-      console.log(
-        colors.rgb24(`  ${t('Skipped. You can run `slv login` later.')}\n`, 0x888888),
-      )
     }
   }
 
   // Default to SLV AI — no provider selection needed
   // Users can manually configure OpenAI/Anthropic in ~/.slv/api.yml if desired
-  console.log(colors.green(`  ✔ ${t('Using SLV AI (powered by your SLV account access token).')}\n`))
+  console.log(colors.green(`  ✔ ${t('Using SLV AI (powered by your ERPC login).')}\n`))
 
   await writeAiConfig({
     provider: 'slv' as AiProvider,
@@ -1198,7 +1207,8 @@ const sendOnboardWebhook = async (opts: {
  * message that works from any phone/laptop with no SSH tunnel.
  *
  * Skipped silently when:
- *   - no account access token is configured (user still needs `slv login`)
+ *   - running from `--config` without an ERPC login (no browser sign-in
+ *     there — the user runs `slv login` later)
  *   - we can't read DNS status (offline / API down)
  *   - the user's default slug is already set to an IP we can't
  *     confirm (we leave whatever they have alone rather than
@@ -1228,41 +1238,34 @@ const maybeSetupHttps = async (
   )
 
   // FIX 1: re-read api.yml fresh (findUserApiAuth already bypasses
-  // any cache). If it's still missing after the onboard token
-  // step, offer to paste one now so HTTPS isn't blocked on a
+  // any cache). If there is still no ERPC login after the onboard
+  // login step, offer to sign in now so HTTPS isn't blocked on a
   // single skipped prompt earlier in the flow.
   let auth = await readSlvAuthOrNull()
-  if (!auth) {
+  if (!auth && !fromConfigFile) {
     console.log(
       colors.white(
         `  ${
-          t('An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
+          t('Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
         }`,
       ),
     )
-    const pasted = (await Secret.prompt({
-      message: t('🔑 Paste your SLV account access token here (Enter to skip HTTPS):'),
-    })).trim()
-    if (!pasted || !isValidAccessToken(pasted)) {
-      if (pasted) {
-        console.log(
-          colors.yellow(
-            `  ${t('That does not look like an account access token.')}`,
-          ),
-        )
-      }
-      console.log(
-        colors.rgb24(
-          `  ${
-            t('Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.')
-          }\n`,
-          0x888888,
-        ),
-      )
-      return null
-    }
-    await mergeSlvCredentials({ access_token: pasted })
-    auth = userApiAuthFromAccessToken(pasted)
+    const signIn = await Confirm.prompt({
+      message: t('Sign in to ERPC now?'),
+      default: true,
+    })
+    if (signIn && await signInToErpc(t)) auth = await readSlvAuthOrNull()
+  }
+  if (!auth) {
+    console.log(
+      colors.rgb24(
+        `  ${
+          t('Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.')
+        }\n`,
+        0x888888,
+      ),
+    )
+    return null
   }
 
   // Pre-flight DNS status check.
@@ -1373,9 +1376,23 @@ const maybeSetupHttps = async (
 }
 
 /**
- * Read the account access token from ~/.slv/api.yml without erroring
- * out when absent — the HTTPS step treats "missing" as a prompt
- * trigger, not a fatal.
+ * Sign in to ERPC in the browser (the `slv login` flow) from inside the
+ * onboard. A failure is reported and the onboard goes on without the login.
+ */
+const signInToErpc = async (t: (key: string) => string): Promise<boolean> => {
+  const result = await runDeviceLogin()
+  if (!result.ok) {
+    console.log(colors.yellow(`  ${result.lines[0]}`))
+    return false
+  }
+  console.log(colors.green(`  ✔ ${t('Signed in to ERPC.')}\n`))
+  return true
+}
+
+/**
+ * Read the ERPC login from ~/.slv/api.yml without erroring out when
+ * absent — the HTTPS step treats "missing" as a prompt trigger, not a
+ * fatal.
  */
 const readSlvAuthOrNull = async (): Promise<UserApiAuth | null> => {
   try {

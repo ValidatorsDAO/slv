@@ -6,7 +6,6 @@ import {
   multipartCreate,
   multipartUploadPart,
   presignUpload,
-  refuseStorageTransfer,
   StorageApiError,
   storageUsage,
   type StorageRegion,
@@ -288,10 +287,6 @@ export const uploadAction = async (
   filePath: string | undefined,
   options: { path?: string; region?: StorageRegion },
 ) => {
-  // File transfer does not work with an account access token (see
-  // refuseStorageTransfer). Stop here, before anything is asked or sent.
-  if (refuseStorageTransfer()) return false
-
   const auth = await getUserApiAuth()
 
   // Interactive: prompt for file path if not provided

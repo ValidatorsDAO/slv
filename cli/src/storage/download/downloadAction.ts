@@ -2,7 +2,6 @@ import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import {
   presignDownload,
-  refuseStorageTransfer,
   StorageApiError,
   type StorageRegion,
 } from '/src/storage/api.ts'
@@ -15,10 +14,6 @@ export const downloadAction = async (
   remotePath: string | undefined,
   options: { output?: string; region?: StorageRegion },
 ) => {
-  // File transfer does not work with an account access token (see
-  // refuseStorageTransfer). Stop here, before anything is asked or sent.
-  if (refuseStorageTransfer()) return false
-
   const auth = await getUserApiAuth()
 
   // Interactive: prompt for region if not provided

@@ -299,7 +299,7 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'call_mcp',
     description:
-      'Call one of a fixed set of read-only SLV Cloud endpoints (all GET) — check user info, subscriptions, server/VPS inventory, usage, and status. There is no purchase, payment-link, or IP-registration tool here; send the user to https://dashboard.erpc.global for those. The account access token from ~/.slv/api.yml is used automatically.',
+      'Call one of a fixed set of read-only SLV Cloud endpoints (all GET) — check user info, subscriptions, server/VPS inventory, usage, and status. There is no purchase, payment-link, or IP-registration tool here; send the user to https://dashboard.erpc.global for those. The ERPC login from ~/.slv/api.yml (`slv login`) is used automatically.',
     parameters: {
       type: 'object',
       properties: {
@@ -933,7 +933,7 @@ async function executeCallMcp(
 
   const auth = await findUserApiAuth()
   if (!auth) {
-    return 'Error: No SLV account access token found. Run `slv login` first.'
+    return 'Error: Not signed in to ERPC. Run `slv login` first.'
   }
 
   try {
@@ -1287,7 +1287,7 @@ When running ansible-playbook or slv commands that connect to servers:
     } else if (config.provider === 'slv') {
       const slvAuth = await findUserApiAuth()
       if (!slvAuth) {
-        return 'Error: SLV account access token not found. Run `slv login` first.'
+        return 'Error: Not signed in to ERPC. Run `slv login` first.'
       }
       return await runSlvSubAgent(
         slvAuth,
@@ -1400,7 +1400,7 @@ async function runSlvSubAgent(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': userApiAuthHeader(auth),
+        'Authorization': await userApiAuthHeader(auth),
       },
       body: JSON.stringify({
         model,

@@ -12,7 +12,7 @@ const RESTIC_REPO_PATH = '/v3/storage/restic'
  * restic uses Basic Auth for REST backend URLs.  We embed the storage access
  * key in the URL: rest:https://<keyId>:<secret>@host/path — the key id is the
  * username and the secret is the password.  The REST path accepts only a
- * storage access key; an account access token or an API key is not accepted
+ * storage access key; an ERPC login access token or an API key is not accepted
  * there.
  *
  * The credentials stay in the URL (rather than RESTIC_REST_USERNAME /

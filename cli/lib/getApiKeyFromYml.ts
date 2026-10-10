@@ -1,10 +1,25 @@
-import { parse, stringify } from '@std/yaml'
-import { defaultApiKeyYml } from '/lib/config/defaultApiKeyYml.ts'
+import { colors } from '@cliffy/colors'
+import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
 import {
   type UserApiAuth,
   userApiAuthFromAccessToken,
+  userApiAuthFromSession,
 } from '/lib/userApi/auth.ts'
-import { colors } from '@cliffy/colors'
+import { userApiRequest } from '/lib/userApi/client.ts'
+import {
+  apiYmlPathFor,
+  ensureFreshAccessToken,
+  hasStoredLogin,
+  readSlvSection,
+  saveSlvCredentials,
+  SessionExpiredError,
+  SessionRefreshError,
+  SLV_CREDENTIAL_KEYS,
+  type SlvCredentialKey,
+  type SlvCredentialUpdate,
+  withCredentialLock,
+  writeSlvCredentialsLocked,
+} from '/lib/userApi/session.ts'
 
 /**
  * Validate SUDO_USER value to prevent path injection.
@@ -43,11 +58,16 @@ export function resolveHome(): string {
 // ---------------------------------------------------------------------------
 // Credentials in ~/.slv/api.yml (`slv:` section)
 //
-//   api_key                 RPC endpoints only (never sent to user-api)
-//   access_token            account access token — the user-api credential
-//   storage_access_key_id   storage access key, used by restic (REST
-//   storage_secret          username / password)
+//   api_key                       RPC endpoints only (never sent to user-api)
+//   access_token                  ERPC login (`slv login`) — see
+//   refresh_token                 lib/userApi/session.ts
+//   access_token_expires_at
+//   storage_access_key_id         storage access key, used by restic (REST
+//   storage_secret                username / password); issued for this
+//   storage_access_key_record_id  machine on first use, revoked by logout
 // ---------------------------------------------------------------------------
+
+export type { SlvCredentialKey, SlvCredentialUpdate }
 
 /** Check UUID v4 (the API key). */
 export const isValidApiKey = (apiKey: string): boolean => {
@@ -56,10 +76,6 @@ export const isValidApiKey = (apiKey: string): boolean => {
 
   return uuidV4Pattern.test(apiKey)
 }
-
-/** Account access token: `erpcat_` + 43 base64url characters. */
-export const isValidAccessToken = (token: string): boolean =>
-  /^erpcat_[A-Za-z0-9_-]{43}$/.test(token)
 
 /** Storage access key id: `erpcsk_` + 16 characters from a-z and 2-7. */
 export const isValidStorageAccessKeyId = (id: string): boolean =>
@@ -71,148 +87,122 @@ export const isValidStorageSecret = (secret: string): boolean =>
 
 export type StorageAccessKey = { id: string; secret: string }
 
-const CREDENTIAL_KEYS = [
-  'api_key',
-  'access_token',
-  'storage_access_key_id',
-  'storage_secret',
-] as const
-
-export type SlvCredentialKey = (typeof CREDENTIAL_KEYS)[number]
-
-/**
- * Values to merge into `slv:`. A string sets the value, `null` clears it,
- * and a key that is left out (or `undefined`) keeps what is stored.
- */
-export type SlvCredentialUpdate = Partial<
-  Record<SlvCredentialKey, string | null>
->
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-
-const apiYmlPathFor = (home: string): string => `${home}/.slv/api.yml`
-
-const readApiYml = async (home: string): Promise<Record<string, unknown>> => {
-  try {
-    const parsed = parse(await Deno.readTextFile(apiYmlPathFor(home)))
-    return isRecord(parsed) ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-const readSlvSection = async (
-  home: string,
-): Promise<Record<string, unknown>> => {
-  const slv = (await readApiYml(home)).slv
-  return isRecord(slv) ? slv : {}
-}
-
 const storedString = (value: unknown): string =>
   typeof value === 'string' ? value.trim() : ''
 
-/** Create ~/.slv/api.yml (mode 600, directory 700) when it is missing. */
-const ensureApiYml = async (home: string): Promise<void> => {
-  const path = apiYmlPathFor(home)
-  try {
-    await Deno.stat(path)
-  } catch {
-    try {
-      await Deno.mkdir(`${home}/.slv`, { recursive: true, mode: 0o700 })
-      await Deno.writeTextFile(path, defaultApiKeyYml(), { mode: 0o600 })
-    } catch {
-      // Not writable: the readers below treat the file as empty.
-    }
-  }
-}
-
 /**
- * Merge credentials into the `slv:` section of ~/.slv/api.yml. Every other
- * key in `slv:` and every other section of the file is kept. The file is
- * written with mode 600 inside a 700 directory.
+ * Merge credentials into the `slv:` section of ~/.slv/api.yml (under the
+ * api.yml lock). Every other key in `slv:` and every other section of the
+ * file is kept. The file is written with mode 600 inside a 700 directory.
  */
-export const mergeSlvCredentials = async (
+export const mergeSlvCredentials = (
   update: SlvCredentialUpdate,
   home: string = resolveHome(),
-): Promise<void> => {
-  const path = apiYmlPathFor(home)
-  await Deno.mkdir(`${home}/.slv`, { recursive: true, mode: 0o700 })
-
-  // Read existing config to preserve the other sections (e.g. ai). A file
-  // that is missing or cannot be parsed starts fresh.
-  const yml = await readApiYml(home)
-  const slv: Record<string, unknown> = isRecord(yml.slv) ? { ...yml.slv } : {}
-  for (const key of CREDENTIAL_KEYS) {
-    const value = update[key]
-    if (value === undefined) continue
-    slv[key] = value === null ? null : value.trim()
-  }
-  yml.slv = slv
-
-  try {
-    await Deno.chmod(path, 0o600) // tighten an existing file before it holds a secret
-  } catch { /* not created yet */ }
-  await Deno.writeTextFile(path, stringify(yml), { mode: 0o600 })
-  await Deno.chmod(path, 0o600)
-}
+): Promise<void> => saveSlvCredentials(home, update)
 
 /** Remove every credential from `slv:` (`slv logout`). */
 export const clearSlvCredentials = (
   home: string = resolveHome(),
 ): Promise<void> =>
-  mergeSlvCredentials({
-    api_key: null,
-    access_token: null,
-    storage_access_key_id: null,
-    storage_secret: null,
-  }, home)
+  saveSlvCredentials(
+    home,
+    Object.fromEntries(SLV_CREDENTIAL_KEYS.map((key) => [key, null])),
+  )
+
+/** The API key for RPC, or null. */
+export const findApiKey = async (
+  home: string = resolveHome(),
+): Promise<string | null> => {
+  const apiKey = storedString((await readSlvSection(home)).api_key)
+  return isValidApiKey(apiKey) ? apiKey : null
+}
+
+/** Create ~/.slv/api.yml (mode 600, directory 700) when it is missing. */
+const ensureApiYml = async (home: string): Promise<void> => {
+  try {
+    await Deno.stat(apiYmlPathFor(home))
+    return
+  } catch {
+    // missing
+  }
+  try {
+    await saveSlvCredentials(home, {})
+  } catch {
+    // Not writable: the readers below treat the file as empty.
+  }
+}
 
 /**
- * The account access token as a user-api auth value, or null when none is
- * stored (or the stored value does not have the token shape). The API key is
- * never returned here.
+ * The saved ERPC login as a user-api auth value, or null when there is none
+ * or it cannot be refreshed right now. For callers that skip their user-api
+ * part without a login. The API key is never returned here.
  */
 export const findUserApiAuth = async (
   home: string = resolveHome(),
 ): Promise<UserApiAuth | null> => {
   await ensureApiYml(home)
-  const token = storedString((await readSlvSection(home)).access_token)
-  return isValidAccessToken(token) ? userApiAuthFromAccessToken(token) : null
+  if (!hasStoredLogin(await readSlvSection(home))) return null
+  try {
+    await ensureFreshAccessToken(home)
+  } catch {
+    return null
+  }
+  return userApiAuthFromSession(home)
 }
 
 /**
- * Like `findUserApiAuth`, but a missing token prints how to save one and
- * ends the process with exit code 1 — before any request is made.
+ * A fresh access token of the saved login. Without a login, or when the login
+ * cannot be refreshed, it prints what to do and ends the process with exit
+ * code 1 — before any request to user-api.
  */
-export const getUserApiAuth = async (): Promise<UserApiAuth> => {
-  const home = resolveHome()
-  const auth = await findUserApiAuth(home)
-  if (!auth) {
+const requireLogin = async (home: string): Promise<string> => {
+  if (!hasStoredLogin(await readSlvSection(home))) {
     console.log(
-      colors.yellow(
-        `⚠️ Account access token not found in ${apiYmlPathFor(home)}`,
-      ),
+      colors.yellow('⚠️ You are not signed in to ERPC on this machine.'),
     )
-    const text = `
+    console.log(colors.white(`
 🚀 Get started with one of the commands below:
 
 $ slv signup # For new users
-$ slv login  # Save your account access token on this machine
-
-Create an account access token in the ERPC dashboard (https://dashboard.erpc.global).
-Then run $ slv login to save it on this machine.`
-    console.log(colors.white(text))
+$ slv login  # Sign in to ERPC in your browser`))
     Deno.exit(1)
   }
-  return auth
+  try {
+    return await ensureFreshAccessToken(home)
+  } catch (error) {
+    if (error instanceof SessionExpiredError) {
+      console.log(colors.yellow('⚠️ Your ERPC login has expired.'))
+      console.log(colors.white('Sign in again with:\n\n$ slv login'))
+      Deno.exit(1)
+    }
+    if (error instanceof SessionRefreshError) {
+      console.log(
+        colors.yellow(
+          `⚠️ Could not refresh your ERPC login (${error.reason}).`,
+        ),
+      )
+      console.log(
+        colors.white('Try again, or sign in again with:\n\n$ slv login'),
+      )
+      Deno.exit(1)
+    }
+    throw error
+  }
 }
 
-/** The stored storage access key (id + secret), or null. */
-export const findStorageAccessKey = async (
-  home: string = resolveHome(),
-): Promise<StorageAccessKey | null> => {
-  const slv = await readSlvSection(home)
+/**
+ * Like `findUserApiAuth`, but a missing or expired login prints how to sign
+ * in and ends the process with exit code 1 — before any request is made.
+ */
+export const getUserApiAuth = async (): Promise<UserApiAuth> => {
+  const home = resolveHome()
+  await requireLogin(home)
+  return userApiAuthFromSession(home)
+}
+
+const storageKeyIn = (
+  slv: Record<string, unknown>,
+): StorageAccessKey | null => {
   const id = storedString(slv.storage_access_key_id)
   const secret = storedString(slv.storage_secret)
   return isValidStorageAccessKeyId(id) && isValidStorageSecret(secret)
@@ -220,27 +210,147 @@ export const findStorageAccessKey = async (
     : null
 }
 
+/** The stored storage access key (id + secret), or null. Never issues one. */
+export const findStorageAccessKey = async (
+  home: string = resolveHome(),
+): Promise<StorageAccessKey | null> => storageKeyIn(await readSlvSection(home))
+
+const storageKeyLabel = (): string => {
+  let host = ''
+  try {
+    host = Deno.hostname()
+  } catch {
+    // no permission to read the host name
+  }
+  return `slv-${host || 'machine'}`.slice(0, 64)
+}
+
+type IssuedStorageKey = {
+  id?: unknown
+  accessKeyId?: unknown
+  secret?: unknown
+}
+
+type IssueResult =
+  | { ok: true; key: StorageAccessKey; createdLabel: string | null }
+  | { ok: false; lines: string[] }
+
+const STORAGE_PAGE =
+  `the Storage page of the ERPC dashboard (${ERPC_DASHBOARD_URL})`
+
 /**
- * Like `findStorageAccessKey`, but a missing key prints how to save one and
- * ends the process with exit code 1.
+ * Ask user-api for a read_write storage access key for this machine and save
+ * it. read_write because the backup cron runs `restic forget --prune`.
+ * Runs under the api.yml lock, so two processes issue one key between them;
+ * the access token is taken before the lock (a refresh needs the same lock).
+ */
+const issueStorageAccessKey = (
+  home: string,
+  accessToken: string,
+): Promise<IssueResult> =>
+  withCredentialLock(home, async () => {
+    const saved = storageKeyIn(await readSlvSection(home))
+    if (saved) return { ok: true, key: saved, createdLabel: null }
+
+    const label = storageKeyLabel()
+    let res
+    try {
+      res = await userApiRequest<IssuedStorageKey>(
+        userApiAuthFromAccessToken(accessToken),
+        'POST',
+        '/v3/storage/access-keys',
+        { permission: 'read_write', label },
+      )
+    } catch (error) {
+      return {
+        ok: false,
+        lines: [
+          `Could not reach user-api to create a storage access key: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ],
+      }
+    }
+    if (res.ok) {
+      const { id, accessKeyId, secret } = res.data
+      if (
+        typeof id !== 'number' || !Number.isInteger(id) ||
+        typeof accessKeyId !== 'string' ||
+        !isValidStorageAccessKeyId(accessKeyId) ||
+        typeof secret !== 'string' || !isValidStorageSecret(secret)
+      ) {
+        return {
+          ok: false,
+          lines: [
+            'The storage access key in the response does not have the expected format.',
+          ],
+        }
+      }
+      await writeSlvCredentialsLocked(home, {
+        storage_access_key_id: accessKeyId,
+        storage_secret: secret,
+        storage_access_key_record_id: id,
+      })
+      return { ok: true, key: { id: accessKeyId, secret }, createdLabel: label }
+    }
+    switch (res.status) {
+      case 400:
+        return {
+          ok: false,
+          lines: [
+            res.body?.message ?? 'The storage access key was not created.',
+            `Storage access keys are on ${STORAGE_PAGE}.`,
+          ],
+        }
+      case 409:
+        return {
+          ok: false,
+          lines: [
+            'Active storage access keys are at the limit (10).',
+            `Please revoke one you no longer use on ${STORAGE_PAGE}, then try again.`,
+          ],
+        }
+      case 401:
+        return {
+          ok: false,
+          lines: [
+            'Your ERPC login was not accepted. Sign in again with $ slv login',
+          ],
+        }
+      default:
+        return {
+          ok: false,
+          lines: [
+            `Could not create a storage access key (HTTP ${res.status}).`,
+          ],
+        }
+    }
+  })
+
+/**
+ * The storage access key restic connects with. When none is saved, one is
+ * created for this machine with the ERPC login and saved. Without a login, or
+ * when the key cannot be created, it prints why and ends the process with
+ * exit code 1 — restic is not started.
  */
 export const getStorageAccessKey = async (): Promise<StorageAccessKey> => {
   const home = resolveHome()
-  const key = await findStorageAccessKey(home)
-  if (!key) {
-    console.log(
-      colors.yellow(
-        `⚠️ Storage access key not found in ${apiYmlPathFor(home)}`,
-      ),
-    )
-    const text = `
-Backups with restic connect with a storage access key.
+  const saved = await findStorageAccessKey(home)
+  if (saved) return saved
 
-Create a storage access key on the Storage page of the ERPC dashboard (https://dashboard.erpc.global).
-Then run $ slv login to save it on this machine.
-Use a key with read_write permission if you want --retention (it runs forget --prune).`
-    console.log(colors.white(text))
+  const accessToken = await requireLogin(home)
+  const result = await issueStorageAccessKey(home, accessToken)
+  if (!result.ok) {
+    console.log(colors.red(`❌ ${result.lines[0]}`))
+    for (const line of result.lines.slice(1)) console.log(colors.white(line))
     Deno.exit(1)
   }
-  return key
+  if (result.createdLabel) {
+    console.log(
+      colors.green(
+        `✔️ Created a storage access key for this machine (${result.createdLabel}) and saved it to ~/.slv/api.yml.`,
+      ),
+    )
+  }
+  return result.key
 }

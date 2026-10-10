@@ -1,9 +1,9 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 
-const makeHeaders = (auth: UserApiAuth) => {
+const makeHeaders = async (auth: UserApiAuth) => {
   const headers = new Headers()
-  headers.append('Authorization', userApiAuthHeader(auth))
+  headers.append('Authorization', await userApiAuthHeader(auth))
   headers.append('Content-Type', 'application/json')
   return headers
 }
@@ -11,7 +11,7 @@ const makeHeaders = (auth: UserApiAuth) => {
 export const metalStatus = async (auth: UserApiAuth) => {
   const res = await fetch(`${METAL_API_URL}/baremetal/status`, {
     method: 'GET',
-    headers: makeHeaders(auth),
+    headers: await makeHeaders(auth),
   })
   return await res.json() as { success: boolean; message: any[] }
 }
@@ -21,7 +21,7 @@ export const metalAvailability = async (auth: UserApiAuth, region: string) => {
     `${METAL_API_URL}/baremetal/search-available-baremetal?region=${encodeURIComponent(region)}&limit=25`,
     {
       method: 'GET',
-      headers: makeHeaders(auth),
+      headers: await makeHeaders(auth),
     },
   )
   return await res.json() as { success: boolean; message: any[] }
@@ -30,7 +30,7 @@ export const metalAvailability = async (auth: UserApiAuth, region: string) => {
 export const metalRestart = async (auth: UserApiAuth, bareMetalIp: string) => {
   const res = await fetch(`${METAL_API_URL}/baremetal/restart`, {
     method: 'POST',
-    headers: makeHeaders(auth),
+    headers: await makeHeaders(auth),
     body: JSON.stringify({ bareMetalIp }),
   })
   return await res.json() as { success: boolean; message: string }
@@ -39,7 +39,7 @@ export const metalRestart = async (auth: UserApiAuth, bareMetalIp: string) => {
 export const metalRebuild = async (auth: UserApiAuth, bareMetalIp: string) => {
   const res = await fetch(`${METAL_API_URL}/baremetal/rebuild-bm`, {
     method: 'POST',
-    headers: makeHeaders(auth),
+    headers: await makeHeaders(auth),
     body: JSON.stringify({ bareMetalIp }),
   })
   return await res.json() as { success: boolean; message: string }
@@ -52,7 +52,7 @@ export const metalChangeRegion = async (
 ) => {
   const res = await fetch(`${METAL_API_URL}/baremetal/change-region`, {
     method: 'POST',
-    headers: makeHeaders(auth),
+    headers: await makeHeaders(auth),
     body: JSON.stringify({ bareMetalIp, region }),
   })
   return await res.json() as { success: boolean; message: string }
@@ -61,7 +61,7 @@ export const metalChangeRegion = async (
 export const metalRescue = async (auth: UserApiAuth, bareMetalIp: string) => {
   const res = await fetch(`${METAL_API_URL}/baremetal/rescue`, {
     method: 'POST',
-    headers: makeHeaders(auth),
+    headers: await makeHeaders(auth),
     body: JSON.stringify({ bareMetalIp }),
   })
   return await res.json() as { success: boolean; message: string }
@@ -70,7 +70,7 @@ export const metalRescue = async (auth: UserApiAuth, bareMetalIp: string) => {
 export const metalRescueBack = async (auth: UserApiAuth, bareMetalIp: string) => {
   const res = await fetch(`${METAL_API_URL}/baremetal/rescue-back`, {
     method: 'POST',
-    headers: makeHeaders(auth),
+    headers: await makeHeaders(auth),
     body: JSON.stringify({ bareMetalIp }),
   })
   return await res.json() as { success: boolean; message: string }

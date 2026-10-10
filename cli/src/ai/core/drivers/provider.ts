@@ -33,8 +33,8 @@ export type ProviderBuilder = (callbacks: ChatCallbacks) => ProviderLike
 
 /**
  * `anthropic` / `openai` take the provider's own API key. `slv` talks to
- * user-api and takes the account access token as a user-api auth value, so
- * an API key cannot be passed to it.
+ * user-api and takes the ERPC login as a user-api auth value, so an API
+ * key cannot be passed to it.
  */
 export type ProviderConfig =
   | {

@@ -25,20 +25,20 @@ export const messages: Record<string, string> = {
   'No': 'No',
   'Setup cancelled.': 'Setup cancelled.',
 
-  'SLV Account Access Token':
-    'SLV Account Access Token',
-  'Get your account access token: https://dashboard.erpc.global':
-    'Get your account access token: https://dashboard.erpc.global',
-  '🔑 SLV account access token (or press Enter to skip)':
-    '🔑 SLV account access token (or press Enter to skip)',
-  'SLV account access token saved.':
-    'SLV account access token saved.',
-  'That does not look like an account access token.':
-    'That does not look like an account access token.',
+  'ERPC Login':
+    'ERPC Login',
+  'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
+    'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.',
+  'Sign in to ERPC now?':
+    'Sign in to ERPC now?',
+  'Signed in to ERPC.':
+    'Signed in to ERPC.',
+  'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
+    'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.',
   'Skipped. You can run `slv login` later.':
     'Skipped. You can run `slv login` later.',
-  'Using SLV AI (powered by your SLV account access token).':
-    'Using SLV AI (powered by your SLV account access token).',
+  'Using SLV AI (powered by your ERPC login).':
+    'Using SLV AI (powered by your ERPC login).',
 
   'Agent Setup': 'Agent Setup',
   'Your name': 'Your name',
@@ -227,8 +227,8 @@ export const messages: Record<string, string> = {
   '✓ solana-cli installed': '✓ solana-cli installed',
 
   // --- Startup guard / version check ---
-  'SLV account access token not found. Run `slv login` first.':
-    'SLV account access token not found. Run `slv login` first.',
+  'Not signed in to ERPC. Run `slv login` first.':
+    'Not signed in to ERPC. Run `slv login` first.',
   'Checking for new versions…': 'Checking for new versions…',
   '🔄 New versions available:': '🔄 New versions available:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -357,10 +357,8 @@ export const messages: Record<string, string> = {
     'Browser chat UI',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
-  'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.',
-  '🔑 Paste your SLV account access token here (Enter to skip HTTPS):':
-    '🔑 Paste your SLV account access token here (Enter to skip HTTPS):',
+  'Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':

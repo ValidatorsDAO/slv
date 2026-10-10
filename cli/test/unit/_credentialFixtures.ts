@@ -7,12 +7,35 @@
 import { stringify } from '@std/yaml'
 
 export const API_KEY = '3f1c2b4a-5d6e-4f70-8a91-b2c3d4e5f607'
-// `erpcat_` + 43 base64url characters
-export const ACCESS_TOKEN = `erpcat_${'A1b2C3d4E5'.repeat(4)}abc`
+// Three base64url segments joined by dots: the shape of a JWT, nothing more.
+export const ACCESS_TOKEN = 'test-header.test-access-token-1.test-signature'
+export const REFRESH_TOKEN = 'test-header.test-refresh-token-1.test-signature'
+export const NEW_ACCESS_TOKEN = 'test-header.test-access-token-2.test-signature'
+export const NEW_REFRESH_TOKEN =
+  'test-header.test-refresh-token-2.test-signature'
 // `erpcsk_` + 16 characters from a-z and 2-7
 export const STORAGE_KEY_ID = 'erpcsk_abcdefghij234567'
 // 43 base64url characters
 export const STORAGE_SECRET = `${'Q9_x-Z'.repeat(7)}a`
+
+/** Unix seconds: an expiry long past, and one far in the future. */
+export const EXPIRED = 1
+export const FAR_FUTURE = 4102444800
+
+/** The `slv:` keys of a saved login whose access token expires at `expiresAt`. */
+export const loggedIn = (
+  expiresAt: number,
+  tokens: { access?: string; refresh?: string } = {},
+): Record<string, unknown> => ({
+  access_token: tokens.access ?? ACCESS_TOKEN,
+  refresh_token: tokens.refresh ?? REFRESH_TOKEN,
+  access_token_expires_at: expiresAt,
+})
+
+export const AUTH_TOKEN_URL = 'https://auth-api.erpc.global/oauth/token'
+
+export const json = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), { status })
 
 /**
  * Run `fn` with HOME pointing at a fresh directory. When `yml` is given it is
@@ -46,11 +69,14 @@ export type RecordedRequest = {
   url: string
   method: string
   authorization: string | null
+  /** The body when it was sent as text or form fields; null otherwise. */
+  body: string | null
 }
 
 /**
  * Replace `globalThis.fetch` for the duration of `fn`. Every call is recorded
- * and answered by `respond`.
+ * and answered by `respond`. A streamed body (a file upload) is read to the
+ * end so the file behind it is closed.
  */
 export const withFetch = async (
   respond: (url: string, init?: RequestInit) => Response | Promise<Response>,
@@ -58,15 +84,20 @@ export const withFetch = async (
 ): Promise<void> => {
   const original = globalThis.fetch
   const requests: RecordedRequest[] = []
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     const headers = new Headers(init?.headers)
+    const body = init?.body
+    if (body instanceof ReadableStream) await new Response(body).arrayBuffer()
     requests.push({
       url,
       method: init?.method ?? 'GET',
       authorization: headers.get('Authorization'),
+      body: typeof body === 'string' || body instanceof URLSearchParams
+        ? String(body)
+        : null,
     })
-    return Promise.resolve(respond(url, init))
+    return await respond(url, init)
   }) as typeof fetch
   try {
     await fn(requests)

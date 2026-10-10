@@ -218,7 +218,7 @@ export class SLVProvider {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': userApiAuthHeader(this.auth),
+            'Authorization': await userApiAuthHeader(this.auth),
           },
           body: JSON.stringify({
             model: this.model,

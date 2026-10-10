@@ -21,20 +21,20 @@ export const messages: Record<string, string> = {
   'No': 'Нет',
   'Setup cancelled.': 'Настройка отменена.',
 
-  'SLV Account Access Token':
-    'Токен доступа к аккаунту SLV',
-  'Get your account access token: https://dashboard.erpc.global':
-    'Получите токен доступа к аккаунту: https://dashboard.erpc.global',
-  '🔑 SLV account access token (or press Enter to skip)':
-    '🔑 Токен доступа к аккаунту SLV (Enter чтобы пропустить)',
-  'SLV account access token saved.':
-    'Токен доступа к аккаунту SLV сохранён.',
-  'That does not look like an account access token.':
-    'Это не похоже на токен доступа к аккаунту.',
+  'ERPC Login':
+    'Вход в ERPC',
+  'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
+    'Войдите в ERPC в браузере, чтобы пользоваться SLV AI и аккаунтом ERPC с этой машины.',
+  'Sign in to ERPC now?':
+    'Войти в ERPC сейчас?',
+  'Signed in to ERPC.':
+    'Вход в ERPC выполнен.',
+  'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
+    'Вход в ERPC не выполнен. Запустите `slv login` на этой машине, чтобы пользоваться SLV AI и HTTPS.',
   'Skipped. You can run `slv login` later.':
     'Пропущено. Вы можете позже запустить `slv login`.',
-  'Using SLV AI (powered by your SLV account access token).':
-    'Используется SLV AI (на базе вашего токена доступа к аккаунту SLV).',
+  'Using SLV AI (powered by your ERPC login).':
+    'Используется SLV AI (через ваш вход в ERPC).',
 
   'Agent Setup': 'Настройка агента',
   'Your name': 'Ваше имя',
@@ -215,8 +215,8 @@ export const messages: Record<string, string> = {
   'Installing solana-cli (agave)...': 'Установка solana-cli (agave)...',
   '✓ solana-cli installed': '✓ solana-cli установлен',
 
-  'SLV account access token not found. Run `slv login` first.':
-    'Токен доступа к аккаунту SLV не найден. Сначала запустите `slv login`.',
+  'Not signed in to ERPC. Run `slv login` first.':
+    'Вход в ERPC не выполнен. Сначала запустите `slv login`.',
   'Checking for new versions…': 'Проверяю новые версии…',
   '🔄 New versions available:': '🔄 Доступны новые версии:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -345,10 +345,8 @@ export const messages: Record<string, string> = {
   'Browser chat UI': 'Браузерный чат',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Устанавливается фоновый сервис, чтобы вы могли общаться с SLV из любого браузера по адресу http://127.0.0.1:{port}/ui/, не держа терминал открытым.',
-  'An SLV account access token lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'Токен доступа к аккаунту SLV позволяет направить ваш бесплатный erpc.global поддомен на этот VPS для мгновенного HTTPS.',
-  '🔑 Paste your SLV account access token here (Enter to skip HTTPS):':
-    '🔑 Вставьте токен доступа к аккаунту SLV сюда (Enter — пропустить HTTPS):',
+  'Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'Вход в ERPC позволяет направить ваш бесплатный поддомен erpc.global на этот VPS и сразу включить HTTPS.',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     'Пропущено. Запустите `slv login`, затем `slv install nginx` позже для включения HTTPS.',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':

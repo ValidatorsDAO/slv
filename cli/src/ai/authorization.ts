@@ -144,7 +144,7 @@ export async function fetchAuthorizationStatus(
 ): Promise<AuthorizationStatus> {
   try {
     const response = await fetch(USER_DASHBOARD_URL, {
-      headers: { Authorization: userApiAuthHeader(auth) },
+      headers: { Authorization: await userApiAuthHeader(auth) },
     })
     if (!response.ok) {
       return {

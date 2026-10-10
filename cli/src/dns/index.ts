@@ -19,7 +19,7 @@ const requireUserApiAuth = async (): Promise<UserApiAuth> => {
   } catch { /* treat as missing */ }
   if (!auth) {
     console.error(
-      colors.red('❌ no account access token — run `slv login` first.'),
+      colors.red('❌ not signed in to ERPC — run `slv login` first.'),
     )
     Deno.exit(1)
   }

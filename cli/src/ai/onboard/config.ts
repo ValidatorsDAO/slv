@@ -19,9 +19,14 @@ export type OnboardConfig = {
   /** When true, skips the "I understand this is risky" Select. */
   security_warning_accepted?: boolean
 
-  // --- Step 3: SLV account access token ---
-  /** Pre-populates ~/.slv/api.yml slv.access_token. Skipped if absent. */
-  slv_access_token?: string
+  // --- Step 3: API key for RPC ---
+  /**
+   * Saved as ~/.slv/api.yml slv.api_key when it is a UUID. It is the API key
+   * for the RPC endpoints only and is not used for the ERPC account: SLV AI
+   * and the HTTPS step need an ERPC login (`slv login`), which a `--config`
+   * run does not start.
+   */
+  slv_api_key?: string
 
   // --- Step 4/5: agent setup ---
   user_name?: string
