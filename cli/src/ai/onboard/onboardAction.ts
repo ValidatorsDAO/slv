@@ -38,6 +38,7 @@ import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
 import { getDnsStatus } from '/lib/userApi/dns.ts'
 import { openSupportTicket } from '/lib/userApi/support.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
+import { updateApiYml } from '/lib/userApi/session.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
 
@@ -632,16 +633,10 @@ Session history and important notes.
     })
 
   if (discordWebhook && discordWebhook.trim().length > 0) {
-    // Save to api.yml preserving existing content
-    const apiYmlPath = `${agentHome}/.slv/api.yml`
-    let existing: Record<string, unknown> = {}
-    try {
-      const content = await Deno.readTextFile(apiYmlPath)
-      existing = (parse(content) as Record<string, unknown>) ?? {}
-    } catch { /* file doesn't exist */ }
-    existing.notifications = { discord_webhook: discordWebhook.trim() }
-    await Deno.writeTextFile(apiYmlPath, stringify(existing))
-    await Deno.chmod(apiYmlPath, 0o600)
+    // Save to api.yml under its lock, changing only `notifications`
+    await updateApiYml(agentHome, (yml) => {
+      yml.notifications = { discord_webhook: discordWebhook.trim() }
+    })
     console.log(
       colors.green(`  ✔ ${t('Discord Webhook saved to ~/.slv/api.yml')}\n`),
     )

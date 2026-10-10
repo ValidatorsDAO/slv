@@ -25,6 +25,8 @@ import { downloadAction } from '@/storage/download/downloadAction.ts'
 import { backupAction } from '@/backup/backupAction.ts'
 import { listAction as backupListAction } from '@/backup/listAction.ts'
 import { dnsCmd } from '@/dns/index.ts'
+import { writeLang } from '@/ai/config.ts'
+import { executeTool } from '@/ai/console/tools.ts'
 
 import {
   ACCESS_TOKEN,
@@ -232,6 +234,67 @@ Deno.test('r3: a refresh that finds api.yml already refreshed by another process
       }
       assertEquals(requests.length, 0)
     })
+  })
+})
+
+Deno.test('r5: another api.yml writer that runs during a refresh does not put the old refresh token back', async () => {
+  await withHome({ slv: loggedIn(EXPIRED), lang: 'en' }, async (home) => {
+    const apiYml = `${home}/.slv/api.yml`
+    const writeTextFile = Deno.writeTextFile // A slow disk for writes straight to api.yml: an unguarded writer then
+     // reads before the refresh saves and writes after it.
+    ;(Deno as unknown as { writeTextFile: unknown }).writeTextFile = async (
+      ...args: Parameters<typeof Deno.writeTextFile>
+    ) => {
+      if (String(args[0]) === apiYml) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+      return await writeTextFile(...args)
+    }
+    let writer: Promise<void> | null = null
+    try {
+      await withFetch(async (url) => {
+        if (url === AUTH_TOKEN_URL && !writer) {
+          // The refresh holds the lock now; another command saves a setting.
+          writer = writeLang('ja')
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        return answer(url)
+      }, async (requests) => {
+        assertEquals(
+          await auth.userApiAuthHeader(sessionAuth(home)),
+          `Bearer ${NEW_ACCESS_TOKEN}`,
+        )
+        assert(writer, 'the refresh was not sent')
+        await writer
+        assertEquals(toTokenEndpoint(requests).length, 1)
+      })
+    } finally {
+      ;(Deno as unknown as { writeTextFile: unknown }).writeTextFile =
+        writeTextFile
+    }
+    const yml = await readYml(home)
+    assertEquals(yml.slv.refresh_token, NEW_REFRESH_TOKEN)
+    assertEquals(yml.slv.access_token, NEW_ACCESS_TOKEN)
+    assertEquals(yml.lang, 'ja')
+  })
+})
+
+Deno.test('r6: the AI console write_file tool does not write api.yml', async () => {
+  await withHome({ slv: loggedIn(FAR_FUTURE) }, async (home) => {
+    const before = await Deno.readTextFile(`${home}/.slv/api.yml`)
+    for (
+      const path of [
+        `${home}/.slv/api.yml`,
+        `${home}/.slv/agent/../api.yml`,
+      ]
+    ) {
+      const result = await executeTool('write_file', {
+        path,
+        content: 'slv: {}\n',
+      })
+      assert(result.startsWith('Error'), `${path}: ${result}`)
+    }
+    assertEquals(await Deno.readTextFile(`${home}/.slv/api.yml`), before)
   })
 })
 

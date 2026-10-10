@@ -6,6 +6,7 @@ import { userApiAuthFromSession } from '/lib/userApi/auth.ts'
 import { userApiRequest } from '/lib/userApi/client.ts'
 import {
   hasStoredLogin,
+  isJwtShaped,
   readSlvSection,
   revokeRefreshToken,
 } from '/lib/userApi/session.ts'
@@ -60,7 +61,8 @@ export const logoutAction = async (): Promise<void> => {
   const home = resolveHome()
   await revokeStorageAccessKey(home)
   // Read after the storage key step, which may have refreshed the login.
-  await revokeRefreshToken(home)
+  const refreshToken = (await readSlvSection(home)).refresh_token
+  if (isJwtShaped(refreshToken)) await revokeRefreshToken(refreshToken)
   await clearSlvCredentials(home)
 
   console.log(

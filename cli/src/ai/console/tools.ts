@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
+import { basename, normalize } from '@std/path'
 import type { TUI } from '@mariozechner/pi-tui'
 import {
   injectSkillDocs,
@@ -899,8 +900,14 @@ async function executeWriteFile(
 ): Promise<string> {
   const home = resolveHome()
   const slvDir = `${home}/.slv/`
-  if (!path.startsWith(slvDir)) {
+  const target = normalize(path)
+  if (!target.startsWith(slvDir)) {
     return `Error: write_file only allows writing to ~/.slv/ directory. Requested path: ${path}`
+  }
+  // api.yml holds the ERPC login, whose refresh token rotates under a lock;
+  // a whole-file write from here would put an old one back.
+  if (basename(target).startsWith('api.yml') || basename(target).startsWith('.api.yml.')) {
+    return `Error: write_file does not write ~/.slv/api.yml (it holds the ERPC login). Use the slv commands (slv login, slv onboard, slv auth) to change it.`
   }
 
   try {

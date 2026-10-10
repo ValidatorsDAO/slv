@@ -9,6 +9,7 @@ import {
   openInBrowser,
   pollDeviceToken,
   requestDeviceAuthorization,
+  revokeRefreshToken,
   saveSession,
 } from '/lib/userApi/session.ts'
 
@@ -47,7 +48,8 @@ const pollError = (error: string): string[] => {
  * login. Shows the page and the code, waits for the browser, checks the new
  * access token against user-api, and only then merges the access token, the
  * refresh token and the expiry into `slv:` of ~/.slv/api.yml (a saved storage
- * access key and API key stay). A failure returns what to tell the user and
+ * access key and API key stay). The refresh token of a login it replaces is
+ * then revoked (best effort). A failure returns what to tell the user and
  * leaves the file as it was.
  */
 export const runDeviceLogin = async (
@@ -115,7 +117,11 @@ export const runDeviceLogin = async (
     }
   }
 
-  await saveSession(home, polled.tokens, polled.receivedAt)
+  const replaced = await saveSession(home, polled.tokens, polled.receivedAt)
+  // The login this one replaced is not needed any more (best effort).
+  if (replaced && replaced !== polled.tokens.refreshToken) {
+    await revokeRefreshToken(replaced)
+  }
   return { ok: true, username }
 }
 

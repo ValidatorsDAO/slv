@@ -18,11 +18,13 @@ import { AUTH_API_ORIGIN } from '@cmn/constants/url.ts'
  *                            the token arrived + `expires_in` (the JWT `exp`
  *                            is not used, so a skewed clock does not matter)
  *
- * Every write to `slv:` goes through `saveSlvCredentials` (or, while the
- * lock is already held, `writeSlvCredentialsLocked`): it takes an exclusive
- * lock on ~/.slv/api.yml.lock and replaces api.yml with a rename, so two
- * processes never refresh with the same refresh token and a reader never
- * sees a half-written file.
+ * Every write to api.yml — `slv:` through `saveSlvCredentials` (or, while
+ * the lock is already held, `writeSlvCredentialsLocked`), every other section
+ * through `updateApiYml` — takes an exclusive lock on ~/.slv/api.yml.lock,
+ * reads the file again, changes only its own part and replaces api.yml with a
+ * rename. So two processes never refresh with the same refresh token, no
+ * writer puts an old refresh token back, and a reader never sees a
+ * half-written file.
  */
 
 export const ERPC_CLI_CLIENT_ID = 'erpc-cli'
@@ -166,23 +168,15 @@ export const withCredentialLock = async <T>(
 }
 
 /**
- * Merge `update` into `slv:` and replace api.yml (mode 600) with a rename.
- * Every other key in `slv:` and every other section is kept. The caller
- * holds the lock (`withCredentialLock`).
+ * Read api.yml again, let `change` edit it, and replace api.yml (mode 600)
+ * with a rename. The caller holds the lock (`withCredentialLock`).
  */
-export const writeSlvCredentialsLocked = async (
+const rewriteApiYmlLocked = async (
   home: string,
-  update: SlvCredentialUpdate,
+  change: (yml: Record<string, unknown>) => void,
 ): Promise<void> => {
   const yml = await readApiYml(home)
-  const slv: Record<string, unknown> = isRecord(yml.slv) ? { ...yml.slv } : {}
-  for (const key of SLV_CREDENTIAL_KEYS) {
-    const value = update[key]
-    if (value === undefined) continue
-    if (value === null) delete slv[key]
-    else slv[key] = typeof value === 'string' ? value.trim() : value
-  }
-  yml.slv = slv
+  change(yml)
 
   await ensureSlvDir(home)
   const tmp = `${home}/.slv/.api.yml.${crypto.randomUUID()}.tmp`
@@ -199,6 +193,36 @@ export const writeSlvCredentialsLocked = async (
     throw error
   }
 }
+
+/**
+ * Merge `update` into `slv:`. Every other key in `slv:` and every other
+ * section is kept. The caller holds the lock (`withCredentialLock`).
+ */
+export const writeSlvCredentialsLocked = (
+  home: string,
+  update: SlvCredentialUpdate,
+): Promise<void> =>
+  rewriteApiYmlLocked(home, (yml) => {
+    const slv: Record<string, unknown> = isRecord(yml.slv) ? { ...yml.slv } : {}
+    for (const key of SLV_CREDENTIAL_KEYS) {
+      const value = update[key]
+      if (value === undefined) continue
+      if (value === null) delete slv[key]
+      else slv[key] = typeof value === 'string' ? value.trim() : value
+    }
+    yml.slv = slv
+  })
+
+/**
+ * Change a section of api.yml other than `slv:` (ai, lang, notifications, …)
+ * under the lock: the file is read again inside the lock, so a refresh that
+ * finished a moment ago is kept. `change` must not touch `slv:`.
+ */
+export const updateApiYml = (
+  home: string,
+  change: (yml: Record<string, unknown>) => void,
+): Promise<void> =>
+  withCredentialLock(home, () => rewriteApiYmlLocked(home, change))
 
 /** Take the lock and merge `update` into `slv:`. */
 export const saveSlvCredentials = (
@@ -278,12 +302,20 @@ const sessionUpdate = (
   access_token_expires_at: receivedAt + tokens.expiresIn,
 })
 
-/** Save a new login (the storage access key and API key stay). */
+/**
+ * Save a new login (the storage access key and API key stay). Returns the
+ * refresh token it replaced, read under the same lock, or null.
+ */
 export const saveSession = (
   home: string,
   tokens: TokenSet,
   receivedAt: number,
-): Promise<void> => saveSlvCredentials(home, sessionUpdate(tokens, receivedAt))
+): Promise<string | null> =>
+  withCredentialLock(home, async () => {
+    const previous = (await readSlvSection(home)).refresh_token
+    await writeSlvCredentialsLocked(home, sessionUpdate(tokens, receivedAt))
+    return isJwtShaped(previous) ? previous : null
+  })
 
 /** The body as JSON, or `undefined` when it is not JSON. */
 const readJson = async (res: Response): Promise<unknown> => {
@@ -383,15 +415,15 @@ export const ensureFreshAccessToken = async (
 }
 
 /**
- * Ask the auth server to revoke the saved refresh token (RFC 7009 token
- * revocation; public client, so no client authentication). Best effort for
- * `slv logout`: true only on a 2xx. Any other answer, a network failure or no
- * saved login returns false — nothing is printed, and the caller removes the
- * local credentials either way.
+ * Ask the auth server to revoke a refresh token (RFC 7009 token revocation;
+ * public client, so no client authentication). Best effort for `slv logout`
+ * and for the login a new `slv login` replaces: true only on a 2xx. Any other
+ * answer or a network failure returns false and nothing is printed — the
+ * caller goes on either way.
  */
-export const revokeRefreshToken = async (home: string): Promise<boolean> => {
-  const refreshToken = (await readSlvSection(home)).refresh_token
-  if (!isJwtShaped(refreshToken)) return false
+export const revokeRefreshToken = async (
+  refreshToken: string,
+): Promise<boolean> => {
   try {
     const res = await postForm(
       REVOKE_URL,

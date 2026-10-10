@@ -6,9 +6,12 @@ import * as login from '@/login/index.ts'
 import {
   API_KEY,
   AUTH_TOKEN_URL,
+  FAR_FUTURE,
   json,
+  loggedIn,
   NEW_ACCESS_TOKEN,
   NEW_REFRESH_TOKEN,
+  REFRESH_TOKEN,
   runCaptured,
   STORAGE_KEY_ID,
   STORAGE_SECRET,
@@ -199,4 +202,41 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
       },
     )
   }
+})
+
+Deno.test('d3: slv login while signed in saves the new session, then revokes the old refresh token once (a 404 does not stop it)', async () => {
+  const REVOKE_URL = 'https://auth-api.erpc.global/oauth/revoke'
+  await withHome({
+    slv: { api_key: API_KEY, ...loggedIn(FAR_FUTURE) },
+  }, async (home) => {
+    const time = fakeTime(1_000_000)
+    await withFetch((url) => {
+      if (url === DEVICE_AUTHORIZATION_URL) return deviceAuthorization()
+      if (url === AUTH_TOKEN_URL) return tokens()
+      if (url === USER_GET_URL) return json({ username: 'validator-op' })
+      if (url === REVOKE_URL) return json({ error: 'not_found' }, 404)
+      return json({}, 500)
+    }, async (requests) => {
+      const outcome = await runCaptured(() => login.loginAction(time.deps))
+      assertEquals(outcome.error, undefined, outcome.output)
+      assertEquals(outcome.exit, null, outcome.output)
+      const revokes = requests.filter((r) => r.url === REVOKE_URL)
+      assertEquals(revokes.length, 1)
+      assertEquals(revokes[0].method, 'POST')
+      assertEquals(
+        new URLSearchParams(revokes[0].body ?? '').get('token'),
+        REFRESH_TOKEN,
+      )
+      // after the new session is in place: the revoke is the last request
+      assertEquals(requests.at(-1)?.url, REVOKE_URL)
+      assertFalse(outcome.output.includes('not_found'))
+      assertFalse(outcome.output.includes(REFRESH_TOKEN))
+    })
+    const slv = (parse(await Deno.readTextFile(`${home}/.slv/api.yml`)) as {
+      slv: Record<string, unknown>
+    }).slv
+    assertEquals(slv.access_token, NEW_ACCESS_TOKEN)
+    assertEquals(slv.refresh_token, NEW_REFRESH_TOKEN)
+    assertEquals(slv.api_key, API_KEY)
+  })
 })
