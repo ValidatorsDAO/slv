@@ -1,4 +1,5 @@
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import { userApiAuthHeader } from '/lib/userApi/auth.ts'
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 import {
@@ -11,7 +12,7 @@ import {
 const USER_API_URL = 'https://user-api.erpc.global/v3/ai/usage'
 
 export const aiUsageAction = async () => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   const spinner = new Kia(colors.cyan('Fetching AI token usage...'))
   spinner.start()
@@ -19,7 +20,7 @@ export const aiUsageAction = async () => {
   try {
     const response = await fetch(USER_API_URL, {
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: await userApiAuthHeader(auth),
       },
     })
 

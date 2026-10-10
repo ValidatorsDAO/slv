@@ -17,7 +17,7 @@ export const signupCmd = new Command()
     )
     console.log(
       colors.white(
-        `Save the key on this machine with:\n\n$ slv login\n`,
+        `Then sign in on this machine with:\n\n$ slv login\n`,
       ),
     )
   })

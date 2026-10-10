@@ -7,7 +7,7 @@ const restartAction = async () => {
   const selection = await selectNode()
   if (!selection) return false
 
-  const { apiKey, ip, node } = selection
+  const { auth, ip, node } = selection
 
   console.log(colors.white(`\n🖥️  Node: ${node.productName || ip}`))
   console.log(colors.white(`📍 IP: ${ip}\n`))
@@ -28,7 +28,7 @@ const restartAction = async () => {
 
   console.log(colors.cyan('🔄 Restarting node...'))
   try {
-    const result = await metalRestart(apiKey, ip)
+    const result = await metalRestart(auth, ip)
     if (result.success) {
       console.log(colors.green('✅ Restart initiated successfully'))
       console.log(colors.white('The node will be back online shortly.'))

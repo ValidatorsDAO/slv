@@ -1,6 +1,6 @@
 import { Input, prompt, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   storageList,
   StorageApiError,
@@ -61,14 +61,14 @@ export const promptRemotePath = async (
 }
 
 export const promptSelectFile = async (
-  apiKey: string,
+  auth: UserApiAuth,
   region?: StorageRegion,
 ): Promise<StorageFile | null> => {
   const spinner = new Kia(colors.cyan('Fetching file list...'))
   spinner.start()
 
   try {
-    const result = await storageList(apiKey, { region })
+    const result = await storageList(auth, { region })
     spinner.succeed(`Found ${result.files.length} file(s)`)
 
     if (result.files.length === 0) {

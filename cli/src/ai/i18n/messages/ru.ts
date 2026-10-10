@@ -21,16 +21,20 @@ export const messages: Record<string, string> = {
   'No': 'Нет',
   'Setup cancelled.': 'Настройка отменена.',
 
-  'SLV API Key': 'SLV API ключ',
-  'Get your API key: https://dashboard.erpc.global':
-    'Получите API-ключ: https://dashboard.erpc.global',
-  '🔑 SLV API Key (or press Enter to skip)':
-    '🔑 SLV API ключ (Enter чтобы пропустить)',
-  'SLV API Key saved.': 'SLV API ключ сохранён.',
+  'ERPC Login':
+    'Вход в ERPC',
+  'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
+    'Войдите в ERPC в браузере, чтобы пользоваться SLV AI и аккаунтом ERPC с этой машины.',
+  'Sign in to ERPC now?':
+    'Войти в ERPC сейчас?',
+  'Signed in to ERPC.':
+    'Вход в ERPC выполнен.',
+  'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
+    'Вход в ERPC не выполнен. Запустите `slv login` на этой машине, чтобы пользоваться SLV AI и HTTPS.',
   'Skipped. You can run `slv login` later.':
     'Пропущено. Вы можете позже запустить `slv login`.',
-  'Using SLV AI (powered by your SLV API Key).':
-    'Используется SLV AI (на базе вашего SLV API ключа).',
+  'Using SLV AI (powered by your ERPC login).':
+    'Используется SLV AI (через ваш вход в ERPC).',
 
   'Agent Setup': 'Настройка агента',
   'Your name': 'Ваше имя',
@@ -211,8 +215,8 @@ export const messages: Record<string, string> = {
   'Installing solana-cli (agave)...': 'Установка solana-cli (agave)...',
   '✓ solana-cli installed': '✓ solana-cli установлен',
 
-  'SLV API Key not found. Run `slv login` first.':
-    'SLV API ключ не найден. Сначала запустите `slv login`.',
+  'Not signed in to ERPC. Run `slv login` first.':
+    'Вход в ERPC не выполнен. Сначала запустите `slv login`.',
   'Checking for new versions…': 'Проверяю новые версии…',
   '🔄 New versions available:': '🔄 Доступны новые версии:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -341,10 +345,8 @@ export const messages: Record<string, string> = {
   'Browser chat UI': 'Браузерный чат',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Устанавливается фоновый сервис, чтобы вы могли общаться с SLV из любого браузера по адресу http://127.0.0.1:{port}/ui/, не держа терминал открытым.',
-  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'SLV API ключ позволяет направить ваш бесплатный erpc.global поддомен на этот VPS для мгновенного HTTPS.',
-  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
-    '🔑 Вставьте SLV API ключ сюда (Enter — пропустить HTTPS):',
+  'Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    'Вход в ERPC позволяет направить ваш бесплатный поддомен erpc.global на этот VPS и сразу включить HTTPS.',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     'Пропущено. Запустите `slv login`, затем `slv install nginx` позже для включения HTTPS.',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':

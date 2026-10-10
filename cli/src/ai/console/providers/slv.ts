@@ -6,6 +6,7 @@ import {
   type ToolDefinition,
 } from '@/ai/console/tools.ts'
 import { isAbortLikeError } from '/lib/isAbortError.ts'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import {
   fetchAuthorizationStatus,
@@ -77,7 +78,7 @@ function buildCostDriver(payload: TokenErrorPayload): string | null {
 }
 
 async function buildInsufficientTokenMessage(
-  apiKey: string,
+  auth: UserApiAuth,
   payload: TokenErrorPayload,
 ): Promise<string> {
   const estimatedTokens = formatNumber(
@@ -97,7 +98,7 @@ async function buildInsufficientTokenMessage(
   )
   const costDriver = buildCostDriver(payload)
 
-  const dashboardAuthorization = await fetchAuthorizationStatus(apiKey)
+  const dashboardAuthorization = await fetchAuthorizationStatus(auth)
   const payloadAuthorization = getAuthorizationStatus(payload)
   const authState = dashboardAuthorization.state !== 'unknown'
     ? dashboardAuthorization.state
@@ -159,19 +160,19 @@ function toAnthropicTools(
 }
 
 export class SLVProvider {
-  private apiKey: string
+  private auth: UserApiAuth
   private model: string
   private messages: MessageParam[] = []
   private systemPrompt: string
   private callbacks: ChatCallbacks
 
   constructor(
-    apiKey: string,
+    auth: UserApiAuth,
     model: string,
     systemPrompt: string,
     callbacks: ChatCallbacks,
   ) {
-    this.apiKey = apiKey
+    this.auth = auth
     // "SLV AI" maps to the default model on the server side
     this.model = model === 'SLV AI' ? 'slv-ai-default' : model
     this.systemPrompt = systemPrompt
@@ -217,7 +218,7 @@ export class SLVProvider {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`,
+            'Authorization': await userApiAuthHeader(this.auth),
           },
           body: JSON.stringify({
             model: this.model,
@@ -257,7 +258,7 @@ export class SLVProvider {
 
         if (tokenLimitReached) {
           throw new Error(
-            await buildInsufficientTokenMessage(this.apiKey, errJson ?? {}),
+            await buildInsufficientTokenMessage(this.auth, errJson ?? {}),
           )
         }
 

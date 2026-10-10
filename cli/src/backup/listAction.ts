@@ -1,6 +1,10 @@
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import {
+  findStorageAccessKey,
+  getStorageAccessKey,
+  getUserApiAuth,
+} from '/lib/getApiKeyFromYml.ts'
 import { storageList, type StorageRegion } from '/src/storage/api.ts'
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import { hasRestic, resticSnapshots } from '@/backup/restic.ts'
@@ -18,13 +22,21 @@ export const listAction = async (options: {
   region?: string
   restic?: boolean
 }) => {
-  const apiKey = await getApiKeyFromYml()
+  // Restic snapshots are read with the storage access key. Asked for with
+  // --restic, a missing key is an error; otherwise the restic part is skipped
+  // unless a key is saved and restic is installed.
+  const storageKey = options.restic
+    ? await getStorageAccessKey()
+    : await findStorageAccessKey()
+
+  // The cloud storage list is read with the ERPC login.
+  const auth = options.restic ? null : await getUserApiAuth()
 
   // Show restic snapshots if available
-  if (options.restic || await hasRestic()) {
+  if (storageKey && (options.restic || await hasRestic())) {
     try {
       console.log(colors.bold(colors.blue('\n📸 Restic Snapshots\n')))
-      const raw = await resticSnapshots(apiKey, options.region)
+      const raw = await resticSnapshots(storageKey, options.region)
       const snapshots: ResticSnapshot[] = JSON.parse(raw)
 
       if (snapshots.length === 0) {
@@ -59,12 +71,14 @@ export const listAction = async (options: {
     if (options.restic) return // restic-only mode
   }
 
+  if (!auth) return
+
   // Show tar backups from cloud storage
   const spinner = new Kia(colors.cyan('Fetching backup list from cloud storage...'))
   spinner.start()
 
   try {
-    const list = await storageList(apiKey, {
+    const list = await storageList(auth, {
       prefix: 'backups/',
       region: options.region as StorageRegion,
     })

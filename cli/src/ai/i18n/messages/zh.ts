@@ -20,15 +20,20 @@ export const messages: Record<string, string> = {
   'No': '否',
   'Setup cancelled.': '已取消设置。',
 
-  'SLV API Key': 'SLV API 密钥',
-  'Get your API key: https://dashboard.erpc.global':
-    '获取 API 密钥: https://dashboard.erpc.global',
-  '🔑 SLV API Key (or press Enter to skip)': '🔑 SLV API 密钥（按 Enter 跳过）',
-  'SLV API Key saved.': 'SLV API 密钥已保存。',
+  'ERPC Login':
+    'ERPC 登录',
+  'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
+    '在浏览器中登录 ERPC 后，即可在此机器上使用 SLV AI 和您的 ERPC 账户。',
+  'Sign in to ERPC now?':
+    '现在登录 ERPC 吗？',
+  'Signed in to ERPC.':
+    '已登录 ERPC。',
+  'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
+    '尚未登录 ERPC。请在此机器上运行 `slv login` 以使用 SLV AI 和 HTTPS。',
   'Skipped. You can run `slv login` later.':
     '已跳过。您可以稍后运行 `slv login`。',
-  'Using SLV AI (powered by your SLV API Key).':
-    '使用 SLV AI（由您的 SLV API 密钥驱动）。',
+  'Using SLV AI (powered by your ERPC login).':
+    '使用 SLV AI（通过您的 ERPC 登录）。',
 
   'Agent Setup': '代理设置',
   'Your name': '您的姓名',
@@ -198,8 +203,8 @@ export const messages: Record<string, string> = {
   'Installing solana-cli (agave)...': '正在安装 solana-cli (agave)...',
   '✓ solana-cli installed': '✓ solana-cli 安装完成',
 
-  'SLV API Key not found. Run `slv login` first.':
-    '未找到 SLV API 密钥。请先运行 `slv login`。',
+  'Not signed in to ERPC. Run `slv login` first.':
+    '尚未登录 ERPC。请先运行 `slv login`。',
   'Checking for new versions…': '正在检查新版本…',
   '🔄 New versions available:': '🔄 有新版本可用:',
   'Type /update to apply, or ignore to keep current versions.':
@@ -322,10 +327,8 @@ export const messages: Record<string, string> = {
   'Browser chat UI': '浏览器聊天界面',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     '安装后台服务，无需保持终端打开即可在浏览器中访问 http://127.0.0.1:{port}/ui/ 与 SLV 聊天。',
-  'An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
-    'SLV API 密钥可将您的免费 erpc.global 子域名指向此 VPS，立即启用 HTTPS。',
-  '🔑 Paste your SLV API key here (Enter to skip HTTPS):':
-    '🔑 在此粘贴 SLV API 密钥（按 Enter 跳过 HTTPS）:',
+  'Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
+    '登录 ERPC 后，可将您的免费 erpc.global 子域名指向此 VPS，立即启用 HTTPS。',
   'Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.':
     '已跳过。稍后运行 `slv login` 然后 `slv install nginx` 启用 HTTPS。',
   '⚠ This VPS is NOT an SLV VPS / BareMetal.':

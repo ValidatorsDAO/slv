@@ -7,7 +7,7 @@ const rebuildAction = async () => {
   const selection = await selectNode()
   if (!selection) return false
 
-  const { apiKey, ip, node } = selection
+  const { auth, ip, node } = selection
 
   console.log(colors.white(`\n🖥️  Node: ${node.productName || ip}`))
   console.log(colors.white(`📍 IP: ${ip}\n`))
@@ -50,7 +50,7 @@ const rebuildAction = async () => {
 
   console.log(colors.cyan('🏭 Rebuilding OS...'))
   try {
-    const result = await metalRebuild(apiKey, ip)
+    const result = await metalRebuild(auth, ip)
     if (result.success) {
       console.log(colors.green('✅ Rebuild initiated successfully'))
       console.log(colors.white('The node will be reprovisioned. This may take several minutes.'))

@@ -1,5 +1,5 @@
 import { prompt, Select } from '@cliffy/prompt'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { metalStatus } from '/src/metal/api.ts'
 import { extractSpecValue } from '/lib/extractSpecValue.ts'
@@ -7,9 +7,9 @@ import type { ServerStatusEnumType } from '@cmn/types/metal.ts'
 import { serverStatusEmojiMap } from '@cmn/types/metal.ts'
 
 export const selectNode = async () => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
   console.log(colors.cyan('🔍 Fetching your Bare Metal nodes...'))
-  const result = await metalStatus(apiKey)
+  const result = await metalStatus(auth)
   if (!result.success) {
     console.log(colors.red('Failed to get nodes. Please try again later.'))
     return null
@@ -43,5 +43,5 @@ export const selectNode = async () => {
   ])
 
   const selected = nodes.find((n: any) => n.ip === nodeIP)
-  return { apiKey, node: selected, ip: nodeIP as string }
+  return { auth, node: selected, ip: nodeIP as string }
 }

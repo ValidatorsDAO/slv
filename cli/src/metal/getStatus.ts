@@ -1,4 +1,5 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 import type { z } from '@hono/zod-openapi'
 import type { BareMetalStatusRes } from '@cmn/types/metal.ts'
 
@@ -31,12 +32,12 @@ export type SubscriptionResponse = {
   message: Subscription[]
 }
 
-const getStatus = async (apiKey: string) => {
+const getStatus = async (auth: UserApiAuth) => {
   try {
     const myHeaders = new Headers()
     myHeaders.append(
       'Authorization',
-      `Bearer ${apiKey}`,
+      await userApiAuthHeader(auth),
     )
     myHeaders.append('Content-Type', 'application/json')
     const requestOptions = {

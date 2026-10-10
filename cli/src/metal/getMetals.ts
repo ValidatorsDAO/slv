@@ -1,18 +1,19 @@
 import { METAL_API_URL } from '@cmn/constants/url.ts'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 import type { z } from '@hono/zod-openapi'
 import type { ListProductRes } from '@cmn/types/metal.ts'
 
 export type MetalType = 'APP' | 'RPC' | 'MV' | 'UT'
 
 const getMetals = async (
-  apiKey: string,
+  auth: UserApiAuth,
   metalType: MetalType = 'APP',
 ) => {
   try {
     const myHeaders = new Headers()
     myHeaders.append(
       'Authorization',
-      `Bearer ${apiKey}`,
+      await userApiAuthHeader(auth),
     )
     myHeaders.append('Content-Type', 'application/json')
     const requestOptions = {

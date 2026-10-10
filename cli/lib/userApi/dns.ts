@@ -118,7 +118,7 @@ export const explainDnsSetError = (result: {
   const msg = result.body?.message ?? ''
   switch (result.status) {
     case 401:
-      return 'SLV API key missing or invalid — run `slv login`.'
+      return 'ERPC login missing or expired — run `slv login`.'
     case 402:
       return msg ||
         'Custom subdomains require a paid subscription (not yet launched).'
@@ -145,7 +145,7 @@ export const explainDnsDeleteError = (result: {
   const msg = result.body?.message ?? ''
   switch (result.status) {
     case 401:
-      return 'SLV API key missing or invalid — run `slv login`.'
+      return 'ERPC login missing or expired — run `slv login`.'
     case 403:
       if (err === 'not_owner') {
         return msg || 'That slug is owned by another user.'

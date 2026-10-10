@@ -1,4 +1,4 @@
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import {
   storageSync,
@@ -10,13 +10,13 @@ import { Row, Table } from '@cliffy/table'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 
 export const syncAction = async (options: { region?: StorageRegion }) => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   const spinner = new Kia(colors.cyan('Syncing storage usage...'))
   spinner.start()
 
   try {
-    const result = await storageSync(apiKey, options.region)
+    const result = await storageSync(auth, options.region)
 
     if (result.corrected) {
       spinner.succeed('Storage usage corrected')

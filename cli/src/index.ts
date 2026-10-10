@@ -1,4 +1,6 @@
 import { Command } from '@cliffy'
+import { colors } from '@cliffy/colors'
+import { ApiYmlUnreadableError } from '/lib/userApi/session.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import { botCmd } from '@/bot/index.ts'
 import { skillsCmd } from '@/skills/index.ts'
@@ -22,7 +24,6 @@ import { storageCmd } from '@/storage/index.ts'
 import { backupCmd } from '@/backup/index.ts'
 import { aiCmd, onboardCmd } from '@/ai/index.ts'
 import { authCmd } from '@/auth/index.ts'
-import { airdropCmd } from '@/airdrop/index.ts'
 import { disableCmd } from '@/disable/index.ts'
 import { addSshCmd } from '@/addSsh/index.ts'
 import { gatewayCmd } from '@/gateway/index.ts'
@@ -123,9 +124,6 @@ program
   .command('auth', authCmd)
 
 program
-  .command('airdrop', airdropCmd)
-
-program
   .command('disable', disableCmd)
 
 program
@@ -135,4 +133,13 @@ program
   .command('gateway', gatewayCmd)
   .command('dns', dnsCmd)
 
-await program.parse(Deno.args)
+try {
+  await program.parse(Deno.args)
+} catch (error) {
+  // A command that could not read ~/.slv/api.yml left it unchanged.
+  if (error instanceof ApiYmlUnreadableError) {
+    console.error(colors.red(`❌ ${error.message}`))
+    Deno.exit(1)
+  }
+  throw error
+}

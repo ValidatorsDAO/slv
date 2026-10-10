@@ -1,4 +1,4 @@
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import {
   storageList,
@@ -12,7 +12,7 @@ import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 export const listStorageAction = async (
   options: { prefix?: string; region?: StorageRegion; limit?: number },
 ) => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   const spinner = new Kia(colors.cyan('Fetching file list...'))
   spinner.start()
@@ -23,7 +23,7 @@ export const listStorageAction = async (
     let truncated = true
 
     while (truncated) {
-      const result = await storageList(apiKey, {
+      const result = await storageList(auth, {
         prefix: options.prefix,
         region: options.region,
         limit: options.limit,

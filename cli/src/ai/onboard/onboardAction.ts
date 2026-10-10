@@ -1,4 +1,4 @@
-import { Checkbox, Input, Secret, Select } from '@cliffy/prompt'
+import { Checkbox, Input, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { parse, stringify } from '@std/yaml'
 import { slvAA } from '/lib/slvAA.ts'
@@ -18,10 +18,12 @@ import {
 } from '@/ai/onboard/installSudoers.ts'
 import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
 import {
-  getApiKeyFromYml,
+  findUserApiAuth,
   isValidApiKey,
+  mergeSlvCredentials,
   resolveHome,
 } from '/lib/getApiKeyFromYml.ts'
+import { runDeviceLogin } from '@/login/index.ts'
 import { Confirm } from '@cliffy/prompt'
 import { installAction as installGatewayAction } from '/src/gateway/install.ts'
 import { pickGatewayService } from '/src/gateway/service/pick.ts'
@@ -35,7 +37,8 @@ import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
 import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
 import { getDnsStatus } from '/lib/userApi/dns.ts'
 import { openSupportTicket } from '/lib/userApi/support.ts'
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
+import { updateApiYml } from '/lib/userApi/session.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
 
@@ -47,6 +50,13 @@ import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
  * single-invocation CLI command — there's no concurrency to race.
  */
 let currentCfg: OnboardConfig = {}
+
+/**
+ * True when the answers come from `--config <path>` (for example from
+ * cloud-init). Such a run never starts a browser sign-in: nobody is there to
+ * finish it, and the run would wait for up to 15 minutes.
+ */
+let fromConfigFile = false
 
 /** Return the preset value if present, otherwise run the prompt. */
 const orPrompt = async <T>(
@@ -285,6 +295,7 @@ export const onboardAction = async (
   opts: { configPath?: string } = {},
 ) => {
   currentCfg = opts.configPath ? await loadOnboardConfig(opts.configPath) : {}
+  fromConfigFile = Boolean(opts.configPath)
   if (opts.configPath) {
     console.log(
       colors.gray(
@@ -370,59 +381,59 @@ export const onboardAction = async (
     return
   }
 
-  // Check for existing SLV API key
+  // The RPC API key from --config. It is used for RPC only — the ERPC
+  // account features below use the ERPC login (`slv login`).
   const home = resolveHome()
-  const apiYmlPath = `${home}/.slv/api.yml`
-  let hasSlvKey = false
-  try {
-    const raw = await Deno.readTextFile(apiYmlPath)
-    const yml = parse(raw) as { slv?: { api_key?: string } } | null
-    hasSlvKey = !!(yml?.slv?.api_key && isValidApiKey(String(yml.slv.api_key)))
-  } catch { /* file doesn't exist yet */ }
+  const configApiKey = currentCfg.slv_api_key?.trim()
+  if (configApiKey && isValidApiKey(configApiKey)) {
+    await mergeSlvCredentials({ api_key: configApiKey }, home)
+  }
 
-  if (!hasSlvKey) {
+  // ERPC login: SLV AI and the HTTPS step call user-api with it.
+  const signedIn = (await findUserApiAuth(home)) !== null
+
+  if (!signedIn) {
     console.log(
-      colors.bold.rgb24(`│  ${t('SLV API Key')}`, 0x14f195),
+      colors.bold.rgb24(`│  ${t('ERPC Login')}`, 0x14f195),
     )
-    console.log(
-      colors.white(
-        `  ${t('Get your API key: https://dashboard.erpc.global')}\n`,
-      ),
-    )
-
-    const slvApiKey = currentCfg.slv_api_key !== undefined
-      ? currentCfg.slv_api_key
-      : await Secret.prompt({
-        message: t('🔑 SLV API Key (or press Enter to skip)'),
-      })
-
-    if (slvApiKey && slvApiKey.trim().length > 0) {
-      await Deno.mkdir(`${home}/.slv`, { recursive: true })
-      // Read existing or create new
-      let existing: Record<string, unknown> = {}
-      try {
-        const content = await Deno.readTextFile(apiYmlPath)
-        existing = (parse(content) as Record<string, unknown>) ?? {}
-      } catch { /* file doesn't exist */ }
-      existing.slv = { api_key: slvApiKey.trim() }
-      await Deno.writeTextFile(apiYmlPath, stringify(existing))
-      await Deno.chmod(apiYmlPath, 0o600)
-      console.log(colors.green(`  ✔ ${t('SLV API Key saved.')}\n`))
-      // The just-entered SLV key unlocks AI translation for non-builtin langs.
-      const currentLang = await readLang()
-      if (!BUILTIN_LANGS[currentLang]) {
-        await initI18n()
-      }
+    if (fromConfigFile) {
+      console.log(
+        colors.rgb24(
+          `  ${
+            t('Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.')
+          }\n`,
+          0x888888,
+        ),
+      )
     } else {
       console.log(
-        colors.rgb24(`  ${t('Skipped. You can run `slv login` later.')}\n`, 0x888888),
+        colors.white(
+          `  ${
+            t('Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.')
+          }\n`,
+        ),
       )
+      const signIn = await Confirm.prompt({
+        message: t('Sign in to ERPC now?'),
+        default: true,
+      })
+      if (signIn && await signInToErpc(t)) {
+        // The new login unlocks AI translation for non-builtin langs.
+        const currentLang = await readLang()
+        if (!BUILTIN_LANGS[currentLang]) {
+          await initI18n()
+        }
+      } else {
+        console.log(
+          colors.rgb24(`  ${t('Skipped. You can run `slv login` later.')}\n`, 0x888888),
+        )
+      }
     }
   }
 
   // Default to SLV AI — no provider selection needed
   // Users can manually configure OpenAI/Anthropic in ~/.slv/api.yml if desired
-  console.log(colors.green(`  ✔ ${t('Using SLV AI (powered by your SLV API Key).')}\n`))
+  console.log(colors.green(`  ✔ ${t('Using SLV AI (powered by your ERPC login).')}\n`))
 
   await writeAiConfig({
     provider: 'slv' as AiProvider,
@@ -622,16 +633,10 @@ Session history and important notes.
     })
 
   if (discordWebhook && discordWebhook.trim().length > 0) {
-    // Save to api.yml preserving existing content
-    const apiYmlPath = `${agentHome}/.slv/api.yml`
-    let existing: Record<string, unknown> = {}
-    try {
-      const content = await Deno.readTextFile(apiYmlPath)
-      existing = (parse(content) as Record<string, unknown>) ?? {}
-    } catch { /* file doesn't exist */ }
-    existing.notifications = { discord_webhook: discordWebhook.trim() }
-    await Deno.writeTextFile(apiYmlPath, stringify(existing))
-    await Deno.chmod(apiYmlPath, 0o600)
+    // Save to api.yml under its lock, changing only `notifications`
+    await updateApiYml(agentHome, (yml) => {
+      yml.notifications = { discord_webhook: discordWebhook.trim() }
+    })
     console.log(
       colors.green(`  ✔ ${t('Discord Webhook saved to ~/.slv/api.yml')}\n`),
     )
@@ -1197,7 +1202,8 @@ const sendOnboardWebhook = async (opts: {
  * message that works from any phone/laptop with no SSH tunnel.
  *
  * Skipped silently when:
- *   - no SLV API key is configured (user still needs `slv login`)
+ *   - running from `--config` without an ERPC login (no browser sign-in
+ *     there — the user runs `slv login` later)
  *   - we can't read DNS status (offline / API down)
  *   - the user's default slug is already set to an IP we can't
  *     confirm (we leave whatever they have alone rather than
@@ -1226,39 +1232,39 @@ const maybeSetupHttps = async (
     colors.bold.rgb24(`\n│  ${t('Public HTTPS URL (optional)')}`, 0x14f195),
   )
 
-  // FIX 1: re-read api.yml fresh (getApiKeyFromYml already bypasses
-  // any cache). If it's still missing after the onboard SLV-key
-  // step, offer to paste one now so HTTPS isn't blocked on a
+  // FIX 1: re-read api.yml fresh (findUserApiAuth already bypasses
+  // any cache). If there is still no ERPC login after the onboard
+  // login step, offer to sign in now so HTTPS isn't blocked on a
   // single skipped prompt earlier in the flow.
-  let apiKey = await readSlvKeyOrEmpty()
-  if (!apiKey) {
+  let auth = await readSlvAuthOrNull()
+  if (!auth && !fromConfigFile) {
     console.log(
       colors.white(
         `  ${
-          t('An SLV API key lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
+          t('Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.')
         }`,
       ),
     )
-    const pasted = (await Secret.prompt({
-      message: t('🔑 Paste your SLV API key here (Enter to skip HTTPS):'),
-    })).trim()
-    if (!pasted) {
-      console.log(
-        colors.rgb24(
-          `  ${
-            t('Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.')
-          }\n`,
-          0x888888,
-        ),
-      )
-      return null
-    }
-    await persistSlvKey(pasted)
-    apiKey = pasted
+    const signIn = await Confirm.prompt({
+      message: t('Sign in to ERPC now?'),
+      default: true,
+    })
+    if (signIn && await signInToErpc(t)) auth = await readSlvAuthOrNull()
+  }
+  if (!auth) {
+    console.log(
+      colors.rgb24(
+        `  ${
+          t('Skipped. Run `slv login` then `slv install nginx` later to enable HTTPS.')
+        }\n`,
+        0x888888,
+      ),
+    )
+    return null
   }
 
   // Pre-flight DNS status check.
-  const status = await getDnsStatus(userApiAuthFromApiKey(apiKey))
+  const status = await getDnsStatus(auth)
   if (!status.ok) {
     console.log(
       colors.yellow(
@@ -1282,7 +1288,7 @@ const maybeSetupHttps = async (
     def.exists && def.ip &&
     thisHostIp && def.ip !== thisHostIp
   ) {
-    return await handleSubdomainConflict(t, apiKey, fqdn, def.ip, thisHostIp)
+    return await handleSubdomainConflict(t, auth, fqdn, def.ip, thisHostIp)
   }
 
   console.log(
@@ -1312,7 +1318,7 @@ const maybeSetupHttps = async (
 
   console.log(colors.cyan(`🌐 Registering ${fqdn} + installing nginx...`))
   const result = await runNginxFlow({
-    apiKey,
+    auth,
     port: GATEWAY_DEFAULT_PORT,
     ip: thisHostIp ?? undefined,
   })
@@ -1365,38 +1371,30 @@ const maybeSetupHttps = async (
 }
 
 /**
- * Read the SLV API key from ~/.slv/api.yml without erroring out
- * when absent — the HTTPS step treats "missing" as a prompt trigger,
- * not a fatal.
+ * Sign in to ERPC in the browser (the `slv login` flow) from inside the
+ * onboard. A failure is reported and the onboard goes on without the login.
  */
-const readSlvKeyOrEmpty = async (): Promise<string> => {
-  try {
-    const k = await getApiKeyFromYml(true)
-    return k ?? ''
-  } catch {
-    return ''
+const signInToErpc = async (t: (key: string) => string): Promise<boolean> => {
+  const result = await runDeviceLogin()
+  if (!result.ok) {
+    console.log(colors.yellow(`  ${result.lines[0]}`))
+    return false
   }
+  console.log(colors.green(`  ✔ ${t('Signed in to ERPC.')}\n`))
+  return true
 }
 
 /**
- * Write a pasted SLV API key back into ~/.slv/api.yml, preserving
- * whatever other fields (lang, notifications, ai, …) were already
- * there. Mirror of the write in the SLV-key onboard step.
+ * Read the ERPC login from ~/.slv/api.yml without erroring out when
+ * absent — the HTTPS step treats "missing" as a prompt trigger, not a
+ * fatal.
  */
-const persistSlvKey = async (apiKey: string): Promise<void> => {
-  const home = resolveHome()
-  const apiYmlPath = `${home}/.slv/api.yml`
-  await Deno.mkdir(`${home}/.slv`, { recursive: true })
-  let existing: Record<string, unknown> = {}
+const readSlvAuthOrNull = async (): Promise<UserApiAuth | null> => {
   try {
-    const content = await Deno.readTextFile(apiYmlPath)
-    existing = (parse(content) as Record<string, unknown>) ?? {}
-  } catch { /* file doesn't exist yet */ }
-  const slv = (existing.slv as Record<string, unknown> | undefined) ?? {}
-  slv.api_key = apiKey
-  existing.slv = slv
-  await Deno.writeTextFile(apiYmlPath, stringify(existing))
-  await Deno.chmod(apiYmlPath, 0o600)
+    return await findUserApiAuth()
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -1407,7 +1405,7 @@ const persistSlvKey = async (apiKey: string): Promise<void> => {
  */
 const handleSubdomainConflict = async (
   t: (key: string) => string,
-  apiKey: string,
+  auth: UserApiAuth,
   fqdn: string,
   currentIp: string,
   thisHostIp: string,
@@ -1467,7 +1465,7 @@ const handleSubdomainConflict = async (
       `Current free subdomain: ${fqdn} → ${currentIp}\n` +
       `This new VPS IP: ${thisHostIp}\n` +
       `Use case: user is onboarding a second SLV host and wants an additional subdomain for it.`
-    const ticket = await openSupportTicket(userApiAuthFromApiKey(apiKey), {
+    const ticket = await openSupportTicket(auth, {
       title: `Request 2nd erpc.global subdomain for ${thisHostIp}`,
       description,
     })
@@ -1492,7 +1490,7 @@ const handleSubdomainConflict = async (
   // overwrite the old record.
   console.log(colors.cyan(`🌐 Re-pointing ${fqdn} at ${thisHostIp}...`))
   const result = await runNginxFlow({
-    apiKey,
+    auth,
     port: GATEWAY_DEFAULT_PORT,
     ip: thisHostIp,
   })

@@ -1,15 +1,20 @@
 import { Command } from '@cliffy'
-import { Input, Select } from '@cliffy/prompt'
+import { Input, Secret, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { exec, spawnSync } from '@elsoul/child-process'
 import { join } from '@std/path'
-import { parse } from '@std/yaml'
 import { checkRpcEndpoint, sanitizeEndpointForDisplay } from '@/check/rpc.ts'
 import { checkBoostForTargets, printTargetReport } from '/lib/checkBoost.ts'
 import type { InventoryType } from '@cmn/types/config.ts'
+import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
+import {
+  findApiKey,
+  isValidApiKey,
+  mergeSlvCredentials,
+  resolveHome,
+} from '/lib/getApiKeyFromYml.ts'
 
 const userBinDir = join(Deno.env.get('HOME') || '', '.slv', 'bin')
-const slvDir = join(Deno.env.get('HOME') || '', '.slv')
 
 const DEFAULT_BENCH_REGION = 'frankfurt'
 const DEFAULT_TRANSACTIONS = 10000
@@ -17,20 +22,38 @@ const DEFAULT_ACCOUNT = 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA'
 const DEFAULT_COMMITMENT = 'processed'
 const DEFAULT_ERPC_URL = 'https://edge.erpc.global'
 
-type ApiYml = {
-  slv?: {
-    api_key?: string
-  }
+const NO_API_KEY =
+  'No ERPC API key found in ~/.slv/api.yml. Run `slv check` in a terminal to enter your API key.'
+
+/** How `slv check` gets an API key that is not saved yet (tests replace it). */
+export type ApiKeyPromptDeps = {
+  askApiKey?: () => Promise<string>
+  isTerminal?: () => boolean
 }
 
-async function readSlvApiKey(): Promise<string | null> {
-  try {
-    const raw = await Deno.readTextFile(join(slvDir, 'api.yml'))
-    const yml = parse(raw) as ApiYml | null
-    return yml?.slv?.api_key?.trim() || null
-  } catch {
-    return null
-  }
+const askApiKeyInTerminal = (): Promise<string> =>
+  Secret.prompt({
+    message:
+      `🔑 ERPC API key for RPC (create one in the ERPC dashboard: ${ERPC_DASHBOARD_URL})`,
+  })
+
+/**
+ * The API key for the RPC endpoints. When none is saved and stdin is a
+ * terminal, ask for it and save it into `slv:`. The API key is used for RPC
+ * only; ERPC account features use `slv login`.
+ */
+async function getOrAskApiKey(
+  home: string,
+  deps: ApiKeyPromptDeps,
+): Promise<string> {
+  const saved = await findApiKey(home)
+  if (saved) return saved
+  const isTerminal = deps.isTerminal ?? (() => Deno.stdin.isTerminal())
+  if (!isTerminal()) throw new Error(NO_API_KEY)
+  const entered = (await (deps.askApiKey ?? askApiKeyInTerminal)()).trim()
+  if (!isValidApiKey(entered)) throw new Error(NO_API_KEY)
+  await mergeSlvCredentials({ api_key: entered }, home)
+  return entered
 }
 
 function geyserKindFor(kind: string): string {
@@ -46,20 +69,23 @@ function geyserKindFor(kind: string): string {
   }
 }
 
-async function ensureGeyserbenchConfig(options: {
-  kind: string
-  region: string
-  endpoints: string[]
-  transactions: number
-}): Promise<string> {
-  const apiKey = await readSlvApiKey()
-  if (!apiKey) {
-    throw new Error(
-      'No SLV API key found in ~/.slv/api.yml. Get a free API key and configure it first.',
-    )
-  }
+export async function ensureGeyserbenchConfig(
+  options: {
+    kind: string
+    region: string
+    endpoints: string[]
+    transactions: number
+  },
+  deps: ApiKeyPromptDeps = {},
+): Promise<string> {
+  const apiKey = await getOrAskApiKey(resolveHome(), deps)
 
-  const configDir = join(slvDir, 'check', 'geyserbench')
+  const configDir = join(
+    Deno.env.get('HOME') || '',
+    '.slv',
+    'check',
+    'geyserbench',
+  )
   await Deno.mkdir(configDir, { recursive: true })
   const configPath = join(configDir, 'config.toml')
   const endpointKind = geyserKindFor(options.kind)
@@ -337,10 +363,10 @@ checkCmd.command('geyserbench')
         ? error.message
         : String(error)
       console.error(colors.red('Error executing geyserbench:'), errorMessage)
-      if (errorMessage.includes('No SLV API key found')) {
+      if (errorMessage === NO_API_KEY) {
         console.log(
           colors.yellow(
-            'Get a free API key and configure ~/.slv/api.yml, then run this command again.',
+            `Create an API key in the ERPC dashboard (${ERPC_DASHBOARD_URL}), then run this command again in a terminal.`,
           ),
         )
       }

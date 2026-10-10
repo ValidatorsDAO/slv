@@ -5,7 +5,8 @@ import { messages as ru } from '@/ai/i18n/messages/ru.ts'
 import { messages as vi } from '@/ai/i18n/messages/vi.ts'
 import { readLang } from '@/ai/config.ts'
 import { dirname } from '@std/path'
-import { parse } from '@std/yaml'
+import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 
 export const BUILTIN_LANGS: Record<string, Record<string, string>> = {
   en,
@@ -50,27 +51,24 @@ const saveCache = async (
   await Deno.writeTextFile(path, JSON.stringify(dict, null, 2))
 }
 
-const getSlvApiKey = async (): Promise<string | null> => {
-  const home = Deno.env.get('HOME')
-  if (!home) return null
+const getSlvAuth = async (): Promise<UserApiAuth | null> => {
+  if (!Deno.env.get('HOME') && !Deno.env.get('SUDO_USER')) return null
   try {
-    const raw = await Deno.readTextFile(`${home}/.slv/api.yml`)
-    const yml = parse(raw) as { slv?: { api_key?: string } } | null
-    const key = yml?.slv?.api_key
-    return typeof key === 'string' && key.trim().length > 0 ? key.trim() : null
+    return await findUserApiAuth()
   } catch {
     return null
   }
 }
 
 // Batch-translate the English dictionary to `lang` via SLV AI.
-// Returns null if no API key or the call fails (caller falls back to English).
+// Returns null if not signed in to ERPC or the call fails (caller falls
+// back to English).
 const translateViaSlvAi = async (
   lang: string,
   dict: Record<string, string>,
 ): Promise<Record<string, string> | null> => {
-  const apiKey = await getSlvApiKey()
-  if (!apiKey) return null
+  const auth = await getSlvAuth()
+  if (!auth) return null
 
   const sourceEntries = Object.entries(dict)
   const sourceObj: Record<string, string> = {}
@@ -86,7 +84,7 @@ const translateViaSlvAi = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: await userApiAuthHeader(auth),
       },
       body: JSON.stringify({
         model: 'slv-ai-default',

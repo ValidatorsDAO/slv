@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 
 export type DeploymentMode = 'local' | 'remote'
 export type SpecialistAgent =
@@ -58,7 +59,8 @@ type ClassifierConfig = {
   provider: 'openai' | 'anthropic' | 'slv'
   apiKey: string
   model: string
-  slvApiKey?: string
+  /** ERPC login for the `slv` provider (user-api). */
+  slvAuth?: UserApiAuth
 }
 
 type ClassifierInput = {
@@ -267,13 +269,12 @@ async function callSlvClassifier(
   config: ClassifierConfig,
   input: ClassifierInput,
 ): Promise<Record<string, unknown> | null> {
-  const apiKey = config.slvApiKey || config.apiKey
-  if (!apiKey) return null
+  if (!config.slvAuth) return null
   const response = await fetch('https://user-api.erpc.global/v3/ai/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': await userApiAuthHeader(config.slvAuth),
     },
     body: JSON.stringify({
       model: config.model === 'SLV AI' ? 'slv-ai-default' : config.model,

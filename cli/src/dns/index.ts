@@ -8,20 +8,22 @@ import {
   getDnsStatus,
   setDnsRecord,
 } from '/lib/userApi/dns.ts'
-import { type UserApiAuth, userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
+import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 
-const requireSlvApiKey = async (): Promise<UserApiAuth> => {
-  let key: string | null = null
+const requireUserApiAuth = async (): Promise<UserApiAuth> => {
+  let auth: UserApiAuth | null = null
   try {
-    key = await getApiKeyFromYml(true)
+    auth = await findUserApiAuth()
   } catch { /* treat as missing */ }
-  if (!key) {
-    console.error(colors.red('❌ no SLV API key — run `slv login` first.'))
+  if (!auth) {
+    console.error(
+      colors.red('❌ not signed in to ERPC — run `slv login` first.'),
+    )
     Deno.exit(1)
   }
-  return userApiAuthFromApiKey(key)
+  return auth
 }
 
 /**
@@ -40,7 +42,7 @@ dnsCmd.command('status')
     'Show the caller\'s DNS state: the default `<slug>.erpc.global` subdomain and any paid custom slugs, with the IP they currently point at.',
   )
   .action(async () => {
-    const auth = await requireSlvApiKey()
+    const auth = await requireUserApiAuth()
     const result = await getDnsStatus(auth)
     if (!result.ok) {
       if (result.status === 401) {
@@ -94,7 +96,7 @@ dnsCmd.command('set')
       proxied?: boolean
       yes?: boolean
     }) => {
-      const auth = await requireSlvApiKey()
+      const auth = await requireUserApiAuth()
 
       let ip = opts.ip
       if (!ip) {
@@ -153,7 +155,7 @@ dnsCmd.command('delete')
   .option('--slug <slug:string>', 'Custom slug to delete (omit for the default)')
   .option('-y, --yes', 'Skip the confirmation prompt', { default: false })
   .action(async (opts: { slug?: string; yes?: boolean }) => {
-    const auth = await requireSlvApiKey()
+    const auth = await requireUserApiAuth()
 
     const target = opts.slug
       ? `${opts.slug}.erpc.global`

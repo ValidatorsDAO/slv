@@ -1,5 +1,5 @@
 import { prompt, Select } from '@cliffy/prompt'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { Row, Table } from '@cliffy/table'
 import { metalAvailability } from '/src/metal/api.ts'
@@ -7,14 +7,14 @@ import { REGIONS, REGION_LABELS, type Region } from '/src/metal/regions.ts'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 
 const availAction = async () => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
   const spinner = new Kia(colors.cyan('🔍 Checking availability across all regions...'))
   spinner.start()
 
   // Fetch availability for all regions in parallel
   const results = await Promise.allSettled(
     REGIONS.map(async (region) => {
-      const res = await metalAvailability(apiKey, region)
+      const res = await metalAvailability(auth, region)
       return { region, data: res }
     }),
   )

@@ -1,5 +1,6 @@
 import { Confirm, prompt } from '@cliffy/prompt'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { colors } from '@cliffy/colors'
 import {
   storageDelete,
@@ -14,19 +15,19 @@ export const deleteAction = async (
   remotePath: string | undefined,
   options: { region?: StorageRegion; prefix?: string; yes?: boolean },
 ) => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   // Interactive: prompt for region if not provided
   const region = options.region ?? await promptRegion()
 
   // Prefix mode: bulk delete all files matching prefix
   if (options.prefix) {
-    return await deleteByPrefix(apiKey, options.prefix, region, options.yes)
+    return await deleteByPrefix(auth, options.prefix, region, options.yes)
   }
 
   // Interactive: select file from list if path not provided
   if (!remotePath) {
-    const selected = await promptSelectFile(apiKey, region)
+    const selected = await promptSelectFile(auth, region)
     if (!selected) return false
     remotePath = selected.path
   }
@@ -48,11 +49,11 @@ export const deleteAction = async (
     }
   }
 
-  return await deleteSingle(apiKey, remotePath, region)
+  return await deleteSingle(auth, remotePath, region)
 }
 
 const deleteSingle = async (
-  apiKey: string,
+  auth: UserApiAuth,
   remotePath: string,
   region?: StorageRegion,
 ): Promise<boolean> => {
@@ -60,7 +61,7 @@ const deleteSingle = async (
   spinner.start()
 
   try {
-    const result = await storageDelete(apiKey, remotePath, region)
+    const result = await storageDelete(auth, remotePath, region)
     if (result.success) {
       spinner.succeed(`Deleted: ${remotePath}`)
       return true
@@ -79,7 +80,7 @@ const deleteSingle = async (
 }
 
 const deleteByPrefix = async (
-  apiKey: string,
+  auth: UserApiAuth,
   prefix: string,
   region?: StorageRegion,
   skipConfirm?: boolean,
@@ -92,7 +93,7 @@ const deleteByPrefix = async (
   let cursor: string | undefined
   try {
     do {
-      const res = await storageList(apiKey, { prefix, region, cursor })
+      const res = await storageList(auth, { prefix, region, cursor })
       for (const f of res.files) {
         allFiles.push(f.path)
       }
@@ -154,7 +155,7 @@ const deleteByPrefix = async (
 
   for (const filePath of allFiles) {
     try {
-      const result = await storageDelete(apiKey, filePath, region)
+      const result = await storageDelete(auth, filePath, region)
       if (result.success) {
         succeeded++
       } else {

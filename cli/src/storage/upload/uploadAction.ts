@@ -1,4 +1,5 @@
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { colors } from '@cliffy/colors'
 import {
   multipartComplete,
@@ -75,7 +76,7 @@ const describeUploadError = (status: number): string => {
  * Upload a file using a single presigned PUT (for files ≤ 5 GB).
  */
 async function singleUpload(
-  apiKey: string,
+  auth: UserApiAuth,
   filePath: string,
   remotePath: string,
   fileSize: number,
@@ -87,7 +88,7 @@ async function singleUpload(
 
   let presignDone = false
   try {
-    const presign = await presignUpload(apiKey, remotePath, region, contentType)
+    const presign = await presignUpload(auth, remotePath, region, contentType)
     spinner.succeed('Got presigned URL')
     presignDone = true
 
@@ -143,7 +144,7 @@ async function singleUpload(
  * Upload a file using multipart upload (for files > 5 GB).
  */
 async function multipartUpload(
-  apiKey: string,
+  auth: UserApiAuth,
   filePath: string,
   remotePath: string,
   fileSize: number,
@@ -158,7 +159,7 @@ async function multipartUpload(
 
   let upload: Awaited<ReturnType<typeof multipartCreate>>
   try {
-    upload = await multipartCreate(apiKey, remotePath, fileSize, region, contentType)
+    upload = await multipartCreate(auth, remotePath, fileSize, region, contentType)
     initSpinner.succeed(
       `Multipart upload initiated (${totalParts} parts × ${formatBytes(MULTIPART_CHUNK_SIZE)})`,
     )
@@ -211,7 +212,7 @@ async function multipartUpload(
 
         // Upload the chunk directly via Workers API
         const result = await multipartUploadPart(
-          apiKey,
+          auth,
           upload.uploadId,
           upload.key,
           desc.partNumber,
@@ -263,7 +264,7 @@ async function multipartUpload(
     // Sort parts by partNumber before completing
     completedParts.sort((a, b) => a.partNumber - b.partNumber)
     const result = await multipartComplete(
-      apiKey,
+      auth,
       upload.uploadId,
       upload.key,
       completedParts,
@@ -286,7 +287,7 @@ export const uploadAction = async (
   filePath: string | undefined,
   options: { path?: string; region?: StorageRegion },
 ) => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   // Interactive: prompt for file path if not provided
   if (!filePath) {
@@ -309,7 +310,7 @@ export const uploadAction = async (
 
   // ── Pre-upload storage quota check ──
   try {
-    const usage = await storageUsage(apiKey)
+    const usage = await storageUsage(auth)
     const available = usage.storageLimitBytes - usage.usedBytes
     if (fileSize > available) {
       console.log(colors.red('\n❌ Storage limit exceeded'))
@@ -358,8 +359,8 @@ export const uploadAction = async (
   }
 
   const result = useMultipart
-    ? await multipartUpload(apiKey, filePath, remotePath, fileSize, contentType, region)
-    : await singleUpload(apiKey, filePath, remotePath, fileSize, contentType, region)
+    ? await multipartUpload(auth, filePath, remotePath, fileSize, contentType, region)
+    : await singleUpload(auth, filePath, remotePath, fileSize, contentType, region)
 
   if (!result) return false
 

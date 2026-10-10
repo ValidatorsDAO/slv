@@ -61,21 +61,23 @@ const normalizeErrorBody = (raw: string): UserApiErrorBody | null => {
  * (JSON) and `userApiRequestRaw` (raw text) both build their request
  * through this, so there is exactly one place in this directory that
  * attaches the `Authorization` header. (Other parts of the `@slv/cli`
- * package, such as `src/ai/authorization.ts`, call user-api directly
- * with their own header — this claim is scoped to `cli/lib/userApi/`.)
+ * package that call user-api with their own `fetch` take the header
+ * value from `userApiAuthHeader` too.)
  * Network failures (DNS, connection reset,
  * …) are never caught here — they throw and propagate to the caller,
  * since masking them would hide a real outage behind a misleading
- * result value.
+ * result value. With `timeoutMs`, a request whose answer (body included)
+ * does not arrive in time is aborted and throws the same way.
  */
 const send = async (
   auth: UserApiAuth,
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
   body?: Record<string, unknown>,
+  timeoutMs?: number,
 ): Promise<UserApiRawResponse> => {
   const headers: Record<string, string> = {
-    'Authorization': userApiAuthHeader(auth),
+    'Authorization': await userApiAuthHeader(auth),
   }
   const init: RequestInit = { method, headers }
   if (body !== undefined) {
@@ -83,9 +85,23 @@ const send = async (
     init.body = JSON.stringify(body)
   }
 
-  const res = await fetch(`${USER_API_ORIGIN}${path}`, init)
-  const raw = await res.text()
-  return { ok: res.ok, status: res.status, statusText: res.statusText, raw }
+  const controller = new AbortController()
+  const timer = timeoutMs === undefined
+    ? undefined
+    : setTimeout(() => controller.abort(), timeoutMs)
+  if (timer !== undefined) init.signal = controller.signal
+  try {
+    const res = await fetch(`${USER_API_ORIGIN}${path}`, init)
+    const raw = await res.text()
+    return { ok: res.ok, status: res.status, statusText: res.statusText, raw }
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+export type UserApiRequestOptions = {
+  /** Abort when the answer, body included, takes longer than this. */
+  timeoutMs?: number
 }
 
 /** JSON-parsing request function for the direct user-api REST client. */
@@ -94,8 +110,9 @@ export const userApiRequest = async <T>(
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
   body?: Record<string, unknown>,
+  options: UserApiRequestOptions = {},
 ): Promise<UserApiResult<T>> => {
-  const res = await send(auth, method, path, body)
+  const res = await send(auth, method, path, body, options.timeoutMs)
   if (!res.ok) {
     return {
       ok: false,

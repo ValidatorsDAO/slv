@@ -1,3 +1,5 @@
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
+
 export type AuthState = 'authorized' | 'unauthorized' | 'unknown'
 
 export type AuthorizationStatus = {
@@ -138,11 +140,11 @@ export function getAuthorizationStatus(
 }
 
 export async function fetchAuthorizationStatus(
-  apiKey: string,
+  auth: UserApiAuth,
 ): Promise<AuthorizationStatus> {
   try {
     const response = await fetch(USER_DASHBOARD_URL, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { Authorization: await userApiAuthHeader(auth) },
     })
     if (!response.ok) {
       return {

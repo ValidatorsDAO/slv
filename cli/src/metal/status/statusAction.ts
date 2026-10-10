@@ -1,5 +1,5 @@
 import { prompt, Select } from '@cliffy/prompt'
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import { Row, Table } from '@cliffy/table'
 import { getStatus } from '/src/metal/getStatus.ts'
@@ -9,9 +9,9 @@ import { extractSpecValue } from '/lib/extractSpecValue.ts'
 import { serverStatusEmojiMap } from '@cmn/types/metal.ts'
 
 const statusAction = async () => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
   console.log(colors.yellow('🔍 Searching for SLV BareMetals...'))
-  const metals = await getStatus(apiKey)
+  const metals = await getStatus(auth)
   if (!metals.success) {
     console.log(colors.red('Failed to get Metals\nPlease try again later'))
     return false

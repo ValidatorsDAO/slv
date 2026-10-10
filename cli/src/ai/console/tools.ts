@@ -1,9 +1,10 @@
-import { resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
+import { basename, dirname, normalize, resolve } from '@std/path'
 import type { TUI } from '@mariozechner/pi-tui'
 import {
   injectSkillDocs,
@@ -12,7 +13,7 @@ import {
 } from '@/ai/console/systemPrompt.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
 import { ALL_AGENT_IDS, isKnownAgentId } from '@/ai/agentConfig/registry.ts'
 import {
@@ -299,7 +300,7 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'call_mcp',
     description:
-      'Call one of a fixed set of read-only SLV Cloud endpoints (all GET) — check user info, subscriptions, server/VPS inventory, usage, and status. There is no purchase, payment-link, or IP-registration tool here; send the user to https://dashboard.erpc.global for those. The API key from ~/.slv/api.yml is used automatically.',
+      'Call one of a fixed set of read-only SLV Cloud endpoints (all GET) — check user info, subscriptions, server/VPS inventory, usage, and status. There is no purchase, payment-link, or IP-registration tool here; send the user to https://dashboard.erpc.global for those. The ERPC login from ~/.slv/api.yml (`slv login`) is used automatically.',
     parameters: {
       type: 'object',
       properties: {
@@ -838,12 +839,38 @@ async function executeRunCommand(command: string): Promise<string> {
   }
 }
 
+/**
+ * True for ~/.slv/api.yml, its lock and its temporary files. The AI console
+ * file tools do not handle ~/.slv/api.yml. The path is made absolute and
+ * normalized, and followed through symlinks when it exists.
+ */
+async function isApiYmlPath(path: string): Promise<boolean> {
+  const real = async (p: string) => {
+    try {
+      return await Deno.realPath(p)
+    } catch {
+      return normalize(resolve(p))
+    }
+  }
+  const target = await real(path)
+  const name = basename(target)
+  if (!name.startsWith('api.yml') && !name.startsWith('.api.yml.')) {
+    return false
+  }
+  const slvDir = `${resolveHome()}/.slv`
+  return dirname(target) === normalize(slvDir) ||
+    dirname(target) === await real(slvDir)
+}
+
 async function executeReadFile(
   path: string,
   offset?: number,
   limit?: number,
   refresh = false,
 ): Promise<string> {
+  if (await isApiYmlPath(path)) {
+    return 'Error: read_file does not read ~/.slv/api.yml. The AI console file tools do not handle ~/.slv/api.yml.'
+  }
   const cacheKey = buildReadFileCacheKey(path, offset, limit)
   if (!refresh) {
     const cached = readFileCache.get(cacheKey)
@@ -899,8 +926,13 @@ async function executeWriteFile(
 ): Promise<string> {
   const home = resolveHome()
   const slvDir = `${home}/.slv/`
-  if (!path.startsWith(slvDir)) {
+  const target = normalize(path)
+  if (!target.startsWith(slvDir)) {
     return `Error: write_file only allows writing to ~/.slv/ directory. Requested path: ${path}`
+  }
+  // The AI console file tools do not handle ~/.slv/api.yml.
+  if (await isApiYmlPath(target)) {
+    return `Error: write_file does not write ~/.slv/api.yml. Use the slv commands (slv login, slv onboard, slv auth) to change it.`
   }
 
   try {
@@ -931,13 +963,14 @@ async function executeCallMcp(
     if (cached) return `${cached}\n\n[session cache hit]`
   }
 
-  const mcpCtx = await loadAgentContext()
-  const apiKey = mcpCtx.raw.api.slv.api_key ?? ''
-  if (!apiKey) return 'Error: No SLV API key found. Run `slv login` first.'
+  const auth = await findUserApiAuth()
+  if (!auth) {
+    return 'Error: Not signed in to ERPC. Run `slv login` first.'
+  }
 
   try {
     const content = await callReadTool(
-      userApiAuthFromApiKey(apiKey),
+      auth,
       toolName,
       args || {},
     )
@@ -1284,13 +1317,12 @@ When running ansible-playbook or slv commands that connect to servers:
         task,
       )
     } else if (config.provider === 'slv') {
-      const subCtx = await loadAgentContext()
-      const slvApiKey = subCtx.raw.api.slv.api_key ?? ''
-      if (!slvApiKey) {
-        return 'Error: SLV API Key not found. Run `slv login` first.'
+      const slvAuth = await findUserApiAuth()
+      if (!slvAuth) {
+        return 'Error: Not signed in to ERPC. Run `slv login` first.'
       }
       return await runSlvSubAgent(
-        slvApiKey,
+        slvAuth,
         config.model,
         subSystemPrompt,
         task,
@@ -1380,7 +1412,7 @@ async function runAnthropicSubAgent(
 const SLV_AI_CHAT_URL = 'https://user-api.erpc.global/v3/ai/chat'
 
 async function runSlvSubAgent(
-  apiKey: string,
+  auth: UserApiAuth,
   model: string,
   systemPrompt: string,
   task: string,
@@ -1400,7 +1432,7 @@ async function runSlvSubAgent(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': await userApiAuthHeader(auth),
       },
       body: JSON.stringify({
         model,

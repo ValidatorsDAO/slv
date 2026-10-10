@@ -216,18 +216,6 @@ export const READ_TOOLS: Record<string, ReadToolEntry> = {
     query: ['prefix', 'region', 'limit', 'cursor'],
   },
   get_storage_usage: { method: 'GET', path: '/v3/storage/usage' },
-  get_storage_restic_config: {
-    method: 'GET',
-    path: '/v3/storage/restic/config',
-  },
-  get_storage_restic_type: {
-    method: 'GET',
-    path: '/v3/storage/restic/{type}',
-  },
-  get_storage_restic_type_id: {
-    method: 'GET',
-    path: '/v3/storage/restic/{type}/{id}',
-  },
   get_ai_usage: {
     method: 'GET',
     path: '/v3/ai/usage',

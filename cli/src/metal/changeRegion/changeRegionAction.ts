@@ -8,7 +8,7 @@ const changeRegionAction = async () => {
   const selection = await selectNode()
   if (!selection) return false
 
-  const { apiKey, ip, node } = selection
+  const { auth, ip, node } = selection
   const currentRegion = node.region || 'Unknown'
 
   console.log(colors.white(`\n🖥️  Node: ${node.productName || ip}`))
@@ -49,7 +49,7 @@ const changeRegionAction = async () => {
 
   console.log(colors.cyan('🌏 Changing region...'))
   try {
-    const result = await metalChangeRegion(apiKey, ip, newRegion as string)
+    const result = await metalChangeRegion(auth, ip, newRegion as string)
     if (result.success) {
       console.log(colors.green(`✅ Region change to ${label} initiated successfully`))
       console.log(colors.white('This may take some time. Check status with: slv metal status'))

@@ -1,4 +1,4 @@
-import { getApiKeyFromYml } from '/lib/getApiKeyFromYml.ts'
+import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 import {
@@ -14,7 +14,7 @@ import {
   type AuthorizationStatus,
   fetchAuthorizationStatus,
 } from '@/ai/authorization.ts'
-import { userApiAuthFromApiKey } from '/lib/userApi/auth.ts'
+import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { userApiRequest } from '/lib/userApi/client.ts'
 
 type Product = {
@@ -39,9 +39,9 @@ type Product = {
  * file's existing product-list rendering code expects — on failure
  * it returns an empty string, same contract the old MCP wrapper had.
  */
-async function fetchProductListRaw(apiKey: string): Promise<string> {
+async function fetchProductListRaw(auth: UserApiAuth): Promise<string> {
   const r = await userApiRequest<Record<string, unknown>>(
-    userApiAuthFromApiKey(apiKey),
+    auth,
     'GET',
     '/v3/ai/product-list',
   )
@@ -95,15 +95,15 @@ function getAuthorizationCtaLink(
 }
 
 export const aiProductAction = async () => {
-  const apiKey = await getApiKeyFromYml()
+  const auth = await getUserApiAuth()
 
   const spinner = new Kia(colors.cyan('Fetching AI plans and products...'))
   spinner.start()
 
   try {
     const [raw, authorizationStatus] = await Promise.all([
-      fetchProductListRaw(apiKey),
-      fetchAuthorizationStatus(apiKey),
+      fetchProductListRaw(auth),
+      fetchAuthorizationStatus(auth),
     ])
 
     if (!raw) {
