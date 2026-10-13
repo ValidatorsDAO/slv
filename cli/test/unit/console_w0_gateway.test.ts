@@ -100,7 +100,7 @@ const withGatewayHome = async (
         await fn(home)
       } finally {
         console.log = log
-        setAutoExecute(true)
+        setAutoExecute(false)
         setTuiInstance(null)
       }
     },
@@ -180,11 +180,11 @@ Deno.test('a gateway session runs no command with the default config and runs on
     assert(await exists(marker), 'the command did not run')
   })
 
-  // the default of run_command itself is the same as before
+  // run_command itself starts with auto-execute off
   const source = await Deno.readTextFile(
     new URL('../../src/ai/console/tools.ts', import.meta.url),
   )
-  assertMatch(source, /let autoExecuteCommands = true\b/)
+  assertMatch(source, /let autoExecuteCommands = false\b/)
 })
 
 Deno.test('a gated command is refused in a gateway session whatever the config says', async () => {

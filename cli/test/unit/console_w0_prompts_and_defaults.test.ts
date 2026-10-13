@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertFalse } from '@std/assert'
 
 import { AgentConfigSchema } from '@/ai/agentConfig/schema.ts'
+import { EXTENDED_TOOLS } from '@/ai/console/tools.ts'
 import {
   invalidateAgentContext,
   loadAgentContext,
@@ -59,6 +60,58 @@ Deno.test('slv onboard writes auto_execute: false', async () => {
   const text = await source(`${SRC}/ai/onboard/onboardAction.ts`)
   matches(text, /auto_execute:\s*false/, 'onboardAction.ts')
   assertFalse(/auto_execute:\s*true/.test(text), 'onboard writes true')
+})
+
+// What the descriptions of auto_execute say about reading files and redaction.
+const CAN_READ_OUTSIDE = 'read files outside the refused classes'
+const THREE_SHAPES = 'redaction hides only three key shapes'
+
+Deno.test('every description of auto_execute says that the console can read files outside the refused classes and that redaction hides only three key shapes', async () => {
+  const note = (text: string | undefined, label: string): void => {
+    assert(text !== undefined, `${label}: no description`)
+    includes(text, CAN_READ_OUTSIDE, label)
+    includes(text, THREE_SHAPES, label)
+  }
+  note(AgentConfigSchema.shape.auto_execute.description, 'config schema')
+
+  const descriptionOf = (name: string): string | undefined =>
+    EXTENDED_TOOLS.find((tool) => tool.name === name)?.description
+  note(descriptionOf('run_command'), 'run_command')
+  note(descriptionOf('read_file'), 'read_file')
+
+  // slv onboard prints the note in its security box and puts it above the key
+  const onboard = await source(`${SRC}/ai/onboard/onboardAction.ts`)
+  matches(onboard, /printWrapped\(AUTO_EXECUTE_NOTE/, 'onboardAction.ts')
+  matches(
+    onboard,
+    /# auto_execute: \$\{AUTO_EXECUTE_NOTE\}/,
+    'onboardAction.ts',
+  )
+
+  // the refusal that points to auto_execute carries it as well
+  const gate = await import('@/ai/console/commandGate.ts')
+  const refusal = gate.describeRefusal('ls', { gated: false, reasons: [] })
+  includes(refusal, 'auto_execute: true', 'refusal')
+  includes(refusal, CAN_READ_OUTSIDE, 'refusal')
+})
+
+Deno.test('the validator prompts name the staked mainnet key as the template does', async () => {
+  const template = await source(
+    `${ROOT}/template/2026.6.6.2026/ansible/mainnet-validator/copy_keys.yml`,
+  )
+  includes(
+    template,
+    '/home/solv/mainnet-validator-keypair.json',
+    'copy_keys.yml',
+  )
+  for (const file of ['tools.ts', 'systemPrompt.ts']) {
+    const text = await source(`${SRC}/ai/console/${file}`)
+    includes(text, '/home/solv/mainnet-validator-keypair.json', file)
+    assertFalse(
+      text.includes('/home/solv/<identity-pubkey>.json'),
+      `${file}: a pubkey-named staked key is left`,
+    )
+  }
 })
 
 Deno.test('the console context no longer teaches an identity switch by symlink or key generation', () => {

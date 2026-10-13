@@ -58,7 +58,7 @@ const sandbox = async (
       try {
         await fn(dir)
       } finally {
-        setAutoExecute(true)
+        setAutoExecute(false)
         setTuiInstance(null)
       }
     })
@@ -92,6 +92,70 @@ Deno.test('run_command does not execute without a terminal when auto-execute is 
     assertStringIncludes(result, 'not run')
     assertStringIncludes(result, 'terminal')
   })
+})
+
+Deno.test('run_command refuses a command until something turns auto-execute on', async () => {
+  // a copy of the module that nothing has configured: its own default applies
+  const specifier = '@/ai/console/tools.ts?w0-default'
+  const fresh = await import(specifier) as typeof tools
+  const dir = await Deno.makeTempDir({ prefix: 'console-w0-default-' })
+  try {
+    fresh.setTuiInstance(null)
+    const result = await quiet(() =>
+      fresh.executeTool('run_command', { command: `touch '${dir}/marker'` })
+    )
+    assertStringIncludes(result, 'not run')
+    assertFalse(await exists(`${dir}/marker`), 'the command ran')
+    fresh.setAutoExecute(true)
+    await quiet(() =>
+      fresh.executeTool('run_command', { command: `touch '${dir}/marker'` })
+    )
+    assert(await exists(`${dir}/marker`), 'the control command did not run')
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('run_command leaves no timer running when a command ends, whatever the exit', async () => {
+  const pending = new Set<number>()
+  const realSet = globalThis.setTimeout
+  const realClear = globalThis.clearTimeout
+  globalThis.setTimeout = ((
+    handler: (...args: unknown[]) => void,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    const id = realSet(() => {
+      pending.delete(id)
+      handler(...args)
+    }, delay) as unknown as number
+    pending.add(id)
+    return id
+  }) as unknown as typeof setTimeout
+  globalThis.clearTimeout = ((id?: number) => {
+    if (id !== undefined) pending.delete(id)
+    realClear(id)
+  }) as typeof clearTimeout
+  try {
+    await sandbox(async () => {
+      setTuiInstance(null)
+      setAutoExecute(true)
+      // a command that ends well, one that fails, and one that outlives the
+      // first check of the inactivity watcher
+      for (const command of ['true', 'echo out; exit 3', 'sleep 1.3']) {
+        await quiet(() => run(command))
+        assertEquals(
+          pending.size,
+          0,
+          `${command}: ${pending.size} timers still running`,
+        )
+      }
+    })
+  } finally {
+    globalThis.setTimeout = realSet
+    globalThis.clearTimeout = realClear
+    for (const id of pending) realClear(id)
+  }
 })
 
 Deno.test('a gated command is not executed without a terminal even when auto-execute is on', async () => {
@@ -325,7 +389,9 @@ Deno.test('the command runs in a session of its own when setsid exists', async (
     setTuiInstance(null)
     setAutoExecute(true)
     const output = await quiet(() =>
-      run('echo "$$ $(cut -d\' \' -f6 /proc/$$/stat)"')
+      run(
+        'read -r pid comm state ppid pgrp session rest < /proc/$$/stat; echo "$$ $session"',
+      )
     )
     const [pid, session] = output.trim().split(' ')
     assert(pid !== undefined && pid !== '', output)

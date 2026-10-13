@@ -22,6 +22,7 @@ import {
   findExecutable,
   redactSecretKeys,
 } from '@/ai/console/toolSafety.ts'
+import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
@@ -34,7 +35,7 @@ import {
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
-let autoExecuteCommands = true // The console sets it from the agent config
+let autoExecuteCommands = false // The console sets it from the agent config
 
 export function setTuiInstance(tui: TUI | null) {
   tuiInstance = tui
@@ -233,7 +234,8 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'run_command',
     description:
-      'Execute a shell command on the system. Use this to run slv commands, check system status, manage services, etc. The user will be asked to confirm before execution. Commands that change nodes or keys (ansible-playbook, ssh, scp, rsync, solana-keygen, op, rm -r/-f, and the slv deploy, start, stop, restart, switch, set:identity, init verbs) always need the user to confirm in a terminal, and are refused when none is attached.',
+      'Execute a shell command on the system. Use this to run slv commands, check system status, manage services, etc. The user will be asked to confirm before execution. Commands that change nodes or keys, touch credentials or run other commands always need the user to confirm in a terminal, and are refused when none is attached: ansible-playbook, ssh, scp, rsync, solana-keygen, op, rm -r/-f, the slv deploy, start, stop, restart, switch, set:identity and init verbs, agave-validator, solana-validator and fdctl (but for their version and monitor forms), systemctl and service verbs that change a unit, solana subcommands that sign, interpreters such as python, perl or node, programs that run their arguments, a command substitution, and any path to a key or credential. ' +
+      AUTO_EXECUTE_NOTE,
     parameters: {
       type: 'object',
       properties: {
@@ -248,7 +250,9 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'read_file',
     description:
-      'Read the contents of a file. Use this to inspect configuration files, logs, etc. Keys and credentials are not readable. Prefer focused reads for large files by using offset/limit.',
+      'Read the contents of a file. Use this to inspect configuration files, logs, etc. Keys and credentials are not readable. ' +
+      AUTO_EXECUTE_NOTE +
+      ' Prefer focused reads for large files by using offset/limit.',
     parameters: {
       type: 'object',
       properties: {
@@ -593,7 +597,7 @@ async function executeRunCommand(command: string): Promise<string> {
     console.log(`  $ ${command}`)
     if (classification.gated) {
       console.log(
-        `  ! This command changes nodes or keys or touches credentials (${
+        `  ! This command may change nodes or keys, touch credentials or run another command (${
           classification.reasons.join(', ')
         }).`,
       )
@@ -613,6 +617,10 @@ async function executeRunCommand(command: string): Promise<string> {
     console.log(`  ▸ ${command}`)
   }
 
+  // Both timers are cleared when the command ends, on every exit path.
+  let hardTimer: ReturnType<typeof setTimeout> | undefined
+  let inactivityTimer: ReturnType<typeof setTimeout> | undefined
+  let timersStopped = false
   try {
     // The shell gets an allow-listed environment, in a session of its own.
     // Host key checking stays on: new hosts are added, changed keys fail.
@@ -715,18 +723,19 @@ async function executeRunCommand(command: string): Promise<string> {
     //     usually emit something every 30–60 s; 2 min leaves headroom.
     const COMMAND_TIMEOUT_MS = 3_600_000
     const INACTIVITY_TIMEOUT_MS = 120_000
-    const timeoutPromise = new Promise<'timeout'>((resolve) =>
-      setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS)
-    )
+    const timeoutPromise = new Promise<'timeout'>((resolve) => {
+      hardTimer = setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS)
+    })
     const inactivityPromise = new Promise<'inactivity'>((resolve) => {
       const tick = () => {
+        if (timersStopped) return
         if (Date.now() - lastOutputMs >= INACTIVITY_TIMEOUT_MS) {
           resolve('inactivity')
           return
         }
-        setTimeout(tick, 1_000)
+        inactivityTimer = setTimeout(tick, 1_000)
       }
-      setTimeout(tick, 1_000)
+      inactivityTimer = setTimeout(tick, 1_000)
     })
 
     const commandPromise = (async () => {
@@ -865,6 +874,10 @@ async function executeRunCommand(command: string): Promise<string> {
     activeChildProcess = null
     if (onCommandComplete) onCommandComplete()
     return `Error executing command: ${(error as Error).message}`
+  } finally {
+    timersStopped = true
+    clearTimeout(hardTimer)
+    clearTimeout(inactivityTimer)
   }
 }
 
@@ -1262,7 +1275,7 @@ The deploy playbook creates this key layout on the target node:
 - To activate the staked identity: \`slv v set:identity -p <host>\` (a staked/unstaked pair switches with \`slv v switch\`)
 
 **Mainnet:**
-- \`/home/solv/<identity-pubkey>.json\` — the validator's staked identity key
+- \`/home/solv/mainnet-validator-keypair.json\` — the validator's staked identity key (copied from ~/.slv/keys/)
 - \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
 - \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`
 - To activate the staked identity: \`slv v set:identity -p <host>\` (a staked/unstaked pair switches with \`slv v switch\`)

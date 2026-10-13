@@ -4,6 +4,11 @@
 
 import { basename, dirname, normalize, resolve } from '@std/path'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
+import {
+  IDENTITY_FILE_NAME,
+  KEYPAIR_FILE_NAME,
+  PROCESS_ENVIRON,
+} from '@/ai/console/keyMaterial.ts'
 
 // ---------------------------------------------------------------------------
 // The environment and the shell a command runs in
@@ -271,11 +276,9 @@ async function protectedPathReason(
   ])
   for (const p of candidates) {
     const name = basename(p)
-    if (/keypair.*\.json$/.test(name)) return 'a keypair file'
-    if (/identity.*\.json$/.test(name)) return 'an identity key file'
-    if (/^\/proc\/(self|thread-self|\d+)\/(task\/\d+\/)?environ$/.test(p)) {
-      return 'the environment of a process'
-    }
+    if (KEYPAIR_FILE_NAME.test(name)) return 'a keypair file'
+    if (IDENTITY_FILE_NAME.test(name)) return 'an identity key file'
+    if (PROCESS_ENVIRON.test(p)) return 'the environment of a process'
     for (const h of homes) {
       const slv = `${h}/.slv`
       if (isUnder(p, `${slv}/keys`)) return 'the files under ~/.slv/keys'

@@ -3,10 +3,20 @@
 //
 // `classifyCommand` reads a shell command line and reports whether it runs a
 // command of a gated class: ansible-playbook, the slv verbs that change nodes
-// or keys, ssh/scp/rsync, solana-keygen, op, and rm with -r or -f. A gated
-// command always needs a confirmation in a terminal. A line the reader cannot
-// parse, or whose command is only known when the shell runs, counts as gated.
+// or keys, ssh/scp/rsync, solana-keygen, op, rm with -r or -f, the validator
+// programs, systemctl and service verbs that change a unit, solana
+// subcommands that sign, interpreters, and the programs that run their
+// arguments. A line that names key material, or has a command substitution,
+// is gated as well. A gated command always needs a confirmation in a
+// terminal. A line the reader cannot parse, or whose command is only known
+// when the shell runs, counts as gated.
 // ---------------------------------------------------------------------------
+
+import {
+  AUTO_EXECUTE_NOTE,
+  keyMaterialInWord,
+} from '@/ai/console/keyMaterial.ts'
+import { awkProgramRisk, sedScriptRisk } from '@/ai/console/scriptRisk.ts'
 
 /** What `classifyCommand` found in a command line. */
 export type CommandClassification = {
@@ -24,8 +34,18 @@ const MAX_NESTING = 8
 
 type SimpleCommand = {
   words: string[]
+  /** The words after a redirection operator: the files it opens. */
+  redirects: string[]
   hereDocs: string[]
   hereStrings: string[]
+}
+
+/** What the reader saw in a command line besides its commands. */
+type ParseNotes = {
+  /** `$(`, a backquote or an escaped form of them outside single quotes */
+  substitution: boolean
+  /** a `${...@P}` expansion */
+  promptExpansion: boolean
 }
 
 type ParseState = {
@@ -33,6 +53,7 @@ type ParseState = {
   pos: number
   commands: SimpleCommand[]
   unparsable: boolean
+  notes: ParseNotes
 }
 
 const isNameStart = (c: string | undefined): boolean =>
@@ -48,6 +69,7 @@ function parseNested(st: ParseState, text: string, depth: number): void {
     pos: 0,
     commands: st.commands,
     unparsable: false,
+    notes: st.notes,
   }
   parseList(sub, null, depth + 1)
   if (sub.unparsable) st.unparsable = true
@@ -140,6 +162,7 @@ function readAnsiC(st: ParseState): string {
 /** After a backquote: parse the commands inside up to the closing one. */
 function readBackquote(st: ParseState, depth: number): string {
   const src = st.src
+  st.notes.substitution = true
   st.pos++
   let inner = ''
   while (st.pos < src.length) {
@@ -170,6 +193,7 @@ function readBackquote(st: ParseState, depth: number): string {
 /** After `${`: skip to the matching `}`, reading any substitution inside. */
 function skipParameter(st: ParseState, depth: number): void {
   const src = st.src
+  const start = st.pos
   let level = 1
   while (st.pos < src.length) {
     const c = src[st.pos]
@@ -192,7 +216,14 @@ function skipParameter(st: ParseState, depth: number): void {
     } else if (c === '}') {
       st.pos++
       level--
-      if (level === 0) return
+      if (level === 0) {
+        // the P operator expands its value like a prompt string, which runs
+        // the substitutions in it
+        if (/@P/.test(src.slice(start, st.pos - 1))) {
+          st.notes.promptExpansion = true
+        }
+        return
+      }
     } else {
       st.pos++
     }
@@ -205,6 +236,7 @@ function readDollar(st: ParseState, depth: number, inDouble: boolean): string {
   const src = st.src
   const n = src[st.pos + 1]
   if (n === '(') {
+    st.notes.substitution = true
     if (src[st.pos + 2] === '(') {
       const end = arithmeticEnd(src, st.pos + 3)
       if (end !== -1) {
@@ -221,6 +253,11 @@ function readDollar(st: ParseState, depth: number, inDouble: boolean): string {
     st.pos += 2
     skipParameter(st, depth)
     return RUNTIME
+  }
+  if (n === '[') {
+    // the old form of an arithmetic expansion, which also reads its operands
+    // as expressions
+    st.notes.substitution = true
   }
   if (n === "'" && !inDouble) {
     st.pos += 2
@@ -243,6 +280,16 @@ function readDollar(st: ParseState, depth: number, inDouble: boolean): string {
   return '$'
 }
 
+/**
+ * Is the backslash at `pos` in front of a backquote or of `$(`? The shell
+ * takes the text literally, and `let`, `declare`, `printf -v` and arithmetic
+ * evaluate it again as an expression, which runs the substitution in it.
+ */
+function isEscapedSubstitution(src: string, pos: number): boolean {
+  const n = src[pos + 1]
+  return n === '`' || (n === '$' && src[pos + 2] === '(')
+}
+
 /** Inside double quotes (or a here-document body when `end` is null). */
 function readDouble(
   st: ParseState,
@@ -260,6 +307,9 @@ function readDouble(
     if (c === '\\') {
       const n = src[st.pos + 1]
       if (n === '$' || n === '`' || n === '"' || n === '\\') {
+        if (end !== null && isEscapedSubstitution(src, st.pos)) {
+          st.notes.substitution = true
+        }
         out += n
         st.pos += 2
       } else if (n === '\n') {
@@ -307,6 +357,7 @@ function readHereDocBodies(
         pos: 0,
         commands: st.commands,
         unparsable: false,
+        notes: st.notes,
       }
       readDouble(sub, depth + 1, null)
       if (sub.unparsable) st.unparsable = true
@@ -328,7 +379,12 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
     return
   }
   const src = st.src
-  let cur: SimpleCommand = { words: [], hereDocs: [], hereStrings: [] }
+  let cur: SimpleCommand = {
+    words: [],
+    redirects: [],
+    hereDocs: [],
+    hereStrings: [],
+  }
   let word = null as string | null
   let quoted = false
   let bracket = false
@@ -355,7 +411,9 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       })
     } else if (redirect === 'string') {
       cur.hereStrings.push(finished)
-    } else if (redirect === null) {
+    } else if (redirect === 'plain') {
+      cur.redirects.push(finished)
+    } else {
       cur.words.push(finished)
     }
     redirect = null
@@ -372,8 +430,10 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       st.unparsable = true
       redirect = null
     }
-    if (cur.words.length > 0) st.commands.push(cur)
-    cur = { words: [], hereDocs: [], hereStrings: [] }
+    if (cur.words.length > 0 || cur.redirects.length > 0) {
+      st.commands.push(cur)
+    }
+    cur = { words: [], redirects: [], hereDocs: [], hereStrings: [] }
   }
 
   while (st.pos < src.length) {
@@ -393,6 +453,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       } else if (n === '\n') {
         st.pos += 2
       } else {
+        if (isEscapedSubstitution(src, st.pos)) st.notes.substitution = true
         append(n)
         quoted = true
         st.pos += 2
@@ -531,12 +592,24 @@ const GATED_COMMANDS = new Set([
   'ssh-keygen',
   'ssh-add',
   'ssh-agent',
+  'sshfs',
   'sshpass',
   'mosh',
   'autossh',
   'solana-keygen',
   'agave-keygen',
   'op',
+  // the tools that install the validator software, rewrite the ledger or sign
+  // token transactions with the keypair
+  'agave-install',
+  'solana-install',
+  'agave-ledger-tool',
+  'solana-ledger-tool',
+  'spl-token',
+  // the clients of the system bus, which can call into systemd
+  'busctl',
+  'dbus-send',
+  'gdbus',
 ])
 
 /** `slv v|validator|rpc|r <verb>` verbs that change nodes or keys. */
@@ -615,6 +688,430 @@ const NON_COMMAND_WORDS = new Set([
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/
 
+// ---------------------------------------------------------------------------
+// Local node and service control
+//
+// Each table lists what a program does that needs a person, or the short list
+// of forms that only print. A form that is not on the read-only list is gated.
+// ---------------------------------------------------------------------------
+
+/** Programs that run, stop or reconfigure a validator on this machine. */
+const VALIDATOR_BINARIES = new Set([
+  'agave-validator',
+  'solana-validator',
+  'fdctl',
+  'firedancer',
+  'fddev',
+  'firedancer-dev',
+])
+/**
+ * The forms of those programs that only print: the version and the help text,
+ * `contact-info` (prints the gossip entry of the node) and `monitor` (shows
+ * the state of the running process). They change nothing.
+ */
+const VALIDATOR_READ_ONLY_FLAGS = new Set(['--version', '-V', '--help', '-h'])
+const VALIDATOR_READ_ONLY_COMMANDS = new Set([
+  'version',
+  'help',
+  'contact-info',
+  'monitor',
+])
+/** Options in front of the subcommand that take a value. */
+const VALIDATOR_VALUE_OPTIONS = new Set(['--ledger', '-l', '--config'])
+/** Subcommands that change a running or a stopped validator. */
+const VALIDATOR_CHANGING_COMMANDS = new Set([
+  'exit',
+  'set-identity',
+  'authorized-voter',
+  'set-log-filter',
+  'wait-for-restart-window',
+  'set-public-address',
+  'repair-whitelist',
+  'staked-nodes-overrides',
+  'plugin',
+  'run',
+  'run1',
+  'run-agave',
+  'configure',
+  'keys',
+  'set-block-production-method',
+  'manage-block-production',
+  'repair-shred-from-peer-address',
+  'set-relayer-config',
+  'set-shred-receiver-address',
+  'set-shred-retransmit-receiver-address',
+  'set-block-engine-config',
+  'init',
+])
+
+/** The options of systemctl that the gate can read; -H and -M are not among them. */
+const SYSTEMCTL_OPTIONS: WrapperSpec = {
+  argShort: 'nopst',
+  flagShort: 'alqrhfi',
+  argLong: [
+    '--lines',
+    '--output',
+    '--property',
+    '--type',
+    '--state',
+    '--signal',
+    '--kill-whom',
+    '--kill-who',
+    '--job-mode',
+    '--root',
+    '--check-inhibitors',
+    '--message',
+    '--timestamp',
+    '--preset-mode',
+    '--when',
+  ],
+  flagLong: [
+    '--all',
+    '--recursive',
+    '--reverse',
+    '--after',
+    '--before',
+    '--with-dependencies',
+    '--full',
+    '--show-types',
+    '--plain',
+    '--no-pager',
+    '--no-legend',
+    '--no-ask-password',
+    '--no-block',
+    '--quiet',
+    '--no-wall',
+    '--system',
+    '--user',
+    '--global',
+    '--runtime',
+    '--force',
+    '--now',
+    '--ignore-inhibitors',
+    '--dry-run',
+    '--wait',
+    '--value',
+    '--failed',
+    '--show-transaction',
+    '--no-reload',
+    '--read-only',
+    '--mkdir',
+    '--no-warn',
+    '--help',
+    '--version',
+  ],
+}
+/** systemctl verbs that only report. */
+const SYSTEMCTL_READ_ONLY_VERBS = new Set([
+  'status',
+  'show',
+  'cat',
+  'is-active',
+  'is-enabled',
+  'is-failed',
+  'is-system-running',
+  'list-units',
+  'list-unit-files',
+  'list-sockets',
+  'list-timers',
+  'list-dependencies',
+  'list-jobs',
+  'list-machines',
+  'list-automounts',
+  'list-paths',
+  'get-default',
+  'show-environment',
+  'help',
+])
+/** Verbs of systemctl and service that change the state of a unit or the host. */
+const STATE_VERBS = new Set([
+  'start',
+  'stop',
+  'restart',
+  'reload',
+  'try-restart',
+  'reload-or-restart',
+  'try-reload-or-restart',
+  'force-reload',
+  'force-stop',
+  'force-restart',
+  'full-restart',
+  'condrestart',
+  'enable',
+  'disable',
+  'reenable',
+  'preset',
+  'preset-all',
+  'mask',
+  'unmask',
+  'kill',
+  'daemon-reload',
+  'daemon-reexec',
+  'isolate',
+  'edit',
+  'link',
+  'revert',
+  'set-property',
+  'reset-failed',
+  'add-wants',
+  'add-requires',
+  'set-default',
+  'set-environment',
+  'unset-environment',
+  'import-environment',
+  'reboot',
+  'poweroff',
+  'halt',
+  'kexec',
+  'suspend',
+  'hibernate',
+  'hybrid-sleep',
+  'rescue',
+  'emergency',
+  'default',
+  'exit',
+  'switch-root',
+  'freeze',
+  'thaw',
+  'clean',
+  'bind',
+  'mount-image',
+  'cancel',
+])
+
+/** The options in front of a solana subcommand. */
+const SOLANA_OPTIONS: WrapperSpec = {
+  argShort: 'ukC',
+  flagShort: 'vhV',
+  argLong: [
+    '--url',
+    '--keypair',
+    '--config',
+    '--commitment',
+    '--output',
+    '--ws',
+  ],
+  flagLong: [
+    '--verbose',
+    '--help',
+    '--version',
+    '--no-address-labels',
+    '--use-quic',
+    '--use-udp',
+    '--use-tpu-client',
+    '--use-rpc',
+  ],
+}
+/**
+ * solana subcommands that neither sign nor change anything: they ask the
+ * cluster or decode data. `config` and `feature` are read-only only with
+ * `get` and `status`.
+ */
+const SOLANA_READ_ONLY = new Set([
+  'account',
+  'address',
+  'balance',
+  'block',
+  'block-height',
+  'block-production',
+  'block-time',
+  'catchup',
+  'cluster-date',
+  'cluster-version',
+  'confirm',
+  'decode-transaction',
+  'epoch',
+  'epoch-info',
+  'fees',
+  'first-available-block',
+  'genesis-hash',
+  'gossip',
+  'help',
+  'inflation',
+  'largest-accounts',
+  'leader-schedule',
+  'live-slots',
+  'logs',
+  'nonce',
+  'nonce-account',
+  'rent',
+  'slot',
+  'stake-account',
+  'stake-history',
+  'stake-minimum-delegation',
+  'stakes',
+  'supply',
+  'transaction-count',
+  'transaction-history',
+  'validators',
+  'vote-account',
+])
+/** solana subcommands that sign a transaction or change an account or the config. */
+const SOLANA_CHANGING = new Set([
+  'airdrop',
+  'authorize-nonce-account',
+  'close',
+  'create-address-with-seed',
+  'create-nonce-account',
+  'create-stake-account',
+  'create-stake-account-checked',
+  'create-vote-account',
+  'deactivate-stake',
+  'delegate-stake',
+  'deploy',
+  'merge-stake',
+  'new-nonce',
+  'ping',
+  'program',
+  'program-v4',
+  'redelegate-stake',
+  'send-transaction',
+  'sign-offchain-message',
+  'split-stake',
+  'stake-authorize',
+  'stake-authorize-checked',
+  'stake-set-lockup',
+  'stake-set-lockup-checked',
+  'transfer',
+  'upgrade-nonce-account',
+  'vote-authorize-voter',
+  'vote-authorize-voter-checked',
+  'vote-authorize-withdrawer',
+  'vote-authorize-withdrawer-checked',
+  'vote-update-commission',
+  'vote-update-validator',
+  'withdraw-from-nonce-account',
+  'withdraw-from-vote-account',
+  'withdraw-stake',
+])
+
+/**
+ * Shell built-ins that read an argument as an expression: an array subscript
+ * in it can hold a command substitution, which they run.
+ */
+const EVALUATING_BUILTINS = new Set([
+  'let',
+  'declare',
+  'typeset',
+  'local',
+  'export',
+  'readonly',
+  'unset',
+  'test',
+  '[',
+  '[[',
+])
+
+/** Programs that stop processes or the host. */
+const PROCESS_CONTROL = new Set([
+  'kill',
+  'pkill',
+  'killall',
+  'reboot',
+  'poweroff',
+  'halt',
+  'shutdown',
+  'telinit',
+])
+
+// ---------------------------------------------------------------------------
+// Interpreters and programs that run what they are given
+// ---------------------------------------------------------------------------
+
+/** Language interpreters; a trailing version number is removed from a name. */
+const INTERPRETERS = new Set([
+  'python',
+  'pypy',
+  'perl',
+  'ruby',
+  'irb',
+  'pry',
+  'php',
+  'lua',
+  'luajit',
+  'node',
+  'nodejs',
+  'bun',
+  'bunx',
+  'tsx',
+  'ts-node',
+  'npx',
+  'pnpx',
+  'rscript',
+  'julia',
+  'tclsh',
+  'wish',
+  'expect',
+  'groovy',
+  'jshell',
+  'osascript',
+])
+/** The only arguments with which an interpreter does not run code. */
+const INTERPRETER_VERSION_FLAGS = new Set([
+  '--version',
+  '-V',
+  '-VV',
+  '-v',
+  '--help',
+  '-h',
+])
+/** deno subcommands that only print. */
+const DENO_READ_ONLY_COMMANDS = new Set(['help', 'info', 'types'])
+const AWK_NAMES = new Set(['awk', 'gawk', 'mawk', 'nawk'])
+/** Programs that run the command lines they are given, and are gated with only their version and help forms left. */
+const RUN_ANYTHING = new Set(['parallel', 'gdb', 'lldb'])
+/** tmux commands that list sessions, windows, panes and keys and show no text of them. */
+const TMUX_READ_ONLY_COMMANDS = new Set([
+  'ls',
+  'list-sessions',
+  'list-windows',
+  'list-panes',
+  'list-clients',
+  'list-commands',
+  'list-keys',
+  'has-session',
+])
+const SCREEN_READ_ONLY_FLAGS = new Set([
+  '-ls',
+  '-list',
+  '-v',
+  '--version',
+  '-h',
+  '--help',
+])
+
+// ---------------------------------------------------------------------------
+// The backstop: names found in the text of a command
+// ---------------------------------------------------------------------------
+
+/** Whitespace, shell metacharacters and the placeholders; not / . - : _ */
+const TOKEN_SEPARATORS = /[\s|&;()<>$`"'\\{}[\]*?!#=,@\u0000\u0001]+/
+/** Commands that print where a name resolves and run nothing. */
+const LOOKUP_COMMANDS = new Set(['which', 'type', 'hash', 'whereis'])
+/**
+ * Words after the name of an interpreter that make it run code: a flag with
+ * inline code, a subcommand of deno, or the name of a script.
+ */
+const CODE_FLAGS = new Set([
+  '-c',
+  '-e',
+  '-E',
+  '-r',
+  '-p',
+  '-m',
+  '--eval',
+  '--exec',
+  'eval',
+  'run',
+  'task',
+  'test',
+  'repl',
+  'compile',
+  'install',
+  'serve',
+])
+const SCRIPT_NAME = /\.(py|pl|rb|js|mjs|cjs|ts|php|lua|sh|r)$/i
+
 /** How a wrapper command (sudo, env, timeout, ...) takes its options. */
 type WrapperSpec = {
   /** short options with an argument */
@@ -647,6 +1144,10 @@ type WrapperSpec = {
   lookupShort?: string
   /** `-c command` may follow the positional words (flock) */
   scriptAfterPositional?: boolean
+  /** options may follow the operands (su, runuser) */
+  permute?: boolean
+  /** a long option the table does not list is a flag, with its value glued on (firejail) */
+  longFlagsAny?: boolean
 }
 
 const WRAPPERS: Record<string, WrapperSpec> = {
@@ -867,7 +1368,259 @@ const WRAPPERS: Record<string, WrapperSpec> = {
     scriptShort: 'c',
     scriptLong: ['--command'],
     restIsData: true,
+    permute: true,
   },
+  runuser: {
+    argShort: 'ugGcsw',
+    flagShort: 'lmpPfVh',
+    argLong: [
+      '--user',
+      '--group',
+      '--supp-group',
+      '--command',
+      '--shell',
+      '--whitelist-environment',
+    ],
+    flagLong: [
+      '--login',
+      '--preserve-environment',
+      '--pty',
+      '--fast',
+      '--help',
+      '--version',
+    ],
+    dash: true,
+    scriptShort: 'c',
+    scriptLong: ['--command'],
+    permute: true,
+  },
+  script: {
+    argShort: 'cBIOTmoE',
+    optionalShort: 't',
+    flagShort: 'aefqVh',
+    argLong: [
+      '--command',
+      '--log-io',
+      '--log-in',
+      '--log-out',
+      '--log-timing',
+      '--logging-format',
+      '--output-limit',
+      '--echo',
+    ],
+    flagLong: [
+      '--append',
+      '--return',
+      '--flush',
+      '--force',
+      '--quiet',
+      '--timing',
+      '--help',
+      '--version',
+    ],
+    scriptShort: 'c',
+    scriptLong: ['--command'],
+    restIsData: true,
+    permute: true,
+  },
+  chroot: {
+    argLong: ['--userspec', '--groups'],
+    flagLong: ['--skip-chdir', '--help', '--version'],
+    positional: 1,
+  },
+  setpriv: {
+    flagShort: 'dVh',
+    argLong: [
+      '--reuid',
+      '--regid',
+      '--ruid',
+      '--euid',
+      '--rgid',
+      '--egid',
+      '--groups',
+      '--inh-caps',
+      '--bounding-set',
+      '--ambient-caps',
+      '--securebits',
+      '--pdeathsig',
+      '--selinux-label',
+      '--apparmor-profile',
+      '--landlock-access',
+      '--landlock-rule',
+    ],
+    flagLong: [
+      '--clear-groups',
+      '--init-groups',
+      '--keep-groups',
+      '--no-new-privs',
+      '--reset-env',
+      '--dump',
+      '--list-caps',
+      '--help',
+      '--version',
+    ],
+  },
+  nsenter: {
+    argShort: 'tSG',
+    optionalShort: 'muinpCUTrw',
+    flagShort: 'FZaVh',
+    argLong: ['--target', '--setuid', '--setgid'],
+    flagLong: [
+      '--mount',
+      '--uts',
+      '--ipc',
+      '--net',
+      '--pid',
+      '--cgroup',
+      '--user',
+      '--time',
+      '--root',
+      '--wd',
+      '--no-fork',
+      '--follow-context',
+      '--preserve-credentials',
+      '--env',
+      '--all',
+      '--help',
+      '--version',
+    ],
+  },
+  unshare: {
+    argShort: 'RwSG',
+    optionalShort: 'muinpUCT',
+    flagShort: 'frcVh',
+    argLong: [
+      '--root',
+      '--wd',
+      '--setuid',
+      '--setgid',
+      '--propagation',
+      '--setgroups',
+      '--map-user',
+      '--map-group',
+      '--map-users',
+      '--map-groups',
+      '--monotonic',
+      '--boottime',
+    ],
+    flagLong: [
+      '--mount',
+      '--uts',
+      '--ipc',
+      '--net',
+      '--pid',
+      '--user',
+      '--cgroup',
+      '--time',
+      '--fork',
+      '--kill-child',
+      '--map-root-user',
+      '--map-current-user',
+      '--map-auto',
+      '--keep-caps',
+      '--mount-proc',
+      '--help',
+      '--version',
+    ],
+  },
+  strace: {
+    argShort: 'abeEIoOpPsSuUX',
+    flagShort: 'cCdDfFhiknNqrtTvVwxyzZ',
+    argLong: [
+      '--output',
+      '--trace',
+      '--signal',
+      '--status',
+      '--summary-sort-by',
+      '--string-limit',
+      '--user',
+      '--env',
+      '--attach',
+      '--columns',
+      '--inject',
+      '--fault',
+      '--trace-path',
+      '--secontext',
+      '--decode-pids',
+    ],
+    flagLong: [
+      '--follow-forks',
+      '--summary',
+      '--summary-only',
+      '--no-abbrev',
+      '--help',
+      '--version',
+      '--debug',
+      '--instruction-pointer',
+      '--absolute-timestamps',
+      '--relative-timestamps',
+      '--syscall-times',
+      '--decode-fds',
+      '--successful-only',
+      '--failed-only',
+      '--quiet',
+    ],
+  },
+  'systemd-run': {
+    argShort: 'upE',
+    flagShort: 'rtPGqdShV',
+    argLong: [
+      '--unit',
+      '--property',
+      '--description',
+      '--slice',
+      '--service-type',
+      '--uid',
+      '--gid',
+      '--nice',
+      '--setenv',
+      '--working-directory',
+      '--on-active',
+      '--on-boot',
+      '--on-startup',
+      '--on-unit-active',
+      '--on-unit-inactive',
+      '--on-calendar',
+      '--on-clock-change',
+      '--on-timezone-change',
+      '--timer-property',
+      '--background',
+      '--job-mode',
+    ],
+    flagLong: [
+      '--user',
+      '--system',
+      '--scope',
+      '--remain-after-exit',
+      '--send-sighup',
+      '--pty',
+      '--pipe',
+      '--wait',
+      '--collect',
+      '--quiet',
+      '--no-block',
+      '--no-ask-password',
+      '--same-dir',
+      '--shell',
+      '--no-pager',
+      '--expand-environment',
+      '--help',
+      '--version',
+    ],
+  },
+  pkexec: {
+    argLong: ['--user'],
+    flagLong: ['--keep-cwd', '--disable-internal-agent', '--help', '--version'],
+  },
+  sg: {
+    positional: 1,
+    dash: true,
+    scriptShort: 'c',
+    scriptAfterPositional: true,
+    restIsScript: true,
+  },
+  firejail: { longFlagsAny: true },
+  prlimit: { argShort: 'po', flagShort: 'hV', longFlagsAny: true },
 }
 
 type WrapperRead = {
@@ -891,6 +1644,8 @@ function readWrapper(spec: WrapperSpec, args: string[]): WrapperRead {
   let script: string | undefined
   let shell = false
   let lookup = false
+  // operands met between the options of a program that lets options follow them
+  const operands: string[] = []
   while (i < args.length) {
     const a = args[i]
     if (a === '--') {
@@ -901,7 +1656,14 @@ function readWrapper(spec: WrapperSpec, args: string[]): WrapperRead {
       i++
       continue
     }
-    if (!a.startsWith('-') || a === '-') break
+    if (!a.startsWith('-') || a === '-') {
+      if (spec.permute) {
+        operands.push(a)
+        i++
+        continue
+      }
+      break
+    }
     if (a.startsWith('--')) {
       const eq = a.indexOf('=')
       const name = eq === -1 ? a : a.slice(0, eq)
@@ -911,6 +1673,8 @@ function readWrapper(spec: WrapperSpec, args: string[]): WrapperRead {
         i += eq === -1 ? 2 : 1
       } else if (spec.flagLong?.includes(name)) {
         if (spec.shellLong?.includes(name)) shell = true
+        i++
+      } else if (spec.longFlagsAny) {
         i++
       } else {
         return unreadable
@@ -943,7 +1707,7 @@ function readWrapper(spec: WrapperSpec, args: string[]): WrapperRead {
     while (i < args.length && ASSIGNMENT.test(args[i])) i++
   }
   i += spec.positional ?? 0
-  let rest = args.slice(i)
+  let rest = operands.concat(args.slice(i))
   if (
     spec.scriptAfterPositional && script === undefined &&
     (rest[0] === '-c' || rest[0] === '--command')
@@ -1026,6 +1790,11 @@ function analyzeShell(
   depth: number,
   found: string[],
 ): void {
+  if (
+    args.length > 0 && args.every((a) => a === '--version' || a === '--help')
+  ) {
+    return
+  }
   let i = 0
   let command = false
   let stdin = false
@@ -1053,10 +1822,8 @@ function analyzeShell(
     return
   }
   if (operand !== undefined && !stdin && !isInputFile(operand)) {
-    // a script file is not read here, unless only the shell knows its name
-    if (operand.includes(RUNTIME)) {
-      found.push(`${name} running a script named only when the shell runs`)
-    }
+    // the commands in a script file are not read here
+    found.push(`${name} running a script file`)
     return
   }
   analyzeInput(name, input, depth, found)
@@ -1093,6 +1860,9 @@ function analyzeSource(
     found.push(`${name} of a file named only when the shell runs`)
   } else if (isInputFile(operand)) {
     analyzeInput(name, input, depth, found)
+  } else {
+    // the commands in the file are not read here
+    found.push(`${name} of a script file`)
   }
 }
 
@@ -1133,20 +1903,398 @@ function analyzeFind(
   }
 }
 
-function analyzeWords(
-  words: string[],
+/**
+ * A validator program: only a version, a help text, `contact-info` or
+ * `monitor`, with the options that name the ledger or the config, can run on
+ * its own.
+ */
+function analyzeValidatorBinary(
+  name: string,
+  args: string[],
+  found: string[],
+): void {
+  let i = 0
+  let help = false
+  while (i < args.length && args[i].startsWith('-') && args[i] !== '-') {
+    const option = args[i].split('=')[0]
+    if (VALIDATOR_READ_ONLY_FLAGS.has(option)) {
+      help = true
+      i++
+    } else if (VALIDATOR_VALUE_OPTIONS.has(option)) {
+      i += args[i].includes('=') ? 1 : 2
+    } else {
+      found.push(`${name} with an option the gate cannot read`)
+      return
+    }
+  }
+  if (help) return
+  const command = args[i]
+  if (command === undefined || hasUnknownPart(command)) {
+    found.push(`${name} (not a read-only form)`)
+    return
+  }
+  const lower = command.toLowerCase()
+  if (!VALIDATOR_READ_ONLY_COMMANDS.has(lower)) {
+    found.push(
+      VALIDATOR_CHANGING_COMMANDS.has(lower)
+        ? `${name} ${lower}`
+        : `${name} (not a read-only form)`,
+    )
+    return
+  }
+  // after the subcommand only options and their values may follow
+  let value = false
+  for (const word of args.slice(i + 1)) {
+    if (word.startsWith('-')) {
+      value = !word.includes('=')
+    } else if (value) {
+      value = false
+    } else {
+      found.push(`${name} ${lower} with an operand`)
+      return
+    }
+  }
+}
+
+/** systemctl: a verb that only reports, with options the gate can read. */
+function analyzeSystemctl(args: string[], found: string[]): void {
+  const read = readWrapper(SYSTEMCTL_OPTIONS, args)
+  if (read.unreadable) {
+    found.push('systemctl with an option the gate cannot read')
+    return
+  }
+  const verb = read.rest[0]
+  if (verb === undefined) return
+  if (hasUnknownPart(verb)) {
+    found.push('systemctl with a verb known only at run time')
+  } else if (!SYSTEMCTL_READ_ONLY_VERBS.has(verb.toLowerCase())) {
+    found.push(`systemctl ${verb.toLowerCase()}`)
+  }
+}
+
+/** service: `service <name> status`, `--status-all` and `--version` only report. */
+function analyzeService(args: string[], found: string[]): void {
+  const read = readWrapper({
+    flagShort: 'h',
+    flagLong: ['--status-all', '--version', '--help'],
+  }, args)
+  if (read.unreadable) {
+    found.push('service with an option the gate cannot read')
+    return
+  }
+  if (read.rest.length === 0) return
+  const verb = read.rest[1]
+  if (verb === undefined) {
+    found.push('service (not a read-only form)')
+  } else if (hasUnknownPart(verb)) {
+    found.push('service with a verb known only at run time')
+  } else if (verb.toLowerCase() !== 'status') {
+    found.push(`service ${verb.toLowerCase()}`)
+  }
+}
+
+/** solana: the subcommands that ask the cluster; any other signs or changes. */
+function analyzeSolana(args: string[], found: string[]): void {
+  const read = readWrapper(SOLANA_OPTIONS, args)
+  if (read.unreadable) {
+    found.push('solana with an option the gate cannot read')
+    return
+  }
+  const sub = read.rest[0]
+  if (sub === undefined) return
+  if (hasUnknownPart(sub)) {
+    found.push('solana with a subcommand known only at run time')
+    return
+  }
+  const lower = sub.toLowerCase()
+  const second = read.rest[1]?.toLowerCase()
+  if (lower === 'config' && second === 'get') return
+  if (lower === 'feature' && second === 'status') return
+  if (!SOLANA_READ_ONLY.has(lower)) found.push(`solana ${lower}`)
+}
+
+/** An interpreter is gated unless it is asked only for its version or help. */
+function analyzeInterpreter(
+  name: string,
+  args: string[],
+  found: string[],
+): void {
+  if (args.length > 0 && args.every((a) => INTERPRETER_VERSION_FLAGS.has(a))) {
+    return
+  }
+  found.push(`${name} running code`)
+}
+
+function isInterpreter(name: string): boolean {
+  return INTERPRETERS.has(name) ||
+    INTERPRETERS.has(name.replace(/[0-9.]+$/, ''))
+}
+
+function analyzeDeno(args: string[], found: string[]): void {
+  const first = args[0]?.toLowerCase()
+  if (
+    args.length > 0 &&
+    (args.every((a) => INTERPRETER_VERSION_FLAGS.has(a)) ||
+      (first !== undefined && DENO_READ_ONLY_COMMANDS.has(first)))
+  ) {
+    return
+  }
+  found.push('deno running code')
+}
+
+const AWK_FLAGS = new Set([
+  '-n',
+  '-b',
+  '-c',
+  '-N',
+  '-P',
+  '-r',
+  '-s',
+  '-S',
+  '-t',
+  '-g',
+  '-O',
+  '-C',
+  '-M',
+  '--traditional',
+  '--posix',
+  '--re-interval',
+  '--characters-as-bytes',
+  '--non-decimal-data',
+  '--use-lc-numeric',
+  '--optimize',
+  '--lint',
+])
+
+/** awk and gawk: gated when the program runs a command or writes a file. */
+function analyzeAwk(name: string, args: string[], found: string[]): void {
+  let i = 0
+  let sandbox = false
+  while (i < args.length) {
+    const a = args[i]
+    if (a === '--') {
+      i++
+      break
+    }
+    if (!a.startsWith('-') || a === '-') break
+    if (a === '--version' || a === '-V' || a === '--help' || a === '-h') return
+    if (a === '--sandbox' || a === '-S') {
+      sandbox = true
+      i++
+    } else if (a === '-F' || a === '-v') {
+      i += 2
+    } else if (a.startsWith('-F') || a.startsWith('-v')) {
+      i++
+    } else if (AWK_FLAGS.has(a)) {
+      i++
+    } else {
+      // -f, -e, -i, -l, -E and their long forms read code from elsewhere
+      found.push(`${name} with an option the gate cannot read`)
+      return
+    }
+  }
+  const program = args[i]
+  if (program === undefined || sandbox) return
+  const risk = awkProgramRisk(program)
+  if (risk !== null) found.push(`${name} ${risk}`)
+}
+
+/** An init script run by its path: only `status` reports. */
+function analyzeInitScript(args: string[], found: string[]): void {
+  if (args[0]?.toLowerCase() !== 'status') found.push('an init script')
+}
+
+/** crontab: only `crontab -l` lists; the other forms install, edit or remove. */
+function analyzeCrontab(args: string[], found: string[]): void {
+  let listed = false
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-l') listed = true
+    else if (args[i] === '-u') i++
+    else {
+      found.push('crontab (it changes the commands the system runs)')
+      return
+    }
+  }
+  if (!listed) found.push('crontab (it changes the commands the system runs)')
+}
+
+/** sed is gated when its script has a command that runs a command or writes a file. */
+function analyzeSed(args: string[], found: string[]): void {
+  const scripts: string[] = []
+  let sandbox = false
+  let i = 0
+  options: while (i < args.length) {
+    const a = args[i]
+    if (a === '--') {
+      i++
+      break
+    }
+    if (!a.startsWith('-') || a === '-') break
+    if (a === '--version' || a === '--help') return
+    if (a === '--sandbox') {
+      sandbox = true
+      i++
+    } else if (a === '--expression') {
+      scripts.push(args[i + 1] ?? '')
+      i += 2
+    } else if (a.startsWith('--expression=')) {
+      scripts.push(a.slice('--expression='.length))
+      i++
+    } else if (a === '--line-length') {
+      i += 2
+    } else if (
+      [
+        '--quiet',
+        '--silent',
+        '--regexp-extended',
+        '--unbuffered',
+        '--null-data',
+        '--separate',
+        '--binary',
+        '--posix',
+        '--debug',
+        '--follow-symlinks',
+        '--in-place',
+        '--zero-terminated',
+      ].includes(a) || a.startsWith('--in-place=') ||
+      a.startsWith('--line-length=')
+    ) {
+      i++
+    } else if (a.startsWith('--')) {
+      found.push('sed with an option the gate cannot read')
+      return
+    } else {
+      for (let k = 1; k < a.length; k++) {
+        const ch = a[k]
+        if ('nsErzubu'.includes(ch)) continue
+        if (ch === 'i') break
+        if (ch === 'e') {
+          const attached = a.slice(k + 1)
+          if (attached !== '') {
+            scripts.push(attached)
+            i++
+          } else {
+            scripts.push(args[i + 1] ?? '')
+            i += 2
+          }
+          continue options
+        }
+        if (ch === 'l') {
+          i += a.slice(k + 1) === '' ? 2 : 1
+          continue options
+        }
+        found.push('sed with an option the gate cannot read')
+        return
+      }
+      i++
+    }
+  }
+  if (scripts.length === 0) {
+    if (args[i] === undefined) return
+    scripts.push(args[i])
+  }
+  if (sandbox) return
+  for (const script of scripts) {
+    const risk = sedScriptRisk(script)
+    if (risk !== null) {
+      found.push(`sed with ${risk}`)
+      return
+    }
+  }
+}
+
+/** tmux and screen run commands in sessions that outlive the gate. */
+function analyzeMultiplexer(
+  name: string,
+  args: string[],
+  found: string[],
+): void {
+  if (name === 'screen') {
+    if (args.length > 0 && args.every((a) => SCREEN_READ_ONLY_FLAGS.has(a))) {
+      return
+    }
+    found.push('screen (it runs commands in a session)')
+    return
+  }
+  const read = readWrapper({ argShort: 'LST', flagShort: '2luvV' }, args)
+  const command = read.rest[0]?.toLowerCase()
+  if (
+    !read.unreadable &&
+    (command === undefined
+      ? args.length > 0 && args.every((a) => a === '-V')
+      : TMUX_READ_ONLY_COMMANDS.has(command))
+  ) {
+    return
+  }
+  found.push('tmux (it runs commands in a session)')
+}
+
+/** at and batch run the commands they are given at a later time. */
+function analyzeAt(
+  name: string,
+  args: string[],
   input: SimpleCommand | null,
   depth: number,
   found: string[],
 ): void {
-  if (depth > MAX_NESTING) {
-    found.push('a command line nested too deeply to read')
+  if (args.some((a) => a === '-l' || a === '-c' || a === '-V')) return
+  if (args.some((a) => a === '-f' || a.startsWith('-f'))) {
+    found.push(`${name} running a script file`)
     return
   }
+  analyzeInput(name, input, depth, found)
+}
+
+/** Programs that run what they are given are left alone only for their version. */
+function analyzeRunAnything(
+  name: string,
+  args: string[],
+  found: string[],
+): void {
+  if (
+    args.length > 0 &&
+    args.every((a) => INTERPRETER_VERSION_FLAGS.has(a) || a === '--citation')
+  ) {
+    return
+  }
+  found.push(`${name} running commands`)
+}
+
+/**
+ * The replacement string xargs puts a line of its input into: `-I str`,
+ * `-Istr`, `-i[str]` and `--replace[=str]`.
+ */
+function xargsReplaceString(args: string[]): string | null {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === '-I') return args[i + 1] ?? '{}'
+    if (a.startsWith('-I') && a.length > 2) return a.slice(2)
+    if (a.startsWith('-i')) return a.length > 2 ? a.slice(2) : '{}'
+    if (a === '--replace') return '{}'
+    if (a.startsWith('--replace=')) return a.slice('--replace='.length)
+  }
+  return null
+}
+
+/**
+ * The command xargs runs, as the shell sees it once the input is in: the
+ * replacement string stands for text known at run time, and so does one more
+ * argument, which xargs adds at the end.
+ */
+function xargsInner(rest: string[], args: string[]): string[] {
+  const replace = xargsReplaceString(args)
+  const mapped = replace === null || replace === ''
+    ? rest
+    : rest.map((w) => w.split(replace).join(RUNTIME))
+  return [...mapped, RUNTIME]
+}
+
+/** The index of the command word of a simple command, or -1 when it has none. */
+function commandStart(words: string[]): number {
   let i = 0
   for (;;) {
     while (i < words.length && ASSIGNMENT.test(words[i])) i++
-    if (i >= words.length) return
+    if (i >= words.length) return -1
     const w = words[i]
     if (w === 'time') {
       i++
@@ -1158,19 +2306,68 @@ function analyzeWords(
     } else if (LEADING_WORDS.has(w)) {
       i++
     } else if (NON_COMMAND_WORDS.has(w)) {
-      return
+      return -1
     } else {
-      break
+      return i
     }
   }
-  const name = commandName(words[i])
+}
+
+function analyzeWords(
+  words: string[],
+  input: SimpleCommand | null,
+  depth: number,
+  found: string[],
+): void {
+  if (depth > MAX_NESTING) {
+    found.push('a command line nested too deeply to read')
+    return
+  }
+  const start = commandStart(words)
+  if (start < 0) return
+  const name = commandName(words[start])
   if (name === null) {
     found.push('a command named only when the shell runs')
     return
   }
-  const args = words.slice(i + 1)
-  if (GATED_COMMANDS.has(name)) {
+  const args = words.slice(start + 1)
+  if (
+    (EVALUATING_BUILTINS.has(name) ||
+      (name === 'printf' && args.includes('-v'))) &&
+    args.some((a) => /\$\(|`/.test(a))
+  ) {
+    found.push(`${name} given a command substitution to evaluate`)
+  }
+  if (/\/(init|rc)\.d\//.test(words[start])) {
+    analyzeInitScript(args, found)
+  } else if (GATED_COMMANDS.has(name)) {
     found.push(name)
+  } else if (VALIDATOR_BINARIES.has(name)) {
+    analyzeValidatorBinary(name, args, found)
+  } else if (name === 'systemctl') {
+    analyzeSystemctl(args, found)
+  } else if (name === 'service') {
+    analyzeService(args, found)
+  } else if (name === 'solana') {
+    analyzeSolana(args, found)
+  } else if (PROCESS_CONTROL.has(name)) {
+    found.push(name)
+  } else if (name === 'deno') {
+    analyzeDeno(args, found)
+  } else if (isInterpreter(name)) {
+    analyzeInterpreter(name, args, found)
+  } else if (AWK_NAMES.has(name)) {
+    analyzeAwk(name, args, found)
+  } else if (name === 'sed') {
+    analyzeSed(args, found)
+  } else if (name === 'crontab') {
+    analyzeCrontab(args, found)
+  } else if (name === 'tmux' || name === 'screen') {
+    analyzeMultiplexer(name, args, found)
+  } else if (name === 'at' || name === 'batch') {
+    analyzeAt(name, args, input, depth, found)
+  } else if (RUN_ANYTHING.has(name)) {
+    analyzeRunAnything(name, args, found)
   } else if (name === 'rm') {
     analyzeRm(args, found)
   } else if (name === 'slv') {
@@ -1204,9 +2401,138 @@ function analyzeWords(
           analyzeScript(read.rest.join(' '), depth + 1, found)
         }
       } else if (read.rest.length > 0) {
-        analyzeWords(read.rest, input, depth + 1, found)
+        const inner = name === 'xargs' ? xargsInner(read.rest, args) : read.rest
+        analyzeWords(inner, input, depth + 1, found)
       }
     }
+  }
+}
+
+/**
+ * A path in the words or the redirections that names key material. A word
+ * that is relative to a directory an earlier `cd` of the line changed to is
+ * read under that directory as well.
+ */
+function scanKeyMaterial(
+  command: SimpleCommand,
+  directory: string | null,
+  found: string[],
+): void {
+  for (const word of [...command.words, ...command.redirects]) {
+    let reason = keyMaterialInWord(word)
+    if (reason === null && directory !== null && !/^[/~\u0000]/.test(word)) {
+      reason = keyMaterialInWord(`${directory}/${word}`)
+    }
+    if (reason !== null) found.push(`a path naming ${reason}`)
+  }
+}
+
+/**
+ * The directory the commands after this one run in, as written: `cd` and
+ * `pushd` set it, `popd` and a `cd` to the directory before forget it.
+ */
+function directoryAfter(
+  command: SimpleCommand,
+  directory: string | null,
+): string | null {
+  const start = commandStart(command.words)
+  if (start < 0) return directory
+  const name = commandName(command.words[start])
+  if (name === 'popd') return null
+  if (name !== 'cd' && name !== 'pushd') return directory
+  const target = command.words.slice(start + 1).find((w) =>
+    !w.startsWith('-') || w === '-'
+  )
+  if (target === undefined) return '~'
+  if (target === '-') return RUNTIME
+  if (/^[/~\u0000]/.test(target)) return target
+  return directory === null ? null : `${directory}/${target}`
+}
+
+/** The base name of a token when it can stand for a program, in lower case. */
+function programName(token: string): string | null {
+  const slash = token.lastIndexOf('/')
+  const name = token.slice(slash + 1).toLowerCase()
+  if (name === '' || slash === -1) return name === '' ? null : name
+  const dir = token.slice(0, slash)
+  return dir === '' || dir === '.' || /(^|\/)(s?bin|libexec)$/.test(dir)
+    ? name
+    : null
+}
+
+/**
+ * Names in a stream of tokens: a program that is gated whatever its
+ * arguments, `slv` followed by a verb that changes a node, and a program that
+ * is gated for the verb it is given.
+ */
+function scanTokenStream(tokens: string[], found: string[]): void {
+  for (let i = 0; i < tokens.length; i++) {
+    const name = programName(tokens[i])
+    if (name === null) continue
+    if (GATED_COMMANDS.has(name)) {
+      found.push(name)
+    } else if (name === 'slv') {
+      analyzeSlv(tokens.slice(i + 1), found)
+    } else if (name === 'rm') {
+      analyzeRm(tokens.slice(i + 1), found)
+    } else if (name === 'systemctl' || name === 'service') {
+      const verb = tokens.slice(i + 1).find((t) =>
+        STATE_VERBS.has(t.toLowerCase())
+      )
+      if (verb !== undefined) found.push(`${name} ${verb.toLowerCase()}`)
+    } else if (name === 'solana') {
+      const sub = tokens.slice(i + 1).find((t) =>
+        SOLANA_CHANGING.has(t.toLowerCase())
+      )
+      if (sub !== undefined) found.push(`solana ${sub.toLowerCase()}`)
+    } else if (VALIDATOR_BINARIES.has(name)) {
+      const sub = tokens.slice(i + 1).find((t) =>
+        VALIDATOR_CHANGING_COMMANDS.has(t.toLowerCase())
+      )
+      if (sub !== undefined) found.push(`${name} ${sub.toLowerCase()}`)
+    } else if (isInterpreter(name) || name === 'deno') {
+      const code = tokens.slice(i + 1).some((t) =>
+        CODE_FLAGS.has(t) || SCRIPT_NAME.test(t)
+      )
+      if (code) found.push(`${name} running code`)
+    } else if (SHELLS.has(name)) {
+      // `-c` is left to the reading of the script; a script file is not read
+      if (tokens.slice(i + 1).some((t) => SCRIPT_NAME.test(t))) {
+        found.push(`${name} running a script file`)
+      }
+    }
+  }
+}
+
+/**
+ * The backstop for programs the gate does not know to run their arguments:
+ * the words of a command are split into tokens at whitespace and shell
+ * metacharacters, not at `/`, `.` or `-`, and the tokens are read for names.
+ * A second pass reads the words with their quotes and backslashes removed, as
+ * a shell would read text it runs again. `which`, `type`, `hash` and
+ * `command -v` only look names up and are left out.
+ */
+function scanTokens(command: SimpleCommand, found: string[]): void {
+  const start = commandStart(command.words)
+  if (start >= 0) {
+    const name = commandName(command.words[start])
+    if (name !== null) {
+      if (LOOKUP_COMMANDS.has(name)) return
+      if (
+        name === 'command' &&
+        readWrapper(WRAPPERS.command, command.words.slice(start + 1)).lookup
+      ) return
+    }
+  }
+  for (const strip of [false, true]) {
+    const tokens: string[] = []
+    for (const word of command.words) {
+      const text = strip ? word.replace(/["'\\]/g, '') : word
+      for (const token of text.split(TOKEN_SEPARATORS)) {
+        if (token !== '') tokens.push(token)
+      }
+    }
+    scanTokenStream(tokens, found)
   }
 }
 
@@ -1215,18 +2541,37 @@ function analyzeScript(src: string, depth: number, found: string[]): void {
     found.push('a command line nested too deeply to read')
     return
   }
-  const st: ParseState = { src, pos: 0, commands: [], unparsable: false }
+  const st: ParseState = {
+    src,
+    pos: 0,
+    commands: [],
+    unparsable: false,
+    notes: { substitution: false, promptExpansion: false },
+  }
   parseList(st, null, 0)
   if (st.unparsable) found.push('a command line the gate cannot parse')
+  if (st.notes.substitution) {
+    found.push('a command substitution or a backquote')
+  }
+  if (st.notes.promptExpansion) found.push('a ${...@P} expansion')
+  let directory: string | null = null
   for (const command of st.commands) {
     analyzeWords(command.words, command, depth, found)
+    scanKeyMaterial(command, directory, found)
+    scanTokens(command, found)
+    directory = directoryAfter(command, directory)
   }
 }
 
 /** Does this command line run a command of a gated class? */
 export function classifyCommand(command: string): CommandClassification {
   const found: string[] = []
-  analyzeScript(command, 0, found)
+  try {
+    analyzeScript(command, 0, found)
+  } catch {
+    // a failure of the reader never lets a line through
+    found.push('a command line the gate cannot read')
+  }
   const reasons = [...new Set(found)]
   return { gated: reasons.length > 0, reasons }
 }
@@ -1253,13 +2598,13 @@ export function describeRefusal(
   classification: CommandClassification,
 ): string {
   const why = classification.gated
-    ? `it is in a class of commands that change nodes or keys or touch credentials (${
+    ? `it may change nodes or keys, touch credentials or run another command (${
       classification.reasons.join(', ')
-    }), and those need a person to confirm them in a terminal`
+    }), and that needs a person to confirm it in a terminal`
     : `commands here need a person to confirm them in a terminal while auto-execute is off`
   const how = classification.gated
     ? ''
-    : ' To let a session without a terminal run commands that do not change nodes or keys, the operator sets `auto_execute: true` in ~/.slv/agent/config.yml.'
+    : ` To let a session without a terminal run commands that do not change nodes or keys, the operator sets \`auto_execute: true\` in ~/.slv/agent/config.yml. ${AUTO_EXECUTE_NOTE}`
   return `Command not run: ${why}, and no terminal is attached to this session.\n\n` +
     `Command: ${command}\n\n` +
     `Do not retry it or rewrite it into another form. Tell the user the exact command and ask them to run it themselves in a terminal.${how}`

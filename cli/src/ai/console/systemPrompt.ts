@@ -189,7 +189,7 @@ CRITICAL: ALWAYS use \`-o PasswordAuthentication=no\` on ALL ssh commands.`,
   validator: `## Identity Key Structure (IMPORTANT)
 After deployment, the target node has this key layout:
 - **Testnet:** Staked key = \`/home/solv/testnet-validator-keypair.json\`. NOT "staked-identity.json".
-- **Mainnet:** Staked key = \`/home/solv/<identity-pubkey>.json\`. NOT "staked-identity.json".
+- **Mainnet:** Staked key = \`/home/solv/mainnet-validator-keypair.json\`. NOT "staked-identity.json".
 - \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup (prevents double-voting).
 - \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`. It is changed only by the slv commands below, never by hand.
 - To switch a staked/unstaked pair: \`slv v switch\`

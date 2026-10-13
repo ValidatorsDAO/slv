@@ -418,7 +418,7 @@ Deno.test('run_command and read_file results come back redacted', async () => {
         assertFalse(output.includes(json), 'the integer array')
       }
     } finally {
-      setAutoExecute(true)
+      setAutoExecute(false)
       setTuiInstance(null)
     }
   })
@@ -446,7 +446,7 @@ Deno.test('a key cut by the output limit is redacted before it is cut', async ()
       )
       assertStringIncludes(output, REDACTED)
     } finally {
-      setAutoExecute(true)
+      setAutoExecute(false)
       setTuiInstance(null)
     }
   })

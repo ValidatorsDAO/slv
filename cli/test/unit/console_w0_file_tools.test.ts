@@ -244,3 +244,83 @@ Deno.test('read_file refuses the environment of a process', async () => {
     'read_file returned the process environment',
   )
 })
+
+Deno.test('the command gate names the same paths as the file tools refuse', async () => {
+  const gate = await import('@/ai/console/commandGate.ts')
+  // the module that holds the shared key path rules is loaded when this runs
+  const keyMaterialSpecifier = '@/ai/console/keyMaterial.ts'
+  const keyMaterial = await import(keyMaterialSpecifier) as {
+    keyMaterialInWord: (word: string) => string | null
+  }
+  const named = (path: string): boolean =>
+    gate.classifyCommand(`cat '${path}'`).gated &&
+    gate.classifyCommand(`cp '${path}' /tmp/copy`).gated &&
+    gate.classifyCommand(`cp /tmp/copy '${path}'`).gated &&
+    gate.classifyCommand(`tee '${path}' < /tmp/copy`).gated &&
+    gate.classifyCommand(`cat < '${path}'`).gated &&
+    keyMaterial.keyMaterialInWord(path) !== null
+
+  await withLayout(async ({ home, paths }) => {
+    const refused = [
+      'keys',
+      'keysIdentity',
+      'keysVote',
+      'keysOther',
+      'keypair',
+      'identity',
+      'sshId',
+      'sshRsa',
+      'gateway',
+      'backupEnv',
+      'restic',
+    ].map((name) => paths[name])
+    refused.push(
+      `${home}/.slv/api.yml`,
+      `${home}/.slv/api.yml.lock`,
+      `${home}/.slv/.api.yml.tmp`,
+      '/proc/self/environ',
+      `/proc/${Deno.pid}/environ`,
+    )
+    for (const path of refused) {
+      // the file tools refuse it, and so does the command gate
+      const content = await read(path)
+      assert(content.startsWith('Error'), `read ${path}: ${content}`)
+      assert(named(path), `the command gate does not name ${path}`)
+    }
+
+    // what the file tools read is not named by the gate
+    const handled = [
+      'sshPub',
+      'sshConfig',
+      'agentConfig',
+      'template',
+      'knownHosts',
+      'bin',
+      'memory',
+      'inventory',
+      'notes',
+    ].map((name) => paths[name])
+    for (const path of handled) {
+      assertFalse(
+        gate.classifyCommand(`cat '${path}'`).gated,
+        `the command gate names ${path}`,
+      )
+    }
+  })
+})
+
+Deno.test('the file tools and the command gate read the key file names from one module', async () => {
+  const safety = await Deno.readTextFile(
+    new URL('../../src/ai/console/toolSafety.ts', import.meta.url),
+  )
+  assertStringIncludes(safety, "from '@/ai/console/keyMaterial.ts'")
+  for (const name of ['KEYPAIR_FILE_NAME', 'IDENTITY_FILE_NAME']) {
+    assertStringIncludes(safety, name)
+  }
+  assertFalse(/\/keypair\.\*\\\.json\$\//.test(safety), 'an own keypair rule')
+  assertFalse(/\/identity\.\*\\\.json\$\//.test(safety), 'an own identity rule')
+  const gate = await Deno.readTextFile(
+    new URL('../../src/ai/console/commandGate.ts', import.meta.url),
+  )
+  assertStringIncludes(gate, "from '@/ai/console/keyMaterial.ts'")
+})

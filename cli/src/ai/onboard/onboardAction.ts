@@ -23,6 +23,7 @@ import {
   mergeSlvCredentials,
   resolveHome,
 } from '/lib/getApiKeyFromYml.ts'
+import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
 import { runDeviceLogin } from '@/login/index.ts'
 import { Confirm } from '@cliffy/prompt'
 import { installAction as installGatewayAction } from '/src/gateway/install.ts'
@@ -191,6 +192,7 @@ const printSecurityWarning = () => {
     t('A bad prompt can trick it into doing unsafe things.'),
     (s) => colors.white(s),
   )
+  printWrapped(AUTO_EXECUTE_NOTE, (s) => colors.white(s))
   console.log(line(''))
   printWrapped(t('Recommended:'), (s) => colors.white(s))
   printWrapped(
@@ -598,7 +600,8 @@ Session history and important notes.
     auto_execute: false,  // Commands ask for confirmation by default
     mode: deployMode,
   }
-  const configYml = stringify(configData as Record<string, unknown>)
+  const configYml = `# auto_execute: ${AUTO_EXECUTE_NOTE}\n` +
+    stringify(configData as Record<string, unknown>)
   await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
 
   // --- Notifications (optional) ---

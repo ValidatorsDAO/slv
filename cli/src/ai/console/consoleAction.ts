@@ -798,7 +798,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   // Read auto-execute setting from agent config
   {
     const ctx = await loadAgentContext()
-    if (!ctx.autoExecute) setAutoExecute(false)
+    setAutoExecute(ctx.autoExecute)
   }
 
   // Provider init with callbacks
