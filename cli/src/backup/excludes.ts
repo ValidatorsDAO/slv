@@ -151,7 +151,8 @@ export function exactExclude(path: string): string {
 
 /**
  * Build a unified exclude list from defaults, env var, and CLI options.
- * secretExcludes(tool) and the `privateKeys` found are always part of the result.
+ * secretExcludes(tool), the `privateKeys` found and the `unlistedSshDirs` are
+ * always part of the result.
  */
 export function buildExcludeList(options: {
   extraExcludes?: string[]
@@ -159,7 +160,8 @@ export function buildExcludeList(options: {
   includeSSH?: boolean // true for backup (keep SSH files), false for migrate
   tool?: BackupTool // who reads the list; wallets stay in a restic backup (default: tar)
   resticIncludesWallets?: boolean // stands in for RESTIC_INCLUDES_WALLETS
-  privateKeys?: readonly string[] // SSH private keys found by findPrivateKeys, by path
+  privateKeys?: readonly string[] // SSH private keys found by the search, by path
+  unlistedSshDirs?: readonly string[] // .ssh directories to leave out as a whole
 }): string[] {
   const base = [...DEFAULT_EXCLUDES]
   if (!options.includeSSH) {
@@ -175,7 +177,8 @@ export function buildExcludeList(options: {
   const kept = all.filter((e) => !includes.has(e))
   const secrets = [
     ...secretExcludes(options.tool, options.resticIncludesWallets),
-    ...(options.privateKeys ?? []).map(exactExclude),
+    ...[...(options.privateKeys ?? []), ...(options.unlistedSshDirs ?? [])]
+      .map(exactExclude),
   ]
   return [...new Set([...kept, ...secrets])]
 }
@@ -331,13 +334,46 @@ const readHeadOfFile = async (path: string): Promise<Uint8Array> => {
 /** Looks for SSH private keys; replaced in tests. */
 export type PrivateKeyFinder = () => Promise<string[]> | string[]
 
+/** The `.ssh` directories of root and of every user with a directory in `/home`. */
+const sshDirs = async (root: string): Promise<string[]> => [
+  '/root/.ssh',
+  ...(await readNames(`${root}/home`)).map((user) => `/home/${user}/.ssh`),
+]
+
+/**
+ * Which of the regular files at `paths` are SSH private keys: those whose first
+ * bytes hold a PEM, OpenSSH or PuTTY private key header, and those `readHead`
+ * cannot read, unless their name is `*.pub`, `authorized_keys`, `known_hosts` or
+ * `config`. The same rule for a search as this user and a search as root.
+ */
+const classifyKeys = async (
+  paths: readonly string[],
+  readHead: (path: string) => Promise<Uint8Array>,
+): Promise<string[]> => {
+  const keys = new Set<string>()
+  for (const path of paths) {
+    const name = path.slice(path.lastIndexOf('/') + 1)
+    let head: Uint8Array
+    try {
+      head = await readHead(path)
+    } catch {
+      // a file that cannot be read may be a key: fail closed
+      if (!name.endsWith('.pub') && !NOT_KEY_NAMES.has(name)) keys.add(path)
+      continue
+    }
+    if (PRIVATE_KEY_HEADER.test(new TextDecoder().decode(head))) keys.add(path)
+  }
+  return [...keys].sort()
+}
+
 /**
  * The SSH private keys directly in `/root/.ssh` and `/home/<user>/.ssh`,
  * whatever they are called: a regular file whose first bytes hold a PEM, OpenSSH
  * or PuTTY private key header. A file that cannot be read counts as a private
  * key too, unless its name is `*.pub`, `authorized_keys`, `known_hosts` or
  * `config`. A symlink, a directory or anything below one is not looked at. Paths
- * come back without `root`, sorted.
+ * come back without `root`, sorted. A directory this user cannot list is not
+ * searched: see findUnlistedSshDirs and findPrivateKeysAsRoot.
  */
 export async function findPrivateKeys(
   options: {
@@ -347,46 +383,174 @@ export async function findPrivateKeys(
 ): Promise<string[]> {
   const root = (options.root ?? '').replace(/\/+$/, '')
   const readHead = options.readHead ?? readHeadOfFile
-  const dirs = ['/root/.ssh']
-  for (const user of await readNames(`${root}/home`)) {
-    dirs.push(`/home/${user}/.ssh`)
-  }
-
-  const found = new Set<string>()
-  for (const dir of dirs) {
-    const files: string[] = []
+  const paths: string[] = []
+  for (const dir of await sshDirs(root)) {
     try {
       for await (const entry of Deno.readDir(`${root}${dir}`)) {
-        if (entry.isFile) files.push(entry.name)
+        if (entry.isFile) paths.push(`${dir}/${entry.name}`)
       }
     } catch {
-      continue // no such directory, or one this user cannot list
-    }
-    for (const name of files) {
-      let head: Uint8Array
-      try {
-        head = await readHead(`${root}${dir}/${name}`)
-      } catch {
-        // a file that cannot be read may be a key: fail closed
-        if (!name.endsWith('.pub') && !NOT_KEY_NAMES.has(name)) {
-          found.add(`${dir}/${name}`)
-        }
-        continue
-      }
-      if (PRIVATE_KEY_HEADER.test(new TextDecoder().decode(head))) {
-        found.add(`${dir}/${name}`)
-      }
+      // no such directory, or one this user cannot list
     }
   }
-  return [...found].sort()
+  return await classifyKeys(paths, (path) => readHead(`${root}${path}`))
 }
 
 /**
- * What to tell the operator when `tool` runs as root for a user: the search for
- * SSH private keys under any name ran as that user.
+ * The `.ssh` directories of root and of every user in `/home` that this user
+ * cannot list. A directory that does not exist is not one. Paths come back
+ * without `root`, sorted.
  */
-export function sshScanNote(tool: 'tar' | 'rsync', rerun: string): string {
-  return `\n⚠️  ${tool} runs as root, but SSH private keys named other than id_* are looked for as this user: those in .ssh directories only root can read are not excluded. Run as root (${rerun}) to check them all.\n`
+export async function findUnlistedSshDirs(
+  options: { root?: string } = {},
+): Promise<string[]> {
+  const root = (options.root ?? '').replace(/\/+$/, '')
+  const unlisted: string[] = []
+  for (const dir of await sshDirs(root)) {
+    try {
+      for await (const _entry of Deno.readDir(`${root}${dir}`)) break
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) unlisted.push(dir)
+    }
+  }
+  return unlisted.sort()
+}
+
+/**
+ * Lists the regular files directly in the `.ssh` directories. `$1` is the
+ * directory the file system is under (empty for this host); the shell expands the
+ * `/home/*` glob, so it runs with the privilege of whoever starts it. A directory
+ * that cannot be listed even so is one nothing running as that user can read
+ * either: it ends the script with 0 all the same, and only a missing `find` or a
+ * refused `sudo` is a failure.
+ */
+const LIST_SSH_FILES = [
+  'root=$1',
+  'command -v find >/dev/null 2>&1 || exit 127',
+  'set --',
+  'for dir in "$root"/root/.ssh "$root"/home/*/.ssh; do',
+  '  [ -d "$dir" ] && set -- "$@" "$dir"',
+  'done',
+  '[ "$#" -eq 0 ] || find -H "$@" -mindepth 1 -maxdepth 1 -type f -print0 2>/dev/null',
+  'exit 0',
+].join('\n')
+
+/** Run a command and return what it wrote; a failure rejects with its error text. */
+const runCommand = async (argv: readonly string[]): Promise<Uint8Array> => {
+  const command = new Deno.Command(argv[0], {
+    args: argv.slice(1),
+    stdin: 'null',
+    stdout: 'piped',
+    stderr: 'piped',
+  })
+  const result = await command.output()
+  if (!result.success) {
+    const reason = new TextDecoder().decode(result.stderr).trim()
+    throw new Error(reason || `${argv[0]} exited with ${result.code}`)
+  }
+  return result.stdout
+}
+
+/**
+ * The same search as findPrivateKeys, run as root through `sudo -n` (it never
+ * asks for a password): one command lists the files, and `head` reads the first
+ * bytes of each, which go through the same classification. Rejects when the
+ * listing fails, for instance when sudo is not allowed. `root` and `sudo` (the
+ * command prefix, empty to run without sudo) are there for tests.
+ */
+export async function findPrivateKeysAsRoot(
+  options: { root?: string; sudo?: readonly string[] } = {},
+): Promise<string[]> {
+  const root = (options.root ?? '').replace(/\/+$/, '')
+  const sudo = options.sudo ?? ['sudo', '-n']
+  const listing = await runCommand([
+    ...sudo,
+    'sh',
+    '-c',
+    LIST_SSH_FILES,
+    'sh',
+    root,
+  ])
+  const paths = new TextDecoder().decode(listing).split('\0')
+    .filter((path) => path !== '')
+    .map((path) => path.slice(root.length))
+  return await classifyKeys(
+    paths,
+    (path) =>
+      runCommand([
+        ...sudo,
+        'head',
+        '-c',
+        String(HEAD_BYTES),
+        '--',
+        `${root}${path}`,
+      ]),
+  )
+}
+
+/** What the search for SSH private keys of one run found. */
+export interface SshKeySearch {
+  /** The private keys found, by path. */
+  keys: string[]
+  /** The `.ssh` directories to leave out as a whole: nothing could list them. */
+  wholeDirs: string[]
+  /** The archiver runs as root, and the search as root failed. */
+  rootSearchFailed: boolean
+}
+
+/**
+ * The search for SSH private keys that a run makes before it builds its exclude
+ * lists, with the privilege of its archiver. As this user always. Under sudo
+ * (`underSudo`: tar or rsync run as root) also as root, and what that finds is
+ * added. When the search as root fails, every `.ssh` directory this user cannot
+ * list is left out as a whole, since nothing has looked inside it.
+ */
+export async function searchSshKeys(options: {
+  underSudo: boolean
+  find?: PrivateKeyFinder
+  findAsRoot?: PrivateKeyFinder
+  findUnlisted?: () => Promise<string[]> | string[]
+}): Promise<SshKeySearch> {
+  const asUser = await (options.find ?? findPrivateKeys)()
+  if (!options.underSudo) {
+    return {
+      keys: [...new Set(asUser)].sort(),
+      wholeDirs: [],
+      rootSearchFailed: false,
+    }
+  }
+  try {
+    const asRoot = await (options.findAsRoot ?? findPrivateKeysAsRoot)()
+    return {
+      keys: [...new Set([...asUser, ...asRoot])].sort(),
+      wholeDirs: [],
+      rootSearchFailed: false,
+    }
+  } catch {
+    const unlisted = await (options.findUnlisted ?? findUnlistedSshDirs)()
+    return {
+      keys: [...new Set(asUser)].sort(),
+      wholeDirs: [...new Set(unlisted)].sort(),
+      rootSearchFailed: true,
+    }
+  }
+}
+
+/**
+ * What to tell the operator when `tool` runs as root and the search for SSH
+ * private keys as root failed: the `.ssh` directories this user cannot list are
+ * excluded as a whole.
+ */
+export function sshScanNote(
+  tool: 'tar' | 'rsync',
+  dirs: readonly string[],
+  rerun: string,
+): string {
+  const names = dirs.join(', ')
+  const left = dirs.length > 0
+    ? ` These .ssh directories could not be listed by this user and are excluded as a whole: ${names}.`
+    : ''
+  return `\n⚠️  ${tool} runs as root, but the search for SSH private keys could not run as root (sudo -n failed).${left} Run as root (${rerun}) to look inside them.\n`
 }
 
 /** Pretty-print the current exclude list */

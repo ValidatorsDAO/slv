@@ -4,6 +4,7 @@ import {
   findPrivateKeys,
   printExcludes,
   type PrivateKeyFinder,
+  searchSshKeys,
   SSH_EXCLUDES,
   sshScanNote,
 } from '@/backup/excludes.ts'
@@ -25,8 +26,12 @@ interface MigrateOptions {
   yes?: boolean
   /** Use sudo for rsync (for non-root users) */
   useSudo?: boolean
-  /** Looks for SSH private keys; the search of this host when absent. */
+  /** Looks for SSH private keys as this user; the search of this host when absent. */
   findPrivateKeys?: PrivateKeyFinder
+  /** The same search as root (through sudo), for a run whose rsync runs under sudo. */
+  findPrivateKeysAsRoot?: PrivateKeyFinder
+  /** The .ssh directories this user cannot list. */
+  findUnlistedSshDirs?: () => Promise<string[]> | string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -563,18 +568,23 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     skipReboot = false,
     yes = false,
     findPrivateKeys: findKeys = findPrivateKeys,
+    findPrivateKeysAsRoot: findKeysAsRoot,
+    findUnlistedSshDirs: findUnlisted,
   } = options
 
   // Build exclude list using shared module
-  const excludes = buildExcludeList({
-    extraExcludes,
-    extraIncludes,
-    includeSSH: false, // SSH is always excluded for migrate
-    tool: 'rsync',
-    privateKeys: await findKeys(),
-  })
+  const keysAsUser = await searchSshKeys({ underSudo: false, find: findKeys })
+  const buildList = (search: { keys: string[]; wholeDirs: string[] }) =>
+    buildExcludeList({
+      extraExcludes,
+      extraIncludes,
+      includeSSH: false, // SSH is always excluded for migrate
+      tool: 'rsync',
+      privateKeys: search.keys,
+      unlistedSshDirs: search.wholeDirs,
+    })
   // SSH_EXCLUDES are already included via buildExcludeList when includeSSH=false
-  const allExcludes = excludes
+  let allExcludes = buildList(keysAsUser)
 
   // --list-excludes: show and exit
   if (listExcludes) {
@@ -636,8 +646,29 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     }
   }
 
+  // rsync runs as root under sudo: the search for SSH private keys does too
   if (useSudo) {
-    console.log(colors.yellow(sshScanNote('rsync', 'sudo slv migrate linux')))
+    const search = await searchSshKeys({
+      underSudo: true,
+      find: () => keysAsUser.keys,
+      findAsRoot: findKeysAsRoot,
+      findUnlisted,
+    })
+    allExcludes = buildList(search)
+    const found = search.keys.filter((key) => !keysAsUser.keys.includes(key))
+    if (found.length > 0) {
+      console.log(
+        colors.yellow('\n🔎 SSH private keys found as root, excluded as well:'),
+      )
+      for (const key of found) console.log(colors.dim(`  • ${key}`))
+    }
+    if (search.rootSearchFailed) {
+      console.log(
+        colors.yellow(
+          sshScanNote('rsync', search.wholeDirs, 'sudo slv migrate linux'),
+        ),
+      )
+    }
   }
 
   // Step 1: Pre-flight checks

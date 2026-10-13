@@ -1,6 +1,11 @@
 // slv overhaul W0: text checks on dist/oss-skills/slv-backup/SKILL.md.
 
-import { assert, assertEquals, assertStringIncludes } from '@std/assert'
+import {
+  assert,
+  assertEquals,
+  assertFalse,
+  assertStringIncludes,
+} from '@std/assert'
 
 const SKILL = new URL(
   '../../../dist/oss-skills/slv-backup/SKILL.md',
@@ -116,4 +121,15 @@ Deno.test('k6: the skill says wallets are backed up only with --restic, and prom
     ),
     'no item says keypairs and the key store are in no backup and need an offline copy',
   )
+})
+
+Deno.test('k7: the skill says SSH private keys are recognised by their content, under any name', async () => {
+  const text = (await Deno.readTextFile(SKILL)).replace(/\s+/g, ' ')
+  assert(
+    /SSH private keys \([^)]*recogni[sz]ed by (their|its) content, under any name/i
+      .test(text),
+    'no "SSH private keys (recognised by their content, under any name ..."',
+  )
+  // and the old wording, which names only id_*, is gone
+  assertFalse(/SSH private keys \(`id_\*`/.test(text))
 })

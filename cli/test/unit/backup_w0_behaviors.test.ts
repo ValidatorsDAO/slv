@@ -6,6 +6,7 @@ import {
   assertEquals,
   assertFalse,
   assertMatch,
+  assertRejects,
   assertStringIncludes,
 } from '@std/assert'
 
@@ -78,6 +79,8 @@ const SYSTEM_IDENTITY = [
 const nothing = {
   findFiles: (): string[] => [],
   findPrivateKeys: (): string[] => [],
+  findPrivateKeysAsRoot: (): string[] => [],
+  findUnlistedSshDirs: (): string[] => [],
 }
 
 /** backupAction with loosely typed options and lookups (the lookups are new). */
@@ -86,6 +89,8 @@ const backup = (
   deps: {
     findFiles?: (patterns: readonly string[]) => string[] | Promise<string[]>
     findPrivateKeys?: () => string[] | Promise<string[]>
+    findPrivateKeysAsRoot?: () => string[] | Promise<string[]>
+    findUnlistedSshDirs?: () => string[] | Promise<string[]>
   } = {},
 ): Promise<void> =>
   (backupAction as unknown as (
@@ -93,12 +98,14 @@ const backup = (
     deps: unknown,
   ) => Promise<void>)(options, { ...nothing, ...deps })
 
-/** migrateLinux with loosely typed options (findPrivateKeys is new). */
+/** migrateLinux with loosely typed options (the lookups are new). */
 const migrate = (options: Record<string, unknown>): Promise<boolean> =>
   (migrateLinux as unknown as (
     options: Record<string, unknown>,
   ) => Promise<boolean>)({
     findPrivateKeys: nothing.findPrivateKeys,
+    findPrivateKeysAsRoot: nothing.findPrivateKeysAsRoot,
+    findUnlistedSshDirs: nothing.findUnlistedSshDirs,
     ...options,
   })
 
@@ -1748,7 +1755,27 @@ Deno.test('m1: slv migrate linux says in its help that key material is not copie
 // ---------------------------------------------------------------------------
 
 /** The exports that find private keys, reached through a loose type. */
-const { findPrivateKeys, exactExclude } = excludesModule as unknown as {
+const {
+  findPrivateKeys,
+  findPrivateKeysAsRoot,
+  findUnlistedSshDirs,
+  searchSshKeys,
+  exactExclude,
+} = excludesModule as unknown as {
+  findPrivateKeysAsRoot?: (
+    options?: { root?: string; sudo?: readonly string[] },
+  ) => Promise<string[]>
+  findUnlistedSshDirs?: (options?: { root?: string }) => Promise<string[]>
+  searchSshKeys?: (options: {
+    underSudo: boolean
+    find?: () => string[] | Promise<string[]>
+    findAsRoot?: () => string[] | Promise<string[]>
+    findUnlisted?: () => string[] | Promise<string[]>
+  }) => Promise<{
+    keys: string[]
+    wholeDirs: string[]
+    rootSearchFailed: boolean
+  }>
   findPrivateKeys?: (
     options?: {
       root?: string
@@ -2057,54 +2084,135 @@ Deno.test('n5: --list-excludes shows the private keys found, for backup and for 
   })
 })
 
-Deno.test('n6: when tar or rsync run as root for another user, the operator is told the search for keys ran as that user', async () => {
-  const note = 'looked for as this user'
+/** Counts the three searches of a run, and answers them. */
+const countedSearches = (
+  answers: {
+    asUser?: string[]
+    asRoot?: string[] | Error
+    unlisted?: string[]
+  } = {},
+) => {
+  const seen = { asUser: 0, asRoot: 0, unlisted: 0 }
+  return {
+    seen,
+    deps: {
+      findPrivateKeys: () => {
+        seen.asUser += 1
+        return answers.asUser ?? []
+      },
+      findPrivateKeysAsRoot: () => {
+        seen.asRoot += 1
+        if (answers.asRoot instanceof Error) throw answers.asRoot
+        return answers.asRoot ?? []
+      },
+      findUnlistedSshDirs: () => {
+        seen.unlisted += 1
+        return answers.unlisted ?? []
+      },
+    },
+  }
+}
+
+const MINE = '/home/alice/.ssh/mykey'
+const ONLY_ROOT_SEES = ['/root/.ssh/rootkey', '/home/bob/.ssh/bobkey']
+
+Deno.test('n6: when tar or rsync run under sudo, the search for private keys runs as root too and what it finds is excluded', async () => {
   for (const uid of [0, 1000]) {
-    // tar, through sudo for a user who is not root
+    const sudo = uid !== 0
+    const searches = () =>
+      countedSearches({ asUser: [MINE], asRoot: ONLY_ROOT_SEES })
+
+    // tar: under sudo for a user who is not root
     await withEnv(cleanBackupEnv, () =>
       withHome(null, async (home) => {
         const output = `${home}/out.tar.zst`
-        await withProcesses(archivingHost(output), async () => {
+        const { seen, deps } = searches()
+        await withProcesses(archivingHost(output), async (calls) => {
           await withUid(uid, async () => {
             const outcome = await runCaptured(() =>
-              backup({ yes: true, output })
+              backup({ yes: true, output }, deps)
             )
             assertEquals(outcome.exit, null, outcome.output)
-            assertEquals(
-              outcome.output.includes(note),
-              uid !== 0,
-              `tar, uid ${uid}`,
-            )
+            const tar = archiveCall(calls)
+            assert(tar, 'no tar call')
+            const excludes = excludesIn(tar.args)
+            assert(excludes.includes(MINE), `tar, uid ${uid}: ${MINE}`)
+            for (const key of ONLY_ROOT_SEES) {
+              assertEquals(
+                excludes.includes(key),
+                sudo,
+                `tar, uid ${uid}: ${key}`,
+              )
+            }
+            // it is listed with what the backup left out, and nothing needed a fallback
+            assertEquals(outcome.output.includes(ONLY_ROOT_SEES[0]), sudo)
+            assertFalse(outcome.output.includes('could not run as root'))
           })
         })
+        assertEquals(
+          seen,
+          { asUser: 1, asRoot: sudo ? 1 : 0, unlisted: 0 },
+          `tar, uid ${uid}`,
+        )
       }))
-    // restic runs as the user, so it reads what the search could read
+
+    // restic runs as the user: it reads what the search as the user could read
     await withResticHome(async () => {
-      await withProcesses(asHost('node-1'), async () => {
+      const { seen, deps } = searches()
+      await withProcesses(asHost('node-1'), async (calls) => {
         await withUid(uid, async () => {
           const outcome = await runCaptured(() =>
-            backup({ restic: true, yes: true })
+            backup({ restic: true, yes: true }, deps)
           )
           assertEquals(outcome.exit, null, outcome.output)
-          assertFalse(outcome.output.includes(note), `restic, uid ${uid}`)
         })
+        const restic = calls.find((c) =>
+          c.command === 'restic' && c.args[0] === 'backup'
+        )
+        assert(restic, 'restic backup was not started')
+        const excludes = excludesIn(restic.args)
+        assert(excludes.includes(MINE))
+        for (const key of ONLY_ROOT_SEES) {
+          assertFalse(excludes.includes(key), `restic, uid ${uid}: ${key}`)
+        }
       })
+      assertEquals(
+        seen,
+        { asUser: 1, asRoot: 0, unlisted: 0 },
+        `restic, uid ${uid}`,
+      )
     })
-    // rsync, through sudo for a user who is not root
+
+    // rsync: under sudo for a user who is not root
     await withEnv(cleanBackupEnv, async () => {
-      await withProcesses(migrationHost, async () => {
+      const { seen, deps } = searches()
+      await withProcesses(migrationHost, async (calls) => {
         await withUid(uid, async () => {
           const outcome = await runCaptured(() =>
-            migrate({ to: 'root@new-server', yes: true, skipReboot: true })
+            migrate({
+              to: 'root@new-server',
+              yes: true,
+              skipReboot: true,
+              ...deps,
+            })
           )
           assertEquals(outcome.error, undefined, outcome.output)
-          assertEquals(
-            outcome.output.includes(note),
-            uid !== 0,
-            `rsync, uid ${uid}`,
-          )
+          assertEquals(outcome.output.includes('found as root'), sudo)
+          assertFalse(outcome.output.includes('could not run as root'))
         })
+        const rsync = calls.find((c) => c.args.includes('-aHAXSx'))
+        assert(rsync, 'rsync was not started')
+        const excludes = excludesIn(rsync.args)
+        assert(excludes.includes(MINE), `rsync, uid ${uid}: ${MINE}`)
+        for (const key of ONLY_ROOT_SEES) {
+          assertEquals(
+            excludes.includes(key),
+            sudo,
+            `rsync, uid ${uid}: ${key}`,
+          )
+        }
       })
+      assertEquals(seen.asRoot, sudo ? 1 : 0, `rsync, uid ${uid}`)
     })
   }
 })
@@ -2151,4 +2259,291 @@ Deno.test('n7: the search for private keys runs once per backup, and not at all 
     })
     assertEquals(scans, 1, 'restic backup')
   })
+})
+
+Deno.test('n8: when the search as root fails, the .ssh directories this user cannot list are excluded as a whole, and reported', async () => {
+  const unlisted = ['/home/bob/.ssh', '/root/.ssh']
+  const failing = () =>
+    countedSearches({
+      asUser: [MINE],
+      asRoot: new Error('sudo: a password is required'),
+      unlisted,
+    })
+
+  // tar under sudo: excluded, said in the output, listed with what was left out, posted
+  await withEnv(cleanBackupEnv, () =>
+    withHome(null, async (home) => {
+      const output = `${home}/out.tar.zst`
+      const { seen, deps } = failing()
+      await withProcesses(archivingHost(output), async (calls) => {
+        await withFetch(toWebhook, async (requests) => {
+          await withUid(1000, async () => {
+            const outcome = await runCaptured(() =>
+              backup({ yes: true, output, webhook: WEBHOOK }, deps)
+            )
+            assertEquals(outcome.exit, null, outcome.output)
+            const tar = archiveCall(calls)
+            assert(tar, 'no tar call')
+            const excludes = excludesIn(tar.args)
+            assert(excludes.includes(MINE), 'the keys found as the user stay')
+            for (const dir of unlisted) {
+              assert(excludes.includes(dir), `tar: ${dir} is excluded whole`)
+            }
+            assertStringIncludes(outcome.output, 'could not run as root')
+            const report = outcome.output.slice(
+              outcome.output.indexOf('Left out of this backup'),
+            )
+            const text = posted(requests).join('\n')
+            for (const dir of unlisted) {
+              assertStringIncludes(outcome.output, dir)
+              assertStringIncludes(report, `${dir}  (the whole directory`)
+              assertStringIncludes(text, `${dir}  (the whole directory`)
+            }
+          })
+        })
+      })
+      assertEquals(seen, { asUser: 1, asRoot: 1, unlisted: 1 })
+    }))
+
+  // rsync under sudo: the same
+  await withEnv(cleanBackupEnv, async () => {
+    const { seen, deps } = failing()
+    await withProcesses(migrationHost, async (calls) => {
+      await withUid(1000, async () => {
+        const outcome = await runCaptured(() =>
+          migrate({
+            to: 'root@new-server',
+            yes: true,
+            skipReboot: true,
+            ...deps,
+          })
+        )
+        assertEquals(outcome.error, undefined, outcome.output)
+        assertStringIncludes(outcome.output, 'could not run as root')
+        for (const dir of unlisted) assertStringIncludes(outcome.output, dir)
+      })
+      const rsync = calls.find((c) => c.args.includes('-aHAXSx'))
+      assert(rsync, 'rsync was not started')
+      const excludes = excludesIn(rsync.args)
+      assert(excludes.includes(MINE))
+      for (const dir of unlisted) {
+        assert(excludes.includes(dir), `rsync: ${dir} is excluded whole`)
+      }
+    })
+    assertEquals(seen, { asUser: 1, asRoot: 1, unlisted: 1 })
+  })
+
+  // no sudo, no fallback: tar and rsync run as the user, who cannot read those directories either
+  await withEnv(cleanBackupEnv, () =>
+    withHome(null, async (home) => {
+      const output = `${home}/out.tar.zst`
+      const { seen, deps } = failing()
+      await withProcesses(archivingHost(output), async (calls) => {
+        await withUid(0, async () => {
+          const outcome = await runCaptured(() =>
+            backup({ yes: true, output }, deps)
+          )
+          assertEquals(outcome.exit, null, outcome.output)
+          const tar = archiveCall(calls)
+          assert(tar)
+          for (const dir of unlisted) {
+            assertFalse(excludesIn(tar.args).includes(dir), `uid 0: ${dir}`)
+          }
+        })
+      })
+      assertEquals(seen, { asUser: 1, asRoot: 0, unlisted: 0 })
+    }))
+})
+
+Deno.test('n9: the search runs as the user always, and as root only under sudo; when root fails the unlisted directories are the fallback', async () => {
+  assert(searchSshKeys, 'excludes.ts does not export searchSshKeys')
+  const fail = new Error('sudo: a password is required')
+
+  // not under sudo: the user's keys alone
+  const plain = countedSearches({
+    asUser: ['/b', '/a', '/a'],
+    asRoot: ['/root'],
+  })
+  assertEquals(
+    await searchSshKeys({
+      underSudo: false,
+      find: plain.deps.findPrivateKeys,
+      findAsRoot: plain.deps.findPrivateKeysAsRoot,
+      findUnlisted: plain.deps.findUnlistedSshDirs,
+    }),
+    { keys: ['/a', '/b'], wholeDirs: [], rootSearchFailed: false },
+  )
+  assertEquals(plain.seen, { asUser: 1, asRoot: 0, unlisted: 0 })
+
+  // under sudo: both, together
+  const both = countedSearches({
+    asUser: ['/b', '/a'],
+    asRoot: ['/a', '/root'],
+  })
+  assertEquals(
+    await searchSshKeys({
+      underSudo: true,
+      find: both.deps.findPrivateKeys,
+      findAsRoot: both.deps.findPrivateKeysAsRoot,
+      findUnlisted: both.deps.findUnlistedSshDirs,
+    }),
+    { keys: ['/a', '/b', '/root'], wholeDirs: [], rootSearchFailed: false },
+  )
+  assertEquals(both.seen, { asUser: 1, asRoot: 1, unlisted: 0 })
+
+  // under sudo, root fails (thrown, or rejected): the unlisted directories
+  for (const rejected of [false, true]) {
+    const failed = countedSearches({
+      asUser: ['/a'],
+      asRoot: fail,
+      unlisted: ['/home/bob/.ssh', '/home/bob/.ssh', '/root/.ssh'],
+    })
+    const search = await searchSshKeys({
+      underSudo: true,
+      find: failed.deps.findPrivateKeys,
+      findAsRoot: rejected
+        ? () => Promise.reject(fail)
+        : failed.deps.findPrivateKeysAsRoot,
+      findUnlisted: failed.deps.findUnlistedSshDirs,
+    })
+    assertEquals(search, {
+      keys: ['/a'],
+      wholeDirs: ['/home/bob/.ssh', '/root/.ssh'],
+      rootSearchFailed: true,
+    }, `rejected=${rejected}`)
+    assertEquals(failed.seen.unlisted, 1)
+  }
+})
+
+Deno.test('n10: the search as root finds what the search as the user finds: one classification, run through sh, find and head', async () => {
+  assert(
+    findPrivateKeysAsRoot,
+    'excludes.ts does not export findPrivateKeysAsRoot',
+  )
+  assert(findPrivateKeys, 'excludes.ts does not export findPrivateKeys')
+  const root = await Deno.makeTempDir({ prefix: 'slv-ssh-root-' })
+  const locked = `${root}/home/alice/.ssh/locked`
+  try {
+    const put = async (path: string, text: string) => {
+      await Deno.mkdir(`${root}${path.slice(0, path.lastIndexOf('/'))}`, {
+        recursive: true,
+      })
+      await Deno.writeTextFile(`${root}${path}`, text)
+    }
+    const alice = '/home/alice/.ssh'
+    await put(`${alice}/mykey`, OPENSSH_KEY)
+    await put(`${alice}/id_ed25519`, OPENSSH_KEY)
+    await put(`${alice}/sp ace`, OPENSSH_KEY)
+    await put(`${alice}/odd\nname key`, OPENSSH_KEY)
+    await put(
+      `${alice}/old.pem`,
+      'Bag Attributes\n-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n',
+    )
+    await put(`${alice}/deploy.ppk`, 'PuTTY-User-Key-File-3: ssh-ed25519\n')
+    await put(`${alice}/mykey.pub`, PUBLIC_KEY)
+    await put(`${alice}/authorized_keys`, PUBLIC_KEY)
+    await put(`${alice}/known_hosts`, 'github.com ssh-ed25519 AAAAC3Example\n')
+    await put(`${alice}/server.crt`, '-----BEGIN CERTIFICATE-----\nMIIDdz\n')
+    await put(`${alice}/keys/prod`, OPENSSH_KEY)
+    await Deno.symlink('mykey', `${root}${alice}/link`)
+    await put('/root/.ssh/rootkey', OPENSSH_KEY)
+    await Deno.mkdir(`${root}/home/carol`, { recursive: true })
+    const expected = [
+      `${alice}/deploy.ppk`,
+      `${alice}/id_ed25519`,
+      `${alice}/mykey`,
+      `${alice}/odd\nname key`,
+      `${alice}/old.pem`,
+      `${alice}/sp ace`,
+      '/root/.ssh/rootkey',
+    ]
+    // a file nobody here can read: a key to both searches (root reads anything)
+    if (Deno.uid() !== 0) {
+      await put(`${alice}/locked`, 'cannot be read')
+      await Deno.chmod(locked, 0o000)
+      expected.push(`${alice}/locked`)
+    }
+    expected.sort()
+
+    // the real processes, with no sudo in front of them
+    assertEquals(await findPrivateKeysAsRoot({ root, sudo: [] }), expected)
+    assertEquals(await findPrivateKeys({ root }), expected)
+  } finally {
+    await Deno.chmod(locked, 0o600).catch(() => {})
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('n11: the search as root runs through sudo -n, lists with one command, and reads only the first bytes of each file', async () => {
+  assert(
+    findPrivateKeysAsRoot,
+    'excludes.ts does not export findPrivateKeysAsRoot',
+  )
+  const files = [
+    '/home/alice/.ssh/mykey',
+    '/home/alice/.ssh/mykey.pub',
+    '/home/alice/.ssh/known_hosts',
+    '/home/alice/.ssh/locked',
+    '/home/alice/.ssh/notes',
+  ]
+  await withProcesses((call) => {
+    if (call.args[1] === 'sh') {
+      return { stdout: files.map((file) => `${file}\0`).join('') }
+    }
+    const path = call.args[call.args.length - 1]
+    if (path.endsWith('/locked') || path.endsWith('/known_hosts')) {
+      return { success: false, stderr: 'head: cannot open: Permission denied' }
+    }
+    return {
+      stdout: path.endsWith('/mykey')
+        ? OPENSSH_KEY
+        : path.endsWith('.pub')
+        ? PUBLIC_KEY
+        : 'only text\n',
+    }
+  }, async (calls) => {
+    assertEquals(await findPrivateKeysAsRoot(), [
+      '/home/alice/.ssh/locked',
+      '/home/alice/.ssh/mykey',
+    ])
+    // every command is `sudo -n ...`: it never asks for a password
+    for (const call of calls) {
+      assertEquals(call.command, 'sudo')
+      assertEquals(call.args[0], '-n')
+    }
+    // one listing, then one read per file, of 8192 bytes at most
+    assertEquals(calls[0].args.slice(0, 3), ['-n', 'sh', '-c'])
+    assertEquals(calls.length, 1 + files.length)
+    for (const [i, file] of files.entries()) {
+      assertEquals(calls[i + 1].args, ['-n', 'head', '-c', '8192', '--', file])
+    }
+  })
+
+  // sudo refused: the search rejects, which is what makes a run fall back
+  await withProcesses(
+    () => ({ success: false, stderr: 'sudo: a password is required' }),
+    async () => {
+      await assertRejects(
+        () => findPrivateKeysAsRoot(),
+        Error,
+        'a password is required',
+      )
+    },
+  )
+})
+
+Deno.test('n12: .ssh directories this user cannot list are found, and one that does not exist is not', async () => {
+  assert(findUnlistedSshDirs, 'excludes.ts does not export findUnlistedSshDirs')
+  if (Deno.uid() === 0) return // root lists every directory
+  const root = await Deno.makeTempDir({ prefix: 'slv-ssh-unlisted-' })
+  try {
+    await Deno.mkdir(`${root}/home/alice/.ssh`, { recursive: true })
+    await Deno.mkdir(`${root}/home/bob/.ssh`, { recursive: true })
+    await Deno.chmod(`${root}/home/bob/.ssh`, 0o000)
+    await Deno.mkdir(`${root}/home/carol`, { recursive: true })
+    assertEquals(await findUnlistedSshDirs({ root }), ['/home/bob/.ssh'])
+  } finally {
+    await Deno.chmod(`${root}/home/bob/.ssh`, 0o700).catch(() => {})
+    await Deno.remove(root, { recursive: true })
+  }
 })

@@ -61,7 +61,9 @@ wallets; a plain tar archive and `slv migrate linux` never carry them.
 **Key material is never in a backup**, in either mode: validator keypair and
 identity files (`~/.slv/keys`, `*keypair*.json` and `*identity*.json` in a
 home directory), `~/.slv` credentials (`api.yml`, `gateway.json`,
-`backup.env`, `restic-password`), SSH private keys (`id_*` and the host keys
+`backup.env`, `restic-password`), SSH private keys (recognised by their
+content, under any name, in a `~/.ssh` directory — a `.ssh` directory the CLI
+cannot look into is left out whole — and the host keys
 `/etc/ssh/ssh_host_*_key`), `/etc/shadow`, `/etc/wireguard`,
 `/etc/doublezero/keys`, `/etc/ssl/private`, `/etc/nginx/ssl`. Tell the user to
 keep their own offline copy of these files; a backup will not restore them.

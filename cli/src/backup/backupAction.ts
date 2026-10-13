@@ -11,10 +11,11 @@ import {
   type BackupTool,
   buildExcludeList,
   findExistingPaths,
-  findPrivateKeys,
   printExcludes,
   type PrivateKeyFinder,
+  searchSshKeys,
   secretExcludes,
+  type SshKeySearch,
   sshScanNote,
 } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
@@ -233,8 +234,12 @@ async function makeExistingArchivePrivate(output: string): Promise<void> {
 export interface BackupDeps {
   /** The files and directories on this host that match `patterns`. */
   findFiles?: (patterns: readonly string[]) => Promise<string[]> | string[]
-  /** The SSH private keys on this host, by path. */
+  /** The SSH private keys this user can find on this host, by path. */
   findPrivateKeys?: PrivateKeyFinder
+  /** The same search as root (through sudo), for a run whose tar runs under sudo. */
+  findPrivateKeysAsRoot?: PrivateKeyFinder
+  /** The .ssh directories this user cannot list. */
+  findUnlistedSshDirs?: () => Promise<string[]> | string[]
 }
 
 const OFFLINE_COPY =
@@ -242,12 +247,13 @@ const OFFLINE_COPY =
 
 /**
  * The key material and wallets on this host that a backup read by `tool` leaves
- * out, and the SSH private keys found under any name.
+ * out, the SSH private keys found under any name, and the .ssh directories left
+ * out as a whole.
  */
 async function filesLeftOut(
   tool: BackupTool,
   deps: BackupDeps,
-  privateKeys: readonly string[],
+  search: SshKeySearch,
 ): Promise<string[]> {
   const find = deps.findFiles ?? ((patterns) => findExistingPaths(patterns))
   let found: string[] = []
@@ -256,7 +262,10 @@ async function filesLeftOut(
   } catch {
     // nothing found by pattern
   }
-  return [...new Set([...found, ...privateKeys])].sort()
+  const wholeDirs = search.wholeDirs.map((dir) =>
+    `${dir}  (the whole directory: this user could not list it)`
+  )
+  return [...new Set([...found, ...search.keys, ...wholeDirs])].sort()
 }
 
 function printLeftOut(files: string[]): void {
@@ -318,18 +327,27 @@ export const backupAction = async (options: {
 
   const tool: BackupTool = options.restic ? 'restic' : 'tar'
 
-  // SSH private keys under any name are looked for once, when a list is built
-  let scan: Promise<string[]> | undefined
-  const sshKeys = (): Promise<string[]> =>
-    scan ??= Promise.resolve((deps.findPrivateKeys ?? findPrivateKeys)())
-  const buildList = async (): Promise<string[]> =>
-    buildExcludeList({
+  // SSH private keys under any name are looked for once, when a list is built,
+  // with the privilege of the archiver: as root too when tar runs under sudo
+  let scan: Promise<SshKeySearch> | undefined
+  const sshSearch = (underSudo = false): Promise<SshKeySearch> =>
+    scan ??= searchSshKeys({
+      underSudo,
+      find: deps.findPrivateKeys,
+      findAsRoot: deps.findPrivateKeysAsRoot,
+      findUnlisted: deps.findUnlistedSshDirs,
+    })
+  const buildList = async (underSudo = false): Promise<string[]> => {
+    const search = await sshSearch(underSudo)
+    return buildExcludeList({
       extraExcludes: options.exclude,
       extraIncludes: options.include,
       includeSSH: true, // backup includes SSH files
       tool,
-      privateKeys: await sshKeys(),
+      privateKeys: search.keys,
+      unlistedSshDirs: search.wholeDirs,
     })
+  }
 
   // --list-excludes: show and exit
   if (options.listExcludes) {
@@ -361,7 +379,7 @@ export const backupAction = async (options: {
       exclude: options.exclude,
       include: options.include,
       retention: options.retention,
-      findPrivateKeys: sshKeys,
+      findPrivateKeys: async () => (await sshSearch()).keys,
     }
 
     console.log(colors.bold(colors.blue('\n🗄️  SLV Backup (restic mode)\n')))
@@ -399,7 +417,7 @@ export const backupAction = async (options: {
       throw error
     }
 
-    const left = await filesLeftOut(tool, deps, await sshKeys())
+    const left = await filesLeftOut(tool, deps, await sshSearch())
     printLeftOut(left)
     await postLeftOut(webhookUrl, hostname, left)
 
@@ -474,7 +492,7 @@ export const backupAction = async (options: {
   const defaultFilename = `backup-${hostname}-${timestamp}.${ext}`
   const output = options.output || defaultFilename
 
-  const excludes = await buildList()
+  const excludes = await buildList(useSudo)
 
   // Show plan
   console.log(colors.bold(colors.blue('\n🗄️  SLV Backup\n')))
@@ -488,8 +506,13 @@ export const backupAction = async (options: {
   )
 
   printExcludes(excludes)
-  if (useSudo) {
-    console.log(colors.yellow(sshScanNote('tar', 'sudo slv backup create')))
+  const search = await sshSearch(useSudo)
+  if (search.rootSearchFailed) {
+    console.log(
+      colors.yellow(
+        sshScanNote('tar', search.wholeDirs, 'sudo slv backup create'),
+      ),
+    )
   }
 
   // Confirmation
@@ -558,7 +581,7 @@ export const backupAction = async (options: {
     Deno.exit(1)
   }
 
-  const left = await filesLeftOut(tool, deps, await sshKeys())
+  const left = await filesLeftOut(tool, deps, search)
   printLeftOut(left)
   await postLeftOut(webhookUrl, hostname, left)
 
