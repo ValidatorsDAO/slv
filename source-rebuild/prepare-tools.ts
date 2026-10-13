@@ -5,6 +5,7 @@
  * URL, archive checksum, extracted identity, and environment mapping fails.
  */
 import { createHash } from 'node:crypto'
+import { posix } from 'node:path'
 
 const SHA256 = /^[a-f0-9]{64}$/
 const TARGETS = new Set([
@@ -41,6 +42,11 @@ type TargetToolSet = {
     markers: { path: string; content: string }[]
     post_extract_identities: { path: string; sha256: string }[]
   }
+}
+export type LayoutPlacement = {
+  source: string
+  destination: string
+  sha256: string
 }
 type TargetPins = TargetToolSet & { execution?: TargetToolSet }
 type ToolPins = {
@@ -361,7 +367,7 @@ export function parseToolPins(value: unknown): ToolPins {
     ) {
       throw new Error(`${target} layout is incomplete`)
     }
-    const links = rawLayout.links.map((entryValue) => {
+    const links: LayoutPlacement[] = rawLayout.links.map((entryValue) => {
       const entry = object(entryValue, `${target} layout link`)
       const source = safeRelative(
         nonempty(entry.source, `${target} layout link source`),
@@ -477,9 +483,72 @@ async function command(
   }
 }
 
-function expandEnvironment(value: string, output: string): string {
+/**
+ * Materialize a checksum-pinned layout placement as independent regular
+ * bytes. The legacy manifest field is named `links`, but these cross-tool
+ * libclang placements must never become symlinks: native admission verifies
+ * receipt-bound identities with lstat and rejects escaping links. The
+ * descriptor remains unchanged; only its realization is copied.
+ */
+export async function materializeLayoutCopies(
+  output: string,
+  placements: readonly LayoutPlacement[],
+): Promise<void> {
+  for (const placement of placements) {
+    const sourceRelative = safeRelative(
+      placement.source,
+      'layout placement source',
+    )
+    const destinationRelative = safeRelative(
+      placement.destination,
+      'layout placement destination',
+    )
+    if (!SHA256.test(placement.sha256)) {
+      throw new Error(
+        `layout placement has invalid digest: ${destinationRelative}`,
+      )
+    }
+    const source = `${output}/${sourceRelative}`
+    const destination = `${output}/${destinationRelative}`
+    await regularFile(source, `layout placement source ${sourceRelative}`)
+    if (await sha256(source) !== placement.sha256) {
+      throw new Error(
+        `layout placement source identity mismatch: ${sourceRelative}`,
+      )
+    }
+    await Deno.mkdir(destination.slice(0, destination.lastIndexOf('/')), {
+      recursive: true,
+    })
+    if (await Deno.lstat(destination).catch(() => undefined)) {
+      throw new Error(
+        `layout placement destination already exists: ${destinationRelative}`,
+      )
+    }
+    await Deno.copyFile(source, destination)
+    await regularFile(
+      destination,
+      `layout placement destination ${destinationRelative}`,
+    )
+    if (await sha256(destination) !== placement.sha256) {
+      throw new Error(
+        `layout placement destination identity mismatch: ${destinationRelative}`,
+      )
+    }
+  }
+}
+
+export function expandEnvironment(value: string, output: string): string {
   const [, name, ...rest] = value.split('/')
-  return `${output}/${name}/${rest.join('/')}`
+  // Pin descriptors use `@tool/name/.` for a tool root. Normalize that
+  // spelling while preserving the checked descriptor contract: native
+  // admission compares receipt environment paths with hash-bound identities
+  // byte-for-byte, so an otherwise harmless `/.` would make a fresh receipt
+  // fail before the native probe begins.
+  const path = safeRelative(
+    posix.normalize(rest.join('/')),
+    'tools environment path',
+  )
+  return path === '.' ? `${output}/${name}` : `${output}/${name}/${path}`
 }
 
 async function sha256Bytes(bytes: Uint8Array): Promise<string> {
@@ -730,25 +799,7 @@ export async function prepareTools(args: Args): Promise<void> {
       }
     }
   }
-  for (const link of targetPins.layout.links) {
-    const source = `${output}/${link.source}`
-    const destination = `${output}/${link.destination}`
-    if (
-      !await Deno.stat(source).then((info) => info.isFile).catch(() => false) ||
-      await sha256(source) !== link.sha256
-    ) {
-      throw new Error(`layout link source identity mismatch: ${link.source}`)
-    }
-    await Deno.mkdir(destination.slice(0, destination.lastIndexOf('/')), {
-      recursive: true,
-    })
-    if (await Deno.lstat(destination).catch(() => undefined)) {
-      throw new Error(
-        `layout link destination already exists: ${link.destination}`,
-      )
-    }
-    await Deno.symlink(source, destination)
-  }
+  await materializeLayoutCopies(output, targetPins.layout.links)
   for (const marker of targetPins.layout.markers) {
     const path = `${output}/${marker.path}`
     await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
@@ -756,10 +807,8 @@ export async function prepareTools(args: Args): Promise<void> {
   }
   for (const identity of targetPins.layout.post_extract_identities) {
     const path = `${output}/${identity.path}`
-    if (
-      !await Deno.stat(path).then((info) => info.isFile).catch(() => false) ||
-      await sha256(path) !== identity.sha256
-    ) {
+    await regularFile(path, `post-extract identity ${identity.path}`)
+    if (await sha256(path) !== identity.sha256) {
       throw new Error(`post-extract identity mismatch for ${identity.path}`)
     }
     identities[`layout:${identity.path}`] = { path, sha256: identity.sha256 }

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   assertSafeTree,
   emitNativeTargetProof,
@@ -7,6 +8,7 @@ import {
   scanArchiveForUnsafeMembers,
 } from './verify-native.ts'
 import { verifyNativeSourceRebuildProof } from '../scripts/release/source-materials.ts'
+import { expandEnvironment, materializeLayoutCopies } from './prepare-tools.ts'
 
 async function createArchive(
   archive: string,
@@ -471,5 +473,116 @@ Deno.test('merge emitter carries bounded build jobs through the unchanged releas
   }
   if (!rejected) {
     throw new Error('merge emitter accepted an out-of-range jobs value')
+  }
+})
+
+async function layoutSha256(path: string): Promise<string> {
+  return createHash('sha256').update(await Deno.readFile(path)).digest('hex')
+}
+
+async function expectLayoutRejection(
+  action: () => Promise<void>,
+  expected: string,
+): Promise<void> {
+  let rejected = false
+  try {
+    await action()
+  } catch (error) {
+    rejected = error instanceof Error && error.message.includes(expected)
+  }
+  if (!rejected) throw new Error(`expected rejection containing: ${expected}`)
+}
+
+Deno.test('tool layout copies libclang as a checksum-verified regular file', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-layout-copy-' })
+  try {
+    const source = `${root}/chromium-rust/lib/libclang.so.23.0.0git`
+    await Deno.mkdir(source.slice(0, source.lastIndexOf('/')), {
+      recursive: true,
+    })
+    await Deno.writeTextFile(source, 'verified libclang bytes\n')
+    const digest = await layoutSha256(source)
+    await materializeLayoutCopies(root, [{
+      source: 'chromium-rust/lib/libclang.so.23.0.0git',
+      destination: 'clang/lib/libclang.so',
+      sha256: digest,
+    }])
+    const destination = `${root}/clang/lib/libclang.so`
+    const info = await Deno.lstat(destination)
+    if (
+      !info.isFile || info.isSymlink ||
+      await layoutSha256(destination) !== digest
+    ) {
+      throw new Error(
+        'layout destination is not a checksum-verified regular copy',
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('tool layout rejects symlink source, tampering, and occupied destination', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-layout-copy-negative-' })
+  try {
+    const external = `${root}/external-libclang`
+    const source = `${root}/chromium-rust/lib/libclang.so.23.0.0git`
+    await Deno.mkdir(source.slice(0, source.lastIndexOf('/')), {
+      recursive: true,
+    })
+    await Deno.writeTextFile(external, 'external bytes\n')
+    await Deno.symlink(external, source)
+    const digest = await layoutSha256(external)
+    const placement = {
+      source: 'chromium-rust/lib/libclang.so.23.0.0git',
+      destination: 'clang/lib/libclang.so',
+      sha256: digest,
+    }
+    await expectLayoutRejection(
+      () => materializeLayoutCopies(root, [placement]),
+      'must be a regular file',
+    )
+
+    await Deno.remove(source)
+    await Deno.writeTextFile(source, 'verified bytes\n')
+    await expectLayoutRejection(
+      () => materializeLayoutCopies(root, [placement]),
+      'source identity mismatch',
+    )
+
+    const verifiedDigest = await layoutSha256(source)
+    const destination = `${root}/clang/lib/libclang.so`
+    await Deno.mkdir(destination.slice(0, destination.lastIndexOf('/')), {
+      recursive: true,
+    })
+    await Deno.writeTextFile(destination, 'occupied\n')
+    await expectLayoutRejection(
+      () =>
+        materializeLayoutCopies(root, [{
+          ...placement,
+          sha256: verifiedDigest,
+        }]),
+      'destination already exists',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('tool environment root placements are canonical receipt paths', () => {
+  const output = '/tmp/prepared-tools'
+  if (expandEnvironment('@tool/clang/.', output) !== `${output}/clang`) {
+    throw new Error('clang root placement retained a terminal slash')
+  }
+  if (
+    expandEnvironment('@tool/chromium-rust/.', output) !==
+      `${output}/chromium-rust`
+  ) {
+    throw new Error('Chromium Rust root placement retained a terminal slash')
+  }
+  if (
+    expandEnvironment('@tool/clang/lib', output) !== `${output}/clang/lib`
+  ) {
+    throw new Error('nested tool placement changed unexpectedly')
   }
 })

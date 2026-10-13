@@ -1011,7 +1011,7 @@ async function immutableInputs(
   return result
 }
 
-async function readTools(
+export async function readTools(
   path: string,
   target: string,
   purpose: 'build' | 'execution',
