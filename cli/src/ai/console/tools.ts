@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
+import { normalize } from '@std/path'
 import type { TUI } from '@mariozechner/pi-tui'
 import {
   injectSkillDocs,
@@ -18,8 +19,12 @@ import {
 import {
   buildCommandEnv,
   buildShellInvocation,
+  decideWriteFile,
+  describeWrite,
+  describeWriteRefusal,
   fileToolRefusal,
   findExecutable,
+  isAgentMemoryFile,
   redactSecretKeys,
 } from '@/ai/console/toolSafety.ts'
 import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
@@ -297,7 +302,7 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'write_file',
     description:
-      'Write content to a file. Use this to update MEMORY.md or create configuration files. Only writes to ~/.slv/ are allowed, except keys, credentials, ~/.slv/template, ~/.slv/bin and ~/.slv/known_hosts.',
+      'Write content to a file under ~/.slv/. ~/.slv/agent/MEMORY.md is written without asking. Any other file needs the user to confirm the write in a terminal (the user sees the path, the size and the first 20 lines), and is not written in a session without a terminal: give the user the content and the path, and ask them to write the file themselves. Not written at all: keys, credentials, ~/.slv/api.yml, the agent config ~/.slv/agent/config.yml, ~/.slv/template, ~/.slv/bin and ~/.slv/known_hosts.',
     parameters: {
       type: 'object',
       properties: {
@@ -963,15 +968,50 @@ async function executeWriteFile(
   const refusal = await fileToolRefusal('write_file', path)
   if (refusal !== null) return refusal
 
+  // The file written is the path that was checked and shown.
+  const target = normalize(path)
+  const tui = tuiInstance
+  const decision = decideWriteFile({
+    memoryFile: await isAgentMemoryFile(target),
+    hasTerminal: tui !== null,
+  })
+
+  if (decision === 'refuse') {
+    const msg = describeWriteRefusal(target)
+    console.log(`  ✗ ${msg.split('\n')[0]}`)
+    return msg
+  }
+
+  if (decision === 'confirm' && tui !== null) {
+    let existingBytes: number | null = null
+    try {
+      existingBytes = (await Deno.stat(target)).size
+    } catch { /* there is no file yet */ }
+    tui.stop()
+    console.log(`\n  Tool: write_file`)
+    for (const line of describeWrite(target, content, existingBytes)) {
+      console.log(line)
+    }
+    const confirmed = await Confirm.prompt({
+      message: 'Write this file?',
+      default: false,
+    })
+    tui.start()
+    tui.requestRender(true)
+    if (!confirmed) {
+      return `User declined to write ${target}. The file is unchanged.`
+    }
+  }
+
   try {
     // Ensure parent directory exists
-    const parentDir = path.substring(0, path.lastIndexOf('/'))
+    const parentDir = target.substring(0, target.lastIndexOf('/'))
     if (parentDir) {
       await Deno.mkdir(parentDir, { recursive: true })
     }
-    await Deno.writeTextFile(path, content)
+    await Deno.writeTextFile(target, content)
     invalidateReadFileCache()
-    return `Successfully wrote to ${path}`
+    return `Successfully wrote to ${target}`
   } catch (error) {
     return `Error writing file: ${(error as Error).message}`
   }
@@ -1211,7 +1251,7 @@ Keys are not generated here. The operator generates them with \`slv v init\` in 
 If the user has no keys yet, ask the main agent to tell the user to run \`slv v init\` themselves first and to come back with the identity, vote and authority public keys.
 
 ### Step 2: Write inventory YAML
-Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
+Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`. In the terminal console the user confirms the write: they see the path, the size and the first 20 lines. A gateway session has no terminal, and write_file refuses there: report the YAML and the path to the main agent, which gives both to the user to save themselves, and go on when the user says the file is in place. Writing the file again later, for the snapshot URL, needs the user's confirmation again. The content:
 
 \`\`\`yaml
 <network>_validators:

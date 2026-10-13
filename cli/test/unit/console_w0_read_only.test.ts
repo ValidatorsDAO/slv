@@ -112,6 +112,17 @@ const NEEDS_A_PERSON = [
   'ip link set eth0 down',
   'xxd -r a b',
   'rg --pre /tmp/f x',
+  // a relative name after cd is not seen by the key-material classes
+  'cd ~/.slv && cat api.yml',
+  'cd /home/solv/.slv/gateway && cat gateway.json',
+  'cd ~/.ssh && cat id_rsa',
+  'cd /proc/self && cat environ',
+  'cd .. && ls',
+  'cd /home/solv/../.. && ls',
+  // key material by name or path stays gated after a cd
+  'cd /home/solv && cat mainnet-validator-keypair.json',
+  'cd /home/solv && cat identity.json',
+  'cd /root && cat .slv/api.yml',
 ]
 
 readOnlyTest(
@@ -142,6 +153,10 @@ readOnlyTest(
         'uptime',
         'cat /etc/os-release',
         'du -sh /mnt/ledger 2>/dev/null',
+        'cd /home/solv && ls',
+        'which solana',
+        'type agave-validator',
+        'printenv HOME',
       ]
     ) {
       assertEquals(decide(line, false), 'run', line)
@@ -344,7 +359,6 @@ readOnlyTest(
       '[ -v PATH ]',
       '[ -R PATH ]',
       '[ -f "$HOME/x" ]',
-      'cd /tmp',
       'tee file',
       'touch x',
       'cp a b',
@@ -360,8 +374,76 @@ readOnlyTest(
       'more file',
       'man ls',
       'vim file',
-      'which ls',
-      'type ls',
+    ])
+  },
+)
+
+readOnlyTest(
+  'directories and names: cd to a plain directory, which, type and printenv with names',
+  ({ expectReadOnly, expectNotReadOnly }) => {
+    expectReadOnly([
+      'cd /home/solv',
+      'cd /home/solv && ls',
+      'cd -L /home/solv',
+      'cd -P /home/solv',
+      'cd -LP /home/solv && pwd',
+      'cd ~',
+      'cd ~/slv/bot && ls',
+      'cd ~solv/ledger',
+      'cd /',
+      'cd /home/proc/x',
+      'which solana',
+      'which -a solana agave-validator',
+      'type agave-validator',
+      'type -a ls',
+      'type -t ls',
+      'type -ap ls',
+      'type -P ls',
+      'printenv HOME',
+      'printenv HOME PATH',
+    ])
+    expectNotReadOnly([
+      // where the rest of the line would start
+      'cd',
+      'cd -',
+      'cd ..',
+      'cd ../x',
+      'cd sub',
+      'cd ./x',
+      'cd ~+/x',
+      'cd ~-/x',
+      'cd /home/solv/..',
+      'cd /home/solv/x/../y',
+      'cd ~/.slv',
+      'cd ~/.slv/gateway',
+      'cd /home/solv/.SLV',
+      'cd ~/.ssh',
+      'cd /root/.ssh/x',
+      'cd /proc',
+      'cd /proc/self',
+      'cd /Proc/1',
+      'cd $HOME',
+      'cd "$HOME/x"',
+      'cd /home/*',
+      'cd /home/{a,b}',
+      // the forms of cd
+      'cd a b',
+      'cd /tmp /var',
+      'cd -e /tmp',
+      'cd -@ /tmp',
+      'cd -- /tmp',
+      // the forms of which, type and printenv
+      'which',
+      'which -a',
+      'which -x ls',
+      'which $X',
+      'type',
+      'type -f ls',
+      'type -x ls',
+      'type $X',
+      'printenv -0 HOME',
+      'printenv $X',
+      'printenv HO*',
     ])
   },
 )
@@ -479,7 +561,6 @@ readOnlyTest(
       'env FOO=1 ls',
       'env ls',
       'env -i ls',
-      'printenv HOME',
       'ulimit -n 1000',
       'ulimit',
       'sysctl -w a=1',
@@ -800,7 +881,6 @@ readOnlyTest(
       '__proto__',
       'hasOwnProperty x',
       // built-ins that are not on the list
-      'cd /',
       'read x',
       'exit',
       'kill 1',
@@ -843,6 +923,9 @@ readOnlyTest(
       ['echo $(date)', 'a command substitution'],
       ['cat <(ls)', 'a process substitution'],
       ['ls &', 'a command run in the background'],
+      ['cd -e /tmp', 'cd with an option other than -L and -P'],
+      ['cd ~/.slv', 'cd into ~/.slv, ~/.ssh or /proc'],
+      ['cd ../x', 'not written as an absolute or home path'],
       ['sort -o x in', 'sort -o'],
       ['sort $X', 'only known when the shell runs'],
       ['systemctl status x --bogus', 'an option the gate cannot read'],

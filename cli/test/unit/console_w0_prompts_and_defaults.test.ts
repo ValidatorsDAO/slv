@@ -116,6 +116,34 @@ Deno.test('every description of auto_execute says that it runs read-only command
   includes(notReadOnly, 'touch is not a read-only program', 'refusal')
 })
 
+Deno.test('the write_file description and the validator onboarding text say who confirms a write', async () => {
+  const description = EXTENDED_TOOLS.find((tool) => tool.name === 'write_file')
+    ?.description
+  assert(description !== undefined, 'write_file: no description')
+  includes(description, 'MEMORY.md is written without asking', 'write_file')
+  includes(description, 'confirm the write in a terminal', 'write_file')
+  includes(description, 'the first 20 lines', 'write_file')
+  includes(
+    description,
+    'give the user the content and the path',
+    'write_file',
+  )
+  includes(description, '~/.slv/api.yml', 'write_file')
+
+  const tools = await source(`${SRC}/ai/console/tools.ts`)
+  includes(
+    tools,
+    'In the terminal console the user confirms the write',
+    'tools.ts',
+  )
+  includes(
+    tools,
+    'A gateway session has no terminal, and write_file refuses there',
+    'tools.ts',
+  )
+  includes(tools, 'gives both to the user to save themselves', 'tools.ts')
+})
+
 Deno.test('the validator prompts name the staked mainnet key as the template does', async () => {
   const template = await source(
     `${ROOT}/template/2026.6.6.2026/ansible/mainnet-validator/copy_keys.yml`,

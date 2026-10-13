@@ -1,6 +1,6 @@
 // What the AI console tools hand to a command, show to the model, or touch on
-// disk: the environment of a command, the shape of secret keys in output, and
-// the paths the file tools do not handle.
+// disk: the environment of a command, the shape of secret keys in output, the
+// paths the file tools do not handle, and who confirms a write.
 
 import { basename, dirname, normalize, resolve } from '@std/path'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
@@ -9,6 +9,7 @@ import {
   KEYPAIR_FILE_NAME,
   PROCESS_ENVIRON,
 } from '@/ai/console/keyMaterial.ts'
+import { resolveMemoryMdPath } from '@/ai/agentConfig/paths.ts'
 
 // ---------------------------------------------------------------------------
 // The environment and the shell a command runs in
@@ -350,4 +351,96 @@ export async function fileToolRefusal(
     if (!isUnder(realTarget, realSlvDir)) return outsideSlv
   }
   return null
+}
+
+// ---------------------------------------------------------------------------
+// Who confirms a write
+// ---------------------------------------------------------------------------
+
+export type WriteFileDecision = 'run' | 'confirm' | 'refuse'
+
+/**
+ * A write to a path that the path rules let through. The agent's memory file
+ * is written on its own. Every other file needs a person to confirm it at a
+ * terminal, and is refused where no terminal is attached. auto_execute plays
+ * no part.
+ */
+export function decideWriteFile(
+  input: { memoryFile: boolean; hasTerminal: boolean },
+): WriteFileDecision {
+  if (input.memoryFile) return 'run'
+  return input.hasTerminal ? 'confirm' : 'refuse'
+}
+
+/**
+ * True for ~/.slv/agent/MEMORY.md itself: the path as written is that path,
+ * and the file is not a link to another file.
+ */
+export async function isAgentMemoryFile(path: string): Promise<boolean> {
+  const target = normalize(path)
+  if (target !== resolveMemoryMdPath(resolveHome())) return false
+  return await resolveExisting(target) ===
+    resolve(await resolveExisting(dirname(target)), basename(target))
+}
+
+/** What the refusal of a write says where no terminal is attached. */
+export function describeWriteRefusal(path: string): string {
+  return `Error: write_file did not write ${
+    showText(path)
+  }. Writing this file needs a person to confirm it in a terminal, and no terminal is attached to this session. Only ~/.slv/agent/MEMORY.md is written without a person. Do not try again. Give the user the content and the path, and ask them to write the file themselves.`
+}
+
+const PREVIEW_LINES = 20
+const PREVIEW_WIDTH = 200
+
+/**
+ * The text with the characters that move the cursor, restyle the screen or
+ * reorder what is shown written out as \uXXXX.
+ */
+function showText(text: string): string {
+  let out = ''
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0
+    const hidden = (code < 0x20 && code !== 0x09) ||
+      (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029 ||
+      (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)
+    out += hidden ? `\\u${code.toString(16).padStart(4, '0')}` : ch
+  }
+  return out
+}
+
+/**
+ * The lines a person sees before they confirm a write: the path, the size in
+ * bytes and lines, and the first 20 lines. `existingBytes` is the size of the
+ * file that the write replaces, or null when there is none.
+ */
+export function describeWrite(
+  path: string,
+  content: string,
+  existingBytes: number | null,
+): string[] {
+  const bytes = new TextEncoder().encode(content).length
+  const lines = content === ''
+    ? []
+    : content.replace(/\r?\n$/, '').split(/\r?\n/)
+  const replaces = existingBytes === null
+    ? 'a new file'
+    : `replaces a file of ${existingBytes} bytes`
+  const out = [
+    `  Path: ${showText(path)}`,
+    `  Size: ${bytes} bytes in ${lines.length} lines (${replaces})`,
+  ]
+  for (const line of lines.slice(0, PREVIEW_LINES)) {
+    out.push(
+      line.length > PREVIEW_WIDTH
+        ? `  | ${showText(line.slice(0, PREVIEW_WIDTH))} ... ${
+          line.length - PREVIEW_WIDTH
+        } more characters`
+        : `  | ${showText(line)}`,
+    )
+  }
+  if (lines.length > PREVIEW_LINES) {
+    out.push(`  | ... ${lines.length - PREVIEW_LINES} more lines are not shown`)
+  }
+  return out
 }

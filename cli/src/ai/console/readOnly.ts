@@ -341,11 +341,60 @@ PROGRAMS.hostname = (args) => {
   if (r.reason !== null) return r.reason
   return r.operands.length === 0 ? null : 'hostname with an operand'
 }
-// env runs the program it is given, and printenv is listed without a name
-const noArguments = (name: string, why: string): Check => (args) =>
-  args.length === 0 ? null : `${name} with an argument${why}`
-PROGRAMS.env = noArguments('env', ', which can run a program')
-PROGRAMS.printenv = noArguments('printenv', '')
+// env runs the program it is given
+PROGRAMS.env = (args) =>
+  args.length === 0 ? null : 'env with an argument, which can run a program'
+// printenv prints the variables it is given by name
+PROGRAMS.printenv = (args) => {
+  const unknown = unknownWord(args, false)
+  if (unknown !== null) return `printenv with ${unknown}`
+  return args.some((a) => a.startsWith('-')) ? 'printenv with an option' : null
+}
+// which and type look names up; -a lists every match
+PROGRAMS.which = (args) => {
+  const unknown = unknownWord(args, true)
+  if (unknown !== null) return `which with ${unknown}`
+  const names = args.filter((a) => a !== '-a')
+  if (names.length === 0) return 'which without a name'
+  return names.some((a) => a.startsWith('-'))
+    ? 'which with an option other than -a'
+    : null
+}
+PROGRAMS.type = (args) => {
+  const unknown = unknownWord(args, true)
+  if (unknown !== null) return `type with ${unknown}`
+  const names = args.filter((a) => !/^-[atpP]+$/.test(a))
+  if (names.length === 0) return 'type without a name'
+  return names.some((a) => a.startsWith('-'))
+    ? 'type with an option other than -a, -t, -p and -P'
+    : null
+}
+// cd changes the directory for the rest of the line, and the key-material
+// classes of the command gate read the words of a line, not the directory
+// they are relative to. So cd is read-only only for a directory written as an
+// absolute or home path, without `..`, outside the places the classes name.
+PROGRAMS.cd = (args) => {
+  const unknown = unknownWord(args, false)
+  if (unknown !== null) return `cd with ${unknown}`
+  const operands = args.filter((a) => !/^-[LP]+$/.test(a))
+  if (operands.some((a) => a.startsWith('-') && a.length > 1)) {
+    return 'cd with an option other than -L and -P'
+  }
+  if (operands.length !== 1) return 'cd other than cd [-L|-P] DIRECTORY'
+  const directory = operands[0]
+  if (!/^(?:\/|~(?:[A-Za-z_][A-Za-z0-9._-]*)?(?:\/|$))/.test(directory)) {
+    return 'cd to a directory that is not written as an absolute or home path'
+  }
+  const parts = directory.toLowerCase().split('/')
+  if (parts.includes('..')) return 'cd to a path with ..'
+  if (
+    parts.includes('.slv') || parts.includes('.ssh') ||
+    /^\/proc(?:\/|$)/.test(directory.toLowerCase())
+  ) {
+    return 'cd into ~/.slv, ~/.ssh or /proc'
+  }
+  return null
+}
 PROGRAMS.ulimit = (args) =>
   args.length === 1 && args[0] === '-a' ? null : 'ulimit other than -a'
 // printf -v NAME and the %n conversion assign a variable

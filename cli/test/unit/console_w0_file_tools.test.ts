@@ -134,16 +134,11 @@ Deno.test('read_file, list_files and write_file refuse key material', async () =
     assertStringIncludes(await list(`${home}/.ssh`), 'config')
     assertStringIncludes(await list(`${home}/work`), 'notes.txt')
 
-    const result = await write(paths.inventory, 'testnet_validators: {}\n')
+    // the memory file is written without a person; the other files that pass
+    // the path rules need one (console_w0_write_file.test.ts)
+    const result = await write(paths.memory, 'memory is written\n')
     assertStringIncludes(result, 'Successfully')
-    assertEquals(
-      await Deno.readTextFile(paths.inventory),
-      'testnet_validators: {}\n',
-    )
-    assertStringIncludes(
-      await write(`${home}/.slv/agent/NEW.md`, 'x'),
-      'Successfully',
-    )
+    assertEquals(await Deno.readTextFile(paths.memory), 'memory is written\n')
   })
 })
 

@@ -270,9 +270,9 @@ const methods: Record<string, MethodHandler> = {
     }
 
     // Invalidate the cached agent context so MEMORY.md / USER.md /
-    // SOUL.md edits made between turns (or by EL itself via
-    // write_file) propagate on the next turn without waiting for
-    // a gateway restart.
+    // SOUL.md edits made between turns (or by EL itself, which writes
+    // MEMORY.md with write_file) propagate on the next turn without
+    // waiting for a gateway restart.
     invalidateAgentContext()
     await applyAgentConfig()
 

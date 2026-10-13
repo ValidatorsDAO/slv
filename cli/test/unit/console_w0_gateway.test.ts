@@ -226,6 +226,60 @@ Deno.test('a gateway session cannot switch auto_execute on by writing the agent 
   })
 })
 
+Deno.test('a gateway session writes the memory file and refuses every other write, whatever auto_execute says', async () => {
+  for (const autoExecute of [false, true]) {
+    await withGatewayHome(autoExecute, async (home) => {
+      const files = [
+        `${home}/.slv/inventory.testnet.validators.yml`,
+        `${home}/.slv/skills/validator/SKILL.md`,
+        `${home}/.slv/agent/SOUL.md`,
+      ]
+      for (const path of files) {
+        await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), {
+          recursive: true,
+        })
+        await Deno.writeTextFile(path, 'old\n')
+      }
+      for (const path of files) {
+        const result = await gatewayToolCall('write_file', {
+          path,
+          content: 'new\n',
+        })
+        assert(result.startsWith('Error'), `${path}: ${result}`)
+        assertStringIncludes(result, 'terminal')
+        assertStringIncludes(result, 'content and the path')
+        assertEquals(await Deno.readTextFile(path), 'old\n', path)
+      }
+
+      // api.yml is refused as well, and so is a file that does not exist yet
+      const apiYml = `${home}/.slv/api.yml`
+      const apiBefore = await Deno.readTextFile(apiYml)
+      const refusedApi = await gatewayToolCall('write_file', {
+        path: apiYml,
+        content: 'slv: {}\n',
+      })
+      assert(refusedApi.startsWith('Error'), refusedApi)
+      assertEquals(await Deno.readTextFile(apiYml), apiBefore)
+      const fresh = `${home}/.slv/inventory.mainnet.validators.yml`
+      const refusedNew = await gatewayToolCall('write_file', {
+        path: fresh,
+        content: 'new\n',
+      })
+      assert(refusedNew.startsWith('Error'), refusedNew)
+      assertFalse(await exists(fresh), 'a new file was created')
+
+      // the memory file is written
+      const memory = `${home}/.slv/agent/MEMORY.md`
+      const written = await gatewayToolCall('write_file', {
+        path: memory,
+        content: 'noted\n',
+      })
+      assertStringIncludes(written, 'Successfully')
+      assertEquals(await Deno.readTextFile(memory), 'noted\n')
+    })
+  }
+})
+
 Deno.test('the config is read again for each turn', async () => {
   await withGatewayHome(false, async (home) => {
     const listing = `ls -a '${home}'`
