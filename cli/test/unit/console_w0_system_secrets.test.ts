@@ -364,6 +364,26 @@ Deno.test('the environment of a process is held in the ways its memory is: a glo
       assertStringIncludes(reasonsOf(line), 'the environment of a process')
     }
   }
+  // a path in front of /proc does not hide the environment
+  for (
+    const path of [
+      '/proc/self/root/proc/self/environ',
+      '/proc/1/root/proc/thread-self/environ',
+      '/proc/self/root/proc/1234/environ',
+      '/proc/self/root/proc/self/task/12/environ',
+      '../../../../proc/self/environ',
+      '../../../../proc/1234/task/12/environ',
+      './../../proc/self/environ',
+      '$HOME/../../proc/self/environ',
+      '~/../../proc/self/environ',
+      '/proc/self/root/proc/self/{e,x}nviron',
+    ]
+  ) {
+    for (const line of [`cat ${path}`, `head -n 1 ${path}`]) {
+      needsAPerson(line)
+      assertStringIncludes(reasonsOf(line), 'the environment of a process')
+    }
+  }
   // a word that cannot stand for an environment names no environment
   for (
     const line of [
@@ -374,6 +394,9 @@ Deno.test('the environment of a process is held in the ways its memory is: a glo
       'cat /proc/a*/environ',
       'cat /proc/[a-z]1/environ',
       'cat /proc/self/environment',
+      'cat /proc/self/root/proc/self/status',
+      'cat ../../../../proc/self/cmdline',
+      'cat $HOME/../../proc/self/status',
     ]
   ) runsAlone(line)
   // the file tools refuse the literal forms, the task forms included

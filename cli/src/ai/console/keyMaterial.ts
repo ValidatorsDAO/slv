@@ -102,7 +102,7 @@ const PLACES: Array<[RegExp, string]> = [
   ],
   [
     new RegExp(
-      `${START}/proc/(?:self|thread-self|\\d+|[${PLACEHOLDERS}]+)/(?:task/(?:\\d+|[${PLACEHOLDERS}]+)/)?environ${NAME_END}`,
+      `/proc/(?:self|thread-self|\\d+|[${PLACEHOLDERS}]+)/(?:task/(?:\\d+|[${PLACEHOLDERS}]+)/)?environ${NAME_END}`,
       'i',
     ),
     PROCESS_ENVIRONMENT,
