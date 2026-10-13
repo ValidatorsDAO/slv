@@ -43,9 +43,10 @@ table inet slv {
   counter c_consumer_pub { }
 
   # Only the Solana UDP packets to and from this host skip conntrack, so packets that this
-  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT. The
-  # exception is the reply to a masqueraded UDP flow whose host-side port is in sol_udp or
-  # xdp_udp: it is addressed to this host, skips conntrack and is not translated back.
+  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT. A UDP
+  # packet to a sol_udp or xdp_udp port that is addressed to this host gets no NAT at all:
+  # neither the return of a masqueraded flow nor a DNAT of such a port is translated. The skip
+  # opens nothing; the input chain decides what comes in.
   chain pre_raw {
     type filter hook prerouting priority raw; policy accept;
     fib daddr type local meta nfproto ipv4 udp dport @sol_udp notrack

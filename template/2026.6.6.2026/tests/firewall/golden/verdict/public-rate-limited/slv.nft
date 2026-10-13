@@ -43,9 +43,10 @@ table inet slv {
   counter c_ssh_rl { }
 
   # Only the Solana UDP packets to and from this host skip conntrack, so packets that this
-  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT. The
-  # exception is the reply to a masqueraded UDP flow whose host-side port is in sol_udp or
-  # xdp_udp: it is addressed to this host, skips conntrack and is not translated back.
+  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT. A UDP
+  # packet to a sol_udp or xdp_udp port that is addressed to this host gets no NAT at all:
+  # neither the return of a masqueraded flow nor a DNAT of such a port is translated. The skip
+  # opens nothing; the input chain decides what comes in.
   chain pre_raw {
     type filter hook prerouting priority raw; policy accept;
     fib daddr type local meta nfproto ipv4 udp dport @sol_udp notrack
@@ -101,8 +102,8 @@ table inet slv {
     ip6 saddr @lb_v6 tcp dport @consumer_tcp counter name "c_consumer_lb" accept
     ip saddr @scrape_v4 tcp dport @metrics_tcp counter name "c_metrics" accept
     ip6 saddr @scrape_v6 tcp dport @metrics_tcp counter name "c_metrics" accept
-    # SSH is open to everybody, rate limited for each source (the management sources, the trusted
-    # interfaces and the tunnel were accepted above)
+    # SSH is open to everybody except the deny sources (dropped above), rate limited for each
+    # source (the management sources, the trusted interfaces and the tunnel were accepted above)
     meta nfproto ipv4 tcp dport @ssh_ports ct state new add @ssh_rl_v4 { ip saddr limit rate over 10/minute burst 5 packets } counter name "c_ssh_rl" drop
     meta nfproto ipv6 tcp dport @ssh_ports ct state new add @ssh_rl_v6 { ip6 saddr & ffff:ffff:ffff:ffff:: limit rate over 10/minute burst 5 packets } counter name "c_ssh_rl" drop
     tcp dport @ssh_ports ct state new accept

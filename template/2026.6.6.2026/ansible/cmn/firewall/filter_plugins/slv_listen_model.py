@@ -87,14 +87,15 @@ Output (schema "slv-listen-model/1")
     dynamic port range.  The same input gives the same canonical JSON and the same
     model_sha256, the sha256 of the canonical JSON without the model_sha256 key.
     A port is in one class only (a UDP and a TCP port of one number are two ports).  The
-    table opens a port to the sources of each class that holds it, and to everybody, past
-    the limit of the other class, when one of them is public; the model does not say which
-    class the node means.  So it stops with class_overlap, naming the port and the two
-    classes, when a port is in two of: udp.public, udp.xdp, udp.pub, udp.allowlist (each
-    component), local_only.udp, the interface rules of a component (libvirt), the DHCP
-    client ports of the host (udp 68 where dhcp4_ifaces names interfaces, udp 546 where
-    dhcp6_ifaces does), and for TCP tcp.public, tcp.consumer, tcp.mgmt, tcp.metrics, tcp.ssh,
-    tcp.wg_only, local_only.tcp.  The one overlap it allows is udp.xdp inside udp.public:
+    table opens a port to the sources of each class that holds it, and to everybody but the
+    deny sources (it drops them first), past the limit of the other class, when one of them
+    is public; the model does not say which class the node means.  So it stops with
+    class_overlap, naming the port and the two classes, when a port is in two of:
+    udp.public, udp.xdp, udp.pub, udp.allowlist (each component), local_only.udp, the
+    interface rules of a component (libvirt), the DHCP client ports of the host (udp 68
+    where dhcp4_ifaces names interfaces, udp 546 where dhcp6_ifaces does), and for TCP
+    tcp.public, tcp.consumer, tcp.mgmt, tcp.metrics, tcp.ssh, tcp.wg_only,
+    local_only.tcp.  The one overlap it allows is udp.xdp inside udp.public:
     the same ports for the same sources.  The DHCP rules of the table are stricter than the
     ports: they accept a packet on udp 68 only from source port 67 (from any IPv4 address)
     and on udp 546 only from source port 547 and a link-local address.  A listener on one
@@ -106,11 +107,11 @@ Output (schema "slv-listen-model/1")
                          that only the listed sources may reach (shred-relay)
       udp.xdp_rx_bypass  names of the sockets that a receive-XDP build can take past
                          netfilter (the unit grants CAP_BPF and CAP_PERFMON)
-      tcp.consumer       the ports of lb_ips and mgmt, or of everybody when
-                         consumer_public is true; tcp.mgmt is mgmt only; tcp.metrics
-                         is metrics_ips and mgmt; tcp.wg_only is reached through wg0.
-                         Here mgmt is the mgmt sources and what the table treats like
-                         them: trusted_ifaces and the WireGuard tunnel
+      tcp.consumer       the ports of lb_ips and mgmt, or of everybody but the deny
+                         sources when consumer_public is true; tcp.mgmt is mgmt only;
+                         tcp.metrics is metrics_ips and mgmt; tcp.wg_only is reached
+                         through wg0.  Here mgmt is the mgmt sources and what the
+                         table treats like them: trusted_ifaces and the WireGuard tunnel
       local_only         ports bound to loopback, or that are never opened
       ssh                {"mode", "public", "rate": {"burst", "new_per_minute",
                          "v6_prefix"} or null, "controller_only"}
@@ -1638,7 +1639,9 @@ def _port_classes(model):
     for component in model["components"]:
         for rule in component["iface_rules"]:
             classes.append((rule["proto"], "%s rule for %s" % (component["id"], rule["iifname"]), rule["ports"]))
-    # the table accepts a DHCP reply on the client port of each interface the host names
+    # On each interface the host names, the table accepts a packet on the DHCP client port only
+    # from the server's port (and for DHCPv6 from a link-local address). That is stricter than
+    # the port, but the port is the class: the model has no sources for a listener on it.
     if host["dhcp6_ifaces"]:
         classes.append(("udp", "host DHCPv6 client rule", [[546, 546]]))
     if host["dhcp4_ifaces"]:

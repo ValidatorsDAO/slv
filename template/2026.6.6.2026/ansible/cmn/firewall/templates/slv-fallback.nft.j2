@@ -6,10 +6,11 @@
   with a rate limit in ssh_mode public-rate-limited), for Solana UDP (sol_udp and xdp_udp)
   and for the ICMP, neighbour discovery and DHCP traffic of the network. It is meant to be
   put in place when slv.nft does not load (the loader is not part of this release). It has
-  no rule for consumer, metrics or management-only ports, for deny, or for the opt-in
-  components, with one exception, the WireGuard tunnel: its UDP port (the pub_udp port of
-  the wireguard component, and no other pub_udp port) and SSH from the tunnel, because SSH
-  over the tunnel is of no use if the tunnel cannot form.
+  no deny rules, so deny_ips does not apply to it, and no rule for consumer, metrics or
+  management-only ports or for the opt-in components, with one exception, the WireGuard
+  tunnel: its UDP port (the pub_udp port of the wireguard component, and no other pub_udp
+  port) and SSH from the tunnel, because SSH over the tunnel is of no use if the tunnel
+  cannot form.
 
   slv_fw_model  the listen model
   slv_fw_meta   generated_at and controller_ip, written to the header comment only, after

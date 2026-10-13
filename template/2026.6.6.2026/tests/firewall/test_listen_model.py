@@ -1051,8 +1051,9 @@ class ListenModelBehaviors(ModelTestCase):
             self.assertIn("tcp port 53 is in libvirt rule for virbr* and in tcp.mgmt (53-54)", exc.detail)
 
     def test_b34_the_dhcp_client_ports_of_the_host_are_classes_where_the_table_has_the_rules(self):
-        # The table accepts a DHCP reply on udp 68 (DHCPv4) and udp 546 (DHCPv6) on the interfaces
-        # that the host names, so each of the two ports is a class of the model for as long as
+        # On the interfaces that the host names, the table accepts a packet on udp 68 (DHCPv4, from
+        # source port 67) and on udp 546 (DHCPv6, from source port 547 and a link-local address).
+        # The rules are stricter than the ports, but each port is a class of the model for as long as
         # dhcp4_ifaces or dhcp6_ifaces names an interface (null stands for every interface but lo).
         geyser = rpc_profile("Geyser gRPC")
         check = plugin()._refuse_class_overlap
