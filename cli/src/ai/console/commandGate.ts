@@ -25,12 +25,29 @@ export type CommandClassification = {
   reasons: string[]
 }
 
+/**
+ * What the reader has found in one command line: the reasons that gate it,
+ * and two facts about its text that gate it only together.
+ */
+type Found = string[] & {
+  /**
+   * The text of a word holds `$(` or a backquote that no substitution was
+   * read from: single quotes, an escape, a quoted here-document.
+   */
+  quotedSubstitution?: boolean
+  /** A construct reads the value of a variable as an expression. */
+  evaluates?: boolean
+}
+
 /** Stands in a word for text that is only known when the shell runs. */
 const RUNTIME = '\u0000'
 /** Stands in a word for an unquoted glob or brace character. */
 const PATTERN = '\u0001'
 
 const MAX_NESTING = 8
+
+/** The body of an arithmetic expansion that is only numbers and operators. */
+const NUMERIC_ARITHMETIC = /^[0-9\s+\-*/%()<>=!&|^~?:]*$/
 
 type SimpleCommand = {
   words: string[]
@@ -46,6 +63,13 @@ type ParseNotes = {
   substitution: boolean
   /** a `${...@P}` expansion */
   promptExpansion: boolean
+  /** an arithmetic expansion of more than numbers and operators */
+  arithmeticExpansion: boolean
+  /**
+   * `((`, an arithmetic expansion, or an expansion that reads a subscript or
+   * an offset
+   */
+  arithmetic: boolean
 }
 
 type ParseState = {
@@ -190,6 +214,34 @@ function readBackquote(st: ParseState, depth: number): string {
   return RUNTIME
 }
 
+/**
+ * Does the text of a `${...}` expansion read a value as an expression: a
+ * subscript or an offset that is not a number, or `${!name}`, which reads the
+ * value of the variable as the name of another one?
+ */
+function parameterEvaluates(inner: string): boolean {
+  const reads = (text: string): boolean => {
+    const name = /^([!#]?)[A-Za-z_][A-Za-z0-9_]*/.exec(text)
+    if (name === null) return false
+    let rest = text.slice(name[0].length)
+    if (name[1] === '!' && rest === '') return true
+    const subscript = /^\[([^\]]*)\]/.exec(rest)
+    if (subscript !== null) {
+      if (/[A-Za-z_$`\u0000\u0001]/.test(subscript[1])) return true
+      rest = rest.slice(subscript[0].length)
+    }
+    return rest.startsWith(':') && !/^:[-=+?]/.test(rest) &&
+      /[A-Za-z_$`\[\u0000\u0001]/.test(rest)
+  }
+  if (reads(inner)) return true
+  for (const match of inner.matchAll(/\$\{/g)) {
+    const rest = inner.slice(match.index + 2)
+    const close = rest.indexOf('}')
+    if (close !== -1 && reads(rest.slice(0, close))) return true
+  }
+  return false
+}
+
 /** After `${`: skip to the matching `}`, reading any substitution inside. */
 function skipParameter(st: ParseState, depth: number): void {
   const src = st.src
@@ -219,9 +271,9 @@ function skipParameter(st: ParseState, depth: number): void {
       if (level === 0) {
         // the P operator expands its value like a prompt string, which runs
         // the substitutions in it
-        if (/@P/.test(src.slice(start, st.pos - 1))) {
-          st.notes.promptExpansion = true
-        }
+        const inner = src.slice(start, st.pos - 1)
+        if (/@P/.test(inner)) st.notes.promptExpansion = true
+        if (parameterEvaluates(inner)) st.notes.arithmetic = true
         return
       }
     } else {
@@ -236,15 +288,24 @@ function readDollar(st: ParseState, depth: number, inDouble: boolean): string {
   const src = st.src
   const n = src[st.pos + 1]
   if (n === '(') {
-    st.notes.substitution = true
     if (src[st.pos + 2] === '(') {
       const end = arithmeticEnd(src, st.pos + 3)
       if (end !== -1) {
-        if (/`|\$\(/.test(src.slice(st.pos + 3, end - 2))) st.unparsable = true
+        const body = src.slice(st.pos + 3, end - 2)
+        if (/`|\$\(/.test(body)) {
+          st.unparsable = true
+          st.notes.substitution = true
+        }
+        // numbers and operators hold nothing that could run
+        if (!NUMERIC_ARITHMETIC.test(body)) {
+          st.notes.arithmeticExpansion = true
+          st.notes.arithmetic = true
+        }
         st.pos = end
         return RUNTIME
       }
     }
+    st.notes.substitution = true
     st.pos += 2
     parseList(st, ')', depth + 1)
     return RUNTIME
@@ -257,7 +318,8 @@ function readDollar(st: ParseState, depth: number, inDouble: boolean): string {
   if (n === '[') {
     // the old form of an arithmetic expansion, which also reads its operands
     // as expressions
-    st.notes.substitution = true
+    st.notes.arithmeticExpansion = true
+    st.notes.arithmetic = true
   }
   if (n === "'" && !inDouble) {
     st.pos += 2
@@ -500,6 +562,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       st.pos++
       if (src[st.pos] === '|' || src[st.pos] === '&') st.pos++
     } else if (c === '(') {
+      if (src[st.pos + 1] === '(') st.notes.arithmetic = true
       endCommand()
       st.pos++
       parseList(st, ')', depth + 1)
@@ -1291,8 +1354,24 @@ const WRAPPERS: Record<string, WrapperSpec> = {
     positional: 1,
   },
   chrt: {
-    flagShort: 'bfiorRdmpavh',
-    flagLong: ['--help', '--version'],
+    argShort: 'TPD',
+    flagShort: 'bfiorRdmpavhV',
+    argLong: ['--sched-runtime', '--sched-period', '--sched-deadline'],
+    flagLong: [
+      '--all-tasks',
+      '--batch',
+      '--deadline',
+      '--fifo',
+      '--idle',
+      '--max',
+      '--other',
+      '--pid',
+      '--reset-on-fork',
+      '--rr',
+      '--verbose',
+      '--help',
+      '--version',
+    ],
     positional: 1,
   },
   busybox: {},
@@ -1621,6 +1700,71 @@ const WRAPPERS: Record<string, WrapperSpec> = {
   },
   firejail: { longFlagsAny: true },
   prlimit: { argShort: 'po', flagShort: 'hV', longFlagsAny: true },
+  numactl: {
+    argShort: 'NimCpPwLoMISf',
+    flagShort: 'abHlstTuvdDh',
+    argLong: [
+      '--cpunodebind',
+      '--interleave',
+      '--membind',
+      '--physcpubind',
+      '--preferred',
+      '--preferred-many',
+      '--weighted-interleave',
+      '--length',
+      '--offset',
+      '--shmmode',
+      '--shmid',
+      '--shm',
+      '--file',
+    ],
+    flagLong: [
+      '--all',
+      '--balancing',
+      '--localalloc',
+      '--show',
+      '--hardware',
+      '--huge',
+      '--strict',
+      '--touch',
+      '--dump',
+      '--dump-nodes',
+      '--verify',
+      '--help',
+      '--version',
+    ],
+  },
+  cpulimit: {
+    argShort: 'lpePs',
+    flagShort: 'bfimqkrzvh',
+    argLong: ['--limit', '--pid', '--exe', '--path', '--signal'],
+    flagLong: [
+      '--background',
+      '--foreground',
+      '--include-children',
+      '--monitor-forks',
+      '--quiet',
+      '--kill',
+      '--restore',
+      '--lazy',
+      '--verbose',
+      '--help',
+    ],
+  },
+  cgexec: { argShort: 'g', flagShort: 'h', flagLong: ['--sticky'] },
+  'systemd-inhibit': {
+    flagShort: 'h',
+    argLong: ['--what', '--who', '--why', '--mode'],
+    flagLong: [
+      '--list',
+      '--help',
+      '--version',
+      '--no-pager',
+      '--no-legend',
+      '--no-ask-password',
+    ],
+  },
+  chpst: { argShort: 'uUbe/CnlLmdopfc', flagShort: 'vP012' },
 }
 
 type WrapperRead = {
@@ -1729,7 +1873,7 @@ function isNodeVerb(verb: string): boolean {
     SLV_NODE_VERB_PREFIXES.some((prefix) => verb.startsWith(prefix))
 }
 
-function analyzeSlv(args: string[], found: string[]): void {
+function analyzeSlv(args: string[], found: Found): void {
   let i = 0
   while (i < args.length && args[i].startsWith('-')) i++
   const first = args[i]
@@ -1756,7 +1900,7 @@ function analyzeSlv(args: string[], found: string[]): void {
   }
 }
 
-function analyzeRm(args: string[], found: string[]): void {
+function analyzeRm(args: string[], found: Found): void {
   let options = true
   for (const arg of args) {
     if (
@@ -1788,7 +1932,7 @@ function analyzeShell(
   args: string[],
   input: SimpleCommand | null,
   depth: number,
-  found: string[],
+  found: Found,
 ): void {
   if (
     args.length > 0 && args.every((a) => a === '--version' || a === '--help')
@@ -1837,7 +1981,7 @@ function analyzeInput(
   name: string,
   input: SimpleCommand | null,
   depth: number,
-  found: string[],
+  found: Found,
 ): void {
   const bodies = input === null ? [] : [...input.hereDocs, ...input.hereStrings]
   if (bodies.length === 0) {
@@ -1852,7 +1996,7 @@ function analyzeSource(
   args: string[],
   input: SimpleCommand | null,
   depth: number,
-  found: string[],
+  found: Found,
 ): void {
   const operand = args[0]
   if (operand === undefined) return
@@ -1871,7 +2015,7 @@ function analyzeStoredCommands(
   name: string,
   args: string[],
   depth: number,
-  found: string[],
+  found: Found,
 ): void {
   if (name === 'alias') {
     for (const arg of args) {
@@ -1887,7 +2031,7 @@ function analyzeStoredCommands(
 function analyzeFind(
   args: string[],
   depth: number,
-  found: string[],
+  found: Found,
 ): void {
   for (let i = 0; i < args.length; i++) {
     if (['-exec', '-execdir', '-ok', '-okdir'].includes(args[i])) {
@@ -1911,7 +2055,7 @@ function analyzeFind(
 function analyzeValidatorBinary(
   name: string,
   args: string[],
-  found: string[],
+  found: Found,
 ): void {
   let i = 0
   let help = false
@@ -1957,7 +2101,7 @@ function analyzeValidatorBinary(
 }
 
 /** systemctl: a verb that only reports, with options the gate can read. */
-function analyzeSystemctl(args: string[], found: string[]): void {
+function analyzeSystemctl(args: string[], found: Found): void {
   const read = readWrapper(SYSTEMCTL_OPTIONS, args)
   if (read.unreadable) {
     found.push('systemctl with an option the gate cannot read')
@@ -1973,7 +2117,7 @@ function analyzeSystemctl(args: string[], found: string[]): void {
 }
 
 /** service: `service <name> status`, `--status-all` and `--version` only report. */
-function analyzeService(args: string[], found: string[]): void {
+function analyzeService(args: string[], found: Found): void {
   const read = readWrapper({
     flagShort: 'h',
     flagLong: ['--status-all', '--version', '--help'],
@@ -1994,7 +2138,7 @@ function analyzeService(args: string[], found: string[]): void {
 }
 
 /** solana: the subcommands that ask the cluster; any other signs or changes. */
-function analyzeSolana(args: string[], found: string[]): void {
+function analyzeSolana(args: string[], found: Found): void {
   const read = readWrapper(SOLANA_OPTIONS, args)
   if (read.unreadable) {
     found.push('solana with an option the gate cannot read')
@@ -2017,7 +2161,7 @@ function analyzeSolana(args: string[], found: string[]): void {
 function analyzeInterpreter(
   name: string,
   args: string[],
-  found: string[],
+  found: Found,
 ): void {
   if (args.length > 0 && args.every((a) => INTERPRETER_VERSION_FLAGS.has(a))) {
     return
@@ -2030,7 +2174,7 @@ function isInterpreter(name: string): boolean {
     INTERPRETERS.has(name.replace(/[0-9.]+$/, ''))
 }
 
-function analyzeDeno(args: string[], found: string[]): void {
+function analyzeDeno(args: string[], found: Found): void {
   const first = args[0]?.toLowerCase()
   if (
     args.length > 0 &&
@@ -2067,7 +2211,7 @@ const AWK_FLAGS = new Set([
 ])
 
 /** awk and gawk: gated when the program runs a command or writes a file. */
-function analyzeAwk(name: string, args: string[], found: string[]): void {
+function analyzeAwk(name: string, args: string[], found: Found): void {
   let i = 0
   let sandbox = false
   while (i < args.length) {
@@ -2100,12 +2244,12 @@ function analyzeAwk(name: string, args: string[], found: string[]): void {
 }
 
 /** An init script run by its path: only `status` reports. */
-function analyzeInitScript(args: string[], found: string[]): void {
+function analyzeInitScript(args: string[], found: Found): void {
   if (args[0]?.toLowerCase() !== 'status') found.push('an init script')
 }
 
 /** crontab: only `crontab -l` lists; the other forms install, edit or remove. */
-function analyzeCrontab(args: string[], found: string[]): void {
+function analyzeCrontab(args: string[], found: Found): void {
   let listed = false
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '-l') listed = true
@@ -2119,7 +2263,7 @@ function analyzeCrontab(args: string[], found: string[]): void {
 }
 
 /** sed is gated when its script has a command that runs a command or writes a file. */
-function analyzeSed(args: string[], found: string[]): void {
+function analyzeSed(args: string[], found: Found): void {
   const scripts: string[] = []
   let sandbox = false
   let i = 0
@@ -2207,7 +2351,7 @@ function analyzeSed(args: string[], found: string[]): void {
 function analyzeMultiplexer(
   name: string,
   args: string[],
-  found: string[],
+  found: Found,
 ): void {
   if (name === 'screen') {
     if (args.length > 0 && args.every((a) => SCREEN_READ_ONLY_FLAGS.has(a))) {
@@ -2235,7 +2379,7 @@ function analyzeAt(
   args: string[],
   input: SimpleCommand | null,
   depth: number,
-  found: string[],
+  found: Found,
 ): void {
   if (args.some((a) => a === '-l' || a === '-c' || a === '-V')) return
   if (args.some((a) => a === '-f' || a.startsWith('-f'))) {
@@ -2249,7 +2393,7 @@ function analyzeAt(
 function analyzeRunAnything(
   name: string,
   args: string[],
-  found: string[],
+  found: Found,
 ): void {
   if (
     args.length > 0 &&
@@ -2289,6 +2433,49 @@ function xargsInner(rest: string[], args: string[]): string[] {
   return [...mapped, RUNTIME]
 }
 
+const ARITHMETIC_OPERATORS = new Set(['-eq', '-ne', '-lt', '-le', '-gt', '-ge'])
+/** A name with a subscript that is assigned to: `a[$i]=1`. */
+const SUBSCRIPT_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\[([^\]]*)\]\+?=/
+/** Text in a subscript or an offset that is more than a number. */
+const EXPRESSION_TEXT = /[A-Za-z_$`\u0000\u0001]/
+
+/**
+ * Does this built-in read the value of a variable as an expression? `let`,
+ * `[[` with a comparison of numbers or `-v`, `test -v`, the integer, array and
+ * name-reference forms of declare, `printf -v`, and `unset` and `read` with a
+ * name that is only known when the shell runs.
+ */
+function evaluatesExpression(name: string, args: string[]): boolean {
+  const dynamic = (a: string): boolean => a.includes(RUNTIME) || a.includes('[')
+  const operands = args.filter((a) => !a.startsWith('-'))
+  switch (name) {
+    case 'let':
+      return true
+    case '[[':
+      return args.some((a) =>
+        ARITHMETIC_OPERATORS.has(a) || a === '-v' || a === '-R'
+      )
+    case 'test':
+    case '[':
+      return args.includes('-v') && args.some(dynamic)
+    case 'declare':
+    case 'typeset':
+    case 'local':
+      return args.some((a) => /^-[A-Za-z]*[ian][A-Za-z]*$/.test(a)) ||
+        operands.some(dynamic)
+    case 'printf': {
+      const v = args.indexOf('-v')
+      return v !== -1 && args[v + 1] !== undefined && dynamic(args[v + 1])
+    }
+    case 'unset':
+      return operands.some(dynamic)
+    case 'read':
+      return operands.some((a) => a.includes(RUNTIME))
+    default:
+      return false
+  }
+}
+
 /** The index of the command word of a simple command, or -1 when it has none. */
 function commandStart(words: string[]): number {
   let i = 0
@@ -2317,7 +2504,7 @@ function analyzeWords(
   words: string[],
   input: SimpleCommand | null,
   depth: number,
-  found: string[],
+  found: Found,
 ): void {
   if (depth > MAX_NESTING) {
     found.push('a command line nested too deeply to read')
@@ -2331,6 +2518,7 @@ function analyzeWords(
     return
   }
   const args = words.slice(start + 1)
+  if (evaluatesExpression(name, args)) found.evaluates = true
   if (
     (EVALUATING_BUILTINS.has(name) ||
       (name === 'printf' && args.includes('-v'))) &&
@@ -2416,7 +2604,7 @@ function analyzeWords(
 function scanKeyMaterial(
   command: SimpleCommand,
   directory: string | null,
-  found: string[],
+  found: Found,
 ): void {
   for (const word of [...command.words, ...command.redirects]) {
     let reason = keyMaterialInWord(word)
@@ -2465,7 +2653,7 @@ function programName(token: string): string | null {
  * arguments, `slv` followed by a verb that changes a node, and a program that
  * is gated for the verb it is given.
  */
-function scanTokenStream(tokens: string[], found: string[]): void {
+function scanTokenStream(tokens: string[], found: Found): void {
   for (let i = 0; i < tokens.length; i++) {
     const name = programName(tokens[i])
     if (name === null) continue
@@ -2512,7 +2700,7 @@ function scanTokenStream(tokens: string[], found: string[]): void {
  * a shell would read text it runs again. `which`, `type`, `hash` and
  * `command -v` only look names up and are left out.
  */
-function scanTokens(command: SimpleCommand, found: string[]): void {
+function scanTokens(command: SimpleCommand, found: Found): void {
   const start = commandStart(command.words)
   if (start >= 0) {
     const name = commandName(command.words[start])
@@ -2536,7 +2724,29 @@ function scanTokens(command: SimpleCommand, found: string[]): void {
   }
 }
 
-function analyzeScript(src: string, depth: number, found: string[]): void {
+/**
+ * `$(` or a backquote, written out or as the escape of a character that
+ * printf and echo -e read: `\x24(`, `\044(`, `\x60`.
+ */
+const SUBSTITUTION_TEXT = /\$\(|`|\\(?:x24|0?44|u0024)\(|\\(?:x60|0?140|u0060)/i
+
+/** Does a word still hold `$(` or a backquote after the quotes are removed? */
+function holdsSubstitutionText(command: SimpleCommand): boolean {
+  return [
+    ...command.words,
+    ...command.redirects,
+    ...command.hereStrings,
+    ...command.hereDocs,
+  ].some((text) => SUBSTITUTION_TEXT.test(text))
+}
+
+/** Is a word an assignment to an array element whose subscript is evaluated? */
+function assignsToSubscript(word: string): boolean {
+  const match = SUBSCRIPT_ASSIGNMENT.exec(word)
+  return match !== null && EXPRESSION_TEXT.test(match[1])
+}
+
+function analyzeScript(src: string, depth: number, found: Found): void {
   if (depth > MAX_NESTING) {
     found.push('a command line nested too deeply to read')
     return
@@ -2546,7 +2756,12 @@ function analyzeScript(src: string, depth: number, found: string[]): void {
     pos: 0,
     commands: [],
     unparsable: false,
-    notes: { substitution: false, promptExpansion: false },
+    notes: {
+      substitution: false,
+      promptExpansion: false,
+      arithmeticExpansion: false,
+      arithmetic: false,
+    },
   }
   parseList(st, null, 0)
   if (st.unparsable) found.push('a command line the gate cannot parse')
@@ -2554,8 +2769,14 @@ function analyzeScript(src: string, depth: number, found: string[]): void {
     found.push('a command substitution or a backquote')
   }
   if (st.notes.promptExpansion) found.push('a ${...@P} expansion')
+  if (st.notes.arithmeticExpansion) {
+    found.push('an arithmetic expansion of more than numbers')
+  }
+  if (st.notes.arithmetic) found.evaluates = true
   let directory: string | null = null
   for (const command of st.commands) {
+    if (holdsSubstitutionText(command)) found.quotedSubstitution = true
+    if (command.words.some(assignsToSubscript)) found.evaluates = true
     analyzeWords(command.words, command, depth, found)
     scanKeyMaterial(command, directory, found)
     scanTokens(command, found)
@@ -2565,9 +2786,15 @@ function analyzeScript(src: string, depth: number, found: string[]): void {
 
 /** Does this command line run a command of a gated class? */
 export function classifyCommand(command: string): CommandClassification {
-  const found: string[] = []
+  const found: Found = []
   try {
     analyzeScript(command, 0, found)
+    // text that holds a substitution is data until something evaluates it
+    if (found.quotedSubstitution && found.evaluates) {
+      found.push(
+        'a command substitution in quoted text that the line can evaluate',
+      )
+    }
   } catch {
     // a failure of the reader never lets a line through
     found.push('a command line the gate cannot read')
