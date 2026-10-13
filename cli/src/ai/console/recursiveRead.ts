@@ -3,10 +3,16 @@
 // directory that holds a class reads the files in it without naming one. A
 // recursive reader is held back when an operand is, or may be, such a
 // directory: a home directory or one of its ancestors, anything under a .slv or
-// .ssh directory, /proc, a relative path, a path the shell expands, or no
-// operand at all (the working directory).
+// .ssh directory, /proc, a directory above or inside a key or wallet location
+// of the shared list (lib/keyLocations.ts), a relative path, a path the shell
+// expands, or no operand at all (the working directory).
 
-import { ownHomes, PATTERN, RUNTIME } from '@/ai/console/keyMaterial.ts'
+import {
+  directoryHoldsReason,
+  ownHomes,
+  PATTERN,
+  RUNTIME,
+} from '@/ai/console/keyMaterial.ts'
 
 /** The programs `recursiveReadReason` reads. */
 export const RECURSIVE_READERS = new Set([
@@ -426,15 +432,9 @@ function directoryReason(operand: string): string | null {
   ) {
     return 'holds the environment of a process, which may hold credentials'
   }
-  if (parts.length === 1 && first === 'etc') {
-    return 'holds the password hashes and the SSH host keys'
-  }
-  if (parts.length === 2 && first === 'etc' && second === 'ssh') {
-    return 'holds the SSH host keys'
-  }
-  if (parts.length === 1 && first === 'dev') {
-    return 'holds the memory devices'
-  }
+  // a directory above or inside a key or wallet location of the shared list
+  const holds = directoryHoldsReason(parts)
+  if (holds !== null) return holds
   for (const home of ownHomes()) {
     const own = home.toLowerCase().split('/').filter((part) => part !== '')
     if (parts.length <= own.length && parts.every((p, i) => p === own[i])) {

@@ -206,7 +206,7 @@ Deno.test('a recursive reader of a literal absolute path elsewhere, and a search
       'grep -r error /home/alice/work/src',
       'grep -r error /Users/alice/logs',
       'grep -r error ~/logs',
-      'grep -r error ~/.config',
+      'grep -r error ~/.cache',
       'grep -r error ~solv/ledger-logs',
       'grep -r error /var/log',
       'grep -r error /var/log/syslog /var/log/auth.log',

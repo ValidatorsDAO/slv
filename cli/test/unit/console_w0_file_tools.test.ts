@@ -304,16 +304,21 @@ Deno.test('the command gate names the same paths as the file tools refuse', asyn
   })
 })
 
-Deno.test('the file tools and the command gate read the key file names from one module', async () => {
+Deno.test('the file tools and the command gate read the key and wallet classes from one module', async () => {
   const safety = await Deno.readTextFile(
     new URL('../../src/ai/console/toolSafety.ts', import.meta.url),
   )
   assertStringIncludes(safety, "from '@/ai/console/keyMaterial.ts'")
-  for (const name of ['KEYPAIR_FILE_NAME', 'IDENTITY_FILE_NAME']) {
-    assertStringIncludes(safety, name)
-  }
-  assertFalse(/\/keypair\.\*\\\.json\$\//.test(safety), 'an own keypair rule')
-  assertFalse(/\/identity\.\*\\\.json\$\//.test(safety), 'an own identity rule')
+  assertStringIncludes(safety, 'refusedPathReason')
+  for (
+    const own of [
+      'a keypair file',
+      'an identity key file',
+      'gateway.json',
+      'backup.env',
+      'restic-password',
+    ]
+  ) assertFalse(safety.includes(own), `an own rule for ${own}`)
   const gate = await Deno.readTextFile(
     new URL('../../src/ai/console/commandGate.ts', import.meta.url),
   )

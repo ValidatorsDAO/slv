@@ -4,12 +4,8 @@
 
 import { basename, dirname, normalize, resolve } from '@std/path'
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
-import {
-  IDENTITY_FILE_NAME,
-  KEYPAIR_FILE_NAME,
-  PROCESS_ENVIRON,
-  systemSecretReason,
-} from '@/ai/console/keyMaterial.ts'
+import { refusedPathReason } from '@/ai/console/keyMaterial.ts'
+import { ERPC_LOGIN } from '/lib/keyLocations.ts'
 import { resolveMemoryMdPath } from '@/ai/agentConfig/paths.ts'
 
 // ---------------------------------------------------------------------------
@@ -106,8 +102,8 @@ const BASE58_CANDIDATE = new RegExp(
   `(?<!${BASE58_CHAR})${BASE58_CHAR}{87,88}(?!${BASE58_CHAR})`,
   'g',
 )
-// a JSON array of exactly 64 integers; each is checked to be 0-255 below
-const BYTE_ARRAY_SECRET_KEY = /\[\s*\d{1,3}(?:\s*,\s*\d{1,3}){63}\s*\]/g
+// an integer that stands alone: not part of a word, a decimal or a signed number
+const INTEGER = /(?<![\w.-])\d+(?![\w.])/g
 const PEM_PRIVATE_KEY =
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)/g
 
@@ -182,21 +178,52 @@ async function hidesAsKeypair(candidate: string): Promise<boolean> {
 }
 
 /**
+ * Replace every run of exactly 64 integers from 0 to 255 with the marker. The
+ * integers are separated by commas and white space, newlines included, and the
+ * run may stand in square brackets, which go with it.
+ */
+function redactByteRuns(text: string): string {
+  const integers = [...text.matchAll(INTEGER)]
+  let out = ''
+  let copied = 0
+  for (let i = 0; i < integers.length;) {
+    let j = i
+    while (
+      j + 1 < integers.length &&
+      /^[\s,]+$/.test(
+        text.slice(
+          integers[j].index + integers[j][0].length,
+          integers[j + 1].index,
+        ),
+      )
+    ) j++
+    const run = integers.slice(i, j + 1)
+    if (
+      run.length === 64 &&
+      run.every((n) => n[0].length <= 3 && Number(n[0]) <= 255)
+    ) {
+      const before = /\[\s*$/.exec(text.slice(copied, run[0].index))
+      const after = /^\s*\]/.exec(text.slice(run[63].index + run[63][0].length))
+      const start = run[0].index - (before?.[0].length ?? 0)
+      const end = run[63].index + run[63][0].length + (after?.[0].length ?? 0)
+      out += text.slice(copied, start) + REDACTED_SECRET_KEY
+      copied = end
+    }
+    i = j + 1
+  }
+  return out + text.slice(copied)
+}
+
+/**
  * Replace the shapes a secret key takes in text with a marker: a PEM private
- * key and a JSON array of 64 integers always; a base58 string of 87 or 88
- * characters when it is a Solana keypair, so a transaction signature of the
- * same length is left alone.
+ * key and a run of 64 integers always; a base58 string of 87 or 88 characters
+ * when it is a Solana keypair, so a transaction signature of the same length
+ * is left alone.
  */
 export async function redactSecretKeys(text: string): Promise<string> {
-  const redacted = text
-    .replace(PEM_PRIVATE_KEY, REDACTED_SECRET_KEY)
-    .replace(
-      BYTE_ARRAY_SECRET_KEY,
-      (match) =>
-        (match.match(/\d+/g) ?? []).every((n) => Number(n) <= 255)
-          ? REDACTED_SECRET_KEY
-          : match,
-    )
+  const redacted = redactByteRuns(
+    text.replace(PEM_PRIVATE_KEY, REDACTED_SECRET_KEY),
+  )
   const candidates = new Set(redacted.match(BASE58_CANDIDATE) ?? [])
   if (candidates.size === 0) return redacted
   const hidden = new Set<string>()
@@ -212,29 +239,6 @@ export async function redactSecretKeys(text: string): Promise<string> {
 // ---------------------------------------------------------------------------
 // Paths the file tools do not handle
 // ---------------------------------------------------------------------------
-
-/**
- * True for ~/.slv/api.yml, its lock and its temporary files. The AI console
- * file tools do not handle ~/.slv/api.yml. The path is made absolute and
- * normalized, and followed through symlinks when it exists.
- */
-async function isApiYmlPath(path: string): Promise<boolean> {
-  const real = async (p: string) => {
-    try {
-      return await Deno.realPath(p)
-    } catch {
-      return normalize(resolve(p))
-    }
-  }
-  const target = await real(path)
-  const name = basename(target)
-  if (!name.startsWith('api.yml') && !name.startsWith('.api.yml.')) {
-    return false
-  }
-  const slvDir = `${resolveHome()}/.slv`
-  return dirname(target) === normalize(slvDir) ||
-    dirname(target) === await real(slvDir)
-}
 
 const isUnder = (path: string, dir: string): boolean =>
   path === dir || path.startsWith(`${dir}/`)
@@ -257,59 +261,36 @@ async function resolveExisting(path: string): Promise<string> {
 }
 
 /**
- * What a file tool must not handle at `path`: key material and credentials
- * for every tool; for a write, also the agent config, the template,
- * known_hosts and bin paths.
- * The path is checked as written and with its symlinks resolved.
+ * What a file tool must not handle at `path`: the key and wallet locations
+ * (lib/keyLocations.ts) and the memory and environment of the machine for every
+ * tool; for a write, also the agent config, the template, known_hosts and bin
+ * paths. The path is checked as written and with its symlinks resolved.
  */
 async function protectedPathReason(
   path: string,
   writing: boolean,
 ): Promise<string | null> {
   const home = resolveHome().replace(/\/+$/, '')
-  const homes = new Set([
-    home.toLowerCase(),
-    (await resolveExisting(home)).toLowerCase(),
-  ])
+  const homes = [home, await resolveExisting(home)]
   const absolute = normalize(resolve(path))
-  const candidates = new Set([
-    absolute.toLowerCase(),
-    (await resolveExisting(absolute)).toLowerCase(),
-  ])
+  const candidates = [absolute, await resolveExisting(absolute)]
   for (const p of candidates) {
-    const name = basename(p)
-    if (KEYPAIR_FILE_NAME.test(name)) return 'a keypair file'
-    if (IDENTITY_FILE_NAME.test(name)) return 'an identity key file'
-    if (PROCESS_ENVIRON.test(p)) return 'the environment of a process'
-    const system = systemSecretReason(p)
-    if (system !== null) return system
-    for (const h of homes) {
+    const refused = refusedPathReason(p, homes)
+    if (refused !== null) return refused
+  }
+  if (!writing) return null
+  for (const p of new Set(candidates.map((c) => c.toLowerCase()))) {
+    for (const h of new Set(homes.map((c) => c.toLowerCase()))) {
       const slv = `${h}/.slv`
-      if (isUnder(p, `${slv}/keys`)) return 'the files under ~/.slv/keys'
-      if (p === `${slv}/gateway/gateway.json`) {
-        return 'the gateway credentials (~/.slv/gateway/gateway.json)'
+      if (p === `${slv}/agent/config.yml`) {
+        return 'the agent config (~/.slv/agent/config.yml)'
       }
-      if (p === `${slv}/backup.env`) {
-        return 'the backup credentials (~/.slv/backup.env)'
+      if (isUnder(p, `${slv}/template`)) {
+        return 'the files under ~/.slv/template'
       }
-      if (p === `${slv}/restic-password`) {
-        return 'the backup password (~/.slv/restic-password)'
-      }
-      if (
-        isUnder(p, `${h}/.ssh`) && name.startsWith('id_') &&
-        !name.endsWith('.pub')
-      ) return 'an SSH private key'
-      if (writing) {
-        if (p === `${slv}/agent/config.yml`) {
-          return 'the agent config (~/.slv/agent/config.yml)'
-        }
-        if (isUnder(p, `${slv}/template`)) {
-          return 'the files under ~/.slv/template'
-        }
-        if (isUnder(p, `${slv}/bin`)) return 'the files under ~/.slv/bin'
-        if (p === `${slv}/known_hosts` || p.startsWith(`${slv}/known_hosts.`)) {
-          return '~/.slv/known_hosts'
-        }
+      if (isUnder(p, `${slv}/bin`)) return 'the files under ~/.slv/bin'
+      if (p === `${slv}/known_hosts` || p.startsWith(`${slv}/known_hosts.`)) {
+        return '~/.slv/known_hosts'
       }
     }
   }
@@ -330,7 +311,8 @@ export async function fileToolRefusal(
     `Error: write_file only allows writing to ~/.slv/ directory. Requested path: ${path}`
   const target = writing ? normalize(path) : path
   if (writing && !target.startsWith(`${home}/.slv/`)) return outsideSlv
-  if (await isApiYmlPath(target)) {
+  const reason = await protectedPathReason(target, writing)
+  if (reason === ERPC_LOGIN) {
     if (writing) {
       return `Error: write_file does not write ~/.slv/api.yml. Use the slv commands (slv login, slv onboard, slv auth) to change it.`
     }
@@ -338,7 +320,6 @@ export async function fileToolRefusal(
       tool === 'read_file' ? 'read' : 'list'
     } ~/.slv/api.yml. The AI console file tools do not handle ~/.slv/api.yml.`
   }
-  const reason = await protectedPathReason(target, writing)
   if (reason !== null) {
     const verb = tool === 'read_file'
       ? 'read'

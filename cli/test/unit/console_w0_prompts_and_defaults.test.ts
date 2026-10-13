@@ -127,7 +127,11 @@ Deno.test('the run_command description names the recursive searches that need a 
   )
   includes(description, 'a home directory or one above it', 'run_command')
   includes(description, 'anything under .slv or .ssh', 'run_command')
-  includes(description, '/proc, /etc, /etc/ssh, /dev', 'run_command')
+  includes(
+    description,
+    'a directory above or inside a key or wallet location (such as /etc, /etc/ssl, /dev, ~/.config and ~/slv)',
+    'run_command',
+  )
   includes(description, 'or no path at all', 'run_command')
   includes(
     description,

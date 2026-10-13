@@ -244,7 +244,7 @@ Deno.test('a recursive search of /etc, /etc/ssh or /dev needs a person, one of t
     const line of [
       'grep -r Port /etc/ssh/sshd_config.d',
       'grep -r x /etc/systemd',
-      'rg x /etc/nginx',
+      'rg x /etc/nginx/conf.d',
       'grep -r x /dev/shm',
     ]
   ) runsAlone(line)

@@ -1,29 +1,34 @@
-// The names that mark key material and credentials for the AI console. The
-// file tools (toolSafety.ts) apply them to a resolved path; the command gate
-// (commandGate.ts) applies them to the words of a command line. Both read the
-// same classes from here, together with the note that says what stays readable
-// outside them.
+// The places that hold key material, wallets and credentials, for the AI
+// console. The file tools (toolSafety.ts) apply them to a resolved path; the
+// command gate (commandGate.ts) applies them to the words of a command line;
+// the recursive readers (recursiveRead.ts) ask which directories hold them.
+// All three read the same classes from here, together with the note that says
+// what stays readable outside them.
+//
+// The classes are built from the one list of key and wallet locations that the
+// backup reads too (lib/keyLocations.ts). The few places the backup has no
+// reason to know, the memory of the machine and the environment of a process,
+// are listed below.
+
+import {
+  isHomeRelative,
+  KEY_LOCATIONS,
+  type KeyLocation,
+} from '/lib/keyLocations.ts'
 
 /**
  * What `auto_execute: true` changes, in the words of the agent config schema,
  * the onboarding text and the run_command and read_file tool descriptions.
  */
 export const AUTO_EXECUTE_NOTE =
-  'With auto_execute on, the console runs read-only commands without asking, and every other command needs a person to confirm it in a terminal. A read-only command can still read files outside the refused classes (keys and credentials), and output redaction hides only three key shapes: a PEM private key, a JSON array of 64 integers and a base58 Solana keypair.'
-
-/** Base names, in lower case, of key files anywhere on disk. */
-export const KEYPAIR_FILE_NAME = /keypair.*\.json$/
-export const IDENTITY_FILE_NAME = /identity.*\.json$/
-
-/** The environment of a process, as a lower-case absolute path. */
-export const PROCESS_ENVIRON =
-  /^\/proc\/(self|thread-self|\d+)\/(task\/\d+\/)?environ$/
+  'With auto_execute on, the console runs read-only commands without asking, and every other command needs a person to confirm it in a terminal. A read-only command can still read files outside the refused classes (keys, wallets and credentials), and output redaction hides only three key shapes: a PEM private key, a run of 64 integers (a JSON array, or the numbers in a row or one to a line) and a base58 Solana keypair.'
 
 // Placeholders the command reader leaves in a word for text it cannot know:
 // RUNTIME for an expansion, PATTERN for a glob character.
 export const RUNTIME = '\u0000'
 export const PATTERN = '\u0001'
 const PLACEHOLDERS = `${RUNTIME}${PATTERN}`
+const PLACEHOLDER_CHARS = new RegExp(`[${PLACEHOLDERS}]`, 'g')
 
 // A path component starts at the start of a word, after a separator or after
 // a placeholder.
@@ -32,107 +37,183 @@ const START = `(?<![^/\\s'"=:${PLACEHOLDERS}])`
 const NAME = `[^/\\s'"]`
 // The end of a path component: nothing that would continue its name.
 const NAME_END = `(?![A-Za-z0-9_.-])`
-const HOME_SLV = `${START}\\.slv/`
 
-// Secrets and memory of the machine that sit at a fixed absolute path. Each
-// source matches a whole path; a process under /proc is `self`, `thread-self`
-// or a number, and a word of a command line may leave an expansion or a glob
-// in its place.
-const PASSWORD_HASHES = 'the password hashes (/etc/shadow, /etc/gshadow)'
-const HOST_KEY = 'an SSH host private key'
-const KERNEL_MEMORY = 'the memory of the kernel (/proc/kcore)'
-const PROCESS_ENVIRONMENT = 'the environment of a process'
-const PROCESS_MEMORY = 'the memory of a process'
-const MACHINE_MEMORY =
-  'the memory or the I/O ports of the machine (/dev/mem, /dev/kmem, /dev/port)'
-const PROCESS_SLOT = `(?:self|thread-self|\\d+|[${PLACEHOLDERS}]+)`
-const TASK_SLOT = `(?:task/(?:\\d+|[${PLACEHOLDERS}]+)/)?`
-const SYSTEM_PATHS: Array<[string, string]> = [
-  ['/etc/g?shadow-?', PASSWORD_HASHES],
-  [`/etc/ssh/ssh_host_${NAME}*_key`, HOST_KEY],
-  ['/proc/kcore', KERNEL_MEMORY],
-  [`/proc/${PROCESS_SLOT}/${TASK_SLOT}mem`, PROCESS_MEMORY],
-  ['/dev/(?:mem|kmem|port)', MACHINE_MEMORY],
+// What the console refuses besides the locations of the backup: the memory of
+// the machine and the environment of a process. `%pid` stands for a process
+// (`self`, `thread-self` or a number) and `%tid` for a thread.
+const MACHINE_LOCATIONS: readonly KeyLocation[] = [
+  {
+    paths: ['/proc/%pid/environ', '/proc/%pid/task/%tid/environ'],
+    kind: 'file',
+    group: 'key',
+    reason: 'the environment of a process',
+    consoleOnly: true,
+  },
+  {
+    paths: ['/proc/kcore'],
+    kind: 'file',
+    group: 'key',
+    reason: 'the memory of the kernel (/proc/kcore)',
+    consoleOnly: true,
+  },
+  {
+    paths: ['/proc/%pid/mem', '/proc/%pid/task/%tid/mem'],
+    kind: 'file',
+    group: 'key',
+    reason: 'the memory of a process',
+    consoleOnly: true,
+  },
+  {
+    paths: ['/dev/mem', '/dev/kmem', '/dev/port'],
+    kind: 'file',
+    group: 'key',
+    reason:
+      'the memory or the I/O ports of the machine (/dev/mem, /dev/kmem, /dev/port)',
+    consoleOnly: true,
+  },
 ]
-const SYSTEM_PATH_EXACT = SYSTEM_PATHS.map((
-  [source, reason],
-): [RegExp, string] => [new RegExp(`^${source}$`, 'i'), reason])
 
-/**
- * Why a file tool must not handle this absolute path, or null: a password
- * hash file, an SSH host private key, the memory of the kernel or of a
- * process, a memory device.
- */
-export function systemSecretReason(path: string): string | null {
-  for (const [pattern, reason] of SYSTEM_PATH_EXACT) {
-    if (pattern.test(path)) return reason
-  }
-  return null
+// ---------------------------------------------------------------------------
+// The classes
+// ---------------------------------------------------------------------------
+
+/** One path pattern of a location, in lower case. */
+interface Place {
+  reason: string
+  /** The components. `**` stands for directories. */
+  parts: string[]
+  /** Relative to a home directory (otherwise absolute). */
+  home: boolean
+  /** The directory and everything below it. */
+  directory: boolean
+  /** Everything below the directory, not the directory itself. */
+  below: boolean
+  /** A file name, in every directory. */
+  anywhere: boolean
+  /** Names that go on after the path are covered too. */
+  copies: boolean
+  open: string[]
+  examples: string[]
+  /** A glob word with no directory may name it in the working directory. */
+  inCwd: boolean
 }
 
-// The classes that are a place: a directory or a file under a home directory.
-// The key files that are named by their file name are read by `nameReason`.
-const PLACES: Array<[RegExp, string]> = [
-  [
-    new RegExp(`${START}\\.slv/keys${NAME_END}`, 'i'),
-    'the files under ~/.slv/keys',
-  ],
-  [
-    new RegExp(`${HOME_SLV}gateway/gateway\\.json`, 'i'),
-    'the gateway credentials (~/.slv/gateway/gateway.json)',
-  ],
-  [
-    new RegExp(`${HOME_SLV}backup\\.env`, 'i'),
-    'the backup credentials (~/.slv/backup.env)',
-  ],
-  [
-    new RegExp(`${HOME_SLV}restic-password`, 'i'),
-    'the backup password (~/.slv/restic-password)',
-  ],
-  [
-    new RegExp(`${HOME_SLV}\\.?api\\.yml`, 'i'),
-    'the ERPC login (~/.slv/api.yml)',
-  ],
-  [
-    new RegExp(
-      `${START}\\.ssh/id_${NAME}*(?<!\\.pub)(?=$|[/\\s'"${PLACEHOLDERS}])`,
-      'i',
-    ),
-    'an SSH private key',
-  ],
-  [
-    new RegExp(
-      `/proc/(?:self|thread-self|\\d+|[${PLACEHOLDERS}]+)/(?:task/(?:\\d+|[${PLACEHOLDERS}]+)/)?environ${NAME_END}`,
-      'i',
-    ),
-    PROCESS_ENVIRONMENT,
-  ],
-  // a path is matched by its tail, so a path through /proc/PID/root counts
-  ...SYSTEM_PATHS.map(([source, reason]): [RegExp, string] => [
-    new RegExp(`${source}${NAME_END}`, 'i'),
-    reason,
-  ]),
-]
+function compilePlaces(locations: readonly KeyLocation[]): Place[] {
+  const places: Place[] = []
+  for (const location of locations) {
+    for (const path of location.paths) {
+      const parts = path.toLowerCase().split('/').filter((part) => part !== '')
+      const below = parts[parts.length - 1] === '**'
+      if (below) parts.pop()
+      places.push({
+        reason: location.reason,
+        parts,
+        home: isHomeRelative(path),
+        directory: location.kind === 'directory',
+        below,
+        anywhere: location.anywhere === true,
+        copies: location.copies === true,
+        open: [...(location.open ?? [])],
+        examples: (location.examples ?? []).map((name) => name.toLowerCase()),
+        inCwd: location.anywhere === true || location.inCwd === true,
+      })
+    }
+  }
+  return places
+}
 
-/** The same places with the `g` flag, to read every match of a word. */
-const GLOBAL_PLACES = PLACES.map((
-  [pattern, reason],
-): [RegExp, string] => [new RegExp(pattern.source, 'gi'), reason])
+const PLACES = compilePlaces([...KEY_LOCATIONS, ...MACHINE_LOCATIONS])
+
+const escapeRegExp = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const componentsOf = (path: string): string[] =>
+  path.toLowerCase().split('/').filter((part) => part !== '')
 
 /**
- * What an expansion may stand for in front of the rest of a word: a
- * directory that ends in the name one of the places starts with.
+ * Is the name one of those that stay readable inside a location: a name
+ * written out, or `*` followed by the end of a name?
  */
-const STAND_INS = [
-  '/home/solv/.slv',
-  '/home/solv/.slv/gateway',
-  '/home/solv/.ssh',
-]
+const isOpen = (name: string, open: readonly string[]): boolean => {
+  const lower = name.toLowerCase()
+  return open.some((spec) =>
+    spec.startsWith('*') ? lower.endsWith(spec.slice(1)) : lower === spec
+  )
+}
+
+// ---------------------------------------------------------------------------
+// A word as written: a path is matched by its tail
+// ---------------------------------------------------------------------------
+
+/** One component of a place as the source of a regular expression over a word. */
+function wordPart(part: string): string {
+  if (part === '%pid') return `(?:self|thread-self|\\d+|[${PLACEHOLDERS}]+)`
+  if (part === '%tid') return `(?:\\d+|[${PLACEHOLDERS}]+)`
+  return part.split('*').map(escapeRegExp).join(`${NAME}*`)
+}
+
+/**
+ * The regular expression that finds a place in the text of a word. A place
+ * under a home directory starts at a path component; an absolute one starts at
+ * its `/`, so that a path through /proc/PID/root counts. The component after
+ * `.ssh/` is captured for the names that stay open.
+ */
+function wordPattern(place: Place): RegExp {
+  const parts = place.parts
+  let source = place.home ? START : '/'
+  parts.forEach((part, i) => {
+    const last = i === parts.length - 1
+    if (part === '**') {
+      source += `(?:${NAME}+/)*`
+      return
+    }
+    const text = wordPart(part)
+    source += last && !place.below && place.open.length > 0 ? `(${text})` : text
+    if (!last || place.below) source += '/'
+  })
+  if (place.below) source += `(?:${NAME}+/)*(${NAME}+)`
+  else if (place.directory || !(place.anywhere || place.copies)) {
+    source += NAME_END
+  }
+  return new RegExp(source, 'gi')
+}
+
+const MATCHERS = PLACES.map((place) => ({ place, pattern: wordPattern(place) }))
+
+interface Hit {
+  index: number
+  end: number
+  reason: string
+}
+
+/**
+ * Every place that the text of a word holds. `named` leaves out the places
+ * that cover whatever a directory holds, which no name has to be written for.
+ */
+function scan(text: string, named = false): Hit[] {
+  const hits: Hit[] = []
+  for (const { place, pattern } of MATCHERS) {
+    if (named && place.below) continue
+    for (const match of text.matchAll(pattern)) {
+      if (place.open.length > 0 && isOpen(match[1] ?? '', place.open)) continue
+      hits.push({
+        index: match.index,
+        end: match.index + match[0].length,
+        reason: place.reason,
+      })
+    }
+  }
+  return hits
+}
+
+// ---------------------------------------------------------------------------
+// Homes
+// ---------------------------------------------------------------------------
 
 // The home directories the patterns below are written for. A path under any
 // other home is read as if it were under the first one.
 const HOMES = ['/home/solv', '/root']
-const KEY_DIRECTORIES = HOMES.map((home) => `${home}/.slv/keys`)
+const HOME_PARTS = HOMES.map(componentsOf)
 
 /**
  * The home directories of this process: HOME, and the home of the user who ran
@@ -173,64 +254,139 @@ function underFirstHome(path: string): string {
   }
   return path
 }
-// Files a pattern word may stand for, under a home directory.
-const FILE_PROBES: Array<[string, string]> = [
-  ['.slv/gateway/gateway.json', 'the gateway credentials'],
-  ['.slv/backup.env', 'the backup credentials'],
-  ['.slv/restic-password', 'the backup password'],
-  ['.slv/api.yml', 'the ERPC login'],
-  ['.slv/api.yml.lock', 'the ERPC login'],
-  ['.ssh/id_rsa', 'an SSH private key'],
-  ['.ssh/id_ed25519', 'an SSH private key'],
-  ['.ssh/id_ecdsa', 'an SSH private key'],
-  ['identity.json', 'an identity key file'],
-  ['unstaked-identity.json', 'an identity key file'],
-  ['mainnet-validator-keypair.json', 'a keypair file'],
-  ['testnet-validator-keypair.json', 'a keypair file'],
-]
 
-// File names in the current directory a pattern may stand for. The console
-// can run in a home directory that holds them.
-const NAME_PROBES: Array<[string, string]> = [
-  ['identity.json', 'an identity key file'],
-  ['unstaked-identity.json', 'an identity key file'],
-  ['keypair.json', 'a keypair file'],
-  ['mainnet-validator-keypair.json', 'a keypair file'],
-  ['testnet-validator-keypair.json', 'a keypair file'],
-  ['id_rsa', 'an SSH private key'],
-  ['id_ed25519', 'an SSH private key'],
-  ['id_ecdsa', 'an SSH private key'],
-]
+/**
+ * What follows a home directory in the components of an absolute path, for each
+ * home it starts with: root's, a user's under /home or /Users, the homes of
+ * this process and `homes`.
+ */
+function underHomes(
+  parts: readonly string[],
+  homes: readonly string[],
+): string[][] {
+  const rests: string[][] = []
+  for (const home of [...homes, ...ownHomes()]) {
+    const own = componentsOf(home)
+    if (own.length > 0 && own.every((part, i) => parts[i] === part)) {
+      rests.push(parts.slice(own.length))
+    }
+  }
+  if (parts[0] === 'root') rests.push(parts.slice(1))
+  if ((parts[0] === 'home' || parts[0] === 'users') && parts.length > 1) {
+    rests.push(parts.slice(2))
+  }
+  return rests
+}
 
-// Files at a fixed path that a pattern word may stand for, as the components
-// of the path; # stands for a number.
-const SYSTEM_TEMPLATES: Array<[string[], string]> = [
-  [['etc', 'shadow'], PASSWORD_HASHES],
-  [['etc', 'gshadow'], PASSWORD_HASHES],
-  [['etc', 'shadow-'], PASSWORD_HASHES],
-  [['etc', 'gshadow-'], PASSWORD_HASHES],
-  [['etc', 'ssh', 'ssh_host_rsa_key'], HOST_KEY],
-  [['etc', 'ssh', 'ssh_host_dsa_key'], HOST_KEY],
-  [['etc', 'ssh', 'ssh_host_ecdsa_key'], HOST_KEY],
-  [['etc', 'ssh', 'ssh_host_ed25519_key'], HOST_KEY],
-  [['proc', 'kcore'], KERNEL_MEMORY],
-  [['proc', 'self', 'environ'], PROCESS_ENVIRONMENT],
-  [['proc', 'thread-self', 'environ'], PROCESS_ENVIRONMENT],
-  [['proc', '#', 'environ'], PROCESS_ENVIRONMENT],
-  [['proc', 'self', 'task', '#', 'environ'], PROCESS_ENVIRONMENT],
-  [['proc', '#', 'task', '#', 'environ'], PROCESS_ENVIRONMENT],
-  [['proc', 'self', 'mem'], PROCESS_MEMORY],
-  [['proc', 'thread-self', 'mem'], PROCESS_MEMORY],
-  [['proc', '#', 'mem'], PROCESS_MEMORY],
-  [['proc', 'self', 'task', '#', 'mem'], PROCESS_MEMORY],
-  [['proc', '#', 'task', '#', 'mem'], PROCESS_MEMORY],
-  [['dev', 'mem'], MACHINE_MEMORY],
-  [['dev', 'kmem'], MACHINE_MEMORY],
-  [['dev', 'port'], MACHINE_MEMORY],
-]
+// ---------------------------------------------------------------------------
+// A path as the file tools see it: whole and resolved
+// ---------------------------------------------------------------------------
 
-const escapeRegExp = (text: string): string =>
-  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const exactCache = new Map<string, RegExp>()
+
+/** One component of a place as a regular expression over a path component. */
+function exactPart(part: string, copies: boolean): RegExp {
+  const key = `${part}|${copies}`
+  let pattern = exactCache.get(key)
+  if (pattern === undefined) {
+    let source: string
+    if (part === '%pid') source = '(?:self|thread-self|\\d+)'
+    else if (part === '%tid') source = '\\d+'
+    else source = part.split('*').map(escapeRegExp).join('[^/]*')
+    pattern = new RegExp(`^${source}${copies ? '[^/]*' : ''}$`, 'i')
+    exactCache.set(key, pattern)
+  }
+  return pattern
+}
+
+/** Do the components after a home directory (or after `/`) name the place? */
+function namesPlace(rest: readonly string[], place: Place): boolean {
+  const parts = place.parts
+  const n = parts.length
+  if (place.directory || place.below) {
+    if (rest.length < n + (place.below ? 1 : 0)) return false
+    if (!parts.every((part, i) => exactPart(part, false).test(rest[i]))) {
+      return false
+    }
+    return !(place.below && isOpen(rest[rest.length - 1], place.open))
+  }
+  const go = (i: number, j: number): boolean => {
+    if (j === n) return i === rest.length
+    if (parts[j] === '**') {
+      return go(i, j + 1) || (i < rest.length && go(i + 1, j))
+    }
+    if (i >= rest.length) return false
+    return exactPart(parts[j], place.copies && j === n - 1).test(rest[i]) &&
+      go(i + 1, j + 1)
+  }
+  return go(0, 0) &&
+    !(place.open.length > 0 && isOpen(rest[rest.length - 1], place.open))
+}
+
+/**
+ * Why a file tool must not handle this absolute path, or null: it is one of
+ * the key and wallet locations under a home directory (the homes of this
+ * process, `homes`, root's, and any user's under /home and /Users) or one of
+ * the system locations.
+ */
+export function refusedPathReason(
+  path: string,
+  homes: readonly string[] = [],
+): string | null {
+  if (!path.startsWith('/')) return null
+  const parts = componentsOf(path)
+  const rests = underHomes(parts, homes)
+  for (const place of PLACES) {
+    if (place.anywhere) {
+      if (
+        parts.length > 0 &&
+        exactPart(place.parts[0], true).test(parts[parts.length - 1])
+      ) {
+        return place.reason
+      }
+    } else if (place.home) {
+      if (rests.some((rest) => namesPlace(rest, place))) return place.reason
+    } else if (namesPlace(parts, place)) {
+      return place.reason
+    }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// A directory a recursive search would go through
+// ---------------------------------------------------------------------------
+
+/** Can a directory with these components hold the place, or lie inside it? */
+function holdsPlace(dir: readonly string[], place: Place): boolean {
+  const parts = place.parts
+  for (let j = 0; j < parts.length; j++) {
+    if (dir.length === j) return true
+    if (parts[j] === '**') return true
+    if (!exactPart(parts[j], false).test(dir[j])) return false
+  }
+  return dir.length === parts.length || place.directory || place.below
+}
+
+/**
+ * Why a directory (its lower-case components, without `.` and `..`) holds a
+ * key or wallet location, or lies inside one, or null.
+ */
+export function directoryHoldsReason(dir: readonly string[]): string | null {
+  const rests = underHomes(dir, [])
+  for (const place of PLACES) {
+    if (place.anywhere) continue
+    const holds = place.home
+      ? rests.some((rest) => holdsPlace(rest, place))
+      : holdsPlace(dir, place)
+    if (holds) return `holds ${place.reason}`
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Braces, dots and patterns
+// ---------------------------------------------------------------------------
 
 /** The text with `.`, `..` and repeated `/` removed from its paths. */
 function collapsePaths(text: string): string {
@@ -359,31 +515,142 @@ function standsForNumber(pattern: string): boolean {
   return true
 }
 
-/**
- * Can a pattern word stand for a path that ends in one of the files above?
- * The last components of the word are read against the components of the
- * file, so that a path through /proc/PID/root counts. A relative word counts
- * only when it writes out one of the components itself, so that `*` and a/*b
- * name nothing, unless it starts with `..`, which may reach the root.
- */
-function systemPatternReason(pattern: string): string | null {
-  const parts = pattern.split('/')
-  const rooted = pattern.startsWith('/') || pattern.startsWith('../')
-  for (const [template, reason] of SYSTEM_TEMPLATES) {
-    if (parts.length < template.length) continue
-    const tail = parts.slice(parts.length - template.length)
-    const matches = template.every((name, i) =>
-      name === '#'
-        ? standsForNumber(tail[i])
-        : patternToRegExp(tail[i]).test(name)
-    )
-    const written = template.some((name, i) =>
-      name !== '#' && tail[i].toLowerCase() === name
-    )
-    if (matches && (rooted || written)) return reason
+// ---------------------------------------------------------------------------
+// A word with glob characters: can it stand for a place?
+// ---------------------------------------------------------------------------
+
+type Token = { any: true; glob: boolean } | { cls: RegExp } | { ch: string }
+
+/** Characters a file name is made of, for the bracket expressions that name some. */
+const NAME_CHARACTERS = [
+  ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-~@#%+=,:;!',
+]
+
+/** The characters of a component of a pattern word. */
+function wordTokens(component: string): Token[] {
+  const tokens: Token[] = []
+  for (let i = 0; i < component.length; i++) {
+    const ch = component[i]
+    if (ch === PATTERN || ch === RUNTIME) {
+      tokens.push({ any: true, glob: ch === PATTERN })
+    } else if (ch === '[') {
+      const close = component.indexOf(']', i + 2)
+      if (close === -1) {
+        tokens.push({ ch })
+      } else {
+        tokens.push({ cls: patternToRegExp(component.slice(i, close + 1)) })
+        i = close
+      }
+    } else {
+      tokens.push({ ch })
+    }
   }
-  return null
+  return tokens
 }
+
+/**
+ * Can two components, a pattern word's and a place's, name the same file? With
+ * `dots`, a glob character or a bracket expression at the start of a component
+ * does not match a name that starts with a dot, as in the shell; an expansion
+ * can.
+ */
+function componentsIntersect(
+  word: string,
+  part: string,
+  dots = false,
+): boolean {
+  if (part === '%tid') return standsForNumber(word)
+  if (part === '%pid') {
+    return standsForNumber(word) || componentsIntersect(word, 'self') ||
+      componentsIntersect(word, 'thread-self')
+  }
+  const u = wordTokens(word.toLowerCase())
+  const l: Array<{ any: true } | { ch: string }> = [...part.toLowerCase()].map((
+    ch,
+  ) => ch === '*' ? { any: true } : { ch })
+  const memo = new Map<number, boolean>()
+  // may the character be the one a token of the word stands for?
+  const takes = (token: Token, ch: string, started: boolean): boolean => {
+    const noDot = dots && !started && ch === '.'
+    if ('ch' in token) return token.ch === ch
+    if ('cls' in token) return token.cls.test(ch) && !noDot
+    return !token.glob || !noDot
+  }
+  // may a bracket expression stand for some character, here?
+  const anyOf = (token: { cls: RegExp }, started: boolean): boolean =>
+    !dots || started || NAME_CHARACTERS.some((c) => token.cls.test(c))
+  const go = (i: number, j: number, started: boolean): boolean => {
+    const key = (i * 4096 + j) * 2 + (started ? 1 : 0)
+    const known = memo.get(key)
+    if (known !== undefined) return known
+    const a = u[i]
+    const b = l[j]
+    let result = false
+    if (a === undefined && b === undefined) {
+      result = true
+    } else if (a !== undefined && 'any' in a) {
+      result = go(i + 1, j, started) ||
+        (b !== undefined && ('any' in b || takes(a, b.ch, started)) &&
+          go(i, j + 1, true))
+    } else if (b !== undefined && 'any' in b) {
+      result = go(i, j + 1, started) ||
+        (a !== undefined &&
+          ('ch' in a || anyOf(a, started)) && go(i + 1, j, true))
+    } else if (a !== undefined && b !== undefined) {
+      result = takes(a, b.ch, started) && go(i + 1, j + 1, true)
+    }
+    memo.set(key, result)
+    return result
+  }
+  return go(0, 0, false)
+}
+
+/**
+ * Can the components of a word stand for the components of a place, from the
+ * start? With `prefix` the word may go on below the place.
+ */
+function alignParts(
+  word: readonly string[],
+  parts: readonly string[],
+  prefix: boolean,
+  dots = false,
+  from = 0,
+): boolean {
+  const go = (i: number, j: number): boolean => {
+    if (j === parts.length) return prefix || i === word.length
+    if (parts[j] === '**') {
+      return go(i, j + 1) || (i < word.length && go(i + 1, j))
+    }
+    return i < word.length && componentsIntersect(word[i], parts[j], dots) &&
+      go(i + 1, j + 1)
+  }
+  return go(from, 0)
+}
+
+/** What a copy of a file adds to its name. */
+const COPY_SUFFIXES = ['', '.bak', '.old', '.orig', '.lock', '.tmp', '~']
+
+/** The component lists a glob word is read against for one place. */
+function placeAlternatives(place: Place): string[][] {
+  const parts = place.parts
+  const names = place.examples.length > 0
+    ? place.examples
+    : [parts[parts.length - 1]]
+  const lists =
+    (place.copies
+      ? names.flatMap((name) => COPY_SUFFIXES.map((suffix) => name + suffix))
+      : names).map((name) => [...parts.slice(0, -1), name])
+  return place.below ? lists.map((list) => [...list, '*']) : lists
+}
+
+/** The first components of the places under a home directory. */
+const HOME_FIRST = new Set(
+  PLACES.filter((place) => place.home && !place.anywhere).map((place) =>
+    place.parts[0]
+  ).filter((part) => !part.includes('*') && part !== '**'),
+)
+
+const LEADING_HOME = new RegExp(`^(?:~|${RUNTIME})[^/${PLACEHOLDERS}]*(?=/|$)`)
 
 /**
  * Can a file name with glob characters stand for a key file in the current
@@ -392,44 +659,96 @@ function systemPatternReason(pattern: string): string | null {
  */
 function nameInDirectoryReason(name: string): string | null {
   const written = name.replace(/\.json$/i, '').replace(/\[[^\]]*\]/g, '')
-    .replace(/[\u0000\u0001]/g, '')
+    .replace(PLACEHOLDER_CHARS, '')
   if (written.length < 2) return null
   const pattern = patternToRegExp(name)
-  for (const [probe, reason] of NAME_PROBES) {
-    if (pattern.test(probe)) return reason
+  for (const place of PLACES) {
+    if (!place.inCwd) continue
+    if (place.examples.some((example) => pattern.test(example))) {
+      return place.reason
+    }
   }
   return null
 }
 
 /**
- * Can a word with glob characters stand for key material under a home
- * directory? A tilde or an expansion in front of the first slash stands for
- * the home directory.
+ * Can a word with glob characters stand for a key or wallet location? A tilde
+ * or an expansion in front of the first slash stands for the home directory,
+ * and so does the start of a relative word that begins like a place under a
+ * home. A word that ends in a name that stays open does not.
  */
 function patternReason(text: string): string | null {
-  let t = text.replace(/^(?:~|\u0000)[^/\u0000\u0001]*(?=\/|$)/, HOMES[0])
-  if (/^\.(slv|ssh)\//.test(t)) t = `${HOMES[0]}/${t}`
+  let t = text.replace(LEADING_HOME, HOMES[0])
+  if (
+    !t.startsWith('/') && t.includes('/') &&
+    HOME_FIRST.has(t.split('/')[0].toLowerCase())
+  ) t = `${HOMES[0]}/${t}`
   if (!t.includes('/')) return nameInDirectoryReason(t)
-  const system = systemPatternReason(t)
-  if (system !== null) return system
-  // a path relative to a directory the gate does not know names nothing here
-  if (!t.startsWith('/')) return null
-  t = underFirstHome(t)
-  const parts = t.split('/')
-  for (let k = 1; k <= parts.length; k++) {
-    const prefix = patternToRegExp(parts.slice(0, k).join('/'))
-    if (KEY_DIRECTORIES.some((dir) => prefix.test(dir))) {
-      return 'the files under ~/.slv/keys'
-    }
-  }
-  const whole = patternToRegExp(t)
-  for (const home of HOMES) {
-    for (const [file, reason] of FILE_PROBES) {
-      if (whole.test(`${home}/${file}`)) return reason
+  const climbs = t.startsWith('../')
+  const rooted = t.startsWith('/') || climbs
+  const comps = componentsOf(t).filter((part, i, all) =>
+    !(climbs && part === '..' && all.slice(0, i).every((p) => p === '..'))
+  )
+  const last = comps[comps.length - 1] ?? ''
+  const absolute = rooted
+    ? componentsOf(
+      underFirstHome(t.startsWith('/') ? t : `/${comps.join('/')}`),
+    )
+    : null
+  for (const place of PLACES) {
+    if (place.open.length > 0 && isOpen(last, place.open)) continue
+    const prefix = place.directory || place.below
+    for (const alternative of placeAlternatives(place)) {
+      if (place.home) {
+        if (absolute === null) continue
+        for (const home of HOME_PARTS) {
+          if (
+            alignParts(absolute, [...home, ...alternative], prefix, place.below)
+          ) return place.reason
+        }
+      } else {
+        // a word ends in the place; a directory may have more below it
+        const fixed = !prefix && !alternative.includes('**')
+        const first = fixed ? comps.length - alternative.length : 0
+        const end = fixed ? first : comps.length - 1
+        for (let start = Math.max(first, 0); start <= end; start++) {
+          if (!alignParts(comps, alternative, prefix, place.below, start)) {
+            continue
+          }
+          // a relative word counts when it writes out a component itself
+          if (rooted || alternative.some((p, i) => comps[start + i] === p)) {
+            return place.reason
+          }
+        }
+      }
     }
   }
   return null
 }
+
+/**
+ * Directories an expansion may stand for in front of the rest of a word: the
+ * directories above a place, written as a home directory's or an absolute one.
+ */
+const STAND_INS: string[] = [
+  ...new Set(PLACES.flatMap((place) => {
+    if (place.anywhere) return []
+    const parts = place.parts.map((part) =>
+      part === '**' || part === '%tid'
+        ? part === '**' ? 'x' : '1'
+        : part === '%pid'
+        ? 'self'
+        : part.replaceAll('*', 'x')
+    )
+    const upto = place.below ? parts.length : parts.length - 1
+    const dirs: string[] = []
+    for (let k = 1; k <= upto; k++) {
+      const dir = parts.slice(0, k).join('/')
+      dirs.push(place.home ? `${HOMES[0]}/${dir}` : `/${dir}`)
+    }
+    return dirs
+  })),
+]
 
 /**
  * An expansion in front of the rest of a word may be a directory that
@@ -443,11 +762,8 @@ function standInReason(text: string): string | null {
     for (const standIn of STAND_INS) {
       const candidate = text.slice(0, at) + standIn +
         text.slice(at + 1).split(RUNTIME).join('x')
-      for (const [pattern, reason] of GLOBAL_PLACES) {
-        pattern.lastIndex = 0
-        for (const match of candidate.matchAll(pattern)) {
-          if (match.index + match[0].length > at + standIn.length) return reason
-        }
+      for (const hit of scan(candidate, true)) {
+        if (hit.end > at + standIn.length) return hit.reason
       }
     }
     at = text.indexOf(RUNTIME, at + 1)
@@ -455,29 +771,9 @@ function standInReason(text: string): string | null {
   return null
 }
 
-/**
- * A key file named by its file name, in any directory: a `.json` file with
- * keypair or identity in its name.
- */
-function nameReason(text: string): string | null {
-  for (const component of text.split(/[/\s'"]+/)) {
-    const lower = component.toLowerCase()
-    const json = lower.lastIndexOf('.json')
-    if (json === -1) continue
-    const keypair = lower.indexOf('keypair')
-    if (keypair !== -1 && json >= keypair + 7) return 'a keypair file'
-    const identity = lower.indexOf('identity')
-    if (identity !== -1 && json >= identity + 8) return 'an identity key file'
-  }
-  return null
-}
-
 function classReason(text: string): string | null {
-  for (const [pattern, reason] of PLACES) {
-    if (pattern.test(text)) return reason
-  }
-  const named = nameReason(text)
-  if (named !== null) return named
+  const hits = scan(text)
+  if (hits.length > 0) return hits[0].reason
   if (text.includes(RUNTIME)) {
     const reason = standInReason(text)
     if (reason !== null) return reason
@@ -490,7 +786,7 @@ function classReason(text: string): string | null {
  * as written: a path is matched by its tail, so `~/.slv/keys/k.json`,
  * `$HOME/.slv/keys/k.json` and `/home/solv/.slv/keys/k.json` all count, and
  * so do the words a brace expansion makes of it. A word with glob characters
- * counts when it can expand to key material under a home directory.
+ * counts when it can expand to key material or a wallet.
  */
 export function keyMaterialInWord(word: string): string | null {
   for (const alternative of expandBraces(word)) {
