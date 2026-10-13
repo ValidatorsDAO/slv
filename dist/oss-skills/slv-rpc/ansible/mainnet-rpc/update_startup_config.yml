@@ -3,8 +3,8 @@
   hosts: all
   become: true
   vars:
-    geyser_config_template: "~/.slv/mainnet-rpc/geyser.json.j2"
-    geyser_config_path: "/home/solv/geyser.json"
+    richat_config_template: "~/.slv/mainnet-rpc/geyser-richat.json.j2"
+    richat_config_path: "/home/solv/geyser.json"
   vars_files:
     - ~/.slv/versions.yml
   tasks:
@@ -30,13 +30,13 @@
         group: solv
       vars:
         shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
-        port_rpc: "{{ mainnet_rpcs.port_rpc }}"
+        port_rpc: "{{ hostvars[inventory_hostname].port_rpc }}"
         limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
 
-    - name: Copy the geyser.json configuration file
+    - name: Copy the geyser.json configuration file for Richat
       template:
-        src: "{{ geyser_config_template }}"
-        dest: "{{ geyser_config_path }}"
+        src: "{{ richat_config_template }}"
+        dest: "{{ richat_config_path }}"
         owner: solv
         group: solv
         mode: "0644"

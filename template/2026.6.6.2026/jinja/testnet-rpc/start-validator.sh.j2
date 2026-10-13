@@ -24,6 +24,24 @@ exec agave-validator \
 {% if expected_bank_hash is defined and expected_bank_hash %}
 --expected-bank-hash {{ expected_bank_hash }} \
 {% endif %}
+{# _agave_version is the X.Y.Z of this host's agave, jito or allnodes client as major*1000000 + minor*1000 + patch; suffixes such as -jito.0 are ignored #}
+{% set _slv = testnet_rpcs | default({}) %}
+{% if validator_type | default('agave') == 'jito' %}
+{% set _client_version = jito_version | default(_slv.version_jito | default('', true), true) %}
+{% elif validator_type | default('agave') == 'allnodes-jito' %}
+{% set _client_version = allnodes_jito_version | default(_slv.version_allnodes_jito | default('', true), true) %}
+{% else %}
+{% set _client_version = agave_version | default(_slv.version_agave | default('', true), true) %}
+{% endif %}
+{% set _digits = (_client_version | string).split('-')[0] | regex_findall('[0-9]+') %}
+{% if not _digits %}
+{{ agave_version_not_found | mandatory('Cannot tell which agave version this host runs: set agave_version, jito_version or allnodes_jito_version, or the matching version_* key under testnet_rpcs in ~/.slv/versions.yml') }}
+{% endif %}
+{% set _num = _digits + ['0', '0'] %}
+{% set _agave_version = (_num[0] | int) * 1000000 + (_num[1] | int) * 1000 + (_num[2] | int) %}
+{% if _agave_version >= 4002000 %}
+--no-xdp \
+{% endif %}
 {% if rpc_type == 'Geyser gRPC' -%}
 --limit-ledger-size 50000000 \
 --no-snapshot-fetch \

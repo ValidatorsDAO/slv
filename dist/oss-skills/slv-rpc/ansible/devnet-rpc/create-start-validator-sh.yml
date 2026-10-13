@@ -2,6 +2,10 @@
 - name: Deploy start-validator script dynamically
   hosts: all
   become: true
+  # versions.yml is read when it exists; -e agave_version, jito_version or
+  # allnodes_jito_version also give the start script its agave version.
+  vars_files:
+    - ["~/.slv/versions.yml", "/dev/null"]
   tasks:
     - name: Ensure /home/solv exists
       file:
