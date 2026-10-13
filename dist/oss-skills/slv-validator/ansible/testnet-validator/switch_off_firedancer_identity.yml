@@ -4,7 +4,52 @@
   become: true
   become_user: solv
   gather_facts: no
+  any_errors_fatal: true
   tasks:
+    - name: Ask the cluster whether Alpenglow is active (getAgGenesisCert)
+      ansible.builtin.uri:
+        url: https://api.testnet.solana.com
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          id: 1
+          method: getAgGenesisCert
+        return_content: true
+        timeout: 20
+      register: ag_genesis_cert
+      failed_when: false
+      changed_when: false
+      check_mode: false
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Refuse unless the cluster reports no Alpenglow genesis certificate
+      ansible.builtin.assert:
+        that:
+          - ag_genesis_cert.status | default(0) == 200
+          - ag_genesis_cert.json is defined
+          - ag_genesis_cert.json is mapping
+          - "'error' not in ag_genesis_cert.json"
+          - "'result' in ag_genesis_cert.json"
+          - ag_genesis_cert.json.result is none
+        fail_msg: "This switch handles only TowerBFT clusters, and Alpenglow is active or unknown: getAgGenesisCert at https://api.testnet.solana.com did not return a null result (http status {{ ag_genesis_cert.status | default('none') }}). Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      run_once: true
+
+    - name: Check that the source holds the tower file of the identity
+      ansible.builtin.stat:
+        path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"
+      register: source_tower_file
+
+    - name: Refuse to demote the source without a tower file to carry
+      ansible.builtin.assert:
+        that:
+          - source_tower_file.stat.exists
+        fail_msg: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin does not exist on {{ inventory_hostname }}, so there is no tower to carry to the target. Nothing was changed."
+        quiet: true
+
     - name: Wait for Restart Window
       shell: |
         . ~/.profile

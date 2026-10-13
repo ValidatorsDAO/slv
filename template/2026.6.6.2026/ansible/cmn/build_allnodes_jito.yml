@@ -15,7 +15,11 @@
   tasks:
     - name: Resolve allnodes-jito version (override with -e allnodes_jito_version=)
       set_fact:
-        allnodes_jito_version_resolved: "v{{ allnodes_jito_version | default(mainnet_validators.version_allnodes_jito | default('', true), true) }}-allnodes"
+        allnodes_jito_version_configured: "{{ allnodes_jito_version | default(mainnet_validators.version_allnodes_jito | default('', true), true) }}"
+
+    - name: Resolve allnodes-jito tag (a version that already contains -allnodes is used as is)
+      set_fact:
+        allnodes_jito_version_resolved: "v{{ allnodes_jito_version_configured }}{{ '' if '-allnodes' in allnodes_jito_version_configured else '-allnodes' }}"
 
     - name: Ensure allnodes-jito version is resolved
       assert:

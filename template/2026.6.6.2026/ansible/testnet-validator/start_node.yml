@@ -3,22 +3,15 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Set validator type fact for each host
-      set_fact:
-        validator_type: "{{ validator_type | default('agave') }}"
-    
-    - name: Debug validator type. Start if not set
-      debug:
-        msg: "Validator type is {{ validator_type }}"
-
-    - name: Fail if validator type is not set
-      fail:
-        msg: "Validator type is not set. Please set it in the inventory."
-      when: validator_type is not defined
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
 
 - import_playbook: start_solv.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: start_firedancer.yml
-  when: validator_type in ['firedancer-jito', 'firedancer-agave']
-
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']

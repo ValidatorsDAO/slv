@@ -24,15 +24,41 @@ exec agave-validator \
 --use-snapshot-archives-at-startup when-newest \
 --limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
 --no-port-check \
+{# _agave_version is the X.Y.Z of the agave this host starts next as major*1000000 + minor*1000 + patch: installed_agave_version, which the play reads from the installed agave-validator, when there is one, else the version of this host's agave, jito or allnodes client from the -e override or versions.yml; suffixes such as -jito.0 are ignored #}
+{% set _slv = mainnet_validators | default({}) %}
+{% if validator_type | default('agave') == 'jito' %}
+{% set _client_version = jito_version | default(_slv.version_jito | default('', true), true) %}
+{% elif validator_type | default('agave') == 'allnodes-jito' %}
+{% set _client_version = allnodes_jito_version | default(_slv.version_allnodes_jito | default('', true), true) %}
+{% else %}
+{% set _client_version = agave_version | default(_slv.version_agave | default('', true), true) %}
+{% endif %}
+{% set _client_version = installed_agave_version | default('', true) or _client_version %}
+{% set _digits = (_client_version | string).split('-')[0] | regex_findall('[0-9]+') %}
+{% if not _digits %}
+{{ agave_version_not_found | mandatory('Cannot tell which agave version this host runs: set agave_version, jito_version or allnodes_jito_version, or the matching version_* key under mainnet_validators in ~/.slv/versions.yml') }}
+{% endif %}
+{% set _num = _digits + ['0', '0'] %}
+{% set _agave_version = (_num[0] | int) * 1000000 + (_num[1] | int) * 1000 + (_num[2] | int) %}
 {% if xdp_enabled | default(false) and xdp_interface | default('') %}
+{% if _agave_version >= 4001000 %}
+--xdp-interface {{ xdp_interface }} \
+--xdp-cpu-cores {{ xdp_cpu_cores | default(1, true) }} \
+{% if xdp_zero_copy | default(false) %}
+--xdp-zero-copy \
+{% endif %}
+{% else %}
 --experimental-retransmit-xdp-interface {{ xdp_interface }} \
 --experimental-retransmit-xdp-cpu-cores {{ xdp_cpu_cores | default(1, true) }} \
 {% if xdp_zero_copy | default(false) %}
 --experimental-retransmit-xdp-zero-copy \
 {% endif %}
+{% endif %}
 {% if xdp_poh_pinned_cpu_core is defined %}
 --experimental-poh-pinned-cpu-core {{ xdp_poh_pinned_cpu_core }} \
 {% endif %}
+{% elif _agave_version >= 4002000 and not (xdp_enabled | default(false)) %}
+--no-xdp \
 {% endif %}
 --staked-nodes-overrides overrides.yml \
 --rpc-bind-address 0.0.0.0 \

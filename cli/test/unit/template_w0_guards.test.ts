@@ -1,0 +1,1600 @@
+import { assert, assertEquals } from '@std/assert'
+import { parse } from '@std/yaml'
+
+const templateRoot = new URL(
+  '../../../template/2026.6.6.2026/',
+  import.meta.url,
+)
+const validatorNetworks = ['mainnet-validator', 'testnet-validator'] as const
+
+const agaveFamily = ['agave', 'jito', 'allnodes-jito']
+const frankendancerFamily = ['firedancer-agave', 'firedancer-jito']
+const supportedTypes = [...agaveFamily, ...frankendancerFamily]
+
+type Entry = Record<string, unknown>
+
+const readText = (path: string): string =>
+  Deno.readTextFileSync(new URL(path, templateRoot))
+
+const readPlaybook = (path: string): Entry[] => parse(readText(path)) as Entry[]
+
+const tasksOf = (play: Entry): Entry[] => (play.tasks ?? []) as Entry[]
+
+const moduleArgs = (task: Entry, module: string): unknown =>
+  task[module] ?? task[`ansible.builtin.${module}`]
+
+const hasModule = (task: Entry, module: string): boolean =>
+  moduleArgs(task, module) !== undefined
+
+const commandOf = (task: Entry): string =>
+  String(moduleArgs(task, 'shell') ?? moduleArgs(task, 'command') ?? '')
+
+const conditionsOf = (entry: Entry): string[] =>
+  [entry.when ?? []].flat().map((condition) => String(condition).trim())
+
+const normalized = (value: unknown): string =>
+  JSON.stringify(value).replaceAll(/\s+/g, ' ')
+
+const sameMembers = (a: string[], b: string[]): boolean =>
+  [...a].sort().join(',') === [...b].sort().join(',')
+
+const gateOf = (entry: Entry): string[] | undefined => {
+  for (const condition of conditionsOf(entry)) {
+    const match = /^validator_type(?: \| default\(''\))? in (\[.*\])$/.exec(
+      condition,
+    )
+    if (match) return JSON.parse(match[1].replaceAll("'", '"')) as string[]
+  }
+  return undefined
+}
+
+const familyOf = (gate: string[] | undefined): string | undefined => {
+  if (gate && sameMembers(gate, agaveFamily)) return 'agave'
+  if (gate && sameMembers(gate, frankendancerFamily)) return 'frankendancer'
+  return undefined
+}
+
+const assertNoTypeFallback = (path: string): void => {
+  const raw = readText(path)
+  assert(
+    !/validator_type\s*\|\s*default\(\s*['"](?:agave|jito|allnodes-jito|firedancer|firedancer-agave|firedancer-jito)['"]\s*\)/
+      .test(raw),
+    `${path} still falls back to a default validator_type`,
+  )
+  assert(
+    !/^\s*validator_type:\s*"\{\{\s*validator_type/m.test(raw),
+    `${path} still re-assigns validator_type`,
+  )
+}
+
+const assertTypeGate = (task: Entry | undefined, path: string): void => {
+  assert(
+    task && (hasModule(task, 'assert') || hasModule(task, 'fail')),
+    `${path}: the first task must assert the validator type`,
+  )
+  const text = normalized(task)
+  for (const type of supportedTypes) {
+    assert(text.includes(`'${type}'`), `${path}: type gate misses ${type}`)
+  }
+  assert(
+    text.includes('validator_type'),
+    `${path}: gate ignores validator_type`,
+  )
+}
+
+const firstIndex = (
+  tasks: Entry[],
+  predicate: (task: Entry) => boolean,
+): number => tasks.findIndex(predicate)
+
+Deno.test('behavior 1: set_unstaked_key and set_identity_key act for every family or fail', () => {
+  for (const network of validatorNetworks) {
+    for (const file of ['set_unstaked_key.yml', 'set_identity_key.yml']) {
+      const path = `ansible/${network}/${file}`
+      assertNoTypeFallback(path)
+      const tasks = tasksOf(readPlaybook(path)[0])
+      assertTypeGate(tasks[0], path)
+
+      const changing = tasks.filter((task) =>
+        /set-identity|authorized-voter add/.test(commandOf(task))
+      )
+      assert(changing.length >= 2, `${path}: identity tasks not found`)
+      for (const task of changing) {
+        assert(
+          familyOf(gateOf(task)) !== undefined,
+          `${path}: "${task.name}" is not gated on a family list`,
+        )
+      }
+      const setIdentity = changing.filter((task) =>
+        /set-identity/.test(commandOf(task))
+      )
+      assertEquals(
+        new Set(setIdentity.map((task) => familyOf(gateOf(task)))),
+        new Set(['agave', 'frankendancer']),
+        `${path}: both families need a set-identity branch`,
+      )
+
+      const last = tasks[tasks.length - 1]
+      assert(hasModule(last, 'fail'), `${path}: the last task must fail`)
+      for (const task of setIdentity) {
+        assert(
+          typeof task.register === 'string' &&
+            conditionsOf(last).includes(`${task.register} is skipped`),
+          `${path}: final task does not test "${task.name}" for skipped`,
+        )
+      }
+    }
+  }
+})
+
+Deno.test('behavior 2: restart, stop, start and nodowntime_migrate assert the type and gate every family', () => {
+  const gateTable = (network: string, file: string) => {
+    const path = `ansible/${network}/${file}`
+    assertNoTypeFallback(path)
+    const entries = readPlaybook(path)
+    assertTypeGate(tasksOf(entries[0])[0], path)
+    return entries
+      .filter((entry) => entry.import_playbook !== undefined)
+      .map((entry) => {
+        const family = familyOf(gateOf(entry))
+        assert(
+          family !== undefined,
+          `${path}: ${entry.import_playbook} is not gated on a family list`,
+        )
+        return `${entry.import_playbook}:${family}`
+      })
+  }
+  for (
+    const file of [
+      'restart_node.yml',
+      'stop_node.yml',
+      'start_node.yml',
+      'nodowntime_migrate.yml',
+    ]
+  ) {
+    const mainnet = gateTable('mainnet-validator', file)
+    const testnet = gateTable('testnet-validator', file)
+    assert(mainnet.length >= 2, `${file}: expected gated imports`)
+    assertEquals(testnet, mainnet, `${file}: testnet gates differ from mainnet`)
+    const agaveGates = readPlaybook(`ansible/testnet-validator/${file}`)
+      .filter((entry) => familyOf(gateOf(entry)) === 'agave')
+    assert(agaveGates.length >= 1, `${file}: no agave family gate on testnet`)
+    for (const entry of agaveGates) {
+      assert(
+        gateOf(entry)?.includes('allnodes-jito'),
+        `${file}: testnet agave gate lacks allnodes-jito`,
+      )
+    }
+  }
+})
+
+Deno.test('behavior 3: set_identity_key needs the tower or vote history unless first_activation is true', () => {
+  for (const network of validatorNetworks) {
+    const path = `ansible/${network}/set_identity_key.yml`
+    const raw = readText(path)
+    assert(
+      !raw.includes('--do-not-require-vote-history'),
+      `${path}: must not opt out of the vote history requirement`,
+    )
+    const tasks = tasksOf(readPlaybook(path)[0])
+    const firstSetIdentity = firstIndex(
+      tasks,
+      (task) => /set-identity/.test(commandOf(task)),
+    )
+    assert(firstSetIdentity > 0, `${path}: set-identity task not found`)
+
+    const statOf = (fragment: string) =>
+      firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'stat') &&
+          String((moduleArgs(task, 'stat') as Entry).path).startsWith(
+            `/mnt/ledger/${fragment}`,
+          ) &&
+          String((moduleArgs(task, 'stat') as Entry).path).includes(
+            'identity_account',
+          ),
+      )
+    const towerStat = statOf('tower-1_9-')
+    const voteStat = statOf('vote_history-')
+    assert(
+      towerStat >= 0 && towerStat < firstSetIdentity,
+      `${path}: tower stat`,
+    )
+    assert(voteStat >= 0 && voteStat < firstSetIdentity, `${path}: vote stat`)
+    const towerRegister = String(tasks[towerStat].register)
+    const voteRegister = String(tasks[voteStat].register)
+
+    const refusal = tasks.findIndex((task) =>
+      hasModule(task, 'fail') &&
+      conditionsOf(task).includes(`not ${towerRegister}.stat.exists`)
+    )
+    assert(refusal > voteStat && refusal < firstSetIdentity, `${path}: refusal`)
+    assertEquals(
+      new Set(conditionsOf(tasks[refusal])),
+      new Set([
+        `not ${voteRegister}.stat.exists`,
+        `not ${towerRegister}.stat.exists`,
+        'first_activation | default(false) is not sameas true',
+      ]),
+      `${path}: refusal conditions`,
+    )
+
+    const flagTasks = tasks.filter((task) =>
+      normalized(task).includes('--require-tower')
+    )
+    assertEquals(
+      flagTasks.length,
+      1,
+      `${path}: one task decides --require-tower`,
+    )
+    const flag = flagTasks[0]
+    assert(hasModule(flag, 'set_fact'), `${path}: flag must be a fact`)
+    assert(
+      normalized(flag).includes(
+        `${towerRegister}.stat.exists and not ${voteRegister}.stat.exists`,
+      ),
+      `${path}: --require-tower only when the tower is the only file`,
+    )
+    assert(tasks.indexOf(flag) < firstSetIdentity, `${path}: flag order`)
+    const flagName = Object.keys(
+      moduleArgs(flag, 'set_fact') as Entry,
+    )[0]
+    const setIdentityTasks = tasks.filter((task) =>
+      /set-identity/.test(commandOf(task))
+    )
+    assertEquals(setIdentityTasks.length, 2, `${path}: set-identity tasks`)
+    for (const task of setIdentityTasks) {
+      assert(
+        commandOf(task).includes(`{{ ${flagName} }}`),
+        `${path}: "${task.name}" does not pass the flag`,
+      )
+    }
+  }
+})
+
+const survivorsAfterFind = async (findArguments: string): Promise<string[]> => {
+  const dir = await Deno.makeTempDir({ prefix: 'slv-w0-ledger-' })
+  try {
+    for (
+      const name of [
+        'contact-info.bin',
+        'tower-1_9-IDENTITY.bin',
+        'vote_history-IDENTITY.bin',
+        'snapshot.tar.zst',
+        'gossip.bin',
+      ]
+    ) {
+      await Deno.writeTextFile(`${dir}/${name}`, 'x')
+    }
+    await Deno.mkdir(`${dir}/rocksdb`)
+    await Deno.writeTextFile(`${dir}/rocksdb/CURRENT`, 'x')
+    const { success, stderr } = await new Deno.Command('bash', {
+      args: ['-c', `find '${dir}/' ${findArguments}`],
+      stderr: 'piped',
+    }).output()
+    assert(success, new TextDecoder().decode(stderr))
+    return [...Deno.readDirSync(dir)].map((entry) => entry.name).sort()
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+}
+
+const keptFiles = [
+  'contact-info.bin',
+  'tower-1_9-IDENTITY.bin',
+  'vote_history-IDENTITY.bin',
+]
+
+const findArgumentsOf = (text: string): string => {
+  const found = /sudo find \/mnt\/ledger\/ (.+)$/m.exec(text)
+  assert(found, `no ledger wipe in: ${text}`)
+  return found[1]
+}
+
+const assertRefusesBeforeWipe = (
+  path: string,
+): { tasks: Entry[]; wipe: number } => {
+  const tasks = tasksOf(readPlaybook(path)[0])
+  const wipe = firstIndex(
+    tasks,
+    (task) => /find \/mnt\/ledger\//.test(commandOf(task)),
+  )
+  const state = firstIndex(
+    tasks,
+    (task) => /systemctl is-active/.test(commandOf(task)),
+  )
+  const refusal = firstIndex(tasks, (task) => hasModule(task, 'fail'))
+  assert(wipe >= 0, `${path}: ledger wipe not found`)
+  assert(state >= 0 && state < refusal, `${path}: service state before refusal`)
+  assert(refusal < wipe, `${path}: refusal must come before the wipe`)
+  const stateText = normalized(tasks[state])
+  assert(stateText.includes('solv.service'), `${path}: solv.service`)
+  assert(
+    stateText.includes('firedancer.service'),
+    `${path}: firedancer.service`,
+  )
+  return { tasks, wipe }
+}
+
+Deno.test('behavior 4: rm_ledger refuses a live validator and both ledger wipes keep tower and vote history', async () => {
+  const path = 'ansible/cmn/rm_ledger.yml'
+  const { tasks, wipe } = assertRefusesBeforeWipe(path)
+  const wipeCommand = commandOf(tasks[wipe])
+  assert(wipeCommand.startsWith('sudo find /mnt/ledger/ '), wipeCommand)
+  assertEquals(
+    await survivorsAfterFind(findArgumentsOf(wipeCommand)),
+    keptFiles,
+    `${path}: wipe must keep the consensus files`,
+  )
+
+  const restarter = readText('jinja/cmn/restart.sh.j2')
+  const restarterFind = /sudo find "\$\{ledger_root\}\/" ([^;]+?); then/.exec(
+    restarter,
+  )
+  assert(restarterFind, 'restart.sh.j2: ledger wipe not found')
+  assertEquals(
+    await survivorsAfterFind(restarterFind[1]),
+    keptFiles,
+    'restart.sh.j2: wipe must keep the consensus files',
+  )
+})
+
+Deno.test('behavior 5: switch_off refuses before demotion and switch_on requires the tower', () => {
+  const clusterUrls: Record<string, string> = {
+    'mainnet-validator': 'https://api.mainnet-beta.solana.com',
+    'testnet-validator': 'https://api.testnet.solana.com',
+  }
+  const isGuard = (task: Entry) =>
+    hasModule(task, 'assert') || hasModule(task, 'fail')
+  for (const network of validatorNetworks) {
+    for (
+      const file of [
+        'switch_off_identity.yml',
+        'switch_off_firedancer_identity.yml',
+      ]
+    ) {
+      const path = `ansible/${network}/${file}`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const firstSetIdentity = firstIndex(
+        tasks,
+        (task) => /set-identity/.test(commandOf(task)),
+      )
+      const request = firstIndex(tasks, (task) => hasModule(task, 'uri'))
+      assert(request >= 0 && request < firstSetIdentity, `${path}: request`)
+      const uri = moduleArgs(tasks[request], 'uri') as Entry
+      assertEquals(uri.url, clusterUrls[network], `${path}: cluster url`)
+      assertEquals(String(uri.method).toUpperCase(), 'POST')
+      assertEquals(uri.body_format, 'json')
+      assertEquals(uri.body, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getAgGenesisCert',
+      })
+      assertEquals(tasks[request].delegate_to, 'localhost')
+      assertEquals(tasks[request].run_once, true)
+
+      const alpenglowGuard = firstIndex(
+        tasks,
+        (task) =>
+          isGuard(task) && normalized(task).includes('Alpenglow') &&
+          normalized(task).includes('TowerBFT'),
+      )
+      assert(
+        alpenglowGuard > request && alpenglowGuard < firstSetIdentity,
+        `${path}: Alpenglow guard`,
+      )
+      assert(
+        normalized(tasks[alpenglowGuard]).includes('result is none'),
+        `${path}: guard must require a null result`,
+      )
+
+      const towerStat = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'stat') &&
+          String((moduleArgs(task, 'stat') as Entry).path).startsWith(
+            '/mnt/ledger/tower-1_9-',
+          ),
+      )
+      assert(
+        towerStat > alpenglowGuard && towerStat < firstSetIdentity,
+        `${path}: tower stat`,
+      )
+      const towerGuard = firstIndex(
+        tasks,
+        (task) =>
+          isGuard(task) &&
+          normalized(task).includes(`${tasks[towerStat].register}.stat.exists`),
+      )
+      assert(
+        towerGuard > towerStat && towerGuard < firstSetIdentity,
+        `${path}: tower guard`,
+      )
+    }
+    for (
+      const file of [
+        'switch_on_identity.yml',
+        'switch_on_firedancer_identity.yml',
+      ]
+    ) {
+      const path = `ansible/${network}/${file}`
+      const setIdentity = tasksOf(readPlaybook(path)[0]).filter((task) =>
+        /set-identity/.test(commandOf(task))
+      )
+      assertEquals(setIdentity.length, 1, `${path}: set-identity task`)
+      assert(
+        commandOf(setIdentity[0]).includes('--require-tower'),
+        `${path}: set-identity must pass --require-tower`,
+      )
+    }
+  }
+})
+
+const taskKeywords = new Set([
+  'name',
+  'when',
+  'register',
+  'become',
+  'become_user',
+  'failed_when',
+  'changed_when',
+  'check_mode',
+  'ignore_unreachable',
+  'ignore_errors',
+  'args',
+  'vars',
+  'loop',
+  'delegate_to',
+  'run_once',
+  'timeout',
+  'environment',
+])
+
+Deno.test('behavior 6: read_running_identity prints one marker line per host and cannot fail or change a host', () => {
+  const path = 'ansible/cmn/read_running_identity.yml'
+  const plays = readPlaybook(path)
+  assertEquals(plays.length, 1)
+  assertEquals(plays[0].hosts, 'all')
+  const tasks = tasksOf(plays[0])
+
+  const modules = tasks.map((task) =>
+    Object.keys(task).find((key) => !taskKeywords.has(key))?.replace(
+      'ansible.builtin.',
+      '',
+    )
+  )
+  for (const module of modules) {
+    assert(
+      ['shell', 'command', 'set_fact', 'debug'].includes(String(module)),
+      `${path}: unexpected module ${module}`,
+    )
+  }
+
+  const reads = tasks.filter((task) =>
+    hasModule(task, 'shell') || hasModule(task, 'command')
+  )
+  const agaveRead = reads.find((task) =>
+    commandOf(task).includes(
+      'agave-validator -l /mnt/ledger contact-info --output json',
+    )
+  )
+  const frankendancerRead = reads.find((task) =>
+    commandOf(task).includes(
+      'fdctl get-identity --config /home/solv/firedancer-config.toml',
+    )
+  )
+  assert(agaveRead && frankendancerRead, `${path}: both reads are required`)
+  assertEquals(reads.length, 2)
+  assertEquals(familyOf(gateOf(agaveRead)), 'agave')
+  assertEquals(familyOf(gateOf(frankendancerRead)), 'frankendancer')
+  for (const read of reads) {
+    assertEquals(read.failed_when, false, `${read.name}: failed_when`)
+    assertEquals(read.changed_when, false, `${read.name}: changed_when`)
+  }
+
+  const reports = tasks.filter((task) => hasModule(task, 'debug'))
+  assertEquals(reports.length, 1)
+  const message = String((moduleArgs(reports[0], 'debug') as Entry).msg)
+  assertEquals(
+    message,
+    'SLV_RUNNING_IDENTITY {{ inventory_hostname }} {{ running_identity }}',
+  )
+  const reportVars = reports[0].vars as Entry
+  assert(
+    String(reportVars.running_identity).includes("or 'unknown'"),
+    `${path}: the report must fall back to unknown`,
+  )
+  assert(tasks.indexOf(reports[0]) === tasks.length - 1, `${path}: last task`)
+})
+
+const resolveTag = (template: string, configured: string): string => {
+  const rendered = template
+    .replace(
+      /\{\{\s*'([^']*)' if '([^']*)' in allnodes_jito_version_configured else '([^']*)'\s*\}\}/g,
+      (_match, whenTrue, needle, whenFalse) =>
+        configured.includes(needle) ? whenTrue : whenFalse,
+    )
+    .replace(/\{\{\s*allnodes_jito_version_configured\s*\}\}/g, configured)
+  assert(!rendered.includes('{{'), `unsupported template: ${template}`)
+  return rendered
+}
+
+Deno.test('behavior 7: the allnodes tag keeps an upstream suffix and adds -allnodes otherwise', () => {
+  const build = tasksOf(readPlaybook('ansible/cmn/build_allnodes_jito.yml')[0])
+  const buildTag = build
+    .map((task) => moduleArgs(task, 'set_fact') as Entry | undefined)
+    .map((facts) => facts?.allnodes_jito_version_resolved)
+    .find((value) => value !== undefined)
+  const installVars = readPlaybook(
+    'ansible/mainnet-validator/install_allnodes_jito.yml',
+  )[0].vars as Entry
+  const installTag = installVars.allnodes_jito_version
+  for (
+    const [source, template] of [['build', buildTag], ['install', installTag]]
+  ) {
+    assert(typeof template === 'string', `${source}: tag template not found`)
+    assertEquals(resolveTag(template, '4.3.0-allnodes.1'), 'v4.3.0-allnodes.1')
+    assertEquals(resolveTag(template, '4.2.2'), 'v4.2.2-allnodes')
+  }
+})
+
+Deno.test('behavior 8: patch_sha256 clones a fixed commit and never overwrites an earlier backup', () => {
+  const tasks = tasksOf(readPlaybook('ansible/cmn/patch_sha256.yml')[0])
+  const clone = tasks.find((task) =>
+    hasModule(task, 'git') &&
+    String((moduleArgs(task, 'git') as Entry).repo).includes(
+      'kagren/solana-sha256-hasher-optimized',
+    )
+  )
+  assert(clone, 'hasher clone not found')
+  assertEquals(
+    (moduleArgs(clone, 'git') as Entry).version,
+    '7cf3153b860751d8c8ba3c65128880ea4b62aba6',
+  )
+
+  const backupIndex = tasks.findIndex((task) =>
+    hasModule(task, 'copy') &&
+    String((moduleArgs(task, 'copy') as Entry).dest).endsWith('.orig')
+  )
+  assert(backupIndex >= 0, 'backup task not found')
+  const backup = tasks[backupIndex]
+  const args = moduleArgs(backup, 'copy') as Entry
+  assertEquals(args.dest, '{{ deploy_binary_path }}.{{ solana_version }}.orig')
+  assertEquals(args.src, '{{ deploy_binary_path }}')
+  assert([true, 'yes'].includes(args.remote_src as boolean | string))
+  assert([false, 'no'].includes(args.force as boolean | string))
+  assert(
+    ![true, 'yes'].includes(backup.ignore_errors as boolean | string),
+    'a failed backup must stop the patch',
+  )
+  const deployIndex = tasks.findIndex((task) =>
+    hasModule(task, 'copy') &&
+    String((moduleArgs(task, 'copy') as Entry).src).includes(
+      'patched_binary_path',
+    )
+  )
+  assert(deployIndex > backupIndex, 'deploy must come after the backup')
+})
+
+const geyserRpcTypes = "rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']"
+
+// Replaces {{ name }} with the value in vars, as far as the playbooks here nest them.
+const expandVars = (value: unknown, vars: Record<string, unknown>): string => {
+  let expanded = String(value)
+  for (let round = 0; round < 4; round++) {
+    expanded = expanded.replace(
+      /\{\{\s*(\w+)\s*\}\}/g,
+      (match, name) => name in vars ? String(vars[name]) : match,
+    )
+  }
+  return expanded
+}
+
+Deno.test('behavior 9: update_startup_config writes geyser.json for the plugin library installed on the host, keeps the old file, and reads port_rpc from host vars', () => {
+  const path = 'ansible/mainnet-rpc/update_startup_config.yml'
+  assert(
+    !readText(path).includes('mainnet_rpcs.port_rpc'),
+    `${path}: inventory port_rpc`,
+  )
+  const play = readPlaybook(path)[0]
+  const vars = (play.vars ?? {}) as Record<string, string>
+  const tasks = tasksOf(play)
+  const named = (name: string): Entry => {
+    const task = tasks.find((entry) => entry.name === name)
+    assert(task, `${path}: task "${name}" not found`)
+    return task
+  }
+
+  // the two libraries are the ones the build playbooks make and the configs load
+  const richatBuild =
+    readPlaybook('ansible/mainnet-rpc/geyser_richat_build.yml')[0]
+  const richatVars = richatBuild.vars as Record<string, string>
+  assertEquals(
+    expandVars(vars.richat_lib_path, vars),
+    expandVars(richatVars.richat_symlink_path, richatVars),
+  )
+  assertEquals(vars.richat_config_template, richatVars.richat_config_template)
+  assert(
+    readText('jinja/mainnet-rpc/geyser-richat.json.j2').includes(
+      `"libpath": "${vars.richat_lib_path}"`,
+    ),
+  )
+  const yellowstoneBuild =
+    readPlaybook('ansible/mainnet-rpc/geyser_build.yml')[0]
+  const yellowstoneVars = yellowstoneBuild.vars as Record<string, string>
+  assertEquals(
+    vars.geyser_config_template,
+    yellowstoneVars.geyser_config_template,
+  )
+  assertEquals(vars.geyser_config_path, yellowstoneVars.geyser_config_path)
+  const builtLibrary = expandVars(
+    yellowstoneVars.geyser_lib_path,
+    yellowstoneVars,
+  )
+  const libraryDefault = (text: string) =>
+    /geyser_lib_path \| default\('([^']+)'\)/.exec(text)?.[1]
+  assertEquals(libraryDefault(vars.yellowstone_lib_path), builtLibrary)
+  assertEquals(
+    libraryDefault(readText('jinja/mainnet-rpc/geyser.json.j2')),
+    builtLibrary,
+  )
+
+  // both libraries are looked for, links followed, whenever geyser.json is in play
+  for (
+    const [name, variable, register] of [
+      [
+        'Look for the Richat geyser plugin library',
+        'richat_lib_path',
+        'richat_lib',
+      ],
+      [
+        'Look for the Yellowstone geyser plugin library',
+        'yellowstone_lib_path',
+        'yellowstone_lib',
+      ],
+    ]
+  ) {
+    const look = named(name)
+    const args = moduleArgs(look, 'stat') as Entry
+    assertEquals(args.path, `{{ ${variable} }}`)
+    assertEquals(args.follow, true)
+    assertEquals(look.register, register)
+    assertEquals(conditionsOf(look), [geyserRpcTypes])
+  }
+
+  // one answer for each of the four states
+  const decide = named('Decide which geyser plugin this host runs')
+  assertEquals(conditionsOf(decide), [geyserRpcTypes])
+  const expression = /^\{\{\s*([\s\S]+?)\s*\}\}$/.exec(
+    String((moduleArgs(decide, 'set_fact') as Entry).geyser_plugin),
+  )
+  assert(expression, `${path}: geyser_plugin is not an expression`)
+  const chain = expression[1].split(/\s+else\s+/)
+  const pluginFor = (richat: boolean, yellowstone: boolean): string => {
+    const facts: Record<string, boolean> = {
+      'richat_lib.stat.exists': richat,
+      'yellowstone_lib.stat.exists': yellowstone,
+    }
+    for (const link of chain) {
+      const [value, condition] = link.split(/\s+if\s+/)
+      const holds = condition === undefined || condition.replaceAll(/[()]/g, '')
+        .split(/\s+and\s+/).every((term) => {
+          assert(term in facts, `${path}: unknown term ${term}`)
+          return facts[term]
+        })
+      if (holds) return value.replaceAll("'", '')
+    }
+    throw new Error(`${path}: geyser_plugin has no final answer`)
+  }
+  assertEquals(pluginFor(true, false), 'richat')
+  assertEquals(pluginFor(false, true), 'yellowstone')
+  assertEquals(pluginFor(false, false), 'none')
+  assertEquals(pluginFor(true, true), 'both')
+
+  // neither library: stop and name the playbooks that make one; both: stop
+  const none = named('Stop when neither geyser plugin library is installed')
+  assertEquals(conditionsOf(none), [geyserRpcTypes, "geyser_plugin == 'none'"])
+  const noneMessage = String((moduleArgs(none, 'fail') as Entry).msg)
+  for (const playbook of ['geyser_richat_build.yml', 'install_richat.yml']) {
+    assert(
+      noneMessage.includes(playbook),
+      `${path}: message misses ${playbook}`,
+    )
+  }
+  const both = named('Stop when both geyser plugin libraries are installed')
+  assertEquals(conditionsOf(both), [geyserRpcTypes, "geyser_plugin == 'both'"])
+  assert(String((moduleArgs(both, 'fail') as Entry).msg).includes('Remove'))
+
+  // each library gets its own config, the old geyser.json is kept, and the host's
+  // settings feed the Yellowstone template as before (no extra vars)
+  for (
+    const [name, template, plugin] of [
+      [
+        'Copy the geyser.json configuration file for Richat',
+        'richat_config_template',
+        'richat',
+      ],
+      [
+        'Copy the geyser.json configuration file for Yellowstone',
+        'geyser_config_template',
+        'yellowstone',
+      ],
+    ]
+  ) {
+    const task = named(name)
+    const args = moduleArgs(task, 'template') as Entry
+    assertEquals(args.src, `{{ ${template} }}`)
+    assertEquals(args.dest, '{{ geyser_config_path }}')
+    assertEquals(args.backup, true, `${name}: keep the previous geyser.json`)
+    assertEquals(conditionsOf(task), [
+      geyserRpcTypes,
+      `geyser_plugin == '${plugin}'`,
+    ])
+    assertEquals(task.vars, undefined)
+  }
+  assertEquals(
+    expandVars('{{ richat_config_template }}', vars),
+    '~/.slv/mainnet-rpc/geyser-richat.json.j2',
+  )
+  assertEquals(vars.geyser_config_template, '~/.slv/mainnet-rpc/geyser.json.j2')
+  assertEquals(vars.geyser_config_path, '/home/solv/geyser.json')
+
+  // nothing is written before both stops have had their say
+  const firstWrite = firstIndex(
+    tasks,
+    (task) =>
+      hasModule(task, 'template') || hasModule(task, 'copy') ||
+      hasModule(task, 'file'),
+  )
+  for (const stop of [none, both]) {
+    assert(tasks.indexOf(decide) < tasks.indexOf(stop), `${path}: decide first`)
+    assert(tasks.indexOf(stop) < firstWrite, `${path}: stop before any write`)
+  }
+
+  const startScript = tasks.find((task) =>
+    hasModule(task, 'template') &&
+    String((moduleArgs(task, 'template') as Entry).dest).endsWith(
+      'start-validator.sh',
+    )
+  )
+  assert(startScript, `${path}: start-validator.sh task not found`)
+  assertEquals(
+    (startScript.vars as Entry).port_rpc,
+    '{{ hostvars[inventory_hostname].port_rpc }}',
+  )
+})
+
+const playbookPlays = (path: string): { path: string; play: Entry }[] =>
+  readPlaybook(path).flatMap((entry) => {
+    if (entry.import_playbook === undefined) return [{ path, play: entry }]
+    const imported = new URL(
+      String(entry.import_playbook),
+      new URL(path, templateRoot),
+    )
+    return playbookPlays(imported.href.slice(templateRoot.href.length))
+  })
+
+Deno.test('addendum 9: nodowntime_migrate stops the whole run when any host fails, in every play it runs', () => {
+  for (const network of validatorNetworks) {
+    const plays = playbookPlays(`ansible/${network}/nodowntime_migrate.yml`)
+    assertEquals(
+      plays.map(({ path }) => path.split('/').pop()),
+      [
+        'nodowntime_migrate.yml',
+        'switch_off_identity.yml',
+        'switch_off_firedancer_identity.yml',
+        'switch_on_identity.yml',
+        'switch_on_firedancer_identity.yml',
+      ],
+    )
+    for (const { path, play } of plays) {
+      assertEquals(
+        play.any_errors_fatal,
+        true,
+        `${path}: play "${play.name}" needs any_errors_fatal`,
+      )
+    }
+  }
+})
+
+Deno.test('addendum 10: the testnet validator wipes and both validator restarters keep tower and vote history', async () => {
+  const testnet = 'ansible/testnet-validator'
+  const { tasks: rmLedger } = assertRefusesBeforeWipe(
+    `${testnet}/rm_ledger.yml`,
+  )
+  assertEquals(
+    rmLedger,
+    tasksOf(readPlaybook('ansible/cmn/rm_ledger.yml')[0]),
+    'testnet-validator/rm_ledger.yml must refuse like cmn/rm_ledger.yml',
+  )
+
+  for (
+    const file of [
+      'rm_ledger.yml',
+      'restart_agave_with_rm_ledger.yml',
+      'restart_firedancer_with_rm_ledger.yml',
+      'change_identity_and_restart.yml',
+    ]
+  ) {
+    const path = `${testnet}/${file}`
+    const tasks = tasksOf(readPlaybook(path)[0])
+    const wipes = tasks.filter((task) =>
+      /find \/mnt\/ledger\//.test(commandOf(task))
+    )
+    assertEquals(wipes.length, 1, `${path}: one ledger wipe`)
+    assertEquals(
+      await survivorsAfterFind(findArgumentsOf(commandOf(wipes[0]))),
+      keptFiles,
+      `${path}: wipe must keep the consensus files`,
+    )
+    if (file !== 'rm_ledger.yml') {
+      const stop = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'systemd') &&
+          (moduleArgs(task, 'systemd') as Entry).state === 'stopped',
+      )
+      assert(
+        stop >= 0 && stop < tasks.indexOf(wipes[0]),
+        `${path}: the service is stopped before the wipe`,
+      )
+    }
+  }
+
+  for (const network of validatorNetworks) {
+    const path = `jinja/${network}/restart.sh.j2`
+    const script = readText(path)
+    const stop = script.indexOf('systemctl stop')
+    assert(
+      stop >= 0 && stop < script.indexOf('sudo find /mnt/ledger/'),
+      `${path}: the service is stopped before the wipe`,
+    )
+    assertEquals(
+      await survivorsAfterFind(findArgumentsOf(script)),
+      keptFiles,
+      `${path}: wipe must keep the consensus files`,
+    )
+  }
+})
+
+const distRoot = new URL('../../../dist/oss-skills/', import.meta.url)
+
+const startScriptSections: Record<string, string> = {
+  'mainnet-validator/start-validator.sh.j2': 'mainnet_validators',
+  'testnet-validator/start-validator.sh.j2': 'testnet_validators',
+  'testnet-validator/start-validator-agave.sh.j2': 'testnet_validators',
+  'testnet-validator/start-validator-jito.sh.j2': 'testnet_validators',
+  'mainnet-rpc/start-validator.sh.j2': 'mainnet_rpcs',
+  'testnet-rpc/start-validator.sh.j2': 'testnet_rpcs',
+  'devnet-rpc/start-validator.sh.j2': 'devnet_rpcs',
+}
+
+// The playbooks that print the host's `name` var next to its address.
+const displayNameFiles = [
+  'ansible/cmn/start_solv.yml',
+  'ansible/cmn/stop_solv.yml',
+  'ansible/cmn/stop_firedancer.yml',
+  'ansible/cmn/start_firedancer.yml',
+  'ansible/mainnet-validator/start_solv.yml',
+  'ansible/mainnet-validator/stop_solv.yml',
+  'ansible/mainnet-validator/stop_firedancer.yml',
+  'ansible/testnet-validator/stop_solv.yml',
+  'ansible/testnet-validator/stop_firedancer.yml',
+  'ansible/testnet-validator/start_solv.yml',
+  'ansible/testnet-validator/restart_solv.yml',
+  'ansible/mainnet-rpc/stop_solv.yml',
+  'ansible/mainnet-rpc/stop_firedancer.yml',
+]
+
+const isStartScriptTemplate = (task: Entry): boolean =>
+  hasModule(task, 'template') &&
+  /\/start-validator[^/]*\.sh\.j2$/.test(
+    String((moduleArgs(task, 'template') as Entry).src),
+  )
+
+const startScriptPlays = (): { path: string; play: Entry }[] =>
+  [
+    'mainnet-validator',
+    'testnet-validator',
+    'mainnet-rpc',
+    'testnet-rpc',
+    'devnet-rpc',
+  ].flatMap((network) =>
+    [...Deno.readDirSync(new URL(`ansible/${network}/`, templateRoot))]
+      .filter((entry) => entry.isFile && entry.name.endsWith('.yml'))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .flatMap((entry) => {
+        const path = `ansible/${network}/${entry.name}`
+        return readPlaybook(path)
+          .filter((play) => tasksOf(play).some(isStartScriptTemplate))
+          .map((play) => ({ path, play }))
+      })
+  )
+
+const changedTemplates = [
+  ...validatorNetworks.flatMap((network) =>
+    [
+      'set_unstaked_key',
+      'set_identity_key',
+      'restart_node',
+      'stop_node',
+      'start_node',
+      'nodowntime_migrate',
+      'switch_off_identity',
+      'switch_off_firedancer_identity',
+      'switch_on_identity',
+      'switch_on_firedancer_identity',
+    ].map((file) => `ansible/${network}/${file}.yml`)
+  ),
+  'ansible/mainnet-validator/install_allnodes_jito.yml',
+  ...[
+    'rm_ledger',
+    'restart_agave_with_rm_ledger',
+    'restart_firedancer_with_rm_ledger',
+    'change_identity_and_restart',
+  ].map((file) => `ansible/testnet-validator/${file}.yml`),
+  ...[
+    'rm_ledger',
+    'build_allnodes_jito',
+    'patch_sha256',
+    'read_running_identity',
+  ]
+    .map((file) => `ansible/cmn/${file}.yml`),
+  'ansible/mainnet-rpc/update_startup_config.yml',
+  'jinja/cmn/restart.sh.j2',
+  'jinja/mainnet-validator/restart.sh.j2',
+  'jinja/testnet-validator/restart.sh.j2',
+  'ansible/mainnet-validator/create-start-validator-sh.yml',
+  'ansible/mainnet-validator/update_startup_config.yml',
+  'ansible/testnet-validator/create-start-validator-sh-agave.yml',
+  'ansible/testnet-validator/create-start-validator-sh-jito.yml',
+  'ansible/testnet-validator/deploy-start-validator-sh.yml',
+  'ansible/testnet-validator/update_startup_config.yml',
+  'ansible/mainnet-rpc/create-start-validator-sh.yml',
+  'ansible/testnet-rpc/create-start-validator-sh.yml',
+  'ansible/testnet-rpc/update_startup_config.yml',
+  'ansible/devnet-rpc/create-start-validator-sh.yml',
+  'ansible/devnet-rpc/update_startup_config.yml',
+  ...Object.keys(startScriptSections).map((script) => `jinja/${script}`),
+  ...displayNameFiles,
+]
+
+// Dist copies of the files above that were byte-identical to their template
+// source at 08acbaf3, each with the sha256 the file had then.
+const refreshedCopies: Record<string, string> = {
+  'slv-grpc-geyser/ansible/mainnet-rpc/update_startup_config.yml':
+    '9ba7e0f3de29e2527cd26270579878169f3dfb84774cbfeb1b3d974e7c662394',
+  'slv-grpc-geyser/jinja/cmn/restart.sh.j2':
+    '8ad49c4d53885f01d374bd25d7fe7dde6caad116068474125988923be70e949e',
+  'slv-rpc/ansible/mainnet-rpc/update_startup_config.yml':
+    '9ba7e0f3de29e2527cd26270579878169f3dfb84774cbfeb1b3d974e7c662394',
+  'slv-rpc/jinja/cmn/restart.sh.j2':
+    '8ad49c4d53885f01d374bd25d7fe7dde6caad116068474125988923be70e949e',
+  'slv-validator/ansible/mainnet-validator/set_identity_key.yml':
+    'a987a1d58db2220d844a1334174328764d526f701843ada1d6341d0323d1894b',
+  'slv-validator/ansible/mainnet-validator/set_unstaked_key.yml':
+    '2fad6e9da6b1e7ce6609e2299d2375afadfe4a7b807cdaf9b05d80db965817bc',
+  'slv-validator/ansible/mainnet-validator/switch_off_firedancer_identity.yml':
+    '010a8aba6b6b0d8af8fdc65e178bd98a8d866311800b3cfb55417631b53cfa80',
+  'slv-validator/ansible/mainnet-validator/switch_off_identity.yml':
+    '9e80cec2e1030746eb8801372bee962def6c151d2fcf4f2ee73664c86936d059',
+  'slv-validator/ansible/mainnet-validator/switch_on_firedancer_identity.yml':
+    '5b96d89e758e835b426db527a5c46e3b06362aaa81e4b8ec40d50a10bbe82485',
+  'slv-validator/ansible/mainnet-validator/switch_on_identity.yml':
+    'b03c4462e22a619e8a09d1bcd2395adbf6244693ba852f734a7e47fb4f167dc2',
+  'slv-validator/ansible/testnet-validator/change_identity_and_restart.yml':
+    '283c705c78eeb02ea77e6f0fe990e87a402040cb9349c63446de3e3b5ac2b56d',
+  'slv-validator/ansible/testnet-validator/restart_agave_with_rm_ledger.yml':
+    '22af42a193ef431ef62b23c8baea5acfe888650cede30ed58b10716f1e8fd7b5',
+  'slv-validator/ansible/testnet-validator/restart_firedancer_with_rm_ledger.yml':
+    'cf54b4dd4a92d701bd439d51a747b5c270d38462fca48e880d2e3edbd6cb418f',
+  'slv-validator/ansible/testnet-validator/rm_ledger.yml':
+    '8a6487ab23e5a999a13f5f25da4165a30887591082507d6a69f80b3f887fc546',
+  'slv-validator/ansible/testnet-validator/switch_off_firedancer_identity.yml':
+    '010a8aba6b6b0d8af8fdc65e178bd98a8d866311800b3cfb55417631b53cfa80',
+  'slv-validator/ansible/testnet-validator/switch_off_identity.yml':
+    '9e80cec2e1030746eb8801372bee962def6c151d2fcf4f2ee73664c86936d059',
+  'slv-validator/ansible/testnet-validator/switch_on_firedancer_identity.yml':
+    '6bcb5ba6206ec80523752934471778bd47885c924e35271b2dff30f99c762fdb',
+  'slv-validator/ansible/testnet-validator/switch_on_identity.yml':
+    '4038e69e31b03ef12c25d70cb343f1f2a5e41ae6fa8416c456e2fc2d709ed903',
+  'slv-validator/jinja/cmn/restart.sh.j2':
+    '8ad49c4d53885f01d374bd25d7fe7dde6caad116068474125988923be70e949e',
+  'slv-validator/jinja/mainnet-validator/restart.sh.j2':
+    'f87713f2d7df1d2ea77ef619187425fcb964e48483ec5ccca1444c7cf1498107',
+  'slv-validator/jinja/testnet-validator/restart.sh.j2':
+    '4a61cb1bc63fc2f4f2b4216f08f5c3919cc6fe497732ed8ffce60d02529442fc',
+  'slv-grpc-geyser/ansible/mainnet-rpc/create-start-validator-sh.yml':
+    '9b7f5a52bdaa1424e4101be280152a7851a62f9ec8a9239ea57e762cc755a3bb',
+  'slv-rpc/ansible/devnet-rpc/create-start-validator-sh.yml':
+    'cdb798c016d65d8aaf4e8340e0f2a0c1c4ac2bcbe3f295f982bc8451c081297f',
+  'slv-rpc/ansible/mainnet-rpc/create-start-validator-sh.yml':
+    '9b7f5a52bdaa1424e4101be280152a7851a62f9ec8a9239ea57e762cc755a3bb',
+  'slv-rpc/ansible/testnet-rpc/create-start-validator-sh.yml':
+    '09e25cc6391b1d8fc8336f3abc90d257fca00005495f09156ba629cc42db0670',
+  'slv-validator/ansible/mainnet-validator/create-start-validator-sh.yml':
+    'fce1b6b56f7d0faaad8381241e2ee5e2c105774779a1e94836d40dbf2b06dafc',
+  'slv-validator/ansible/testnet-validator/create-start-validator-sh-agave.yml':
+    '75a4a85bf51d862fbb336f101121b65f041b57c2b894af984c46d8ebec8487f4',
+  'slv-validator/ansible/testnet-validator/create-start-validator-sh-jito.yml':
+    'bf3b364867b55398b9892eba693e1854f8d6c14eca2406001a5afeb3573736cf',
+  'slv-validator/ansible/testnet-validator/deploy-start-validator-sh.yml':
+    'ec1c3d403cfca24faddc561211d4762d77a192d17e5808b5282c8910ee957f41',
+  'slv-validator/ansible/testnet-validator/update_startup_config.yml':
+    '5d7397c114c2ef5c0ad8ba6b7901302f179e1b988373d97683ed3bfcea03c7cd',
+  'slv-grpc-geyser/ansible/cmn/start_firedancer.yml':
+    'f100643e444af6552c2e604cb0a3205e1a5a114ba0b2fc05da7a1538ac49c3ff',
+  'slv-grpc-geyser/ansible/cmn/start_solv.yml':
+    '70246dfaa267428f8e38bf78f0acab7a7129a2b3daff3c5ea717d5231d468a89',
+  'slv-grpc-geyser/ansible/cmn/stop_firedancer.yml':
+    'bffef1b22debd56c0a1d18be6b6390c2e52653020980037c2b5d140d34c397ba',
+  'slv-grpc-geyser/ansible/cmn/stop_solv.yml':
+    '6104ea77795787bda419280a6279d139a8a4c2957171c0e7a6ef7393437815cf',
+  'slv-grpc-geyser/ansible/mainnet-rpc/stop_firedancer.yml':
+    'bffef1b22debd56c0a1d18be6b6390c2e52653020980037c2b5d140d34c397ba',
+  'slv-grpc-geyser/ansible/mainnet-rpc/stop_solv.yml':
+    '6104ea77795787bda419280a6279d139a8a4c2957171c0e7a6ef7393437815cf',
+  'slv-rpc/ansible/cmn/start_firedancer.yml':
+    'f100643e444af6552c2e604cb0a3205e1a5a114ba0b2fc05da7a1538ac49c3ff',
+  'slv-rpc/ansible/cmn/start_solv.yml':
+    '70246dfaa267428f8e38bf78f0acab7a7129a2b3daff3c5ea717d5231d468a89',
+  'slv-rpc/ansible/cmn/stop_firedancer.yml':
+    'bffef1b22debd56c0a1d18be6b6390c2e52653020980037c2b5d140d34c397ba',
+  'slv-rpc/ansible/cmn/stop_solv.yml':
+    '6104ea77795787bda419280a6279d139a8a4c2957171c0e7a6ef7393437815cf',
+  'slv-rpc/ansible/mainnet-rpc/stop_firedancer.yml':
+    'bffef1b22debd56c0a1d18be6b6390c2e52653020980037c2b5d140d34c397ba',
+  'slv-rpc/ansible/mainnet-rpc/stop_solv.yml':
+    '6104ea77795787bda419280a6279d139a8a4c2957171c0e7a6ef7393437815cf',
+  'slv-validator/ansible/mainnet-validator/start_solv.yml':
+    '70246dfaa267428f8e38bf78f0acab7a7129a2b3daff3c5ea717d5231d468a89',
+  'slv-validator/ansible/mainnet-validator/stop_firedancer.yml':
+    'accb34601532398b009094e7084c82fab39c66836b58d6ac5d7d6e103d060367',
+  'slv-validator/ansible/mainnet-validator/stop_solv.yml':
+    '6104ea77795787bda419280a6279d139a8a4c2957171c0e7a6ef7393437815cf',
+  'slv-validator/ansible/testnet-validator/restart_solv.yml':
+    '07690e0edd03ed2a56dd901ab45e8d836c61d84d4c58cde6715a0b597b718091',
+  'slv-validator/ansible/testnet-validator/start_solv.yml':
+    '70246dfaa267428f8e38bf78f0acab7a7129a2b3daff3c5ea717d5231d468a89',
+  'slv-validator/ansible/testnet-validator/stop_firedancer.yml':
+    '9d0a8f40fb6da0c082d2e35e01f1e202964c5f5dbf75bd7bb4cccaf94ff0c56a',
+  'slv-validator/ansible/testnet-validator/stop_solv.yml':
+    '6104ea77795787bda419280a6279d139a8a4c2957171c0e7a6ef7393437815cf',
+}
+
+// Dist copies of those files that already differed from their template source
+// at 08acbaf3.
+const differedAtBase = new Set([
+  'slv-validator/ansible/mainnet-validator/nodowntime_migrate.yml',
+  'slv-validator/ansible/mainnet-validator/restart_node.yml',
+  'slv-validator/ansible/mainnet-validator/start_node.yml',
+  'slv-validator/ansible/mainnet-validator/stop_node.yml',
+  'slv-validator/ansible/testnet-validator/nodowntime_migrate.yml',
+  'slv-validator/ansible/testnet-validator/restart_node.yml',
+  'slv-validator/ansible/testnet-validator/set_identity_key.yml',
+  'slv-validator/ansible/testnet-validator/set_unstaked_key.yml',
+  'slv-validator/ansible/testnet-validator/start_node.yml',
+  'slv-validator/ansible/testnet-validator/stop_node.yml',
+  'slv-grpc-geyser/jinja/mainnet-rpc/start-validator.sh.j2',
+  'slv-rpc/ansible/devnet-rpc/update_startup_config.yml',
+  'slv-rpc/ansible/testnet-rpc/update_startup_config.yml',
+  'slv-rpc/jinja/devnet-rpc/start-validator.sh.j2',
+  'slv-rpc/jinja/mainnet-rpc/start-validator.sh.j2',
+  'slv-rpc/jinja/testnet-rpc/start-validator.sh.j2',
+  'slv-validator/ansible/mainnet-validator/update_startup_config.yml',
+  'slv-validator/jinja/mainnet-validator/start-validator.sh.j2',
+  'slv-validator/jinja/testnet-validator/start-validator-agave.sh.j2',
+  'slv-validator/jinja/testnet-validator/start-validator-jito.sh.j2',
+  'slv-validator/jinja/testnet-validator/start-validator.sh.j2',
+])
+
+const readBytes = (url: URL): Uint8Array<ArrayBuffer> | undefined => {
+  try {
+    return Deno.readFileSync(url)
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return undefined
+    throw error
+  }
+}
+
+const sha256Hex = async (bytes: Uint8Array<ArrayBuffer>): Promise<string> =>
+  [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+
+Deno.test('addendum 11: dist/oss-skills copies that matched their template source at 08acbaf3 match it again', async () => {
+  const skills = [...Deno.readDirSync(distRoot)]
+    .filter((entry) => entry.isDirectory)
+    .map((entry) => entry.name)
+  for (const skill of skills) {
+    for (const template of changedTemplates) {
+      const key = `${skill}/${template}`
+      const copy = readBytes(new URL(key, distRoot))
+      if (copy === undefined || differedAtBase.has(key)) continue
+      assertEquals(
+        copy,
+        Deno.readFileSync(new URL(template, templateRoot)),
+        `${key} must be byte-identical to its template source`,
+      )
+    }
+  }
+  for (const [key, baseSha256] of Object.entries(refreshedCopies)) {
+    const template = key.slice(key.indexOf('/') + 1)
+    const source = Deno.readFileSync(new URL(template, templateRoot))
+    assertEquals(
+      readBytes(new URL(key, distRoot)),
+      source,
+      `${key} must exist and be byte-identical to its template source`,
+    )
+    assert(
+      await sha256Hex(source) !== baseSha256,
+      `${template} still has its 08acbaf3 content`,
+    )
+  }
+})
+
+Deno.test('xdp flags: the playbooks that render an agave start script read versions.yml when it exists, and each script reads its own section', () => {
+  for (const [script, section] of Object.entries(startScriptSections)) {
+    const text = readText(`jinja/${script}`)
+    assert(
+      text.includes(`${section} | default({})`),
+      `${script}: must read the ${section} section of versions.yml`,
+    )
+    assert(
+      text.includes("mandatory('Cannot tell which agave version"),
+      `${script}: must refuse when the agave version cannot be found`,
+    )
+  }
+  const plays = startScriptPlays()
+  for (const { path, play } of plays) {
+    assert(
+      [(play.vars_files ?? []) as unknown[]].flat(2).includes(
+        '~/.slv/versions.yml',
+      ),
+      `${path}: the play that renders a start script must load versions.yml`,
+    )
+  }
+  assertEquals(plays.length, 12, 'playbooks that render an agave start script')
+})
+
+const probeName =
+  'Read the version of the agave-validator installed on this host'
+const probeStopName =
+  'Stop when the installed agave-validator does not report its version'
+const activeReleaseBin =
+  '/home/solv/.local/share/solana/install/active_release/bin'
+
+const probesOf = (): {
+  path: string
+  probe: Entry
+  stop: Entry
+  play: Entry
+}[] =>
+  startScriptPlays().map(({ path, play }) => {
+    const tasks = tasksOf(play)
+    const probe = tasks.find((task) => task.name === probeName)
+    const stop = tasks.find((task) => task.name === probeStopName)
+    assert(probe && stop, `${path}: needs the probe and its stop task`)
+    return { path, probe, stop, play }
+  })
+
+const assertInitPlaybooksInstallBeforeTheyRender = (): void => {
+  const installers = new Set([
+    'build_solana.yml',
+    'install_solana.yml',
+    'install_agave.yml',
+    'install_jito.yml',
+    'install_allnodes_jito.yml',
+  ])
+  const renderers = new Set(
+    startScriptPlays().map(({ path }) => path.split('/').pop()),
+  )
+  let checked = 0
+  for (
+    const network of [
+      'mainnet-validator',
+      'testnet-validator',
+      'mainnet-rpc',
+      'testnet-rpc',
+      'devnet-rpc',
+    ]
+  ) {
+    for (
+      const entry of Deno.readDirSync(
+        new URL(`ansible/${network}/`, templateRoot),
+      )
+    ) {
+      if (!/^init.*\.yml$/.test(entry.name)) continue
+      const path = `ansible/${network}/${entry.name}`
+      const imports = readPlaybook(path)
+        .filter((play) => play.import_playbook !== undefined)
+        .map((play) => String(play.import_playbook).split('/').pop() as string)
+      for (const [position, name] of imports.entries()) {
+        if (!renderers.has(name)) continue
+        checked++
+        assert(
+          imports.slice(0, position).some((earlier) => installers.has(earlier)),
+          `${path}: ${name} renders the start script before any install or build`,
+        )
+      }
+    }
+  }
+  assert(checked >= 8, `only ${checked} renders in init playbooks were checked`)
+}
+
+Deno.test('installed agave: every play that renders a start script reads the installed agave-validator before it writes anything, and every init playbook installs before it renders', () => {
+  const quoted = (conditions: string[]) =>
+    new Set(conditions.join(' ').match(/'[^']+'/g) ?? [])
+  const scripts = new Set<string>()
+  for (const { path, probe, stop, play } of probesOf()) {
+    const tasks = tasksOf(play)
+    assert(hasModule(probe, 'shell'), `${path}: the probe runs a command`)
+    assertEquals(probe.register, 'agave_installed')
+    assertEquals(
+      probe.check_mode,
+      false,
+      `${path}: read-only, so check mode runs it`,
+    )
+    assertEquals(probe.changed_when, false)
+    assertEquals(probe.failed_when, false, `${path}: the stop task reports it`)
+    scripts.add(commandOf(probe))
+
+    assert(hasModule(stop, 'fail'), `${path}: the stop task fails`)
+    assertEquals(conditionsOf(stop), [
+      ...conditionsOf(probe),
+      'agave_installed.rc != 0',
+    ])
+    assert(
+      String((moduleArgs(stop, 'fail') as Entry).msg).includes(
+        '{{ agave_installed.stderr | trim }}',
+      ),
+      `${path}: the stop message carries what the probe said`,
+    )
+
+    // the probe runs wherever a script is rendered, and the script gets its answer
+    const renders = tasks.filter(isStartScriptTemplate)
+    assert(renders.length > 0, `${path}: no start script task`)
+    for (const render of renders) {
+      assertEquals(
+        (render.vars as Entry | undefined)?.installed_agave_version,
+        '{{ agave_installed.stdout | trim }}',
+        `${path}: "${render.name}" does not pass the installed version`,
+      )
+      const covered = quoted(conditionsOf(render))
+      const probed = quoted(conditionsOf(probe))
+      assert(
+        [...covered].every((value) => probed.has(value)),
+        `${path}: the probe does not cover "${render.name}"`,
+      )
+      if (conditionsOf(render).length === 0) {
+        assertEquals(conditionsOf(probe), [], `${path}: probe guard`)
+      }
+    }
+
+    // nothing is written, so a stop leaves the host as it was
+    const changes = (task: Entry) =>
+      task !== probe &&
+      ['file', 'template', 'copy', 'shell', 'command'].some((module) =>
+        hasModule(task, module)
+      )
+    const firstChange = firstIndex(tasks, changes)
+    assert(
+      firstChange > tasks.indexOf(stop),
+      `${path}: a task writes before the stop`,
+    )
+    assert(
+      tasks.indexOf(probe) < tasks.indexOf(stop),
+      `${path}: probe before stop`,
+    )
+  }
+  assertEquals(scripts.size, 1, 'the probe is the same text in every play')
+  assertInitPlaybooksInstallBeforeTheyRender()
+})
+
+type ProbeCase = {
+  name: string
+  // what systemctl says the solv unit sets PATH to; '' means no unit
+  unitPath: (root: string) => string
+  // fake agave-validator files: path under the root, what it prints, its exit status
+  binaries: Record<string, [string, number]>
+  dangling?: string
+  stdout: string
+  exit: number
+  stderr?: (root: string) => string[]
+}
+
+const detail = 'src:0123abcd; feat:00000001, client:'
+const probeCases: ProbeCase[] = [
+  {
+    name:
+      'an older binary than the configured version: its version is the answer',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 3.1.10 (${detail}Agave)`, 0],
+    },
+    stdout: '3.1.10\n',
+    exit: 0,
+  },
+  {
+    name: 'a newer binary',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name: 'a pre-release prints X.Y.Z of the line it belongs to',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 4.4.0-beta.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.4.0\n',
+    exit: 0,
+  },
+  {
+    name: 'a version printed with a leading v',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator v4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name: 'a Jito build',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 3.1.10 (${detail}JitoLabs)`, 0],
+    },
+    stdout: '3.1.10\n',
+    exit: 0,
+  },
+  {
+    name: 'a warning line before the version line',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [
+        `warning: low memlock limit\nagave-validator 3.1.10 (${detail}Agave)`,
+        0,
+      ],
+    },
+    stdout: '3.1.10\n',
+    exit: 0,
+  },
+  {
+    name: 'the unit lists several directories: the first with a binary wins',
+    unitPath: (root) => `${root}/other/bin:${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name: 'no unit yet: the active_release link is used',
+    unitPath: () => '',
+    binaries: {
+      'default/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name:
+      'the unit names a directory without a binary: the link is not consulted',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'default/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '',
+    exit: 0,
+  },
+  {
+    name:
+      'no binary installed yet: nothing is said and the configured version applies',
+    unitPath: () => '',
+    binaries: {},
+    stdout: '',
+    exit: 0,
+  },
+  {
+    name: 'a binary that cannot run stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [
+        'error while loading shared libraries: libudev.so.1: cannot open shared object file',
+        127,
+      ],
+    },
+    stdout: '',
+    exit: 1,
+    stderr: (root) => [
+      `${root}/unit/bin/agave-validator`,
+      'did not report a version (exit 127)',
+      'error while loading shared libraries',
+    ],
+  },
+  {
+    name: 'a binary that prints nothing stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: { 'unit/bin': ['', 0] },
+    stdout: '',
+    exit: 1,
+    stderr: (
+      root,
+    ) => [
+      `${root}/unit/bin/agave-validator`,
+      'did not report a version (exit 0)',
+    ],
+  },
+  {
+    name: 'a binary that prints text without a version stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: { 'unit/bin': ['agave-validator (unknown build)', 0] },
+    stdout: '',
+    exit: 1,
+    stderr: () => ['did not report a version (exit 0)', 'unknown build'],
+  },
+  {
+    name: 'a binary that prints a version but fails stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: { 'unit/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 1] },
+    stdout: '',
+    exit: 1,
+    stderr: () => ['did not report a version (exit 1)'],
+  },
+  {
+    name: 'a link to a binary that is gone stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {},
+    dangling: 'unit/bin',
+    stdout: '',
+    exit: 1,
+    stderr: (
+      root,
+    ) => [`${root}/unit/bin/agave-validator`, 'did not report a version'],
+  },
+]
+
+Deno.test('installed agave: the probe reads X.Y.Z from the binary the solv unit runs, and stops when it cannot', async () => {
+  const [{ probe }] = probesOf()
+  const script = commandOf(probe)
+  assert(
+    script.includes(activeReleaseBin),
+    'the probe falls back to the active_release link the installers fill',
+  )
+  const dir = await Deno.makeTempDir({ prefix: 'slv-w0-probe-' })
+  try {
+    for (const [index, probeCase] of probeCases.entries()) {
+      const root = `${dir}/${index}`
+      await Deno.mkdir(`${root}/bin`, { recursive: true })
+      await Deno.writeTextFile(
+        `${root}/bin/systemctl`,
+        '#!/bin/sh\nif [ "$1" = show ] && [ "$2" = solv ]; then\n  [ -z "$FAKE_UNIT_ENV" ] || printf \'%s\\n\' "$FAKE_UNIT_ENV"\n  exit 0\nfi\nexit 1\n',
+        { mode: 0o755 },
+      )
+      for (
+        const [relative, [output, status]] of Object.entries(probeCase.binaries)
+      ) {
+        await Deno.mkdir(`${root}/${relative}`, { recursive: true })
+        await Deno.writeTextFile(
+          `${root}/${relative}/agave-validator`,
+          `#!/bin/sh\ncat <<'EOF'\n${output}\nEOF\nexit ${status}\n`,
+          { mode: 0o755 },
+        )
+      }
+      if (probeCase.dangling !== undefined) {
+        await Deno.mkdir(`${root}/${probeCase.dangling}`, { recursive: true })
+        await Deno.symlink(
+          `${root}/gone`,
+          `${root}/${probeCase.dangling}/agave-validator`,
+        )
+      }
+      const unitPath = probeCase.unitPath(root)
+      const { code, stdout, stderr } = await new Deno.Command('/bin/bash', {
+        args: [
+          '-c',
+          script.replaceAll(activeReleaseBin, `${root}/default/bin`),
+        ],
+        clearEnv: true,
+        env: {
+          PATH: `${root}/bin:/usr/bin:/bin`,
+          FAKE_UNIT_ENV: unitPath === ''
+            ? ''
+            : `PATH=${unitPath} SOLANA_METRICS_CONFIG=host=https://metrics.solana.com:8086,db=mainnet-beta,u=u,p=p`,
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      const said = new TextDecoder().decode(stderr)
+      assertEquals(
+        code,
+        probeCase.exit,
+        `${probeCase.name}: exit status\n${said}`,
+      )
+      assertEquals(
+        new TextDecoder().decode(stdout),
+        probeCase.stdout,
+        probeCase.name,
+      )
+      for (const part of probeCase.stderr?.(root) ?? []) {
+        assert(
+          said.includes(part),
+          `${probeCase.name}: stderr lacks "${part}": ${said}`,
+        )
+      }
+    }
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('installed agave: the start script templates take the installed version before the configured one', () => {
+  for (const script of Object.keys(startScriptSections)) {
+    const text = readText(`jinja/${script}`)
+    const line =
+      "{% set _client_version = installed_agave_version | default('', true) or _client_version %}"
+    assertEquals(
+      text.split(line).length - 1,
+      1,
+      `${script}: installed version line`,
+    )
+    const configured = text.indexOf('{% set _client_version')
+    const installed = text.indexOf(line)
+    const digits = text.indexOf('{% set _digits')
+    assert(
+      configured >= 0 && configured < installed && installed < digits,
+      `${script}: the installed version has to come after the configured one is set and before it is read`,
+    )
+  }
+})
+
+const playbooksUnder = (directory: URL): URL[] =>
+  [...Deno.readDirSync(directory)]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((entry) =>
+      entry.isDirectory
+        ? playbooksUnder(new URL(`${entry.name}/`, directory))
+        : /\.ya?ml$/.test(entry.name)
+        ? [new URL(entry.name, directory)]
+        : []
+    )
+
+// hostvars[inventory_hostname].name and hostvars[inventory_hostname]['name'],
+// with or without a `| default(` right behind them.
+const hostNameLookup =
+  /hostvars\s*\[\s*inventory_hostname\s*\]\s*(?:\.\s*name\b|\[\s*(['"])name\1\s*\])/g
+
+Deno.test('display names: no template playbook reads the host name var without a default', () => {
+  const withoutDefault: string[] = []
+  const withDefault = new Map<string, number>()
+  const ansibleRoot = new URL('ansible/', templateRoot)
+  for (const file of playbooksUnder(ansibleRoot)) {
+    const text = Deno.readTextFileSync(file)
+    const path = `ansible/${file.href.slice(ansibleRoot.href.length)}`
+    for (const match of text.matchAll(hostNameLookup)) {
+      const index = match.index ?? 0
+      if (/^\s*\|\s*default\(/.test(text.slice(index + match[0].length))) {
+        withDefault.set(path, (withDefault.get(path) ?? 0) + 1)
+      } else {
+        const line = text.slice(0, index).split('\n').length
+        withoutDefault.push(`${path}:${line}`)
+      }
+    }
+  }
+  assertEquals(
+    withoutDefault,
+    [],
+    'a read of the inventory name var with no default fails when the inventory has none',
+  )
+  for (const path of displayNameFiles) {
+    assertEquals(
+      withDefault.get(path),
+      1,
+      `${path} must print the host name with a default`,
+    )
+  }
+})

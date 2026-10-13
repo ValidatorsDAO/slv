@@ -185,7 +185,7 @@ ansible-playbook -i inventory.yml testnet-validator/install_jito.yml -e '{"solan
 Ask if user has existing keys or needs to generate:
 - `identity_account` — Validator identity pubkey (required)
 - `vote_account` — Vote account pubkey (required)
-- If generating: use `solana-keygen new` on the target server
+- If generating: the keys are generated on the operator's machine with `slv v init`, into `~/.slv/keys/`. Keys are never generated on a remote host, and the agent does not run `solana-keygen`.
 
 ### Step 5: Snapshot
 - `snapshot_url` — Snapshot download URL

@@ -4,6 +4,7 @@
   become: true
   become_user: solv
   gather_facts: no
+  any_errors_fatal: true
   tasks:
     - name: Upload Tower File
       ansible.builtin.copy:
@@ -13,7 +14,7 @@
     - name: Set Identity to Mainnet Validator Key
       shell: |
         . ~/.profile
-        sudo fdctl set-identity --config /home/solv/firedancer-config.toml /home/solv/mainnet-validator-keypair.json
+        sudo fdctl set-identity --config /home/solv/firedancer-config.toml --require-tower /home/solv/mainnet-validator-keypair.json
       args:
         executable: /bin/bash
 

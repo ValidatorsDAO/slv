@@ -90,6 +90,7 @@
       ansible.builtin.git:
         repo: https://github.com/kagren/solana-sha256-hasher-optimized
         dest: "{{ optimized_repo_dir }}"
+        version: "7cf3153b860751d8c8ba3c65128880ea4b62aba6"
         force: yes
 
     - name: Register optimized_sha256 in workspace members
@@ -166,12 +167,19 @@
             else solana_bin_path
           }}
 
-    - name: Backup existing agave-validator binary
+    - name: Check the agave-validator binary that is about to be replaced
+      ansible.builtin.stat:
+        path: "{{ deploy_binary_path }}"
+      register: deploy_binary_stat
+
+    - name: Backup existing agave-validator binary (an earlier backup of this version is kept)
       ansible.builtin.copy:
         src: "{{ deploy_binary_path }}"
-        dest: "{{ deploy_binary_path }}.backup"
+        dest: "{{ deploy_binary_path }}.{{ solana_version }}.orig"
         remote_src: yes
-      ignore_errors: yes
+        force: false
+        mode: preserve
+      when: deploy_binary_stat.stat.exists
 
     - name: Deploy patched agave-validator binary
       ansible.builtin.copy:

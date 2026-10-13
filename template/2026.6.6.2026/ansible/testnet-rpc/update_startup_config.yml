@@ -2,10 +2,52 @@
 - name: Update Startup Validator Config
   hosts: all
   become: true
+  # versions.yml is read when it exists; -e agave_version, jito_version or
+  # allnodes_jito_version also give the start script its agave version.
+  vars_files:
+    - ["~/.slv/versions.yml", "/dev/null"]
   tasks:
     - name: Set validator type fact for each host
       set_fact:
         validator_type: "{{ validator_type | default('firedancer-jito') }}"
+
+    # The XDP flags have to suit the agave that starts next, so the version comes
+    # from the agave-validator installed on this host, found the way the solv unit
+    # finds it. Without an installed binary the configured version applies.
+    - name: Read the version of the agave-validator installed on this host
+      shell: |
+        unit_path=$(systemctl show solv --property=Environment --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^PATH=//p' | tail -n 1)
+        unit_path=${unit_path:-/home/solv/.local/share/solana/install/active_release/bin}
+        binary=
+        for dir in $(printf '%s' "$unit_path" | tr ':' ' '); do
+          if [ -e "$dir/agave-validator" ] || [ -L "$dir/agave-validator" ]; then
+            binary="$dir/agave-validator"
+            break
+          fi
+        done
+        [ -n "$binary" ] || exit 0
+        output=$("$binary" --version 2>&1)
+        status=$?
+        version=$(printf '%s\n' "$output" | sed -n 's/^[A-Za-z][A-Za-z0-9_.-]* v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)
+        if [ "$status" -ne 0 ] || [ -z "$version" ]; then
+          printf 'The agave-validator at %s did not report a version (exit %s). It printed: "%s".\n' "$binary" "$status" "$output" >&2
+          exit 1
+        fi
+        printf '%s\n' "$version"
+      args:
+        executable: /bin/bash
+      register: agave_installed
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: validator_type in ['agave', 'jito']
+
+    - name: Stop when the installed agave-validator does not report its version
+      fail:
+        msg: 'Nothing was changed on {{ inventory_hostname }}. {{ agave_installed.stderr | trim }} Reinstall the agave-validator that the solv service runs, then run this again.'
+      when:
+        - validator_type in ['agave', 'jito']
+        - agave_installed.rc != 0
 
     - name: Updatge start-validator.sh from template for Agave
       template:
@@ -16,6 +58,7 @@
         group: solv
       vars:
         vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+        installed_agave_version: '{{ agave_installed.stdout | trim }}'
       when: validator_type in ['agave', 'jito']
 
     - name: Update firedancer-config.toml from template

@@ -10,4 +10,4 @@
 
     - name: Display Solana Restart Result with name
       debug:
-        msg: "{{ inventory_hostname }} ({{ hostvars[inventory_hostname]['name'] }}): Solana Restart Result: {{ solana_version_output.stdout }}"
+        msg: "{{ inventory_hostname }} ({{ hostvars[inventory_hostname]['name'] | default(inventory_hostname) }}): Solana Restart Result: {{ solana_version_output.stdout }}"

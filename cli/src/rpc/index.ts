@@ -8,11 +8,13 @@ import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import { runAnsilbe } from '/lib/runAnsible.ts'
+import { parseDeployNetwork } from '/lib/targetGuard.ts'
 import { deployRPCTestnet } from '/src/rpc/deploy/deployRPCTestnet.ts'
 import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
+import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import type { VersionSection } from '/lib/config/updateAllowedIps.ts'
 
 // rpc Command
@@ -42,8 +44,13 @@ rpcCmd.command('deploy')
   )
   .option('-p, --pubkey <pubkey>', 'Deploy RPC node for a specific pubkey')
   .action(async (options) => {
-    const network = options.network || 'mainnet'
-    switch (network) {
+    const parsed = parseDeployNetwork('rpc', options.network)
+    if (!parsed.ok) {
+      console.error(colors.red(`❌ ${parsed.error}`))
+      Deno.exitCode = 1
+      return
+    }
+    switch (parsed.network) {
       case 'mainnet':
         await deployRPCMainnet(options.pubkey)
         break
@@ -53,13 +60,7 @@ rpcCmd.command('deploy')
       case 'testnet':
         await deployRPCTestnet(options.pubkey)
         break
-      default:
-        console.log(
-          colors.red('❌ Invalid network. Use mainnet, devnet, or testnet.'),
-        )
-        return
     }
-    return
   })
 
 rpcCmd.command('list')
@@ -117,77 +118,7 @@ rpcCmd.command('update:firedancer')
     }
   })
 
-type BuildSolanaOptions = {
-  pubkey?: string
-  network?: string
-}
-
-const runBuildSolana = async (options: BuildSolanaOptions) => {
-  const inventoryType = options.network + '_rpcs' as InventoryType
-  const templateRoot = getTemplatePath()
-
-  const playbook =
-    `${templateRoot}/ansible/${options.network}-rpc/install_solana.yml`
-  if (options.pubkey) {
-    await runAnsilbe(playbook, inventoryType, options.pubkey)
-    return
-  }
-  await runAnsilbe(playbook, inventoryType)
-}
-
-rpcCmd.command('build:solana')
-  .description('🛠️ Build Solana CLI from Source')
-  .option('-p, --pubkey <pubkey>', 'Name of RPC')
-  .option('-n, --network <network>', 'Network to deploy validators', {
-    default: 'mainnet',
-  })
-  .action(async (options) => {
-    await runBuildSolana(options)
-  })
-
-rpcCmd.command('build:solana-cli')
-  .description('🔁 Alias for build:solana')
-  .option('-p, --pubkey <pubkey>', 'Name of RPC')
-  .option('-n, --network <network>', 'Network to deploy validators', {
-    default: 'mainnet',
-  })
-  .action(async (options) => {
-    await runBuildSolana(options)
-  })
-
-rpcCmd.command('install:solana')
-  .description('➡️ Install Solana CLI Binary')
-  .option('-v, --version <version>', 'Solana CLI version to install')
-  .option('-p, --pubkey <pubkey>', 'Name of RPC')
-  .option('-n, --network <network>', 'Network to deploy validators', {
-    default: 'mainnet',
-  })
-  .action(async (options) => {
-    const inventoryType = options.network + '_rpcs' as InventoryType
-    const templateRoot = getTemplatePath()
-    const playbook = `${templateRoot}/ansible/cmn/install_solana.yml`
-    if (options.version) {
-      const extraVars = { version: options.version }
-      if (options.pubkey) {
-        await runAnsilbe(
-          playbook,
-          inventoryType,
-          options.pubkey,
-          extraVars,
-        )
-        return
-      }
-      await runAnsilbe(playbook, inventoryType, undefined, extraVars)
-      return
-    }
-
-    if (options.pubkey) {
-      await runAnsilbe(playbook, inventoryType, options.pubkey)
-      return
-    }
-    await runAnsilbe(playbook, inventoryType)
-    return
-  })
+registerSolanaBinaryCommands(rpcCmd, 'rpc')
 
 rpcCmd.command('update:script')
   .description('⚙️ Update RPC Startup Config')

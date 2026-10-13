@@ -1,4 +1,4 @@
-import { Confirm, prompt } from '@cliffy/prompt'
+import { confirmDeploy } from '/lib/targetGuard.ts'
 import { colors } from '@cliffy/colors'
 import { runAnsilbe } from '/lib/runAnsible.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
@@ -21,20 +21,14 @@ const deployPythnetMainnet = async (limit?: string) => {
       '   (~10-20 min before getHealth returns "ok").',
     ),
   )
-  const confirm = await prompt([{
-    type: Confirm,
-    name: 'continue',
-    message: 'Do you want to continue?',
-    default: true,
-  }])
-  if (!confirm.continue) {
+  if (!await confirmDeploy()) {
     console.log(colors.blue('Cancelled...🌝'))
     return false
   }
   const yml = `${templateRoot}/ansible/mainnet-pythnet/init.yml`
-  const result = limit
-    ? await runAnsilbe(yml, inventoryType, limit)
-    : await runAnsilbe(yml, inventoryType)
+  const result = await runAnsilbe(yml, inventoryType, limit, undefined, {
+    allHostsConfirmed: true,
+  })
   if (result) {
     console.log(colors.white('✅ Successfully deployed Pythnet RPC on mainnet'))
     return true

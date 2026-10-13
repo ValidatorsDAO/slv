@@ -6,6 +6,8 @@ import { Input, prompt, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import { runAnsilbe } from '/lib/runAnsible.ts'
+import { parseDeployNetwork } from '/lib/targetGuard.ts'
+import { runSetIdentity } from '/lib/identityPrecheck.ts'
 import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
 import { switchValidator } from '/src/validator/switch/switchValidator.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
@@ -19,6 +21,7 @@ import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
+import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
 
 export const validatorCmd = new Command()
@@ -54,7 +57,13 @@ validatorCmd.command('deploy')
       ])
       network = validator.network
     }
-    if (network === 'testnet') {
+    const parsed = parseDeployNetwork('validator', network)
+    if (!parsed.ok) {
+      console.error(colors.red(`❌ ${parsed.error}`))
+      Deno.exitCode = 1
+      return
+    }
+    if (parsed.network === 'testnet') {
       await deployValidatorTestnet(options.pubkey)
     } else {
       await deployValidatorMainnet(options.pubkey)
@@ -95,23 +104,28 @@ validatorCmd.command('list')
   })
 
 validatorCmd.command('set:identity')
-  .description('🪪  Set Validator Identity')
-  .option('-n, --network <network>', 'Solana Network', {
+  .description(
+    '🪪  Set Validator Identity on exactly one host (refuses if the identity may already be running elsewhere)',
+  )
+  .option('-n, --network <network>', 'Solana Network (mainnet or testnet)', {
     default: 'testnet',
   })
-  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
+  .option('-p, --pubkey <pubkey>', 'Inventory name of the one host to promote.')
+  .option(
+    '--first-activation',
+    'First promotion of this identity: the host has no tower or vote history yet.',
+  )
+  .option(
+    '--peer-down-confirmed',
+    'Go ahead although a peer host holding the same identity could not be read; use only after confirming it is not running the identity.',
+  )
   .action(async (options) => {
-    // const network = options.network
-    const inventoryType: InventoryType = options.network === 'mainnet'
-      ? 'mainnet_validators'
-      : 'testnet_validators'
-    const networkPath = options.network === 'mainnet'
-      ? 'mainnet-validator'
-      : 'testnet-validator'
-    const templateRoot = getTemplatePath()
-    const playbook =
-      `${templateRoot}/ansible/${networkPath}/set_identity_key.yml`
-    const result = await runAnsilbe(playbook, inventoryType, options.pubkey)
+    const result = await runSetIdentity({
+      network: options.network,
+      pubkey: options.pubkey,
+      firstActivation: options.firstActivation,
+      peerDownConfirmed: options.peerDownConfirmed,
+    })
     if (result) {
       console.log(colors.white('✅ Successfully Set Validator Identity'))
       return
@@ -197,88 +211,7 @@ validatorCmd.command('update:firedancer')
     }
   })
 
-type BuildSolanaOptions = {
-  pubkey?: string
-  network?: string
-}
-
-const runBuildSolana = async (options: BuildSolanaOptions) => {
-  const inventoryType: InventoryType = options.network === 'mainnet'
-    ? 'mainnet_validators'
-    : 'testnet_validators'
-  const templateRoot = getTemplatePath()
-  if (options.network === 'mainnet') {
-    const playbook =
-      `${templateRoot}/ansible/mainnet-validator/install_solana.yml`
-    if (options.pubkey) {
-      await runAnsilbe(playbook, inventoryType, options.pubkey)
-      return
-    }
-    await runAnsilbe(playbook, inventoryType)
-    return
-  } else {
-    const playbook =
-      `${templateRoot}/ansible/testnet-validator/install_solana.yml`
-    if (options.pubkey) {
-      await runAnsilbe(playbook, inventoryType, options.pubkey)
-      return
-    }
-    await runAnsilbe(playbook, inventoryType)
-  }
-}
-
-validatorCmd.command('build:solana')
-  .description('🛠️ Build Solana CLI from Source')
-  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
-  .option('-n, --network <network>', 'Solana Network', {
-    default: 'testnet',
-  })
-  .action(async (options) => {
-    await runBuildSolana(options)
-  })
-validatorCmd.command('build:solana-cli')
-  .description('🔁 Alias for build:solana')
-  .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
-  .option('-n, --network <network>', 'Solana Network', {
-    default: 'testnet',
-  })
-  .action(async (options) => {
-    await runBuildSolana(options)
-  })
-
-validatorCmd.command('install:solana')
-  .description('➡️ Install Solana CLI Binary')
-  .option('-v, --version <version>', 'Solana CLI version to install')
-  .option('-p, --pubkey <pubkey>', 'Name of RPC')
-  .option('-n, --network <network>', 'Network to deploy validators', {
-    default: 'mainnet',
-  })
-  .action(async (options) => {
-    const inventoryType = options.network + '_validators' as InventoryType
-    const templateRoot = getTemplatePath()
-    const playbook = `${templateRoot}/ansible/cmn/install_solana.yml`
-    if (options.version) {
-      const extraVars = { version: options.version }
-      if (options.pubkey) {
-        await runAnsilbe(
-          playbook,
-          inventoryType,
-          options.pubkey,
-          extraVars,
-        )
-        return
-      }
-      await runAnsilbe(playbook, inventoryType, undefined, extraVars)
-      return
-    }
-
-    if (options.pubkey) {
-      await runAnsilbe(playbook, inventoryType, options.pubkey)
-      return
-    }
-    await runAnsilbe(playbook, inventoryType)
-    return
-  })
+registerSolanaBinaryCommands(validatorCmd, 'validator')
 
 validatorCmd.command('update:script')
   .description('⚙️  Update Validator Startup Config')

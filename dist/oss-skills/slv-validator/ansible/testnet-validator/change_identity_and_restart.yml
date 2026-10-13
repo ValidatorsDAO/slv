@@ -14,7 +14,7 @@
       register: stop_service_result
 
     - name: Remove all files in /mnt/ledger/ using rm -rf
-      shell: sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -delete
+      shell: sudo find /mnt/ledger/ -mindepth 1 -not -name 'tower-1_9-*' -not -name 'vote_history-*' -not -name 'contact-info.bin' -delete
       become: true
       become_user: root
 

@@ -41,7 +41,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer |
 | `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary |
 | `slv v update:script` | `{net}/update_startup_config.yml` | Re-render start-validator.sh from template |
-| `slv v set:identity` | `{net}/set_identity_key.yml` | Set validator identity key |
+| `slv v set:identity -p <host>` | `{net}/set_identity_key.yml` | Set validator identity key on one host |
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
 | `slv v get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv v cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |

@@ -4,22 +4,27 @@ import {
   type CredentialProblem,
   printCredentialProblem,
   resolveStorageAccessKey,
-  resolveUserApiAuth,
   sanitizeSudoUser,
 } from '/lib/getApiKeyFromYml.ts'
-import type { UserApiAuth } from '/lib/userApi/auth.ts'
-import {
-  multipartComplete,
-  multipartCreate,
-  multipartUploadPart,
-  presignUpload,
-  storageDelete,
-  storageList,
-  StorageApiError,
-  type StorageRegion,
-} from '/src/storage/api.ts'
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
-import { buildExcludeList, printExcludes } from '@/backup/excludes.ts'
+import {
+  type BackupTool,
+  buildExcludeParts,
+  type ExcludeParts,
+  filterSyntaxMessage,
+  type FilterSyntaxProblem,
+  filterSyntaxProblems,
+  findExistingPaths,
+  joinExcludes,
+  perComponentPatterns,
+  printExcludes,
+  type PrivateKeyFinder,
+  searchSshKeys,
+  secretExcludes,
+  type SshKeySearch,
+  sshScanNote,
+  TAR_PER_COMPONENT,
+} from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
 import { resticBackup, type ResticBackupOptions } from '@/backup/restic.ts'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
@@ -119,19 +124,237 @@ function formatTimestamp(): string {
   return `${y}${mo}${d}-${h}${mi}${s}`
 }
 
-function parseTimestampFromFilename(filename: string): Date | null {
-  // backup-<hostname>-YYYYMMDD-HHMMSS.tar.zst
-  const match = filename.match(/(\d{8})-(\d{6})\.tar\.(zst|gz)$/)
-  if (!match) return null
-  const dateStr = match[1]
-  const timeStr = match[2]
-  const year = parseInt(dateStr.slice(0, 4))
-  const month = parseInt(dateStr.slice(4, 6)) - 1
-  const day = parseInt(dateStr.slice(6, 8))
-  const hour = parseInt(timeStr.slice(0, 2))
-  const min = parseInt(timeStr.slice(2, 4))
-  const sec = parseInt(timeStr.slice(4, 6))
-  return new Date(Date.UTC(year, month, day, hour, min, sec))
+/** What a request for an unencrypted upload asked for. */
+export type PlainBackupRequest = 'upload' | 'cron'
+
+/**
+ * A plain tar archive is not encrypted, so it is never uploaded and never
+ * scheduled for upload. `--restic` is the encrypted path; `--cron off` schedules
+ * nothing, so it stays available to remove an older schedule.
+ */
+export function plainBackupRequest(options: {
+  upload?: boolean
+  cron?: string
+  restic?: boolean
+}): PlainBackupRequest | null {
+  if (options.restic) return null
+  if (options.upload) return 'upload'
+  if (options.cron && options.cron !== 'off') return 'cron'
+  return null
+}
+
+function plainBackupRefusal(request: PlainBackupRequest): string[] {
+  if (request === 'upload') {
+    return [
+      'A plain tar archive is never uploaded: it is not encrypted.',
+      'Back up to cloud storage with restic, which encrypts on this host before anything leaves it:',
+      '  slv backup create --restic -y',
+      'Restic signs in with your ERPC login: run `slv login` first if this host has not.',
+      'Without --restic the archive stays on this host:  slv backup create -y',
+      'A cron job from an older version still calls --upload. Replace it:  slv backup create --cron daily --restic -y',
+    ]
+  }
+  return [
+    'A plain tar archive is never scheduled for upload: it is not encrypted.',
+    'Schedule the encrypted backup instead:',
+    '  slv backup create --cron daily --restic -y',
+    'To stop an existing schedule:  slv backup create --cron off',
+  ]
+}
+
+/**
+ * Refuse a plain upload or a plain schedule before any archive is created. An
+ * unattended run (a cron entry written by an older version calls --upload) has
+ * nobody watching its output, so the webhook hears about it too.
+ */
+async function refusePlainBackup(
+  request: PlainBackupRequest,
+  webhookUrl: string | undefined,
+): Promise<never> {
+  const lines = plainBackupRefusal(request)
+  console.log(colors.red(`\n❌ ${lines[0]}\n`))
+  for (const line of lines.slice(1)) console.log(colors.white(`  ${line}`))
+  console.log('')
+  if (request === 'upload' && webhookUrl) {
+    const host = await getHostname()
+    await notifyWebhook(
+      webhookUrl,
+      ['❌ **SLV Backup Refused**', `**Host**: ${host}`, ...lines].join('\n'),
+    )
+  }
+  Deno.exit(1)
+}
+
+/**
+ * Refuse an exclude or include value that is a filter rule and not a path,
+ * before anything runs. A scheduled run has nobody watching its output, so the
+ * webhook hears about it too.
+ */
+async function refuseFilterSyntax(
+  problems: readonly FilterSyntaxProblem[],
+  webhookUrl: string | undefined,
+): Promise<never> {
+  const lines = filterSyntaxMessage(problems)
+  console.log(colors.red(`\n❌ ${lines[0]}\n`))
+  for (const line of lines.slice(1)) console.log(colors.white(`  ${line}`))
+  console.log('')
+  if (webhookUrl) {
+    const host = await getHostname()
+    await notifyWebhook(
+      webhookUrl,
+      ['❌ **SLV Backup Refused**', `**Host**: ${host}`, ...lines].join('\n'),
+    )
+  }
+  Deno.exit(1)
+}
+
+/** tar runs under this umask, so it creates the archive with mode 0600. */
+const PRIVATE_TAR_SCRIPT = 'umask 077 && exec tar "$@"'
+
+/**
+ * The command that writes the local archive. The archive is private to its
+ * owner (mode 0600), whatever the output path.
+ *
+ * tar reads `--exclude` patterns with a `*` that also matches a `/`, and an
+ * option such as --no-wildcards-match-slash applies to the patterns after it.
+ * `excludes` are read the way tar reads them. `secretExcludes` (key material,
+ * wallets, SSH private keys found) come after the option, so a `*` in them stays
+ * inside one path component, as it does for restic, rsync and the list of the
+ * files left out. tar has no `**`: an entry that reaches any depth is given as
+ * one pattern for each number of directories.
+ */
+export function buildTarCreateCommand(options: {
+  useSudo: boolean
+  useZstd: boolean
+  excludes: string[]
+  secretExcludes?: string[]
+  output: string
+}): { cmd: string; args: string[] } {
+  const excludeArgs = options.excludes.flatMap((e) => ['--exclude', e])
+  if (options.secretExcludes) {
+    const patterns = new Set(
+      options.secretExcludes.flatMap(perComponentPatterns),
+    )
+    excludeArgs.push(
+      TAR_PER_COMPONENT,
+      ...[...patterns].flatMap((e) => ['--exclude', e]),
+    )
+  }
+  // Also exclude the output file itself
+  excludeArgs.push(
+    '--exclude',
+    options.output.startsWith('/') ? options.output : `./${options.output}`,
+  )
+
+  const tarArgs: string[] = []
+  if (options.useZstd) {
+    tarArgs.push('-I', 'zstd -T0', ...excludeArgs, '-cf', options.output, '/')
+  } else {
+    tarArgs.push('--gzip', ...excludeArgs, '-cf', options.output, '/')
+  }
+
+  const wrapped = ['sh', '-c', PRIVATE_TAR_SCRIPT, 'tar', ...tarArgs]
+  return options.useSudo
+    ? { cmd: 'sudo', args: wrapped }
+    : { cmd: wrapped[0], args: wrapped.slice(1) }
+}
+
+/**
+ * tar writes into a file that is already there without changing its mode, so a
+ * regular file left at the output path (an earlier archive, or any file) is
+ * brought to 0600 before tar writes a byte into it. A path that does not exist
+ * yet is created by tar under umask 077.
+ */
+async function makeExistingArchivePrivate(output: string): Promise<void> {
+  let info: Deno.FileInfo
+  try {
+    info = await Deno.stat(output)
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return
+    throw error
+  }
+  if (info.isFile && ((info.mode ?? 0) & 0o077) !== 0) {
+    await Deno.chmod(output, 0o600)
+  }
+}
+
+/** What `backupAction` looks things up with; replaced in tests. */
+export interface BackupDeps {
+  /** The files and directories on this host that match `patterns`. */
+  findFiles?: (patterns: readonly string[]) => Promise<string[]> | string[]
+  /** The SSH private keys this user can find on this host, by path. */
+  findPrivateKeys?: PrivateKeyFinder
+  /** The same search as root (through sudo), for a run whose tar runs under sudo. */
+  findPrivateKeysAsRoot?: PrivateKeyFinder
+  /** The .ssh directories this user cannot list. */
+  findUnlistedSshDirs?: () => Promise<string[]> | string[]
+}
+
+const OFFLINE_COPY =
+  'Keep an offline copy of these files: this backup does not contain them.'
+
+/**
+ * The key material and wallets on this host that a backup read by `tool` leaves
+ * out, the SSH private keys found under any name, and the .ssh directories left
+ * out as a whole.
+ */
+async function filesLeftOut(
+  tool: BackupTool,
+  deps: BackupDeps,
+  search: SshKeySearch,
+): Promise<string[]> {
+  const find = deps.findFiles ?? ((patterns) => findExistingPaths(patterns))
+  let found: string[] = []
+  try {
+    found = await find(secretExcludes(tool))
+  } catch {
+    // nothing found by pattern
+  }
+  const wholeDirs = search.wholeDirs.map((dir) =>
+    `${dir}  (the whole directory: this user could not list it)`
+  )
+  return [...new Set([...found, ...search.keys, ...wholeDirs])].sort()
+}
+
+function printLeftOut(files: string[]): void {
+  // the search runs as the user who started the backup, not as root
+  const notRoot = Deno.uid() !== 0
+  if (files.length === 0 && !notRoot) return
+  if (files.length > 0) {
+    console.log(colors.yellow('\n⚠️  Left out of this backup:'))
+    for (const file of files) console.log(colors.white(`   ${file}`))
+    console.log(colors.yellow(`   ${OFFLINE_COPY}`))
+  }
+  if (notRoot) {
+    console.log(
+      colors.dim(
+        '   Files only root can read are not in this list; run as root to list them.',
+      ),
+    )
+  }
+  console.log('')
+}
+
+/** Post the list to the webhook, in as many messages as Discord's size limit needs. */
+async function postLeftOut(
+  webhookUrl: string | undefined,
+  host: string,
+  files: string[],
+): Promise<void> {
+  if (!webhookUrl || files.length === 0) return
+  const head = `⚠️ **SLV Backup left these files out**\n**Host**: ${host}`
+  const limit = 1800 - OFFLINE_COPY.length
+  const messages: string[] = []
+  let message = head
+  for (const file of files) {
+    if (message !== head && message.length + file.length + 1 > limit) {
+      messages.push(`${message}\n${OFFLINE_COPY}`)
+      message = head
+    }
+    message += `\n${file}`
+  }
+  messages.push(`${message}\n${OFFLINE_COPY}`)
+  for (const text of messages) await notifyWebhook(webhookUrl, text)
 }
 
 export const backupAction = async (options: {
@@ -146,33 +369,61 @@ export const backupAction = async (options: {
   webhook?: string
   restic?: boolean
   yes?: boolean
-}) => {
+}, deps: BackupDeps = {}) => {
+  // An exclude or include value that is a filter rule and not a path is refused
+  // before anything runs, for every tool
+  const filterRules = filterSyntaxProblems({
+    extraExcludes: options.exclude,
+    extraIncludes: options.include,
+  })
+  if (filterRules.length > 0) {
+    return await refuseFilterSyntax(filterRules, getWebhookUrl(options.webhook))
+  }
+
   // Capture webhook URL BEFORE any sudo escalation resets the environment
   const webhookUrl = getWebhookUrl(options.webhook)
 
-  const excludes = buildExcludeList({
-    extraExcludes: options.exclude,
-    extraIncludes: options.include,
-    includeSSH: true, // backup includes SSH files
-  })
+  const tool: BackupTool = options.restic ? 'restic' : 'tar'
+
+  // SSH private keys under any name are looked for once, when a list is built,
+  // with the privilege of the archiver: as root too when tar runs under sudo
+  let scan: Promise<SshKeySearch> | undefined
+  const sshSearch = (underSudo = false): Promise<SshKeySearch> =>
+    scan ??= searchSshKeys({
+      underSudo,
+      find: deps.findPrivateKeys,
+      findAsRoot: deps.findPrivateKeysAsRoot,
+      findUnlisted: deps.findUnlistedSshDirs,
+    })
+  const buildParts = async (underSudo = false): Promise<ExcludeParts> => {
+    const search = await sshSearch(underSudo)
+    return buildExcludeParts({
+      extraExcludes: options.exclude,
+      extraIncludes: options.include,
+      includeSSH: true, // backup includes SSH files
+      tool,
+      privateKeys: search.keys,
+      unlistedSshDirs: search.wholeDirs,
+    })
+  }
+  const buildList = async (underSudo = false): Promise<string[]> =>
+    joinExcludes(await buildParts(underSudo), tool)
 
   // --list-excludes: show and exit
   if (options.listExcludes) {
-    printExcludes(excludes)
+    printExcludes(await buildList())
     return
   }
 
-  // --cron: set up cron job
+  // A plain tar archive is never uploaded and never scheduled for upload: only
+  // --restic, which encrypts before anything leaves this host, may do either.
+  const plain = plainBackupRequest(options)
+  if (plain) return await refusePlainBackup(plain, webhookUrl)
+
+  // --cron: set up cron job (restic only; `--cron off` removes it)
   if (options.cron) {
     await setupCron(options.cron, options.retention ?? 7, !!options.restic)
-    if (!options.upload && !options.restic) return // cron-only mode
-  }
-
-  // Pre-flight: an upload needs the ERPC login — check it before the archive
-  // is created. (--restic checks its storage access key below.)
-  if (options.upload && !options.restic) {
-    const login = await resolveUserApiAuth()
-    if (!login.ok) await stopWithoutCredential(login, webhookUrl)
+    if (!options.restic) return // cron-only mode
   }
 
   // --restic: use restic for incremental backup
@@ -182,11 +433,13 @@ export const backupAction = async (options: {
     if (!storage.ok) return await stopWithoutCredential(storage, webhookUrl)
     const storageKey = storage.key
     const hostname = await getHostname()
+    const excludes = await buildList()
     const resticOpts: ResticBackupOptions = {
       region: options.region,
       exclude: options.exclude,
       include: options.include,
       retention: options.retention,
+      findPrivateKeys: async () => (await sshSearch()).keys,
     }
 
     console.log(colors.bold(colors.blue('\n🗄️  SLV Backup (restic mode)\n')))
@@ -223,6 +476,10 @@ export const backupAction = async (options: {
       }
       throw error
     }
+
+    const left = await filesLeftOut(tool, deps, await sshSearch())
+    printLeftOut(left)
+    await postLeftOut(webhookUrl, hostname, left)
 
     console.log(colors.green('\n✅ Backup complete.\n'))
     return
@@ -295,15 +552,29 @@ export const backupAction = async (options: {
   const defaultFilename = `backup-${hostname}-${timestamp}.${ext}`
   const output = options.output || defaultFilename
 
+  const parts = await buildParts(useSudo)
+  const excludes = joinExcludes(parts, tool)
+
   // Show plan
   console.log(colors.bold(colors.blue('\n🗄️  SLV Backup\n')))
   console.log(colors.white(`  Output:      ${output}`))
   console.log(colors.white(`  Compression: ${useZstd ? 'zstd (multi-threaded)' : 'gzip'}`))
-  if (options.upload) {
-    console.log(colors.white(`  Upload:      yes (region: ${options.region || 'eu'})`))
-  }
+  console.log(colors.white('  Mode:        0600 (owner only)'))
+  console.log(
+    colors.white(
+      '  Upload:      no (a plain tar archive stays on this host; --restic backs up to cloud storage)',
+    ),
+  )
 
   printExcludes(excludes)
+  const search = await sshSearch(useSudo)
+  if (search.rootSearchFailed) {
+    console.log(
+      colors.yellow(
+        sshScanNote('tar', search.wholeDirs, 'sudo slv backup create'),
+      ),
+    )
+  }
 
   // Confirmation
   if (!options.yes) {
@@ -319,25 +590,21 @@ export const backupAction = async (options: {
   }
 
   // Build tar command
-  const excludeArgs = excludes.flatMap((e) => ['--exclude', e])
-  // Also exclude the output file itself
-  excludeArgs.push('--exclude', output.startsWith('/') ? output : `./${output}`)
-
-  const tarArgs: string[] = []
-  if (useZstd) {
-    tarArgs.push('-I', 'zstd -T0', ...excludeArgs, '-cf', output, '/')
-  } else {
-    tarArgs.push('--gzip', ...excludeArgs, '-cf', output, '/')
-  }
+  const tar = buildTarCreateCommand({
+    useSudo,
+    useZstd,
+    excludes: parts.general,
+    secretExcludes: parts.secrets,
+    output,
+  })
 
   const spinner = new Kia(colors.cyan('Creating backup archive...'))
   spinner.start()
 
   try {
-    const cmd = useSudo ? 'sudo' : 'tar'
-    const cmdArgs = useSudo ? ['tar', ...tarArgs] : tarArgs
-    const command = new Deno.Command(cmd, {
-      args: cmdArgs,
+    await makeExistingArchivePrivate(output)
+    const command = new Deno.Command(tar.cmd, {
+      args: tar.args,
       stdout: 'piped',
       stderr: 'piped',
     })
@@ -381,306 +648,14 @@ export const backupAction = async (options: {
     Deno.exit(1)
   }
 
-  // Upload
-  if (options.upload) {
-    await uploadBackup(output, hostname, options.region as StorageRegion, options.retention ?? 7, webhookUrl)
-  }
+  const left = await filesLeftOut(tool, deps, search)
+  printLeftOut(left)
+  await postLeftOut(webhookUrl, hostname, left)
 
   console.log(colors.green('\n✅ Backup complete.\n'))
-}
-
-/** Threshold for switching to multipart upload (5 GB). */
-const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024 // 100 MB
-
-/** Chunk size for multipart upload (100 MB). */
-const MULTIPART_CHUNK_SIZE = 100 * 1024 * 1024
-
-/** Maximum concurrent chunk uploads. */
-const MULTIPART_CONCURRENCY = 4
-
-async function uploadBackup(
-  filePath: string,
-  hostname: string,
-  region?: StorageRegion,
-  retention = 7,
-  webhookUrl?: string,
-): Promise<void> {
-  const login = await resolveUserApiAuth()
-  if (!login.ok) return await stopWithoutCredential(login, webhookUrl)
-  const auth = login.auth
-  const filename = filePath.includes('/') ? filePath.split('/').pop()! : filePath
-  const remotePath = `backups/${filename}`
-  const fileInfo = await Deno.stat(filePath)
-  const fileSize = fileInfo.size ?? 0
-
-  try {
-    let uploadRegion: string
-
-    if (fileSize > MULTIPART_THRESHOLD_BYTES) {
-      // ── Multipart upload for large backups ──
-      console.log(
-        colors.cyan(
-          `\n📦 Large backup detected (${formatBytes(fileSize)}). Using multipart upload.\n`,
-        ),
-      )
-      const result = await uploadBackupMultipart(auth, filePath, remotePath, fileSize, region)
-      if (!result) return
-      uploadRegion = result.region
-    } else {
-      // ── Single presigned PUT ──
-      const result = await uploadBackupSingle(auth, filePath, filename, remotePath, fileSize, region)
-      if (!result) return
-      uploadRegion = result.region
-    }
-
-    console.log(
-      colors.white(
-        `\n  Remote: ${colors.green(remotePath)}\n  Region: ${colors.green(uploadRegion)}`,
-      ),
-    )
-
-    // Notify webhook on upload success
-    if (webhookUrl) {
-      await notifyWebhook(
-        webhookUrl,
-        `✅ **SLV Backup Uploaded**\n**Host**: ${hostname}\n**File**: ${filename}\n**Size**: ${formatBytes(fileSize)}\n**Region**: ${uploadRegion}`,
-      )
-    }
-
-    // Retention cleanup
-    if (retention > 0) {
-      await cleanupOldBackups(auth, hostname, retention, region)
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    if (error instanceof StorageApiError) {
-      console.log(colors.red(`\n${error.message}`))
-    } else {
-      console.log(colors.red(String(error)))
-    }
-
-    // Notify webhook on upload failure
-    if (webhookUrl) {
-      const isStorageLimit = errorMessage.toLowerCase().includes('storage limit') ||
-        errorMessage.toLowerCase().includes('quota') ||
-        errorMessage.toLowerCase().includes('exceeded') ||
-        (error instanceof StorageApiError && error.status === 413)
-      const tipLine = isStorageLimit
-        ? `\n**💡 Tip**: Run \`slv storage upgrade\` to increase capacity`
-        : ''
-      await notifyWebhook(
-        webhookUrl,
-        `⚠️ **SLV Backup Upload Failed**\n**Host**: ${hostname}\n**File**: ${filename}\n**Size**: ${formatBytes(fileSize)}\n**Error**: ${errorMessage}${tipLine}`,
-      )
-    }
-  }
-}
-
-async function uploadBackupSingle(
-  auth: UserApiAuth,
-  filePath: string,
-  filename: string,
-  remotePath: string,
-  fileSize: number,
-  region?: StorageRegion,
-): Promise<{ region: string } | null> {
-  const spinner = new Kia(colors.cyan('Requesting presigned upload URL...'))
-  spinner.start()
-
-  try {
-    const presign = await presignUpload(auth, remotePath, region)
-    spinner.succeed('Got presigned URL')
-
-    const uploadSpinner = new Kia(
-      colors.cyan(
-        `Uploading ${filename} (${formatBytes(fileSize)})...`,
-      ),
-    )
-    uploadSpinner.start()
-
-    const file = await Deno.open(filePath, { read: true })
-    try {
-      const uploadRes = await fetch(presign.url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': String(fileSize),
-        },
-        body: file.readable,
-      })
-
-      if (!uploadRes.ok) {
-        uploadSpinner.fail('Upload failed')
-        console.log(colors.red(`Upload failed (HTTP ${uploadRes.status})`))
-        return null
-      }
-    } catch (err) {
-      try { file.close() } catch { /* already closed */ }
-      throw err
-    }
-
-    uploadSpinner.succeed('Upload complete')
-    return { region: presign.region }
-  } catch (error) {
-    spinner.fail('Upload failed')
-    throw error
-  }
-}
-
-async function uploadBackupMultipart(
-  auth: UserApiAuth,
-  filePath: string,
-  remotePath: string,
-  fileSize: number,
-  region?: StorageRegion,
-): Promise<{ region: string } | null> {
-  const totalParts = Math.ceil(fileSize / MULTIPART_CHUNK_SIZE)
-
-  // Initiate
-  const initSpinner = new Kia(colors.cyan('Initiating multipart upload...'))
-  initSpinner.start()
-
-  let upload: Awaited<ReturnType<typeof multipartCreate>>
-  try {
-    upload = await multipartCreate(auth, remotePath, fileSize, region, 'application/octet-stream')
-    initSpinner.succeed(
-      `Multipart upload initiated (${totalParts} parts × ${formatBytes(MULTIPART_CHUNK_SIZE)})`,
-    )
-  } catch (error) {
-    initSpinner.fail('Failed to initiate multipart upload')
-    throw error
-  }
-
-  // Upload parts with bounded concurrency
-  const completedParts: { partNumber: number; etag: string }[] = []
-
-  try {
-    const partDescs: { partNumber: number; offset: number; size: number }[] = []
-    let offset = 0
-    let partNumber = 1
-    while (offset < fileSize) {
-      const size = Math.min(MULTIPART_CHUNK_SIZE, fileSize - offset)
-      partDescs.push({ partNumber, offset, size })
-      offset += size
-      partNumber++
-    }
-
-    const inflight = new Set<Promise<void>>()
-
-    for (const desc of partDescs) {
-      const task = (async () => {
-        const buf = new Uint8Array(desc.size)
-        let bytesRead = 0
-        const chunkFile = await Deno.open(filePath, { read: true })
-        try {
-          await chunkFile.seek(desc.offset, Deno.SeekMode.Start)
-          while (bytesRead < desc.size) {
-            const n = await chunkFile.read(buf.subarray(bytesRead))
-            if (n === null) break
-            bytesRead += n
-          }
-        } finally {
-          chunkFile.close()
-        }
-
-        const chunk = bytesRead === desc.size ? buf : buf.subarray(0, bytesRead)
-
-        // Upload the chunk directly via Workers API
-        const result = await multipartUploadPart(
-          auth,
-          upload.uploadId,
-          upload.key,
-          desc.partNumber,
-          chunk,
-          region,
-        )
-
-        completedParts.push({ partNumber: desc.partNumber, etag: result.etag })
-
-        const done = completedParts.length
-        const pct = Math.round((done / totalParts) * 100)
-        const bar = '█'.repeat(Math.round(pct / 4)) + '░'.repeat(25 - Math.round(pct / 4))
-        Deno.stdout.writeSync(
-          new TextEncoder().encode(
-            `\r  ${colors.cyan(bar)} ${colors.white(`${done}/${totalParts} parts`)} (${pct}%)`,
-          ),
-        )
-      })()
-
-      const tracked = task.then(
-        () => { inflight.delete(tracked) },
-        (err) => { inflight.delete(tracked); throw err },
-      )
-      inflight.add(tracked)
-
-      if (inflight.size >= MULTIPART_CONCURRENCY) {
-        await Promise.race(inflight)
-      }
-    }
-
-    await Promise.all(inflight)
-    console.log() // newline after progress bar
-  } catch (error) {
-    console.log(colors.red(`\n\n❌ Multipart upload failed: ${error instanceof Error ? error.message : String(error)}`))
-    return null
-  }
-
-  // Complete
-  const completeSpinner = new Kia(colors.cyan('Completing multipart upload...'))
-  completeSpinner.start()
-
-  try {
-    completedParts.sort((a, b) => a.partNumber - b.partNumber)
-    const result = await multipartComplete(
-      auth,
-      upload.uploadId,
-      upload.key,
-      completedParts,
-      region,
-    )
-    completeSpinner.succeed('Multipart upload complete')
-    return { region: result.region }
-  } catch (error) {
-    completeSpinner.fail('Failed to complete multipart upload')
-    throw error
-  }
-}
-
-async function cleanupOldBackups(
-  auth: UserApiAuth,
-  hostname: string,
-  retentionDays: number,
-  region?: StorageRegion,
-): Promise<void> {
-  const prefix = `backups/backup-${hostname}-`
-  try {
-    const list = await storageList(auth, { prefix, region })
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - retentionDays)
-
-    let deleted = 0
-    for (const file of list.files) {
-      const filename = file.path.split('/').pop() || ''
-      const ts = parseTimestampFromFilename(filename)
-      if (ts && ts < cutoff) {
-        await storageDelete(auth, file.path, region)
-        console.log(colors.dim(`  🗑️  Deleted old backup: ${file.path}`))
-        deleted++
-      }
-    }
-
-    if (deleted > 0) {
-      console.log(
-        colors.green(
-          `\n  Cleaned up ${deleted} backup(s) older than ${retentionDays} days`,
-        ),
-      )
-    }
-  } catch (error) {
-    console.log(
-      colors.yellow(
-        `\n⚠️  Could not clean up old backups: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-    )
-  }
+  console.log(
+    colors.dim(
+      '   This archive stays on this host. For an encrypted cloud backup run: slv backup create --restic -y\n',
+    ),
+  )
 }
