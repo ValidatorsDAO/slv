@@ -8,6 +8,7 @@ import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import { runAnsilbe } from '/lib/runAnsible.ts'
+import { parseDeployNetwork } from '/lib/targetGuard.ts'
 import { deployRPCTestnet } from '/src/rpc/deploy/deployRPCTestnet.ts'
 import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
@@ -42,8 +43,13 @@ rpcCmd.command('deploy')
   )
   .option('-p, --pubkey <pubkey>', 'Deploy RPC node for a specific pubkey')
   .action(async (options) => {
-    const network = options.network || 'mainnet'
-    switch (network) {
+    const parsed = parseDeployNetwork('rpc', options.network)
+    if (!parsed.ok) {
+      console.error(colors.red(`❌ ${parsed.error}`))
+      Deno.exitCode = 1
+      return
+    }
+    switch (parsed.network) {
       case 'mainnet':
         await deployRPCMainnet(options.pubkey)
         break
@@ -53,13 +59,7 @@ rpcCmd.command('deploy')
       case 'testnet':
         await deployRPCTestnet(options.pubkey)
         break
-      default:
-        console.log(
-          colors.red('❌ Invalid network. Use mainnet, devnet, or testnet.'),
-        )
-        return
     }
-    return
   })
 
 rpcCmd.command('list')

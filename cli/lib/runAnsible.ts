@@ -1,5 +1,6 @@
 import type { InventoryType } from '@cmn/types/config.ts'
 import { getInventoryPath } from '@cmn/constants/path.ts'
+import { enforceAllHostsGuard, type GuardDeps } from '/lib/targetGuard.ts'
 
 type RunAnsibleResult = {
   success: boolean
@@ -7,7 +8,37 @@ type RunAnsibleResult = {
   stdout: string
   stderr: string
   output: string
+  /** Set when the run was stopped before ansible started. */
+  refused?: 'non-interactive' | 'declined' | 'unresolved'
 }
+
+/** Ansible extra vars, sent as JSON so a boolean stays a boolean. */
+type ExtraVars = Record<string, string | boolean>
+
+type AnsibleSpawnResult = {
+  success: boolean
+  code: number
+  stdout: Uint8Array
+  stderr: Uint8Array
+}
+
+type AnsibleSpawn = (args: string[]) => Promise<AnsibleSpawnResult>
+
+type RunAnsibleOptions = {
+  /** The caller already listed every target host and got an explicit yes. */
+  allHostsConfirmed?: boolean
+  /** Replaces the terminal, environment and prompt the all-hosts guard uses. */
+  guard?: Partial<GuardDeps>
+  /** Replaces the ansible-playbook process. */
+  spawn?: AnsibleSpawn
+}
+
+const spawnAnsible: AnsibleSpawn = (args) =>
+  new Deno.Command('ansible-playbook', {
+    args,
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
 
 const shellQuote = (value: string) => {
   if (/^[A-Za-z0-9_./:-]+$/.test(value)) {
@@ -20,7 +51,7 @@ const buildAnsibleArgs = (
   filePath: string,
   inventoryType: InventoryType,
   limit?: string,
-  extraVars?: Record<string, string>,
+  extraVars?: ExtraVars,
 ) => {
   const args = [
     '-i',
@@ -39,19 +70,34 @@ const runAnsibleCapture = async (
   filePath: string,
   inventoryType: InventoryType,
   limit?: string, // Identity account
-  extraVars?: Record<string, string>,
+  extraVars?: ExtraVars,
+  options: RunAnsibleOptions = {},
 ): Promise<RunAnsibleResult> => {
+  const verdict = await enforceAllHostsGuard({
+    playbook: filePath,
+    inventoryType,
+    limit,
+    allHostsConfirmed: options.allHostsConfirmed,
+  }, options.guard)
+  if (!verdict.proceed) {
+    const message = `Not run: ${verdict.reason}`
+    return {
+      success: false,
+      code: 1,
+      stdout: '',
+      stderr: message,
+      output: message,
+      refused: verdict.reason,
+    }
+  }
+
   const args = buildAnsibleArgs(filePath, inventoryType, limit, extraVars)
   console.log(
     `🚀 Running ansible: ansible-playbook ${args.map(shellQuote).join(' ')}`,
   )
 
   try {
-    const result = await new Deno.Command('ansible-playbook', {
-      args,
-      stdout: 'piped',
-      stderr: 'piped',
-    }).output()
+    const result = await (options.spawn ?? spawnAnsible)(args)
 
     const stdout = new TextDecoder().decode(result.stdout)
     const stderr = new TextDecoder().decode(result.stderr)
@@ -89,14 +135,19 @@ const runAnsilbe = async (
   filePath: string,
   inventoryType: InventoryType,
   limit?: string, // Identity account
-  extraVars?: Record<string, string>,
+  extraVars?: ExtraVars,
+  options: RunAnsibleOptions = {},
 ) => {
   const result = await runAnsibleCapture(
     filePath,
     inventoryType,
     limit,
     extraVars,
+    options,
   )
+  if (result.refused) {
+    return false
+  }
   if (!result.success) {
     console.error(
       '❌ Failed to run ansible. Please check the logs.',
@@ -108,3 +159,4 @@ const runAnsilbe = async (
 }
 
 export { runAnsibleCapture, runAnsilbe }
+export type { ExtraVars, RunAnsibleOptions, RunAnsibleResult }

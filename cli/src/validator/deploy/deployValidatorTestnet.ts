@@ -1,6 +1,6 @@
 import { runAnsilbe } from '/lib/runAnsible.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
-import { Confirm, prompt } from '@cliffy/prompt'
+import { confirmDeploy } from '/lib/targetGuard.ts'
 import { colors } from '@cliffy/colors'
 import rpcLog from '/lib/config/rpcLog.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
@@ -13,20 +13,20 @@ const deployValidatorTestnet = async (limit?: string) => {
   await listValidators('testnet', limit)
   const limitString = limit ? limit : 'all'
   const ansibleHosts = await getAnsibleHosts(inventoryType, limitString)
-  const confirm = await prompt([{
-    type: Confirm,
-    name: 'continue',
-    message: 'Do you want to continue?',
-    default: true,
-  }])
-  if (!confirm.continue) {
+  if (!await confirmDeploy()) {
     console.log(colors.blue('Cancelled...🌝'))
     return false
   }
   const createUserYml = `${templateRoot}/ansible/testnet-validator/init.yml`
-  const result = limit
-    ? await runAnsilbe(createUserYml, inventoryType, limit)
-    : await runAnsilbe(createUserYml, inventoryType)
+  const result = await runAnsilbe(
+    createUserYml,
+    inventoryType,
+    limit,
+    undefined,
+    {
+      allHostsConfirmed: true,
+    },
+  )
   if (result) {
     console.log('Successfully deployed validator on testnet')
     rpcLog(ansibleHosts)

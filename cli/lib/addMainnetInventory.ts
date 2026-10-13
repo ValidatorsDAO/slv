@@ -3,7 +3,53 @@ import type { SSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { genOrReadMainnetInventory } from '/lib/genOrReadMainnetInventory.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { getInventoryPath } from '@cmn/constants/path.ts'
-import type { ValidatorMainnetConfig } from '@cmn/types/config.ts'
+import type {
+  SolanaNodeType,
+  ValidatorMainnetConfig,
+} from '@cmn/types/config.ts'
+
+/** Validator type a new mainnet inventory entry starts with. */
+const DEFAULT_MAINNET_VALIDATOR_TYPE: SolanaNodeType = 'jito'
+
+const FRANKENDANCER_TYPES: readonly string[] = [
+  'firedancer-agave',
+  'firedancer-jito',
+]
+
+/** Warning for a Frankendancer validator type, or null for any other type. */
+const frankendancerWarning = (validatorType: string): string | null =>
+  FRANKENDANCER_TYPES.includes(validatorType)
+    ? `${validatorType} is Frankendancer, a hybrid of Firedancer and Agave. It must be replaced before Alpenglow activates on mainnet.`
+    : null
+
+const buildMainnetHostEntry = (
+  name: string,
+  identityAccount: string,
+  sshConnection: SSHConnection,
+  isLocalhost?: boolean,
+): ValidatorMainnetConfig => ({
+  name,
+  ansible_host: sshConnection.ip,
+  ansible_user: sshConnection.username,
+  ansible_ssh_private_key_file: sshConnection.rsa_key_path,
+  identity_account: identityAccount,
+  vote_account: '',
+  authority_account: '',
+  commission_bps: 0,
+  username: sshConnection.username,
+  validator_type: DEFAULT_MAINNET_VALIDATOR_TYPE,
+  region: '',
+  port_rpc: 8899,
+  dynamic_port_range: '8000-8030',
+  relayer_url: 'http://localhost:11226',
+  block_engine_url: 'http://ny.mainnet.relayer.jito.wtf:8100',
+  shred_receiver_address: '',
+  snapshot_url: '',
+  limit_ledger_size: 200000000,
+  staked_rpc_identity_account: '7KEVKK9gZ1VUjaTowuCCA8mwMJYTUsZSrSKuTCowSLV',
+  staked_rpc_amount: 500000000000000,
+  ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
+} as ValidatorMainnetConfig)
 
 const addMainnetInventory = async (
   name: string,
@@ -23,30 +69,12 @@ const addMainnetInventory = async (
     await genOrReadVersions()
 
     // Add the new host
-    inventory[inventoryType].hosts[name] = {
+    inventory[inventoryType].hosts[name] = buildMainnetHostEntry(
       name,
-      ansible_host: sshConnection.ip,
-      ansible_user: sshConnection.username,
-      ansible_ssh_private_key_file: sshConnection.rsa_key_path,
-      identity_account: identityAccount,
-      vote_account: '',
-      authority_account: '',
-      commission_bps: 0,
-      username: sshConnection.username,
-      validator_type: 'firedancer-jito',
-      region: '',
-      port_rpc: 8899,
-      dynamic_port_range: '8000-8030',
-      relayer_url: 'http://localhost:11226',
-      block_engine_url: 'http://ny.mainnet.relayer.jito.wtf:8100',
-      shred_receiver_address: '',
-      snapshot_url: '',
-      limit_ledger_size: 200000000,
-      staked_rpc_identity_account:
-        '7KEVKK9gZ1VUjaTowuCCA8mwMJYTUsZSrSKuTCowSLV',
-      staked_rpc_amount: 500000000000000,
-      ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
-    } as ValidatorMainnetConfig
+      identityAccount,
+      sshConnection,
+      isLocalhost,
+    )
 
     const inventoryPath = getInventoryPath(inventoryType)
     await Deno.writeTextFile(inventoryPath, stringify(inventory))
@@ -58,4 +86,9 @@ const addMainnetInventory = async (
   }
 }
 
-export { addMainnetInventory }
+export {
+  addMainnetInventory,
+  buildMainnetHostEntry,
+  DEFAULT_MAINNET_VALIDATOR_TYPE,
+  frankendancerWarning,
+}

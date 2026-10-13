@@ -10,12 +10,15 @@ import {
   VERSION_JITO_DEVNET,
   VERSION_JITO_MAINNET,
   VERSION_JITO_TESTNET,
+  VERSION_JITO_VALIDATOR_MAINNET,
   VERSION_SOLANA_DEVNET,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
+  VERSION_SOLANA_VALIDATOR_MAINNET,
 } from '@cmn/constants/version.ts'
 import { VERSIONS_PATH } from '@cmn/constants/path.ts'
-import { stringify } from '@std/yaml'
+import type { CmnType } from '@cmn/types/config.ts'
+import { parse, stringify } from '@std/yaml'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
 import { colors } from '@cliffy/colors'
 
@@ -75,9 +78,18 @@ const displayVersionChange = (
   }
 }
 
-export const updateDefaultVersion = async () => {
+// A file other than the default one is read as it is. Only the default
+// ~/.slv/versions.yml is created when it is missing.
+const readVersionsAt = async (path: string): Promise<CmnType> =>
+  JSON.parse(JSON.stringify(parse(await Deno.readTextFile(path)))) as CmnType
+
+export const updateDefaultVersion = async (
+  versionsPath: string = VERSIONS_PATH,
+) => {
   // Read current versions before updating
-  const currentVersion = await genOrReadVersions()
+  const currentVersion = versionsPath === VERSIONS_PATH
+    ? await genOrReadVersions()
+    : await readVersionsAt(versionsPath)
 
   // Store current versions before updating
   const oldVersions = {
@@ -116,8 +128,10 @@ export const updateDefaultVersion = async () => {
   }
 
   // Update to new versions
-  currentVersion.mainnet_validators.version_agave = VERSION_SOLANA_MAINNET
-  currentVersion.mainnet_validators.version_jito = VERSION_JITO_MAINNET
+  currentVersion.mainnet_validators.version_agave =
+    VERSION_SOLANA_VALIDATOR_MAINNET
+  currentVersion.mainnet_validators.version_jito =
+    VERSION_JITO_VALIDATOR_MAINNET
   currentVersion.mainnet_validators.version_allnodes_jito =
     VERSION_ALLNODES_JITO_MAINNET
   currentVersion.mainnet_validators.version_firedancer =
@@ -221,7 +235,7 @@ export const updateDefaultVersion = async () => {
   console.log('')
 
   // Write the updated version to the file
-  await Deno.writeTextFile(VERSIONS_PATH, stringify(currentVersion as any))
+  await Deno.writeTextFile(versionsPath, stringify(currentVersion as any))
   console.log(colors.white('✔ Default versions updated'))
   return true
 }

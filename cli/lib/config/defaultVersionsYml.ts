@@ -12,16 +12,18 @@ import {
   VERSION_JITO_DEVNET,
   VERSION_JITO_MAINNET,
   VERSION_JITO_TESTNET,
+  VERSION_JITO_VALIDATOR_MAINNET,
   VERSION_RICHAT,
   VERSION_SOLANA_DEVNET,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
+  VERSION_SOLANA_VALIDATOR_MAINNET,
 } from '@cmn/constants/version.ts'
 
 const defaultVersionsObject = (): CmnType => ({
   mainnet_validators: {
-    version_agave: VERSION_SOLANA_MAINNET,
-    version_jito: VERSION_JITO_MAINNET,
+    version_agave: VERSION_SOLANA_VALIDATOR_MAINNET,
+    version_jito: VERSION_JITO_VALIDATOR_MAINNET,
     version_allnodes_jito: VERSION_ALLNODES_JITO_MAINNET,
     version_firedancer: VERSION_FIREDANCER_MAINNET,
     allowed_ssh_ips: [],
