@@ -329,6 +329,10 @@ export GN NINJA CLANG_BASE_PATH LIBCLANG_PATH
 export PYTHON
 export PYTHONDONTWRITEBYTECODE=1
 export GN_ARGS="use_glib=false"
+if [[ "$linux_target" == true ]]; then
+  # Use the pinned Chromium sysroot headers instead of host glibc headers.
+  export GN_ARGS="$GN_ARGS use_sysroot=true"
+fi
 export EXTRA_GN_ARGS="use_lld=true"
 # rusty_v8 supplies its own ordered custom-libc++ arguments. Other vendored
 # build scripts such as libsqlite3-sys call bindgen directly, so every bindgen
