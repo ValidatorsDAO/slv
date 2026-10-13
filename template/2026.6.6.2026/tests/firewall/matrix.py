@@ -7,8 +7,9 @@ renders the matrix calls `pins` and `shape` on the result.
     matrix.py cells [--version-file FILE]
         Print the cells as JSON.  A cell is one start configuration of a node:
 
-          matrix     every valid (network, role, validator_type, rpc_type) for each of the two
-                     inventories (inventories/*.yml), with the client version that
+          matrix     every (network, role, validator_type, rpc_type) in VALIDATOR_TYPES and
+                     the RPC type lists below, for each of the two inventories
+                     (inventories/*.yml), with the client version that
                      cmn/constants/version.ts pins for it
           scenario   one fixed start configuration with other firewall inputs (a verdict
                      case for netns_verdicts.sh, or a rule that no matrix cell turns on),
@@ -144,7 +145,7 @@ HOST_FACTS = {
 # rendered with.  peer reaches host over h0, host reaches far over h1.  The tables match the
 # WireGuard tunnel (10.0.0.0/24) by the interface name wg0; one case makes a pair of virtual
 # links, wg0 in host and wgp in peer, to stand in for it.  METRICS_PORT is the node exporter
-# port, which every node has.
+# port, which the model gives every node.
 TOPOLOGY = {
     "CONSUMER_PORT": 10000,
     "FAR_V4": "203.0.113.2",
@@ -377,8 +378,8 @@ def scenario_cells(pins):
                  inputs=verdict_inputs(ssh_mode="public-rate-limited"), host_facts=verdict_facts()),
         scenario(pins, "verdict/deny", "verdict/deny",
                  inputs=verdict_inputs(lb_ips=[], deny_ips=[t["LB_V4"]]), host_facts=verdict_facts()),
-        # The fallback table keeps the UDP port of the WireGuard tunnel and no other public UDP
-        # port. The model has no second public UDP port (WireGuard is the only component that
+        # The fallback table keeps the UDP port of the WireGuard tunnel and no other pub_udp
+        # port. The model has no second udp.pub port (WireGuard is the only component that
         # has one), so one is added to the derived model by hand.
         scenario(pins, "verdict/wireguard", "verdict/wireguard",
                  inputs=dict(verdict_inputs(), components=["wireguard"]), host_facts=verdict_facts(),

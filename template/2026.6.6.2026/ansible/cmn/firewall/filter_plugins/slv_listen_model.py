@@ -2,11 +2,12 @@
 """slv_listen_model: derive the listen model of an slv validator or RPC node.
 
 The model is a plain dict (JSON compatible) that says which ports the node
-listens on and who may reach each of them.  It is derived only from text that
-the start playbooks render (no host is touched, no nft is involved), plus the
-operator's firewall variables and a snapshot of host facts.  A renderer turns
-the model into nftables.  The model is meant to be the only source of the ports of the
-firewall; nothing in this release enforces that.
+listens on and who may reach each of them.  It is derived from text that the
+start playbooks render, from the profile of the client version, from the operator's
+firewall variables and from a snapshot of host facts, plus the ports that this file
+fixes for the node exporter and for each opt-in component (no host is touched, no nft
+is involved).  A renderer turns the model into nftables.  The model is meant to be the
+only source of the ports of the firewall; nothing in this release enforces that.
 
 Two Jinja filters are provided:
 
@@ -18,10 +19,11 @@ writes the canonical form the checksum is computed from:
 
     model | slv_listen_model_canonical_json
 
-Everything here uses the Python standard library only and runs on Python 3.10
-or newer.  For each case listed under Errors the function raises ModelError(code,
-detail) instead of guessing; the filter wrappers turn that into an AnsibleFilterError
-when Ansible can be imported.
+Apart from the optional import of ansible.errors in the filter wrappers, this file
+uses the Python standard library only, and it runs on Python 3.10 or newer.  For each
+case listed under Errors the function raises ModelError(code, detail) instead of
+guessing; the filter wrappers turn that into an AnsibleFilterError when Ansible can be
+imported.
 
 Input: rendered
     A list of items.  Each item is {"kind": <kind>, "text": <str>} or
@@ -38,8 +40,9 @@ Input: rendered
     for rpc_type "Index RPC" and "Index RPC + gRPC" on mainnet (init installs Old
     Faithful there and nowhere else), and richat or yellowstone (not both) for
     "Geyser gRPC" and "Index RPC + gRPC" on the agave line.  Any other kind is
-    refused, so a listener that is not deployed never gets a port: on testnet and
-    devnet an of1-listen item is refused.
+    refused, so a rendered item for a listener that init does not deploy (an of1-listen
+    item on testnet or devnet, for example) gives the model no port.  The ports of the
+    opt-in components come from the components input, not from these items.
 
 Input: profile
     {"client", "version", "role", "network", "rpc_type"}.  client is the slv
@@ -47,7 +50,8 @@ Input: profile
     firedancer-jito or frankendancer.  role is validator or rpc, network is
     mainnet, testnet or devnet.  rpc_type is required for role rpc.
 
-Input: inputs (all optional; names are the firewall variables without slv_fw_)
+Input: inputs (each key may be left out; names are the firewall variables without slv_fw_)
+    With no admin_ips and the default ssh_mode the model stops with admin_empty_refused.
     admin_ips, lb_ips, metrics_ips, deny_ips      lists of address or CIDR
     trusted_ifaces                                 list of interface names
     components                                     ["rpc-gateway", {"id": "shred-relay",
@@ -60,7 +64,7 @@ Input: host_facts (every key is required)
     default_route_ifaces, ifaces, bridges, dhcp4_ifaces, dhcp6_ifaces,
     ra_ifaces, sshd_ports, ssh_socket_ports, sshd_listen_ports, has_global_v6.
     dhcp4_ifaces, dhcp6_ifaces and ra_ifaces are null when the host could not
-    tell; the model then covers every interface except lo.
+    tell; the model then covers every interface of ifaces except lo.
 
 Output (schema "slv-listen-model/1")
     schema, profile, udp{public, xdp, xdp_rx_bypass, xdp_bind_address, pub,
@@ -69,29 +73,35 @@ Output (schema "slv-listen-model/1")
     public, rate, controller_only}, consumer_public, trusted_ifaces, wireguard,
     host, components, warnings, model_sha256.
     Ports are closed intervals [lo, hi], sorted, with overlaps and neighbours
-    merged.  udp.public contains every public UDP port.  udp.xdp is the subset
-    that a Frankendancer net tile with a bypass provider (xdp or mlx5) takes before
-    netfilter sees it; the receive-XDP sockets of an agave build are listed by name in
-    udp.xdp_rx_bypass, and their ports are in udp.public like the other ports of
-    the dynamic port range.  The same input gives the same canonical JSON and the
-    same model_sha256, the sha256 of the canonical JSON without the model_sha256
-    key.
+    merged.  udp.public holds the public UDP ports of the Solana client (the dynamic
+    port range, a pinned gossip port, the fixed ports of Frankendancer); the public UDP
+    ports of components are in udp.pub.  udp.xdp is the subset of udp.public that a
+    Frankendancer net tile with a bypass provider (xdp or mlx5) takes before netfilter
+    sees it; the receive-XDP sockets of an agave build are listed by name in
+    udp.xdp_rx_bypass, and their ports are in udp.public like the other ports of the
+    dynamic port range.  The same input gives the same canonical JSON and the same
+    model_sha256, the sha256 of the canonical JSON without the model_sha256 key.
     A port is in one class only (a UDP and a TCP port of one number are two ports).  The
     table opens a port to the sources of each class that holds it, and to everybody, past
     the limit of the other class, when one of them is public; the model does not say which
     class the node means.  So it stops with class_overlap, naming the port and the two
     classes, when a port is in two of: udp.public, udp.xdp, udp.pub, udp.allowlist (each
-    component), local_only.udp, the interface rules of a component (libvirt), and for TCP
+    component), local_only.udp, the interface rules of a component (libvirt), the DHCP
+    client ports of the host (udp 68 where dhcp4_ifaces names interfaces, udp 546 where
+    dhcp6_ifaces does: the two ports the table accepts DHCP replies on), and for TCP
     tcp.public, tcp.consumer, tcp.mgmt, tcp.metrics, tcp.ssh, tcp.wg_only, local_only.tcp.
     The one overlap it allows is udp.xdp inside udp.public: the same ports for the same
     sources.
       udp.pub            public UDP ports of components (wireguard)
       udp.allowlist      [{"component", "ports", "sources": {"v4", "v6"}}]: UDP ports
                          that only the listed sources may reach (shred-relay)
-      udp.xdp_rx_bypass  names of the sockets a receive-XDP build takes past netfilter
+      udp.xdp_rx_bypass  names of the sockets that a receive-XDP build can take past
+                         netfilter (the unit grants CAP_BPF and CAP_PERFMON)
       tcp.consumer       the ports of lb_ips and mgmt, or of everybody when
                          consumer_public is true; tcp.mgmt is mgmt only; tcp.metrics
-                         is metrics_ips and mgmt; tcp.wg_only is reached through wg0
+                         is metrics_ips and mgmt; tcp.wg_only is reached through wg0.
+                         Here mgmt is the mgmt sources and what the table treats like
+                         them: trusted_ifaces and the WireGuard tunnel
       local_only         ports bound to loopback, or that are never opened
       ssh                {"mode", "public", "rate": {"burst", "new_per_minute",
                          "v6_prefix"} or null, "controller_only"}
@@ -327,10 +337,12 @@ def _seal(model):
 #   * Without --gossip-port the value is the literal 0 (validator/src/commands/
 #     run/execute.rs: find_available_port_in_range(addr, (0, 1)) returns 0), so
 #     the gossip port is picked inside the range at start.
-#   * The only TCP sockets are the ip-echo listener on the gossip port and the
-#     RPC and pubsub listeners on --rpc-port and --rpc-port + 1.  The RPC bind
-#     address is --rpc-bind-address, else 127.0.0.1 with --private-rpc, else
-#     --bind-address (default 0.0.0.0): execute.rs "let rpc_bind_address".
+#   * The only TCP sockets that the validator itself opens are the ip-echo listener
+#     on the gossip port and the RPC and pubsub listeners on --rpc-port and
+#     --rpc-port + 1 (a Geyser plugin loaded into it opens its own: see _add_richat and
+#     _add_yellowstone).  The RPC bind address is --rpc-bind-address, else 127.0.0.1
+#     with --private-rpc, else --bind-address (default 0.0.0.0): execute.rs "let
+#     rpc_bind_address".
 #   * --dynamic-port-range MIN-MAX is the half-open range [MIN, MAX); it is
 #     refused when MAX - MIN is below MINIMUM_VALIDATOR_PORT_RANGE_WIDTH:
 #     validator/src/cli.rs port_range_validator, net-utils/src/lib.rs.
@@ -363,7 +375,8 @@ _ALLNODES_RX_XDP = (
     "tvu",
 )
 
-# Frankendancer sockets (the same in both tags below):
+# Frankendancer sockets (the same in both tags below; each statement is about the files
+# named for it):
 #   * The Agave child process is started with the config values --gossip-port,
 #     --dynamic-port-range, --rpc-port, --private-rpc, --rpc-bind-address and
 #     --bind-address (src/app/fdctl/commands/run_agave.c), so it follows the
@@ -710,7 +723,7 @@ def _agave_rpc_loopback(args):
 _TOML_HEADER_RE = re.compile(r"\[\s*([^\[\]]+?)\s*\]\s*(?:#.*)?")
 _TOML_KEY_RE = re.compile(r"([A-Za-z0-9_-]+(?:\s*\.\s*[A-Za-z0-9_-]+)*)\s*=\s*(.*)", re.DOTALL)
 
-# (table, key) -> type of the keys this reader returns; every other line is skipped
+# (table, key) -> type of the keys this reader returns; the other key lines are read past
 _FD_KEYS = {
     ("", "dynamic_port_range"): "str",
     ("gossip", "port"): "int",
@@ -739,9 +752,10 @@ def _toml_unreadable(where, why):
 def _toml_value_extent(rest, lines, index):
     """Join the lines of a multi-line string, array or inline table.
 
-    Returns (text, index of the next unread line).  Only used to step over values
-    of keys this reader does not return, so the lines inside are never mistaken for
-    keys or table headers.
+    Returns (text, index of the next unread line).  It is called for every key line, so
+    that the lines inside a multi-line value are not mistaken for keys or table headers; a
+    key that this reader returns must have a one-line value (_read_fd_toml refuses the
+    others).
     """
     stripped = rest.lstrip()
     for quote in ('"""', "'''"):
@@ -1424,11 +1438,12 @@ def _derive_agave(prof, role, args, inp, b):
         )
     rpc = args["rpc_port"]
     gossip = args["gossip_port"]
-    # The only TCP socket agave binds inside the dynamic port range is the ip-echo listener
-    # on the gossip port, and it is bound before the RPC service starts.  Without
-    # --gossip-port that port is the first one of the range (UDP and TCP both free).  So the
-    # RPC and pubsub listeners fail to bind only when --rpc-port or --rpc-port + 1 is that
-    # port; overlapping the UDP sockets of the range does not collide.
+    # The only TCP socket agave itself binds inside the dynamic port range is the ip-echo
+    # listener on the gossip port, and it is bound before the RPC service starts.  Without
+    # --gossip-port that port is the first one of the range (UDP and TCP both free).  So,
+    # of agave's own sockets, the RPC and pubsub listeners fail to bind only when --rpc-port
+    # or --rpc-port + 1 is that port; overlapping the UDP sockets of the range does not
+    # collide.  A Geyser plugin binds ports of its own.
     ip_echo_port = gossip if gossip is not None else low
     if rpc is not None and ip_echo_port in (rpc, rpc + 1):
         where = (
@@ -1578,17 +1593,23 @@ def _shared_ports(first, second):
 
 def _port_classes(model):
     """Every set of ports of the model, as (protocol, name, intervals): the sets the table has a
-    rule for and the local-only sets, which it has none for.
+    rule for, including the DHCP reply rules of the host, and the local-only sets, which it has
+    none for.
 
     Narrowest first, so that an overlap reads "<narrow class> and in <wider class>".
     """
-    udp, tcp, local = model["udp"], model["tcp"], model["local_only"]
+    udp, tcp, local, host = model["udp"], model["tcp"], model["local_only"], model["host"]
     classes = [("udp", "local_only.udp", local["udp"])]
     for entry in udp["allowlist"]:
         classes.append(("udp", "udp.allowlist (%s)" % entry["component"], entry["ports"]))
     for component in model["components"]:
         for rule in component["iface_rules"]:
             classes.append((rule["proto"], "%s rule for %s" % (component["id"], rule["iifname"]), rule["ports"]))
+    # the table accepts a DHCP reply on the client port of each interface the host names
+    if host["dhcp6_ifaces"]:
+        classes.append(("udp", "host DHCPv6 client rule", [[546, 546]]))
+    if host["dhcp4_ifaces"]:
+        classes.append(("udp", "host DHCPv4 client rule", [[68, 68]]))
     classes += [
         ("udp", "udp.pub", udp["pub"]),
         ("udp", "udp.public", udp["public"]),
@@ -1656,7 +1677,8 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
         entry.update(more)
         warnings.append(entry)
 
-    # Receive XDP: packets the kernel never shows to netfilter.
+    # Receive XDP: packets that AF_XDP delivers to a socket without the kernel showing them
+    # to netfilter.
     rx_bypass = []
     if prof.rx_xdp:
         unit = items["unit"]  # _rendered_items made sure it is there
@@ -1671,7 +1693,8 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
             rx_bypass = sorted(prof.rx_xdp)
             warn(
                 "xdp_rx_bypass_accepted",
-                "no deny rule or rate limit applies to the receive-XDP sockets: %s" % ", ".join(rx_bypass),
+                "no deny rule or rate limit applies to a packet that XDP delivers to the receive-XDP "
+                "sockets: %s" % ", ".join(rx_bypass),
                 sockets=rx_bypass,
             )
 
@@ -1698,7 +1721,8 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
     if role == "rpc" and not (inp["lb"][0] or inp["lb"][1]) and not inp["public_rpc"]:
         warn(
             "lb_empty_fail_closed",
-            "lb_ips is empty and public_rpc is false: consumer ports (%s) are reachable from mgmt only"
+            "lb_ips is empty and public_rpc is false: consumer ports (%s) are reachable only from "
+            "mgmt and from what the table treats like it (trusted_ifaces, the WireGuard tunnel)"
             % _port_text(consumer),
         )
     if consumer_public and b.unauthenticated:
@@ -1715,7 +1739,8 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
         warn(
             "admin_without_v6",
             "the host has a global IPv6 address but no IPv6 address is allowed for mgmt; "
-            "a client that reaches the host over IPv6 is locked out",
+            "a client that reaches the host over IPv6 is locked out of SSH and the mgmt ports, unless it "
+            "arrives on a trusted interface or ssh_mode is public-rate-limited (which keeps SSH open)",
         )
     if facts["bridges"]:
         warn(
@@ -1727,8 +1752,8 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
     if controller_only:
         warn(
             "controller_only_mgmt",
-            "admin_ips is empty: mgmt is the address this run connects from (%s) and nothing else"
-            % inp["controller_ip"],
+            "admin_ips is empty: the mgmt sources are the address this run connects from (%s) and no "
+            "other address" % inp["controller_ip"],
         )
 
     public_ssh = inp["ssh_mode"] == "public-rate-limited"
@@ -1815,7 +1840,8 @@ def _model_copy(model, what):
 
 
 def slv_listen_model_union(old, new):
-    """Per class, the ports of both models; everything else comes from the new one.
+    """For each port set in _UNION_FIELDS, the ports of both models; everything else, the
+    allowlist included, comes from the new one.
 
     The union is not checked for class_overlap: a port may be in one class of the old model
     and in another of the new one while a node moves from one to the other.

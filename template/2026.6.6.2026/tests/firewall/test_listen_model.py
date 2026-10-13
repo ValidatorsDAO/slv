@@ -5,7 +5,7 @@ Run from the repository root:
     python3 -m unittest discover -s template/latest/tests/firewall -p 'test_*.py' -v
 
 The plugin is loaded lazily, inside each test, so that a missing or broken plugin
-fails every test by name instead of failing the whole module at import time.
+fails each test that uses it by name instead of failing the whole module at import time.
 
 The fixtures are real renders of the start templates, made with Ansible's
 lookup('template') on the file and variables named in the header of each fixture.
@@ -163,6 +163,76 @@ def validator_with_range(rng):
     return [args_item(text, literal=True)]
 
 
+def richat_node(rng="8000-8030", quic=None):
+    """The mainnet Geyser gRPC render with another --dynamic-port-range and, if given, another richat QUIC endpoint."""
+    data = richat_data()
+    if quic is not None:
+        data["apps"]["richat"]["quic"]["endpoint"] = quic
+    text = replaced(
+        fixture("mainnet-rpc.geyser-grpc.start-validator.sh"),
+        "--dynamic-port-range 8000-8030",
+        "--dynamic-port-range %s" % rng,
+    )
+    return [args_item(text, literal=True), richat_item(data)]
+
+
+def blank_model():
+    """The model of the mainnet agave validator with every set of ports emptied, to build overlaps by hand."""
+    model = copy.deepcopy(derive([args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]))
+    for group, keys in (
+        ("udp", ("public", "xdp", "pub", "allowlist")),
+        ("tcp", ("public", "consumer", "mgmt", "metrics", "ssh", "wg_only")),
+        ("local_only", ("tcp", "udp")),
+    ):
+        for key in keys:
+            model[group][key] = []
+    model["components"] = []
+    model["host"]["dhcp4_ifaces"] = []
+    model["host"]["dhcp6_ifaces"] = []
+    return model
+
+
+def port_setters():
+    """(protocol, name, put) for each set of ports a table has a rule for or the model keeps local.
+
+    put(model, intervals) puts the ports into that set of a model made by blank_model().
+    """
+
+    def plain(group, key):
+        def put(model, ports):
+            model[group][key] = ports
+
+        return put
+
+    def allowlist(model, ports):
+        model["udp"]["allowlist"] = [{"component": "shred-relay", "ports": ports, "sources": {"v4": [], "v6": []}}]
+
+    def interface_rule(proto):
+        def put(model, ports):
+            if not model["components"]:
+                model["components"] = [{"id": "libvirt", "class": "host", "listeners": [], "iface_rules": []}]
+            model["components"][0]["iface_rules"].append({"iifname": "virbr*", "proto": proto, "ports": ports})
+
+        return put
+
+    return (
+        ("udp", "local_only.udp", plain("local_only", "udp")),
+        ("udp", "udp.allowlist", allowlist),
+        ("udp", "interface rule", interface_rule("udp")),
+        ("udp", "udp.pub", plain("udp", "pub")),
+        ("udp", "udp.public", plain("udp", "public")),
+        ("udp", "udp.xdp", plain("udp", "xdp")),
+        ("tcp", "local_only.tcp", plain("local_only", "tcp")),
+        ("tcp", "interface rule", interface_rule("tcp")),
+        ("tcp", "tcp.wg_only", plain("tcp", "wg_only")),
+        ("tcp", "tcp.mgmt", plain("tcp", "mgmt")),
+        ("tcp", "tcp.ssh", plain("tcp", "ssh")),
+        ("tcp", "tcp.metrics", plain("tcp", "metrics")),
+        ("tcp", "tcp.consumer", plain("tcp", "consumer")),
+        ("tcp", "tcp.public", plain("tcp", "public")),
+    )
+
+
 def fd_rpc_toml():
     """The Frankendancer RPC render with a range that holds no fixed port.
 
@@ -209,7 +279,7 @@ class ModelTestCase(unittest.TestCase):
 
 
 class ListenModelBehaviors(ModelTestCase):
-    """One test per behavior of the model (b01 to b33)."""
+    """One test per behavior of the model (b01 to b34)."""
 
     def test_b01_mainnet_agave_validator_with_cli_values(self):
         model = agave_validator()
@@ -782,8 +852,9 @@ class ListenModelBehaviors(ModelTestCase):
 
     # A port is in one class only: the table opens a port to the sources of each class that
     # holds it, and the model does not say which class the node means, so the model stops
-    # with class_overlap (b28 to b33).  b28 to b30 are ranges and components that grow over a
-    # public port; b31 and b32 are the SSH ports and the consumer ports; b33 is every pair.
+    # with class_overlap (b28 to b34).  b28 to b30 are ranges and components that grow over a
+    # public port; b31 and b32 are the SSH ports and the consumer ports; b33 is every pair of
+    # the port sets of the model and b34 is the DHCP client ports of the host.
 
     def test_b28_a_range_over_an_allowlist_port_stops(self):
         relay = inputs(components=[{"id": "shred-relay", "sources": ["203.0.113.0/24"]}])
@@ -817,14 +888,6 @@ class ListenModelBehaviors(ModelTestCase):
             self.assertStopsDerive("class_overlap", validator_with_range("8000-20001"), inp=gateway)
         # richat's QUIC endpoint (10101) is listed as local only whatever address it is bound to
         geyser = rpc_profile("Geyser gRPC")
-        start = fixture("mainnet-rpc.geyser-grpc.start-validator.sh")
-
-        def richat_node(rng, quic=None):
-            data = richat_data()
-            if quic is not None:
-                data["apps"]["richat"]["quic"]["endpoint"] = quic
-            text = replaced(start, "--dynamic-port-range 8000-8030", "--dynamic-port-range %s" % rng)
-            return [args_item(text, literal=True), richat_item(data)]
 
         with self.subTest("a range that holds richat's QUIC port"):
             exc = self.assertStopsDerive("class_overlap", richat_node("8000-10200"), geyser)
@@ -939,70 +1002,30 @@ class ListenModelBehaviors(ModelTestCase):
         # A model is built by hand, because the derivation cannot put a port into some of these
         # pairs.  The classes are the port sets of the model: the ones the table has a rule for
         # and local_only, which it has none for.
-        base = derive([args_item("mainnet-validator.agave-4.3.0.start-validator.sh")])
-        self.assertEqual(sorted(base["udp"]), sorted(["public", "xdp", "xdp_rx_bypass", "xdp_bind_address", "pub", "allowlist"]))
+        base = blank_model()
+        self.assertEqual(
+            sorted(base["udp"]), sorted(["public", "xdp", "xdp_rx_bypass", "xdp_bind_address", "pub", "allowlist"])
+        )
         self.assertEqual(sorted(base["tcp"]), sorted(["public", "consumer", "mgmt", "metrics", "ssh", "wg_only"]))
         self.assertEqual(sorted(base["local_only"]), ["tcp", "udp"])
-
-        def plain(group, key):
-            def put(model, ports):
-                model[group][key] = ports
-            return put
-
-        def allowlist(model, ports):
-            model["udp"]["allowlist"] = [{"component": "shred-relay", "ports": ports, "sources": {"v4": [], "v6": []}}]
-
-        def interface_rule(proto):
-            def put(model, ports):
-                if not model["components"]:
-                    model["components"] = [{"id": "libvirt", "class": "host", "listeners": [], "iface_rules": []}]
-                model["components"][0]["iface_rules"].append({"iifname": "virbr*", "proto": proto, "ports": ports})
-            return put
-
-        classes = (
-            ("udp", "local_only.udp", plain("local_only", "udp")),
-            ("udp", "udp.allowlist", allowlist),
-            ("udp", "interface rule", interface_rule("udp")),
-            ("udp", "udp.pub", plain("udp", "pub")),
-            ("udp", "udp.public", plain("udp", "public")),
-            ("udp", "udp.xdp", plain("udp", "xdp")),
-            ("tcp", "local_only.tcp", plain("local_only", "tcp")),
-            ("tcp", "interface rule", interface_rule("tcp")),
-            ("tcp", "tcp.wg_only", plain("tcp", "wg_only")),
-            ("tcp", "tcp.mgmt", plain("tcp", "mgmt")),
-            ("tcp", "tcp.ssh", plain("tcp", "ssh")),
-            ("tcp", "tcp.metrics", plain("tcp", "metrics")),
-            ("tcp", "tcp.consumer", plain("tcp", "consumer")),
-            ("tcp", "tcp.public", plain("tcp", "public")),
-        )
-
-        def blank():
-            model = copy.deepcopy(base)
-            for group, keys in (("udp", ("public", "xdp", "pub", "allowlist")),
-                                ("tcp", ("public", "consumer", "mgmt", "metrics", "ssh", "wg_only")),
-                                ("local_only", ("tcp", "udp"))):
-                for key in keys:
-                    model[group][key] = []
-            model["components"] = []
-            return model
-
+        classes = port_setters()
         check = plugin()._refuse_class_overlap
         pairs = 0
         for i, (proto, name, put) in enumerate(classes):
             with self.subTest("%s alone is fine" % name):
-                model = blank()
+                model = blank_model()
                 put(model, [[4000, 4005]])
                 self.assertIsNone(check(model))
-            for other_proto, other_name, other_put in classes[i + 1:]:
+            for other_proto, other_name, other_put in classes[i + 1 :]:
                 if proto != other_proto:
                     with self.subTest("%s and %s hold the same number, as two different ports" % (name, other_name)):
-                        model = blank()
+                        model = blank_model()
                         put(model, [[4000, 4005]])
                         other_put(model, [[4003, 4009]])
                         self.assertIsNone(check(model))
                     continue
                 pairs += 1
-                model = blank()
+                model = blank_model()
                 put(model, [[4000, 4005]])
                 other_put(model, [[4003, 4009]])
                 if (name, other_name) == ("udp.public", "udp.xdp"):
@@ -1013,7 +1036,7 @@ class ListenModelBehaviors(ModelTestCase):
                     exc = self.assertStops("class_overlap", model, func=check)
                     self.assertIn("%s port 4003-4005 is in " % proto, exc.detail)
                 with self.subTest("%s and %s next to each other are fine" % (name, other_name)):
-                    model = blank()
+                    model = blank_model()
                     put(model, [[4000, 4005]])
                     other_put(model, [[4006, 4009]])
                     self.assertIsNone(check(model))
@@ -1025,6 +1048,59 @@ class ListenModelBehaviors(ModelTestCase):
                 "class_overlap", [args_item(text, literal=True)], inp=inputs(components=["libvirt"])
             )
             self.assertIn("tcp port 53 is in libvirt rule for virbr* and in tcp.mgmt (53-54)", exc.detail)
+
+    def test_b34_the_dhcp_client_ports_of_the_host_are_classes_where_the_table_has_the_rules(self):
+        # The table accepts a DHCP reply on udp 68 (DHCPv4) and udp 546 (DHCPv6) on the interfaces
+        # that the host names, so each of the two ports is a class of the model for as long as
+        # dhcp4_ifaces or dhcp6_ifaces names an interface (null stands for every interface but lo).
+        geyser = rpc_profile("Geyser gRPC")
+        check = plugin()._refuse_class_overlap
+        cases = (
+            # (name, port, host fact, a dynamic port range over the port, the ports of udp.public, the other fact)
+            ("DHCPv4", 68, "dhcp4_ifaces", "50-100", "50-99", "dhcp6_ifaces"),
+            ("DHCPv6", 546, "dhcp6_ifaces", "520-570", "520-569", "dhcp4_ifaces"),
+        )
+        for name, port, key, rng, public, other_key in cases:
+            rule = "host %s client rule" % name
+            with self.subTest("%s: a local-only port on %d" % (name, port)):
+                exc = self.assertStopsDerive(
+                    "class_overlap", richat_node(quic="127.0.0.1:%d" % port), geyser, facts=host_facts(**{key: ["eno1"]})
+                )
+                self.assertIn("udp port %d is in local_only.udp and in %s (%d)" % (port, rule, port), exc.detail)
+            with self.subTest("%s: a dynamic port range over %d" % (name, port)):
+                exc = self.assertStopsDerive(
+                    "class_overlap", richat_node(rng), geyser, facts=host_facts(**{key: ["eno1"]})
+                )
+                self.assertIn("udp port %d is in %s and in udp.public (%s)" % (port, rule, public), exc.detail)
+            with self.subTest("%s: interfaces that the host could not tell count as named" % name):
+                self.assertStopsDerive(
+                    "class_overlap", richat_node(quic="127.0.0.1:%d" % port), geyser, facts=host_facts(**{key: None})
+                )
+            with self.subTest("%s: a host without those interfaces is unaffected" % name):
+                model = derive(richat_node(quic="127.0.0.1:%d" % port), geyser, facts=host_facts())
+                self.assertEqual(model["local_only"]["udp"], P(port))
+                model = derive(richat_node(rng), geyser, facts=host_facts(**{other_key: ["eno1"]}))
+                self.assertEqual(model["udp"]["public"], P((int(rng.split("-")[0]), int(rng.split("-")[1]) - 1)))
+            # every other set of UDP ports, on a model built by hand
+            for proto, other, put in port_setters():
+                if proto != "udp":
+                    continue
+                with self.subTest("%s and %s" % (rule, other)):
+                    model = blank_model()
+                    put(model, [[port - 8, port + 8]])
+                    model["host"][key] = ["eno1"]
+                    exc = self.assertStops("class_overlap", model, func=check)
+                    self.assertIn("udp port %d is in " % port, exc.detail)
+                    self.assertIn(rule, exc.detail)
+                with self.subTest("%s and %s next to each other are fine" % (rule, other)):
+                    model = blank_model()
+                    put(model, [[port + 1, port + 8]])
+                    model["host"][key] = ["eno1"]
+                    self.assertIsNone(check(model))
+                with self.subTest("%s and %s with no such interface are fine" % (rule, other)):
+                    model = blank_model()
+                    put(model, [[port - 8, port + 8]])
+                    self.assertIsNone(check(model))
 
 
 class ListenModelSupport(ModelTestCase):

@@ -1,12 +1,15 @@
 #jinja2: lstrip_blocks: True
 {#
   slv-fallback.nft: a small table that keeps a node reachable for its operator and for the
-  network, rendered from the same listen model as slv.nft. It is meant to be put in place
-  when slv.nft does not load (the loader is not part of this release). It has no rule for
-  consumer, metrics or management-only ports, for deny, or for the opt-in components, with
-  one exception, the WireGuard tunnel: its UDP port (the public UDP port of the wireguard
-  component, and no other public UDP port) and SSH from the tunnel, because SSH over the
-  tunnel is of no use if the tunnel cannot form.
+  network, rendered from the same listen model as slv.nft. It has rules for SSH (from the
+  management sources, the trusted interfaces and the tunnel when it is on, and from everybody
+  with a rate limit in ssh_mode public-rate-limited), for Solana UDP (sol_udp and xdp_udp)
+  and for the ICMP, neighbour discovery and DHCP traffic of the network. It is meant to be
+  put in place when slv.nft does not load (the loader is not part of this release). It has
+  no rule for consumer, metrics or management-only ports, for deny, or for the opt-in
+  components, with one exception, the WireGuard tunnel: its UDP port (the pub_udp port of
+  the wireguard component, and no other pub_udp port) and SSH from the tunnel, because SSH
+  over the tunnel is of no use if the tunnel cannot form.
 
   slv_fw_model  the listen model
   slv_fw_meta   generated_at and controller_ip, written to the header comment only

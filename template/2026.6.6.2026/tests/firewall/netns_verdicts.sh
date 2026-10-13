@@ -8,9 +8,10 @@
 #
 # Needs root, ip(8), nft(8), python3 with scapy, and optionally conntrack(8). The tables,
 # addresses, routes and sysctls it sets are in three network namespaces, which it removes on
-# exit. Besides the names of the namespaces, the only thing it creates outside them is each
-# veth pair of the topology below, until its two ends are moved in. Still, run it on a CI
-# runner or a throwaway machine, never on a production host. The namespaces:
+# exit. The only network objects it creates outside them are the names of the namespaces
+# and each veth pair of the topology below, until its two ends are moved in; it also makes
+# a temporary work directory, which it removes on exit. Still, run it on a CI runner or a
+# throwaway machine, never on a production host. The namespaces:
 #
 #   peer --p0 === h0-- host --h1 === f0-- far
 #
@@ -20,8 +21,9 @@
 # other, unseen); `far` is where `host` forwards to. The addresses and interface names come
 # from verdict/topology.env, the same numbers the tables were rendered with.
 #
-# A case prints `PASS <name>` or `FAIL <name>` and, on failure, what it saw. Every case
-# runs even when one fails. The script exits 1 if any case failed.
+# A case prints `PASS <name>` or `FAIL <name>` and, on failure, what it saw. Once the
+# namespaces are built, every case runs even when one fails; when they cannot be built,
+# every case is reported as failed. The script exits 1 if any case failed.
 
 set -u
 export LC_ALL=C
@@ -124,9 +126,12 @@ cat > "$WORK/pkt.py" <<'__PKT_PY__'
 #!/usr/bin/env python3
 """Sockets and raw packets for netns_verdicts.sh, run inside its network namespaces.
 
-Every subcommand but `serve` prints one line the script matches on and exits 0, unless
-the arguments are wrong; `serve` prints nothing and runs until it is killed.  scapy is
-imported only by `inject`.
+Every subcommand but `serve` prints one line the script matches on when it works.  tcp-connect,
+tcp-flow, udp-send and udp-recv turn a failed socket call into a line of their own (ERROR,
+NOFLOW, SILENT); tcp-burst and inject do not catch one, so a failed socket call or a scapy
+error ends them with a traceback and exit status 1.  `serve` prints nothing and runs until
+it is killed, or ends with exit status 1 when a bind fails.  scapy is imported only by
+`inject`.
 """
 import argparse
 import os
@@ -924,14 +929,14 @@ send_udp() {
 
 case_b16() {
   local rc=0
-  # The full table opens both public UDP ports (the second was added to the model by hand);
+  # The full table opens both pub_udp ports (the second was added to the model by hand);
   # without that the fallback below would prove nothing.
   prepare "$T_WG" probes || return 1
   send_udp "$WG_UDP_PORT" 2
   send_udp "$PUB_UDP_PORT" 2
   sleep 0.5
   if [ "$(pval s_wg_udp)" -lt 2 ] || [ "$(pval s_pub_udp_other)" -lt 2 ]; then
-    echo "  the full table did not open both public UDP ports: $WG_UDP_PORT passed $(pval s_wg_udp) of 2, $PUB_UDP_PORT passed $(pval s_pub_udp_other) of 2"
+    echo "  the full table did not open both pub_udp ports: $WG_UDP_PORT passed $(pval s_wg_udp) of 2, $PUB_UDP_PORT passed $(pval s_pub_udp_other) of 2"
     rc=1
   fi
   prepare "$T_WG_FALLBACK" probes || return 1
@@ -943,7 +948,7 @@ case_b16() {
     rc=1
   fi
   if [ "$(pval a_pub_udp_other)" -lt 2 ] || [ "$(pval s_pub_udp_other)" -ne 0 ]; then
-    echo "  another public UDP port ($PUB_UDP_PORT) against the fallback table: arrived $(pval a_pub_udp_other), passed $(pval s_pub_udp_other); expected it to arrive and be dropped"
+    echo "  another pub_udp port ($PUB_UDP_PORT) against the fallback table: arrived $(pval a_pub_udp_other), passed $(pval s_pub_udp_other); expected it to arrive and be dropped"
     rc=1
   fi
   return $rc

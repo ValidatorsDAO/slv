@@ -1,6 +1,7 @@
 ---
-# Renders slv.nft and slv-fallback.nft for every cell of the firewall matrix (matrix.py cells)
-# into a new directory: the start templates are rendered with lookup('template') and the
+# Renders slv.nft and slv-fallback.nft for every matrix and scenario cell of matrix.py (a probe
+# cell only looks up the profile of a pinned version and renders nothing) into a new
+# directory: the start templates are rendered with lookup('template') and the
 # variables of an inventory (inventories/), the model is derived from that text with the
 # slv_listen_model filter, and the two nft templates are rendered from the model. No init
 # playbook is run. CI compares the directory with golden/, checks its tables and checks every

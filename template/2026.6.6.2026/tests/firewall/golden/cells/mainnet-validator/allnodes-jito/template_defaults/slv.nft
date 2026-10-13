@@ -4,10 +4,12 @@
 table inet slv
 delete table inet slv
 table inet slv {
-  # sol_udp holds every public UDP port. xdp_udp holds the ones that a kernel-bypass net tile
-  # (AF_XDP or mlx5) normally takes before netfilter sees them, so a packet that reaches the
-  # kernel on one of them is counted by c_xdp_fallback instead of c_sol_udp (rule order): the
-  # tile did not take that packet.
+  # sol_udp holds the public UDP ports of the Solana client (the dynamic port range, a pinned
+  # gossip port, the fixed ports of Frankendancer); pub_udp holds those of components
+  # (WireGuard). xdp_udp holds the ones of sol_udp that a kernel-bypass net tile (AF_XDP or
+  # mlx5) normally takes before netfilter sees them, so a packet that reaches the kernel on one
+  # of them is counted by c_xdp_fallback instead of c_sol_udp (rule order): the tile did not
+  # take that packet.
   set sol_udp      { type inet_service; flags interval; elements = { 8000-8029 } }
   set xdp_udp      { type inet_service; flags interval; }
   set pub_udp      { type inet_service; flags interval; }
@@ -38,7 +40,9 @@ table inet slv {
   counter c_tail { }
 
   # Only the Solana UDP packets to and from this host skip conntrack, so packets that this
-  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT.
+  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT. The
+  # exception is the reply to a masqueraded UDP flow whose host-side port is in sol_udp or
+  # xdp_udp: it is addressed to this host, skips conntrack and is not translated back.
   chain pre_raw {
     type filter hook prerouting priority raw; policy accept;
     fib daddr type local meta nfproto ipv4 udp dport @sol_udp notrack
@@ -50,8 +54,8 @@ table inet slv {
     meta nfproto ipv4 udp sport @xdp_udp notrack
   }
 
-  # The ports that a management source may reach. The chain is called before deny, so a
-  # deny entry does not cut a management source off from these ports.
+  # The ports that a management source, a trusted interface or the WireGuard tunnel may reach.
+  # The chain is called before deny, so a deny entry does not cut them off from these ports.
   chain mgmt_ok {
     tcp dport @ssh_ports counter name "c_mgmt" accept
     tcp dport @mgmt_tcp accept
@@ -71,8 +75,8 @@ table inet slv {
     # before the conntrack rules, so that deny also cuts flows that are already open
     ip saddr @deny_v4 counter name "c_deny" drop
     ip6 saddr @deny_v6 counter name "c_deny" drop
-    # Solana UDP is allowed by port and never by conntrack state: packets that XDP sends
-    # skip conntrack, so the replies to them arrive as new
+    # Solana UDP is accepted by port, not by conntrack state: packets that XDP sends skip
+    # conntrack, so the replies to them arrive as new
     meta nfproto ipv4 udp dport @xdp_udp counter name "c_xdp_fallback" accept
     meta nfproto ipv4 udp dport @sol_udp counter name "c_sol_udp" accept
     udp dport @pub_udp accept

@@ -12,14 +12,14 @@
 #   var   of1-listen only: the play variable whose default is the listen address
 #         (the address is not a template, so there is no path)
 #
-# Nothing in a playbook reads this file yet. The firewall render matrix reads it and checks
-# two things: that its keys are the start configurations that tests/firewall/matrix.py lists
-# (a configuration without an entry, or an entry without a configuration, stops the run),
-# and that the text of each `play` contains its `path` (for of1-listen, that the play has
-# the `var`). It does not read the init.yml
-# playbooks that import the plays (<network>-<role>/init.yml), so it does not notice a change
-# to the conditions under which they import a play, nor a play that starts to draw another
-# template. When either changes, update this table and matrix.py by hand.
+# No init or start playbook reads this file yet. The firewall render matrix
+# (tests/firewall/render_matrix.yml) reads it and checks two things: that its keys are the
+# start configurations that tests/firewall/matrix.py lists (a configuration without an
+# entry, or an entry without a configuration, stops the run), and that the text of each
+# `play` contains its `path` (for of1-listen, that the play has the `var`). It does not read
+# the init.yml playbooks that import the plays (<network>-<role>/init.yml), so it does not
+# notice a change to the conditions under which they import a play, nor a play that starts
+# to draw another template. When either changes, update this table and matrix.py by hand.
 #
 # Not listed because init draws nothing for them:
 #   - testnet validator with allnodes-jito: testnet-validator/init.yml starts
