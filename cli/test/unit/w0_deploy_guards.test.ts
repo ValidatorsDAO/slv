@@ -1,5 +1,15 @@
-import { assert, assertEquals, assertStringIncludes } from '@std/assert'
-import { confirmDeploy, parseDeployNetwork } from '/lib/targetGuard.ts'
+import {
+  assert,
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from '@std/assert'
+import {
+  confirmDeploy,
+  type ConfirmEnv,
+  defaultConfirmEnv,
+  parseDeployNetwork,
+} from '/lib/targetGuard.ts'
 
 const read = (relative: string) =>
   Deno.readTextFile(new URL(`../../${relative}`, import.meta.url))
@@ -78,18 +88,89 @@ Deno.test('a rejected deploy network names the value and the accepted ones', () 
   assertStringIncludes(result.error, 'mainnet')
 })
 
-Deno.test('the deploy confirmation defaults to no and returns the answer', async () => {
-  const seen: { message: string; default: boolean }[] = []
-  const answer =
-    (value: boolean) => (opts: { message: string; default: false }) => {
-      seen.push({ message: opts.message, default: opts.default })
-      return Promise.resolve(value)
-    }
-  assertEquals(await confirmDeploy(answer(false)), false)
-  assertEquals(await confirmDeploy(answer(true)), true)
-  assertEquals(seen.length, 2)
-  assertEquals(seen.every((s) => s.default === false), true)
-  assertStringIncludes(seen[0].message, 'continue')
+type Asked = { message: string; default: boolean }
+
+const confirmEnv = (
+  options: { isTty: boolean; env?: Record<string, string>; answer?: boolean },
+) => {
+  const asked: Asked[] = []
+  const info: string[] = []
+  const errors: string[] = []
+  const exitCodes: number[] = []
+  const env: Partial<ConfirmEnv> = {
+    isTty: () => options.isTty,
+    getEnv: (name) => options.env?.[name],
+    // Reaching the prompt without a terminal would wait for input that cannot
+    // come, so it fails the test at once instead.
+    prompt: (opts) => {
+      asked.push({ message: opts.message, default: opts.default })
+      return options.isTty
+        ? Promise.resolve(options.answer ?? false)
+        : Promise.reject(new Error('the prompt was reached without a terminal'))
+    },
+    info: (line) => info.push(line),
+    error: (line) => errors.push(line),
+    setExitCode: (code) => exitCodes.push(code),
+  }
+  return { env, asked, info, errors, exitCodes }
+}
+
+Deno.test('on a terminal the deploy confirmation defaults to no and returns the answer', async () => {
+  const declined = confirmEnv({ isTty: true, answer: false })
+  assertEquals(await confirmDeploy(declined.env), false)
+  const accepted = confirmEnv({ isTty: true, answer: true })
+  assertEquals(await confirmDeploy(accepted.env), true)
+  for (const rec of [declined, accepted]) {
+    assertEquals(rec.asked.length, 1)
+    assertEquals(rec.asked[0].default, false)
+    assertStringIncludes(rec.asked[0].message, 'continue')
+    assertEquals(rec.exitCodes, [])
+  }
+})
+
+Deno.test('the deploy confirmation answers no with a message, and does not wait, when stdin is not a terminal', async () => {
+  const rec = confirmEnv({ isTty: false })
+  assertEquals(await confirmDeploy(rec.env), false)
+  assertEquals(rec.asked, [])
+  assertEquals(rec.exitCodes, [1])
+  const message = rec.errors.join('\n')
+  assertStringIncludes(message, 'stdin is not a terminal')
+  assertStringIncludes(message, 'SLV_ALLOW_ALL_HOSTS=1')
+})
+
+Deno.test({
+  name:
+    'the deploy confirmation treats an environment it is not permitted to read as not set',
+  permissions: { env: false },
+  fn: async () => {
+    // Control: the permission really is denied inside this test.
+    assertThrows(() => Deno.env.get('SLV_ALLOW_ALL_HOSTS'))
+    const rec = confirmEnv({ isTty: false })
+    const env = { ...rec.env, getEnv: defaultConfirmEnv().getEnv }
+    assertEquals(await confirmDeploy(env), false)
+    assertEquals(rec.asked, [])
+    assertEquals(rec.exitCodes, [1])
+  },
+})
+
+Deno.test('SLV_ALLOW_ALL_HOSTS=1 lets a deploy confirmation without a terminal go ahead; any other value does not', async () => {
+  const allowed = confirmEnv({
+    isTty: false,
+    env: { SLV_ALLOW_ALL_HOSTS: '1' },
+  })
+  assertEquals(await confirmDeploy(allowed.env), true)
+  assertEquals(allowed.asked, [])
+  assertEquals(allowed.exitCodes, [])
+  assertStringIncludes(allowed.info.join('\n'), 'SLV_ALLOW_ALL_HOSTS=1')
+
+  for (const value of ['true', 'yes', '0', '', '1 ']) {
+    const rec = confirmEnv({
+      isTty: false,
+      env: { SLV_ALLOW_ALL_HOSTS: value },
+    })
+    assertEquals(await confirmDeploy(rec.env), false, JSON.stringify(value))
+    assertEquals(rec.exitCodes, [1])
+  }
 })
 
 Deno.test('every deploy module asks through the shared confirmation and tells the runner it already did', async () => {

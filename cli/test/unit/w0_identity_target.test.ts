@@ -298,6 +298,12 @@ Deno.test('set:identity hands ansible exactly one host and a boolean first_activ
   const h = harness()
   h.deps.runPlaybook = (playbook, inventoryType, limit, extraVars) =>
     runAnsilbe(playbook, inventoryType, limit, extraVars, {
+      // The all-hosts guard checks the named host against the inventory.
+      guard: {
+        isTty: () => false,
+        getEnv: () => undefined,
+        readHosts: () => Promise.resolve(HOSTS),
+      },
       spawn: (args) => {
         argv.push(args)
         return Promise.resolve({

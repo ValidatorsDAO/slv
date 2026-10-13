@@ -1,6 +1,10 @@
 import type { InventoryType } from '@cmn/types/config.ts'
 import { getInventoryPath } from '@cmn/constants/path.ts'
-import { enforceAllHostsGuard, type GuardDeps } from '/lib/targetGuard.ts'
+import {
+  enforceAllHostsGuard,
+  type ExtraVars,
+  type GuardDeps,
+} from '/lib/targetGuard.ts'
 
 type RunAnsibleResult = {
   success: boolean
@@ -12,9 +16,6 @@ type RunAnsibleResult = {
   refused?: 'non-interactive' | 'declined' | 'unresolved'
 }
 
-/** Ansible extra vars, sent as JSON so a boolean stays a boolean. */
-type ExtraVars = Record<string, string | boolean>
-
 type AnsibleSpawnResult = {
   success: boolean
   code: number
@@ -25,7 +26,7 @@ type AnsibleSpawnResult = {
 type AnsibleSpawn = (args: string[]) => Promise<AnsibleSpawnResult>
 
 type RunAnsibleOptions = {
-  /** The caller already listed every target host and got an explicit yes. */
+  /** The caller already listed every host of the group and got an explicit yes. */
   allHostsConfirmed?: boolean
   /** Replaces the terminal, environment and prompt the all-hosts guard uses. */
   guard?: Partial<GuardDeps>
@@ -77,6 +78,7 @@ const runAnsibleCapture = async (
     playbook: filePath,
     inventoryType,
     limit,
+    extraVars,
     allHostsConfirmed: options.allHostsConfirmed,
   }, options.guard)
   if (!verdict.proceed) {
