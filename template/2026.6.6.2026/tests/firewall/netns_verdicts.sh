@@ -6,11 +6,15 @@
 #
 # Case ids (b05, b09, ...) select the cases to run; without them every case runs.
 #
-# Needs root, ip(8), nft(8), python3 with scapy, and optionally conntrack(8). Everything it
-# loads or sets stays inside three network namespaces, which it removes on exit; still, run it
-# on a CI runner or a throwaway machine, never on a production host. The namespaces:
+# Needs root, ip(8), nft(8), python3 with scapy, and optionally conntrack(8). The tables,
+# addresses, routes and sysctls it sets are in three network namespaces, which it removes on
+# exit. Besides the names of the namespaces, the only thing it creates outside them is each
+# veth pair of the topology below, until its two ends are moved in. Still, run it on a CI
+# runner or a throwaway machine, never on a production host. The namespaces:
 #
 #   peer --p0 === h0-- host --h1 === f0-- far
+#
+# (b18 adds a link between host and peer for the WireGuard tunnel: wg0 in host, wgp in peer.)
 #
 # `host` gets the table under test. `peer` owns the addresses the cases send from (lb, mgmt,
 # other, unseen); `far` is where `host` forwards to. The addresses and interface names come
@@ -120,8 +124,9 @@ cat > "$WORK/pkt.py" <<'__PKT_PY__'
 #!/usr/bin/env python3
 """Sockets and raw packets for netns_verdicts.sh, run inside its network namespaces.
 
-Every subcommand prints one line the script matches on and exits 0, unless the
-arguments are wrong.  scapy is imported only by `inject`.
+Every subcommand but `serve` prints one line the script matches on and exits 0, unless
+the arguments are wrong; `serve` prints nothing and runs until it is killed.  scapy is
+imported only by `inject`.
 """
 import argparse
 import os

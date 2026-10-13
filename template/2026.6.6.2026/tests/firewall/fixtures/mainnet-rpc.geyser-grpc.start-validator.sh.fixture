@@ -1,7 +1,7 @@
 # slv-fixture: begin
 # source: template/2026.6.6.2026/jinja/mainnet-rpc/start-validator.sh.j2
-# source-sha256: 4fe280467995f90c7efefc542b0c0ef0477cb6d6554c558fe763cceaf1b375e8
-# source-state: modified (uncommitted changes in the working tree at render time; HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# source-sha256: 2113e9579a1c7076b9d132de0c878e4605fde961630d3b30d6073ccb3afabd46
+# source-state: unmodified (identical to HEAD d9dea6c89024e705d4012c918ce7755bd76e99a8)
 # vars: {"agave_version": "4.3.0", "dynamic_port_range": "8000-8030", "port_rpc": 7211, "rpc_type": "Geyser gRPC", "validator_type": "agave"}
 # render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
 # slv-fixture: body

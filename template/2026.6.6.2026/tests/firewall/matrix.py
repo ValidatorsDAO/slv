@@ -53,8 +53,9 @@ INVENTORIES = ("cli_values", "template_defaults")
 AGAVE_LINE = ("agave", "jito", "allnodes-jito")
 FIREDANCER = ("firedancer-agave", "firedancer-jito")
 
-# The start configurations an init playbook can draw.  startup_templates.yml has to list
-# exactly these (check-table).
+# The start configurations an init playbook can draw, kept by hand: nothing reads the import
+# conditions of the init playbooks, so a change to them is made here and in
+# startup_templates.yml.  startup_templates.yml has to list exactly these (check-table).
 VALIDATOR_TYPES = {
     ("mainnet", "validator"): ("agave", "jito", "allnodes-jito") + FIREDANCER,
     ("testnet", "validator"): ("agave", "jito") + FIREDANCER,
@@ -109,8 +110,9 @@ CLIENT_PINS = {
         "firedancer": "VERSION_FIREDANCER_DEVNET",
     },
 }
-# Pins of things that open no port of the node's own client: richat, Old Faithful and the
-# Yellowstone plugin are checked through the config the start playbooks render for them.
+# Pins of things that have no listen profile: richat, Old Faithful and the Yellowstone
+# plugin.  Their ports are read from the config that the start playbooks render for them (the
+# Old Faithful address from its play), so the pin itself is not looked up.
 OTHER_PINS = (
     "VERSION_RICHAT",
     "VERSION_OF1",
@@ -120,7 +122,7 @@ OTHER_PINS = (
 )
 
 # Firewall inputs and host facts that every matrix cell gets.  Only documentation ranges
-# (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32) appear.
+# (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32) appear in them.
 MGMT_V4 = "198.51.100.7"
 META = {"generated_at": "2026-01-01T00:00:00Z", "controller_ip": MGMT_V4}
 
@@ -366,8 +368,9 @@ def verdict_inputs(ssh_mode="refuse", lb_ips=None, deny_ips=None):
 def scenario_cells(pins):
     t = TOPOLOGY
     cells = [
-        # The three tables that netns_verdicts.sh loads.  The second differs from the first in
-        # the SSH mode, the third in having moved the load balancer address from lb to deny.
+        # Three of the four scenarios that netns_verdicts.sh loads (the fourth follows).  The
+        # second differs from the first in the SSH mode, the third in having moved the load
+        # balancer address from lb to deny.
         scenario(pins, "verdict/refuse", "verdict/refuse",
                  inputs=verdict_inputs(), host_facts=verdict_facts()),
         scenario(pins, "verdict/public-rate-limited", "verdict/public-rate-limited",
@@ -386,7 +389,8 @@ def scenario_cells(pins):
                  inputs={"ssh_mode": "controller-only", "controller_ip": "198.51.100.200",
                          "lb_ips": ["192.0.2.10"], "ssh_connection_port": 22},
                  meta={"generated_at": META["generated_at"], "controller_ip": "198.51.100.200"}),
-        # every optional rule at once
+        # the optional address lists, interface lists and components in one table; the SSH mode
+        # stays refuse (verdict/public-rate-limited has the other)
         scenario(
             pins, "scenarios/everything", "scenarios/everything", rpc_type="Index RPC + gRPC",
             inputs={

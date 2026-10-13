@@ -37,7 +37,7 @@ table inet slv {
     iif != "lo" ip daddr 127.0.0.0/8 drop
     iif != "lo" ip6 daddr ::1 drop
     iif != "lo" meta pkttype host fib saddr type local counter name "c_spoof" drop
-    # SSH from the management sources
+    # SSH from the management sources, and from the tunnel and the trusted interfaces when there are any
     ip saddr @mgmt_v4 tcp dport @ssh_ports counter name "c_mgmt" accept
     ip6 saddr @mgmt_v6 tcp dport @ssh_ports counter name "c_mgmt" accept
     meta nfproto ipv4 udp dport @xdp_udp counter name "c_xdp_fallback" accept

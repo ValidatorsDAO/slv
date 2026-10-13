@@ -9,9 +9,10 @@ fails every test by name instead of failing the whole module at import time.
 
 The fixtures are real renders of the start templates, made with Ansible's
 lookup('template') on the file and variables named in the header of each fixture.
-They are snapshots: to refresh one, render the same template again and keep the
-header (the "source-state" line says whether the template had uncommitted changes
-at that time).  A few tests change one line of a render to reach a case that no
+They are snapshots, and nothing compares a fixture with its template: after a change
+to a start template, render the fixtures again by hand and update the header (the
+"source-sha256" and "source-state" lines say which text of the template the body was
+rendered from).  A few tests change one line of a render to reach a case that no
 template produces, and say so.
 """
 
@@ -208,7 +209,7 @@ class ModelTestCase(unittest.TestCase):
 
 
 class ListenModelBehaviors(ModelTestCase):
-    """One test per behavior of the model (b01 to b30)."""
+    """One test per behavior of the model (b01 to b33)."""
 
     def test_b01_mainnet_agave_validator_with_cli_values(self):
         model = agave_validator()
@@ -779,9 +780,10 @@ class ListenModelBehaviors(ModelTestCase):
             model = derive(index + [of1_item()], rpc_profile("Index RPC"))
             self.assertEqual(model["tcp"]["consumer"], P((7211, 7212), 8888))
 
-    # The table accepts a public port from every source before it reads any other rule.  A port
-    # that is public and also in a limited class would be open to everybody while the model
-    # says it is not, so the model stops (b28 to b30).
+    # A port is in one class only: the table opens a port to the sources of each class that
+    # holds it, and the model does not say which class the node means, so the model stops
+    # with class_overlap (b28 to b33).  b28 to b30 are ranges and components that grow over a
+    # public port; b31 and b32 are the SSH ports and the consumer ports; b33 is every pair.
 
     def test_b28_a_range_over_an_allowlist_port_stops(self):
         relay = inputs(components=[{"id": "shred-relay", "sources": ["203.0.113.0/24"]}])
@@ -876,11 +878,160 @@ class ListenModelBehaviors(ModelTestCase):
             self.assertEqual(model["tcp"]["public"], P(8001))
             self.assertEqual(model["local_only"]["tcp"], P(19999))
 
+    def test_b31_an_ssh_port_in_another_class_stops(self):
+        base = fixture("mainnet-validator.agave-4.3.0.start-validator.sh")
+
+        def start(gossip=None):
+            text = base
+            if gossip is not None:
+                text = replaced(text, "--no-port-check \\\n", "--no-port-check \\\n--gossip-port %s \\\n" % gossip)
+            return [args_item(text, literal=True)]
+
+        ssh_443 = host_facts(sshd_ports=[443], sshd_listen_ports=[443])
+        ssh_2222 = host_facts(sshd_ports=[2222], sshd_listen_ports=[2222])
+        with self.subTest("sshd on 443 and nginx on 443"):
+            exc = self.assertStopsDerive(
+                "class_overlap", start(), inp=inputs(components=["nginx"]), facts=ssh_443
+            )
+            self.assertIn("tcp port 443 is in tcp.ssh and in tcp.public (80, 443)", exc.detail)
+        with self.subTest("the same when SSH is open to everybody with a rate limit"):
+            # the public accept comes before the rate limit, so the limit would not apply
+            self.assertStopsDerive(
+                "class_overlap",
+                start(),
+                inp=inputs(components=["nginx"], ssh_mode="public-rate-limited"),
+                facts=ssh_443,
+            )
+        with self.subTest("sshd on the ip-echo port that ip_echo_public opens"):
+            exc = self.assertStopsDerive(
+                "class_overlap", start(2222), inp=inputs(ip_echo_public=True), facts=ssh_2222
+            )
+            self.assertIn("tcp port 2222 is in tcp.ssh and in tcp.public (2222)", exc.detail)
+        with self.subTest("the ip-echo port is a table when it is not an SSH port"):
+            model = derive(start(2223), inp=inputs(ip_echo_public=True), facts=ssh_2222)
+            self.assertEqual(model["tcp"]["public"], P(2223))
+            self.assertEqual(model["tcp"]["ssh"], P(22, 2222))
+        with self.subTest("sshd on 443 without nginx is a table"):
+            self.assertEqual(derive(start(), facts=ssh_443)["tcp"]["ssh"], P(22, 443))
+
+    def test_b32_a_consumer_port_on_an_ssh_or_metrics_port_stops(self):
+        geyser = rpc_profile("Geyser gRPC")
+        start = fixture("mainnet-rpc.geyser-grpc.start-validator.sh")
+
+        def node(rpc):
+            text = replaced(start, "--rpc-port 7211", "--rpc-port %s" % rpc)
+            return [args_item(text, literal=True), richat_item()]
+
+        # --rpc-port N also opens N + 1 (the pubsub port)
+        for public_rpc in (True, False):
+            with self.subTest("public_rpc=%s: the RPC and pubsub ports are 21 and 22, and 22 is SSH" % public_rpc):
+                exc = self.assertStopsDerive("class_overlap", node(21), geyser, inputs(public_rpc=public_rpc))
+                self.assertIn("tcp port 22 is in tcp.ssh and in tcp.consumer (21-22, ", exc.detail)
+            with self.subTest("public_rpc=%s: the RPC and pubsub ports are 9099 and 9100, and 9100 is metrics" % public_rpc):
+                exc = self.assertStopsDerive("class_overlap", node(9099), geyser, inputs(public_rpc=public_rpc))
+                self.assertIn("tcp port 9100 is in tcp.metrics and in tcp.consumer (", exc.detail)
+        with self.subTest("public_rpc with ports that no other class holds is a table"):
+            model = derive(node(7211), geyser, inputs(public_rpc=True))
+            self.assertTrue(model["consumer_public"])
+            self.assertEqual(model["tcp"]["consumer"], P(7111, (7211, 7212), 10000))
+
+    def test_b33_a_port_in_two_classes_stops_for_every_pair_of_classes(self):
+        # A model is built by hand, because the derivation cannot put a port into some of these
+        # pairs.  The classes are the port sets of the model: the ones the table has a rule for
+        # and local_only, which it has none for.
+        base = derive([args_item("mainnet-validator.agave-4.3.0.start-validator.sh")])
+        self.assertEqual(sorted(base["udp"]), sorted(["public", "xdp", "xdp_rx_bypass", "xdp_bind_address", "pub", "allowlist"]))
+        self.assertEqual(sorted(base["tcp"]), sorted(["public", "consumer", "mgmt", "metrics", "ssh", "wg_only"]))
+        self.assertEqual(sorted(base["local_only"]), ["tcp", "udp"])
+
+        def plain(group, key):
+            def put(model, ports):
+                model[group][key] = ports
+            return put
+
+        def allowlist(model, ports):
+            model["udp"]["allowlist"] = [{"component": "shred-relay", "ports": ports, "sources": {"v4": [], "v6": []}}]
+
+        def interface_rule(proto):
+            def put(model, ports):
+                if not model["components"]:
+                    model["components"] = [{"id": "libvirt", "class": "host", "listeners": [], "iface_rules": []}]
+                model["components"][0]["iface_rules"].append({"iifname": "virbr*", "proto": proto, "ports": ports})
+            return put
+
+        classes = (
+            ("udp", "local_only.udp", plain("local_only", "udp")),
+            ("udp", "udp.allowlist", allowlist),
+            ("udp", "interface rule", interface_rule("udp")),
+            ("udp", "udp.pub", plain("udp", "pub")),
+            ("udp", "udp.public", plain("udp", "public")),
+            ("udp", "udp.xdp", plain("udp", "xdp")),
+            ("tcp", "local_only.tcp", plain("local_only", "tcp")),
+            ("tcp", "interface rule", interface_rule("tcp")),
+            ("tcp", "tcp.wg_only", plain("tcp", "wg_only")),
+            ("tcp", "tcp.mgmt", plain("tcp", "mgmt")),
+            ("tcp", "tcp.ssh", plain("tcp", "ssh")),
+            ("tcp", "tcp.metrics", plain("tcp", "metrics")),
+            ("tcp", "tcp.consumer", plain("tcp", "consumer")),
+            ("tcp", "tcp.public", plain("tcp", "public")),
+        )
+
+        def blank():
+            model = copy.deepcopy(base)
+            for group, keys in (("udp", ("public", "xdp", "pub", "allowlist")),
+                                ("tcp", ("public", "consumer", "mgmt", "metrics", "ssh", "wg_only")),
+                                ("local_only", ("tcp", "udp"))):
+                for key in keys:
+                    model[group][key] = []
+            model["components"] = []
+            return model
+
+        check = plugin()._refuse_class_overlap
+        pairs = 0
+        for i, (proto, name, put) in enumerate(classes):
+            with self.subTest("%s alone is fine" % name):
+                model = blank()
+                put(model, [[4000, 4005]])
+                self.assertIsNone(check(model))
+            for other_proto, other_name, other_put in classes[i + 1:]:
+                if proto != other_proto:
+                    with self.subTest("%s and %s hold the same number, as two different ports" % (name, other_name)):
+                        model = blank()
+                        put(model, [[4000, 4005]])
+                        other_put(model, [[4003, 4009]])
+                        self.assertIsNone(check(model))
+                    continue
+                pairs += 1
+                model = blank()
+                put(model, [[4000, 4005]])
+                other_put(model, [[4003, 4009]])
+                if (name, other_name) == ("udp.public", "udp.xdp"):
+                    with self.subTest("%s inside %s is meant to overlap" % (other_name, name)):
+                        self.assertIsNone(check(model))
+                    continue
+                with self.subTest("%s and %s" % (name, other_name)):
+                    exc = self.assertStops("class_overlap", model, func=check)
+                    self.assertIn("%s port 4003-4005 is in " % proto, exc.detail)
+                with self.subTest("%s and %s next to each other are fine" % (name, other_name)):
+                    model = blank()
+                    put(model, [[4000, 4005]])
+                    other_put(model, [[4006, 4009]])
+                    self.assertIsNone(check(model))
+        self.assertEqual(pairs, 15 + 28)  # the 6 UDP classes and the 8 TCP classes, every pair of each
+        with self.subTest("a component's interface rule through the derivation"):
+            # libvirt answers TCP 53 on virbr*; a validator RPC port of 53 also opens 54
+            text = replaced(fixture("mainnet-validator.agave-4.3.0.start-validator.sh"), "--rpc-port 7211", "--rpc-port 53")
+            exc = self.assertStopsDerive(
+                "class_overlap", [args_item(text, literal=True)], inp=inputs(components=["libvirt"])
+            )
+            self.assertIn("tcp port 53 is in libvirt rule for virbr* and in tcp.mgmt (53-54)", exc.detail)
+
 
 class ListenModelSupport(ModelTestCase):
     """Profiles, readers and input checks that the numbered behaviors rely on."""
 
-    # Every (client, version) the plugin has a profile for, with the render that fits it.
+    # The (client, version) pairs of the profiles that these tests derive a model for, with the
+    # render that fits each.  A profile added to the plugin needs a line here.
     AGAVE_LINE = (
         ("agave", "3.1.10"),
         ("agave", "4.0.0-beta.2"),

@@ -1,7 +1,7 @@
 # slv-fixture: begin
 # source: template/2026.6.6.2026/jinja/mainnet-validator/start-validator.sh.j2
-# source-sha256: 77b8dd8dd91ff96ac329b6614bddcfb8d61a40d6badf92a284399640eb217cf9
-# source-state: modified (uncommitted changes in the working tree at render time; HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# source-sha256: abcea3a5575692e516f5acb148b7e40bc823564d5a9239a05308c3a49c586f4b
+# source-state: unmodified (identical to HEAD d9dea6c89024e705d4012c918ce7755bd76e99a8)
 # vars: {"allnodes_jito_version": "4.3.0-allnodes.1", "dynamic_port_range": "8900-8930", "port_rpc": 7211, "shred_receiver_address": "192.0.2.50:1002", "validator_type": "allnodes-jito", "vote_account": "YOUR_VOTE_ACCOUNT", "xdp_cpu_cores": 1, "xdp_enabled": true, "xdp_interface": "eth0"}
 # render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
 # slv-fixture: body

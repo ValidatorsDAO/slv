@@ -1,8 +1,10 @@
 ---
-# What `slv v init` and `slv rpc init` write into the inventory of a new host, cut down to
-# the values that the start templates turn into ports (cli/src/validator/init/init{Mainnet,Testnet}Config.ts,
-# cli/src/validator/init/promptXdpConfig.ts, cli/src/rpc/init/{mainnet,testnet,devnet}InitRpc.ts).
-# render_matrix.yml hands these to the templates as host variables.
+# A copy, kept by hand, of what `slv v init` and `slv rpc init` write into the inventory of a
+# new host, cut down to the values that the start templates turn into ports
+# (cli/src/validator/init/init{Mainnet,Testnet}Config.ts, cli/src/validator/init/promptXdpConfig.ts,
+# cli/src/rpc/init/{mainnet,testnet,devnet}InitRpc.ts).  Nothing compares it with that code, so
+# a change to those defaults has to be copied here.  render_matrix.yml hands these to the
+# templates as host variables.
 validator:
   vote_account: YOUR_VOTE_ACCOUNT
   port_rpc: 7211

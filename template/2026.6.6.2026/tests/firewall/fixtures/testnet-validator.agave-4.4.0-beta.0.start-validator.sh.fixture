@@ -1,7 +1,7 @@
 # slv-fixture: begin
 # source: template/2026.6.6.2026/jinja/testnet-validator/start-validator.sh.j2
-# source-sha256: 580a9519af7ff87807eb92d350b2b0ae94005cdf332bb949547ceeb36717de1b
-# source-state: modified (uncommitted changes in the working tree at render time; HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# source-sha256: e7ed936c79d132cd886d8770b66a8279d34790e1ed09e75c6691642e3d79bcb7
+# source-state: unmodified (identical to HEAD d9dea6c89024e705d4012c918ce7755bd76e99a8)
 # vars: {"agave_version": "4.4.0-beta.0", "dynamic_port_range": "8900-8930", "port_rpc": 7211, "validator_type": "agave", "vote_account": "YOUR_VOTE_ACCOUNT"}
 # render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
 # slv-fixture: body

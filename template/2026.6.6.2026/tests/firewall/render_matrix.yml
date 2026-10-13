@@ -1,9 +1,10 @@
 ---
 # Renders slv.nft and slv-fallback.nft for every cell of the firewall matrix (matrix.py cells)
-# into a new directory, the way an init run would: the start templates are rendered with
-# lookup('template'), the model is derived from that text with the slv_listen_model filter,
-# and the two nft templates are rendered from the model. CI compares the directory with
-# golden/, checks its tables and loads every file with nft.
+# into a new directory: the start templates are rendered with lookup('template') and the
+# variables of an inventory (inventories/), the model is derived from that text with the
+# slv_listen_model filter, and the two nft templates are rendered from the model. No init
+# playbook is run. CI compares the directory with golden/, checks its tables and checks every
+# file with nft -c.
 #
 #   export ANSIBLE_FILTER_PLUGINS=template/latest/ansible/cmn/firewall/filter_plugins
 #   ansible-playbook -i localhost, -c local template/latest/tests/firewall/render_matrix.yml -e out=<new directory>
@@ -29,8 +30,14 @@
 # A cell that stops on a model error or a missing template prints a `fatal: [cell-...]` line
 # and is rescued at once: the error is the result of that cell, and golden/ records it. The
 # recap counts those cells as rescued, not failed. A cell that fails for any other reason
-# fails the run, with the cell named; so does a startup_templates.yml that disagrees with the
-# init playbooks or with the cells.
+# fails the run, with the cell named; so does a startup_templates.yml whose keys differ from
+# the start configurations that matrix.py lists, or that names a `play` whose text does not
+# contain the `path` of its template.
+#
+# The init.yml playbooks, which import the plays, are not read. Which plays an init run imports
+# for each validator_type and rpc_type (the conditions in ansible/<network>-<role>/init.yml) is
+# kept by hand in startup_templates.yml and in the lists of matrix.py, and a play that starts
+# to draw another template is not noticed either. When either changes, update both by hand.
 
 - name: Prepare the matrix
   hosts: localhost
@@ -179,7 +186,7 @@
                  | combine({'rpc_type': m_cell.rpc_type} if m_cell.rpc_type else {})
                  | combine({m_cell.group: m_cell.group_versions}) }}
 
-        - name: Check that the init playbooks still draw the listed templates
+        - name: Check that each play still names its template
           ansible.builtin.assert:
             that:
               - item.path in lookup('ansible.builtin.file', m_ansible_root ~ '/' ~ item.play)

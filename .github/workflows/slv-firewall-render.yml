@@ -26,10 +26,13 @@ permissions:
   contents: read
 
 env:
-  # The ansible-core that noble's apt installs, which is what slv's CLI gets with
+  # The ansible-core that noble's apt offers, which is what slv's CLI gets with
   # `apt-get install ansible` (cli/lib/runAnsibleLocal.ts). The golden files are rendered by
-  # this version: when noble moves to another one, the install below fails, and the golden
-  # files are rendered again together with this line.
+  # this version. Each job compares apt's candidate with it before installing and stops when
+  # they differ: noble's release pocket keeps the pinned package installable after an update
+  # arrives, so the install alone would go on rendering with a version the CLI no longer
+  # gets. Then render the golden files again with the new version and change this line and
+  # ANSIBLE_CORE_VERSION together.
   ANSIBLE_CORE_APT_VERSION: "2.16.3-0ubuntu2"
   ANSIBLE_CORE_VERSION: "2.16.3"
   # where render_matrix.yml finds the slv_listen_model filter
@@ -55,6 +58,11 @@ jobs:
       - name: Install ansible-core ${{ env.ANSIBLE_CORE_APT_VERSION }}
         run: |
           sudo apt-get update
+          candidate=$(apt-cache policy ansible-core | awk '$1 == "Candidate:" {print $2}')
+          if [ "$candidate" != "$ANSIBLE_CORE_APT_VERSION" ]; then
+            echo "FAIL apt_offers_the_pinned_ansible_core: apt offers ansible-core ${candidate:-none} and this workflow pins ${ANSIBLE_CORE_APT_VERSION}, the version the golden files are rendered with. Render the golden files again with the version apt offers (the header of render_matrix.yml says how), then change ANSIBLE_CORE_APT_VERSION and ANSIBLE_CORE_VERSION."
+            exit 1
+          fi
           sudo apt-get install -y --no-install-recommends --allow-downgrades "ansible-core=${ANSIBLE_CORE_APT_VERSION}"
           /usr/bin/ansible-playbook --version | head -n 1
           /usr/bin/ansible-playbook --version | grep -F "core ${ANSIBLE_CORE_VERSION}"
@@ -100,6 +108,11 @@ jobs:
       - name: Install the tools
         run: |
           sudo apt-get update
+          candidate=$(apt-cache policy ansible-core | awk '$1 == "Candidate:" {print $2}')
+          if [ "$candidate" != "$ANSIBLE_CORE_APT_VERSION" ]; then
+            echo "FAIL apt_offers_the_pinned_ansible_core: apt offers ansible-core ${candidate:-none} and this workflow pins ${ANSIBLE_CORE_APT_VERSION}, the version the golden files are rendered with. Render the golden files again with the version apt offers (the header of render_matrix.yml says how), then change ANSIBLE_CORE_APT_VERSION and ANSIBLE_CORE_VERSION."
+            exit 1
+          fi
           sudo apt-get install -y --no-install-recommends --allow-downgrades \
             "ansible-core=${ANSIBLE_CORE_APT_VERSION}" nftables python3-scapy conntrack iproute2 iputils-ping
           /usr/bin/ansible-playbook --version | grep -F "core ${ANSIBLE_CORE_VERSION}"
@@ -111,8 +124,8 @@ jobs:
           /usr/bin/ansible-playbook -i localhost, -c local
           template/latest/tests/firewall/render_matrix.yml -e out="$RUNNER_TEMP/render"
 
-      # Every table is loaded in a namespace of its own with nft -c: parsed, checked against the
-      # kernel's expressions, and not applied.
+      # Every table is checked with nft -c inside one network namespace made for this step:
+      # parsed, checked against the kernel's expressions, and not applied.
       - name: b01_nft_check_all_cells
         if: ${{ !cancelled() }}
         run: |

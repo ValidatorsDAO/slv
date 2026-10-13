@@ -5,22 +5,23 @@ The model is a plain dict (JSON compatible) that says which ports the node
 listens on and who may reach each of them.  It is derived only from text that
 the start playbooks render (no host is touched, no nft is involved), plus the
 operator's firewall variables and a snapshot of host facts.  A renderer turns
-the model into nftables and nothing else may add a port to the firewall.
+the model into nftables.  The model is meant to be the only source of the ports of the
+firewall; nothing in this release enforces that.
 
 Two Jinja filters are provided:
 
     rendered | slv_listen_model(profile, inputs, host_facts)
     old_model | slv_listen_model_union(new_model)
 
-and, because the model is stored on the host as JSON, one helper that writes
-the canonical form the checksum is computed from:
+and, because the model is meant to be stored on the host as JSON, one helper that
+writes the canonical form the checksum is computed from:
 
     model | slv_listen_model_canonical_json
 
 Everything here uses the Python standard library only and runs on Python 3.10
-or newer.  When something cannot be derived with certainty the function raises
-ModelError(code, detail) instead of guessing; the filter wrappers turn that into
-an AnsibleFilterError when Ansible can be imported.
+or newer.  For each case listed under Errors the function raises ModelError(code,
+detail) instead of guessing; the filter wrappers turn that into an AnsibleFilterError
+when Ansible can be imported.
 
 Input: rendered
     A list of items.  Each item is {"kind": <kind>, "text": <str>} or
@@ -68,15 +69,22 @@ Output (schema "slv-listen-model/1")
     public, rate, controller_only}, consumer_public, trusted_ifaces, wireguard,
     host, components, warnings, model_sha256.
     Ports are closed intervals [lo, hi], sorted, with overlaps and neighbours
-    merged.  udp.public contains every public UDP port, including the ports
-    that AF_XDP delivers past netfilter (udp.xdp is that subset).  The same
-    input always gives the same canonical JSON and the same model_sha256, the
-    sha256 of the canonical JSON without the model_sha256 key.
-    A public port is in no limited class: the table accepts a public port from every
-    source before it reads any other rule, so the model stops with class_overlap
-    when a port of udp.public, udp.xdp or udp.pub is also in udp.allowlist or
-    local_only.udp, or a port of tcp.public is also in local_only.tcp, tcp.consumer,
-    tcp.mgmt, tcp.metrics or tcp.wg_only.
+    merged.  udp.public contains every public UDP port.  udp.xdp is the subset
+    that a Frankendancer net tile with a bypass provider (xdp or mlx5) takes before
+    netfilter sees it; the receive-XDP sockets of an agave build are listed by name in
+    udp.xdp_rx_bypass, and their ports are in udp.public like the other ports of
+    the dynamic port range.  The same input gives the same canonical JSON and the
+    same model_sha256, the sha256 of the canonical JSON without the model_sha256
+    key.
+    A port is in one class only (a UDP and a TCP port of one number are two ports).  The
+    table opens a port to the sources of each class that holds it, and to everybody, past
+    the limit of the other class, when one of them is public; the model does not say which
+    class the node means.  So it stops with class_overlap, naming the port and the two
+    classes, when a port is in two of: udp.public, udp.xdp, udp.pub, udp.allowlist (each
+    component), local_only.udp, the interface rules of a component (libvirt), and for TCP
+    tcp.public, tcp.consumer, tcp.mgmt, tcp.metrics, tcp.ssh, tcp.wg_only, local_only.tcp.
+    The one overlap it allows is udp.xdp inside udp.public: the same ports for the same
+    sources.
       udp.pub            public UDP ports of components (wireguard)
       udp.allowlist      [{"component", "ports", "sources": {"v4", "v6"}}]: UDP ports
                          that only the listed sources may reach (shred-relay)
@@ -272,7 +280,7 @@ def _split_hostport(text, what):
 
 
 def _is_loopback(host):
-    """True only for hosts that cannot be reached from another machine."""
+    """True for localhost and the loopback addresses, which another machine does not reach."""
     host = (host or "").strip().lower()
     if host in ("localhost", "ip6-localhost"):
         return True
@@ -286,7 +294,7 @@ def _is_loopback(host):
 
 
 def canonical_json(obj):
-    """The one JSON form that is hashed and written to disk."""
+    """The one JSON form that is hashed, and that is meant to be written to disk."""
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
@@ -308,7 +316,9 @@ def _seal(model):
 # someone reads that tag and adds it.
 #
 # Facts that are the same for every agave-line profile below (read from each
-# tag listed; the files and line numbers differ a little between tags):
+# tag listed; the files and line numbers differ a little between tags).  Each one is
+# about the files named for it: a listener opened somewhere else in the client is not in
+# the model.
 #   * Every UDP socket of Node::new_with_external_ip is bound inside
 #     --dynamic-port-range (first free port, scanning up from MIN), except the
 #     gossip socket, which is the pinned --gossip-port or the first port in
@@ -361,8 +371,9 @@ _ALLNODES_RX_XDP = (
 #   * The net tile gets only shred_listen_port, quic_transaction_listen_port
 #     and legacy_transaction_listen_port (src/app/fdctl/topology.c,
 #     fd_topo_configure_tile): the UDP ports 8003, 9007 and 9001 by default.
-#     With provider "xdp" (or "mlx5") those three never reach netfilter; with
-#     "socket" they are ordinary kernel sockets.
+#     With provider "xdp" (or "mlx5") the tile takes those three before netfilter
+#     sees them (a packet it does not take still reaches the kernel); with "socket"
+#     they are ordinary kernel sockets.
 #   * fdctl refuses a config where one of those three ports is inside the
 #     dynamic port range (src/app/shared/fd_config.c, "must be outside the
 #     dynamic port range"); the default.toml comment says the range must not
@@ -996,12 +1007,13 @@ _HOST_FACT_KEYS = (
 )
 
 # The class of each opt-in component is fixed here; an installer can only pass
-# parameters (sources).  rpc-gateway: bound to 0.0.0.0, no authentication, so a
-# consumer port.  shred-relay: UDP 20001 is reachable from an allowlist only and the
-# gRPC port 19999 cannot be bound to loopback, so only the firewall closes it.
-# wireguard: 51820/udp is public and the tunnel (wg0, 10.0.0.0/24) is trusted like
-# mgmt.  gateway: reachable through the tunnel only.  nginx: 80 and 443 are public.
-# libvirt: DHCP and DNS for the VMs, from virbr* interfaces only.
+# parameters (sources).  The port numbers are the defaults of the installers, not read
+# from an inventory.  rpc-gateway: bound to 0.0.0.0, no authentication, so a consumer
+# port.  shred-relay: UDP 20001 is reachable from an allowlist only; install_local_shred_relay.yml
+# passes the proxy a gRPC port (19999) and no bind address, so the firewall is what keeps
+# that port from other machines.  wireguard: 51820/udp is public and the tunnel (wg0,
+# 10.0.0.0/24) is trusted like mgmt.  gateway: reachable through the tunnel only.  nginx:
+# 80 and 443 are public.  libvirt: DHCP and DNS for the VMs, from virbr* interfaces only.
 _COMPONENT_CLASS = {
     "rpc-gateway": "consumer",
     "shred-relay": "allowlist",
@@ -1302,7 +1314,8 @@ def _has_token(value):
 
 
 def _add_richat(b, data):
-    """richat-setting.yml: gRPC and pubsub are consumer ports, the rest never open."""
+    """richat-setting.yml: gRPC and pubsub are consumer ports, metrics is a metrics port, and
+    the richat gRPC and QUIC endpoints of the node itself are never opened."""
     endpoint = _endpoint(data, ("metrics", "endpoint"), "richat metrics.endpoint")
     if endpoint is not None:
         _listener(b, "metrics", endpoint, "richat metrics.endpoint")
@@ -1563,45 +1576,55 @@ def _shared_ports(first, second):
     return None
 
 
-def _refuse_class_overlap(b):
-    """Stop when one port is public and also belongs to a class that is not.
+def _port_classes(model):
+    """Every set of ports of the model, as (protocol, name, intervals): the sets the table has a
+    rule for and the local-only sets, which it has none for.
 
-    The table accepts a public port from every source before it reads the allowlist, consumer,
-    metrics, management and WireGuard rules, and it has no rule for a local-only port. A port
-    in a public class and in one of those would therefore be open to everybody while the model
-    says it is limited. The dynamic port range is a public class, so a range that grows over a
-    component's port is such a case.
+    Narrowest first, so that an overlap reads "<narrow class> and in <wider class>".
     """
-    udp_wide = (
-        ("udp.public", _merge(b.udp_public)),
-        ("udp.xdp", _merge(b.udp_xdp)),
-        ("udp.pub", _merge(b.udp_pub)),
-    )
-    udp_narrow = [
-        ("udp.allowlist (%s)" % a["component"], _merge(a["ports"]))
-        for a in sorted(b.udp_allow, key=lambda x: x["component"])
+    udp, tcp, local = model["udp"], model["tcp"], model["local_only"]
+    classes = [("udp", "local_only.udp", local["udp"])]
+    for entry in udp["allowlist"]:
+        classes.append(("udp", "udp.allowlist (%s)" % entry["component"], entry["ports"]))
+    for component in model["components"]:
+        for rule in component["iface_rules"]:
+            classes.append((rule["proto"], "%s rule for %s" % (component["id"], rule["iifname"]), rule["ports"]))
+    classes += [
+        ("udp", "udp.pub", udp["pub"]),
+        ("udp", "udp.public", udp["public"]),
+        ("udp", "udp.xdp", udp["xdp"]),
+        ("tcp", "local_only.tcp", local["tcp"]),
+        ("tcp", "tcp.wg_only", tcp["wg_only"]),
+        ("tcp", "tcp.mgmt", tcp["mgmt"]),
+        ("tcp", "tcp.ssh", tcp["ssh"]),
+        ("tcp", "tcp.metrics", tcp["metrics"]),
+        ("tcp", "tcp.consumer", tcp["consumer"]),
+        ("tcp", "tcp.public", tcp["public"]),
     ]
-    udp_narrow.append(("local_only.udp", _merge(b.local_udp)))
-    tcp_wide = (("tcp.public", _merge(b.tcp_public)),)
-    tcp_narrow = (
-        ("local_only.tcp", _merge(b.local_tcp)),
-        ("tcp.consumer", _merge(b.tcp_consumer)),
-        ("tcp.mgmt", _merge(b.tcp_mgmt)),
-        ("tcp.metrics", _merge(b.tcp_metrics)),
-        ("tcp.wg_only", _merge(b.tcp_wg_only)),
-    )
-    for proto, wide, narrow in (("udp", udp_wide, udp_narrow), ("tcp", tcp_wide, tcp_narrow)):
-        for narrow_name, narrow_ports in narrow:
-            for wide_name, wide_ports in wide:
-                shared = _shared_ports(narrow_ports, wide_ports)
-                if shared:
-                    raise ModelError(
-                        "class_overlap",
-                        "%s port %s is in %s and in %s (%s); the table accepts a public port from every "
-                        "source before it reads any other rule, so %s would be open to everybody. Move one "
-                        "of them: the dynamic port range, the port of the component or the other listener."
-                        % (proto, _port_text([shared]), narrow_name, wide_name, _port_text(wide_ports), narrow_name),
-                    )
+    return classes
+
+
+# udp.xdp is the part of udp.public that a Frankendancer net tile with a bypass provider takes
+# before netfilter sees it: the same ports for the same sources, so the two are meant to overlap.
+_SAME_SOURCES = {("udp.public", "udp.xdp")}
+
+
+def _refuse_class_overlap(model):
+    """Stop when one port is in two classes of the model (see "Output" in the module docstring)."""
+    classes = [(proto, name, _merge(ports)) for proto, name, ports in _port_classes(model)]
+    for index, (proto, name, ports) in enumerate(classes):
+        for other_proto, other_name, other_ports in classes[index + 1 :]:
+            if proto != other_proto or (name, other_name) in _SAME_SOURCES:
+                continue
+            shared = _shared_ports(ports, other_ports)
+            if shared:
+                raise ModelError(
+                    "class_overlap",
+                    "%s port %s is in %s and in %s (%s). The table opens a port to the sources of each "
+                    "class that holds it, and the model does not say which class the node means. Move one "
+                    "of them: the dynamic port range, a component's port or the other listener."
+                    % (proto, _port_text([shared]), name, other_name, _port_text(other_ports)),
+                )
 
 
 def slv_listen_model(rendered, profile, inputs, host_facts):
@@ -1653,7 +1676,6 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
             )
 
     components, wireguard = _apply_components(b, inp["components"])
-    _refuse_class_overlap(b)
     mgmt, controller_only = _mgmt_sources(inp)
     overlap = _overlaps(inp["deny"], mgmt) or _overlaps(inp["deny"], inp["lb"]) or _overlaps(inp["deny"], inp["scrape"])
     if overlap:
@@ -1757,6 +1779,7 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
         "components": components,
         "warnings": sorted(warnings, key=lambda w: (w["code"], w["detail"])),
     }
+    _refuse_class_overlap(model)
     return _seal(model)
 
 
@@ -1792,7 +1815,11 @@ def _model_copy(model, what):
 
 
 def slv_listen_model_union(old, new):
-    """Per class, the ports of both models; everything else comes from the new one."""
+    """Per class, the ports of both models; everything else comes from the new one.
+
+    The union is not checked for class_overlap: a port may be in one class of the old model
+    and in another of the new one while a node moves from one to the other.
+    """
     old_copy = _model_copy(old, "old model")
     result = _model_copy(new, "new model")
     for group, key in _UNION_FIELDS:

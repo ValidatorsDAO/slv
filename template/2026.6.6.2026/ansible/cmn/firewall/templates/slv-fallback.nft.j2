@@ -1,11 +1,12 @@
 #jinja2: lstrip_blocks: True
 {#
-  slv-fallback.nft: the smallest table that keeps a node reachable for its operator and for
-  the network, rendered from the same listen model as slv.nft. The loader puts it in place
-  when slv.nft does not load. Consumer, metrics and management-only ports stay closed, and
-  so do deny and the opt-in components, with one exception: the UDP port of the WireGuard
-  tunnel (the public UDP port of the wireguard component, and no other public UDP port),
-  because SSH over the tunnel is of no use if the tunnel cannot form.
+  slv-fallback.nft: a small table that keeps a node reachable for its operator and for the
+  network, rendered from the same listen model as slv.nft. It is meant to be put in place
+  when slv.nft does not load (the loader is not part of this release). It has no rule for
+  consumer, metrics or management-only ports, for deny, or for the opt-in components, with
+  one exception, the WireGuard tunnel: its UDP port (the public UDP port of the wireguard
+  component, and no other public UDP port) and SSH from the tunnel, because SSH over the
+  tunnel is of no use if the tunnel cannot form.
 
   slv_fw_model  the listen model
   slv_fw_meta   generated_at and controller_ip, written to the header comment only
@@ -65,7 +66,7 @@ table inet slv {
     iif != "lo" ip daddr 127.0.0.0/8 drop
     iif != "lo" ip6 daddr ::1 drop
     iif != "lo" meta pkttype host fib saddr type local counter name "c_spoof" drop
-    # SSH from the management sources
+    # SSH from the management sources, and from the tunnel and the trusted interfaces when there are any
     ip saddr @mgmt_v4 tcp dport @ssh_ports counter name "c_mgmt" accept
     ip6 saddr @mgmt_v6 tcp dport @ssh_ports counter name "c_mgmt" accept
 {% if m.wireguard.enabled %}
