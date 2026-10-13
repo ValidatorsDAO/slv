@@ -1,4 +1,5 @@
 import { assertRejects, assertThrows } from 'jsr:@std/assert@1'
+import { createHash } from 'node:crypto'
 import {
   assertPins,
   assertPureSourceTree,
@@ -994,6 +995,40 @@ function testRuntimeAbi(target: string, denortSha256: string) {
   }
 }
 
+function testCargoFingerprints(
+  phase: 'baseline' | 'modified',
+  target: string,
+  artifacts: ReturnType<typeof testArtifacts>,
+) {
+  const runtimeSha256 = phase === 'baseline'
+    ? artifacts.baseline.denort_sha256
+    : artifacts.modified.denort_sha256
+  const derivedRelinkCargoLockSha256 = phase === 'baseline'
+    ? artifacts.baseline.derived_relink_cargo_lock_sha256
+    : 'e'.repeat(64)
+  const record = (context: 'host-release' | 'target-release') => {
+    const bytes = `{"context":"${context}","phase":"${phase}"}\n`
+    return {
+      context,
+      path: `${phase}-${context}/output-unit.json`,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      content_base64: btoa(bytes),
+    }
+  }
+  return {
+    schema_version: 1,
+    kind: 'slv-cargo-fingerprint-records',
+    phase,
+    target,
+    runtime_sha256: runtimeSha256,
+    derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
+    records: [
+      record('host-release'),
+      ...(target.endsWith('linux-gnu') ? [record('target-release')] : []),
+    ],
+  }
+}
+
 function testChecks(
   canonicalNoticeSha256: string,
   target: string,
@@ -1003,8 +1038,11 @@ function testChecks(
     baseline_build: {
       passed: true,
       command: testCommand,
+      derived_relink_cargo_lock_sha256:
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
       runtime_abi: testRuntimeAbi(target, artifacts.baseline.denort_sha256),
       runtime_abi_receipt_sha256: 'd'.repeat(64),
+      cargo_fingerprints: testCargoFingerprints('baseline', target, artifacts),
     },
     baseline_probe: {
       passed: true,
@@ -1020,8 +1058,10 @@ function testChecks(
     modified_build: {
       passed: true,
       command: testCommand,
+      derived_relink_cargo_lock_sha256: 'e'.repeat(64),
       runtime_abi: testRuntimeAbi(target, artifacts.modified.denort_sha256),
       runtime_abi_receipt_sha256: 'e'.repeat(64),
+      cargo_fingerprints: testCargoFingerprints('modified', target, artifacts),
     },
     modified_probe: {
       passed: true,
@@ -1347,9 +1387,203 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
       canonicalNoticePath: noticePath,
       reviewedToolPinsPath,
     })
-    const proofPath =
-      `${proofDirectory}/x86_64-unknown-linux-gnu/native-proof.json`
+    const targetProofRoot = `${proofDirectory}/x86_64-unknown-linux-gnu`
+    const proofPath = `${targetProofRoot}/native-proof.json`
+    const buildPath = `${targetProofRoot}/build-receipt.json`
+    const executionPath = `${targetProofRoot}/execution-receipt.json`
+    const [originalProofText, originalBuildText, originalExecutionText] =
+      await Promise.all([
+        Deno.readTextFile(proofPath),
+        Deno.readTextFile(buildPath),
+        Deno.readTextFile(executionPath),
+      ])
     const originalProof = JSON.parse(await Deno.readTextFile(proofPath))
+    const verifyProofSet = () =>
+      verifySourceProofSet({
+        sourceReceiptPath: receiptPath,
+        sourceDirectory,
+        proofDirectory,
+        sourceCommit: commit,
+        sourcePinsPath: pinsPath,
+        toolPinsDirectory,
+        canonicalNoticePath: noticePath,
+        reviewedToolPinsPath,
+      })
+    const rejectCoherentFingerprintMutation = async (
+      mutate: (
+        buildChecks: Record<string, unknown>,
+        proofChecks: Record<string, unknown>,
+      ) => void,
+      expected: string,
+    ) => {
+      const build = JSON.parse(originalBuildText)
+      const execution = JSON.parse(originalExecutionText)
+      const proof = JSON.parse(originalProofText)
+      try {
+        mutate(build.checks, proof.checks)
+        await Deno.writeTextFile(buildPath, JSON.stringify(build))
+        execution.build_receipt_sha256 = await sha256(buildPath)
+        await Deno.writeTextFile(executionPath, JSON.stringify(execution))
+        proof.build_receipt_sha256 = await sha256(buildPath)
+        proof.execution_receipt_sha256 = await sha256(executionPath)
+        await Deno.writeTextFile(proofPath, JSON.stringify(proof))
+        await assertRejects(verifyProofSet, Error, expected)
+      } finally {
+        await Promise.all([
+          Deno.writeTextFile(buildPath, originalBuildText),
+          Deno.writeTextFile(executionPath, originalExecutionText),
+          Deno.writeTextFile(proofPath, originalProofText),
+        ])
+      }
+    }
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        delete (buildChecks.baseline_build as Record<string, unknown>)
+          .cargo_fingerprints
+        delete (proofChecks.baseline_build as Record<string, unknown>)
+          .cargo_fingerprints
+      },
+      'Cargo fingerprint collection must be an object',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        delete (buildChecks.modified_build as Record<string, unknown>)
+          .cargo_fingerprints
+        delete (proofChecks.modified_build as Record<string, unknown>)
+          .cargo_fingerprints
+      },
+      'Cargo fingerprint collection must be an object',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        for (const checks of [buildChecks, proofChecks]) {
+          const collection = (checks.baseline_build as Record<string, unknown>)
+            .cargo_fingerprints as { runtime_sha256: string }
+          collection.runtime_sha256 = '0'.repeat(64)
+        }
+      },
+      'Cargo fingerprint collection does not bind its build',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        for (const checks of [buildChecks, proofChecks]) {
+          const collection = (checks.baseline_build as Record<string, unknown>)
+            .cargo_fingerprints as {
+              derived_relink_cargo_lock_sha256: string
+            }
+          collection.derived_relink_cargo_lock_sha256 = '0'.repeat(64)
+        }
+      },
+      'Cargo fingerprint collection does not bind its build',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        for (const checks of [buildChecks, proofChecks]) {
+          const collection = (checks.baseline_build as Record<string, unknown>)
+            .cargo_fingerprints as { target: string }
+          collection.target = 'aarch64-unknown-linux-gnu'
+        }
+      },
+      'Cargo fingerprint collection does not bind its build',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        for (const checks of [buildChecks, proofChecks]) {
+          const collection = (checks.baseline_build as Record<string, unknown>)
+            .cargo_fingerprints as { phase: string }
+          collection.phase = 'modified'
+        }
+      },
+      'Cargo fingerprint collection does not bind its build',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        for (const checks of [buildChecks, proofChecks]) {
+          const collection = (checks.baseline_build as Record<string, unknown>)
+            .cargo_fingerprints as {
+              records: Array<{ content_base64: string }>
+            }
+          collection.records[0].content_base64 = btoa('{"tampered":true}\n')
+        }
+      },
+      'Cargo fingerprint record 0 digest differs',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        for (const checks of [buildChecks, proofChecks]) {
+          const collection = (checks.baseline_build as Record<string, unknown>)
+            .cargo_fingerprints as {
+              records: Array<{ context: string }>
+            }
+          collection.records = collection.records.filter((record) =>
+            record.context !== 'target-release'
+          )
+        }
+      },
+      'Cargo fingerprint contexts differ',
+    )
+    await rejectCoherentFingerprintMutation(
+      (buildChecks, proofChecks) => {
+        for (const checks of [buildChecks, proofChecks]) {
+          const collection = (checks.baseline_build as Record<string, unknown>)
+            .cargo_fingerprints as {
+              records: Array<{ context: string }>
+            }
+          collection.records = collection.records.filter((record) =>
+            record.context !== 'host-release'
+          )
+        }
+      },
+      'Cargo fingerprint contexts differ',
+    )
+    const rejectBuildFingerprintCopyMutation = async () => {
+      const build = JSON.parse(originalBuildText)
+      const execution = JSON.parse(originalExecutionText)
+      const proof = JSON.parse(originalProofText)
+      try {
+        const record = build.checks.baseline_build.cargo_fingerprints.records[0]
+        const content = '{"mutated_build_copy":true}\n'
+        record.content_base64 = btoa(content)
+        record.sha256 = createHash('sha256').update(content).digest('hex')
+        await Deno.writeTextFile(buildPath, JSON.stringify(build))
+        execution.build_receipt_sha256 = await sha256(buildPath)
+        await Deno.writeTextFile(executionPath, JSON.stringify(execution))
+        proof.build_receipt_sha256 = await sha256(buildPath)
+        proof.execution_receipt_sha256 = await sha256(executionPath)
+        await Deno.writeTextFile(proofPath, JSON.stringify(proof))
+        await assertRejects(
+          verifyProofSet,
+          Error,
+          'native build receipt check differs: baseline_build',
+        )
+      } finally {
+        await Promise.all([
+          Deno.writeTextFile(buildPath, originalBuildText),
+          Deno.writeTextFile(executionPath, originalExecutionText),
+          Deno.writeTextFile(proofPath, originalProofText),
+        ])
+      }
+    }
+    await rejectBuildFingerprintCopyMutation()
+    const macProof = JSON.parse(
+      await Deno.readTextFile(
+        `${proofDirectory}/x86_64-apple-darwin/native-proof.json`,
+      ),
+    )
+    const extraMacTarget = structuredClone(macProof)
+    const extraRecord = structuredClone(
+      extraMacTarget.checks.baseline_build.cargo_fingerprints.records[0],
+    )
+    extraRecord.context = 'target-release'
+    extraRecord.path = 'baseline-target-release/stale.json'
+    extraMacTarget.checks.baseline_build.cargo_fingerprints.records.push(
+      extraRecord,
+    )
+    assertThrows(
+      () => verifyNativeSourceRebuildProof(extraMacTarget),
+      Error,
+      'Cargo fingerprint contexts differ',
+    )
     const badProbe = structuredClone(originalProof)
     badProbe.checks.modified_probe.sentinel.output = 0.499
     assertThrows(

@@ -577,7 +577,7 @@ def canonical(raw, label):
     # Member paths name filesystem locations.  Reject aliases instead of
     # collapsing them so duplicate/ancestor checks cannot be bypassed by
     # repeated separators, dot components, leading dot slash, or a hidden parent component.
-    if not raw or raw.startswith('/') or '\\' in raw or '\x00' in raw:
+    if not raw or raw.startswith('/') or chr(92) in raw or chr(0) in raw:
         raise SystemExit('unsafe ' + label + ': ' + raw)
     name = raw[:-1] if raw.endswith('/') else raw
     if not name or name.endswith('/') or name.startswith('./'):
@@ -591,8 +591,8 @@ def canonical(raw, label):
 
 def unsafe_target(target):
     return (
-        not target or target.startswith('/') or '\\' in target or
-        '\x00' in target
+        not target or target.startswith('/') or chr(92) in target or
+        chr(0) in target
     )
 
 with tarfile.open(archive, 'r:gz') as payload:
@@ -697,26 +697,11 @@ export async function extractArchive(
   root: string,
   log: string,
 ): Promise<CommandReceipt> {
-  const listed = await command(
-    'tar',
-    ['-tzf', archive],
-    destination,
-    `${log}.list`,
-  )
-  succeeded(listed, `listing ${archive}`)
-  const names = decoder.decode(await Deno.readFile(`${log}.list`)).trim().split(
-    '\n',
-  ).filter(Boolean)
-  if (!names.length) throw new Error(`archive has no entries: ${archive}`)
-  for (const name of names) {
-    if (
-      name.startsWith('/') || name.includes('\\') ||
-      name.split('/').includes('..') ||
-      !(name === root || name.startsWith(`${root}/`))
-    ) {
-      throw new Error(`archive has unsafe or unexpected path: ${name}`)
-    }
-  }
+  // `tar -t` is a presentation format and may quote a valid UTF-8 member
+  // differently across implementations. The structured tarfile scanner is the
+  // authoritative admission boundary for every extraction, including callers
+  // outside the native driver.
+  await scanArchiveForUnsafeMembers(archive, root, destination, `${log}.scan`)
   const extracted = await command(
     'tar',
     ['-xzf', archive, '-C', destination],
@@ -1212,6 +1197,273 @@ type NativeSources = {
   cargoVendor: string
 }
 
+type CargoFingerprintContext = 'host-release' | 'target-release'
+type CargoFingerprintRecord = {
+  context: CargoFingerprintContext
+  path: string
+  sha256: string
+  content_base64: string
+}
+export type CargoFingerprintCollection = {
+  schema_version: 1
+  kind: 'slv-cargo-fingerprint-records'
+  phase: 'baseline' | 'modified'
+  target: string
+  runtime_sha256: string
+  derived_relink_cargo_lock_sha256: string
+  records: CargoFingerprintRecord[]
+}
+
+type CargoFingerprintExpectation = Pick<
+  CargoFingerprintCollection,
+  'phase' | 'target' | 'runtime_sha256' | 'derived_relink_cargo_lock_sha256'
+>
+
+const utf8 = new TextDecoder('utf-8', { fatal: true })
+
+function fingerprintContextsForTarget(
+  target: string,
+): readonly CargoFingerprintContext[] {
+  if (!TARGETS.has(target)) {
+    throw new Error(`unsupported Cargo fingerprint target: ${target}`)
+  }
+  // Linux always invokes Cargo with the declared --target while also building
+  // host tools. macOS has no --target in the selected recipe, so a target
+  // directory there would be unrelated stale output rather than evidence.
+  return target.endsWith('linux-gnu')
+    ? ['host-release', 'target-release']
+    : ['host-release']
+}
+
+async function sha256Bytes(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer)
+  return [...new Uint8Array(digest)].map((byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+function decodeBase64(value: string, label: string): Uint8Array {
+  try {
+    const binary = atob(value)
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  } catch {
+    throw new Error(`${label} is not canonical base64`)
+  }
+}
+
+function fingerprintPath(value: string, label: string): string {
+  if (!value || value.startsWith('/') || value.includes('\\')) {
+    throw new Error(`${label} has an unsafe path`)
+  }
+  const parts = value.split('/')
+  if (parts.some((part) => !part || part === '.' || part === '..')) {
+    throw new Error(`${label} has an unsafe path`)
+  }
+  return value
+}
+
+async function fingerprintRecords(
+  directory: string,
+  context: CargoFingerprintContext,
+): Promise<CargoFingerprintRecord[]> {
+  const directoryInfo = await Deno.lstat(directory).catch((error) => {
+    if (error instanceof Deno.errors.NotFound) return undefined
+    throw error
+  })
+  if (!directoryInfo) return []
+  if (!directoryInfo.isDirectory || directoryInfo.isSymlink) {
+    throw new Error(
+      `Cargo fingerprint directory is not a real directory: ${directory}`,
+    )
+  }
+  const records: CargoFingerprintRecord[] = []
+  const collect = async (current: string, relative: string): Promise<void> => {
+    const entries = []
+    for await (const entry of Deno.readDir(current)) entries.push(entry)
+    entries.sort((left, right) => left.name.localeCompare(right.name))
+    for (const entry of entries) {
+      const path = `${current}/${entry.name}`
+      const child = relative ? `${relative}/${entry.name}` : entry.name
+      const info = await Deno.lstat(path)
+      if (info.isSymlink) {
+        throw new Error(`Cargo fingerprint record is a symlink: ${child}`)
+      }
+      if (info.isDirectory) {
+        await collect(path, child)
+        continue
+      }
+      if (!info.isFile) {
+        throw new Error(
+          `Cargo fingerprint record is not a regular file: ${child}`,
+        )
+      }
+      if (!child.endsWith('.json')) continue
+      const bytes = await Deno.readFile(path)
+      if (bytes.length === 0) {
+        throw new Error(`Cargo fingerprint record is empty: ${child}`)
+      }
+      try {
+        JSON.parse(utf8.decode(bytes))
+      } catch {
+        throw new Error(`Cargo fingerprint record is not JSON: ${child}`)
+      }
+      records.push({
+        context,
+        path: fingerprintPath(child, 'Cargo fingerprint record'),
+        sha256: await sha256Bytes(bytes),
+        content_base64: base64(bytes),
+      })
+    }
+  }
+  await collect(directory, '')
+  return records
+}
+
+export async function captureCargoFingerprintCollection(
+  stage: string,
+  expected: CargoFingerprintExpectation,
+): Promise<CargoFingerprintCollection> {
+  const records = [
+    ...await fingerprintRecords(
+      `${stage}/target/release/.fingerprint`,
+      'host-release',
+    ),
+    ...await fingerprintRecords(
+      `${stage}/target/${expected.target}/release/.fingerprint`,
+      'target-release',
+    ),
+  ].sort((left, right) =>
+    `${left.context}/${left.path}`.localeCompare(
+      `${right.context}/${right.path}`,
+    )
+  )
+  if (!records.length) {
+    throw new Error('source build emitted no Cargo fingerprint JSON records')
+  }
+  const expectedContexts = fingerprintContextsForTarget(expected.target)
+  const observedContexts = new Set(records.map((record) => record.context))
+  if (
+    observedContexts.size !== expectedContexts.length ||
+    expectedContexts.some((context) => !observedContexts.has(context))
+  ) {
+    throw new Error(
+      `source build fingerprint contexts differ for ${expected.target}`,
+    )
+  }
+  return {
+    schema_version: 1,
+    kind: 'slv-cargo-fingerprint-records',
+    ...expected,
+    records,
+  }
+}
+
+export async function verifyCargoFingerprintCollection(
+  value: unknown,
+  expected: CargoFingerprintExpectation,
+): Promise<CargoFingerprintCollection> {
+  const record = object(value, 'Cargo fingerprint collection')
+  const keys = [
+    'schema_version',
+    'kind',
+    'phase',
+    'target',
+    'runtime_sha256',
+    'derived_relink_cargo_lock_sha256',
+    'records',
+  ]
+  if (
+    Object.keys(record).length !== keys.length ||
+    keys.some((key) => !(key in record)) ||
+    record.schema_version !== 1 ||
+    record.kind !== 'slv-cargo-fingerprint-records' ||
+    record.phase !== expected.phase ||
+    record.target !== expected.target ||
+    sha(record.runtime_sha256, 'Cargo fingerprint runtime SHA-256') !==
+      expected.runtime_sha256 ||
+    sha(
+        record.derived_relink_cargo_lock_sha256,
+        'Cargo fingerprint derived Cargo.lock SHA-256',
+      ) !== expected.derived_relink_cargo_lock_sha256 ||
+    !Array.isArray(record.records) ||
+    !record.records.length
+  ) {
+    throw new Error('Cargo fingerprint collection does not bind this build')
+  }
+  const seen = new Set<string>()
+  const records: CargoFingerprintRecord[] = []
+  for (const [index, value] of record.records.entries()) {
+    const entry = object(value, `Cargo fingerprint record ${index}`)
+    const context = entry.context
+    if (context !== 'host-release' && context !== 'target-release') {
+      throw new Error(`Cargo fingerprint record ${index} has invalid context`)
+    }
+    const path = fingerprintPath(
+      text(entry.path, `Cargo fingerprint record ${index} path`),
+      `Cargo fingerprint record ${index}`,
+    )
+    if (!path.endsWith('.json')) {
+      throw new Error(`Cargo fingerprint record ${index} is not JSON path`)
+    }
+    const content = text(
+      entry.content_base64,
+      `Cargo fingerprint record ${index} content`,
+    )
+    const bytes = decodeBase64(content, `Cargo fingerprint record ${index}`)
+    if (base64(bytes) !== content) {
+      throw new Error(
+        `Cargo fingerprint record ${index} is not canonical base64`,
+      )
+    }
+    try {
+      JSON.parse(utf8.decode(bytes))
+    } catch {
+      throw new Error(`Cargo fingerprint record ${index} is not JSON`)
+    }
+    const digest = sha(
+      entry.sha256,
+      `Cargo fingerprint record ${index} SHA-256`,
+    )
+    if (await sha256Bytes(bytes) !== digest) {
+      throw new Error(
+        `Cargo fingerprint record ${index} digest differs from bytes`,
+      )
+    }
+    const identity = `${context}/${path}`
+    if (seen.has(identity)) {
+      throw new Error(
+        `Cargo fingerprint collection has duplicate record: ${identity}`,
+      )
+    }
+    seen.add(identity)
+    records.push({ context, path, sha256: digest, content_base64: content })
+  }
+  const expectedContexts = fingerprintContextsForTarget(expected.target)
+  const observedContexts = new Set(records.map((record) => record.context))
+  if (
+    observedContexts.size !== expectedContexts.length ||
+    expectedContexts.some((context) => !observedContexts.has(context))
+  ) {
+    throw new Error(
+      `Cargo fingerprint collection contexts differ for ${expected.target}`,
+    )
+  }
+  return {
+    ...expected,
+    schema_version: 1,
+    kind: 'slv-cargo-fingerprint-records',
+    records,
+  }
+}
+
 async function stageBuild(
   recipeSource: string,
   sources: NativeSources,
@@ -1219,7 +1471,7 @@ async function stageBuild(
   tools: ToolReceipt,
   target: string,
   buildHost: string,
-  label: string,
+  label: 'baseline' | 'modified',
   jobs: string,
 ): Promise<{
   build: CommandReceipt
@@ -1232,6 +1484,7 @@ async function stageBuild(
   derived_relink_cargo_lock_sha256: string
   runtime_abi: Record<string, unknown>
   runtime_abi_receipt_sha256: string
+  cargo_fingerprints: CargoFingerprintCollection
 }> {
   const recipeDirectory = `${output}/recipe`
   await Deno.mkdir(recipeDirectory, { recursive: true })
@@ -1363,6 +1616,13 @@ async function stageBuild(
       `${label} macOS runtime ABI receipt does not retain minOS 12.0`,
     )
   }
+  const derivedRelinkCargoLockSha256 = await sha256(derivedRelinkCargoLock)
+  const cargoFingerprints = await captureCargoFingerprintCollection(output, {
+    phase: label,
+    target,
+    runtime_sha256: await sha256(denort),
+    derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
+  })
   return {
     build,
     denort,
@@ -1371,9 +1631,10 @@ async function stageBuild(
     recipe_sha256: await sha256(recipe),
     recipe_receipt_sha256: await sha256(recipeReceipt),
     derived_relink_cargo_lock: derivedRelinkCargoLock,
-    derived_relink_cargo_lock_sha256: await sha256(derivedRelinkCargoLock),
+    derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
     runtime_abi: runtimeAbi,
     runtime_abi_receipt_sha256: await sha256(abiReceipt),
+    cargo_fingerprints: cargoFingerprints,
   }
 }
 
@@ -1790,6 +2051,7 @@ async function buildPhase(args: Args): Promise<void> {
         baseline.derived_relink_cargo_lock_sha256,
       runtime_abi: baseline.runtime_abi,
       runtime_abi_receipt_sha256: baseline.runtime_abi_receipt_sha256,
+      cargo_fingerprints: baseline.cargo_fingerprints,
     },
     patch: {
       passed: true,
@@ -1802,8 +2064,11 @@ async function buildPhase(args: Args): Promise<void> {
       command: modified.build,
       recipe_receipt_sha256: modified.recipe_receipt_sha256,
       probe_compile: modifiedProbeCompile,
+      derived_relink_cargo_lock_sha256:
+        modified.derived_relink_cargo_lock_sha256,
       runtime_abi: modified.runtime_abi,
       runtime_abi_receipt_sha256: modified.runtime_abi_receipt_sha256,
+      cargo_fingerprints: modified.cargo_fingerprints,
     },
     slv_compile: {
       passed: true,
@@ -1916,6 +2181,30 @@ async function readBuildReceipt(
     throw new Error('build receipt does not bind immutable source inputs')
   }
   const artifacts = parseArtifacts(value.artifacts, 'build receipt artifacts')
+  const checks = object(value.checks, 'build receipt checks')
+  await verifyCargoFingerprintCollection(
+    object(checks.baseline_build, 'baseline build check').cargo_fingerprints,
+    {
+      phase: 'baseline',
+      target,
+      runtime_sha256: artifacts.baseline.denort_sha256,
+      derived_relink_cargo_lock_sha256:
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
+    },
+  )
+  await verifyCargoFingerprintCollection(
+    object(checks.modified_build, 'modified build check').cargo_fingerprints,
+    {
+      phase: 'modified',
+      target,
+      runtime_sha256: artifacts.modified.denort_sha256,
+      derived_relink_cargo_lock_sha256: sha(
+        object(checks.modified_build, 'modified build check')
+          .derived_relink_cargo_lock_sha256,
+        'modified build check derived Cargo.lock SHA-256',
+      ),
+    },
+  )
   const transportField = object(value.transport, 'build receipt transport')
   const manifestPath = text(
     transportField.manifest,

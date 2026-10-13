@@ -3570,6 +3570,141 @@ function parseRuntimeAbi(
   shaField(abi.load_commands_sha256, `${label} macOS load commands SHA-256`)
 }
 
+type CargoFingerprintPhase = 'baseline' | 'modified'
+type CargoFingerprintContext = 'host-release' | 'target-release'
+
+function expectedCargoFingerprintContexts(
+  target: SourceProofTarget,
+): readonly CargoFingerprintContext[] {
+  // The selected Linux recipe always invokes Cargo with --target while also
+  // compiling host tools. The macOS recipe does not use --target, so target
+  // output there would be stale or unrelated evidence.
+  return target.endsWith('linux-gnu')
+    ? ['host-release', 'target-release']
+    : ['host-release']
+}
+
+function cargoFingerprintPath(value: unknown, label: string): string {
+  if (
+    typeof value !== 'string' || !value || value.startsWith('/') ||
+    value.includes('\\') ||
+    value.split('/').some((part) => !part || part === '.' || part === '..')
+  ) {
+    throw new Error(`invalid ${label} path`)
+  }
+  return value
+}
+
+function canonicalFingerprintBytes(value: unknown, label: string): Uint8Array {
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`invalid ${label} content`)
+  }
+  let binary: string
+  try {
+    binary = atob(value)
+  } catch {
+    throw new Error(`invalid ${label} canonical base64`)
+  }
+  if (btoa(binary) !== value) {
+    throw new Error(`invalid ${label} canonical base64`)
+  }
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  try {
+    JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+  } catch {
+    throw new Error(`invalid ${label} JSON`)
+  }
+  return bytes
+}
+
+function parseCargoFingerprintCollection(
+  value: unknown,
+  expected: {
+    phase: CargoFingerprintPhase
+    target: SourceProofTarget
+    runtimeSha256: string
+    derivedRelinkCargoLockSha256: string
+  },
+): void {
+  const collection = objectField(value, 'Cargo fingerprint collection')
+  exactKeys(
+    collection,
+    [
+      'schema_version',
+      'kind',
+      'phase',
+      'target',
+      'runtime_sha256',
+      'derived_relink_cargo_lock_sha256',
+      'records',
+    ],
+    'Cargo fingerprint collection',
+  )
+  if (
+    collection.schema_version !== 1 ||
+    collection.kind !== 'slv-cargo-fingerprint-records' ||
+    collection.phase !== expected.phase ||
+    collection.target !== expected.target ||
+    shaField(collection.runtime_sha256, 'Cargo fingerprint runtime SHA-256') !==
+      expected.runtimeSha256 ||
+    shaField(
+        collection.derived_relink_cargo_lock_sha256,
+        'Cargo fingerprint derived Cargo.lock SHA-256',
+      ) !== expected.derivedRelinkCargoLockSha256 ||
+    !Array.isArray(collection.records) || !collection.records.length
+  ) {
+    throw new Error('Cargo fingerprint collection does not bind its build')
+  }
+  const identities = new Set<string>()
+  const contexts = new Set<CargoFingerprintContext>()
+  for (const [index, value] of collection.records.entries()) {
+    const record = objectField(value, `Cargo fingerprint record ${index}`)
+    exactKeys(
+      record,
+      ['context', 'path', 'sha256', 'content_base64'],
+      `Cargo fingerprint record ${index}`,
+    )
+    if (
+      record.context !== 'host-release' && record.context !== 'target-release'
+    ) {
+      throw new Error(`invalid Cargo fingerprint record ${index} context`)
+    }
+    const context = record.context as CargoFingerprintContext
+    const path = cargoFingerprintPath(
+      record.path,
+      `Cargo fingerprint record ${index}`,
+    )
+    if (!path.endsWith('.json')) {
+      throw new Error(`invalid Cargo fingerprint record ${index} JSON path`)
+    }
+    const bytes = canonicalFingerprintBytes(
+      record.content_base64,
+      `Cargo fingerprint record ${index}`,
+    )
+    if (
+      createHash('sha256').update(bytes).digest('hex') !==
+        shaField(record.sha256, `Cargo fingerprint record ${index} SHA-256`)
+    ) {
+      throw new Error(`Cargo fingerprint record ${index} digest differs`)
+    }
+    const identity = `${context}/${path}`
+    if (identities.has(identity)) {
+      throw new Error(`duplicate Cargo fingerprint record: ${identity}`)
+    }
+    identities.add(identity)
+    contexts.add(context)
+  }
+  const expectedContexts = expectedCargoFingerprintContexts(expected.target)
+  if (
+    contexts.size !== expectedContexts.length ||
+    expectedContexts.some((context) => !contexts.has(context))
+  ) {
+    throw new Error(
+      `Cargo fingerprint contexts differ for ${expected.target}`,
+    )
+  }
+}
+
 function parseProofChecks(
   value: unknown,
   target: SourceProofTarget,
@@ -3606,6 +3741,23 @@ function parseProofChecks(
     artifacts.baseline.denort_sha256,
     'baseline build',
   )
+  const baselineDerivedLock = shaField(
+    baselineBuild.derived_relink_cargo_lock_sha256,
+    'baseline build derived Cargo.lock SHA-256',
+  )
+  if (
+    baselineDerivedLock !==
+      artifacts.baseline.derived_relink_cargo_lock_sha256
+  ) {
+    throw new Error('baseline build derived Cargo.lock differs from artifacts')
+  }
+  parseCargoFingerprintCollection(baselineBuild.cargo_fingerprints, {
+    phase: 'baseline',
+    target,
+    runtimeSha256: artifacts.baseline.denort_sha256,
+    derivedRelinkCargoLockSha256:
+      artifacts.baseline.derived_relink_cargo_lock_sha256,
+  })
   const baselineProbe = probeCheck(checks.baseline_probe, 'baseline probe')
   const patch = passedCheck(checks.patch, 'sentinel patch')
   const before = shaField(patch.before_sha256, 'sentinel patch before SHA-256')
@@ -3626,6 +3778,16 @@ function parseProofChecks(
     artifacts.modified.denort_sha256,
     'modified build',
   )
+  const modifiedDerivedLock = shaField(
+    modifiedBuild.derived_relink_cargo_lock_sha256,
+    'modified build derived Cargo.lock SHA-256',
+  )
+  parseCargoFingerprintCollection(modifiedBuild.cargo_fingerprints, {
+    phase: 'modified',
+    target,
+    runtimeSha256: artifacts.modified.denort_sha256,
+    derivedRelinkCargoLockSha256: modifiedDerivedLock,
+  })
   const modifiedProbe = probeCheck(checks.modified_probe, 'modified probe')
   if (
     baselineProbe.sentinel.input !== 0.125 ||

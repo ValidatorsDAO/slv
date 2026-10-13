@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import {
   assertSafeTree,
+  captureCargoFingerprintCollection,
   emitNativeTargetProof,
   extractArchive,
   prepareBuildDirectories,
   resolveSourceArchivePaths,
   scanArchiveForUnsafeMembers,
+  verifyCargoFingerprintCollection,
 } from './verify-native.ts'
 import { verifyNativeSourceRebuildProof } from '../scripts/release/source-materials.ts'
 import { expandEnvironment, materializeLayoutCopies } from './prepare-tools.ts'
@@ -33,6 +35,10 @@ with tarfile.open(archive, 'w:gz') as payload:
     target.mode = 0o644
     target.size = len(b'checked source bytes')
     payload.addfile(target, io.BytesIO(b'checked source bytes'))
+    unicode_name = tarfile.TarInfo('deno-source/fixture/Begrænset.js')
+    unicode_name.mode = 0o644
+    unicode_name.size = len(b'export const source = "utf8";\n')
+    payload.addfile(unicode_name, io.BytesIO(b'export const source = "utf8";\n'))
     # This is intentionally the same shape as Deno's upstream dangling
     # fixture: it is lexically contained in the archive root but need not
     # resolve on disk at packaging time.
@@ -59,15 +65,8 @@ Deno.test('safe dangling Deno fixture symlink is scanned and extracted verbatim'
     const archive = `${root}/deno-source.tar.gz`
     const destination = `${root}/extract`
     await Deno.mkdir(destination)
-    await createArchive(archive, './fs/testdata/copy_dir/0.txt')
+    await createArchive(archive, 'Begrænset.js')
 
-    const scan = await scanArchiveForUnsafeMembers(
-      archive,
-      'deno-source',
-      destination,
-      `${root}/scan.log`,
-    )
-    if (scan.exit_code !== 0) throw new Error('safe archive scan failed')
     await extractArchive(
       archive,
       destination,
@@ -75,11 +74,16 @@ Deno.test('safe dangling Deno fixture symlink is scanned and extracted verbatim'
       `${root}/extract.log`,
     )
     const link = `${destination}/deno-source/fixture/copy_dir_link_file`
-    if (await Deno.readLink(link) !== './fs/testdata/copy_dir/0.txt') {
-      throw new Error(
-        'safe dangling symlink target bytes changed on extraction',
-      )
+    if (await Deno.readLink(link) !== 'Begrænset.js') {
+      throw new Error('contained symlink target bytes changed on extraction')
     }
+    const unicode = await Deno.readTextFile(
+      `${destination}/deno-source/fixture/Begrænset.js`,
+    )
+    if (unicode !== 'export const source = "utf8";\n') {
+      throw new Error('UTF-8 archive member bytes changed on extraction')
+    }
+    await Deno.lstat(`${root}/extract.log.scan`)
     await assertSafeTree(`${destination}/deno-source`)
   } finally {
     await Deno.remove(root, { recursive: true })
@@ -174,6 +178,112 @@ with tarfile.open(archive, 'w:gz') as payload:
   }
 }
 
+async function createForbiddenCharacterArchive(
+  archive: string,
+  kind: 'backslash-member' | 'nul-member' | 'backslash-link' | 'nul-link',
+): Promise<void> {
+  const program = String.raw`
+import io
+import sys
+import tarfile
+
+archive, kind = sys.argv[1:]
+bad = chr(92) if kind.startswith('backslash') else chr(0)
+with tarfile.open(archive, 'w:gz', format=tarfile.PAX_FORMAT) as payload:
+    for name in ('deno-source', 'deno-source/fixture'):
+        entry = tarfile.TarInfo(name)
+        entry.type = tarfile.DIRTYPE
+        entry.mode = 0o755
+        payload.addfile(entry)
+    if kind.endswith('member'):
+        name = 'deno-source/fixture/member' + bad + 'suffix'
+        entry = tarfile.TarInfo('deno-source/fixture/member')
+        if kind == 'nul-member':
+            entry.pax_headers = {'path': name}
+        else:
+            entry.name = name
+        entry.mode = 0o644
+        entry.size = 1
+        payload.addfile(entry, io.BytesIO(b'x'))
+    else:
+        target = 'target' + bad + 'suffix'
+        entry = tarfile.TarInfo('deno-source/fixture/link')
+        entry.type = tarfile.SYMTYPE
+        if kind == 'nul-link':
+            entry.linkname = 'target'
+            entry.pax_headers = {'linkpath': target}
+        else:
+            entry.linkname = target
+        payload.addfile(entry)
+`
+  const created = await new Deno.Command('/usr/bin/python3', {
+    args: ['-c', program, archive, kind],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  if (!created.success) {
+    throw new Error(new TextDecoder().decode(created.stderr))
+  }
+}
+
+async function expectExtractRejection(
+  archive: string,
+  destination: string,
+  label: string,
+): Promise<void> {
+  try {
+    await extractArchive(
+      archive,
+      destination,
+      'deno-source',
+      `${destination}/extract.log`,
+    )
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('pre-extraction archive scan')
+    ) {
+      await Deno.lstat(`${destination}/deno-source`).then(
+        () => {
+          throw new Error(`${label} created its root before rejection`)
+        },
+        (lstatError) => {
+          if (!(lstatError instanceof Deno.errors.NotFound)) throw lstatError
+        },
+      )
+      return
+    }
+    throw error
+  }
+  throw new Error(`${label} reached extraction`)
+}
+
+Deno.test('extractArchive rejects literal backslash and NUL member and link values before extraction', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-native-member-characters-',
+  })
+  try {
+    for (
+      const kind of [
+        'backslash-member',
+        'nul-member',
+        'backslash-link',
+        'nul-link',
+      ] as const
+    ) {
+      const archive = `${root}/${kind}.tar.gz`
+      const destination = `${root}/${kind}`
+      await Deno.mkdir(destination)
+      await createForbiddenCharacterArchive(archive, kind)
+      await expectExtractRejection(archive, destination, kind)
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
 Deno.test('ordered symlink resolution rejects a chained directory-link escape', async () => {
   const root = await Deno.makeTempDir({ prefix: 'slv-native-chain-link-' })
   try {
@@ -201,25 +311,32 @@ Deno.test('ordered symlink resolution rejects a chained directory-link escape', 
       )
     }
 
-    await extractArchive(
-      archive,
-      destination,
-      'deno-source',
-      `${root}/extract.log`,
-    )
-    let treeRejected = false
+    let extractionRejected = false
     try {
-      await assertSafeTree(`${destination}/deno-source`)
+      await extractArchive(
+        archive,
+        destination,
+        'deno-source',
+        `${root}/extract.log`,
+      )
     } catch (error) {
-      treeRejected = error instanceof Error && error.message.includes(
-        'escapes its root',
+      extractionRejected = error instanceof Error && error.message.includes(
+        'pre-extraction archive scan',
       )
     }
-    if (!treeRejected) {
+    if (!extractionRejected) {
       throw new Error(
-        'chained directory-link escape passed post-extraction scan',
+        'chained directory-link escape reached extraction',
       )
     }
+    await Deno.lstat(`${destination}/deno-source`).then(
+      () => {
+        throw new Error('rejected archive created its root')
+      },
+      (error) => {
+        if (!(error instanceof Deno.errors.NotFound)) throw error
+      },
+    )
   } finally {
     await Deno.remove(root, { recursive: true })
   }
@@ -246,6 +363,158 @@ Deno.test('non-canonical interior archive member aliases are rejected', async ()
       )
     }
     if (!rejected) throw new Error('interior // member alias was accepted')
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+function fingerprintExpectation(
+  phase: 'baseline' | 'modified' = 'baseline',
+  target = 'x86_64-unknown-linux-gnu',
+) {
+  return {
+    phase,
+    target,
+    runtime_sha256: 'a'.repeat(64),
+    derived_relink_cargo_lock_sha256: 'b'.repeat(64),
+  } as const
+}
+
+function decodeBase64(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0))
+}
+
+Deno.test('Cargo fingerprint evidence preserves raw host and target records before scratch cleanup', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-native-cargo-fingerprints-',
+  })
+  try {
+    const expectation = fingerprintExpectation()
+    const host = `${root}/target/release/.fingerprint/host-unit`
+    const target =
+      `${root}/target/${expectation.target}/release/.fingerprint/target-unit`
+    const hostBytes = '{ "features": ["dnssec"] }\n'
+    const targetBytes = '{"deps":["deno_ffi"],"features":[]}\n'
+    await Deno.mkdir(host, { recursive: true })
+    await Deno.mkdir(target, { recursive: true })
+    await Deno.writeTextFile(`${host}/lib-host.json`, hostBytes)
+    await Deno.writeTextFile(`${target}/lib-target.json`, targetBytes)
+
+    const collection = await captureCargoFingerprintCollection(
+      root,
+      expectation,
+    )
+    if (collection.records.length !== 2) {
+      throw new Error('did not capture both Cargo fingerprint contexts')
+    }
+    const captured = collection.records.map((record) =>
+      `${record.context}:${record.path}:${
+        new TextDecoder().decode(decodeBase64(record.content_base64))
+      }`
+    )
+    if (
+      captured[0] !== `host-release:host-unit/lib-host.json:${hostBytes}` ||
+      captured[1] !==
+        `target-release:target-unit/lib-target.json:${targetBytes}`
+    ) {
+      throw new Error('Cargo fingerprint raw bytes or contexts changed')
+    }
+
+    await Deno.remove(`${root}/target`, { recursive: true })
+    await verifyCargoFingerprintCollection(collection, expectation)
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('Cargo fingerprint evidence rejects absent, tampered, and wrongly bound records', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-native-cargo-fingerprints-negative-',
+  })
+  try {
+    const expectation = fingerprintExpectation('modified')
+    await expectLayoutRejection(
+      () => captureCargoFingerprintCollection(root, expectation).then(() => {}),
+      'emitted no Cargo fingerprint JSON records',
+    )
+
+    const fingerprints = `${root}/target/release/.fingerprint/only-host-record`
+    await Deno.mkdir(fingerprints, { recursive: true })
+    await Deno.writeTextFile(`${fingerprints}/unit.json`, '{"ok":true}\n')
+    await expectLayoutRejection(
+      () => captureCargoFingerprintCollection(root, expectation).then(() => {}),
+      'fingerprint contexts differ',
+    )
+    const targetFingerprints =
+      `${root}/target/${expectation.target}/release/.fingerprint/target-record`
+    await Deno.mkdir(targetFingerprints, { recursive: true })
+    await Deno.writeTextFile(
+      `${targetFingerprints}/unit.json`,
+      '{"target":true}\n',
+    )
+    const collection = await captureCargoFingerprintCollection(
+      root,
+      expectation,
+    )
+
+    const tampered = structuredClone(collection)
+    tampered.records[0].content_base64 = btoa('{"ok":false}\n')
+    await expectLayoutRejection(
+      () =>
+        verifyCargoFingerprintCollection(tampered, expectation).then(() => {}),
+      'digest differs from bytes',
+    )
+    await expectLayoutRejection(
+      () =>
+        verifyCargoFingerprintCollection(collection, {
+          ...expectation,
+          runtime_sha256: 'c'.repeat(64),
+        }).then(() => {}),
+      'does not bind this build',
+    )
+    await expectLayoutRejection(
+      () =>
+        verifyCargoFingerprintCollection(collection, {
+          ...expectation,
+          derived_relink_cargo_lock_sha256: 'd'.repeat(64),
+        }).then(() => {}),
+      'does not bind this build',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('Cargo fingerprint evidence accepts macOS host records only and rejects target output', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-native-cargo-fingerprints-macos-',
+  })
+  try {
+    const expectation = fingerprintExpectation(
+      'baseline',
+      'x86_64-apple-darwin',
+    )
+    const host = `${root}/target/release/.fingerprint/host-unit`
+    await Deno.mkdir(host, { recursive: true })
+    await Deno.writeTextFile(`${host}/unit.json`, '{"host":true}\n')
+    const collection = await captureCargoFingerprintCollection(
+      root,
+      expectation,
+    )
+    if (
+      collection.records.length !== 1 ||
+      collection.records[0].context !== 'host-release'
+    ) {
+      throw new Error('macOS host-only fingerprint evidence was not retained')
+    }
+    const target =
+      `${root}/target/${expectation.target}/release/.fingerprint/stale-target`
+    await Deno.mkdir(target, { recursive: true })
+    await Deno.writeTextFile(`${target}/unit.json`, '{"stale":true}\n')
+    await expectLayoutRejection(
+      () => captureCargoFingerprintCollection(root, expectation).then(() => {}),
+      'fingerprint contexts differ',
+    )
   } finally {
     await Deno.remove(root, { recursive: true })
   }
@@ -358,12 +627,40 @@ Deno.test('merge emitter carries bounded build jobs through the unchanged releas
     load_commands_sha256: hash('d'),
     status: 'passed',
   })
+  const cargoFingerprints = (
+    phase: 'baseline' | 'modified',
+    runtimeSha256: string,
+    derivedRelinkCargoLockSha256: string,
+  ) => {
+    const content = `{"phase":"${phase}","context":"host-release"}\n`
+    return {
+      schema_version: 1,
+      kind: 'slv-cargo-fingerprint-records',
+      phase,
+      target: 'x86_64-apple-darwin',
+      runtime_sha256: runtimeSha256,
+      derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
+      records: [{
+        context: 'host-release',
+        path: `${phase}-host/output-unit.json`,
+        sha256: createHash('sha256').update(content).digest('hex'),
+        content_base64: btoa(content),
+      }],
+    }
+  }
   const checks = {
     baseline_build: {
       passed: true,
       command,
+      derived_relink_cargo_lock_sha256:
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
       runtime_abi: runtimeAbi(artifacts.baseline.denort_sha256),
       runtime_abi_receipt_sha256: hash('e'),
+      cargo_fingerprints: cargoFingerprints(
+        'baseline',
+        artifacts.baseline.denort_sha256,
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
+      ),
     },
     baseline_probe: {
       passed: true,
@@ -379,8 +676,14 @@ Deno.test('merge emitter carries bounded build jobs through the unchanged releas
     modified_build: {
       passed: true,
       command,
+      derived_relink_cargo_lock_sha256: hash('e'),
       runtime_abi: runtimeAbi(artifacts.modified.denort_sha256),
       runtime_abi_receipt_sha256: hash('1'),
+      cargo_fingerprints: cargoFingerprints(
+        'modified',
+        artifacts.modified.denort_sha256,
+        hash('e'),
+      ),
     },
     modified_probe: {
       passed: true,

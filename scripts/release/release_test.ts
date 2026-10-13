@@ -4,6 +4,7 @@ import {
   assertRejects,
   assertThrows,
 } from 'jsr:@std/assert@1'
+import { createHash } from 'node:crypto'
 import {
   assertArchive,
   assertVersion,
@@ -369,6 +370,40 @@ function proofRuntimeAbi(target: string, denortSha256: string) {
   }
 }
 
+function proofCargoFingerprints(
+  phase: 'baseline' | 'modified',
+  target: string,
+  artifacts: ReturnType<typeof proofArtifacts>,
+) {
+  const runtimeSha256 = phase === 'baseline'
+    ? artifacts.baseline.denort_sha256
+    : artifacts.modified.denort_sha256
+  const derivedRelinkCargoLockSha256 = phase === 'baseline'
+    ? artifacts.baseline.derived_relink_cargo_lock_sha256
+    : 'e'.repeat(64)
+  const record = (context: 'host-release' | 'target-release') => {
+    const content = `{"context":"${context}","phase":"${phase}"}\n`
+    return {
+      context,
+      path: `${phase}-${context}/output-unit.json`,
+      sha256: createHash('sha256').update(content).digest('hex'),
+      content_base64: btoa(content),
+    }
+  }
+  return {
+    schema_version: 1,
+    kind: 'slv-cargo-fingerprint-records',
+    phase,
+    target,
+    runtime_sha256: runtimeSha256,
+    derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
+    records: [
+      record('host-release'),
+      ...(target.endsWith('linux-gnu') ? [record('target-release')] : []),
+    ],
+  }
+}
+
 function proofChecks(
   canonicalNoticeSha256: string,
   target: string,
@@ -378,8 +413,11 @@ function proofChecks(
     baseline_build: {
       passed: true,
       command: proofCommand,
+      derived_relink_cargo_lock_sha256:
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
       runtime_abi: proofRuntimeAbi(target, artifacts.baseline.denort_sha256),
       runtime_abi_receipt_sha256: 'd'.repeat(64),
+      cargo_fingerprints: proofCargoFingerprints('baseline', target, artifacts),
     },
     baseline_probe: {
       passed: true,
@@ -395,8 +433,10 @@ function proofChecks(
     modified_build: {
       passed: true,
       command: proofCommand,
+      derived_relink_cargo_lock_sha256: 'e'.repeat(64),
       runtime_abi: proofRuntimeAbi(target, artifacts.modified.denort_sha256),
       runtime_abi_receipt_sha256: 'e'.repeat(64),
+      cargo_fingerprints: proofCargoFingerprints('modified', target, artifacts),
     },
     modified_probe: {
       passed: true,
