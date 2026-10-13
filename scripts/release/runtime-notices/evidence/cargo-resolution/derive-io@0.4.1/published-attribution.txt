@@ -1,0 +1,20 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: derive-io@0.4.1
+Exact archive: https://static.crates.io/crates/derive-io/derive-io-0.4.1.crate
+Archive SHA-256: 58cc7f4740088458993d183a200fe56e62378736f94bf0e2dd45807407e7bb94
+Declared license: MIT OR Apache-2.0
+Selected license branch for this distribution: Apache-2.0
+Published authors:
+- Matt Mastracci <matthew@mastracci.com>
+
+Resolution kind:
+declared-standard-license-supplement
+
+Resolution notes from the evidence review:
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

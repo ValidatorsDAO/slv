@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "scope": "Source-build linkage measurement for notice-scope classification. It is not a published-release binary receipt and makes no LGPL or complete-source-distribution conclusion.",
+  "inputs": {
+    "deno_source_commit": "f39575ecd50602a5b42b1ba8e93849460de9fcf4",
+    "rusty_v8": {
+      "version": "149.4.0",
+      "commit": "dd1b4e9c743b7a11dbeb99d4d0dc55979218b905"
+    },
+    "host_target": "x86_64-unknown-linux-gnu"
+  },
+  "measured_artifacts": {
+    "gn_ninja": {
+      "path": "target/release/gn_out/obj/rusty_v8.ninja",
+      "sha256": "2d7a57b67b65c1f0f8e2e7d9df53c6677827a47d2cd0b3219377c10613724fc2"
+    },
+    "rusty_v8_archive": {
+      "path": "target/release/gn_out/obj/librusty_v8.a",
+      "bytes": 185248088,
+      "sha256": "791a09de62841fe0ac0a2706b4b476c7ee7c876a5e26b3db1a9cbe017eb464dd",
+      "archive_member_count": 1867,
+      "member_list_sha256": "bf6a72ccd2a8ee4ea012f452b43bf25c91f3478e080fc01095ab6fb44573cfee"
+    }
+  },
+  "observations": [
+    "The GN alink edge lists Chromium Rust rlibs after Ninja implicit-input separator |, including temporal_capi, ICU Rust dependencies, and local_rustc_sysroot std/core/alloc/unwind/compiler_builtins rlibs.",
+    "The static-archive rule uses rspfile_content = ${in}; the Rust rlibs are not archive members. The measured member list contains no temporal_capi, temporal_rs, ICU Rust, or local Rust standard-library member names.",
+    "nm -g --defined-only finds zero C ABI temporal_rs_* definitions in librusty_v8.a; nm -u finds 307 temporal_rs_* C ABI references. C++ mangled symbols containing temporal_rs are wrapper/type references and are not C ABI definitions.",
+    "The checked-in normal denort closure includes cargo:temporal_capi@0.2.3 with actual-shipped four-target notice evidence."
+  ],
+  "classification": {
+    "chromium_gn_rust_rlibs_and_sysroot": "build/order-only inputs for this measured archive; do not promote them to a separate runtime notice component on this evidence alone",
+    "temporal_capi_c_abi": "external linkage remains required by librusty_v8.a and is represented by the actual denort Cargo closure component"
+  },
+  "reproduction": [
+    "sha256sum target/release/gn_out/obj/rusty_v8.ninja target/release/gn_out/obj/librusty_v8.a",
+    "ar t target/release/gn_out/obj/librusty_v8.a | wc -l",
+    "ar t target/release/gn_out/obj/librusty_v8.a | sha256sum",
+    "nm -g --defined-only target/release/gn_out/obj/librusty_v8.a | rg \"\\btemporal_rs_[A-Za-z0-9_]+\"",
+    "nm -u target/release/gn_out/obj/librusty_v8.a | rg \"\\btemporal_rs_[A-Za-z0-9_]+\""
+  ],
+  "limits": "A final release binary link map may add or remove evidence. Reassess this boundary if GN rule semantics, RustyV8 pin, target, or final-link behavior changes."
+}

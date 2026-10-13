@@ -1,0 +1,21 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: zune-core@0.4.12
+Exact archive: https://static.crates.io/crates/zune-core/zune-core-0.4.12.crate
+Archive SHA-256: 3f423a2c17029964870cfaabb1f13dfab7d092a62a29a89264f4d36990ca414a
+Declared license: MIT OR Apache-2.0 OR Zlib
+Selected license branch for this distribution: Zlib
+Published authors:
+- (no authors field was published in the package metadata)
+
+Resolution kind:
+recovered-pinned-upstream-license
+
+Resolution notes from the evidence review:
+- All 13 Rust files and Cargo.toml.orig byte-equal. Preserve original bare-year headers and actual upstream zune-image developers notice; do not invent a year/owner combination.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

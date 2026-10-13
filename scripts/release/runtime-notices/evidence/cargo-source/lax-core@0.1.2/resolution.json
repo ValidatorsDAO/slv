@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "lax-core@0.1.2",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/lax-core/lax-core-0.1.2.crate",
+    "sha256": "59154ddba1bc6fa3d3e9ef0190dbecbac0cbbdc87b8d28e4437f8ff9c70b8d24"
+  },
+  "archive_vcs": {
+    "commit": "df92a60c8dbfd54081cee9eba06554c964314423",
+    "path_in_vcs": "crates/lax-core"
+  },
+  "declared_license": "MIT",
+  "repository": "https://github.com/bartlomieju/lax",
+  "published_manifest": {
+    "path": "lax-core-0.1.2/Cargo.toml",
+    "sha256": "19a56ffed7ee609df3270d5b403102e04dbc5e0f1cb94ec7c94e985fd1207ccd"
+  },
+  "terms": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/bartlomieju/lax/df92a60c8dbfd54081cee9eba06554c964314423/LICENSE",
+      "sha256": "e88db7fd46d8cbccb3e62e33ea823e2a44d20496c07071b1522423ccb2783259",
+      "bytes": 1072
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

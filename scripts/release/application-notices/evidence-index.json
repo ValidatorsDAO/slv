@@ -1,0 +1,332 @@
+{
+  "schema_version": 1,
+  "distributions": [
+    {
+      "id": "jsr:@std/assert@0.224.0",
+      "files": [
+        {
+          "path": "evidence/jsr/std-0.224.0-LICENSE",
+          "sha256": "0961f97da6619d5fe9ddb98649191d5ca6e958856ea5252f4cce7c9b85513819",
+          "source": "https://raw.githubusercontent.com/denoland/deno_std/582a9f2af1d33fc5adb4cc2301f77df444bb4ce7/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "jsr:@std/fs@0.224.0",
+      "files": [
+        {
+          "path": "evidence/jsr/std-0.224.0-LICENSE",
+          "sha256": "0961f97da6619d5fe9ddb98649191d5ca6e958856ea5252f4cce7c9b85513819",
+          "source": "https://raw.githubusercontent.com/denoland/deno_std/582a9f2af1d33fc5adb4cc2301f77df444bb4ce7/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "jsr:@std/path@0.224.0",
+      "files": [
+        {
+          "path": "evidence/jsr/std-0.224.0-LICENSE",
+          "sha256": "0961f97da6619d5fe9ddb98649191d5ca6e958856ea5252f4cce7c9b85513819",
+          "source": "https://raw.githubusercontent.com/denoland/deno_std/582a9f2af1d33fc5adb4cc2301f77df444bb4ce7/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "jsr:@std/yaml@1.0.5",
+      "files": [
+        {
+          "path": "evidence/jsr/std-0.224.0-LICENSE",
+          "sha256": "0961f97da6619d5fe9ddb98649191d5ca6e958856ea5252f4cce7c9b85513819",
+          "source": "https://raw.githubusercontent.com/denoland/deno_std/582a9f2af1d33fc5adb4cc2301f77df444bb4ce7/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "jsr:@hono/hono@4.13.7",
+      "files": [
+        {
+          "path": "evidence/jsr/hono-4.13.7-LICENSE",
+          "sha256": "a6ab98e5c77b9070c443eaff2ff81034a6f8cc05a7524d5098eb0f24defa0115",
+          "source": "https://jsr.io/%40hono/hono/4.13.7/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "jsr:@elsoul/child-process@1.2.0",
+      "files": [
+        {
+          "path": "evidence/jsr/elsoul-child-process-1.2.0-LICENSE.txt",
+          "sha256": "8f8f78674dfc32c4f2876fd8c6beb56b023675d6714e87e23df0d27948ba05b2",
+          "source": "https://jsr.io/%40elsoul/child-process/1.2.0/LICENSE.txt"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/std@0.122.0",
+      "files": [
+        {
+          "path": "evidence/remote/std-0.122.0-LICENSE",
+          "sha256": "07fb245e86c1c014b3ca473666302069cfc4ba75a1ec2640113a64aca47d5f88",
+          "source": "https://raw.githubusercontent.com/denoland/std/8b2606479313d002b5249da24d08d047b027be31/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/std@0.221.0",
+      "files": [
+        {
+          "path": "evidence/remote/std-0.221.0-LICENSE",
+          "sha256": "0961f97da6619d5fe9ddb98649191d5ca6e958856ea5252f4cce7c9b85513819",
+          "source": "https://raw.githubusercontent.com/denoland/std/7d419485c74bcdc4a03857dd4d427d4442b058f3/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/std@0.202.0",
+      "files": [
+        {
+          "path": "evidence/remote/std-0.202.0-LICENSE",
+          "sha256": "0961f97da6619d5fe9ddb98649191d5ca6e958856ea5252f4cce7c9b85513819",
+          "source": "https://raw.githubusercontent.com/denoland/std/00ba7e663a2831529c8c67b0c7010431233bb9ac/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/std@0.97.0",
+      "files": [
+        {
+          "path": "evidence/remote/std-0.97.0-LICENSE",
+          "sha256": "07fb245e86c1c014b3ca473666302069cfc4ba75a1ec2640113a64aca47d5f88",
+          "source": "https://raw.githubusercontent.com/denoland/std/69245d3dc8c95ec30769f55fd71ee12a9645b88f/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/x/cliffy@v1.0.0-rc.4",
+      "files": [
+        {
+          "path": "evidence/remote/cliffy-v1.0.0-rc.4-LICENSE",
+          "sha256": "1f4989357acfacf95ed9daf1b67fe1167fae6db7239b57a5ca3a4efd217e637e",
+          "source": "https://deno.land/x/cliffy@v1.0.0-rc.4/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/x/expect@v0.2.9",
+      "files": [
+        {
+          "path": "evidence/remote/expect-v0.2.9-LICENSE",
+          "sha256": "01d60bd01c220b26ee6cff4ffc6c0bc78ba3b1d64536fdf2601798d5fd98b9b7",
+          "source": "https://deno.land/x/expect@v0.2.9/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/x/kia@0.4.1",
+      "files": [
+        {
+          "path": "evidence/remote/kia-0.4.1-LICENSE",
+          "sha256": "851a0f0b529cc9433fcec70f379b747b4729f910f6eb9d9bd11407b1a57763fa",
+          "source": "https://deno.land/x/kia@0.4.1/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "deno.land/x/openai@v4.69.0",
+      "files": [
+        {
+          "path": "evidence/remote/openai-v4.69.0-LICENSE",
+          "sha256": "77433a1c38d0efab5fdb9e573e5006908a0408c7baf3c317706118b0e17249f2",
+          "source": "https://deno.land/x/openai@v4.69.0/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "npm:@drizzle-team/brocli@0.10.2",
+      "files": [
+        {
+          "path": "evidence/npm/drizzle-team-brocli-0.10.2-LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "source": "https://raw.githubusercontent.com/drizzle-team/brocli/65d1432f4ce1f048d99604acd60d0eab8612c91b/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "npm:@esbuild/linux-x64@0.18.20",
+      "files": [
+        {
+          "path": "evidence/npm/esbuild-linux-x64-0.18.20-LICENSE.md",
+          "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+          "source": "https://raw.githubusercontent.com/evanw/esbuild/22f0818cf81024b63752d815c51fe737612b43ec/LICENSE.md"
+        }
+      ]
+    },
+    {
+      "id": "npm:@esbuild/linux-x64@0.25.12",
+      "files": [
+        {
+          "path": "evidence/npm/esbuild-linux-x64-0.25.12-LICENSE.md",
+          "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+          "source": "https://raw.githubusercontent.com/evanw/esbuild/208f539945b145e7c9d6d844290f81c3fe5af320/LICENSE.md"
+        }
+      ]
+    },
+    {
+      "id": "npm:@mariozechner/pi-tui@0.61.1",
+      "files": [
+        {
+          "path": "evidence/npm/mariozechner-pi-tui-0.61.1-LICENSE",
+          "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+          "source": "https://raw.githubusercontent.com/badlogic/pi-mono/b63a4abed27e24dd88444b7e6d415428ee02f07a/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "npm:drizzle-kit@0.31.8_esbuild@0.25.12",
+      "files": [
+        {
+          "path": "evidence/npm/drizzle-kit-0.31.8-LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "source": "https://raw.githubusercontent.com/drizzle-team/drizzle-orm/c445637df39366bcf47b12601896ce851771c1c2/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "npm:undici-types@5.26.5",
+      "files": [
+        {
+          "path": "evidence/npm/undici-types-5.26.5-LICENSE",
+          "sha256": "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27",
+          "source": "https://raw.githubusercontent.com/nodejs/undici/9197790ae0d015b40b75fd0c5cdb7420704b5272/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "npm:@hono/zod-openapi@1.2.0_hono@4.13.7",
+      "files": [
+        {
+          "path": "evidence/npm/hono-middleware-a8e2af4-LICENSE",
+          "sha256": "6895190430d809c4c57a7582ecc2f99acbc2ea39a5dfad20262a41d5b3e91733",
+          "source": "https://raw.githubusercontent.com/honojs/middleware/a8e2af4d857aa7fabf290cdf6f67307678e50409/LICENSE"
+        }
+      ],
+      "supplement": {
+        "original_archive_integrity": "sha512-KDfHqv/Wy4elVseZXgokbHxeWuqBL+AZfqsOMpEihBMUsk/fJ+bLIi3Sf70JFVpt1Ihui8RasYrInozt7ZBDIA==",
+        "original_evidence_receipt": "unresolved-omissions.json",
+        "supplement_source_commit": "a8e2af4d857aa7fabf290cdf6f67307678e50409",
+        "same_source_verified": false,
+        "rationale": "Later 2026-09-29 repository LICENSE supplement; the maintainer stated that the root LICENSE is intended for every package. The exact published archive did not include this text.",
+        "maintainer_statement": "https://github.com/honojs/middleware/issues/2157"
+      }
+    },
+    {
+      "id": "npm:@hono/zod-validator@0.7.6_hono@4.13.7_zod@4.3.5",
+      "files": [
+        {
+          "path": "evidence/npm/hono-middleware-a8e2af4-LICENSE",
+          "sha256": "6895190430d809c4c57a7582ecc2f99acbc2ea39a5dfad20262a41d5b3e91733",
+          "source": "https://raw.githubusercontent.com/honojs/middleware/a8e2af4d857aa7fabf290cdf6f67307678e50409/LICENSE"
+        }
+      ],
+      "supplement": {
+        "original_archive_integrity": "sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw==",
+        "original_evidence_receipt": "unresolved-omissions.json",
+        "supplement_source_commit": "a8e2af4d857aa7fabf290cdf6f67307678e50409",
+        "same_source_verified": false,
+        "rationale": "Later 2026-09-29 repository LICENSE supplement; the maintainer stated that the root LICENSE is intended for every package. The exact published archive did not include this text.",
+        "maintainer_statement": "https://github.com/honojs/middleware/issues/2157"
+      }
+    },
+    {
+      "id": "npm:tr46@0.0.3",
+      "files": [
+        {
+          "path": "evidence/npm/tr46-0.0.3-successor-LICENSE.md",
+          "sha256": "eeed1ca176eebad5c73870e233cfff03981fecd319c969475dfa3633036c336b",
+          "source": "https://raw.githubusercontent.com/jsdom/tr46/3a6f29721e7063b9ffd421e461a54beae6170001/LICENSE.md"
+        }
+      ],
+      "supplement": {
+        "original_archive_integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==",
+        "original_evidence_receipt": "unresolved-omissions.json",
+        "supplement_source_commit": "3a6f29721e7063b9ffd421e461a54beae6170001",
+        "same_source_verified": true,
+        "rationale": "The successor commit is a direct child of the published source commit and changes only the LICENSE file."
+      }
+    },
+    {
+      "id": "npm:drizzle-orm@0.45.2_mysql2@3.23.1__@types+node@18.19.130_@types+node@18.19.130",
+      "files": [
+        {
+          "path": "evidence/npm/drizzle-orm-0.45.2-LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "source": "https://raw.githubusercontent.com/drizzle-team/drizzle-orm/273c78071d4841b497f5144734b38294df7ec64b/LICENSE"
+        }
+      ],
+      "supplement": {
+        "original_evidence_receipt": "unresolved-omissions.json",
+        "same_source_verified": true,
+        "rationale": "The exact published npm archive did not contain a LICENSE, LICENCE, NOTICE, or COPYING text file. The checked-in Apache-2.0 text is from the exact source commit bound by the public npm provenance attestation.",
+        "original_archive_integrity": "sha512-kY0BSaTNYWnoDMVoyY8uxmyHjpJW1geOmBMdSSicKo9CIIWkSxMIj2rkeSR51b8KAPB7m+qysjuHme5nKP+E5Q==",
+        "supplement_source_commit": "273c78071d4841b497f5144734b38294df7ec64b"
+      }
+    },
+    {
+      "id": "npm:drizzle-zod@0.8.3_drizzle-orm@0.45.2__mysql2@3.23.1___@types+node@18.19.130__@types+node@18.19.130_@types+node@18.19.130_mysql2@3.23.1__@types+node@18.19.130",
+      "files": [
+        {
+          "path": "evidence/npm/drizzle-zod-0.8.3-LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "source": "https://raw.githubusercontent.com/drizzle-team/drizzle-orm/33f0374e29014677c29f4b1f1dd1ab8fb68ac516/LICENSE"
+        }
+      ],
+      "supplement": {
+        "original_evidence_receipt": "unresolved-omissions.json",
+        "same_source_verified": true,
+        "rationale": "The exact published npm archive did not contain a LICENSE, LICENCE, NOTICE, or COPYING text file. The checked-in Apache-2.0 text is from the exact source commit bound by the public npm provenance attestation.",
+        "original_archive_integrity": "sha512-66yVOuvGhKJnTdiqj1/Xaaz9/qzOdRJADpDa68enqS6g3t0kpNkwNYjUuaeXgZfO/UWuIM9HIhSlJ6C5ZraMww==",
+        "supplement_source_commit": "33f0374e29014677c29f4b1f1dd1ab8fb68ac516"
+      }
+    }
+  ],
+  "additional_components": [
+    {
+      "id": "unicode:IdnaMappingTable@8.0.0",
+      "inclusion_basis": "actual-shipped",
+      "files": [
+        {
+          "path": "evidence/npm/tr46-0.0.3-generateMappingTable.js",
+          "sha256": "7e236cd8f70870ed149068f9b6aa4d382289c2c2f72c71f0bc42c2e0f1beed9f",
+          "source": "https://raw.githubusercontent.com/Sebmaster/tr46.js/a8009f9ce80ff5dbe71dd71e203afe4e4c878d28/scripts/generateMappingTable.js",
+          "role": "source-material"
+        },
+        {
+          "path": "evidence/unicode/IdnaMappingTable-8.0.0.txt",
+          "sha256": "5e9f5929130b713e698162ac5b60a99ccfb831606686b1c50777cd920b55dee2",
+          "source": "https://www.unicode.org/Public/idna/8.0.0/IdnaMappingTable.txt",
+          "role": "source-material"
+        },
+        {
+          "path": "evidence/unicode/LICENSE-V3.txt",
+          "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96",
+          "source": "https://www.unicode.org/license.txt"
+        }
+      ],
+      "derived_unicode_data": {
+        "npm_key": "tr46@0.0.3",
+        "output_path": "lib/mappingTable.json",
+        "output_sha256": "b6b39724dca9011113a08d9d6910204062b58169e98952acdfbd19bf2c31bbff",
+        "output_bytes": 260049,
+        "output_rows": 8179,
+        "generator_path": "evidence/npm/tr46-0.0.3-generateMappingTable.js",
+        "generator_sha256": "7e236cd8f70870ed149068f9b6aa4d382289c2c2f72c71f0bc42c2e0f1beed9f",
+        "source_data_path": "evidence/unicode/IdnaMappingTable-8.0.0.txt",
+        "source_data_sha256": "5e9f5929130b713e698162ac5b60a99ccfb831606686b1c50777cd920b55dee2",
+        "original_attribution": "Copyright (c) 1991-2015 Unicode, Inc.",
+        "transform_description": "The published generator removes comments, converts ranges and mappings to JSON arrays, and emits lib/mappingTable.json; the checked output is 8,179 rows and 260,049 bytes.",
+        "current_distribution_permission": "Unicode License V3 is recorded as the current distribution permission for Unicode Public data. The 2015 source file references generic terms; this record does not claim V3 was present in the historical source bytes.",
+        "historical_modification_notice": "Historical UnicodeDFS-2015 modification notice: this distribution preserves the source attribution and explicitly identifies the transformation from the IDNA table to JSON."
+      }
+    }
+  ]
+}

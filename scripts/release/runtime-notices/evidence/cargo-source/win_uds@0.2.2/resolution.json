@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "win_uds@0.2.2",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/win_uds/win_uds-0.2.2.crate",
+    "sha256": "7dd30a1a28a3799479cbf4e17284a220ea9ff6bad098a9d0224543a5d1efe1da"
+  },
+  "archive_vcs": {
+    "commit": "3a3214bd7256c515d6add9496dd4fefe7d78e165",
+    "path_in_vcs": ""
+  },
+  "declared_license": "Unlicense",
+  "repository": "https://github.com/kouhe3/win_uds",
+  "published_manifest": {
+    "path": "win_uds-0.2.2/Cargo.toml",
+    "sha256": "63e57c55b7e98c33ddfd48e7b71deaf99fea044daa6446cc98f6f2b0e145c90f"
+  },
+  "terms": [
+    {
+      "path": "UNLICENSE",
+      "url": "https://raw.githubusercontent.com/kouhe3/win_uds/3a3214bd7256c515d6add9496dd4fefe7d78e165/UNLICENSE",
+      "sha256": "b5065838cbac452dfc855ba6e6e031481ad2c68406f70d21ead9321374653e6c",
+      "bytes": 1212
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

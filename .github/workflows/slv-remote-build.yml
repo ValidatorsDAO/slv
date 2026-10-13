@@ -1,291 +1,1378 @@
-name: SLV Tests and Release
+name: SLV verified release
 
 on:
   push:
-    branches: ["main"]
-    tags: ["v*.*.*"]
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    branches: ["main"]
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (without v prefix, e.g. 2026.4.21.0727). The corresponding tag v<version> must already exist; workflow_dispatch is intended for recovery / re-runs against an existing tag."
+        description: Existing CalVer tag to verify or publish when no draft exists; it cannot overwrite a draft
         required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: slv-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-mac:
-    name: Build macOS Binaries (x86_64 + arm64)
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: macos-latest
+  resolve:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      release_required: ${{ steps.resolve.outputs.release_required }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      source_ref: ${{ steps.resolve.outputs.source_ref }}
+      source_timestamp: ${{ steps.resolve.outputs.source_timestamp }}
+      publication: ${{ steps.resolve.outputs.publication }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
         with:
-          deno-version: v2.6.5
-
-      - name: Build macOS executables (x86_64 and arm64)
+          deno-version: v2.9.3
+      - id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_REPO: ValidatorsDAO/slv
+          GH_TOKEN: ${{ github.token }}
         run: |
-          deno install --allow-scripts=npm:protobufjs@7.4.0
-          deno i
-          deno task build:mac
-          deno task build:mac-arm64
-
-      - name: Upload macOS x86_64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: slv-macos-binary
-          path: dist/slv-x86_64-apple-darwin-exe.tar.gz
-          retention-days: 1
-
-      - name: Upload macOS arm64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: slv-macos-arm64-binary
-          path: dist/slv-aarch64-apple-darwin-exe.tar.gz
-          retention-days: 1
+          set -euo pipefail
+          git fetch --force origin main --tags
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env scripts/release/workflow.ts resolve
 
   test:
-    name: Run Tests
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'slv-bm-runners' }}
-    steps:
-      - name: Pre-clean workspace
-        run: |
-          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
-            echo "Invalid GITHUB_WORKSPACE: '$GITHUB_WORKSPACE'"
-            exit 1
-          fi
-          rm -rf "$GITHUB_WORKSPACE"/*
-          rm -rf "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?*
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          clean: true
-          fetch-depth: 0
-
-      - name: Ensure full checkout
-        shell: bash
-        run: |
-          set -euo pipefail
-          required_files=(cli/deno.json test-solana-key/test.ts)
-          missing=()
-          for f in "${required_files[@]}"; do
-            [ -f "$f" ] || missing+=("$f")
-          done
-          if [ "${#missing[@]}" -ne 0 ]; then
-            echo "Missing required files: ${missing[*]}"
-            git status --porcelain=v1 || true
-            ls -la || true
-            exit 1
-          fi
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v1
-        with:
-          deno-version: v2.6.5
-
-      - name: Run tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Run CLI tests from its own directory to avoid root workspace resolution
-          (cd cli && deno test -A --config=deno.json test)
-          # Run the standalone test without loading root config/workspace
-          deno test -A --no-config test-solana-key/test.ts
-
-  remote-build:
-    name: Remote Build and Release
-    needs:
-      - test
-      - build-mac
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: [slv-bm-runners]
+    needs: resolve
+    runs-on: ubuntu-26.04
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      license_artifact_id: ${{ steps.upload-license-evidence.outputs.artifact-id }}
+      license_artifact_digest: ${{ steps.upload-license-evidence.outputs.artifact-digest }}
+      license_producer_run_id: ${{ steps.prepare-licenses.outputs.producer_run_id }}
+      license_producer_attempt: ${{ steps.prepare-licenses.outputs.producer_attempt }}
+      license_notice_sha256: ${{ steps.prepare-licenses.outputs.notice_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
     steps:
-      - name: Pre-clean workspace
-        run: |
-          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
-            echo "Invalid GITHUB_WORKSPACE: '$GITHUB_WORKSPACE'"
-            exit 1
-          fi
-          rm -rf "$GITHUB_WORKSPACE"/*
-          rm -rf "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?*
-
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          clean: true
-          fetch-depth: 0
-
-      - name: Ensure full checkout
-        shell: bash
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Typecheck and run release safety tests
         run: |
           set -euo pipefail
-          required_files=(ansible/compile-slv.yml)
-          missing=()
-          for f in "${required_files[@]}"; do
-            [ -f "$f" ] || missing+=("$f")
-          done
-          if [ "${#missing[@]}" -ne 0 ]; then
-            echo "Missing required files: ${missing[*]}"
-            git status --porcelain=v1 || true
-            ls -la || true
-            exit 1
-          fi
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install Ansible
-        run: |
-          python -m pip install --upgrade pip
-          pip install ansible
-
-      - name: Extract version
-        id: get_version
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-            if [ -z "$VERSION" ]; then
-              echo "❌ workflow_dispatch requires 'version' input"
-              exit 1
-            fi
-            # workflow_dispatch assumes the tag v<version> already exists
-            # (this workflow is for recovery / re-run, not tag creation).
-            if ! git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
-              echo "❌ tag v${VERSION} does not exist. Create and push the tag first, or run from a tag push."
-              exit 1
-            fi
-          else
-            # tag push: refs/tags/vX.Y.Z -> X.Y.Z
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          fi
-          echo "Resolved VERSION=${VERSION}"
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-
-      - name: Create artifacts directory
-        run: mkdir -p artifacts dist renamed_files
-
-      - name: Download macOS x86_64 artifact from build-mac job
-        uses: actions/download-artifact@v4
-        with:
-          name: slv-macos-binary
-          path: dist/
-
-      - name: Download macOS arm64 artifact from build-mac job
-        uses: actions/download-artifact@v4
-        with:
-          name: slv-macos-arm64-binary
-          path: dist/
-
-      - name: Compile SLV on remote server
-        run: |
-          export ANSIBLE_ALLOW_WORLD_READABLE_TMPFILES=1
-          ansible-playbook -i 'localhost,' -u solv -c local ansible/compile-slv.yml \
-            -e "version=${{ env.VERSION }}" \
-            -e "github_token=${{ secrets.GITHUB_TOKEN }}" \
-            -e "cloudflare_account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
-            -e "cloudflare_api_token=${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            -e "cloudflare_purge_email=${{ secrets.CLOUDFLARE_PURGE_EMAIL }}" \
-            -e "cloudflare_purge_api_token=${{ secrets.CLOUDFLARE_PURGE_API_TOKEN }}" \
-            -e "cloudflare_email=${{ secrets.CLOUDFLARE_EMAIL }}" \
-            -e "cloudflare_api_key=${{ secrets.CLOUDFLARE_API_KEY }}" \
-            -e "cloudflare_zone_id=${{ secrets.CLOUDFLARE_ZONE_ID }}"
-
-      - name: Debug directories
-        run: |
-          echo "Listing artifacts directory content:"
-          ls -la artifacts/ || echo "artifacts directory not found or empty"
-          echo "Listing dist directory content:"
-          ls -la dist/ || echo "dist directory not found or empty"
-          echo "Current working directory:"
-          pwd
-
-      - name: Ensure Linux binaries in dist
-        run: |
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            if [ ! -f "dist/slv-${target}-exe.tar.gz" ] && [ -f "/opt/slv-build/dist/slv-${target}-exe.tar.gz" ]; then
-              cp "/opt/slv-build/dist/slv-${target}-exe.tar.gz" dist/
-              echo "Copied ${target} binary from build dir"
-            fi
-          done
-          echo "dist/ contents:" && ls -la dist/
-
-      - name: Copy SHA256SUMS from build directory
-        run: |
-          if [ ! -f "dist/SHA256SUMS" ] && [ -f "/opt/slv-build/dist/SHA256SUMS" ]; then
-            cp /opt/slv-build/dist/SHA256SUMS dist/
-            echo "Copied SHA256SUMS from build dir"
-          fi
-          if [ -f "dist/SHA256SUMS" ]; then
-            echo "SHA256SUMS contents:"
-            cat dist/SHA256SUMS
-          else
-            echo "❌ FATAL: SHA256SUMS not found in dist/"
-            exit 1
-          fi
-
-      - name: Rename files to match download script expectations
-        run: |
-          for target in x86_64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin aarch64-unknown-linux-gnu; do
-            if [ -f "dist/slv-${target}-exe.tar.gz" ]; then
-              cp "dist/slv-${target}-exe.tar.gz" "renamed_files/${target}-exe.tar.gz"
-              echo "Renamed ${target} executable for GitHub release"
-            else
-              echo "${target} executable not found in dist directory"
-            fi
-          done
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-        with:
-          tag_name: v${{ env.VERSION }}
-          files: |
-            dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz
-            dist/slv-x86_64-apple-darwin-exe.tar.gz
-            dist/slv-aarch64-apple-darwin-exe.tar.gz
-            dist/slv-aarch64-unknown-linux-gnu-exe.tar.gz
-            dist/SHA256SUMS
-          body: |
-            SLV v${{ env.VERSION }} Release (Remote Build)
-
-            ## Changes
-
-            - See commit history for details
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build OpenClaw skills
-        run: |
-          for skill in validator rpc grpc-geyser; do
-            bash build-skill.sh "$skill" "${{ env.VERSION }}"
-          done
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install clawhub CLI and publish skills
+          deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
+          deno check --frozen cli/src/index.ts
+          deno task check:version-sync
+          deno test -A --no-config test-solana-key/test.ts
+          python3 -m unittest discover -s cli/lib/release -p '*_test.py' -v
+          deno test --frozen --allow-read --allow-write --allow-run --allow-env --allow-net=127.0.0.1,localhost --allow-sys=uid cli/test cli/src/gateway/ui/static_test.ts scripts/create-release_test.ts scripts/release cli/lib/release/index_test.ts cli/lib/migrate/migrateVersionsYml_test.ts source-rebuild/verify-native_test.ts
+          deno test --frozen --allow-read --allow-write --allow-run --allow-env --allow-net=127.0.0.1,localhost --allow-sys=uid source-rebuild/verify-linux-product_test.ts
+      - name: Materialize the canonical third-party notices from the actual module graph
+        id: prepare-licenses
         env:
-          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+          PRODUCER_RUN_ID: ${{ github.run_id }}
+          PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          npm i -g clawhub
-          clawhub login --token "$CLAWHUB_TOKEN" --no-browser
-          for skill_dir in oss-skills/slv-validator oss-skills/slv-rpc oss-skills/slv-grpc-geyser oss-skills/slv-benchmark; do
-            if [ -d "$skill_dir" ]; then
-              echo "Publishing $skill_dir..."
-              clawhub publish "$skill_dir" --version "${{ env.VERSION }}" || echo "Warning: publish failed for $skill_dir (may already exist), continuing..."
-            else
-              echo "Warning: $skill_dir not found, skipping"
+          set -euo pipefail
+          mkdir -p dist/release-inputs
+          deno info --json --frozen cli/src/index.ts > dist/release-inputs/deno-info.json
+          deno run --frozen --allow-read --allow-write scripts/release/release.ts graph dist/release-inputs/deno-info.json
+          deno run --frozen --allow-read --allow-write scripts/release/release.ts prepare-licenses "$SOURCE_SHA" "$PRODUCER_RUN_ID" "$PRODUCER_RUN_ATTEMPT"
+          producer_run_id="$(jq -er '.producer_run_id' dist/release-inputs/license-bundle.json)"
+          producer_attempt="$(jq -er '.producer_run_attempt' dist/release-inputs/license-bundle.json)"
+          notice_sha256="$(jq -er '.sha256' dist/release-inputs/license-bundle.json)"
+          test "$producer_run_id" = "$PRODUCER_RUN_ID"
+          test "$producer_attempt" = "$PRODUCER_RUN_ATTEMPT"
+          test "$(sha256sum dist/release-inputs/THIRD_PARTY_NOTICES | cut -d ' ' -f 1)" = "$notice_sha256"
+          {
+            echo "producer_run_id=$producer_run_id"
+            echo "producer_attempt=$producer_attempt"
+            echo "notice_sha256=$notice_sha256"
+          } >> "$GITHUB_OUTPUT"
+      - name: Persist only the canonical notice bytes and identity binding
+        id: upload-license-evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-license-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/THIRD_PARTY_NOTICES
+            dist/release-inputs/license-bundle.json
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    needs: [resolve, test, source-materials, source-native-linux-x64, source-native-macos-x64, source-native-macos-arm64, source-arm-build, source-arm-merge]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-26.04
+            apple: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-26.04-arm
+            apple: false
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            apple: true
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            apple: true
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Select the reviewed Xcode and macOS SDK
+        if: matrix.apple
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          test "$(xcodebuild -version | head -n 1)" = 'Xcode 16.2'
+          sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+          test "$(xcrun --sdk macosx --show-sdk-version)" = 15.2
+          test -d "$sdk_path"
+          {
+            echo "DEVELOPER_DIR=$DEVELOPER_DIR"
+            echo "SLV_APPLE_SDK_PATH=$sdk_path"
+          } >> "$GITHUB_ENV"
+      - name: Download the test job's exact canonical notice artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download exact target proof records
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-native-linux-x64.outputs.artifact_id }},${{ needs.source-native-macos-x64.outputs.artifact_id }},${{ needs.source-native-macos-arm64.outputs.artifact_id }},${{ needs.source-arm-merge.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download Linux x64 baseline runtime by exact artifact ID
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-native-linux-x64.outputs.runtime_artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-source/x86_64-unknown-linux-gnu
+      - name: Download Linux ARM baseline runtime by exact artifact ID
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-arm-build.outputs.runtime_artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-source/aarch64-unknown-linux-gnu
+      - name: Download macOS Intel baseline runtime by exact artifact ID
+        if: matrix.target == 'x86_64-apple-darwin'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-native-macos-x64.outputs.runtime_artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-source/x86_64-apple-darwin
+      - name: Download macOS ARM baseline runtime by exact artifact ID
+        if: matrix.target == 'aarch64-apple-darwin'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-native-macos-arm64.outputs.runtime_artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-source/aarch64-apple-darwin
+      - name: Compile and execute the source-bound native target
+        run: |
+          set -euo pipefail
+          deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          deno run --frozen --allow-read scripts/release/workflow.ts verify-baseline-runtime '${{ matrix.target }}' '${{ needs.resolve.outputs.source_sha }}' dist/release-inputs/source-materials-receipt.json "dist/release-inputs/source-proofs/${{ matrix.target }}/native-proof.json" "dist/release-inputs/runtime-source/${{ matrix.target }}" > runtime.env
+          runtime_value() { sed -n "s/^$1=//p" runtime.env | head -n 1; }
+          runtime_path="$(runtime_value runtime_path)"
+          baseline_denort_sha256="$(runtime_value baseline_denort_sha256)"
+          bridge_path="$(runtime_value bridge_path)"
+          baseline_bridge_sha256="$(runtime_value baseline_bridge_sha256)"
+          source_selected_cargo_lock_sha256="$(runtime_value source_selected_cargo_lock_sha256)"
+          derived_relink_cargo_lock_sha256="$(runtime_value derived_relink_cargo_lock_sha256)"
+          source_receipt_sha256="$(runtime_value source_receipt_sha256)"
+          native_proof_sha256="$(runtime_value native_proof_sha256)"
+          build_receipt_sha256="$(runtime_value build_receipt_sha256)"
+          for value in "$runtime_path" "$baseline_denort_sha256" "$bridge_path" "$baseline_bridge_sha256" "$source_selected_cargo_lock_sha256" "$derived_relink_cargo_lock_sha256" "$source_receipt_sha256" "$native_proof_sha256" "$build_receipt_sha256"; do test -n "$value"; done
+          test -f "$runtime_path"
+          test -f "$bridge_path"
+          if command -v sha256sum >/dev/null; then runtime_sha256="$(sha256sum "$runtime_path" | awk '{print $1}')"; else runtime_sha256="$(shasum -a 256 "$runtime_path" | awk '{print $1}')"; fi
+          if command -v sha256sum >/dev/null; then bridge_sha256="$(sha256sum "$bridge_path" | awk '{print $1}')"; else bridge_sha256="$(shasum -a 256 "$bridge_path" | awk '{print $1}')"; fi
+          test "$runtime_sha256" = "$baseline_denort_sha256"
+          test "$bridge_sha256" = "$baseline_bridge_sha256"
+          # Artifact extraction deliberately does not preserve executable bits.
+          # The source proof and canonical bytes above are complete before this
+          # one-file mode restoration; no other downloaded entry is executable.
+          chmod u+x "$runtime_path" "$bridge_path"
+          test -x "$runtime_path"
+          test -x "$bridge_path"
+          deno check --frozen --cached-only cli/src/index.ts
+          mkdir -p dist "dist/release-inputs/product-runtime/${{ matrix.target }}"
+          DENORT_BIN="$runtime_path" deno compile --frozen --cached-only -A --include cli/lib/release/engine.py --include dist/release-inputs/THIRD_PARTY_NOTICES --target '${{ matrix.target }}' --output 'dist/slv-${{ matrix.target }}-exe' cli/src/index.ts
+          'dist/slv-${{ matrix.target }}-exe' --version
+          private_home="$RUNNER_TEMP/slv-licenses-${{ matrix.target }}"
+          mkdir -p "$private_home"
+          env -i PATH="$PATH" HOME="$private_home" 'dist/slv-${{ matrix.target }}-exe' licenses > 'dist/slv-${{ matrix.target }}-licenses'
+          cmp dist/release-inputs/THIRD_PARTY_NOTICES 'dist/slv-${{ matrix.target }}-licenses'
+          'dist/slv-${{ matrix.target }}-exe' --help >/dev/null
+          deno run --frozen --cached-only --allow-read --allow-write --allow-run --allow-env cli/lib/release/compiled_bridge_smoke.ts
+          "$bridge_path"
+          if [ '${{ matrix.target }}' = x86_64-unknown-linux-gnu ] || [ '${{ matrix.target }}' = aarch64-unknown-linux-gnu ]; then
+            target='${{ matrix.target }}'
+            product_executable="$(pwd -P)/dist/slv-$target-exe"
+            execution_tools_root="$RUNNER_TEMP/product-execution-tools/$target"
+            execution_tools_receipt="$RUNNER_TEMP/product-execution-tools/$target-receipt.json"
+            deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$target" --build-host "$target" --purpose execution --pins source-rebuild/tool-prereqs.json --out "$execution_tools_root" --receipt "$execution_tools_receipt" --descriptor "dist/release-inputs/tool-pins/$target.json"
+            compatibility_dir="dist/release-inputs/product-runtime/$target/linux-compatibility"
+            deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-linux-product.ts --target "$target" --build-receipt "dist/release-inputs/runtime-source/$target/build-receipt.json" --native-proof "dist/release-inputs/source-proofs/$target/native-proof.json" --runtime-dir "dist/release-inputs/runtime-source/$target/transport" --tools-receipt "$execution_tools_receipt" --executable "$product_executable" --bridge "$bridge_path" --out "$compatibility_dir"
+            cp "$compatibility_dir/linux-compatibility-receipt.json" "dist/release-inputs/product-runtime/$target/linux-compatibility-receipt.json"
+            cp "$bridge_path" "dist/release-inputs/product-runtime/$target/release-bridge-smoke"
+          fi
+          deno run --frozen --allow-read --allow-write scripts/release/release.ts executable 'dist/slv-${{ matrix.target }}-exe' 'dist/slv-${{ matrix.target }}-exe.tar.gz' 'slv-${{ matrix.target }}-exe'
+          executable_sha256="$(if command -v sha256sum >/dev/null; then sha256sum 'dist/slv-${{ matrix.target }}-exe' | awk '{print $1}'; else shasum -a 256 'dist/slv-${{ matrix.target }}-exe' | awk '{print $1}'; fi)"
+          executable_tar_sha256="$(if command -v sha256sum >/dev/null; then sha256sum 'dist/slv-${{ matrix.target }}-exe.tar.gz' | awk '{print $1}'; else shasum -a 256 'dist/slv-${{ matrix.target }}-exe.tar.gz' | awk '{print $1}'; fi)"
+          jq -n --arg target '${{ matrix.target }}' --arg executable_sha256 "$executable_sha256" --arg executable_tar_sha256 "$executable_tar_sha256" --arg baseline_denort_sha256 "$baseline_denort_sha256" --arg source_selected_cargo_lock_sha256 "$source_selected_cargo_lock_sha256" --arg derived_relink_cargo_lock_sha256 "$derived_relink_cargo_lock_sha256" --arg source_receipt_sha256 "$source_receipt_sha256" --arg native_proof_sha256 "$native_proof_sha256" --arg build_receipt_sha256 "$build_receipt_sha256" '{schema_version: 1, kind: "slv-product-runtime-receipt", target: $target, executable_sha256: $executable_sha256, executable_tar_sha256: $executable_tar_sha256, baseline_denort_sha256: $baseline_denort_sha256, source_selected_cargo_lock_sha256: $source_selected_cargo_lock_sha256, derived_relink_cargo_lock_sha256: $derived_relink_cargo_lock_sha256, source_receipt_sha256: $source_receipt_sha256, native_proof_sha256: $native_proof_sha256, build_receipt_sha256: $build_receipt_sha256}' > "dist/release-inputs/product-runtime/${{ matrix.target }}/product-runtime-receipt.json"
+      - name: Persist the exact target archive and runtime receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-product-${{ matrix.target }}-${{ github.run_id }}
+          path: |
+            dist/slv-${{ matrix.target }}-exe.tar.gz
+            dist/release-inputs/product-runtime/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 7
+
+  source-materials:
+    needs: [resolve, test]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-source-materials.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-source-materials.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      receipt_sha256: ${{ steps.stage.outputs.receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download the test job's exact canonical notice artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Freeze the three immutable source archives
+        id: stage
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          # The source assembler consumes this clean checkout. dist/ is ignored,
+          # so immutable staging never becomes an executable source input.
+          test -z "$(git status --porcelain --untracked-files=no)"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/source-materials.ts package \
+            --source-root "$GITHUB_WORKSPACE" \
+            --source-commit '${{ needs.resolve.outputs.source_sha }}' \
+            --pins source-materials/pins.json \
+            --cache "$RUNNER_TEMP/source-acquisition-cache" \
+            --work-dir "$RUNNER_TEMP/source-assembly" \
+            --out dist/release-inputs/source-materials \
+            --receipt dist/release-inputs/source-materials-receipt.json \
+            --notice-file dist/release-inputs/THIRD_PARTY_NOTICES 2>&1 | tee "$RUNNER_TEMP/source-logs/source-materials.log"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          receipt_sha256="$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)"
+          test -n "$receipt_sha256"
+          echo "receipt_sha256=$receipt_sha256" >> "$GITHUB_OUTPUT"
+      - name: Persist only the source receipt and three official source archives
+        id: upload-source-materials
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-materials-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-materials/slv-source.tar.gz
+            dist/release-inputs/source-materials/deno-source.tar.gz
+            dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz
+            dist/release-inputs/source-materials-receipt.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve failed source-material diagnostics separately
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-materials-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  # These are deliberately individual jobs, not a matrix. GitHub collapses
+  # matrix outputs to a last writer; each target must expose its own immutable
+  # artifact ID, archive digest, producer identity, and proof checksum.
+  source-native-linux-x64:
+    needs: [resolve, test, source-materials]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-proof.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-proof.outputs.artifact-digest }}
+      runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}
+      runtime_artifact_digest: ${{ steps.upload-runtime.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      proof_sha256: ${{ steps.proof.outputs.proof_sha256 }}
+      baseline_runtime_sha256: ${{ steps.proof.outputs.baseline_runtime_sha256 }}
+      baseline_derived_lock_sha256: ${{ steps.proof.outputs.baseline_derived_lock_sha256 }}
+      build_receipt_sha256: ${{ steps.proof.outputs.build_receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: x86_64-unknown-linux-gnu
+      BUILD_HOST: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download exact notice and source-material artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Reclaim only measured unused Linux runner SDKs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-before-cleanup.txt"
+          du -sk /usr/local/lib/android /usr/share/dotnet 2>/dev/null | tee "$RUNNER_TEMP/source-logs/unused-sdk-before.txt" || true
+          if [ -d /usr/local/lib/android ]; then sudo rm -rf /usr/local/lib/android; fi
+          if [ -d /usr/share/dotnet ]; then sudo rm -rf /usr/share/dotnet; fi
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
+      - name: Build, execute, and merge the native source proof
+        id: proof
+        run: |
+          set -euo pipefail
+          resolve_host_python() {
+            for candidate in "$(command -v python3 || true)" /usr/local/bin/python3 /usr/bin/python3; do
+              test -n "$candidate" && test -x "$candidate" || continue
+              "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || continue
+              "$candidate" -c 'import os, sys; print(os.path.realpath(sys.executable))'
+              return 0
+            done
+            return 1
+          }
+          SLV_HOST_PYTHON="$(resolve_host_python)"
+          test "${SLV_HOST_PYTHON#/}" != "$SLV_HOST_PYTHON"
+          export SLV_HOST_PYTHON
+          sha256_file() { sha256sum "$1" | awk '{print $1}'; }
+          mkdir -p "$RUNNER_TEMP/source-logs" dist/release-inputs/source-proofs dist/release-inputs/tool-pins "$RUNNER_TEMP/source-tools"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose build --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/build" --receipt "$RUNNER_TEMP/build-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-build.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose execution --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/execution" --receipt "$RUNNER_TEMP/execution-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-execution.log"
+          mkdir -p "dist/release-inputs/source-proofs/$TARGET"
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build "${common[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/build.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase execute "${common[@]}" --source-root "$RUNNER_TEMP/execute-source-root" --work-dir "$RUNNER_TEMP/execute-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --build-materials "dist/release-inputs/source-proofs/$TARGET/transport" --execution-tools-receipt "$RUNNER_TEMP/execution-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/execute.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase merge "${common[@]}" --source-root "$RUNNER_TEMP/merge-source-root" --work-dir "$RUNNER_TEMP/merge-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --execution-receipt "dist/release-inputs/source-proofs/$TARGET/execution-receipt.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/merge.log"
+          proof_sha256="$(sha256_file "dist/release-inputs/source-proofs/$TARGET/native-proof.json")"
+          build_receipt="dist/release-inputs/source-proofs/$TARGET/build-receipt.json"
+          baseline_runtime_sha256="$(jq -er '.artifacts.baseline.denort_sha256' "$build_receipt")"
+          baseline_derived_lock_sha256="$(jq -er '.artifacts.baseline.derived_relink_cargo_lock_sha256' "$build_receipt")"
+          build_receipt_sha256="$(sha256_file "$build_receipt")"
+          test -n "$proof_sha256"
+          {
+            echo "proof_sha256=$proof_sha256"
+            echo "baseline_runtime_sha256=$baseline_runtime_sha256"
+            echo "baseline_derived_lock_sha256=$baseline_derived_lock_sha256"
+            echo "build_receipt_sha256=$build_receipt_sha256"
+          } >> "$GITHUB_OUTPUT"
+      - name: Persist the three phase receipts for the native proof
+        id: upload-proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-proof-x86_64-unknown-linux-gnu-${{ github.run_id }}
+          path: |
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/native-proof.json
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/build-receipt.json
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/execution-receipt.json
+            dist/release-inputs/tool-pins/x86_64-unknown-linux-gnu.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Persist the baseline-only runtime compiler input
+        id: upload-runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-runtime-x86_64-unknown-linux-gnu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/build-receipt.json
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/transport/manifest.json
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/transport/baseline-denort
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/transport/baseline-bridge
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/transport/baseline-derived-relink-Cargo.lock
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/transport/tls-localhost.crt
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/transport/tls-localhost.key
+            dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/transport/tls-root-ca.pem
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve failed native proof diagnostics separately
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-proof-diagnostics-x86_64-unknown-linux-gnu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-native-macos-x64:
+    needs: [resolve, test, source-materials]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: macos-15-intel
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-proof.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-proof.outputs.artifact-digest }}
+      runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}
+      runtime_artifact_digest: ${{ steps.upload-runtime.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      proof_sha256: ${{ steps.proof.outputs.proof_sha256 }}
+      baseline_runtime_sha256: ${{ steps.proof.outputs.baseline_runtime_sha256 }}
+      baseline_derived_lock_sha256: ${{ steps.proof.outputs.baseline_derived_lock_sha256 }}
+      build_receipt_sha256: ${{ steps.proof.outputs.build_receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: x86_64-apple-darwin
+      BUILD_HOST: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Select the reviewed Xcode and macOS SDK
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          test "$(xcodebuild -version | head -n 1)" = 'Xcode 16.2'
+          sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+          test "$(xcrun --sdk macosx --show-sdk-version)" = 15.2
+          test -d "$sdk_path"
+          {
+            echo "DEVELOPER_DIR=$DEVELOPER_DIR"
+            echo "SLV_APPLE_SDK_PATH=$sdk_path"
+          } >> "$GITHUB_ENV"
+      - name: Reclaim only the measured unused macOS SDK image
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-before-cleanup.txt"
+          du -sk /Applications/Xcode_16.2.app 2>/dev/null | tee "$RUNNER_TEMP/source-logs/active-xcode-before.txt"
+          if [ -d /Applications/Xcode_16.4.app ]; then sudo rm -rf /Applications/Xcode_16.4.app; fi
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
+          du -sk /Applications/Xcode_16.2.app 2>/dev/null | tee "$RUNNER_TEMP/source-logs/active-xcode-after.txt"
+      - name: Download exact notice and source-material artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Build, execute, and merge the native source proof
+        id: proof
+        run: |
+          set -euo pipefail
+          resolve_host_python() {
+            for candidate in "$(command -v python3 || true)" /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
+              test -n "$candidate" && test -x "$candidate" || continue
+              "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || continue
+              "$candidate" -c 'import os, sys; print(os.path.realpath(sys.executable))'
+              return 0
+            done
+            return 1
+          }
+          SLV_HOST_PYTHON="$(resolve_host_python)"
+          test "${SLV_HOST_PYTHON#/}" != "$SLV_HOST_PYTHON"
+          export SLV_HOST_PYTHON
+          sha256_file() { shasum -a 256 "$1" | awk '{print $1}'; }
+          mkdir -p "$RUNNER_TEMP/source-logs" dist/release-inputs/source-proofs dist/release-inputs/tool-pins "$RUNNER_TEMP/source-tools"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose build --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/build" --receipt "$RUNNER_TEMP/build-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-build.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose execution --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/execution" --receipt "$RUNNER_TEMP/execution-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-execution.log"
+          mkdir -p "dist/release-inputs/source-proofs/$TARGET"
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build "${common[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/build.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase execute "${common[@]}" --source-root "$RUNNER_TEMP/execute-source-root" --work-dir "$RUNNER_TEMP/execute-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --build-materials "dist/release-inputs/source-proofs/$TARGET/transport" --execution-tools-receipt "$RUNNER_TEMP/execution-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/execute.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase merge "${common[@]}" --source-root "$RUNNER_TEMP/merge-source-root" --work-dir "$RUNNER_TEMP/merge-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --execution-receipt "dist/release-inputs/source-proofs/$TARGET/execution-receipt.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/merge.log"
+          proof_sha256="$(sha256_file "dist/release-inputs/source-proofs/$TARGET/native-proof.json")"
+          build_receipt="dist/release-inputs/source-proofs/$TARGET/build-receipt.json"
+          baseline_runtime_sha256="$(jq -er '.artifacts.baseline.denort_sha256' "$build_receipt")"
+          baseline_derived_lock_sha256="$(jq -er '.artifacts.baseline.derived_relink_cargo_lock_sha256' "$build_receipt")"
+          build_receipt_sha256="$(sha256_file "$build_receipt")"
+          test -n "$proof_sha256"
+          {
+            echo "proof_sha256=$proof_sha256"
+            echo "baseline_runtime_sha256=$baseline_runtime_sha256"
+            echo "baseline_derived_lock_sha256=$baseline_derived_lock_sha256"
+            echo "build_receipt_sha256=$build_receipt_sha256"
+          } >> "$GITHUB_OUTPUT"
+      - name: Persist the three phase receipts for the native proof
+        id: upload-proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-proof-x86_64-apple-darwin-${{ github.run_id }}
+          path: |
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/native-proof.json
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/build-receipt.json
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/execution-receipt.json
+            dist/release-inputs/tool-pins/x86_64-apple-darwin.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Persist the baseline-only runtime compiler input
+        id: upload-runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-runtime-x86_64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/build-receipt.json
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/transport/manifest.json
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/transport/baseline-denort
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/transport/baseline-bridge
+            dist/release-inputs/source-proofs/x86_64-apple-darwin/transport/baseline-derived-relink-Cargo.lock
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve failed native proof diagnostics separately
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-proof-diagnostics-x86_64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-native-macos-arm64:
+    needs: [resolve, test, source-materials]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: macos-15
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-proof.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-proof.outputs.artifact-digest }}
+      runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}
+      runtime_artifact_digest: ${{ steps.upload-runtime.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      proof_sha256: ${{ steps.proof.outputs.proof_sha256 }}
+      baseline_runtime_sha256: ${{ steps.proof.outputs.baseline_runtime_sha256 }}
+      baseline_derived_lock_sha256: ${{ steps.proof.outputs.baseline_derived_lock_sha256 }}
+      build_receipt_sha256: ${{ steps.proof.outputs.build_receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: aarch64-apple-darwin
+      BUILD_HOST: aarch64-apple-darwin
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Select the reviewed Xcode and macOS SDK
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          test "$(xcodebuild -version | head -n 1)" = 'Xcode 16.2'
+          sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+          test "$(xcrun --sdk macosx --show-sdk-version)" = 15.2
+          test -d "$sdk_path"
+          {
+            echo "DEVELOPER_DIR=$DEVELOPER_DIR"
+            echo "SLV_APPLE_SDK_PATH=$sdk_path"
+          } >> "$GITHUB_ENV"
+      - name: Reclaim only the measured unused macOS SDK image
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-before-cleanup.txt"
+          du -sk /Applications/Xcode_16.2.app 2>/dev/null | tee "$RUNNER_TEMP/source-logs/active-xcode-before.txt"
+          if [ -d /Applications/Xcode_16.4.app ]; then sudo rm -rf /Applications/Xcode_16.4.app; fi
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
+          du -sk /Applications/Xcode_16.2.app 2>/dev/null | tee "$RUNNER_TEMP/source-logs/active-xcode-after.txt"
+      - name: Require the pinned Xcode 16.2 SDK 15.2 toolchain
+        run: |
+          set -euo pipefail
+          test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
+          test "$(xcodebuild -version | sed -n '1p')" = 'Xcode 16.2'
+          sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+          test -d "$sdk_path"
+          test "$(xcrun --sdk macosx --show-sdk-version)" = 15.2
+          echo "SLV_APPLE_SDK_PATH=$sdk_path" >> "$GITHUB_ENV"
+      - name: Download exact notice and source-material artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Build, execute, and merge the native source proof
+        id: proof
+        run: |
+          set -euo pipefail
+          resolve_host_python() {
+            for candidate in "$(command -v python3 || true)" /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+              test -n "$candidate" && test -x "$candidate" || continue
+              "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || continue
+              "$candidate" -c 'import os, sys; print(os.path.realpath(sys.executable))'
+              return 0
+            done
+            return 1
+          }
+          SLV_HOST_PYTHON="$(resolve_host_python)"
+          test "${SLV_HOST_PYTHON#/}" != "$SLV_HOST_PYTHON"
+          export SLV_HOST_PYTHON
+          sha256_file() { shasum -a 256 "$1" | awk '{print $1}'; }
+          mkdir -p "$RUNNER_TEMP/source-logs" dist/release-inputs/source-proofs dist/release-inputs/tool-pins "$RUNNER_TEMP/source-tools"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose build --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/build" --receipt "$RUNNER_TEMP/build-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-build.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose execution --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/execution" --receipt "$RUNNER_TEMP/execution-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-execution.log"
+          mkdir -p "dist/release-inputs/source-proofs/$TARGET"
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build "${common[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/build.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase execute "${common[@]}" --source-root "$RUNNER_TEMP/execute-source-root" --work-dir "$RUNNER_TEMP/execute-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --build-materials "dist/release-inputs/source-proofs/$TARGET/transport" --execution-tools-receipt "$RUNNER_TEMP/execution-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/execute.log"
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase merge "${common[@]}" --source-root "$RUNNER_TEMP/merge-source-root" --work-dir "$RUNNER_TEMP/merge-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --execution-receipt "dist/release-inputs/source-proofs/$TARGET/execution-receipt.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/merge.log"
+          proof_sha256="$(sha256_file "dist/release-inputs/source-proofs/$TARGET/native-proof.json")"
+          build_receipt="dist/release-inputs/source-proofs/$TARGET/build-receipt.json"
+          baseline_runtime_sha256="$(jq -er '.artifacts.baseline.denort_sha256' "$build_receipt")"
+          baseline_derived_lock_sha256="$(jq -er '.artifacts.baseline.derived_relink_cargo_lock_sha256' "$build_receipt")"
+          build_receipt_sha256="$(sha256_file "$build_receipt")"
+          test -n "$proof_sha256"
+          {
+            echo "proof_sha256=$proof_sha256"
+            echo "baseline_runtime_sha256=$baseline_runtime_sha256"
+            echo "baseline_derived_lock_sha256=$baseline_derived_lock_sha256"
+            echo "build_receipt_sha256=$build_receipt_sha256"
+          } >> "$GITHUB_OUTPUT"
+      - name: Persist the three phase receipts for the native proof
+        id: upload-proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-proof-aarch64-apple-darwin-${{ github.run_id }}
+          path: |
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/native-proof.json
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/build-receipt.json
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/execution-receipt.json
+            dist/release-inputs/tool-pins/aarch64-apple-darwin.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Persist the baseline-only runtime compiler input
+        id: upload-runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-runtime-aarch64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/build-receipt.json
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/transport/manifest.json
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/transport/baseline-denort
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/transport/baseline-bridge
+            dist/release-inputs/source-proofs/aarch64-apple-darwin/transport/baseline-derived-relink-Cargo.lock
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve failed native proof diagnostics separately
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-proof-diagnostics-aarch64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-arm-build:
+    needs: [resolve, test, source-materials]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-build.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-build.outputs.artifact-digest }}
+      runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}
+      runtime_artifact_digest: ${{ steps.upload-runtime.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      build_receipt_sha256: ${{ steps.build.outputs.build_receipt_sha256 }}
+      baseline_runtime_sha256: ${{ steps.build.outputs.baseline_runtime_sha256 }}
+      baseline_derived_lock_sha256: ${{ steps.build.outputs.baseline_derived_lock_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: aarch64-unknown-linux-gnu
+      BUILD_HOST: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download exact notice and source-material artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Reclaim only measured unused Linux runner SDKs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-before-cleanup.txt"
+          du -sk /usr/local/lib/android /usr/share/dotnet 2>/dev/null | tee "$RUNNER_TEMP/source-logs/unused-sdk-before.txt" || true
+          if [ -d /usr/local/lib/android ]; then sudo rm -rf /usr/local/lib/android; fi
+          if [ -d /usr/share/dotnet ]; then sudo rm -rf /usr/share/dotnet; fi
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
+      - name: Cross-build only the ARM transport allowlist
+        id: build
+        run: |
+          set -euo pipefail
+          resolve_host_python() {
+            for candidate in "$(command -v python3 || true)" /usr/local/bin/python3 /usr/bin/python3; do
+              test -n "$candidate" && test -x "$candidate" || continue
+              "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || continue
+              "$candidate" -c 'import os, sys; print(os.path.realpath(sys.executable))'
+              return 0
+            done
+            return 1
+          }
+          SLV_HOST_PYTHON="$(resolve_host_python)"
+          test "${SLV_HOST_PYTHON#/}" != "$SLV_HOST_PYTHON"
+          export SLV_HOST_PYTHON
+          mkdir -p "$RUNNER_TEMP/source-logs" "$RUNNER_TEMP/source-tools" dist/release-inputs/source-proofs dist/release-inputs/tool-pins
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose build --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/build" --receipt "$RUNNER_TEMP/build-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-build.log"
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build "${common[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/build.log"
+          cp "$RUNNER_TEMP/build-tools.json" "dist/release-inputs/source-proofs/$TARGET/build-tools-receipt.json"
+          build_receipt_sha256="$(sha256sum "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" | cut -d ' ' -f 1)"
+          baseline_runtime_sha256="$(jq -er '.artifacts.baseline.denort_sha256' "dist/release-inputs/source-proofs/$TARGET/build-receipt.json")"
+          baseline_derived_lock_sha256="$(jq -er '.artifacts.baseline.derived_relink_cargo_lock_sha256' "dist/release-inputs/source-proofs/$TARGET/build-receipt.json")"
+          test -n "$build_receipt_sha256"
+          {
+            echo "build_receipt_sha256=$build_receipt_sha256"
+            echo "baseline_runtime_sha256=$baseline_runtime_sha256"
+            echo "baseline_derived_lock_sha256=$baseline_derived_lock_sha256"
+          } >> "$GITHUB_OUTPUT"
+      - name: Persist only ARM build transport and receipt
+        id: upload-build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-arm-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/build-receipt.json
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/build-tools-receipt.json
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport
+            dist/release-inputs/tool-pins/aarch64-unknown-linux-gnu.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Persist the ARM baseline-only runtime compiler input
+        id: upload-runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-runtime-aarch64-unknown-linux-gnu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/build-receipt.json
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport/manifest.json
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport/baseline-denort
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport/baseline-bridge
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport/baseline-derived-relink-Cargo.lock
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport/tls-localhost.crt
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport/tls-localhost.key
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/transport/tls-root-ca.pem
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve failed ARM build diagnostics separately
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-arm-build-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-arm-execute:
+    needs: [resolve, test, source-materials, source-arm-build]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-execution.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-execution.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      execution_receipt_sha256: ${{ steps.execute.outputs.execution_receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: aarch64-unknown-linux-gnu
+      BUILD_HOST: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download exact notice, source, and ARM build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-arm-build.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Reclaim only measured unused Linux runner SDKs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-before-cleanup.txt"
+          du -sk /usr/local/lib/android /usr/share/dotnet 2>/dev/null | tee "$RUNNER_TEMP/source-logs/unused-sdk-before.txt" || true
+          if [ -d /usr/local/lib/android ]; then sudo rm -rf /usr/local/lib/android; fi
+          if [ -d /usr/share/dotnet ]; then sudo rm -rf /usr/share/dotnet; fi
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
+      - name: Execute the rehashed ARM build transport
+        id: execute
+        run: |
+          set -euo pipefail
+          resolve_host_python() {
+            for candidate in "$(command -v python3 || true)" /usr/local/bin/python3 /usr/bin/python3; do
+              test -n "$candidate" && test -x "$candidate" || continue
+              "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || continue
+              "$candidate" -c 'import os, sys; print(os.path.realpath(sys.executable))'
+              return 0
+            done
+            return 1
+          }
+          SLV_HOST_PYTHON="$(resolve_host_python)"
+          test "${SLV_HOST_PYTHON#/}" != "$SLV_HOST_PYTHON"
+          export SLV_HOST_PYTHON
+          mkdir -p "$RUNNER_TEMP/source-logs" "$RUNNER_TEMP/source-tools"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-arm-build.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test -n '${{ needs.source-arm-build.outputs.producer_attempt }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          test "$(sha256sum "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" | cut -d ' ' -f 1)" = '${{ needs.source-arm-build.outputs.build_receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          # This ARM execution acquisition is purpose-limited: it has no x64
+          # compiler path and the verifier itself receives no network grant.
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose execution --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/execution" --receipt "$RUNNER_TEMP/execution-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-execution.log"
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase execute "${common[@]}" --source-root "$RUNNER_TEMP/execute-source-root" --work-dir "$RUNNER_TEMP/execute-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --build-materials "dist/release-inputs/source-proofs/$TARGET/transport" --execution-tools-receipt "$RUNNER_TEMP/execution-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/execute.log"
+          execution_receipt_sha256="$(sha256sum "dist/release-inputs/source-proofs/$TARGET/execution-receipt.json" | cut -d ' ' -f 1)"
+          test -n "$execution_receipt_sha256"
+          echo "execution_receipt_sha256=$execution_receipt_sha256" >> "$GITHUB_OUTPUT"
+      - name: Persist only ARM execution receipt
+        id: upload-execution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-arm-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/execution-receipt.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve failed ARM execution diagnostics separately
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-arm-execution-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-arm-merge:
+    needs: [resolve, test, source-materials, source-arm-build, source-arm-execute]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-proof.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-proof.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      proof_sha256: ${{ steps.merge.outputs.proof_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: aarch64-unknown-linux-gnu
+      BUILD_HOST: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download exact notice, source, and ARM build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-arm-build.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download the exact ARM execution receipt into its proof directory
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-arm-execute.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu
+      - name: Merge only the checked ARM build and execution receipts
+        id: merge
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-arm-build.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-arm-execute.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test -n '${{ needs.source-arm-build.outputs.producer_attempt }}'
+          test -n '${{ needs.source-arm-execute.outputs.producer_attempt }}'
+          test -n '${{ needs.source-arm-execute.outputs.artifact_id }}'
+          test -n '${{ needs.source-arm-execute.outputs.artifact_digest }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          test "$(sha256sum "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" | cut -d ' ' -f 1)" = '${{ needs.source-arm-build.outputs.build_receipt_sha256 }}'
+          test "$(sha256sum "dist/release-inputs/source-proofs/$TARGET/execution-receipt.json" | cut -d ' ' -f 1)" = '${{ needs.source-arm-execute.outputs.execution_receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase merge "${common[@]}" --source-root "$RUNNER_TEMP/merge-source-root" --work-dir "$RUNNER_TEMP/merge-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --execution-receipt "dist/release-inputs/source-proofs/$TARGET/execution-receipt.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/merge.log"
+          proof_sha256="$(sha256sum "dist/release-inputs/source-proofs/$TARGET/native-proof.json" | cut -d ' ' -f 1)"
+          test -n "$proof_sha256"
+          echo "proof_sha256=$proof_sha256" >> "$GITHUB_OUTPUT"
+      - name: Persist the three ARM phase receipts for package verification
+        id: upload-proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-source-proof-aarch64-unknown-linux-gnu-${{ github.run_id }}
+          path: |
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/native-proof.json
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/build-receipt.json
+            dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/execution-receipt.json
+            dist/release-inputs/tool-pins/aarch64-unknown-linux-gnu.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve failed ARM merge diagnostics separately
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-arm-merge-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  package:
+    needs: [resolve, test, build, source-materials, source-native-linux-x64, source-native-macos-x64, source-native-macos-arm64, source-arm-build, source-arm-merge]
+    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download and verify the test job's exact canonical notice artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download the Linux x64 product archive and receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: slv-product-x86_64-unknown-linux-gnu-${{ github.run_id }}
+          merge-multiple: true
+          path: dist
+      - name: Download the Linux ARM product archive and receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: slv-product-aarch64-unknown-linux-gnu-${{ github.run_id }}
+          merge-multiple: true
+          path: dist
+      - name: Download the macOS Intel product archive and receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: slv-product-x86_64-apple-darwin-${{ github.run_id }}
+          merge-multiple: true
+          path: dist
+      - name: Download the macOS ARM product archive and receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: slv-product-aarch64-apple-darwin-${{ github.run_id }}
+          merge-multiple: true
+          path: dist
+      - name: Download the exact immutable source and four target proof artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-native-linux-x64.outputs.artifact_id }},${{ needs.source-native-macos-x64.outputs.artifact_id }},${{ needs.source-native-macos-arm64.outputs.artifact_id }},${{ needs.source-arm-merge.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Package the fixed payload inventory for release or unsigned CI inspection
+        run: |
+          set -euo pipefail
+          deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          # This deliberately uses the persisted producer attempt. A downstream
+          # retry must not replace it with github.run_attempt.
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read --allow-write scripts/release/release.ts materialize-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-native-linux-x64.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-native-macos-x64.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-native-macos-arm64.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-arm-build.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-arm-merge.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          # Each persisted producer attempt stays bound to its artifact during
+          # a partial downstream retry; never substitute github.run_attempt.
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test -n '${{ needs.source-native-linux-x64.outputs.producer_attempt }}'
+          test -n '${{ needs.source-native-macos-x64.outputs.producer_attempt }}'
+          test -n '${{ needs.source-native-macos-arm64.outputs.producer_attempt }}'
+          test -n '${{ needs.source-arm-build.outputs.producer_attempt }}'
+          test -n '${{ needs.source-arm-merge.outputs.producer_attempt }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-native-linux-x64.outputs.proof_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-proofs/x86_64-apple-darwin/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-native-macos-x64.outputs.proof_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-proofs/aarch64-apple-darwin/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-native-macos-arm64.outputs.proof_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-arm-merge.outputs.proof_sha256 }}'
+          deno run --frozen --allow-read scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          deno info --json --frozen cli/src/index.ts > dist/release-inputs/deno-info.json
+          deno run --frozen --allow-read --allow-write scripts/release/release.ts graph dist/release-inputs/deno-info.json
+          if [ '${{ github.event_name }}' = pull_request ]; then
+            deno run --frozen --allow-read --allow-write --allow-run scripts/release/release.ts pack-ci '${{ needs.resolve.outputs.version }}' '${{ needs.resolve.outputs.source_sha }}' '${{ needs.resolve.outputs.source_ref }}' '${{ github.run_id }}' '${{ github.run_attempt }}' '${{ needs.resolve.outputs.source_timestamp }}'
+          else
+            deno task release:package -- '${{ needs.resolve.outputs.version }}' '${{ needs.resolve.outputs.source_sha }}' '${{ needs.resolve.outputs.source_ref }}' '${{ github.run_id }}' '${{ github.run_attempt }}' '${{ needs.resolve.outputs.source_timestamp }}'
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # PR payloads are deliberately kept out of all publisher and consumer paths.
+          name: ${{ github.event_name == 'pull_request' && 'ci-payloads' || 'release-payloads' }}
+          path: dist/release
+          if-no-files-found: error
+          retention-days: 7
+
+  attest:
+    needs: [resolve, package]
+    if: needs.resolve.outputs.release_required == 'true'
+    runs-on: ubuntu-26.04
+    permissions:
+      attestations: write
+      artifact-metadata: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-payloads
+          path: release
+      - id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/*
+      - name: Preserve one standard bundle alias for each attestation subject
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -n "$BUNDLE" && test -s "$BUNDLE"
+          mkdir provenance
+          subjects="$(jq -r '.assets[].name' release/release-manifest.json; printf '%s\n' release-manifest.json SHA256SUMS)"
+          while IFS= read -r subject; do
+            cp "$BUNDLE" "provenance/$subject.intoto.jsonl"
+          done <<< "$subjects"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-provenance
+          path: provenance
+          if-no-files-found: error
+          retention-days: 7
+
+  activation-required:
+    needs: [resolve, package]
+    if: needs.resolve.outputs.release_required == 'true'
+    runs-on: ubuntu-26.04
+    permissions: {}
+    env:
+      ACTIVATED: ${{ vars.SLV_RELEASE_ACTIVATED }}
+    steps:
+      - name: Fail closed until a protected release environment is activated
+        run: |
+          set -euo pipefail
+          test "$ACTIVATED" = true || { echo 'release is packaged but activation is pending: configure protected release environment and immutable releases, then set SLV_RELEASE_ACTIVATED=true'; exit 1; }
+
+  verify-existing:
+    needs: [resolve, test]
+    if: needs.resolve.outputs.publication == 'verify'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_REPO: ValidatorsDAO/slv
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      SOURCE_REF: ${{ needs.resolve.outputs.source_ref }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Verify immutable tag binding, complete payloads, and provenance
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '.immutable // false')" = true
+          gh api "repos/$GH_REPO/git/ref/tags/$TAG" > tag.json
+          tag_type="$(jq -r '.object.type' tag.json)"
+          tag_source="$(jq -r '.object.sha' tag.json)"
+          if [ "$tag_type" = tag ]; then
+            gh api "repos/$GH_REPO/git/tags/$tag_source" > tag-object.json
+            test "$(jq -r '.object.type' tag-object.json)" = commit
+            tag_source="$(jq -r '.object.sha' tag-object.json)"
+          elif [ "$tag_type" != commit ]; then
+            echo "release tag has unsupported object type: $tag_type" >&2; exit 1
+          fi
+          test "$tag_source" = "$SOURCE_SHA"
+          gh release download "$TAG" --repo "$GH_REPO" --dir downloaded --pattern '*'
+          deno run --frozen --allow-read scripts/release/workflow.ts verify-directory downloaded "$VERSION" "$SOURCE_SHA" refs/heads/main "refs/tags/$TAG" > verified
+          ATTESTED_SOURCE_REF="$(sed -n '1s/^source_ref=//p' verified)"
+          test -n "$ATTESTED_SOURCE_REF"
+          sed -n '2,$p' verified > subjects
+          while IFS= read -r subject; do
+            gh attestation verify "downloaded/$subject" --bundle "downloaded/$subject.intoto.jsonl" --repo "$GH_REPO" --signer-workflow ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml --source-ref "$ATTESTED_SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
+          done < subjects
+
+  publish:
+    needs: [resolve, package, attest, activation-required]
+    if: needs.resolve.outputs.release_required == 'true'
+    runs-on: ubuntu-26.04
+    environment: release
+    concurrency:
+      group: slv-publish-${{ github.repository }}-${{ needs.resolve.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      attestations: read
+      contents: write
+    env:
+      GH_REPO: ValidatorsDAO/slv
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      SOURCE_REF: ${{ needs.resolve.outputs.source_ref }}
+      SOURCE_TIMESTAMP: ${{ needs.resolve.outputs.source_timestamp }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-payloads
+          path: release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-provenance
+          path: provenance
+      - name: Create or guard the exact tag and draft release
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > tag.json 2> tag.err; then
+            object_type="$(jq -r '.object.type' tag.json)"; object_sha="$(jq -r '.object.sha' tag.json)"
+            if [ "$object_type" = tag ]; then
+              gh api "repos/$GH_REPO/git/tags/$object_sha" > tag-object.json
+              test "$(jq -r '.object.type' tag-object.json)" = commit
+              object_sha="$(jq -r '.object.sha' tag-object.json)"
+            fi
+            test "$object_type" = commit || test "$object_type" = tag
+            test "$object_sha" = "$SOURCE_SHA" || { echo 'existing tag points at another source'; exit 1; }
+          elif grep -q 404 tag.err; then
+            # Create an annotated tag object. Existing lightweight and annotated
+            # tags remain recoverable above if and only if their commit matches.
+            tag_object="$(gh api --method POST "repos/$GH_REPO/git/tags" \
+              -f "tag=$TAG" \
+              -f "message=$TAG" \
+              -f "object=$SOURCE_SHA" \
+              -f 'type=commit' \
+              -f 'tagger[name]=github-actions[bot]' \
+              -f 'tagger[email]=41898282+github-actions[bot]@users.noreply.github.com' \
+              -f "tagger[date]=$SOURCE_TIMESTAMP" \
+              --jq .sha)"
+            test -n "$tag_object"
+            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$tag_object"
+          else
+            cat tag.err >&2; exit 1
+          fi
+          if gh api "repos/$GH_REPO/releases/tags/$TAG" > release.json 2> release.err; then
+            test "$(jq -r .draft release.json)" = true || { echo 'existing release must be immutable and is verified by verify-existing, never republished'; exit 1; }
+          elif grep -q 404 release.err; then
+            gh release create "$TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --draft --title "$TAG"
+          else
+            cat release.err >&2; exit 1
+          fi
+      - name: Recover only matching draft payloads, then stage missing payloads
+        run: |
+          set -euo pipefail
+          mkdir existing
+          # Enumerate first: a new draft has no assets, whereas a failed download
+          # of a declared asset is an error and must not be mistaken for emptiness.
+          gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '.assets[].name' > existing-names
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            gh release download "$TAG" --repo "$GH_REPO" --dir existing --pattern "$name"
+          done < existing-names
+          allowed_payloads="$(jq -r '.assets[].name' release/release-manifest.json; printf '%s\n' release-manifest.json SHA256SUMS)"
+          allowed_subjects="$(printf '%s\n' "$allowed_payloads" | sed 's/$/.intoto.jsonl/')"
+          for path in existing/*; do
+            [ -e "$path" ] || continue
+            name="$(basename "$path")"
+            if [ "$name" = release-manifest.json ]; then
+              deno run --frozen --allow-read scripts/release/workflow.ts guard-draft-manifest "$path" "release/$name"
+            elif printf '%s\n' "$allowed_payloads" | grep -Fxq "$name"; then
+              cmp "release/$name" "$path" || { echo "draft payload conflict: $name"; exit 1; }
+            elif ! printf '%s\n' "$allowed_subjects" | grep -Fxq "$name"; then
+              echo "unexpected existing draft asset: $name"; exit 1
             fi
           done
+          while IFS= read -r name; do
+            [ -e "existing/$name" ] || gh release upload "$TAG" --repo "$GH_REPO" "release/$name"
+          done <<< "$allowed_payloads"
+      - name: Attach the attestation job's standard bundle for every subject
+        run: |
+          set -euo pipefail
+          subjects="$(jq -r '.assets[].name' release/release-manifest.json; printf '%s\n' release-manifest.json SHA256SUMS)"
+          while IFS= read -r subject; do
+            bundle="provenance/$subject.intoto.jsonl"
+            test -s "$bundle"
+            test -e "existing/$subject.intoto.jsonl" || gh release upload "$TAG" --repo "$GH_REPO" "$bundle#${subject}.intoto.jsonl"
+          done <<< "$subjects"
+      - name: Re-download every staged asset and verify provenance before publication
+        run: |
+          set -euo pipefail
+          mkdir downloaded
+          gh release download "$TAG" --repo "$GH_REPO" --dir downloaded --pattern '*'
+          deno run --frozen --allow-read scripts/release/workflow.ts verify-directory downloaded "$VERSION" "$SOURCE_SHA" "$SOURCE_REF" > verified
+          ATTESTED_SOURCE_REF="$(sed -n '1s/^source_ref=//p' verified)"
+          test "$ATTESTED_SOURCE_REF" = "$SOURCE_REF"
+          sed -n '2,$p' verified > subjects
+          while IFS= read -r subject; do
+            gh attestation verify "downloaded/$subject" --bundle "downloaded/$subject.intoto.jsonl" --repo "$GH_REPO" --signer-workflow ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml --source-ref "$ATTESTED_SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
+          done < subjects
+          gh release edit "$TAG" --repo "$GH_REPO" --draft=false
+      - name: Assert the published release is immutable without mutation
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '.immutable // false')" = true

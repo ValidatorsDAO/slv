@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "cranelift-assembler-x64-meta@0.117.2",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/cranelift-assembler-x64-meta/cranelift-assembler-x64-meta-0.117.2.crate",
+    "sha256": "c7496a6e92b5cee48c5d772b0443df58816dee30fed6ba19b2a28e78037ecedf"
+  },
+  "archive_vcs": {
+    "commit": "398694a59e24d37acde915086a9be308ec51f626",
+    "path_in_vcs": "cranelift/assembler-x64/meta"
+  },
+  "declared_license": "Apache-2.0 WITH LLVM-exception",
+  "repository": null,
+  "published_manifest": {
+    "path": "cranelift-assembler-x64-meta-0.117.2/Cargo.toml",
+    "sha256": "b466685c55857eaff93070703ba59a03a3abfb4030db8f42978ac7a208a4e7c3"
+  },
+  "terms": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/398694a59e24d37acde915086a9be308ec51f626/LICENSE",
+      "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
+      "bytes": 12243
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

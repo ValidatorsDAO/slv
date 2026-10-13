@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "pretty_yaml@0.5.0",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/pretty_yaml/pretty_yaml-0.5.0.crate",
+    "sha256": "dda9a64ee7296e82d1e0f4389383e6a7d8e6e2487d8391f7d028c131395fd376"
+  },
+  "archive_vcs": {
+    "commit": "5dfb6c22ba91a738b681d614202e264259e877f0",
+    "path_in_vcs": "pretty_yaml"
+  },
+  "declared_license": "MIT",
+  "repository": "https://github.com/g-plane/pretty_yaml",
+  "published_manifest": {
+    "path": "pretty_yaml-0.5.0/Cargo.toml",
+    "sha256": "ea44a928488f56ab3ca4e08efaf3f3db43fdb0fb5bad184535e035e39546c29f"
+  },
+  "terms": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/g-plane/pretty_yaml/5dfb6c22ba91a738b681d614202e264259e877f0/LICENSE",
+      "sha256": "2efe0331e360cdaa2701ae0b42fa1ce6002ee52675d648a0c49029b5f27eb734",
+      "bytes": 1073
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

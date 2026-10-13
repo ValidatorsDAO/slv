@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "cargo_lock_sha256": "09afc50a2481cea2e77e0d27eff26db844362067bfbc51357f3927d49cbf815d",
+  "closure_path": "evidence/deno/selected-denort-normal-closure.json",
+  "closure_sha256": "e5a4791b96f707d46884a3c6807372790a45b84b516d7ff36dfac332938055f4",
+  "required_runtime_notice_gaps": [],
+  "conclusion": "All target-reachable normal denort closure components have materialized notice evidence. Cargo.lock-only packages remain distinct conservative source-vendor coverage and do not create a denort binary inclusion claim."
+}

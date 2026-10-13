@@ -84,7 +84,6 @@ async function updateVersion() {
 
   rootDenoJson.tasks['create:template'] =
     `tar -czf dist/template.tar.gz ./template/${VERSION}`
-  rootDenoJson.tasks['upload:template'] = 'deno run -A cli/uploadTemplate.ts'
   await Deno.writeTextFile(
     rootDenoJsonPath,
     JSON.stringify(rootDenoJson, null, 2),
@@ -151,7 +150,7 @@ async function updateVersion() {
       const out = new TextDecoder().decode(stdout)
       if (code !== 0) {
         const err = new TextDecoder().decode(stderr)
-        console.error(`⚠️ Failed to build skill ${skill}: ${err}`)
+        throw new Error(`Failed to build skill ${skill}: ${err || out}`)
       } else {
         // Extract first line (summary)
         const summary = out.split('\n')[0]
@@ -160,7 +159,7 @@ async function updateVersion() {
     }
   } catch (error) {
     if (error instanceof Deno.errors.NotFound) {
-      console.log('⏭️ build-skill.sh not found, skipping skill build')
+      throw new Error('build-skill.sh is required to generate release skills')
     } else {
       throw error
     }

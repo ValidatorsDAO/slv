@@ -34,8 +34,11 @@ SLV is a CLI tool that handles the full lifecycle of Solana infrastructure — f
 ## Quick Start
 
 ```bash
-# 1. Install SLV
-curl -fsSL https://storage.slv.dev/slv/install | sh
+# 1. Install SLV from a reviewed, commit-pinned bootstrap.
+# See docs/secure-delivery.md; do not pipe a floating URL to a shell.
+curl --fail --location --remote-name \
+  https://raw.githubusercontent.com/ValidatorsDAO/slv/<reviewed-commit>/sh/install
+sh ./install
 
 # 2. Configure your environment (AI provider, SSH keys, API keys)
 slv onboard
@@ -61,7 +64,7 @@ Agent: I'll set up a mainnet Jito validator. Let me walk you through:
 
 | Task | Command |
 |---|---|
-| **Install SLV** | `curl -fsSL https://storage.slv.dev/slv/install \| sh` |
+| **Install SLV** | Follow [secure delivery instructions](docs/secure-delivery.md) |
 | **Initial setup** | `slv onboard` |
 | **AI Console** (interactive) | `slv c` |
 | **Check node status** | `slv check` |

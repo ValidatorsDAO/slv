@@ -1,0 +1,16 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: wasip3@0.4.0+wasi-0.3.0-rc-2026-01-06
+Exact archive: https://static.crates.io/crates/wasip3/wasip3-0.4.0+wasi-0.3.0-rc-2026-01-06.crate
+Archive SHA-256: 5428f8bf88ea5ddc08faddef2ac4a67e390b88186c703ce6dbd955e1c145aca5
+Declared license: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected license branch for this distribution: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+
+Published authors: none recorded in the packaged Cargo.toml.
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

@@ -1,0 +1,21 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: cranelift-assembler-x64@0.117.2
+Exact archive: https://static.crates.io/crates/cranelift-assembler-x64/cranelift-assembler-x64-0.117.2.crate
+Archive SHA-256: d2b83fcf2fc1c8954561490d02079b496fd0c757da88129981e15bfe3a548229
+Declared license: Apache-2.0 WITH LLVM-exception
+Selected license branch for this distribution: Apache-2.0 WITH LLVM-exception
+Published authors:
+- (no authors field was published in the package metadata)
+
+Resolution kind:
+recovered-pinned-upstream-license
+
+Resolution notes from the evidence review:
+- All 11 published Rust files byte-equal at pinned Wasmtime cranelift/assembler-x64 path.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

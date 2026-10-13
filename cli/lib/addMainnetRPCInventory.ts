@@ -15,6 +15,14 @@ import type {
 } from '@cmn/types/config.ts'
 import { genOrGetRPCInventory } from '/lib/genOrGetRPCInventory.ts'
 
+type PendingRpcData = {
+  hosts: Record<string, Partial<RpcConfig>>
+}
+
+type PendingRpcConfig = Partial<RpcConfig> & {
+  shredstream_address: string
+}
+
 const addMainnetRPCInventory = async (
   identityAccount: string,
   sshConnection: SSHConnection,
@@ -29,7 +37,7 @@ const addMainnetRPCInventory = async (
     const inventory = await genOrGetRPCInventory(network)
 
     // Type guard to handle different inventory types
-    let rpcData: any
+    let rpcData: PendingRpcData
     if (network === 'mainnet' && 'mainnet_rpcs' in inventory) {
       rpcData = (inventory as InventoryRPC).mainnet_rpcs
     } else if (network === 'devnet' && 'devnet_rpcs' in inventory) {
@@ -59,7 +67,7 @@ const addMainnetRPCInventory = async (
 
     const checkIdentityKey = Object.values(
       rpcData.hosts,
-    ).find((key: any) => key.identity_account === identityAccount)
+    ).find((host) => host.identity_account === identityAccount)
 
     if (checkIdentityKey) {
       console.log(colors.yellow(`⚠️ Identity account already exists`))
@@ -70,7 +78,7 @@ const addMainnetRPCInventory = async (
     await genOrReadVersions()
 
     // Add the new host
-    rpcData.hosts[identityAccount] = {
+    const pendingRpcConfig: PendingRpcConfig = {
       name: identityAccount,
       ansible_host: sshConnection.ip,
       ansible_user: sshConnection.username,
@@ -82,7 +90,8 @@ const addMainnetRPCInventory = async (
       limit_ledger_size: 200000000,
       shredstream_address: '',
       ...(isLocalhost ? { ansible_connection: 'local' as const } : {}),
-    } as RpcConfig
+    }
+    rpcData.hosts[identityAccount] = pendingRpcConfig
 
     const inventoryPath = getInventoryPath(inventoryType)
     await Deno.writeTextFile(inventoryPath, stringify(inventory))

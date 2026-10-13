@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "laufey@0.5.0",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/laufey/laufey-0.5.0.crate",
+    "sha256": "d0560b9568c4bba38e8a9432530917e724867ca873eaf0f263c3a49d39370777"
+  },
+  "archive_vcs": {
+    "commit": "400e4b7f717a55a75bd274ce16e9e387707c2e8b",
+    "path_in_vcs": "capi"
+  },
+  "declared_license": "MIT",
+  "repository": "https://github.com/littledivy/laufey",
+  "published_manifest": {
+    "path": "laufey-0.5.0/Cargo.toml",
+    "sha256": "6d408567e227c03836cfce8e37b1ef122753a3d6546e973ade68ae3c14d3d2d3"
+  },
+  "terms": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/littledivy/laufey/400e4b7f717a55a75bd274ce16e9e387707c2e8b/LICENSE",
+      "sha256": "c6dad7108fb1372235505f275099812db467b74dbe2c02ea142929a1609fac1b",
+      "bytes": 10840
+    }
+  ],
+  "header_record": "published-source-headers.json",
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

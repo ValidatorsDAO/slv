@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "anes@0.1.6",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/anes/anes-0.1.6.crate",
+    "sha256": "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
+  },
+  "archive_vcs": {
+    "commit": "378ac7461ecac29fde9e10df7b08359d1315a9ad",
+    "path_in_vcs": ""
+  },
+  "declared_license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/zrzka/anes-rs",
+  "published_manifest": {
+    "path": "anes-0.1.6/Cargo.toml",
+    "sha256": "42baf88fbaa6a98da7fd05e7e5359d5519616c07f3792cd6d706f813081df19b"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/zrzka/anes-rs/378ac7461ecac29fde9e10df7b08359d1315a9ad/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "bytes": 1023
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/zrzka/anes-rs/378ac7461ecac29fde9e10df7b08359d1315a9ad/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

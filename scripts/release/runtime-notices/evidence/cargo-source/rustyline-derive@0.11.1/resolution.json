@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "rustyline-derive@0.11.1",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/rustyline-derive/rustyline-derive-0.11.1.crate",
+    "sha256": "5d66de233f908aebf9cc30ac75ef9103185b4b715c6f2fb7a626aa5e5ede53ab"
+  },
+  "archive_vcs": {
+    "commit": "227d82c27c5c5fa1862fa3b9e3a619bf9bdeef9b",
+    "path_in_vcs": "rustyline-derive"
+  },
+  "declared_license": "MIT",
+  "repository": "https://github.com/kkawakam/rustyline",
+  "published_manifest": {
+    "path": "rustyline-derive-0.11.1/Cargo.toml",
+    "sha256": "799beb3eaeca0629fcd63889151a2bf0cff5e20b833cb210f4e15037c80d548b"
+  },
+  "terms": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/kkawakam/rustyline/227d82c27c5c5fa1862fa3b9e3a619bf9bdeef9b/LICENSE",
+      "sha256": "c660c3a1ca6c7c0d736f249dbc7ca5bdf1cbc7bf4d57bc867d3b47ec1ba8374e",
+      "bytes": 1102
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: cranelift-isle@0.117.2
+Exact archive: https://static.crates.io/crates/cranelift-isle/cranelift-isle-0.117.2.crate
+Archive SHA-256: f900e0a3847d51eed0321f0777947fb852ccfce0da7fb070100357f69a2f37fc
+Declared license: Apache-2.0 WITH LLVM-exception
+Selected license branch for this distribution: Apache-2.0 WITH LLVM-exception
+
+Published authors (author metadata is not restated as copyright ownership):
+- The Cranelift Project Developers
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

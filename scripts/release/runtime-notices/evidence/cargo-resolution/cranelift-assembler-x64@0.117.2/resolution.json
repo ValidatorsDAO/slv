@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "cranelift-assembler-x64@0.117.2",
+    "archive": {
+      "url": "https://static.crates.io/crates/cranelift-assembler-x64/cranelift-assembler-x64-0.117.2.crate",
+      "sha256": "d2b83fcf2fc1c8954561490d02079b496fd0c757da88129981e15bfe3a548229"
+    },
+    "license_declared": "Apache-2.0 WITH LLVM-exception",
+    "license_selected": "Apache-2.0 WITH LLVM-exception",
+    "resolution_kind": "recovered-pinned-upstream-license",
+    "text_refs": [
+      "wasmtime"
+    ],
+    "original_authors": null,
+    "notes": [
+      "All 11 published Rust files byte-equal at pinned Wasmtime cranelift/assembler-x64 path."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "Apache-2.0 WITH LLVM-exception",
+    "authors": null,
+    "repository": null,
+    "homepage": null,
+    "description": "A Cranelift-specific x64 assembler",
+    "license-file": null,
+    "package": "cranelift-assembler-x64@0.117.2",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "license = \"Apache-2.0 WITH LLVM-exception\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "wasmtime",
+      "path": "evidence/cargo-resolution/cranelift-assembler-x64@0.117.2/terms-wasmtime.txt",
+      "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
+      "source": {
+        "url": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/398694a59e24d37acde915086a9be308ec51f626/LICENSE",
+        "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

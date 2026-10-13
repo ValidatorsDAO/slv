@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "package": "winapi-x86_64-pc-windows-gnu@0.4.0",
+  "classification": "source-vendor",
+  "scope": "Exact Cargo source archive retained for full source-vendor coverage only; this record makes no denort binary-target inclusion assertion.",
+  "archive": {
+    "url": "https://static.crates.io/crates/winapi-x86_64-pc-windows-gnu/winapi-x86_64-pc-windows-gnu-0.4.0.crate",
+    "sha256": "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+  },
+  "archive_vcs": null,
+  "repository": "https://github.com/retep998/winapi-rs",
+  "declared_license": "MIT/Apache-2.0",
+  "selected_license_branch": "Apache-2.0",
+  "resolution_kind": "declared-standard-license-supplement",
+  "terms": [
+    {
+      "kind": "standard-Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ],
+  "caveat": "The packaged archive lacks a full conventional license document for this selected branch except where stated above. The exact manifest declaration, archive attribution, and full authentic selected terms are retained together. No copyright holder or year is invented."
+}

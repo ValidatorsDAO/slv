@@ -1,0 +1,50 @@
+{
+  "purpose": "verbatim leading source-header record from the checksum-verified published crate; source material only, never rendered as a license notice",
+  "files": [
+    {
+      "archive_path": "wasm-metadata-0.244.0/src/add_metadata.rs",
+      "archive_file_sha256": "1f57919c702a1bcc51dfb0e004e90a29c24c34bb116419a8f4ae2bdf03103c2f",
+      "leading_header": "use crate::{Producers, rewrite_wasm};\nuse anyhow::Result;\nuse std::fmt::Debug;\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/src/clap.rs",
+      "archive_file_sha256": "77a90ff37ec630449d01cd9737d548b5e535477c013c7009afa0afdd54fd3e37",
+      "leading_header": "use crate::AddMetadata;\nuse std::fmt::Debug;\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/src/lib.rs",
+      "archive_file_sha256": "f239fa9868ffad85b111a692e073992afe5120b0c7711901068d8d7f25c944bc",
+      "leading_header": "//! Read and manipulate WebAssembly metadata\n//!\n//! # Examples\n//!\n//! **Read metadata from a Wasm binary**\n//!\n//! ```no_run\n//! # #![allow(unused)]\n//! # fn main() -> Result<(), anyhow::Error> {\n//! use wasm_metadata::Payload;\n//! use std::fs;\n//!\n//! let wasm = fs::read(\"program.wasm\")?;\n//! let metadata = Payload::from_binary(&wasm)?.metadata();\n//! # Ok(()) }\n//! ```\n//!\n//! **Add metadata to a Wasm binary**\n//!\n//! ```no_run\n//! # #![allow(unused)]\n//! # fn main() -> Result<(), anyhow::Error> {\n//! use wasm_metadata::*;\n//! use std::fs;\n//!\n//! let wasm = fs::read(\"program.wasm\")?;\n//!\n//! let mut add = AddMetadata ::default();\n//! add.name = AddMetadataField::Set(\"program\".to_owned());\n//! add.language = vec![(\"tunalang\".to_owned(), \"1.0.0\".to_owned())];\n//! add.processed_by = vec![(\"chashu-tools\".to_owned(), \"1.0.1\".to_owned())];\n//! add.sdk = vec![];\n//! add.authors = AddMetadataField::Set(Authors::new(\"Chashu Cat\"));\n//! add.description = AddMetadataField::Set(Description::new(\"Chashu likes tuna\"));\n//! add.licenses = AddMetadataField::Set(Licenses::new(\"Apache-2.0 WITH LLVM-exception\")?);\n//! add.source = AddMetadataField::Set(Source::new(\"https://github.com/chashu/chashu-tools\")?);\n//! add.homepage = AddMetadataField::Set(Homepage::new(\"https://github.com/chashu/chashu-tools\")?);\n//! add.revision = AddMetadataField::Set(Revision::new(\"de978e17a80c1118f606fce919ba9b7d5a04a5ad\"));\n//! add.version = AddMetadataField::Set(Version::new(\"1.0.0\"));\n//!\n//! let wasm = add.to_wasm(&wasm)?;\n//! fs::write(\"program.wasm\", &wasm)?;\n//! # Ok(()) }\n//! ```\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/src/metadata.rs",
+      "archive_file_sha256": "4f29110aad8e9806b0a0bfa8af69910d5595b5a0ad88151ea88b9c9f7207d114",
+      "leading_header": "use serde_derive::Serialize;\nuse std::ops::Range;\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/src/oci_annotations/licenses.rs",
+      "archive_file_sha256": "2c8aca896e6e398329499ccb47c43947ab89e6cd4bd6a2739fad80118df45881",
+      "leading_header": "use std::borrow::Cow;\nuse std::fmt::{self, Display};\nuse std::str::FromStr;\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/src/oci_annotations/mod.rs",
+      "archive_file_sha256": "63c113ee81f3699de0c1b8e711105ae5cdbf0c2a768ef2c13f00db9a7ad9c97e",
+      "leading_header": "//! Annotations following the [OCI Annotations Spec].\n//!\n//! The fields of these annotations are encoded into custom sections of\n//! component binaries, and are explicitly compatible with the OCI Annotations\n//! Spec. That enables Compontents to be encoded to OCI and back without needing\n//! to perform any additional parsing. This greatly simplifies adding metadata to\n//! component registries, since language-native component toolchains can encode them\n//! directly into components. Which in turn can be picked up by Component-to-OCI\n//! tooling to take those annotations and display them in a way that registries can\n//! understand.\n//!\n//! For the files in this submodule that means we want to be explicitly\n//! compatible with the OCI Annotations specification. Any deviation in our\n//! parsing rules from the spec should be considered a bug we have to fix.\n//!\n//! [OCI Annotations Spec]: https://specs.opencontainers.org/image-spec/annotations/\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/src/payload.rs",
+      "archive_file_sha256": "98d833abcb42dd4128a5821a3e87afce24d86fd3f7292ec5b93a9ce914260f10",
+      "leading_header": "use std::ops::Range;\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/tests/component.rs",
+      "archive_file_sha256": "e799d95305a9b0cfcf1b50ff3392c319648cba67c1f304db945d8d5361ef4321",
+      "leading_header": "use std::{str::FromStr, vec};\n"
+    },
+    {
+      "archive_path": "wasm-metadata-0.244.0/tests/module.rs",
+      "archive_file_sha256": "d03ec86363514f0a29d008bff40a29f4d8a1c171a8601aed6e733250694c56fd",
+      "leading_header": "use std::{str::FromStr, vec};\n"
+    }
+  ]
+}

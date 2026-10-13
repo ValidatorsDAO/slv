@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: pretty_yaml@0.5.0
+Exact archive: https://static.crates.io/crates/pretty_yaml/pretty_yaml-0.5.0.crate
+Archive SHA-256: dda9a64ee7296e82d1e0f4389383e6a7d8e6e2487d8391f7d028c131395fd376
+Declared license: MIT
+Selected license branch for this distribution: MIT
+
+Published authors (author metadata is not restated as copyright ownership):
+- Pig Fang <g-plane@hotmail.com>
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

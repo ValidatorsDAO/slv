@@ -75,7 +75,7 @@ const describeUploadError = (status: number): string => {
 /**
  * Upload a file using a single presigned PUT (for files ≤ 5 GB).
  */
-async function singleUpload(
+export async function singleUpload(
   auth: UserApiAuth,
   filePath: string,
   remotePath: string,
@@ -109,20 +109,24 @@ async function singleUpload(
         },
         body: file.readable,
       })
-
-      if (!uploadRes.ok) {
-        uploadSpinner.fail('Upload failed')
-        console.log(
-          colors.red(`\n❌ Upload failed (HTTP ${uploadRes.status})`),
-        )
-        console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
-        return null
+      try {
+        if (!uploadRes.ok) {
+          uploadSpinner.fail('Upload failed')
+          console.log(
+            colors.red(`\n❌ Upload failed (HTTP ${uploadRes.status})`),
+          )
+          console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
+          return null
+        }
+      } finally {
+        // A PUT response has no useful body for this command. Cancel it
+        // before returning so an upstream cannot retain an unread stream.
+        await uploadRes.body?.cancel().catch(() => undefined)
       }
-    } catch (uploadErr) {
+    } finally {
       try {
         file.close()
       } catch { /* already closed */ }
-      throw uploadErr
     }
 
     uploadSpinner.succeed('Upload complete')

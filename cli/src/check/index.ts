@@ -323,7 +323,9 @@ checkCmd.command('geyserbench')
       await Deno.stat(geyserbenchPath)
     } catch {
       console.error(
-        colors.red('geyserbench is not installed. Run slv install first.'),
+        colors.red(
+          `geyserbench is an optional external prerequisite and is not installed by slv. Install a compatible binary from a verified source yourself, place it at ${geyserbenchPath}, then retry. Core slv install, upgrade, and skills commands work without it; slv will not download it automatically.`,
+        ),
       )
       return
     }
