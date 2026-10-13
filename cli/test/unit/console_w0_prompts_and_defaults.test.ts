@@ -128,6 +128,17 @@ Deno.test('the run_command description names the recursive searches that need a 
   includes(description, 'a home directory or one above it', 'run_command')
   includes(description, 'anything under .slv or .ssh', 'run_command')
   includes(description, 'or no path at all', 'run_command')
+  includes(
+    description,
+    'rg searches its input instead when it follows a pipe or reads a file',
+    'run_command',
+  )
+  includes(
+    description,
+    'a ps that prints the environment of processes',
+    'run_command',
+  )
+  includes(description, 'an output format named environ', 'run_command')
 })
 
 Deno.test('the write_file description and the validator onboarding text say who confirms a write', async () => {

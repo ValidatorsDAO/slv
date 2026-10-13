@@ -368,6 +368,16 @@ const HOLDS = 'key material or credentials'
 const MAY_HOLD = `may hold ${HOLDS}`
 
 /**
+ * An argument that the shell expands can be several words, an option and an
+ * operand among them. A recursive search with one is held.
+ */
+function expandedArgument(name: string, args: string[]): string | null {
+  return args.some((arg) => arg.includes(RUNTIME) || arg.includes(PATTERN))
+    ? `a recursive ${name} with an argument known only when the shell runs, which may name a directory that holds ${HOLDS}`
+    : null
+}
+
+/**
  * Why a directory operand is, or may be, a directory that holds a refused
  * class, or null for a literal absolute path elsewhere.
  */
@@ -457,7 +467,7 @@ function grepReason(name: string, args: string[]): string | null {
     ) recursive = true
   }
   if (!recursive) return null
-  return operandsReason(
+  return expandedArgument(name, args) ?? operandsReason(
     name,
     patternGiven ? read.operands : read.operands.slice(1),
   )
@@ -475,7 +485,7 @@ const RG_NO_SEARCH = [
   'generate',
 ]
 
-function rgReason(args: string[]): string | null {
+function rgReason(args: string[], stdin: boolean): string | null {
   const read = readArguments(args, RG_SPEC)
   if (read.unreadable) {
     return `rg with an option the gate cannot read, which may search a directory that holds ${HOLDS}`
@@ -487,10 +497,12 @@ function rgReason(args: string[]): string | null {
       patternGiven = true
     }
   }
-  return operandsReason(
-    'rg',
-    patternGiven ? read.operands : read.operands.slice(1),
-  )
+  const expanded = expandedArgument('rg', args)
+  if (expanded !== null) return expanded
+  const paths = patternGiven ? read.operands : read.operands.slice(1)
+  // with no path, rg searches its standard input when that is a pipe or a file
+  if (paths.length === 0 && stdin) return null
+  return operandsReason('rg', paths)
 }
 
 function diffReason(args: string[]): string | null {
@@ -501,7 +513,8 @@ function diffReason(args: string[]): string | null {
   const recursive = read.options.some((option) =>
     option.names.some((n) => ['r', 'R', 'recursive'].includes(n))
   )
-  return recursive ? operandsReason('diff', read.operands) : null
+  if (!recursive) return null
+  return expandedArgument('diff', args) ?? operandsReason('diff', read.operands)
 }
 
 /**
@@ -511,9 +524,32 @@ function diffReason(args: string[]): string | null {
 export function recursiveReadReason(
   name: string,
   args: string[],
+  stdin = false,
 ): string | null {
-  if (name === 'rg') return rgReason(args)
+  if (name === 'rg') return rgReason(args, stdin)
   if (name === 'diff') return diffReason(args)
   if (RECURSIVE_READERS.has(name)) return grepReason(name, args)
   return null
+}
+
+/**
+ * Is the target of an input redirection a file that is there: an absolute
+ * path or a path under the home directory, to a regular file? rg searches a
+ * standard input that is a pipe or a file; from a directory or a device it
+ * searches the working directory.
+ */
+export function isRegularFileTarget(target: string): boolean {
+  if (target.includes(RUNTIME) || target.includes(PATTERN)) return false
+  let path = target
+  if (path.startsWith('~')) {
+    const home = ownHomes()[0]
+    if (home === undefined || !/^~(\/|$)/.test(path)) return false
+    path = home + path.slice(1)
+  }
+  if (!path.startsWith('/')) return false
+  try {
+    return Deno.statSync(path).isFile
+  } catch {
+    return false
+  }
 }

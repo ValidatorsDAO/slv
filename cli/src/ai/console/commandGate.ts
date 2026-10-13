@@ -17,7 +17,9 @@ import {
   AUTO_EXECUTE_NOTE,
   keyMaterialInWord,
 } from '@/ai/console/keyMaterial.ts'
+import { psEnvironmentReason } from '@/ai/console/psEnvironment.ts'
 import {
+  isRegularFileTarget,
   RECURSIVE_READERS,
   recursiveReadReason,
 } from '@/ai/console/recursiveRead.ts'
@@ -59,10 +61,15 @@ export type SimpleCommand = {
   words: string[]
   /** The words after a redirection operator: the files it opens. */
   redirects: string[]
-  /** Each redirection with its operator: `>`, `>>`, `>&`, `<`, `&>` ... */
-  redirections: Array<{ operator: string; target: string }>
+  /**
+   * Each redirection with its operator (`>`, `>>`, `>&`, `<`, `&>` ...) and
+   * the file descriptor written in front of it, or null.
+   */
+  redirections: Array<{ operator: string; target: string; fd: string | null }>
   hereDocs: string[]
   hereStrings: string[]
+  /** The command follows a pipe: its standard input is the pipe. */
+  piped: boolean
 }
 
 /** What the reader saw in a command line besides its simple commands. */
@@ -479,6 +486,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
     redirections: [],
     hereDocs: [],
     hereStrings: [],
+    piped: false,
   })
   let cur = emptyCommand()
   let word = null as string | null
@@ -488,6 +496,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
   let globbed = false
   let redirect = null as 'plain' | 'string' | 'doc' | null
   let redirectOperator = ''
+  let redirectFd = null as string | null
   let tabs = false
   const pendingDocs: Array<
     { target: SimpleCommand; delimiter: string; raw: boolean; tabs: boolean }
@@ -510,7 +519,11 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       cur.hereStrings.push(finished)
     } else if (redirect === 'plain') {
       cur.redirects.push(finished)
-      cur.redirections.push({ operator: redirectOperator, target: finished })
+      cur.redirections.push({
+        operator: redirectOperator,
+        target: finished,
+        fd: redirectFd,
+      })
     } else {
       cur.words.push(finished)
     }
@@ -528,10 +541,14 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       st.unparsable = true
       redirect = null
     }
+    // a pipe goes on to the next command, across a newline too
+    const carriesPipe = cur.piped && cur.words.length === 0 &&
+      cur.redirects.length === 0
     if (cur.words.length > 0 || cur.redirects.length > 0) {
       st.commands.push(cur)
     }
     cur = emptyCommand()
+    cur.piped = carriesPipe
   }
 
   while (st.pos < src.length) {
@@ -590,6 +607,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
         redirect = 'plain'
         const length = src[st.pos + 2] === '>' ? 3 : 2
         redirectOperator = src.slice(st.pos, st.pos + length)
+        redirectFd = null
         st.pos += length
       } else {
         st.notes.background = true
@@ -598,8 +616,11 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       }
     } else if (c === '|') {
       endCommand()
+      // `|` and `|&` pipe into the next command; `||` does not
+      const pipe = src[st.pos + 1] !== '|'
       st.pos++
       if (src[st.pos] === '|' || src[st.pos] === '&') st.pos++
+      cur.piped = pipe
     } else if (c === '(') {
       if (src[st.pos + 1] === '(') {
         st.notes.arithmeticSyntax = true
@@ -623,7 +644,9 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
         append(RUNTIME)
       } else {
         // a number glued to the operator is a file descriptor, not a word
+        redirectFd = null
         if (word !== null && !quoted && /^[0-9]+$/.test(word)) {
+          redirectFd = word
           word = null
         } else {
           endWord()
@@ -2544,6 +2567,25 @@ function commandStart(words: string[]): number {
   }
 }
 
+/**
+ * Does the standard input of this command hold what a search reads: the pipe
+ * the command follows, or a file that an input redirection names? A redirection
+ * of another descriptor does not change the standard input.
+ */
+function readsStandardInput(command: SimpleCommand | null): boolean {
+  if (command === null) return false
+  if (command.hereDocs.length > 0 || command.hereStrings.length > 0) {
+    return false
+  }
+  const inputs = command.redirections.filter((r) =>
+    r.operator.startsWith('<') && (r.fd === null || r.fd === '0')
+  )
+  if (inputs.length === 0) return command.piped
+  return inputs.every((r) =>
+    r.operator === '<' && isRegularFileTarget(r.target)
+  )
+}
+
 function analyzeWords(
   words: string[],
   input: SimpleCommand | null,
@@ -2619,7 +2661,15 @@ function analyzeWords(
   } else if (name === 'find') {
     analyzeFind(args, depth, found)
   } else if (RECURSIVE_READERS.has(name)) {
-    const reason = recursiveReadReason(name, args)
+    // a command that no wrapper runs, with a pipe or a file on its input
+    const reason = recursiveReadReason(
+      name,
+      args,
+      depth === 0 && readsStandardInput(input),
+    )
+    if (reason !== null) found.push(reason)
+  } else if (name === 'ps') {
+    const reason = psEnvironmentReason(args)
     if (reason !== null) found.push(reason)
   } else if (Object.hasOwn(WRAPPERS, name)) {
     const spec = WRAPPERS[name]

@@ -444,10 +444,17 @@ Deno.test('the command runs in a session of its own when setsid exists', async (
   await sandbox(async () => {
     setTuiInstance(null)
     setAutoExecute(true)
-    const output = await quiet(() => run('ps -o pid=,sid= -p $$'))
-    const [pid, session] = output.trim().split(/\s+/)
+    // the shell prints its own pid, then ps lists every process with its session
+    const output = await quiet(() => run('echo $$; ps -eo pid=,sid='))
+    const [pid, ...listed] = output.trim().split('\n').map((line) =>
+      line.trim()
+    )
     assert(pid !== undefined && /^[0-9]+$/.test(pid), output)
-    assertEquals(session, pid, 'the shell is not a session leader')
+    const row = listed.map((line) => line.split(/\s+/)).find(([id]) =>
+      id === pid
+    )
+    assert(row !== undefined, output)
+    assertEquals(row[1], pid, 'the shell is not a session leader')
   })
 })
 
