@@ -9,9 +9,17 @@
 #     4.2 --no-xdp when xdp_enabled is false or absent
 #   - RPC scripts: RPC nodes carry no XDP settings and their units grant no
 #     capability, so from 4.2 they say --no-xdp whatever xdp_* says
-#   - which version a host's client uses (section value of versions.yml, then
-#     the -e override) and that a missing version stops the render
+#   - which version a host's client uses: the agave-validator installed on the
+#     host first (installed_agave_version), else the -e override, else the
+#     section of versions.yml; and that a missing or unreadable version stops
+#     the render
 #   - that the units grant the XDP capabilities only when xdp_enabled is true
+#   - that each play that renders a start script reads the installed binary
+#     (every play runs for real against a fake agave-validator, with its paths
+#     moved into a temporary directory): an old binary under a newer configured
+#     version renders for the old one and the reverse, a binary that does not
+#     report a version stops the play before anything is written, and with no
+#     binary installed the configured version applies
 set -uo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 jinja="$root/template/2026.6.6.2026/jinja"
@@ -184,6 +192,21 @@ for entry in "${scripts[@]}"; do
   add_source "$name" "$template" "$section" agave-v-prefix yes "\"validator_type\":\"agave\",\"$section\":{\"version_agave\":\"v4.3.0\"}"
 done
 
+# 3b. the binary installed on the host decides when the play found one
+for entry in "${scripts[@]}"; do
+  IFS='|' read -r name template section clients kind <<<"$entry"
+  client=${clients%%,*}
+  key=$(version_key "$client")
+  override=agave_version
+  [[ $client == jito ]] && override=jito_version
+  base="\"validator_type\":\"$client\""
+  add_source "$name" "$template" "$section" installed-old-section-new no "$base,\"$section\":{\"$key\":\"4.3.0\"},\"installed_agave_version\":\"3.1.10\""
+  add_source "$name" "$template" "$section" installed-new-section-old yes "$base,\"$section\":{\"$key\":\"3.1.10\"},\"installed_agave_version\":\"4.3.0\""
+  add_source "$name" "$template" "$section" installed-old-override-new no "$base,\"$section\":{\"$key\":\"4.3.0\"},\"$override\":\"4.3.0\",\"installed_agave_version\":\"3.1.10\""
+  add_source "$name" "$template" "$section" installed-new-override-old yes "$base,\"$section\":{\"$key\":\"3.1.10\"},\"$override\":\"3.1.10\",\"installed_agave_version\":\"4.4.0\""
+  add_source "$name" "$template" "$section" installed-empty-section-new yes "$base,\"$section\":{\"$key\":\"4.3.0\"},\"installed_agave_version\":\"\""
+done
+
 cat >"$work/render.yml" <<EOF
 ---
 - hosts: localhost
@@ -235,6 +258,15 @@ EOF
       ansible.builtin.copy:
         dest: "${work}/out/unresolved__${name}__garbage"
         content: "{{ garbage_${name//-/_}.msg | default('RENDERED') }}"
+    - name: Render ${name} with an installed version that has no digits next to a good configured one
+      ansible.builtin.set_fact:
+        unresolved: "{{ lookup('ansible.builtin.template', '${jinja}/${template}', template_vars={'vote_account': 'VOTE', 'validator_type': 'agave', '${section}': {'version_agave': '4.3.0', 'version_jito': '4.3.0'}, 'installed_agave_version': 'master'}) }}"
+      register: installed_garbage_${name//-/_}
+      ignore_errors: true
+    - name: Keep the outcome of ${name} with an installed version that has no digits
+      ansible.builtin.copy:
+        dest: "${work}/out/unresolved__${name}__installed_garbage"
+        content: "{{ installed_garbage_${name//-/_}.msg | default('RENDERED') }}"
 EOF
   done
 } >"$work/unresolved.yml"
@@ -397,11 +429,151 @@ done
 
 for entry in "${scripts[@]}"; do
   IFS='|' read -r name template section clients kind <<<"$entry"
-  for suffix in '' __garbage; do
+  for suffix in '' __garbage __installed_garbage; do
     file="$work/out/unresolved__${name}${suffix}"
     checked=$((checked + 1))
     grep -Fq 'Cannot tell which agave version this host runs' "$file" 2>/dev/null ||
       fail "unresolved__${name}${suffix}: a script was rendered without a usable agave version: $(head -c 200 "$file" 2>/dev/null)"
+  done
+done
+
+# 5. every play that renders a start script reads the agave-validator installed
+# on the host. The play runs for real on a local connection: its /home/solv and
+# /mnt move into a temporary directory, sudo and systemctl are fakes that do
+# nothing, and agave-validator is a fake that prints what the case says.
+me=$(id -un)
+mygroup=$(id -gn)
+# play|network directory|versions.yml section|version key|validator_type|kind
+play_rows=(
+  'mainnet-validator/create-start-validator-sh.yml|mainnet-validator|mainnet_validators|version_agave|agave|validator'
+  'mainnet-validator/update_startup_config.yml|mainnet-validator|mainnet_validators|version_agave|agave|validator'
+  'testnet-validator/create-start-validator-sh-agave.yml|testnet-validator|testnet_validators|version_agave|agave|validator'
+  'testnet-validator/create-start-validator-sh-jito.yml|testnet-validator|testnet_validators|version_jito|jito|validator'
+  'testnet-validator/deploy-start-validator-sh.yml|testnet-validator|testnet_validators|version_agave|agave|validator'
+  'testnet-validator/update_startup_config.yml|testnet-validator|testnet_validators|version_agave|agave|validator'
+  'mainnet-rpc/create-start-validator-sh.yml|mainnet-rpc|mainnet_rpcs|version_agave|agave|rpc'
+  'mainnet-rpc/update_startup_config.yml|mainnet-rpc|mainnet_rpcs|version_agave|agave|rpc'
+  'testnet-rpc/create-start-validator-sh.yml|testnet-rpc|testnet_rpcs|version_agave|agave|rpc'
+  'testnet-rpc/update_startup_config.yml|testnet-rpc|testnet_rpcs|version_agave|agave|rpc'
+  'devnet-rpc/create-start-validator-sh.yml|devnet-rpc|devnet_rpcs|version_agave|agave|rpc'
+  'devnet-rpc/update_startup_config.yml|devnet-rpc|devnet_rpcs|version_agave|agave|rpc'
+)
+# name|scope|what agave-validator --version prints (- = no binary installed)|its exit status|configured version (- = none)|outcome|XDP settings|where the binary is (unit = the directory the solv unit puts on PATH, else the active_release link)
+# outcome: the agave version the script has to follow, or stop:<text the message has to carry>
+play_cases=(
+  'installed-old-configured-new|all|agave-validator 3.1.10 (src:0123abcd; feat:00000001, client:Agave)|0|4.3.0|3.1.10|off'
+  'installed-new-configured-old|all|agave-validator 4.3.0 (src:0123abcd; feat:00000001, client:Agave)|0|3.1.10|4.3.0|off'
+  'installed-unparsable|all|error while loading shared libraries: libudev.so.1: cannot open shared object file|127|4.3.0|stop:did not report a version|off'
+  'no-binary-configured-new|all|-|0|4.3.0|4.3.0|off'
+  'installed-old-configured-new-xdp-on|sample|agave-validator 3.1.10 (src:0123abcd; feat:00000001, client:Agave)|0|4.3.0|3.1.10|zc'
+  'installed-new-configured-old-xdp-on|sample|agave-validator 4.3.0 (src:0123abcd; feat:00000001, client:Agave)|0|3.1.10|4.3.0|zc'
+  'installed-beta-configured-old|sample|agave-validator 4.4.0-beta.0 (src:0123abcd; feat:00000001, client:Agave)|0|3.1.10|4.4.0-beta.0|off'
+  'installed-jito-configured-new|sample|agave-validator 3.1.10 (src:0123abcd; feat:00000001, client:JitoLabs)|0|4.3.0|3.1.10|off'
+  'installed-silent|sample||0|4.3.0|stop:did not report a version|off'
+  'installed-fails-after-printing|sample|agave-validator 4.3.0 (src:0123abcd; feat:00000001, client:Agave)|1|4.3.0|stop:did not report a version|off'
+  'no-binary-configured-old|sample|-|0|3.1.10|3.1.10|off'
+  'no-binary-no-config|sample|-|0|-|stop:Cannot tell which agave version|off'
+  'installed-in-the-unit-path|sample|agave-validator 3.1.10 (src:0123abcd; feat:00000001, client:Agave)|0|4.3.0|3.1.10|off|unit'
+)
+sample_plays=(0 6) # mainnet-validator and mainnet-rpc create-start-validator-sh.yml
+
+run_play_case() { # play index, case index
+  local play net section key client kind
+  IFS='|' read -r play net section key client kind <<<"${play_rows[$1]}"
+  local name scope printed status configured outcome xdp where
+  IFS='|' read -r name scope printed status configured outcome xdp where <<<"${play_cases[$2]}"
+  local run="$work/plays/$1__$2"
+  local bindir="$run/solv/.local/share/solana/install/active_release/bin"
+  [[ ${where:-} == unit ]] && bindir="$run/unit/bin"
+  mkdir -p "$run/bin" "$run/home/.slv" "$run/mnt" "$run/solv" "$bindir"
+  cp -r "$jinja/." "$run/home/.slv/"
+  printf '#!/bin/sh\nexit 0\n' >"$run/bin/systemctl"
+  if [[ ${where:-} == unit ]]; then
+    printf '#!/bin/sh\nif [ "$1" = show ] && [ "$2" = solv ]; then\n  echo "PATH=%s SOLANA_METRICS_CONFIG=host=https://metrics.solana.com:8086,db=mainnet-beta,u=u,p=p"\nfi\nexit 0\n' "$bindir" >"$run/bin/systemctl"
+  fi
+  printf '#!/bin/sh\nexit 0\n' >"$run/bin/sudo"
+  chmod +x "$run/bin/systemctl" "$run/bin/sudo"
+  if [[ $printed != - ]]; then
+    printf '#!/bin/sh\nprintf "%%s\\n" "%s"\nexit %s\n' "$printed" "$status" >"$bindir/agave-validator"
+    chmod +x "$bindir/agave-validator"
+  fi
+  if [[ $configured == - ]]; then
+    printf '%s: {}\n' "$section" >"$run/home/.slv/versions.yml"
+  else
+    printf '%s:\n  %s: "%s"\n' "$section" "$key" "$configured" >"$run/home/.slv/versions.yml"
+  fi
+  printf 'OLD SCRIPT\n' >"$run/solv/start-validator.sh"
+  sed -e "s#/home/solv#$run/solv#g" -e "s#/mnt#$run/mnt#g" -e "s#owner: solv#owner: $me#g" -e "s#group: solv#group: $mygroup#g" \
+    "$root/template/2026.6.6.2026/ansible/$play" >"$run/play.yml"
+  if grep -Eq '(^|[^A-Za-z0-9_])/(home/solv|mnt)([^A-Za-z0-9_]|$)' "$run/play.yml"; then
+    echo "a path of the real host is left in $play" >"$run/refused"
+    echo 99 >"$run/rc"
+    return 0
+  fi
+  local xdp_vars=''
+  [[ $xdp == zc ]] && xdp_vars='      xdp_enabled: true
+      xdp_interface: eth0
+      xdp_cpu_cores: 2
+      xdp_zero_copy: true
+      xdp_poh_pinned_cpu_core: 3'
+  cat >"$run/inventory.yml" <<EOF
+all:
+  hosts:
+    rig:
+      ansible_connection: local
+      ansible_python_interpreter: auto_silent
+      validator_type: $client
+      vote_account: VOTE
+      rpc_type: SendTx RPC
+      shredstream_address: 127.0.0.1:1002
+      port_rpc: 8899
+      limit_ledger_size: 100000000
+$xdp_vars
+EOF
+  env HOME="$run/home" PATH="$run/bin:$PATH" ANSIBLE_HOME="$run/ansible-home" ANSIBLE_NOCOLOR=1 \
+    ANSIBLE_GATHERING=explicit ANSIBLE_LOCALHOST_WARNING=False ANSIBLE_INVENTORY_UNPARSED_WARNING=False \
+    ansible-playbook -i "$run/inventory.yml" -e ansible_become=false "$run/play.yml" >"$run/log" 2>&1 </dev/null
+  echo $? >"$run/rc"
+}
+
+selected_play_case() { # play index, case index
+  local scope
+  IFS='|' read -r _ scope _ <<<"${play_cases[$2]}"
+  [[ $scope == all || " ${sample_plays[*]} " == *" $1 "* ]]
+}
+
+for pi in "${!play_rows[@]}"; do
+  for ci in "${!play_cases[@]}"; do
+    selected_play_case "$pi" "$ci" || continue
+    run_play_case "$pi" "$ci" &
+    while (($(jobs -rp | wc -l) >= 8)); do wait -n; done
+  done
+done
+wait
+
+for pi in "${!play_rows[@]}"; do
+  IFS='|' read -r play net section key client kind <<<"${play_rows[$pi]}"
+  for ci in "${!play_cases[@]}"; do
+    selected_play_case "$pi" "$ci" || continue
+    IFS='|' read -r name scope printed status configured outcome xdp where <<<"${play_cases[$ci]}"
+    run="$work/plays/${pi}__${ci}"
+    id="play__${play%.yml}__${name}"
+    checked=$((checked + 1))
+    rc=$(cat "$run/rc" 2>/dev/null || echo missing)
+    if [[ -e $run/refused ]]; then
+      fail "$id: $(cat "$run/refused")"
+      continue
+    fi
+    if [[ $outcome == stop:* ]]; then
+      text=${outcome#stop:}
+      [[ $rc != 0 && $rc != missing ]] || fail "$id: the play went on (rc $rc)"
+      grep -Fq -- "$text" "$run/log" || fail "$id: the stop message lacks \"$text\": $(tail -n 5 "$run/log")"
+      [[ $(cat "$run/solv/start-validator.sh") == 'OLD SCRIPT' ]] || fail "$id: the start script was rewritten although the play stopped"
+    else
+      [[ $rc == 0 ]] || { fail "$id: the play failed (rc $rc): $(tail -n 8 "$run/log")"; continue; }
+      diff_out=$(diff <(expected_xdp_lines "$kind" "$outcome" "$xdp") <(xdp_lines "$run/solv/start-validator.sh") 2>&1) ||
+        fail "$id: XDP lines do not follow agave $outcome (< expected, > rendered)"$'\n'"$diff_out"
+    fi
   done
 done
 

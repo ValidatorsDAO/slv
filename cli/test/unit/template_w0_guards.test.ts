@@ -577,36 +577,180 @@ Deno.test('behavior 8: patch_sha256 clones a fixed commit and never overwrites a
   assert(deployIndex > backupIndex, 'deploy must come after the backup')
 })
 
-Deno.test('behavior 9: update_startup_config renders the richat plugin config and reads port_rpc from host vars', () => {
+const geyserRpcTypes = "rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']"
+
+// Replaces {{ name }} with the value in vars, as far as the playbooks here nest them.
+const expandVars = (value: unknown, vars: Record<string, unknown>): string => {
+  let expanded = String(value)
+  for (let round = 0; round < 4; round++) {
+    expanded = expanded.replace(
+      /\{\{\s*(\w+)\s*\}\}/g,
+      (match, name) => name in vars ? String(vars[name]) : match,
+    )
+  }
+  return expanded
+}
+
+Deno.test('behavior 9: update_startup_config writes geyser.json for the plugin library installed on the host, keeps the old file, and reads port_rpc from host vars', () => {
   const path = 'ansible/mainnet-rpc/update_startup_config.yml'
-  const raw = readText(path)
-  assert(!raw.includes('mainnet_rpcs.port_rpc'), `${path}: inventory port_rpc`)
-  assert(!raw.includes('geyser.json.j2'), `${path}: yellowstone template`)
+  assert(
+    !readText(path).includes('mainnet_rpcs.port_rpc'),
+    `${path}: inventory port_rpc`,
+  )
   const play = readPlaybook(path)[0]
   const vars = (play.vars ?? {}) as Record<string, string>
-  const expand = (value: unknown) =>
-    String(value).replace(
-      /\{\{\s*(\w+)\s*\}\}/g,
-      (match, name) => vars[name] ?? match,
-    )
   const tasks = tasksOf(play)
+  const named = (name: string): Entry => {
+    const task = tasks.find((entry) => entry.name === name)
+    assert(task, `${path}: task "${name}" not found`)
+    return task
+  }
 
-  const rendered = tasks.find((task) =>
-    hasModule(task, 'template') &&
-    expand((moduleArgs(task, 'template') as Entry).dest) ===
-      '/home/solv/geyser.json'
-  )
-  assert(rendered, `${path}: geyser.json task not found`)
+  // the two libraries are the ones the build playbooks make and the configs load
+  const richatBuild =
+    readPlaybook('ansible/mainnet-rpc/geyser_richat_build.yml')[0]
+  const richatVars = richatBuild.vars as Record<string, string>
   assertEquals(
-    expand((moduleArgs(rendered, 'template') as Entry).src),
+    expandVars(vars.richat_lib_path, vars),
+    expandVars(richatVars.richat_symlink_path, richatVars),
+  )
+  assertEquals(vars.richat_config_template, richatVars.richat_config_template)
+  assert(
+    readText('jinja/mainnet-rpc/geyser-richat.json.j2').includes(
+      `"libpath": "${vars.richat_lib_path}"`,
+    ),
+  )
+  const yellowstoneBuild =
+    readPlaybook('ansible/mainnet-rpc/geyser_build.yml')[0]
+  const yellowstoneVars = yellowstoneBuild.vars as Record<string, string>
+  assertEquals(
+    vars.geyser_config_template,
+    yellowstoneVars.geyser_config_template,
+  )
+  assertEquals(vars.geyser_config_path, yellowstoneVars.geyser_config_path)
+  const builtLibrary = expandVars(
+    yellowstoneVars.geyser_lib_path,
+    yellowstoneVars,
+  )
+  const libraryDefault = (text: string) =>
+    /geyser_lib_path \| default\('([^']+)'\)/.exec(text)?.[1]
+  assertEquals(libraryDefault(vars.yellowstone_lib_path), builtLibrary)
+  assertEquals(
+    libraryDefault(readText('jinja/mainnet-rpc/geyser.json.j2')),
+    builtLibrary,
+  )
+
+  // both libraries are looked for, links followed, whenever geyser.json is in play
+  for (
+    const [name, variable, register] of [
+      [
+        'Look for the Richat geyser plugin library',
+        'richat_lib_path',
+        'richat_lib',
+      ],
+      [
+        'Look for the Yellowstone geyser plugin library',
+        'yellowstone_lib_path',
+        'yellowstone_lib',
+      ],
+    ]
+  ) {
+    const look = named(name)
+    const args = moduleArgs(look, 'stat') as Entry
+    assertEquals(args.path, `{{ ${variable} }}`)
+    assertEquals(args.follow, true)
+    assertEquals(look.register, register)
+    assertEquals(conditionsOf(look), [geyserRpcTypes])
+  }
+
+  // one answer for each of the four states
+  const decide = named('Decide which geyser plugin this host runs')
+  assertEquals(conditionsOf(decide), [geyserRpcTypes])
+  const expression = /^\{\{\s*([\s\S]+?)\s*\}\}$/.exec(
+    String((moduleArgs(decide, 'set_fact') as Entry).geyser_plugin),
+  )
+  assert(expression, `${path}: geyser_plugin is not an expression`)
+  const chain = expression[1].split(/\s+else\s+/)
+  const pluginFor = (richat: boolean, yellowstone: boolean): string => {
+    const facts: Record<string, boolean> = {
+      'richat_lib.stat.exists': richat,
+      'yellowstone_lib.stat.exists': yellowstone,
+    }
+    for (const link of chain) {
+      const [value, condition] = link.split(/\s+if\s+/)
+      const holds = condition === undefined || condition.replaceAll(/[()]/g, '')
+        .split(/\s+and\s+/).every((term) => {
+          assert(term in facts, `${path}: unknown term ${term}`)
+          return facts[term]
+        })
+      if (holds) return value.replaceAll("'", '')
+    }
+    throw new Error(`${path}: geyser_plugin has no final answer`)
+  }
+  assertEquals(pluginFor(true, false), 'richat')
+  assertEquals(pluginFor(false, true), 'yellowstone')
+  assertEquals(pluginFor(false, false), 'none')
+  assertEquals(pluginFor(true, true), 'both')
+
+  // neither library: stop and name the playbooks that make one; both: stop
+  const none = named('Stop when neither geyser plugin library is installed')
+  assertEquals(conditionsOf(none), [geyserRpcTypes, "geyser_plugin == 'none'"])
+  const noneMessage = String((moduleArgs(none, 'fail') as Entry).msg)
+  for (const playbook of ['geyser_richat_build.yml', 'install_richat.yml']) {
+    assert(
+      noneMessage.includes(playbook),
+      `${path}: message misses ${playbook}`,
+    )
+  }
+  const both = named('Stop when both geyser plugin libraries are installed')
+  assertEquals(conditionsOf(both), [geyserRpcTypes, "geyser_plugin == 'both'"])
+  assert(String((moduleArgs(both, 'fail') as Entry).msg).includes('Remove'))
+
+  // each library gets its own config, the old geyser.json is kept, and the host's
+  // settings feed the Yellowstone template as before (no extra vars)
+  for (
+    const [name, template, plugin] of [
+      [
+        'Copy the geyser.json configuration file for Richat',
+        'richat_config_template',
+        'richat',
+      ],
+      [
+        'Copy the geyser.json configuration file for Yellowstone',
+        'geyser_config_template',
+        'yellowstone',
+      ],
+    ]
+  ) {
+    const task = named(name)
+    const args = moduleArgs(task, 'template') as Entry
+    assertEquals(args.src, `{{ ${template} }}`)
+    assertEquals(args.dest, '{{ geyser_config_path }}')
+    assertEquals(args.backup, true, `${name}: keep the previous geyser.json`)
+    assertEquals(conditionsOf(task), [
+      geyserRpcTypes,
+      `geyser_plugin == '${plugin}'`,
+    ])
+    assertEquals(task.vars, undefined)
+  }
+  assertEquals(
+    expandVars('{{ richat_config_template }}', vars),
     '~/.slv/mainnet-rpc/geyser-richat.json.j2',
   )
-  assertEquals(rendered.when, "rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']")
+  assertEquals(vars.geyser_config_template, '~/.slv/mainnet-rpc/geyser.json.j2')
+  assertEquals(vars.geyser_config_path, '/home/solv/geyser.json')
 
-  const build = readPlaybook('ansible/mainnet-rpc/geyser_richat_build.yml')[0]
-  const buildVars = build.vars as Record<string, string>
-  assertEquals(vars.richat_config_template, buildVars.richat_config_template)
-  assertEquals(vars.richat_config_path, buildVars.richat_config_path)
+  // nothing is written before both stops have had their say
+  const firstWrite = firstIndex(
+    tasks,
+    (task) =>
+      hasModule(task, 'template') || hasModule(task, 'copy') ||
+      hasModule(task, 'file'),
+  )
+  for (const stop of [none, both]) {
+    assert(tasks.indexOf(decide) < tasks.indexOf(stop), `${path}: decide first`)
+    assert(tasks.indexOf(stop) < firstWrite, `${path}: stop before any write`)
+  }
 
   const startScript = tasks.find((task) =>
     hasModule(task, 'template') &&
@@ -742,6 +886,31 @@ const displayNameFiles = [
   'ansible/mainnet-rpc/stop_solv.yml',
   'ansible/mainnet-rpc/stop_firedancer.yml',
 ]
+
+const isStartScriptTemplate = (task: Entry): boolean =>
+  hasModule(task, 'template') &&
+  /\/start-validator[^/]*\.sh\.j2$/.test(
+    String((moduleArgs(task, 'template') as Entry).src),
+  )
+
+const startScriptPlays = (): { path: string; play: Entry }[] =>
+  [
+    'mainnet-validator',
+    'testnet-validator',
+    'mainnet-rpc',
+    'testnet-rpc',
+    'devnet-rpc',
+  ].flatMap((network) =>
+    [...Deno.readDirSync(new URL(`ansible/${network}/`, templateRoot))]
+      .filter((entry) => entry.isFile && entry.name.endsWith('.yml'))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .flatMap((entry) => {
+        const path = `ansible/${network}/${entry.name}`
+        return readPlaybook(path)
+          .filter((play) => tasksOf(play).some(isStartScriptTemplate))
+          .map((play) => ({ path, play }))
+      })
+  )
 
 const changedTemplates = [
   ...validatorNetworks.flatMap((network) =>
@@ -977,7 +1146,51 @@ Deno.test('xdp flags: the playbooks that render an agave start script read versi
       `${script}: must refuse when the agave version cannot be found`,
     )
   }
-  let renderers = 0
+  const plays = startScriptPlays()
+  for (const { path, play } of plays) {
+    assert(
+      [(play.vars_files ?? []) as unknown[]].flat(2).includes(
+        '~/.slv/versions.yml',
+      ),
+      `${path}: the play that renders a start script must load versions.yml`,
+    )
+  }
+  assertEquals(plays.length, 12, 'playbooks that render an agave start script')
+})
+
+const probeName =
+  'Read the version of the agave-validator installed on this host'
+const probeStopName =
+  'Stop when the installed agave-validator does not report its version'
+const activeReleaseBin =
+  '/home/solv/.local/share/solana/install/active_release/bin'
+
+const probesOf = (): {
+  path: string
+  probe: Entry
+  stop: Entry
+  play: Entry
+}[] =>
+  startScriptPlays().map(({ path, play }) => {
+    const tasks = tasksOf(play)
+    const probe = tasks.find((task) => task.name === probeName)
+    const stop = tasks.find((task) => task.name === probeStopName)
+    assert(probe && stop, `${path}: needs the probe and its stop task`)
+    return { path, probe, stop, play }
+  })
+
+const assertInitPlaybooksInstallBeforeTheyRender = (): void => {
+  const installers = new Set([
+    'build_solana.yml',
+    'install_solana.yml',
+    'install_agave.yml',
+    'install_jito.yml',
+    'install_allnodes_jito.yml',
+  ])
+  const renderers = new Set(
+    startScriptPlays().map(({ path }) => path.split('/').pop()),
+  )
+  let checked = 0
   for (
     const network of [
       'mainnet-validator',
@@ -987,30 +1200,356 @@ Deno.test('xdp flags: the playbooks that render an agave start script read versi
       'devnet-rpc',
     ]
   ) {
-    const directory = new URL(`ansible/${network}/`, templateRoot)
-    for (const entry of Deno.readDirSync(directory)) {
-      if (!entry.isFile || !entry.name.endsWith('.yml')) continue
-      const path = `ansible/${network}/${entry.name}`
-      const plays = readPlaybook(path).filter((play) =>
-        tasksOf(play).some((task) =>
-          hasModule(task, 'template') &&
-          /\/start-validator[^/]*\.sh\.j2$/.test(
-            String((moduleArgs(task, 'template') as Entry).src),
-          )
-        )
+    for (
+      const entry of Deno.readDirSync(
+        new URL(`ansible/${network}/`, templateRoot),
       )
-      for (const play of plays) {
-        renderers++
+    ) {
+      if (!/^init.*\.yml$/.test(entry.name)) continue
+      const path = `ansible/${network}/${entry.name}`
+      const imports = readPlaybook(path)
+        .filter((play) => play.import_playbook !== undefined)
+        .map((play) => String(play.import_playbook).split('/').pop() as string)
+      for (const [position, name] of imports.entries()) {
+        if (!renderers.has(name)) continue
+        checked++
         assert(
-          [(play.vars_files ?? []) as unknown[]].flat(2).includes(
-            '~/.slv/versions.yml',
-          ),
-          `${path}: the play that renders a start script must load versions.yml`,
+          imports.slice(0, position).some((earlier) => installers.has(earlier)),
+          `${path}: ${name} renders the start script before any install or build`,
         )
       }
     }
   }
-  assertEquals(renderers, 12, 'playbooks that render an agave start script')
+  assert(checked >= 8, `only ${checked} renders in init playbooks were checked`)
+}
+
+Deno.test('installed agave: every play that renders a start script reads the installed agave-validator before it writes anything, and every init playbook installs before it renders', () => {
+  const quoted = (conditions: string[]) =>
+    new Set(conditions.join(' ').match(/'[^']+'/g) ?? [])
+  const scripts = new Set<string>()
+  for (const { path, probe, stop, play } of probesOf()) {
+    const tasks = tasksOf(play)
+    assert(hasModule(probe, 'shell'), `${path}: the probe runs a command`)
+    assertEquals(probe.register, 'agave_installed')
+    assertEquals(
+      probe.check_mode,
+      false,
+      `${path}: read-only, so check mode runs it`,
+    )
+    assertEquals(probe.changed_when, false)
+    assertEquals(probe.failed_when, false, `${path}: the stop task reports it`)
+    scripts.add(commandOf(probe))
+
+    assert(hasModule(stop, 'fail'), `${path}: the stop task fails`)
+    assertEquals(conditionsOf(stop), [
+      ...conditionsOf(probe),
+      'agave_installed.rc != 0',
+    ])
+    assert(
+      String((moduleArgs(stop, 'fail') as Entry).msg).includes(
+        '{{ agave_installed.stderr | trim }}',
+      ),
+      `${path}: the stop message carries what the probe said`,
+    )
+
+    // the probe runs wherever a script is rendered, and the script gets its answer
+    const renders = tasks.filter(isStartScriptTemplate)
+    assert(renders.length > 0, `${path}: no start script task`)
+    for (const render of renders) {
+      assertEquals(
+        (render.vars as Entry | undefined)?.installed_agave_version,
+        '{{ agave_installed.stdout | trim }}',
+        `${path}: "${render.name}" does not pass the installed version`,
+      )
+      const covered = quoted(conditionsOf(render))
+      const probed = quoted(conditionsOf(probe))
+      assert(
+        [...covered].every((value) => probed.has(value)),
+        `${path}: the probe does not cover "${render.name}"`,
+      )
+      if (conditionsOf(render).length === 0) {
+        assertEquals(conditionsOf(probe), [], `${path}: probe guard`)
+      }
+    }
+
+    // nothing is written, so a stop leaves the host as it was
+    const changes = (task: Entry) =>
+      task !== probe &&
+      ['file', 'template', 'copy', 'shell', 'command'].some((module) =>
+        hasModule(task, module)
+      )
+    const firstChange = firstIndex(tasks, changes)
+    assert(
+      firstChange > tasks.indexOf(stop),
+      `${path}: a task writes before the stop`,
+    )
+    assert(
+      tasks.indexOf(probe) < tasks.indexOf(stop),
+      `${path}: probe before stop`,
+    )
+  }
+  assertEquals(scripts.size, 1, 'the probe is the same text in every play')
+  assertInitPlaybooksInstallBeforeTheyRender()
+})
+
+type ProbeCase = {
+  name: string
+  // what systemctl says the solv unit sets PATH to; '' means no unit
+  unitPath: (root: string) => string
+  // fake agave-validator files: path under the root, what it prints, its exit status
+  binaries: Record<string, [string, number]>
+  dangling?: string
+  stdout: string
+  exit: number
+  stderr?: (root: string) => string[]
+}
+
+const detail = 'src:0123abcd; feat:00000001, client:'
+const probeCases: ProbeCase[] = [
+  {
+    name:
+      'an older binary than the configured version: its version is the answer',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 3.1.10 (${detail}Agave)`, 0],
+    },
+    stdout: '3.1.10\n',
+    exit: 0,
+  },
+  {
+    name: 'a newer binary',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name: 'a pre-release prints X.Y.Z of the line it belongs to',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 4.4.0-beta.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.4.0\n',
+    exit: 0,
+  },
+  {
+    name: 'a version printed with a leading v',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator v4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name: 'a Jito build',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 3.1.10 (${detail}JitoLabs)`, 0],
+    },
+    stdout: '3.1.10\n',
+    exit: 0,
+  },
+  {
+    name: 'a warning line before the version line',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [
+        `warning: low memlock limit\nagave-validator 3.1.10 (${detail}Agave)`,
+        0,
+      ],
+    },
+    stdout: '3.1.10\n',
+    exit: 0,
+  },
+  {
+    name: 'the unit lists several directories: the first with a binary wins',
+    unitPath: (root) => `${root}/other/bin:${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name: 'no unit yet: the active_release link is used',
+    unitPath: () => '',
+    binaries: {
+      'default/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '4.3.0\n',
+    exit: 0,
+  },
+  {
+    name:
+      'the unit names a directory without a binary: the link is not consulted',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'default/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 0],
+    },
+    stdout: '',
+    exit: 0,
+  },
+  {
+    name:
+      'no binary installed yet: nothing is said and the configured version applies',
+    unitPath: () => '',
+    binaries: {},
+    stdout: '',
+    exit: 0,
+  },
+  {
+    name: 'a binary that cannot run stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {
+      'unit/bin': [
+        'error while loading shared libraries: libudev.so.1: cannot open shared object file',
+        127,
+      ],
+    },
+    stdout: '',
+    exit: 1,
+    stderr: (root) => [
+      `${root}/unit/bin/agave-validator`,
+      'did not report a version (exit 127)',
+      'error while loading shared libraries',
+    ],
+  },
+  {
+    name: 'a binary that prints nothing stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: { 'unit/bin': ['', 0] },
+    stdout: '',
+    exit: 1,
+    stderr: (
+      root,
+    ) => [
+      `${root}/unit/bin/agave-validator`,
+      'did not report a version (exit 0)',
+    ],
+  },
+  {
+    name: 'a binary that prints text without a version stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: { 'unit/bin': ['agave-validator (unknown build)', 0] },
+    stdout: '',
+    exit: 1,
+    stderr: () => ['did not report a version (exit 0)', 'unknown build'],
+  },
+  {
+    name: 'a binary that prints a version but fails stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: { 'unit/bin': [`agave-validator 4.3.0 (${detail}Agave)`, 1] },
+    stdout: '',
+    exit: 1,
+    stderr: () => ['did not report a version (exit 1)'],
+  },
+  {
+    name: 'a link to a binary that is gone stops the play',
+    unitPath: (root) => `${root}/unit/bin`,
+    binaries: {},
+    dangling: 'unit/bin',
+    stdout: '',
+    exit: 1,
+    stderr: (
+      root,
+    ) => [`${root}/unit/bin/agave-validator`, 'did not report a version'],
+  },
+]
+
+Deno.test('installed agave: the probe reads X.Y.Z from the binary the solv unit runs, and stops when it cannot', async () => {
+  const [{ probe }] = probesOf()
+  const script = commandOf(probe)
+  assert(
+    script.includes(activeReleaseBin),
+    'the probe falls back to the active_release link the installers fill',
+  )
+  const dir = await Deno.makeTempDir({ prefix: 'slv-w0-probe-' })
+  try {
+    for (const [index, probeCase] of probeCases.entries()) {
+      const root = `${dir}/${index}`
+      await Deno.mkdir(`${root}/bin`, { recursive: true })
+      await Deno.writeTextFile(
+        `${root}/bin/systemctl`,
+        '#!/bin/sh\nif [ "$1" = show ] && [ "$2" = solv ]; then\n  [ -z "$FAKE_UNIT_ENV" ] || printf \'%s\\n\' "$FAKE_UNIT_ENV"\n  exit 0\nfi\nexit 1\n',
+        { mode: 0o755 },
+      )
+      for (
+        const [relative, [output, status]] of Object.entries(probeCase.binaries)
+      ) {
+        await Deno.mkdir(`${root}/${relative}`, { recursive: true })
+        await Deno.writeTextFile(
+          `${root}/${relative}/agave-validator`,
+          `#!/bin/sh\ncat <<'EOF'\n${output}\nEOF\nexit ${status}\n`,
+          { mode: 0o755 },
+        )
+      }
+      if (probeCase.dangling !== undefined) {
+        await Deno.mkdir(`${root}/${probeCase.dangling}`, { recursive: true })
+        await Deno.symlink(
+          `${root}/gone`,
+          `${root}/${probeCase.dangling}/agave-validator`,
+        )
+      }
+      const unitPath = probeCase.unitPath(root)
+      const { code, stdout, stderr } = await new Deno.Command('/bin/bash', {
+        args: [
+          '-c',
+          script.replaceAll(activeReleaseBin, `${root}/default/bin`),
+        ],
+        clearEnv: true,
+        env: {
+          PATH: `${root}/bin:/usr/bin:/bin`,
+          FAKE_UNIT_ENV: unitPath === ''
+            ? ''
+            : `PATH=${unitPath} SOLANA_METRICS_CONFIG=host=https://metrics.solana.com:8086,db=mainnet-beta,u=u,p=p`,
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      const said = new TextDecoder().decode(stderr)
+      assertEquals(
+        code,
+        probeCase.exit,
+        `${probeCase.name}: exit status\n${said}`,
+      )
+      assertEquals(
+        new TextDecoder().decode(stdout),
+        probeCase.stdout,
+        probeCase.name,
+      )
+      for (const part of probeCase.stderr?.(root) ?? []) {
+        assert(
+          said.includes(part),
+          `${probeCase.name}: stderr lacks "${part}": ${said}`,
+        )
+      }
+    }
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('installed agave: the start script templates take the installed version before the configured one', () => {
+  for (const script of Object.keys(startScriptSections)) {
+    const text = readText(`jinja/${script}`)
+    const line =
+      "{% set _client_version = installed_agave_version | default('', true) or _client_version %}"
+    assertEquals(
+      text.split(line).length - 1,
+      1,
+      `${script}: installed version line`,
+    )
+    const configured = text.indexOf('{% set _client_version')
+    const installed = text.indexOf(line)
+    const digits = text.indexOf('{% set _digits')
+    assert(
+      configured >= 0 && configured < installed && installed < digits,
+      `${script}: the installed version has to come after the configured one is set and before it is read`,
+    )
+  }
 })
 
 const playbooksUnder = (directory: URL): URL[] =>
