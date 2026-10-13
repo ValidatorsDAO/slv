@@ -1,0 +1,8 @@
+---
+# What the start templates fall back to when the inventory has no port_rpc and no
+# dynamic_port_range (and no answer to the XDP question). vote_account stays because the
+# templates of a validator have no default for it.
+validator:
+  vote_account: YOUR_VOTE_ACCOUNT
+validator_xdp: {}
+rpc: {}

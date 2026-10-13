@@ -1,0 +1,22 @@
+---
+# A copy, kept by hand, of what `slv v init` and `slv rpc init` write into the inventory of a
+# new host, cut down to the values that the start templates turn into ports
+# (cli/src/validator/init/init{Mainnet,Testnet}Config.ts, cli/src/validator/init/promptXdpConfig.ts,
+# cli/src/rpc/init/{mainnet,testnet,devnet}InitRpc.ts).  Nothing compares it with that code, so
+# a change to those defaults has to be copied here.  render_matrix.yml hands these to the
+# templates as host variables.
+validator:
+  vote_account: YOUR_VOTE_ACCOUNT
+  port_rpc: 7211
+  dynamic_port_range: "8900-8930"
+# The answers to the XDP question, which agave, jito and allnodes-jito validators get and
+# the CLI asks with "yes" as the default.
+validator_xdp:
+  xdp_enabled: true
+  xdp_interface: eth0
+  xdp_cpu_cores: 1
+  xdp_zero_copy: false
+rpc:
+  port_rpc: 7211
+  dynamic_port_range: "8000-8030"
+  limit_ledger_size: 200000000
