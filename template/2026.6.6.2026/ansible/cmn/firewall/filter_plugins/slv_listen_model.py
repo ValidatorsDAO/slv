@@ -72,6 +72,11 @@ Output (schema "slv-listen-model/1")
     that AF_XDP delivers past netfilter (udp.xdp is that subset).  The same
     input always gives the same canonical JSON and the same model_sha256, the
     sha256 of the canonical JSON without the model_sha256 key.
+    A public port is in no limited class: the table accepts a public port from every
+    source before it reads any other rule, so the model stops with class_overlap
+    when a port of udp.public, udp.xdp or udp.pub is also in udp.allowlist or
+    local_only.udp, or a port of tcp.public is also in local_only.tcp, tcp.consumer,
+    tcp.mgmt, tcp.metrics or tcp.wg_only.
       udp.pub            public UDP ports of components (wireguard)
       udp.allowlist      [{"component", "ports", "sources": {"v4", "v6"}}]: UDP ports
                          that only the listed sources may reach (shred-relay)
@@ -94,7 +99,7 @@ Errors (ModelError.code)
     deny_overlaps_allow, allowlist_has_any, trusted_iface_is_uplink,
     unknown_component, component_sources_required, gateway_never_public,
     admin_empty_refused, controller_unknown, controller_not_in_admin,
-    agave_args_unreadable, rendered_missing, gossip_port_unpinned,
+    agave_args_unreadable, rendered_missing, gossip_port_unpinned, class_overlap,
     invalid_input.
 
 Warnings (model["warnings"], each {"code", "detail", ...})
@@ -1548,6 +1553,57 @@ def _port_text(intervals):
     return ", ".join(str(lo) if lo == hi else "%d-%d" % (lo, hi) for lo, hi in intervals)
 
 
+def _shared_ports(first, second):
+    """The first closed interval that two merged interval lists have in common, or None."""
+    for lo_a, hi_a in first:
+        for lo_b, hi_b in second:
+            lo, hi = max(lo_a, lo_b), min(hi_a, hi_b)
+            if lo <= hi:
+                return [lo, hi]
+    return None
+
+
+def _refuse_class_overlap(b):
+    """Stop when one port is public and also belongs to a class that is not.
+
+    The table accepts a public port from every source before it reads the allowlist, consumer,
+    metrics, management and WireGuard rules, and it has no rule for a local-only port. A port
+    in a public class and in one of those would therefore be open to everybody while the model
+    says it is limited. The dynamic port range is a public class, so a range that grows over a
+    component's port is such a case.
+    """
+    udp_wide = (
+        ("udp.public", _merge(b.udp_public)),
+        ("udp.xdp", _merge(b.udp_xdp)),
+        ("udp.pub", _merge(b.udp_pub)),
+    )
+    udp_narrow = [
+        ("udp.allowlist (%s)" % a["component"], _merge(a["ports"]))
+        for a in sorted(b.udp_allow, key=lambda x: x["component"])
+    ]
+    udp_narrow.append(("local_only.udp", _merge(b.local_udp)))
+    tcp_wide = (("tcp.public", _merge(b.tcp_public)),)
+    tcp_narrow = (
+        ("local_only.tcp", _merge(b.local_tcp)),
+        ("tcp.consumer", _merge(b.tcp_consumer)),
+        ("tcp.mgmt", _merge(b.tcp_mgmt)),
+        ("tcp.metrics", _merge(b.tcp_metrics)),
+        ("tcp.wg_only", _merge(b.tcp_wg_only)),
+    )
+    for proto, wide, narrow in (("udp", udp_wide, udp_narrow), ("tcp", tcp_wide, tcp_narrow)):
+        for narrow_name, narrow_ports in narrow:
+            for wide_name, wide_ports in wide:
+                shared = _shared_ports(narrow_ports, wide_ports)
+                if shared:
+                    raise ModelError(
+                        "class_overlap",
+                        "%s port %s is in %s and in %s (%s); the table accepts a public port from every "
+                        "source before it reads any other rule, so %s would be open to everybody. Move one "
+                        "of them: the dynamic port range, the port of the component or the other listener."
+                        % (proto, _port_text([shared]), narrow_name, wide_name, _port_text(wide_ports), narrow_name),
+                    )
+
+
 def slv_listen_model(rendered, profile, inputs, host_facts):
     """Derive the listen model, or raise ModelError (see the module docstring)."""
     prof_in = _profile_input(profile)
@@ -1597,6 +1653,7 @@ def slv_listen_model(rendered, profile, inputs, host_facts):
             )
 
     components, wireguard = _apply_components(b, inp["components"])
+    _refuse_class_overlap(b)
     mgmt, controller_only = _mgmt_sources(inp)
     overlap = _overlaps(inp["deny"], mgmt) or _overlaps(inp["deny"], inp["lb"]) or _overlaps(inp["deny"], inp["scrape"])
     if overlap:

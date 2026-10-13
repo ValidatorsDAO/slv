@@ -152,6 +152,16 @@ def agave_validator(**over):
     return derive([args_item("mainnet-validator.agave-4.3.0.start-validator.sh")], profile(), inputs(**over))
 
 
+def validator_with_range(rng):
+    """The mainnet agave validator render with another --dynamic-port-range, as the rendered list."""
+    text = replaced(
+        fixture("mainnet-validator.agave-4.3.0.start-validator.sh"),
+        "--dynamic-port-range 8900-8930",
+        "--dynamic-port-range %s" % rng,
+    )
+    return [args_item(text, literal=True)]
+
+
 def fd_rpc_toml():
     """The Frankendancer RPC render with a range that holds no fixed port.
 
@@ -198,7 +208,7 @@ class ModelTestCase(unittest.TestCase):
 
 
 class ListenModelBehaviors(ModelTestCase):
-    """One test per behavior of the model (b01 to b27)."""
+    """One test per behavior of the model (b01 to b30)."""
 
     def test_b01_mainnet_agave_validator_with_cli_values(self):
         model = agave_validator()
@@ -768,6 +778,103 @@ class ListenModelBehaviors(ModelTestCase):
             self.assertStopsDerive("rendered_missing", index, rpc_profile("Index RPC"))
             model = derive(index + [of1_item()], rpc_profile("Index RPC"))
             self.assertEqual(model["tcp"]["consumer"], P((7211, 7212), 8888))
+
+    # The table accepts a public port from every source before it reads any other rule.  A port
+    # that is public and also in a limited class would be open to everybody while the model
+    # says it is not, so the model stops (b28 to b30).
+
+    def test_b28_a_range_over_an_allowlist_port_stops(self):
+        relay = inputs(components=[{"id": "shred-relay", "sources": ["203.0.113.0/24"]}])
+        with self.subTest("the range 8000-30000 holds 20001, which only shred-relay's sources may reach"):
+            exc = self.assertStopsDerive("class_overlap", validator_with_range("8000-30000"), inp=relay)
+            for text in ("udp port 20001 ", "udp.allowlist (shred-relay)", "udp.public (8000-29999)"):
+                self.assertIn(text, exc.detail)
+        # the high end of --dynamic-port-range is not part of the range
+        with self.subTest("a range that ends at 20001 stops short of it"):
+            model = derive(validator_with_range("8000-20001"), inp=relay)
+            self.assertEqual(model["udp"]["public"], P((8000, 20000)))
+            self.assertEqual(model["udp"]["allowlist"][0]["ports"], [[20001, 20001]])
+        with self.subTest("a range that ends at 20002 holds it"):
+            self.assertStopsDerive("class_overlap", validator_with_range("8000-20002"), inp=relay)
+        with self.subTest("the same range without the component is a table"):
+            model = derive(validator_with_range("8000-30000"))
+            self.assertEqual(model["udp"]["public"], P((8000, 29999)))
+            self.assertEqual(model["udp"]["allowlist"], [])
+
+    def test_b29_a_range_over_a_local_only_udp_port_stops(self):
+        gateway = inputs(components=["rpc-gateway"])
+        with self.subTest("rpc-gateway keeps UDP 20000 on the host and the range 8000-30000 holds it"):
+            exc = self.assertStopsDerive("class_overlap", validator_with_range("8000-30000"), inp=gateway)
+            for text in ("udp port 20000 ", "local_only.udp", "udp.public (8000-29999)"):
+                self.assertIn(text, exc.detail)
+        with self.subTest("a range that ends at 20000 stops short of it"):
+            model = derive(validator_with_range("8000-20000"), inp=gateway)
+            self.assertEqual(model["udp"]["public"], P((8000, 19999)))
+            self.assertEqual(model["local_only"]["udp"], P(20000))
+        with self.subTest("a range that ends at 20001 holds it"):
+            self.assertStopsDerive("class_overlap", validator_with_range("8000-20001"), inp=gateway)
+        # richat's QUIC endpoint (10101) is listed as local only whatever address it is bound to
+        geyser = rpc_profile("Geyser gRPC")
+        start = fixture("mainnet-rpc.geyser-grpc.start-validator.sh")
+
+        def richat_node(rng, quic=None):
+            data = richat_data()
+            if quic is not None:
+                data["apps"]["richat"]["quic"]["endpoint"] = quic
+            text = replaced(start, "--dynamic-port-range 8000-8030", "--dynamic-port-range %s" % rng)
+            return [args_item(text, literal=True), richat_item(data)]
+
+        with self.subTest("a range that holds richat's QUIC port"):
+            exc = self.assertStopsDerive("class_overlap", richat_node("8000-10200"), geyser)
+            self.assertIn("udp port 10101 is in local_only.udp and in udp.public (8000-10199)", exc.detail)
+        with self.subTest("a range that ends at it does not"):
+            model = derive(richat_node("8000-10101"), geyser)
+            self.assertEqual(model["udp"]["public"], P((8000, 10100)))
+            self.assertEqual(model["local_only"]["udp"], P(10101))
+        with self.subTest("a local-only port on the public WireGuard port"):
+            wireguard = inputs(components=["wireguard"])
+            self.assertStopsDerive("class_overlap", richat_node("8000-8030", "127.0.0.1:51820"), geyser, wireguard)
+            model = derive(richat_node("8000-8030"), geyser, wireguard)
+            self.assertEqual(model["udp"]["pub"], P(51820))
+            self.assertEqual(model["local_only"]["udp"], P(10101))
+
+    def test_b30_a_public_tcp_port_in_a_limited_class_stops(self):
+        # tcp.public holds a pinned gossip port when ip_echo_public is true, and nginx's 80 and 443
+        base = fixture("mainnet-validator.agave-4.3.0.start-validator.sh")
+
+        def start(gossip=None, rpc="7211"):
+            text = replaced(base, "--rpc-port 7211", "--rpc-port %s" % rpc)
+            if gossip is not None:
+                text = replaced(text, "--no-port-check \\\n", "--no-port-check \\\n--gossip-port %s \\\n" % gossip)
+            return [args_item(text, literal=True)]
+
+        relay = {"id": "shred-relay", "sources": ["203.0.113.0/24"]}
+        stops = (
+            # (class of the limited port, gossip port, RPC port, components, what the model says)
+            ("local_only.tcp", "19999", "7211", [relay], "tcp port 19999 is in local_only.tcp and in tcp.public (19999)"),
+            ("tcp.consumer", "8889", "7211", ["rpc-gateway"], "tcp port 8889 is in tcp.consumer and in tcp.public (8889)"),
+            ("tcp.metrics", "9100", "7211", [], "tcp port 9100 is in tcp.metrics and in tcp.public (9100)"),
+            ("tcp.wg_only", "20026", "7211", ["wireguard", "gateway"], "tcp port 20026 is in tcp.wg_only"),
+            ("tcp.mgmt", None, "443", ["nginx"], "tcp port 443 is in tcp.mgmt and in tcp.public (80, 443)"),
+            ("tcp.mgmt, the pubsub port", None, "79", ["nginx"], "tcp port 80 is in tcp.mgmt and in tcp.public (80, 443)"),
+        )
+        for klass, gossip, rpc, components, says in stops:
+            with self.subTest(klass):
+                exc = self.assertStopsDerive(
+                    "class_overlap",
+                    start(gossip, rpc),
+                    inp=inputs(components=components, ip_echo_public=gossip is not None),
+                )
+                self.assertIn(says, exc.detail)
+        with self.subTest("RPC and pubsub ports next to nginx's ports are a table"):
+            for rpc in ("441", "444"):
+                model = derive(start(None, rpc), inp=inputs(components=["nginx"]))
+                self.assertEqual(model["tcp"]["public"], P(80, 443))
+                self.assertEqual(model["tcp"]["mgmt"], P((int(rpc), int(rpc) + 1)))
+        with self.subTest("a gossip port that no limited class holds is a table"):
+            model = derive(start("8001"), inp=inputs(components=[relay], ip_echo_public=True))
+            self.assertEqual(model["tcp"]["public"], P(8001))
+            self.assertEqual(model["local_only"]["tcp"], P(19999))
 
 
 class ListenModelSupport(ModelTestCase):

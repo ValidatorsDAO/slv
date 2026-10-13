@@ -4,14 +4,18 @@ on:
   pull_request:
     branches: ["main"]
     paths:
+      - "template/**/ansible/**"
       - "template/**/firewall/**"
       - "template/**/tests/firewall/**"
+      - "template/latest"
       - ".github/workflows/slv-firewall.yml"
   push:
     branches: ["main"]
     paths:
+      - "template/**/ansible/**"
       - "template/**/firewall/**"
       - "template/**/tests/firewall/**"
+      - "template/latest"
       - ".github/workflows/slv-firewall.yml"
 
 permissions:

@@ -139,7 +139,10 @@ HOST_FACTS = {
 
 # The addresses, interfaces and ports of the netns topology that netns_verdicts.sh builds,
 # written to verdict/topology.env so that the script reads the numbers the tables were
-# rendered with.  peer reaches host over h0, host reaches far over h1.
+# rendered with.  peer reaches host over h0, host reaches far over h1.  The tables match the
+# WireGuard tunnel (10.0.0.0/24) by the interface name wg0; one case makes a pair of virtual
+# links, wg0 in host and wgp in peer, to stand in for it.  METRICS_PORT is the node exporter
+# port, which every node has.
 TOPOLOGY = {
     "CONSUMER_PORT": 10000,
     "FAR_V4": "203.0.113.2",
@@ -151,7 +154,10 @@ TOPOLOGY = {
     "IF_HOST_FAR": "h1",
     "IF_HOST_PEER": "h0",
     "IF_PEER": "p0",
+    "IF_WG": "wg0",
+    "IF_WG_PEER": "wgp",
     "LB_V4": "192.0.2.10",
+    "METRICS_PORT": 9100,
     "MGMT_V4": MGMT_V4,
     "MGMT_V6": "2001:db8:10::7",
     "NS_FAR": "slvfw-far",
@@ -165,6 +171,8 @@ TOPOLOGY = {
     "SOL_UDP_PORT": 8000,
     "SSH_PORT": 22,
     "UNSEEN_V4": "198.51.100.99",
+    "WG_HOST_V4": "10.0.0.1",
+    "WG_PEER_V4": "10.0.0.2",
     "WG_UDP_PORT": 51820,
 }
 

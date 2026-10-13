@@ -40,6 +40,9 @@ CASES=(
   "b14_dhcp4_reply_only_on_dhcp_interfaces:case_b14"
   "b15_fallback_table_keeps_ssh_and_udp_only:case_b15"
   "b16_fallback_keeps_the_wireguard_udp_port_only:case_b16"
+  "b17_metrics_port_is_closed_to_other_sources:case_b17"
+  "b18_fallback_lets_the_tunnel_reach_ssh_only:case_b18"
+  "b19_fallback_closes_the_metrics_port:case_b19"
 )
 
 PASSED=0
@@ -72,8 +75,8 @@ fi
 # shellcheck source=/dev/null
 . "$DIR/verdict/topology.env"
 for name in CONSUMER_PORT FAR_V4 HOST_FAR_V4 HOST_LL HOST_V4 HOST_V6 IF_FAR IF_HOST_FAR IF_HOST_PEER \
-  IF_PEER LB_V4 MGMT_V4 MGMT_V6 NS_FAR NS_HOST NS_PEER OTHER_V4 PEER_LL PEER_V4 PEER_V6 PUB_UDP_PORT \
-  SOL_UDP_PORT SSH_PORT UNSEEN_V4 WG_UDP_PORT; do
+  IF_PEER IF_WG IF_WG_PEER LB_V4 METRICS_PORT MGMT_V4 MGMT_V6 NS_FAR NS_HOST NS_PEER OTHER_V4 PEER_LL \
+  PEER_V4 PEER_V6 PUB_UDP_PORT SOL_UDP_PORT SSH_PORT UNSEEN_V4 WG_HOST_V4 WG_PEER_V4 WG_UDP_PORT; do
   if [ -z "${!name:-}" ]; then
     say_all_failed "$DIR/verdict/topology.env does not set $name"
   fi
@@ -489,7 +492,7 @@ setup_topology() {
 
   # what the cases talk to: TCP listeners that echo, and a UDP listener that logs the senders
   rm -f "$WORK/serve.ready"
-  nsx "$NS_HOST" python3 "$WORK/pkt.py" serve --tcp "$SSH_PORT,$CONSUMER_PORT" --udp "$SOL_UDP_PORT" \
+  nsx "$NS_HOST" python3 "$WORK/pkt.py" serve --tcp "$SSH_PORT,$CONSUMER_PORT,$METRICS_PORT" --udp "$SOL_UDP_PORT" \
     --udp-log "$WORK/udp.log" --ready "$WORK/serve.ready" >"$WORK/serve.out" 2>&1 &
   SERVE_PID=$!
   for _ in $(seq 1 50); do
@@ -503,7 +506,7 @@ setup_topology() {
 # with no table loaded every port answers: a case that expects silence is then about the table
 check_untouched_host() {
   local port r
-  for port in "$SSH_PORT" "$CONSUMER_PORT"; do
+  for port in "$SSH_PORT" "$CONSUMER_PORT" "$METRICS_PORT"; do
     r=$(pkt "$NS_PEER" tcp-connect --src "$OTHER_V4" --dst "$HOST_V4" --port "$port" --timeout 2)
     if [ "$r" != "OK" ]; then
       SETUP_ERROR="with no table loaded, a connection from $OTHER_V4 to $HOST_V4:$port gave $r, expected OK"
@@ -936,6 +939,91 @@ case_b16() {
   fi
   if [ "$(pval a_pub_udp_other)" -lt 2 ] || [ "$(pval s_pub_udp_other)" -ne 0 ]; then
     echo "  another public UDP port ($PUB_UDP_PORT) against the fallback table: arrived $(pval a_pub_udp_other), passed $(pval s_pub_udp_other); expected it to arrive and be dropped"
+    rc=1
+  fi
+  return $rc
+}
+
+case_b17() {
+  prepare "$T_REFUSE" || return 1
+  local rc=0 r src before
+  # metrics_ips is empty in this scenario: no address is a scrape source, and mgmt is the only one let in
+  for src in "$OTHER_V4" "$LB_V4"; do
+    r=$(pkt "$NS_PEER" tcp-connect --src "$src" --dst "$HOST_V4" --port "$METRICS_PORT" --timeout 1.5)
+    if [ "$r" != "TIMEOUT" ]; then
+      echo "  a connection from $src (neither a scrape source nor mgmt) to the metrics port $METRICS_PORT: $r, expected TIMEOUT"
+      rc=1
+    fi
+  done
+  before=$(cval c_metrics)
+  r=$(pkt "$NS_PEER" tcp-connect --src "$MGMT_V4" --dst "$HOST_V4" --port "$METRICS_PORT" --timeout 2)
+  if [ "$r" != "OK" ]; then
+    echo "  a connection from the mgmt address $MGMT_V4 to the metrics port $METRICS_PORT: $r, expected OK"
+    rc=1
+  fi
+  if [ $(($(cval c_metrics) - before)) -lt 1 ]; then
+    echo "  c_metrics did not rise after the connection from $MGMT_V4"
+    rc=1
+  fi
+  return $rc
+}
+
+case_b18() {
+  local rc=0 r before
+  # The table matches the tunnel by the name of its interface. A pair of virtual links stands in
+  # for it, and is checked with no table loaded so that a silence below is about the table.
+  hx nft delete table inet slv 2>/dev/null
+  hx ip link del "$IF_WG" 2>/dev/null
+  hx ip link add "$IF_WG" type veth peer name "$IF_WG_PEER" || {
+    echo "  creating the link pair $IF_WG - $IF_WG_PEER failed"
+    return 1
+  }
+  hx ip link set "$IF_WG_PEER" netns "$NS_PEER" || return 1
+  hx sysctl -qw "net.ipv6.conf.$IF_WG.disable_ipv6=1" || return 1
+  nsx "$NS_PEER" sysctl -qw "net.ipv6.conf.$IF_WG_PEER.disable_ipv6=1" || return 1
+  hx ip addr add "$WG_HOST_V4/24" dev "$IF_WG" || return 1
+  nsx "$NS_PEER" ip addr add "$WG_PEER_V4/24" dev "$IF_WG_PEER" || return 1
+  hx ip link set "$IF_WG" up || return 1
+  nsx "$NS_PEER" ip link set "$IF_WG_PEER" up || return 1
+  r=$(pkt "$NS_PEER" tcp-connect --src "$WG_PEER_V4" --dst "$WG_HOST_V4" --port "$SSH_PORT" --timeout 2)
+  if [ "$r" != "OK" ]; then
+    echo "  with no table loaded, a connection from $WG_PEER_V4 to $WG_HOST_V4:$SSH_PORT over $IF_WG gave $r, expected OK"
+    return 1
+  fi
+  prepare "$T_WG_FALLBACK" || return 1
+  before=$(cval c_mgmt)
+  r=$(pkt "$NS_PEER" tcp-connect --src "$WG_PEER_V4" --dst "$WG_HOST_V4" --port "$SSH_PORT" --timeout 2)
+  if [ "$r" != "OK" ]; then
+    echo "  SSH from the tunnel address $WG_PEER_V4 over $IF_WG against the fallback table: $r, expected OK"
+    rc=1
+  fi
+  if [ $(($(cval c_mgmt) - before)) -lt 1 ]; then
+    echo "  c_mgmt did not rise after the SSH connection over $IF_WG"
+    rc=1
+  fi
+  r=$(pkt "$NS_PEER" tcp-connect --src "$WG_PEER_V4" --dst "$WG_HOST_V4" --port "$CONSUMER_PORT" --timeout 1.5)
+  if [ "$r" != "TIMEOUT" ]; then
+    echo "  a connection from $WG_PEER_V4 over $IF_WG to the consumer port $CONSUMER_PORT against the fallback table: $r, expected TIMEOUT"
+    rc=1
+  fi
+  hx ip link del "$IF_WG" 2>/dev/null
+  return $rc
+}
+
+case_b19() {
+  prepare "$T_FALLBACK" || return 1
+  local rc=0 r src
+  for src in "$MGMT_V4" "$LB_V4" "$OTHER_V4"; do
+    r=$(pkt "$NS_PEER" tcp-connect --src "$src" --dst "$HOST_V4" --port "$METRICS_PORT" --timeout 1.5)
+    if [ "$r" != "TIMEOUT" ]; then
+      echo "  a connection from $src to the metrics port $METRICS_PORT against the fallback table: $r, expected TIMEOUT"
+      rc=1
+    fi
+  done
+  # the same table lets mgmt in on the SSH port, so the silence above is about the metrics port
+  r=$(pkt "$NS_PEER" tcp-connect --src "$MGMT_V4" --dst "$HOST_V4" --port "$SSH_PORT" --timeout 2)
+  if [ "$r" != "OK" ]; then
+    echo "  SSH from the mgmt address $MGMT_V4 against the fallback table: $r, expected OK"
     rc=1
   fi
   return $rc

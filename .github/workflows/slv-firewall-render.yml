@@ -4,21 +4,21 @@ on:
   pull_request:
     branches: ["main"]
     paths:
+      - "template/**/ansible/**"
       - "template/**/firewall/**"
       - "template/**/tests/firewall/**"
       - "template/**/jinja/**"
-      - "template/**/ansible/cmn/vars/startup_templates.yml"
-      - "template/**/ansible/mainnet-rpc/install_of1_service.yml"
+      - "template/latest"
       - "cmn/constants/version.ts"
       - ".github/workflows/slv-firewall-render.yml"
   push:
     branches: ["main"]
     paths:
+      - "template/**/ansible/**"
       - "template/**/firewall/**"
       - "template/**/tests/firewall/**"
       - "template/**/jinja/**"
-      - "template/**/ansible/cmn/vars/startup_templates.yml"
-      - "template/**/ansible/mainnet-rpc/install_of1_service.yml"
+      - "template/latest"
       - "cmn/constants/version.ts"
       - ".github/workflows/slv-firewall-render.yml"
 
@@ -138,6 +138,6 @@ jobs:
           echo "PASS b01_nft_check_all_cells ($count files)"
           EOF
 
-      - name: Verdicts in network namespaces (b05 to b16)
+      - name: Verdicts in network namespaces (b05 to b19)
         if: ${{ !cancelled() }}
         run: sudo template/latest/tests/firewall/netns_verdicts.sh "$RUNNER_TEMP/render"
