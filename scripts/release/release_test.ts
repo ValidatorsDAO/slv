@@ -141,6 +141,10 @@ async function writeSourceMaterialsFixture(root: string): Promise<void> {
       archive: `https://github.com/denoland/v8/archive/${commit}.tar.gz`,
       sha256: 'd'.repeat(64),
     },
+    gitlink_closure: {
+      path: 'source-materials/rusty-v8-gitlinks.json',
+      sha256: '',
+    },
   }
   await Deno.mkdir(`${root}/source-materials`, { recursive: true })
   await Deno.mkdir(`${root}/source-rebuild`, { recursive: true })
@@ -149,6 +153,37 @@ async function writeSourceMaterialsFixture(root: string): Promise<void> {
     `${root}/source-rebuild/tool-prereqs.json`,
   )
   const pinsPath = `${root}/source-materials/pins.json`
+  const closureDescriptorPath =
+    `${root}/source-materials/rusty-v8-gitlinks.json`
+  const sourceLegalIndexPath =
+    `${root}/source-materials/rusty-v8-source-license-index.json`
+  await Deno.writeTextFile(
+    closureDescriptorPath,
+    JSON.stringify(
+      {
+        schema_version: 1,
+        kind: 'fixture-rusty-v8-gitlink-closure',
+        root_tree: 'f'.repeat(40),
+        gitlink_count: 1,
+      },
+      null,
+      2,
+    ) + '\n',
+  )
+  await Deno.writeTextFile(
+    sourceLegalIndexPath,
+    JSON.stringify(
+      {
+        schema_version: 1,
+        kind: 'fixture-source-distributed-extra-tree-legal-evidence',
+        source_distributed_extra_tree_count: 7,
+        supplement_count: 3,
+      },
+      null,
+      2,
+    ) + '\n',
+  )
+  pins.gitlink_closure.sha256 = await hashFile(closureDescriptorPath)
   await Deno.writeTextFile(pinsPath, JSON.stringify(pins, null, 2) + '\n')
   const noticePath = `${root}/dist/release-inputs/THIRD_PARTY_NOTICES`
   const notice = await Deno.stat(noticePath)
@@ -185,6 +220,18 @@ async function writeSourceMaterialsFixture(root: string): Promise<void> {
       omissions: [],
     },
     runtime_security: proofRuntimeSecurity('2'.repeat(64)),
+    gitlink_closure: {
+      path: pins.gitlink_closure.path,
+      sha256: pins.gitlink_closure.sha256,
+      root_tree: 'f'.repeat(40),
+      gitlink_count: 1,
+    },
+    source_legal_evidence: {
+      index_path: 'source-materials/rusty-v8-source-license-index.json',
+      sha256: await hashFile(sourceLegalIndexPath),
+      source_distributed_extra_tree_count: 7,
+      supplement_count: 3,
+    },
     assets: sourceAssets,
     rebuild_proof: { required: true, status: 'separate' },
   }

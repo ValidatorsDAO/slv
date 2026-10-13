@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/chromium/src/third_party/simdutf",
+  "commit": "f7356eed293f8208c40b3c1b344a50bd70971983",
+  "tree": "6123564324038cf176c37fbd3dfac2bbee1deb32",
+  "files": [
+    {
+      "path": "BUILD.gn",
+      "mode": "100644",
+      "blob": "05215d2610d5c4bed1381b6d3af39441bc1eb8c5",
+      "sha256": "d2ed0d51712624b6803f0bf7f847a63940d3564182442d75ad1dd8dd701c0e90",
+      "size": 1138
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "blob": "74c8302ba92830e170dfae35957468edd2e25271",
+      "sha256": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f",
+      "size": 1059
+    },
+    {
+      "path": "OWNERS",
+      "mode": "100644",
+      "blob": "162cb9de2bfa0e9bc254bbce1e43eae1360b2c22",
+      "sha256": "df59d7a7497b7fdd2c1587fa2d6630eb438b97fea932c8c8c15d50aef5d4a264",
+      "size": 45
+    },
+    {
+      "path": "README.chromium",
+      "mode": "100644",
+      "blob": "003c53476cc0e4a9f0460d0664480b622e7552bb",
+      "sha256": "6473dd8c53339fc113f3c5de62a3a74b3b25fc222e986a1fe43daa49ccb2bb80",
+      "size": 1120
+    },
+    {
+      "path": "simdutf.cpp",
+      "mode": "100644",
+      "blob": "ebada9ab4eb6ce0e07fd55cc505525ddd3735921",
+      "sha256": "0fba908670006a7e22d7a602e8cd348763502f3b95e5880f2a131e43ed5af0e2",
+      "size": 2939448
+    },
+    {
+      "path": "simdutf.h",
+      "mode": "100644",
+      "blob": "a7a27a6697988672a8a8cd2d4650e1c8a1c334bb",
+      "sha256": "0ace8c5b81085678b586e12ca6a99a6ea65a707f007a1121ee54356ff1991359",
+      "size": 276419
+    }
+  ]
+}

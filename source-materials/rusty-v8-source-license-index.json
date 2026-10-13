@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "kind": "rusty-v8-source-license-index",
+  "scope": "source-distributed-extra-trees",
+  "source_distributed_extra_trees": [
+    {
+      "path": "build",
+      "commit": "fffa45f2e9df48c0230a4c799b7d12e7f83d8219",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/build.json",
+      "legal_file_count": 1,
+      "runtime_linkage": "not-determined"
+    },
+    {
+      "path": "buildtools",
+      "commit": "c9110ba7150d93134b1c85ea392033b4a82d28f7",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/buildtools.json",
+      "legal_file_count": 2,
+      "runtime_linkage": "not-determined"
+    },
+    {
+      "path": "third_party/jinja2",
+      "commit": "c3027d884967773057bf74b957e3fea87e5df4d7",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--jinja2.json",
+      "legal_file_count": 1,
+      "runtime_linkage": "not-determined"
+    },
+    {
+      "path": "third_party/markupsafe",
+      "commit": "4256084ae14175d38a3ff7d739dca83ae49ccec6",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--markupsafe.json",
+      "legal_file_count": 2,
+      "runtime_linkage": "not-determined"
+    },
+    {
+      "path": "third_party/rust",
+      "commit": "2b055f4ecac78bbf34a0d34217c699b7b09b44dd",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--rust.json",
+      "legal_file_count": 353,
+      "runtime_linkage": "not-determined"
+    },
+    {
+      "path": "tools/clang",
+      "commit": "61150a5f1ddf6460bad3d896c1502c6a56e15311",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/tools--clang.json",
+      "legal_file_count": 0,
+      "runtime_linkage": "not-determined"
+    },
+    {
+      "path": "tools/win",
+      "commit": "d16e6b55b2bd699735919d8a13a55ff284086603",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/tools--win.json",
+      "legal_file_count": 0,
+      "runtime_linkage": "not-determined"
+    }
+  ],
+  "supplements": [
+    {
+      "path": "source-materials/source-license-supplements/chromium-bsd-3-clause.txt",
+      "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b",
+      "size": 1536,
+      "purpose": "Split Chromium source families retain headers that refer to a root LICENSE absent from their split repositories. This is a source-distribution supplement; it does not alter the canonical runtime notice set.",
+      "provenance": [
+        {
+          "family": "build",
+          "url": "https://chromium.googlesource.com/chromium/src/+/e74489ee1796d05b553ed3f7d09f4c6f27490d0a/LICENSE?format=TEXT",
+          "relation": "The pinned build fork commit has nearest verified Chromium ancestor 1a96aee6; e74489ee has identical LICENSE bytes."
+        },
+        {
+          "family": "tools/clang",
+          "url": "https://chromium.googlesource.com/chromium/src/+/0f53c6014a68b1614bdbe1f99dab48f3ec9103e3/LICENSE?format=TEXT",
+          "relation": "Exact pinned Chromium parent LICENSE."
+        },
+        {
+          "family": "third_party/rust",
+          "url": "https://chromium.googlesource.com/chromium/src/+/3d0b09a9827ff405a40385309f719a70988bee9f/LICENSE?format=TEXT",
+          "relation": "Exact pinned Chromium parent LICENSE."
+        },
+        {
+          "family": "tools/win",
+          "url": "https://chromium.googlesource.com/chromium/src/+/212af6aa8f465e1f903558d651ae9c9d46df03df/LICENSE?format=TEXT",
+          "relation": "Exact pinned Chromium parent LICENSE."
+        }
+      ]
+    },
+    {
+      "path": "source-materials/source-license-supplements/better_any-0.2.1-parent-LICENCE-MIT.txt",
+      "sha256": "30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+      "size": 1022,
+      "purpose": "Full MIT text for the source-distributed better_any-v0_2 package. The original 15-byte LICENCE-MIT reference file remains in the pinned source tree.",
+      "provenance": [
+        {
+          "url": "https://raw.githubusercontent.com/rrevenantt/better_typeid/66802eb68397c7dbdaf3be9f5ab51e7506d238ed/LICENCE-MIT",
+          "relation": "Parent VCS commit recorded by the published crate; its .cargo_vcs_info.json is marked dirty. This supplement is labeled rather than substituted for the original reference file."
+        }
+      ]
+    },
+    {
+      "path": "source-materials/source-license-supplements/better_any-0.2.1-parent-LICENCE-Apache.txt",
+      "sha256": "769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb",
+      "size": 10846,
+      "purpose": "Full Apache text for the source-distributed better_any-v0_2 package. The original 18-byte LICENCE-Apache reference file remains in the pinned source tree.",
+      "provenance": [
+        {
+          "url": "https://raw.githubusercontent.com/rrevenantt/better_typeid/66802eb68397c7dbdaf3be9f5ab51e7506d238ed/LICENCE-Apache",
+          "relation": "Parent VCS commit recorded by the published crate; its .cargo_vcs_info.json is marked dirty. This supplement is labeled rather than substituted for the original reference file."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/chromium/src/third_party/markupsafe.git",
+  "commit": "4256084ae14175d38a3ff7d739dca83ae49ccec6",
+  "tree": "8c1f275c5022de6417bf43377c671b44d7a474d6",
+  "files": [
+    {
+      "path": "__init__.py",
+      "mode": "100644",
+      "blob": "25f00d3a4f2795dec69d65c68ff7cb00e659afbb",
+      "sha256": "b98b095c79722af63d623213ce7a568f765b95f1b12272ee8f0696deaaf5d559",
+      "size": 8205
+    },
+    {
+      "path": "_compat.py",
+      "mode": "100644",
+      "blob": "29e4a3dac13f28e9c1a72792ccae83a03ed193d6",
+      "sha256": "a86fd60f3ae33ac1e22b854baa11b4554f8548c3ccfc37bdd8d69796cece26fe",
+      "size": 483
+    },
+    {
+      "path": "_constants.py",
+      "mode": "100644",
+      "blob": "919bf03c5092e557b164e7e2322b12ed74d349fb",
+      "sha256": "53fc726c542cc9728280749fada9c99c5ce8fb3f679fd7ee05e4a4db8dec1394",
+      "size": 4795
+    },
+    {
+      "path": "_native.py",
+      "mode": "100644",
+      "blob": "5e83f10a117c4717975327337ef43d0a14a91e96",
+      "sha256": "136527d72b0e7fec38e5dd7c6028fc51e953e543fb56dfff22e14f609ed8448b",
+      "size": 1187
+    },
+    {
+      "path": "_speedups.c",
+      "mode": "100644",
+      "blob": "f349febf22d59ec7dfe440b65faf5838c1234b90",
+      "sha256": "819c0f10cff4cdc6c0cc98cfb8f61793ded1ebb411d6e506b43bce3ecbe2ac20",
+      "size": 5939
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "blob": "5727c5e0a4a14fb84f37a94173b01c5ed68f80b1",
+      "sha256": "e3139dd71ae0e08149c397dafda650807f40fcbed80427f3086ae243d1d5822f",
+      "size": 10
+    },
+    {
+      "path": "AUTHORS",
+      "mode": "100644",
+      "blob": "f7e2942eccd11ed7d5f3d567639e1607d29299d2",
+      "sha256": "bca90e12c0bf6998d25eb74bc0aa76f1f781493ff81a8a71ad6fb0d692248c45",
+      "size": 248
+    },
+    {
+      "path": "DIR_METADATA",
+      "mode": "100644",
+      "blob": "45f7798a6860a53fdfe22765e9d0bee9e1d67678",
+      "sha256": "d5a588a8394434249cdece2dc1e8538b4bf56f5e03f4d0cc06f36d5b653b16d2",
+      "size": 85
+    },
+    {
+      "path": "get_markupsafe.sh",
+      "mode": "100755",
+      "blob": "d268832df8ca7fa7c46a67110e0ddf922b8d3560",
+      "sha256": "d5340dab162e1a9085120967e1fc17a1b7046ff15ef5f5f9100e1d2cf6f91f6b",
+      "size": 2980
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "blob": "5d2693890dddc34129973f5613afd88767213b24",
+      "sha256": "0bbe88228fd63d20ec097f64e58d5a0a465123ae139140a18d406c60b48824b5",
+      "size": 1582
+    },
+    {
+      "path": "MarkupSafe-0.18.tar.gz.md5",
+      "mode": "100644",
+      "blob": "1348d1eea1fb9035ed8b88898eec2b793b9bcb50",
+      "sha256": "4af1247c6e3f3254daf678cd1773fa783db85af392b6d24fc6a5d09966fc6431",
+      "size": 57
+    },
+    {
+      "path": "MarkupSafe-0.18.tar.gz.sha512",
+      "mode": "100644",
+      "blob": "ab752200d5fcb41f01eb3cf10676e3382db8f7ef",
+      "sha256": "fff4fb27f79750cc70b33bbabe1555fd76afd405d7e246f6a9f9185abb625013",
+      "size": 153
+    },
+    {
+      "path": "markupsafe.gni",
+      "mode": "100644",
+      "blob": "89c24ef0fca51ecc006a9a50c066df134a0cc404",
+      "sha256": "b98147a08b33487604882ab76aea163fb8c39311e045bfc407cb1bcde3c49a54",
+      "size": 193
+    },
+    {
+      "path": "OWNERS",
+      "mode": "100644",
+      "blob": "05a4a96035b027c370202bff3e91b053d46ddb53",
+      "sha256": "b1d227f2a16f9b2d50d5ab49f4d87bc47a045740ceaa06a077b65be8e8fc158c",
+      "size": 65
+    },
+    {
+      "path": "README.chromium",
+      "mode": "100644",
+      "blob": "f9f3d1fad5587c693c5d39aacf0951b6cee76400",
+      "sha256": "7146dafeafbfc822c602fc220ca6e056e7516730b54134949563dc3557a9226a",
+      "size": 1172
+    }
+  ]
+}

@@ -16,7 +16,17 @@ export type Pin = {
   sha256: string
   version?: string
 }
-export type Pins = { schema_version: 1; deno: Pin; rusty_v8: Pin; v8: Pin }
+export type GitlinkClosurePin = {
+  path: 'source-materials/rusty-v8-gitlinks.json'
+  sha256: string
+}
+export type Pins = {
+  schema_version: 1
+  deno: Pin
+  rusty_v8: Pin
+  v8: Pin
+  gitlink_closure: GitlinkClosurePin
+}
 export type FileRecord = {
   path: string
   sha256: string
@@ -81,6 +91,18 @@ export type SourceMaterialsReceipt = {
    * source archive as evidence; `selected` is the only build/vendor input.
    */
   runtime_security: RuntimeSecurityReceipt
+  gitlink_closure: {
+    path: 'source-materials/rusty-v8-gitlinks.json'
+    sha256: string
+    root_tree: string
+    gitlink_count: number
+  }
+  source_legal_evidence: {
+    index_path: 'source-materials/rusty-v8-source-license-index.json'
+    sha256: string
+    source_distributed_extra_tree_count: number
+    supplement_count: number
+  }
   assets: SourceAsset[]
   rebuild_proof: {
     required: true
@@ -104,6 +126,12 @@ export const GENERATED_SOURCE_ROOTS = [
   'rusty_v8/v8/out',
   'rusty_v8/third_party/rust-toolchain',
 ] as const
+
+const GITLINK_DESCRIPTOR_PATH = 'source-materials/rusty-v8-gitlinks.json'
+const SOURCE_LICENSE_INDEX_PATH =
+  'source-materials/rusty-v8-source-license-index.json'
+const SOURCE_LICENSE_SUPPLEMENT_PREFIX =
+  'source-materials/source-license-supplements/'
 
 export async function sha256(path: string): Promise<string> {
   const handle = await Deno.open(path)
@@ -155,6 +183,13 @@ export function assertPins(value: unknown): asserts value is Pins {
     if (name !== 'deno' && !url.pathname.includes(pin.commit)) {
       throw new Error(`${name} archive does not bind its commit`)
     }
+  }
+  const closure = pins.gitlink_closure
+  if (
+    !closure || closure.path !== GITLINK_DESCRIPTOR_PATH ||
+    typeof closure.sha256 !== 'string' || !SHA256.test(closure.sha256)
+  ) {
+    throw new Error('invalid rusty_v8 gitlink closure pin')
   }
 }
 
@@ -444,6 +479,39 @@ export function verifySourceMaterialsReceipt(
   assertSafeArchivePath(vendor.lock_path, 'vendor lock path')
 
   parseRuntimeSecurityReceipt(value.runtime_security)
+
+  const gitlinkClosure = value.gitlink_closure
+  if (
+    !isRecord(gitlinkClosure) ||
+    gitlinkClosure.path !== GITLINK_DESCRIPTOR_PATH ||
+    typeof gitlinkClosure.sha256 !== 'string' ||
+    !SHA256.test(gitlinkClosure.sha256) ||
+    typeof gitlinkClosure.root_tree !== 'string' ||
+    !SHA40.test(gitlinkClosure.root_tree) ||
+    !Number.isSafeInteger(gitlinkClosure.gitlink_count) ||
+    (gitlinkClosure.gitlink_count as number) <= 0 ||
+    gitlinkClosure.sha256 !== pins.gitlink_closure.sha256
+  ) {
+    throw new Error('invalid rusty_v8 gitlink closure binding')
+  }
+
+  const sourceLegalEvidence = value.source_legal_evidence
+  if (
+    !isRecord(sourceLegalEvidence) ||
+    sourceLegalEvidence.index_path !== SOURCE_LICENSE_INDEX_PATH ||
+    typeof sourceLegalEvidence.sha256 !== 'string' ||
+    !SHA256.test(sourceLegalEvidence.sha256) ||
+    !Number.isSafeInteger(
+      sourceLegalEvidence.source_distributed_extra_tree_count,
+    ) ||
+    (sourceLegalEvidence.source_distributed_extra_tree_count as number) !== 7 ||
+    !Number.isSafeInteger(sourceLegalEvidence.supplement_count) ||
+    (sourceLegalEvidence.supplement_count as number) < 3
+  ) {
+    throw new Error(
+      'invalid source-distributed extra-tree legal evidence binding',
+    )
+  }
 
   const names: SourceAssetName[] = [
     'slv-source.tar.gz',
@@ -786,6 +854,40 @@ type ReviewedSource = {
   timestamp: string
   timestampEpoch: number
 }
+type GitTreeRecord = {
+  path: string
+  mode: '100644' | '100755' | '120000'
+  blob: string
+  sha256: string
+  size: number
+}
+type GitTreeInventory = {
+  schema_version: 1
+  repository: string
+  commit: string
+  tree: string
+  files: GitTreeRecord[]
+}
+type GitlinkDescriptorEntry = {
+  path: string
+  repository: string
+  commit: string
+  tree: string
+  inventory_path: string
+  inventory_sha256: string
+}
+type GitlinkClosureDescriptor = {
+  schema_version: 1
+  kind: 'rusty-v8-gitlink-closure'
+  root: Omit<GitlinkDescriptorEntry, 'path'>
+  gitlinks: GitlinkDescriptorEntry[]
+}
+type GitObjectStore = {
+  repository: string
+  commit: string
+  tree: string
+  path: string
+}
 type CargoPackage = { name: string; version: string; checksum: string }
 type SourceVendorCoverage = {
   indexSha256: string
@@ -1033,6 +1135,747 @@ async function archiveGitTree(
     await command('tar', ['-xf', temporary, '-C', destination])
   } finally {
     await Deno.remove(temporary).catch(() => undefined)
+  }
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  label: string,
+): void {
+  if (
+    Object.keys(value).length !== keys.length ||
+    keys.some((key) => !(key in value))
+  ) throw new Error(`invalid ${label} shape`)
+}
+
+function publicGitRepository(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new Error(`invalid ${label} repository`)
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error(`invalid ${label} repository`)
+  }
+  if (
+    url.protocol !== 'https:' || url.username || url.password || url.port ||
+    url.search || url.hash ||
+    !['github.com', 'chromium.googlesource.com'].includes(url.hostname) ||
+    !url.pathname.startsWith('/') || url.pathname.includes('..') ||
+    url.toString() !== value
+  ) throw new Error(`invalid ${label} repository`)
+  return value
+}
+
+function gitPath(value: unknown, label: string): string {
+  if (
+    typeof value !== 'string' || !value || value.startsWith('/') ||
+    value.includes('\\') || value.includes('\0') ||
+    value.split('/').some((part) =>
+      !part || part === '.' || part === '..' || part === '.git'
+    )
+  ) throw new Error(`invalid ${label} path`)
+  return value
+}
+
+function gitSha(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !SHA40.test(value)) {
+    throw new Error(`invalid ${label} Git identity`)
+  }
+  return value
+}
+
+function gitInventoryPath(value: unknown, label: string): string {
+  const path = gitPath(value, label)
+  if (
+    !path.startsWith('source-materials/rusty-v8-gitlink-inventories/') ||
+    !path.endsWith('.json')
+  ) throw new Error(`invalid ${label} path`)
+  return path
+}
+
+function parseGitlinkDescriptor(
+  value: unknown,
+  pins: Pins,
+): GitlinkClosureDescriptor {
+  const descriptor = requiredObject(value, 'rusty_v8 gitlink descriptor')
+  exactKeys(
+    descriptor,
+    ['schema_version', 'kind', 'root', 'gitlinks'],
+    'rusty_v8 gitlink descriptor',
+  )
+  if (
+    descriptor.schema_version !== 1 ||
+    descriptor.kind !== 'rusty-v8-gitlink-closure'
+  ) throw new Error('unsupported rusty_v8 gitlink descriptor')
+  const parseEntry = (
+    raw: unknown,
+    label: string,
+    includePath: boolean,
+  ): GitlinkDescriptorEntry => {
+    const entry = requiredObject(raw, label)
+    exactKeys(
+      entry,
+      includePath
+        ? [
+          'path',
+          'repository',
+          'commit',
+          'tree',
+          'inventory_path',
+          'inventory_sha256',
+        ]
+        : [
+          'repository',
+          'commit',
+          'tree',
+          'inventory_path',
+          'inventory_sha256',
+        ],
+      label,
+    )
+    return {
+      ...(includePath ? { path: gitPath(entry.path, label) } : { path: '' }),
+      repository: publicGitRepository(entry.repository, label),
+      commit: gitSha(entry.commit, label),
+      tree: gitSha(entry.tree, label),
+      inventory_path: gitInventoryPath(entry.inventory_path, label),
+      inventory_sha256: requiredSha256(entry.inventory_sha256, label),
+    }
+  }
+  const root = parseEntry(descriptor.root, 'rusty_v8 gitlink root', false)
+  if (
+    root.repository !== 'https://github.com/denoland/rusty_v8.git' ||
+    root.commit !== pins.rusty_v8.commit ||
+    root.inventory_path !==
+      'source-materials/rusty-v8-gitlink-inventories/rusty_v8.json'
+  ) throw new Error('rusty_v8 gitlink root differs from source pin')
+  if (!Array.isArray(descriptor.gitlinks) || !descriptor.gitlinks.length) {
+    throw new Error('rusty_v8 gitlink descriptor has no gitlinks')
+  }
+  const gitlinks = descriptor.gitlinks.map((entry, index) =>
+    parseEntry(entry, `rusty_v8 gitlink ${index}`, true)
+  )
+  const paths = new Set<string>()
+  const inventories = new Set<string>()
+  for (const entry of gitlinks) {
+    if (paths.has(entry.path) || inventories.has(entry.inventory_path)) {
+      throw new Error('rusty_v8 gitlink descriptor has duplicate entries')
+    }
+    paths.add(entry.path)
+    inventories.add(entry.inventory_path)
+  }
+  if (
+    gitlinks.some((entry, index) =>
+      index > 0 && gitlinks[index - 1].path.localeCompare(entry.path) >= 0
+    )
+  ) throw new Error('rusty_v8 gitlink descriptor is not canonically ordered')
+  const v8 = gitlinks.find((entry) => entry.path === 'v8')
+  if (
+    !v8 || v8.repository !== 'https://github.com/denoland/v8.git' ||
+    v8.commit !== pins.v8.commit
+  ) throw new Error('rusty_v8 gitlink descriptor differs from V8 source pin')
+  return {
+    schema_version: 1,
+    kind: 'rusty-v8-gitlink-closure',
+    root: {
+      repository: root.repository,
+      commit: root.commit,
+      tree: root.tree,
+      inventory_path: root.inventory_path,
+      inventory_sha256: root.inventory_sha256,
+    },
+    gitlinks,
+  }
+}
+
+async function readGitlinkDescriptor(
+  sourceRoot: string,
+  pins: Pins,
+): Promise<{ descriptor: GitlinkClosureDescriptor; sha256: string }> {
+  const path = join(sourceRoot, pins.gitlink_closure.path)
+  await requireRegularFile(path, 'rusty_v8 gitlink descriptor')
+  const digest = await sha256(path)
+  if (digest !== pins.gitlink_closure.sha256) {
+    throw new Error(
+      'rusty_v8 gitlink descriptor checksum differs from source pin',
+    )
+  }
+  let raw: unknown
+  try {
+    raw = JSON.parse(await Deno.readTextFile(path))
+  } catch {
+    throw new Error('rusty_v8 gitlink descriptor is not JSON')
+  }
+  return { descriptor: parseGitlinkDescriptor(raw, pins), sha256: digest }
+}
+
+function parseGitTreeRows(
+  output: Uint8Array,
+  label: string,
+): Array<{ mode: string; type: string; object: string; path: string }> {
+  const rows: Array<
+    { mode: string; type: string; object: string; path: string }
+  > = []
+  const decoded = new TextDecoder('utf-8', { fatal: true }).decode(output)
+  for (const record of decoded.split('\0')) {
+    if (!record) continue
+    const divider = record.indexOf('\t')
+    if (divider <= 0) throw new Error(`invalid ${label} tree row`)
+    const fields = record.slice(0, divider).split(' ')
+    if (fields.length !== 3) throw new Error(`invalid ${label} tree row`)
+    rows.push({
+      mode: fields[0],
+      type: fields[1],
+      object: gitSha(fields[2], label),
+      path: gitPath(record.slice(divider + 1), label),
+    })
+  }
+  return rows.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+async function gitOutput(
+  repository: string,
+  args: string[],
+): Promise<Uint8Array> {
+  return (await command('git', [
+    '--no-replace-objects',
+    '-C',
+    repository,
+    ...args,
+  ])).stdout
+}
+
+async function gitTree(
+  repository: string,
+  commit: string,
+): Promise<string> {
+  return decode(await gitOutput(repository, ['rev-parse', `${commit}^{tree}`]))
+    .trim()
+}
+
+async function gitModules(
+  repository: string,
+  commit: string,
+): Promise<Map<string, string>> {
+  const output = await gitOutput(repository, [
+    'config',
+    '--null',
+    `--blob=${commit}:.gitmodules`,
+    '--get-regexp',
+    '^submodule\\..*\\.(path|url)$',
+  ])
+  const modules = new Map<string, { path?: string; url?: string }>()
+  for (const record of decode(output).split('\0')) {
+    if (!record) continue
+    const divider = record.indexOf('\n')
+    if (divider < 0) throw new Error('invalid rusty_v8 .gitmodules entry')
+    const key = record.slice(0, divider)
+    const value = record.slice(divider + 1)
+    const match = /^submodule\.(.+)\.(path|url)$/.exec(key)
+    if (!match) throw new Error('invalid rusty_v8 .gitmodules entry')
+    const entry = modules.get(match[1]) ?? {}
+    if (match[2] === 'path') entry.path = gitPath(value, 'rusty_v8 .gitmodules')
+    else entry.url = publicGitRepository(value, 'rusty_v8 .gitmodules')
+    modules.set(match[1], entry)
+  }
+  const paths = new Map<string, string>()
+  for (const entry of modules.values()) {
+    if (!entry.path || !entry.url || paths.has(entry.path)) {
+      throw new Error('rusty_v8 .gitmodules has incomplete entries')
+    }
+    paths.set(entry.path, entry.url)
+  }
+  return paths
+}
+
+async function ensureGitObjectStore(
+  cache: string,
+  repository: string,
+  commit: string,
+  tree: string,
+): Promise<GitObjectStore> {
+  const directory = join(
+    cache,
+    'git-objects',
+    sha256Bytes(new TextEncoder().encode(repository)),
+  )
+  const existing = await Deno.lstat(directory).catch(() => undefined)
+  if (!existing) {
+    await Deno.mkdir(directory.slice(0, directory.lastIndexOf('/')), {
+      recursive: true,
+    })
+    await command('git', ['init', '--bare', directory])
+  } else if (!existing.isDirectory || existing.isSymlink) {
+    throw new Error('git object cache path is not a real directory')
+  }
+  let present = true
+  try {
+    await gitOutput(directory, ['cat-file', '-e', `${commit}^{commit}`])
+  } catch {
+    present = false
+  }
+  if (!present) {
+    await command('git', [
+      '--no-replace-objects',
+      '-C',
+      directory,
+      'fetch',
+      '--no-tags',
+      '--depth=1',
+      repository,
+      commit,
+    ])
+  }
+  const resolved = decode(
+    await gitOutput(directory, ['rev-parse', `${commit}^{commit}`]),
+  ).trim()
+  if (resolved !== commit || await gitTree(directory, commit) !== tree) {
+    throw new Error('pinned Git object differs from descriptor commit or tree')
+  }
+  return { repository, commit, tree, path: directory }
+}
+
+async function gitTreeInventory(
+  store: GitObjectStore,
+  expected: Pick<GitlinkDescriptorEntry, 'inventory_sha256'>,
+  allowGitlinks: boolean,
+): Promise<GitTreeInventory> {
+  const rows = parseGitTreeRows(
+    await gitOutput(store.path, ['ls-tree', '-r', '-z', store.commit]),
+    'pinned Git',
+  )
+  const commits = rows.filter((row) => row.type === 'commit')
+  if (
+    (!allowGitlinks && commits.length) ||
+    rows.some((row) => row.type !== 'blob' && row.type !== 'commit')
+  ) {
+    throw new Error(
+      'pinned Git tree has unexpected nested gitlinks or object type',
+    )
+  }
+  const files: GitTreeRecord[] = []
+  for (const row of rows) {
+    if (row.type === 'commit') continue
+    if (!['100644', '100755', '120000'].includes(row.mode)) {
+      throw new Error('pinned Git tree has unsupported mode')
+    }
+    const bytes = await gitOutput(store.path, ['cat-file', 'blob', row.object])
+    files.push({
+      path: row.path,
+      mode: row.mode as GitTreeRecord['mode'],
+      blob: row.object,
+      sha256: sha256Bytes(bytes),
+      size: bytes.length,
+    })
+  }
+  const inventory: GitTreeInventory = {
+    schema_version: 1,
+    repository: store.repository,
+    commit: store.commit,
+    tree: store.tree,
+    files,
+  }
+  const digest = sha256Bytes(
+    new TextEncoder().encode(JSON.stringify(inventory, null, 2) + '\n'),
+  )
+  if (digest !== expected.inventory_sha256) {
+    throw new Error('pinned Git tree inventory differs from descriptor')
+  }
+  return inventory
+}
+
+async function writeGitTree(
+  store: GitObjectStore,
+  inventory: GitTreeInventory,
+  destination: string,
+): Promise<void> {
+  await Deno.mkdir(destination, { recursive: true })
+  for (const file of inventory.files) {
+    const path = join(destination, file.path)
+    const parent = path.slice(0, path.lastIndexOf('/'))
+    if (parent) await Deno.mkdir(parent, { recursive: true })
+    if (await Deno.lstat(path).catch(() => undefined)) {
+      throw new Error(
+        'pinned Git export would overwrite an existing source path',
+      )
+    }
+    const bytes = await gitOutput(store.path, ['cat-file', 'blob', file.blob])
+    if (bytes.length !== file.size || sha256Bytes(bytes) !== file.sha256) {
+      throw new Error('pinned Git blob differs from inventory')
+    }
+    if (file.mode === '120000') {
+      let target: string
+      try {
+        target = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      } catch {
+        throw new Error('pinned Git symlink target is not UTF-8')
+      }
+      if (
+        target.startsWith('/') || target.includes('\\') || target.includes('\0')
+      ) {
+        throw new Error('pinned Git symlink target is unsafe')
+      }
+      await Deno.symlink(target, path)
+    } else {
+      await Deno.writeFile(path, bytes, { createNew: true })
+      await Deno.chmod(path, file.mode === '100755' ? 0o755 : 0o644)
+    }
+  }
+  const observed = await walk(destination)
+  if (observed.length !== inventory.files.length) {
+    throw new Error('pinned Git export has unexpected tracked paths')
+  }
+  for (const file of inventory.files) {
+    const path = join(destination, file.path)
+    const stat = await Deno.lstat(path)
+    if (file.mode === '120000') {
+      if (
+        !stat.isSymlink || sha256Bytes(new TextEncoder().encode(
+            await Deno.readLink(path),
+          )) !== file.sha256
+      ) throw new Error('pinned Git symlink differs from inventory')
+    } else if (
+      !stat.isFile || stat.isSymlink || stat.size !== file.size ||
+      await sha256(path) !== file.sha256 ||
+      (stat.mode! & 0o777) !== (file.mode === '100755' ? 0o755 : 0o644)
+    ) throw new Error('pinned Git file differs from inventory')
+  }
+}
+
+async function verifyDirectGitlinks(
+  root: GitObjectStore,
+  descriptor: GitlinkClosureDescriptor,
+): Promise<void> {
+  const [rows, modules] = await Promise.all([
+    parseGitTreeRows(
+      await gitOutput(root.path, ['ls-tree', '-r', '-z', root.commit]),
+      'rusty_v8 pinned Git',
+    ),
+    gitModules(root.path, root.commit),
+  ])
+  const actual = rows.filter((row) => row.type === 'commit').map((row) => ({
+    path: row.path,
+    repository: modules.get(row.path),
+    commit: row.object,
+  }))
+  if (
+    actual.length !== modules.size ||
+    actual.length !== descriptor.gitlinks.length
+  ) {
+    throw new Error('rusty_v8 gitlink set differs from descriptor')
+  }
+  for (let index = 0; index < actual.length; index++) {
+    const observed = actual[index]
+    const expected = descriptor.gitlinks[index]
+    if (
+      !observed.repository || observed.path !== expected.path ||
+      observed.repository !== expected.repository ||
+      observed.commit !== expected.commit
+    ) {
+      throw new Error(
+        'rusty_v8 gitlink descriptor differs from pinned Git tree',
+      )
+    }
+  }
+}
+
+async function writeGitInventory(
+  inventory: GitTreeInventory,
+  path: string,
+): Promise<void> {
+  await ensureAbsentFile(path, 'pinned Git inventory')
+  await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
+  await Deno.writeTextFile(path, JSON.stringify(inventory, null, 2) + '\n')
+  // Generated closure metadata must not inherit the caller's umask.
+  await Deno.chmod(path, 0o644)
+}
+
+export async function materializeRustyV8GitlinkClosure(
+  sourceRoot: string,
+  pins: Pins,
+  cache: string,
+  rustyV8Destination: string,
+  metadataDestination: string,
+  temporaryReceipt: string,
+): Promise<{
+  descriptorSha256: string
+  rootTree: string
+  gitlinkCount: number
+  descriptor: GitlinkClosureDescriptor
+}> {
+  const { descriptor, sha256: descriptorSha256 } = await readGitlinkDescriptor(
+    sourceRoot,
+    pins,
+  )
+  const root = await ensureGitObjectStore(
+    cache,
+    descriptor.root.repository,
+    descriptor.root.commit,
+    descriptor.root.tree,
+  )
+  await verifyDirectGitlinks(root, descriptor)
+  const stores: GitObjectStore[] = [root]
+  const rootInventory = await gitTreeInventory(root, descriptor.root, true)
+  await writeGitTree(root, rootInventory, rustyV8Destination)
+  await writeGitInventory(
+    rootInventory,
+    join(metadataDestination, descriptor.root.inventory_path),
+  )
+  for (const entry of descriptor.gitlinks) {
+    const store = await ensureGitObjectStore(
+      cache,
+      entry.repository,
+      entry.commit,
+      entry.tree,
+    )
+    const inventory = await gitTreeInventory(store, entry, false)
+    await writeGitTree(store, inventory, join(rustyV8Destination, entry.path))
+    await writeGitInventory(
+      inventory,
+      join(metadataDestination, entry.inventory_path),
+    )
+    stores.push(store)
+  }
+  await Deno.copyFile(
+    join(sourceRoot, pins.gitlink_closure.path),
+    join(metadataDestination, pins.gitlink_closure.path),
+  )
+  // The descriptor is generated archive metadata, not upstream RustyV8 source.
+  await Deno.chmod(join(metadataDestination, pins.gitlink_closure.path), 0o644)
+  await Deno.writeTextFile(
+    temporaryReceipt,
+    JSON.stringify(
+      {
+        schema_version: 1,
+        kind: 'rusty-v8-git-object-stores',
+        descriptor: {
+          path: pins.gitlink_closure.path,
+          sha256: descriptorSha256,
+        },
+        stores: stores.map((store) => ({
+          repository: store.repository,
+          commit: store.commit,
+          tree: store.tree,
+          path: store.path,
+        })),
+      },
+      null,
+      2,
+    ) + '\n',
+  )
+  return {
+    descriptorSha256,
+    rootTree: descriptor.root.tree,
+    gitlinkCount: descriptor.gitlinks.length,
+    descriptor,
+  }
+}
+
+type SourceLegalEvidence = SourceMaterialsReceipt['source_legal_evidence']
+
+/**
+ * Keep source-distributed attribution distinct from the runtime notice aggregate.
+ * Every original legal file remains in its pinned Git tree; these small,
+ * separately labeled texts resolve only the two split-tree references found
+ * during the source distribution audit.
+ */
+async function materializeSourceLegalEvidence(
+  sourceRoot: string,
+  destination: string,
+  descriptor: GitlinkClosureDescriptor,
+): Promise<SourceLegalEvidence> {
+  const indexSource = join(sourceRoot, SOURCE_LICENSE_INDEX_PATH)
+  await requireRegularFile(
+    indexSource,
+    'source-distributed extra-tree legal evidence index',
+  )
+  const digest = await sha256(indexSource)
+  let value: Record<string, unknown>
+  try {
+    value = requiredObject(
+      JSON.parse(await Deno.readTextFile(indexSource)),
+      'source-distributed extra-tree legal evidence index',
+    )
+  } catch {
+    throw new Error(
+      'source-distributed extra-tree legal evidence index is not JSON',
+    )
+  }
+  exactKeys(
+    value,
+    [
+      'schema_version',
+      'kind',
+      'scope',
+      'source_distributed_extra_trees',
+      'supplements',
+    ],
+    'source-distributed extra-tree legal evidence index',
+  )
+  if (
+    value.schema_version !== 1 ||
+    value.kind !== 'rusty-v8-source-license-index' ||
+    value.scope !== 'source-distributed-extra-trees' ||
+    !Array.isArray(value.source_distributed_extra_trees) ||
+    !Array.isArray(value.supplements)
+  ) {
+    throw new Error(
+      'invalid source-distributed extra-tree legal evidence index',
+    )
+  }
+  const byPath = new Map(
+    descriptor.gitlinks.map((entry) => [entry.path, entry]),
+  )
+  const expectedFamilies = [
+    'build',
+    'buildtools',
+    'third_party/jinja2',
+    'third_party/markupsafe',
+    'third_party/rust',
+    'tools/clang',
+    'tools/win',
+  ]
+  if (value.source_distributed_extra_trees.length !== expectedFamilies.length) {
+    throw new Error(
+      'source-distributed extra-tree legal evidence has an incomplete family set',
+    )
+  }
+  const familyPaths = new Set<string>()
+  for (const raw of value.source_distributed_extra_trees) {
+    const family = requiredObject(raw, 'source-distributed extra-tree family')
+    exactKeys(
+      family,
+      [
+        'path',
+        'commit',
+        'inventory_path',
+        'legal_file_count',
+        'runtime_linkage',
+      ],
+      'source-distributed extra-tree family',
+    )
+    const path = gitPath(family.path, 'source-distributed extra-tree family')
+    const expected = byPath.get(path)
+    if (
+      !expected || family.commit !== expected.commit ||
+      family.inventory_path !== expected.inventory_path ||
+      !Number.isSafeInteger(family.legal_file_count) ||
+      (family.legal_file_count as number) < 0 ||
+      family.runtime_linkage !== 'not-determined' || familyPaths.has(path)
+    ) {
+      throw new Error(
+        'source-distributed extra-tree family differs from pinned closure',
+      )
+    }
+    familyPaths.add(path)
+  }
+  if (expectedFamilies.some((path) => !familyPaths.has(path))) {
+    throw new Error(
+      'source-distributed extra-tree legal evidence omits an audited family',
+    )
+  }
+
+  const copied = new Set<string>()
+  for (const raw of value.supplements) {
+    const supplement = requiredObject(
+      raw,
+      'source-distributed extra-tree supplement',
+    )
+    const path = gitPath(
+      supplement.path,
+      'source-distributed extra-tree supplement',
+    )
+    if (
+      !path.startsWith(SOURCE_LICENSE_SUPPLEMENT_PREFIX) ||
+      copied.has(path) || typeof supplement.sha256 !== 'string' ||
+      !SHA256.test(supplement.sha256) ||
+      !Number.isSafeInteger(supplement.size) ||
+      (supplement.size as number) <= 0 ||
+      typeof supplement.purpose !== 'string' || !supplement.purpose ||
+      !Array.isArray(supplement.provenance) || !supplement.provenance.length
+    ) throw new Error('invalid source-distributed extra-tree supplement')
+    const source = join(sourceRoot, path)
+    const info = await requireRegularFile(
+      source,
+      'source-distributed extra-tree supplement',
+    )
+    if (
+      info.size !== supplement.size ||
+      await sha256(source) !== supplement.sha256
+    ) {
+      throw new Error(
+        'source-distributed extra-tree supplement differs from its index',
+      )
+    }
+    const output = join(destination, path)
+    await ensureAbsentFile(
+      output,
+      'source-distributed extra-tree supplement output',
+    )
+    await Deno.copyFile(source, output)
+    // Archive metadata has a deterministic mode independent of the caller's umask.
+    await Deno.chmod(output, 0o644)
+    copied.add(path)
+  }
+  if (copied.size < 3) {
+    throw new Error(
+      'source-distributed extra-tree legal evidence omits required supplements',
+    )
+  }
+  const indexOutput = join(destination, SOURCE_LICENSE_INDEX_PATH)
+  await ensureAbsentFile(
+    indexOutput,
+    'source-distributed extra-tree legal evidence output',
+  )
+  await Deno.copyFile(indexSource, indexOutput)
+  // Archive metadata has a deterministic mode independent of the caller's umask.
+  await Deno.chmod(indexOutput, 0o644)
+  return {
+    index_path: SOURCE_LICENSE_INDEX_PATH,
+    sha256: digest,
+    source_distributed_extra_tree_count: familyPaths.size,
+    supplement_count: copied.size,
+  }
+}
+
+export async function materializeRustyV8Source(
+  sourceRoot: string,
+  pinsPath: string,
+  cache: string,
+  sourceDestination: string,
+  temporaryReceipt: string,
+): Promise<{
+  gitlinkClosure: {
+    descriptorSha256: string
+    rootTree: string
+    gitlinkCount: number
+  }
+  sourceLegalEvidence: SourceLegalEvidence
+}> {
+  await ensureEmptyDirectory(sourceDestination, 'rusty_v8 source destination')
+  await ensureAbsentFile(temporaryReceipt, 'rusty_v8 Git object store receipt')
+  const pins = await readPins(pinsPath)
+  const gitlinkClosure = await materializeRustyV8GitlinkClosure(
+    sourceRoot,
+    pins,
+    cache,
+    join(sourceDestination, 'rusty_v8'),
+    sourceDestination,
+    temporaryReceipt,
+  )
+  const sourceLegalEvidence = await materializeSourceLegalEvidence(
+    sourceRoot,
+    sourceDestination,
+    gitlinkClosure.descriptor,
+  )
+  return {
+    gitlinkClosure: {
+      descriptorSha256: gitlinkClosure.descriptorSha256,
+      rootTree: gitlinkClosure.rootTree,
+      gitlinkCount: gitlinkClosure.gitlinkCount,
+    },
+    sourceLegalEvidence,
   }
 }
 
@@ -2055,6 +2898,8 @@ async function writeEmbeddedManifests(
   inventoryPath: string,
   closureSha256: string,
   inventorySha256: string,
+  gitlinkClosure: SourceMaterialsReceipt['gitlink_closure'],
+  sourceLegalEvidence: SourceMaterialsReceipt['source_legal_evidence'],
 ): Promise<void> {
   for (const root of roots) {
     const metadata = join(root.path, METADATA_DIRECTORY)
@@ -2071,6 +2916,8 @@ async function writeEmbeddedManifests(
           canonical_notice: CANONICAL_NOTICE_NAME,
           closure: { path: 'closure.json', sha256: closureSha256 },
           inventory: { path: 'inventory.json', sha256: inventorySha256 },
+          gitlink_closure: gitlinkClosure,
+          source_legal_evidence: sourceLegalEvidence,
         },
         null,
         2,
@@ -2152,7 +2999,7 @@ export async function packageSourceMaterials(
   const metadata = join(work, 'metadata')
 
   try {
-    const [denoArchive, rustyArchive, v8Archive] = await Promise.all([
+    const [denoArchive] = await Promise.all([
       acquirePinnedArchive(options.cache, pins.deno),
       acquirePinnedArchive(options.cache, pins.rusty_v8),
       acquirePinnedArchive(options.cache, pins.v8),
@@ -2169,15 +3016,18 @@ export async function packageSourceMaterials(
       'deno',
       join(denoSourceRoot, 'deno'),
     )
-    await extractPinnedArchive(
-      rustyArchive,
-      archiveRootFor(pins.rusty_v8),
+    const gitlinkClosure = await materializeRustyV8GitlinkClosure(
+      source.root,
+      pins,
+      options.cache,
       join(denoSourceRoot, 'rusty_v8'),
+      denoSourceRoot,
+      join(work, 'rusty-v8-git-object-stores.json'),
     )
-    await extractPinnedArchive(
-      v8Archive,
-      archiveRootFor(pins.v8),
-      join(denoSourceRoot, 'rusty_v8', 'v8'),
+    const sourceLegalEvidence = await materializeSourceLegalEvidence(
+      source.root,
+      denoSourceRoot,
+      gitlinkClosure.descriptor,
     )
     await assertPureSourceTree(denoSourceRoot)
     await assertSourceClosure(denoSourceRoot, [
@@ -2257,7 +3107,15 @@ export async function packageSourceMaterials(
             deno: pins.deno,
             rusty_v8: pins.rusty_v8,
             v8: pins.v8,
+            gitlink_closure: pins.gitlink_closure,
           },
+          rusty_v8_gitlink_closure: {
+            path: pins.gitlink_closure.path,
+            sha256: gitlinkClosure.descriptorSha256,
+            root_tree: gitlinkClosure.rootTree,
+            gitlink_count: gitlinkClosure.gitlinkCount,
+          },
+          source_legal_evidence: sourceLegalEvidence,
           canonical_notice: {
             path: CANONICAL_NOTICE_NAME,
             sha256: noticeSha256,
@@ -2295,6 +3153,13 @@ export async function packageSourceMaterials(
       inventoryPath,
       closureSha256,
       inventory.sha256,
+      {
+        path: pins.gitlink_closure.path,
+        sha256: gitlinkClosure.descriptorSha256,
+        root_tree: gitlinkClosure.rootTree,
+        gitlink_count: gitlinkClosure.gitlinkCount,
+      },
+      sourceLegalEvidence,
     )
 
     for (const root of roots) {
@@ -2352,6 +3217,13 @@ export async function packageSourceMaterials(
         omissions: [],
       },
       runtime_security: runtimeSecurity,
+      gitlink_closure: {
+        path: pins.gitlink_closure.path,
+        sha256: gitlinkClosure.descriptorSha256,
+        root_tree: gitlinkClosure.rootTree,
+        gitlink_count: gitlinkClosure.gitlinkCount,
+      },
+      source_legal_evidence: sourceLegalEvidence,
       assets,
       // The assembly receipt is immutable. Target-specific native proofs are
       // separate records bound to these exact archive bytes.
@@ -3198,6 +4070,14 @@ if (import.meta.main) {
     })
   } else if (action === 'package') {
     await packageSourceMaterials(parsePackageArguments(args))
+  } else if (action === 'materialize-rusty-v8-source' && args.length === 5) {
+    await materializeRustyV8Source(
+      args[0],
+      args[1],
+      args[2],
+      args[3],
+      args[4],
+    )
   } else if (action === 'verify-pin' && args.length === 2) {
     const pins = await readPins(args[0])
     const name = args[1]
@@ -3218,7 +4098,7 @@ if (import.meta.main) {
     )
   } else {
     throw new Error(
-      'usage: source-materials.ts verify-source-proofs RECEIPT SOURCE_DIR PROOF_ROOT SOURCE_SHA SOURCE_PINS TOOL_PINS NOTICE_PATH | package --source-root SLV_TREE --source-commit REVIEWED_SHA --pins PINS_JSON --cache ACQUISITION_CACHE --work-dir EMPTY_ASSEMBLY_DIR --out OUTPUT_DIR --receipt RECEIPT_JSON --notice-file CANONICAL_NOTICE | verify-pin PINS deno|rusty_v8|v8 (SOURCE_ARCHIVE=FILE) | inventory TREE OUTPUT | verify-inventory TREE INVENTORY | assert-pure-source TREE | verify-receipt RECEIPT OUTPUT_DIR',
+      'usage: source-materials.ts verify-source-proofs RECEIPT SOURCE_DIR PROOF_ROOT SOURCE_SHA SOURCE_PINS TOOL_PINS NOTICE_PATH | package --source-root SLV_TREE --source-commit REVIEWED_SHA --pins PINS_JSON --cache ACQUISITION_CACHE --work-dir EMPTY_ASSEMBLY_DIR --out OUTPUT_DIR --receipt RECEIPT_JSON --notice-file CANONICAL_NOTICE | materialize-rusty-v8-source SOURCE_ROOT PINS CACHE EMPTY_DESTINATION OBJECT_STORE_RECEIPT | verify-pin PINS deno|rusty_v8|v8 (SOURCE_ARCHIVE=FILE) | inventory TREE OUTPUT | verify-inventory TREE INVENTORY | assert-pure-source TREE | verify-receipt RECEIPT OUTPUT_DIR',
     )
   }
 }

@@ -1,0 +1,2808 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/chromium/src/base/allocator/partition_allocator.git",
+  "commit": "fafdd4c9f559c6d0cfdf2ed3170ce370b59bfdbf",
+  "tree": "a91752b31a555a7c5cb2a6c97a7165af5fec785d",
+  "files": [
+    {
+      "path": ".clang-tidy",
+      "mode": "100644",
+      "blob": "c4aff2215dfbe5508c780621677efe13d63aaa59",
+      "sha256": "7d0e5c5f496a874fe176e2b234df28eac5ee0d73914bfefa07b11af860668b40",
+      "size": 217
+    },
+    {
+      "path": ".gn",
+      "mode": "100644",
+      "blob": "bf4b4d70cb5bf812f75aec7acaddc0149ba9fbdd",
+      "sha256": "34280934c676b99e12ae5174f8cd948ca3986c2b752d6b41faa775f96b678a34",
+      "size": 308
+    },
+    {
+      "path": "buckets.md",
+      "mode": "100644",
+      "blob": "97ce6f11156a6838b9ff29c7dee8c52fc0352e0b",
+      "sha256": "2e8395defefa0a1b5c9aa0ee07d597625bced6df9248b900107d4e1a69093587",
+      "size": 23751
+    },
+    {
+      "path": "build_config.md",
+      "mode": "100644",
+      "blob": "a19b0d8c4f4d5f6e3661f3fbc14b3f0df24108f4",
+      "sha256": "2847ee54adcbe05d92ee5e288bbe3392a49fc315114349e94aaf4009dda4a177",
+      "size": 4379
+    },
+    {
+      "path": "build_overrides/partition_alloc.gni",
+      "mode": "100644",
+      "blob": "6a18670c4d3dc177650542355990605a2a45c404",
+      "sha256": "b0ceb0a0a0fe2526df04fdc5945b2da622f524b831ed269bf6af8473e84ec07d",
+      "size": 957
+    },
+    {
+      "path": "BUILD.gn",
+      "mode": "100644",
+      "blob": "22c177deb9d06542920e672053ec7007af3f0c69",
+      "sha256": "23ba2667a54ef366400993991f4b0933b47b230f7eaabb05bda11ee576ccede1",
+      "size": 566
+    },
+    {
+      "path": "DEPS",
+      "mode": "100644",
+      "blob": "ac57f43824a6fbee336837caf8ce5d076c73cda6",
+      "sha256": "e7c7d213849f6a31ee427ab53864ef101ac44bb8b92dcded38056ea9c9d3afcd",
+      "size": 1969
+    },
+    {
+      "path": "DIR_METADATA",
+      "mode": "100644",
+      "blob": "0712403c225841d88cc0c483cae7771abae86767",
+      "sha256": "c8ef9f64f790d2aa1daf3f2c353b0d0f56a0cc393ee8e09288e6a25546a987a3",
+      "size": 193
+    },
+    {
+      "path": "external_builds.md",
+      "mode": "100644",
+      "blob": "aa1d2da38ed8bcdbcaab6ff0eb54cd838cb800a8",
+      "sha256": "f9c50179a4d98712c1530b0645e058c7d16dfc9a02ce204c74b42f7079393810",
+      "size": 2430
+    },
+    {
+      "path": "glossary.md",
+      "mode": "100644",
+      "blob": "c1ca507b588553be038ec9d38dcf7ffaf593e265",
+      "sha256": "01db88979d8dd6ee7768689607aaf28b91fef8bd4f80f836ba328500bb587ab2",
+      "size": 9248
+    },
+    {
+      "path": "gn/BUILDCONFIG.gn",
+      "mode": "100644",
+      "blob": "93649ab54a3da90ce64458d145418157bc10ac0d",
+      "sha256": "352bea60e173579a78f3d6cda58ba0f71b61bd395375f6a792cb46d46b72a95e",
+      "size": 2453
+    },
+    {
+      "path": "gn/cp.py",
+      "mode": "100755",
+      "blob": "9df91e125e556b6f04671114b8aebfae2192cd47",
+      "sha256": "e4a932793af82c92c731e281b363725e9d157e404419db3e7b0879e09ea3985a",
+      "size": 526
+    },
+    {
+      "path": "gn/OWNERS",
+      "mode": "100644",
+      "blob": "fcff2043b4c895de2be914a6bbb7e56f2f18c7f0",
+      "sha256": "bc235f604a31feba4ae55d4f66d41134ee6b91158434904015f8f3b6e381b0dc",
+      "size": 45
+    },
+    {
+      "path": "gn/partition_alloc/BUILD.gn",
+      "mode": "100644",
+      "blob": "12b434d27eddbb6baf428dfcfe41c8357b8de457",
+      "sha256": "8b179ea174bcaf72d0338219aa6acfb2c9f9e129eeaa07ec9e0dcfeceb87de12",
+      "size": 1043
+    },
+    {
+      "path": "gn/README.md",
+      "mode": "100644",
+      "blob": "3037207bf24e8041ce07ea20b3d5221884fd7c50",
+      "sha256": "d19d94c6b45c14fe852e2c2eeb1787a7e00bb8853199a4f941f333d5123a103d",
+      "size": 963
+    },
+    {
+      "path": "gn/rm.py",
+      "mode": "100755",
+      "blob": "f23fefcf7684cd6bfd4f2a69d811be2f86cb40c5",
+      "sha256": "85d08b8564d4a14f23c4d2dbe348702489f1e8c8248bae8888208e5e3a3babdf",
+      "size": 353
+    },
+    {
+      "path": "gn/toolchain/BUILD.gn",
+      "mode": "100644",
+      "blob": "c826e56562f161a9d355f9fd56cdd1b8502a36fb",
+      "sha256": "e3fca8f9a15c597a287247cc588a572afe4632162f6b331ff04e508dbed7ff04",
+      "size": 1813
+    },
+    {
+      "path": "OWNERS",
+      "mode": "100644",
+      "blob": "7df1768aa97e7c9359021e99e8d5dc89fb85f19f",
+      "sha256": "1d692a21f526db0d1b7e874774217de6470417957e66de7df49d771e0b687d3b",
+      "size": 228
+    },
+    {
+      "path": "pa_check.md",
+      "mode": "100644",
+      "blob": "ac621824983f40aa68b24f796fe51e7e69800324",
+      "sha256": "b35f67a7f6280839e0a64c02c0cd1959412c4ca84fafad0ce089d22782c3875c",
+      "size": 3374
+    },
+    {
+      "path": "partition_alloc.gni",
+      "mode": "100644",
+      "blob": "024484a82ffa5282973f09d3fb70ec45be902dd8",
+      "sha256": "42937372f5656d149817d768c057c283ee5c5f88893c5b108cae3ad46b69573e",
+      "size": 26886
+    },
+    {
+      "path": "PartitionAlloc.md",
+      "mode": "100644",
+      "blob": "c8e9a77d0640322fde6b3b8febe7fbd742bccef1",
+      "sha256": "853728604c41c0b92c7e3b0c660363193a8c6a871803563b4e48ee91133cf841",
+      "size": 10191
+    },
+    {
+      "path": "PRESUBMIT_test.py",
+      "mode": "100755",
+      "blob": "a6901084790b6b4d394893b3d497ad9739a67459",
+      "sha256": "141b30e0f747b34f8689c16d5f9e425b9bae1cfd6f8e9971261ad972c5fa7b77",
+      "size": 3111
+    },
+    {
+      "path": "PRESUBMIT.py",
+      "mode": "100644",
+      "blob": "a32e4f93dd656196bea6c1fd18a7944c13669e83",
+      "sha256": "d59dfb6d590b6a6a308122f91ca1fa590f81192a66e3ec609fd31d093ecb07d8",
+      "size": 11241
+    },
+    {
+      "path": "src/partition_alloc/aarch64_support.h",
+      "mode": "100644",
+      "blob": "2fed57e5e51cc3a4077dcce25539af2affc94ac4",
+      "sha256": "28c02d56e68d55365e234416ba864b1da843593cb718375c156e7d860125e40b",
+      "size": 1350
+    },
+    {
+      "path": "src/partition_alloc/address_pool_manager_bitmap.cc",
+      "mode": "100644",
+      "blob": "c0aedbcde950199f895f06503b7da7d6d9db2d59",
+      "sha256": "47daa8c8cac30b5b72be6e25e0aa2d9875f47a255f965b9304141ae3c2d22ab8",
+      "size": 1164
+    },
+    {
+      "path": "src/partition_alloc/address_pool_manager_bitmap.h",
+      "mode": "100644",
+      "blob": "8befb272e88ba0edba381cd000d225aaaff4cc3d",
+      "sha256": "a40507f8d134d979389419a55e9d71deacef64d9554bd199f6b59fb342ae55b3",
+      "size": 8391
+    },
+    {
+      "path": "src/partition_alloc/address_pool_manager_types.h",
+      "mode": "100644",
+      "blob": "4503c5123069079cb2d5c8eae6f164d75a9b4ec3",
+      "sha256": "dbdc9abdc3253836315a255470504a06962fa27df5d0cc3e17a26823d9149eab",
+      "size": 422
+    },
+    {
+      "path": "src/partition_alloc/address_pool_manager_unittest.cc",
+      "mode": "100644",
+      "blob": "850708d5d6ca9753f18293c874bdf81b7bf14a92",
+      "sha256": "d1acdbfa9bca2a8aee3132787a8462cdcde01d13cdd0b0bc4b5748764b418197",
+      "size": 16909
+    },
+    {
+      "path": "src/partition_alloc/address_pool_manager.cc",
+      "mode": "100644",
+      "blob": "71a2a3b748760bad1b6e08ae581859fa52216e6e",
+      "sha256": "2c2c1f1483df6e276ff58417f9095f212034652e7c1c2f43cc86bc064cd7bd32",
+      "size": 19440
+    },
+    {
+      "path": "src/partition_alloc/address_pool_manager.h",
+      "mode": "100644",
+      "blob": "f1e80c60e762b1daf7927ce051c6ef68c4524582",
+      "sha256": "bcce479d7f58fecf2c270d90c9070bc8b4e2a772c03afc438be22169270fce44",
+      "size": 8006
+    },
+    {
+      "path": "src/partition_alloc/address_space_randomization_unittest.cc",
+      "mode": "100644",
+      "blob": "508bc8ac6b8a5477310d505cebe1f1a07214b75d",
+      "sha256": "662879c9c350a11b3d6398efd5fa1debcf8b788a1881d458bbe04a90e7159c4b",
+      "size": 8105
+    },
+    {
+      "path": "src/partition_alloc/address_space_randomization.cc",
+      "mode": "100644",
+      "blob": "a24b5523ee49f979ac5e428e8c5c9a606e81af28",
+      "sha256": "d81380d4de5da877339f4dedb4257e41afc34f2fc4312116cd3207368d7ab3f8",
+      "size": 1654
+    },
+    {
+      "path": "src/partition_alloc/address_space_randomization.h",
+      "mode": "100644",
+      "blob": "7b27d8e79e1a01e630b011f9ca3094cfef73d0f1",
+      "sha256": "1c37034cdb1d29ae6fcf8a266901e1b149c8df5e68642bd443446ee08cabf3f7",
+      "size": 12352
+    },
+    {
+      "path": "src/partition_alloc/address_space_stats.h",
+      "mode": "100644",
+      "blob": "4fa4f82e3ec9c8031ec90fa27a23e7e72126370c",
+      "sha256": "c7740003aae303d8dffa0879d5655860d1c0802a3518636acb6b3376dd1ec5dc",
+      "size": 1759
+    },
+    {
+      "path": "src/partition_alloc/allocation_guard.cc",
+      "mode": "100644",
+      "blob": "dda4730c8df8abd0e180a6fa6c72a5a8f46ab6c1",
+      "sha256": "5b50bba938f8fe2c280b9617e829b024f5043ffdb037531ee75dec0ce73f9d63",
+      "size": 1118
+    },
+    {
+      "path": "src/partition_alloc/allocation_guard.h",
+      "mode": "100644",
+      "blob": "27bb76f76e15cf58e4599a6d328dd16b73bcf0eb",
+      "sha256": "35c5cf5a55baf18ca6d8711af1f083e53c5c6c5ee3be41094dd3aa025a264876",
+      "size": 1283
+    },
+    {
+      "path": "src/partition_alloc/allocator_config.cc",
+      "mode": "100644",
+      "blob": "7b802ec1b85853f7eb117d5570489776e4a9fcfb",
+      "sha256": "59ffbab4115ed1f67b8a55f568b97d8c8a586305eb045c0dc9ffaed78a38714c",
+      "size": 2126
+    },
+    {
+      "path": "src/partition_alloc/allocator_config.h",
+      "mode": "100644",
+      "blob": "cf9e31f776e54e90f56613c32f2493138b739b61",
+      "sha256": "33beb631551395fbb3ac260d2fece70f9adcaaa2192913a73969188ab9c93cd2",
+      "size": 1530
+    },
+    {
+      "path": "src/partition_alloc/arm_bti_test_functions.h",
+      "mode": "100644",
+      "blob": "ddfaa358a0e61db3d379530ccbe1c8a4d06209a3",
+      "sha256": "c28c1713f5c62a42e7ef5e432b2314b42183d456d69d33892b0713cc8bd178cc",
+      "size": 884
+    },
+    {
+      "path": "src/partition_alloc/arm_bti_test_functions.S",
+      "mode": "100644",
+      "blob": "bf04e93501225f4f3f6b7c2f13f168d568be6488",
+      "sha256": "cf8417d3e9bb1f7c474ec6f7cd14dd4ca439e6bde92cc414923d3d2ec7f037f7",
+      "size": 1798
+    },
+    {
+      "path": "src/partition_alloc/bounds_checks_nocompile.nc",
+      "mode": "100644",
+      "blob": "7fd595a8d4dfe33bd2c9210c889185cab4ed0e46",
+      "sha256": "4a33ea2375b8221e35db1b4feaf1018719cbbba87e8a2b50ddfa6f94058bc0cb",
+      "size": 593
+    },
+    {
+      "path": "src/partition_alloc/bounds_checks.cc",
+      "mode": "100644",
+      "blob": "82ff72d78b8f1643e51fe3c8f73e23797fd3fe59",
+      "sha256": "9aac4bf90efe8ff68b1449b826e73d45cf8159bdff22790fa4f4670d3713ec20",
+      "size": 3540
+    },
+    {
+      "path": "src/partition_alloc/bounds_checks.h",
+      "mode": "100644",
+      "blob": "ae3f556ad8fa6e277d18a6f754b275067e9398c8",
+      "sha256": "53adea986b18be6fa821aa266ed7ed1d42c07dadf153239419dd38d6ba246061",
+      "size": 3093
+    },
+    {
+      "path": "src/partition_alloc/bucket_lookup.h",
+      "mode": "100644",
+      "blob": "671c58dfac0777bd9bdb3f2fe723c9cd40c388da",
+      "sha256": "546d78c1788e8261396b552943c2aacccb7ef0ec810dc00e4ec6fd64dc775672",
+      "size": 9510
+    },
+    {
+      "path": "src/partition_alloc/build_config.h",
+      "mode": "100644",
+      "blob": "a124902743e11e3d288da8602b820bbd452b4659",
+      "sha256": "a0bc70bbb196d756c14b24d9da928301273a09dddcd84f2879cec475c5675811",
+      "size": 13990
+    },
+    {
+      "path": "src/partition_alloc/BUILD.gn",
+      "mode": "100644",
+      "blob": "e6c0368e3a24073b6725d82b6d7ad6349e962b60",
+      "sha256": "0b11d4180953a215b9b98aee8c6f53624b73485059bd40789f603219e555673e",
+      "size": 43262
+    },
+    {
+      "path": "src/partition_alloc/buildflag_header.gni",
+      "mode": "100644",
+      "blob": "979042758e65aa601ad9af4ad5f9e4b916efd473",
+      "sha256": "1ac0cd4025922ec85635696eb7cef13f7e6980b6fc194efb8b965a007f66a5f6",
+      "size": 4133
+    },
+    {
+      "path": "src/partition_alloc/buildflag.h",
+      "mode": "100644",
+      "blob": "6201d7bb441cc66201697d2dd459071cd092da9c",
+      "sha256": "bded0f8d9d0c77743ca7f7096a56ef36bc0c6c4ccf9e55bc24d3b50744cdcbde",
+      "size": 712
+    },
+    {
+      "path": "src/partition_alloc/compressed_pointer_unittest.cc",
+      "mode": "100644",
+      "blob": "86add245942ef239aa437313f040ba4b031181e4",
+      "sha256": "32bbd3facadf7d05aadb8a79f1fe0b9b66c0b45d888be132f628c6408d9a89a1",
+      "size": 13180
+    },
+    {
+      "path": "src/partition_alloc/compressed_pointer.cc",
+      "mode": "100644",
+      "blob": "6a62a27c9b616512159b938969f4a0d746d0b123",
+      "sha256": "614391e7fca2d407054982dc74aa66f103a6b610997dd7fa228ae3823bce7c25",
+      "size": 932
+    },
+    {
+      "path": "src/partition_alloc/compressed_pointer.h",
+      "mode": "100644",
+      "blob": "57d40ee42c776b5e4f8f479170da8120655ac90f",
+      "sha256": "d34386491ed6997c2457fb992067c7391b43686ee493f02f1f8730bdd5499cd9",
+      "size": 22519
+    },
+    {
+      "path": "src/partition_alloc/dangling_raw_ptr_checks.cc",
+      "mode": "100644",
+      "blob": "b2d5632c9dfd285242be5a80690b159918a7f375",
+      "sha256": "1b6c927b748f9fee00ae15ecca906a7dcc28fe3b78ed84dccffb8588f3bb6409",
+      "size": 2287
+    },
+    {
+      "path": "src/partition_alloc/dangling_raw_ptr_checks.h",
+      "mode": "100644",
+      "blob": "dfe31732bc17ecbc35c2f842808d8adbb36cefc1",
+      "sha256": "497f470493163687fa06647b2adc43cd8350c9a5e3cdbaab83054af0049c823d",
+      "size": 2715
+    },
+    {
+      "path": "src/partition_alloc/dot/address-space.dot",
+      "mode": "100644",
+      "blob": "2293e5555e427de90171b28ede96684772f049c0",
+      "sha256": "964d3bad9ed85514eed1a79c1924f5729d501deb8ab2a6700f806f262ab887ab",
+      "size": 717
+    },
+    {
+      "path": "src/partition_alloc/dot/address-space.png",
+      "mode": "100644",
+      "blob": "aee032a4defb0df2e1f2c066561d9d9553b85f4b",
+      "sha256": "aef86865fc27d12b97dd0828a4089c0def65d47a69d699786b0ba2ddd25af1f0",
+      "size": 41964
+    },
+    {
+      "path": "src/partition_alloc/dot/bucket.dot",
+      "mode": "100644",
+      "blob": "d40d38c769242f4e509c8d120dcf14f4880b7726",
+      "sha256": "318d163df89702a453309c8b8cf6979173b63d55ec6f6b5eb57461b3f6509233",
+      "size": 2222
+    },
+    {
+      "path": "src/partition_alloc/dot/bucket.png",
+      "mode": "100644",
+      "blob": "4ed7b75bf4a468bb4a1884126ea164efd753bfd2",
+      "sha256": "0a89f18cca251deb42501788d67391474b8d4d9b70dc172dadef195b1f563bf0",
+      "size": 10676
+    },
+    {
+      "path": "src/partition_alloc/dot/layers.dot",
+      "mode": "100644",
+      "blob": "bf6eea5fa0c529e9526c76fb0067fd1df344d45f",
+      "sha256": "24c8ebacce24fba9b69b58a6e7a137d238eb79ffd4b263a8e32dc959000e5856",
+      "size": 644
+    },
+    {
+      "path": "src/partition_alloc/dot/layers.png",
+      "mode": "100644",
+      "blob": "c2794f1de20a793d74cfe29bb4fa5d801d3ffed5",
+      "sha256": "4096e1516e656f7170cff362ca28f0803eee2cc40f5ce443a415e1c6986f80ce",
+      "size": 15761
+    },
+    {
+      "path": "src/partition_alloc/dot/super-page.dot",
+      "mode": "100644",
+      "blob": "7f82c9ca0047d3f7be6137a9805d632e68c8343a",
+      "sha256": "0ff98c1eb009b77e8f0e0f6bfde6f4c1b464987cd71a021ba982fa92f811b5fc",
+      "size": 3298
+    },
+    {
+      "path": "src/partition_alloc/dot/super-page.png",
+      "mode": "100644",
+      "blob": "0d1a69620e40c1f84e2636f88c8e774f286b3ea4",
+      "sha256": "a2e7b2af21db1b3a71d619e492956fd417f080d795f71f77eca80a218bd31ceb",
+      "size": 26849
+    },
+    {
+      "path": "src/partition_alloc/dot/windows_crt_static_local_ouroboros.dot",
+      "mode": "100644",
+      "blob": "573f3abb02c7e5789a1f4f1ee8b23944b9c9f78e",
+      "sha256": "b33af9885e19bdab88ec9425dda16e25e5c832365c77265e9e3b1d80e94dd20d",
+      "size": 500
+    },
+    {
+      "path": "src/partition_alloc/dot/windows_crt_static_local_ouroboros.png",
+      "mode": "100644",
+      "blob": "ca27a1788f8729b60fff403b8ff60edf50be3758",
+      "sha256": "8d1570b0e5f6d9a03391472d40c54f6d9656dfd3bfc32809e94da8c14d638a6c",
+      "size": 34948
+    },
+    {
+      "path": "src/partition_alloc/encoded_next_freelist.h",
+      "mode": "100644",
+      "blob": "92b8f4115b0f3dacea68d4510adc641ce8408e1a",
+      "sha256": "44d97629844e2b17a4b77f4ca19f8bfc362341141547a0f17694b1049be2bc62",
+      "size": 2756
+    },
+    {
+      "path": "src/partition_alloc/extended_api.cc",
+      "mode": "100644",
+      "blob": "0a96be48553cc3f4aa52d8f25ac73bc6e0e7c470",
+      "sha256": "21fa06c5b2d3c4151bb2c3e2a5a42328d9757e69200f8a0e338d070f3f56b938",
+      "size": 6383
+    },
+    {
+      "path": "src/partition_alloc/extended_api.h",
+      "mode": "100644",
+      "blob": "0b4be9a029de4aeeced985c641f29d7dd0826601",
+      "sha256": "0d48002c508ad3bcf2b1ce61f16fecd747188a3ba33429aa5b415a5ddb2c8a48",
+      "size": 1493
+    },
+    {
+      "path": "src/partition_alloc/extent_in_bounds.h",
+      "mode": "100644",
+      "blob": "dfd2a378b3f29d4d2599f902a95c16ff057682fb",
+      "sha256": "6fc7778cdf73eb936115b3a0233f8fefa5cf6ff8377c3d3b49e82a072b4e9ed9",
+      "size": 1221
+    },
+    {
+      "path": "src/partition_alloc/flags.h",
+      "mode": "100644",
+      "blob": "6f85c57c867eb686b01553d415ff6ccdf3f98014",
+      "sha256": "b45773189cddebd31d3dd1c9f7d7e36a2ac730b80e42abd83eaa03c725b7b048",
+      "size": 5256
+    },
+    {
+      "path": "src/partition_alloc/gwp_asan_support.cc",
+      "mode": "100644",
+      "blob": "be07597c15a83b74e860d29471ea06918c4f0d3b",
+      "sha256": "0b6253beb6361fb41c40759130aeaa0ad522aba82eb5c45fe75eeb819216b78a",
+      "size": 5950
+    },
+    {
+      "path": "src/partition_alloc/gwp_asan_support.h",
+      "mode": "100644",
+      "blob": "71ea678d5ce4f94498d8937c491e11bb78019153",
+      "sha256": "f6198b4232ac25403250c01fed64d5d61ca19fa3eb4b10d24a707cb62a64b2b3",
+      "size": 4858
+    },
+    {
+      "path": "src/partition_alloc/hardening_unittest.cc",
+      "mode": "100644",
+      "blob": "d6d26bcb0b54f97867c72296824317a822aa0d18",
+      "sha256": "717a3df6409cc96145215af2ca5c8fe19b83ee4762e359a8cf62e68ce9576063",
+      "size": 9070
+    },
+    {
+      "path": "src/partition_alloc/in_slot_metadata.cc",
+      "mode": "100644",
+      "blob": "f418230380e73330101398085c71b14dba7c8b2c",
+      "sha256": "dec0a0ef11fae7c63ca1dcdb47de401d4876ca6eaaa2f0dc29027e9fe073a68e",
+      "size": 4749
+    },
+    {
+      "path": "src/partition_alloc/in_slot_metadata.h",
+      "mode": "100644",
+      "blob": "39696df624e2976b24c2086df0d414c527db16e1",
+      "sha256": "d2a25b991ecaa6982f7e12723443eea01e43c02333496d4353090141e9b57858",
+      "size": 24044
+    },
+    {
+      "path": "src/partition_alloc/internal_allocator_forward.h",
+      "mode": "100644",
+      "blob": "0956089445befdaaf2234b7f6a7d21428d797ce7",
+      "sha256": "0736befc00ed47ecebf93f3d1a73297c97e94cba565e1183bbb9f904b02f1d8e",
+      "size": 2658
+    },
+    {
+      "path": "src/partition_alloc/internal_allocator.cc",
+      "mode": "100644",
+      "blob": "65c507677353c15f35dd72a9c05f7fca6f1f9eab",
+      "sha256": "d041d84999a9c2d2d9395687d6632165548850345250dbdf4b198788dc8694eb",
+      "size": 1316
+    },
+    {
+      "path": "src/partition_alloc/internal_allocator.h",
+      "mode": "100644",
+      "blob": "4e6ed300242114a8c18c072a13d1e7f3c162d66a",
+      "sha256": "929f2018afef71aca2fadb8a071ca1c6765e20dc3837546155b8ae5f8b45ecc2",
+      "size": 2217
+    },
+    {
+      "path": "src/partition_alloc/memory_reclaimer_unittest.cc",
+      "mode": "100644",
+      "blob": "c6ba3405170ac571ef122df551f229bd70b1c839",
+      "sha256": "6af9b16261ae7de3fc56f0e59f64939851c920c9d1309cd34cbd1c2352bee94b",
+      "size": 4921
+    },
+    {
+      "path": "src/partition_alloc/memory_reclaimer.cc",
+      "mode": "100644",
+      "blob": "f1119602f5548110f1f668882a259edcd86f2f75",
+      "sha256": "6b56a3667c66438a894f758872edc63cc324240303957d51f769a4bb63aa242c",
+      "size": 2622
+    },
+    {
+      "path": "src/partition_alloc/memory_reclaimer.h",
+      "mode": "100644",
+      "blob": "7fb95d7cf114e3f5e9989e1f7406f354c3ee2fe1",
+      "sha256": "dc4ddf86567758eb1592a0b08719fb84e100221a861e9b474075741ec2ebb76b",
+      "size": 2551
+    },
+    {
+      "path": "src/partition_alloc/oom_callback.cc",
+      "mode": "100644",
+      "blob": "0db8407182a854ba01d1700624c58dbb0c985d50",
+      "sha256": "839a72c2c17a9f7c82b6da0f97d6ca59cb29debd8a7fb853c4538d8d6ee4fefa",
+      "size": 642
+    },
+    {
+      "path": "src/partition_alloc/oom_callback.h",
+      "mode": "100644",
+      "blob": "3a4d32bcb1c377575ef38dcce29963037e6cb6ca",
+      "sha256": "821094fe4c4b0eea2b29796909c5230b11165ca43da9f8a783ea6eff937f1e70",
+      "size": 868
+    },
+    {
+      "path": "src/partition_alloc/oom.cc",
+      "mode": "100644",
+      "blob": "037e9081816808a1bbe936b7ed7f09fdc7818b3c",
+      "sha256": "ce3a63e8a3b43d3609b2c549523b5a46b6ce1130f76c25c54a9d5ec9414297aa",
+      "size": 4256
+    },
+    {
+      "path": "src/partition_alloc/oom.h",
+      "mode": "100644",
+      "blob": "85123a1e94daa26d00de53f8aecc0f6a0f69a341",
+      "sha256": "db156eb7d4202de1a49a1dd09c98039b6db689d1f6d04feeda73670f239b55e5",
+      "size": 3140
+    },
+    {
+      "path": "src/partition_alloc/page_allocator_constants.h",
+      "mode": "100644",
+      "blob": "96ecd22df13199c334d0305f7f39c1abe4b75afa",
+      "sha256": "f1d19dd0d4051984f8e3379e9b93bdd0219a6a4e9a8ddbd888e34b686bc0280e",
+      "size": 8384
+    },
+    {
+      "path": "src/partition_alloc/page_allocator_internal.h",
+      "mode": "100644",
+      "blob": "b25253da52b27c4c6a6f0e4ab7c31873492e470c",
+      "sha256": "a713ce53c2030d611e6b87e64e7a4cf38b7961086545fa2c1096cdd8a2c20420",
+      "size": 1012
+    },
+    {
+      "path": "src/partition_alloc/page_allocator_internals_fuchsia.h",
+      "mode": "100644",
+      "blob": "30b4f2f13d00eb1ef27ce186b84f7f7d7f3827e2",
+      "sha256": "f8dc4f00bd1c2d187144141afa92b97610c66591ba568b9155d4fdd7d5567978",
+      "size": 9116
+    },
+    {
+      "path": "src/partition_alloc/page_allocator_internals_posix.cc",
+      "mode": "100644",
+      "blob": "409d66dd6e49761f04ebf82a6f87b1167db0b828",
+      "sha256": "4059fb377ff6db696f6ca2cfb0a5216e811710915cc7e595d0d44fc63525f185",
+      "size": 7920
+    },
+    {
+      "path": "src/partition_alloc/page_allocator_internals_posix.h",
+      "mode": "100644",
+      "blob": "d3ae5c58d6e9d8977bb2ba22cfb1a344988ebb46",
+      "sha256": "df914b097c66328d069305a3a581f0e23ae7697a48cca77d751a36505d6f9e26",
+      "size": 13241
+    },
+    {
+      "path": "src/partition_alloc/page_allocator_internals_win.h",
+      "mode": "100644",
+      "blob": "4f1ddc2b54c7d0d8366f7a6a3f1df72bf1343811",
+      "sha256": "b31c8935abca8b02cbf13aa82c92b12ff032f2cef1f0870b4ec8fa94aac06756",
+      "size": 10161
+    },
+    {
+      "path": "src/partition_alloc/page_allocator_unittest.cc",
+      "mode": "100644",
+      "blob": "d56a4097805bdf0689b5424613a378bd11950788",
+      "sha256": "f7da007c78bbe49771ba57d0254a9323e0ce93bb51438dda13dd91d490cf0831",
+      "size": 28375
+    },
+    {
+      "path": "src/partition_alloc/page_allocator.cc",
+      "mode": "100644",
+      "blob": "97eb0c239b06c8ce3bd09199c8fa13be42e09bf1",
+      "sha256": "310a397422f927e4b5bb2b156c62036ba1ab9bedf4a93ab736f85e9b0575f26e",
+      "size": 17693
+    },
+    {
+      "path": "src/partition_alloc/page_allocator.h",
+      "mode": "100644",
+      "blob": "0711808209459e0e6dda35e75a045b7dd828e92d",
+      "sha256": "2ef57bd01707f69865a055297e6d9ef3c7f1d111d2867c9d04fcfddaf077ec99",
+      "size": 20357
+    },
+    {
+      "path": "src/partition_alloc/partition_address_space_unittest.cc",
+      "mode": "100644",
+      "blob": "c54b5a317cb1e62380287063ead8071c874e36ce",
+      "sha256": "bac160b2b09c319c6eab9b337eb4371d811236662d2767c958ecb9e37db27172",
+      "size": 1815
+    },
+    {
+      "path": "src/partition_alloc/partition_address_space.cc",
+      "mode": "100644",
+      "blob": "e88643feaa111e9181ca093e7ee4927e85c89635",
+      "sha256": "a6846b2c936a909d719c36d55004cf9dd1e70aba8d752fec62a730612ca884b5",
+      "size": 19814
+    },
+    {
+      "path": "src/partition_alloc/partition_address_space.h",
+      "mode": "100644",
+      "blob": "b09e3116409a548be65c647ff5e45025e3bb0f70",
+      "sha256": "665ddb75030aa44205125060564e8943ac0d3043384a361c0c9c8e85695f03b6",
+      "size": 22796
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_allocation_data.h",
+      "mode": "100644",
+      "blob": "e0fd1801139d0bd96f28ca0f76366a54e1f6481c",
+      "sha256": "d3836ee9a7e66ad1ce42de92a88157419e42d6bb4feec9f084a55f9e0f423d50",
+      "size": 3064
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/apple/foundation_util.h",
+      "mode": "100644",
+      "blob": "663863de0a81cd20d1ca7bab3c994ae95343b8ae",
+      "sha256": "3402d21bc9c28d02834d5f1612e2bb533f60c72a6ea950dbe263022896b4ba80",
+      "size": 2248
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/apple/foundation_util.mm",
+      "mode": "100644",
+      "blob": "4cf23ddedc64b38759ce8782296ffd852872280b",
+      "sha256": "dfb15301c1cfb60a0b34675eb14f1c531cc3dfd6add3f3fd39a07b9380cd2908",
+      "size": 1883
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/apple/mach_logging.cc",
+      "mode": "100644",
+      "blob": "759fb1539c113abcb30c83f2cff684881710963b",
+      "sha256": "1f6f06354b4496a1280f1c4262f3c398afd2af781f056d8e77c9749641ca978c",
+      "size": 1503
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/apple/mach_logging.h",
+      "mode": "100644",
+      "blob": "719e4c06777ccb4f6a4239f81241ca91e937f85a",
+      "sha256": "27e3adb657d4d3b4b68261f1d00cb386d194dd3e9e7cca7a9c33a8c854619ba3",
+      "size": 3902
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/apple/scoped_cftyperef.h",
+      "mode": "100644",
+      "blob": "9d2a43283c1d20d72ac626961d90f22506bc8abc",
+      "sha256": "04d6d2ceb8d514b6f78ccb18aade93a2421eb0f933e0732d926823dac06b21d0",
+      "size": 1855
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/apple/scoped_typeref.h",
+      "mode": "100644",
+      "blob": "729fdf9bbf8bf373ba3926891288b4e4b8395356",
+      "sha256": "9d004c501c6a6e5a72055cfd1854d9999cfed215ea26b6a16bd9441d280155e6",
+      "size": 5130
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/atomic_ref_count.h",
+      "mode": "100644",
+      "blob": "d34edfc10d7adae04121d6864b7312dcd3d3bb8c",
+      "sha256": "81faf701e7e86469dfdabb852d49a6f6244cea03313314c29bcc35b130f5c1e5",
+      "size": 2822
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/augmentations/compiler_specific.h",
+      "mode": "100644",
+      "blob": "95769a86632323fb1eb6992e0b43367a29445e05",
+      "sha256": "a7b62ce803990a08eb0a1d5cdfc7f2180af87f856f111ea09d26736ac5b64a2f",
+      "size": 1201
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/bit_cast.h",
+      "mode": "100644",
+      "blob": "3c625a5ba80c449294a16e9cdbf9c5272bc6ceb5",
+      "sha256": "a8c620279f6c3c2900940c12263a9275a9b35f5330ee824dc966e6f20f13b255",
+      "size": 1876
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/bits_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "7c4d8de1cdf11fc74d7691d9bfb4c84a01404037",
+      "sha256": "282d159f6c54c7adc572110978dd185942ffb80107ff5cd450ac891906b5be01",
+      "size": 9101
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/bits.h",
+      "mode": "100644",
+      "blob": "a99b3ff3068ab5942d2e70632287fb021ff50c71",
+      "sha256": "4594fce8f48c21364bcceb03c78dfccad050a16b05d852119f311ce6525a8bf0",
+      "size": 6456
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/check.cc",
+      "mode": "100644",
+      "blob": "957d662e5277750e41231954a675b65b95c07ace",
+      "sha256": "6d4cfefecc5f2ee80395744a5f39ea223e8ba58e10cca403ed78946a9b10dc24",
+      "size": 3173
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/check.h",
+      "mode": "100644",
+      "blob": "2358e80046c84fd0b9009a24be6d851da57d0341",
+      "sha256": "cb3900973609b55843a57b2caa2dcddc48a6c2968804aef5aad924cfa8e6f0aa",
+      "size": 9740
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/compiler_specific.h",
+      "mode": "100644",
+      "blob": "8466abca21bca3b0b936d5651fad901f750e19d1",
+      "sha256": "943b3c3bf29ffeab41b30addc8b08a308cd995fc70819d0b3d3749a364155268",
+      "size": 18507
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/component_export_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "4d205b05ad5302f67aeb29f26e0697648e2e8ad3",
+      "sha256": "0ff3af83c5d3d66705bffc2d88a82c13f9772fa54f0f1cfed884aa6bb170bb8c",
+      "size": 2149
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/component_export.h",
+      "mode": "100644",
+      "blob": "94a565b834212d862f74fd430a5783eeda521942",
+      "sha256": "836333bdf61d8e228495de7f93b1f297e49565f3de2728b9b041be6cf805f29b",
+      "size": 4029
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/checked_iterators.h",
+      "mode": "100644",
+      "blob": "d71a9a1a4f3ff9644744e2615ff4e4af5c4f12f2",
+      "sha256": "28ff193f64e0fa7e5b04a5d9cf4865af02d9ce93a77704ef6eb892700df7e8c9",
+      "size": 10213
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/flat_map_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "09e70444d9cfe942be1a118585d0b6bc999ea491",
+      "sha256": "1b6c947b6493241e29bb7ecc6bf6599508fca573c5e3d877b44f90759c815235",
+      "size": 15914
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/flat_map.h",
+      "mode": "100644",
+      "blob": "b137c595e27620238bba33a590cb92c90e075770",
+      "sha256": "c810e0a052053629857093a560b107091d34e825989e13e0ba8bd6212dfaf325",
+      "size": 15697
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/flat_tree_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "d5f9c7257acd3113ec352946549d1f78a3351018",
+      "sha256": "fd07287030a1103d39c917ade0f6fc657bbb6a368b1251d8f11c10743acc4c35",
+      "size": 51038
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/flat_tree.h",
+      "mode": "100644",
+      "blob": "61a362118c92ec16ab524f14bbb4272888c86643",
+      "sha256": "96fa78da5ae0363bda3d8fd2240e24aa020cb48d090b3c8805a6ac79534faf7c",
+      "size": 43230
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/span_forward_internal.h",
+      "mode": "100644",
+      "blob": "dc9243256fe75d3228a0832476c6ac0a979b536d",
+      "sha256": "f14bacd0d91b43a2fbe83aa4bcd28f0adb664023a5243b7343f7fe4fd64115f8",
+      "size": 851
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/span_unittest.cc",
+      "mode": "100644",
+      "blob": "cec6a22ce0e62eb2dec4e15555dfdb9390850525",
+      "sha256": "de6c1cfeaf102d8a8486ce051efcd42ca76f84fbd807875f50a0f9007d439e33",
+      "size": 114611
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/containers/span.h",
+      "mode": "100644",
+      "blob": "657439e12ec69a5ec25861316f702b1ac2263766",
+      "sha256": "962f1b59f7661dc2e81b97c6af1823e5ae594479c00a9c044a1c8888c66fcef3",
+      "size": 83359
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/cpu_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "067959652657df86047d63600272cdb862205c5c",
+      "sha256": "465225716c0ce8624f700a1013a9309aa599f8941201f32893ec15bf9f164bb8",
+      "size": 5009
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/cpu.cc",
+      "mode": "100644",
+      "blob": "44b036e0873482e2c548b5dff9970586b23a807b",
+      "sha256": "f739f155f6c7b8fbe92b12404e40cec763c0a9df5519681be50099dcee347bd7",
+      "size": 7272
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/cpu.h",
+      "mode": "100644",
+      "blob": "27f2ea2fd85ab1629840f35f93ff2fa135f70a16",
+      "sha256": "6aef918c4ae45248d03a4756569de19a23130f14c52b738841849b301dde92cb",
+      "size": 3465
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/cxx_wrapper/algorithm.h",
+      "mode": "100644",
+      "blob": "3df94f07e6d2ad900c850f4cabb5e9926f801312",
+      "sha256": "87a22bfc3360992006cbe9fc9e58695ee22ad9336ba6694a4a80af7ea3068f7e",
+      "size": 2033
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/cxx_wrapper/optional.h",
+      "mode": "100644",
+      "blob": "597b6131898aba2c494fb5c205034fe53452341f",
+      "sha256": "763da853837070386aa5243259b7ca2bb3abc8078446b5901913fd37bbdba07b",
+      "size": 2027
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/alias.cc",
+      "mode": "100644",
+      "blob": "842266a88072fc753de8fdbf83e62cb65ec31b4f",
+      "sha256": "32fccb73e4be438b5ec3c17c58b8e722fc5f7ee5a196f326dadb9c847032dab4",
+      "size": 582
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/alias.h",
+      "mode": "100644",
+      "blob": "ab7410b657e6ad9754a9715d89d62d5fdf62b8b7",
+      "sha256": "fd0bb19eedbeaee348ebbb797eba1ea775907b2360ffeb634d4a341f7d1dee48",
+      "size": 4240
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/proc_maps_linux.cc",
+      "mode": "100644",
+      "blob": "1a34bfe9f3c1c1d488b47dee1b8642817125ec2d",
+      "sha256": "6f465eb4acaf090536ed26a7792bde32e2a07e1f2fa76f78c2e635fc01170e75",
+      "size": 6234
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/proc_maps_linux.h",
+      "mode": "100644",
+      "blob": "e8e6ccc2cdd5811feee144b0b8e764b8d8a51a3e",
+      "sha256": "7fe1abe5b3cda303303dc361a3b922f15aee0b5dee3d0cea1bde999d1b0e305c",
+      "size": 3712
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/stack_trace_android.cc",
+      "mode": "100644",
+      "blob": "963a1eca4e32fa2502502846e7d192d95bbbd0e8",
+      "sha256": "7a7d949f304442fce07cbf2a3375941d1b6d4efb9a264b95997df564014ec7f8",
+      "size": 2341
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/stack_trace_linux.cc",
+      "mode": "100644",
+      "blob": "f2bfb207118f12807425683a9e73b4581bde141b",
+      "sha256": "bb3939b91e28ab9442c4cb3d7bca13d415d6ac93b5e8deb7cb2a1756f8b876b0",
+      "size": 971
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/stack_trace_mac.cc",
+      "mode": "100644",
+      "blob": "74a17d2c5d977479ecfe61dfd2c96fb9ca630ec4",
+      "sha256": "17c13519e097d8e773fe1013d0f5b2554a080238dc6bb10e42f6d2257d94ac08",
+      "size": 1409
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/stack_trace_posix.cc",
+      "mode": "100644",
+      "blob": "ae1070defaa2a3989dc49ad08cc6ae8fc1a78d8f",
+      "sha256": "5e0a75474b149bf50d4bce61668dbd6702ff34c5f4cef4937ab7bae87648d20d",
+      "size": 12957
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/stack_trace_win.cc",
+      "mode": "100644",
+      "blob": "acfe21545554602227fa9a189f2301c9e0a25144",
+      "sha256": "fb5686735fb1fbd3cba48c5ab67db856928e3c590c7532de396a23c92ac83b25",
+      "size": 4125
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/stack_trace.cc",
+      "mode": "100644",
+      "blob": "724e804d91a57fdd7898be8c1f789e0f369dc704",
+      "sha256": "41a7291edccdc19f8a7091f0a66004ef886504867c1fe981e54bab322237202b",
+      "size": 8729
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/debug/stack_trace.h",
+      "mode": "100644",
+      "blob": "287765d494a1f0f55a803aa5b4e44ccacebd08bf",
+      "sha256": "3f02e768de162ab7adc2bd458fe1cab0068c908525ed6d2819650ccfb8ad00a2",
+      "size": 3067
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/export_template.h",
+      "mode": "100644",
+      "blob": "14dd5dde9a9a5f593796e4ff2399df79b49b72e4",
+      "sha256": "6c3fcaac58c2dfead8cd25bc775809a8d4dcaf06da9f5c05f7cffe36cb03cf43",
+      "size": 8167
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/files/file_path_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "4dabfc2ff265f2716a10f8ca8aab5bbf865e24a8",
+      "sha256": "a11881e9722efe3e46c0e5958b6fca39c747f411523c54efe4ca59a35c317721",
+      "size": 5849
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/files/file_path.cc",
+      "mode": "100644",
+      "blob": "cfb7ae5f6172c6dff1515ca5fd383fff249b8488",
+      "sha256": "96c09a291ad88264103d552db60dd6987e4826e03be534bf2aae4a0f8aacb1a0",
+      "size": 5705
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/files/file_path.h",
+      "mode": "100644",
+      "blob": "204e2969cfc4fe7747b90635ec0fa6f31f50ffef",
+      "sha256": "702b805f49c5091445469035a5ff8c91a9f49f90b981c4f2fc7cc016f723ddc9",
+      "size": 10359
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/files/file_util_posix.cc",
+      "mode": "100644",
+      "blob": "ee693723d85bb206750f225a661bae6a39265c87",
+      "sha256": "e8d422ab3f8e9c9df42055eaa37eafffb733ebad5877fa0340f32b0703ad70fb",
+      "size": 778
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/files/file_util.h",
+      "mode": "100644",
+      "blob": "ce21e327bc66fec5f595d9b2e4599c5698b7c6ae",
+      "sha256": "2f5d1f231e4a6c8ded3c2cf642f879b7c30e48479f0debfcdc51ad9994c18346",
+      "size": 1229
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/files/platform_file.h",
+      "mode": "100644",
+      "blob": "cd7c1617e782ba04d9603a6215f9c9aa5ca158db",
+      "sha256": "66db67f679cab13177643c9f53a1b83d87afd4510640b1e8d6fce35cb7b6c6df",
+      "size": 1254
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/fuchsia/fuchsia_logging_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "80d4632be9e016d2f991beab8e91cb49dbda0534",
+      "sha256": "b689d200b394f4cba283914e443a68823298ecbae7d2cd57bf6e149cafdfc7f6",
+      "size": 1417
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/fuchsia/fuchsia_logging.cc",
+      "mode": "100644",
+      "blob": "3c9e10e91ff31a206685bed2aa1b53c24136cb1b",
+      "sha256": "1b0eaa555f4c07aaef484250c72e3cefdd061e12b60491772e4974f59d66295a",
+      "size": 896
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/fuchsia/fuchsia_logging.h",
+      "mode": "100644",
+      "blob": "cbddde331dfc1282d8b0ccdf212b259dead8959c",
+      "sha256": "f43d5448ff0fc4101c7e9cc7887f8794a1179030ab105e55c6d694173689c421",
+      "size": 2604
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/immediate_crash.h",
+      "mode": "100644",
+      "blob": "e0ee3ec05993b6710d9a1c6bcab99c3f9a6015f4",
+      "sha256": "fde41f4688ae0e0d80fb5a294787ee28becdb9cf266ae397cf2b58772f8873cb",
+      "size": 6323
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/ios/ios_util.h",
+      "mode": "100644",
+      "blob": "b389022b59bf32b457016d119e84ab62e979db2a",
+      "sha256": "2304b512707a61b8b34d04eeb4ea9e1b2d44ad511d1bff3dcd577c9d1458befe",
+      "size": 712
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/ios/ios_util.mm",
+      "mode": "100644",
+      "blob": "db615526db171445cddcadb93a76b0ee9fe2a11a",
+      "sha256": "68daa24d043e6524bbb8f53033ecbba17a23b344341e83f5422d3f3ff5ebf057",
+      "size": 1305
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/log_message.cc",
+      "mode": "100644",
+      "blob": "5638dd30ffc26c1c8bfe083cbbbcd2c46c4f8983",
+      "sha256": "dd153d4bbee3bcf6bdf668274c427edb7e02b1c4103467feebb8c2b551ed6f65",
+      "size": 8578
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/log_message.h",
+      "mode": "100644",
+      "blob": "46b233d674e5f60f35983252acf5ddec0f925092",
+      "sha256": "1152b52ddf3a7b5389794fd9ed0dfdbe627750309df5ed6e6a020f8681f85633",
+      "size": 5898
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/logging_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "157d2af0514f370a2abbb19cf741a452ec52c542",
+      "sha256": "aa6244b59db4cb4ca12b1223b8098dd54fb537ad2e7e8d608bbabc4a6bae556f",
+      "size": 4642
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/logging.cc",
+      "mode": "100644",
+      "blob": "93428e60d224ea246185434adc1c316fd222a123",
+      "sha256": "ab4594e70a87b39178d44520807607222ce41e670c3a59102811defc3f785160",
+      "size": 3461
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/logging.h",
+      "mode": "100644",
+      "blob": "3f4ed8b3f2c4931794b5963af1296c9f8b2a59a5",
+      "sha256": "cc20bbf50afc0242d0ec5ed40de06b5406f4e89dd4d5153060817876a3dfc9f6",
+      "size": 18368
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/mac/mac_util.h",
+      "mode": "100644",
+      "blob": "d692294e9c7a07fa945de9496e1a70dcddf9a211",
+      "sha256": "a19792b54df3de831d62481c7545da2eb4c744967a819dff0a33af64e579da13",
+      "size": 999
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/mac/mac_util.mm",
+      "mode": "100644",
+      "blob": "9c486a7c46135af1c66c6b401b1fd2db607d4d69",
+      "sha256": "6a1c1ed65c7afdd6b3605a4fe02baff975d77f7e7a84f32b8b9e3a0aac167a4c",
+      "size": 3607
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/page_size_posix.cc",
+      "mode": "100644",
+      "blob": "245bc5898c9e36f1ab07a4393261a27da57f7244",
+      "sha256": "a8eeed91da3f573befa6c2914c6a50674d9556c135a32121499a6fd040815235",
+      "size": 699
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/page_size_win.cc",
+      "mode": "100644",
+      "blob": "e5bfb76e77ad08f51a6d58e4d93aab34d28852af",
+      "sha256": "9ddff7dd9e4c0c7ff9b13f19628753435985f6d1521995cbe3a4140bbe193ff7",
+      "size": 468
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/page_size.h",
+      "mode": "100644",
+      "blob": "7180f034f12986a6afe7580edd21ee9192fd4517",
+      "sha256": "bb24cb3245e4be85c3d042aa42cd0bd424900f2e1eb898d0d85b1580fa248c27",
+      "size": 845
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/ref_counted.cc",
+      "mode": "100644",
+      "blob": "f952f31893a9008536ab4d8081a36225d696adc8",
+      "sha256": "e6a115d0048162e564a709ffd3de027d04a9edff66f49b480162fb69ae085182",
+      "size": 1424
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/ref_counted.h",
+      "mode": "100644",
+      "blob": "2b8b87ba1132296f003a4a864d05d1940a289644",
+      "sha256": "fdcf62a1b5cd3d5c5cb954a21ff2da9433daff58458f43b8f3174d10f8d1d711",
+      "size": 5883
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/scoped_policy.h",
+      "mode": "100644",
+      "blob": "e8e9a200ff217c5b7797314d617c9f09119e5e33",
+      "sha256": "c4614f033c62a84f4166403073707e28968d632bd3b850316730f2b112e6e4b8",
+      "size": 773
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/scoped_refptr.h",
+      "mode": "100644",
+      "blob": "872c16db188f13eccf3940e4e92f4c960583ecc0",
+      "sha256": "d13f73751e904a2cc5ec2ed83add5bffa4b5efbae612ef919a934f556c93fa19",
+      "size": 11064
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/memory/stack_allocated.h",
+      "mode": "100644",
+      "blob": "0b1963e0ee86272daff88902d718d501fd8d3d41",
+      "sha256": "083c01a58dacf4ba6cde7cb822f2180729013fe169ca402d3b5f1187bc051c79",
+      "size": 2658
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/native_library_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "89ed1fd51504e09dc030335d4b3cf21c0b890eb7",
+      "sha256": "c43a0eff37519ab20154ead43b94abbf5db13097bd44d3acedaf5e23e8b03287",
+      "size": 899
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/native_library_posix.cc",
+      "mode": "100644",
+      "blob": "cddd47eb6e30802822d772fcb51c33b3857f6d48",
+      "sha256": "e8f2e1767c9ce8574d9e08ec1a1eeb74004066da8b678a2995c399bc78d02f6b",
+      "size": 2184
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/native_library.cc",
+      "mode": "100644",
+      "blob": "23ab7a3068bb57ebb5f24c59c785a4e2cc9c85e5",
+      "sha256": "adaa160333c503996c4df7f6bdac9a32790d32964728253ab795955dfe606276",
+      "size": 555
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/native_library.h",
+      "mode": "100644",
+      "blob": "0801af04e90cad4a86f4cf059e449437bf18f40f",
+      "sha256": "f5a1885a628c81730fcfc70ce9b0ce1b71909fcc596e80b9beacf438ef783184",
+      "size": 3411
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/no_destructor_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "063714c20567a5a2ffb683e7cdc8e8c274905dbb",
+      "sha256": "9212966a0733760e7f5b52ca2c55fb5f48d9d1e98afd0f77f751aac25667dfdb",
+      "size": 867
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/no_destructor.h",
+      "mode": "100644",
+      "blob": "2daa62ceefb935daa4e5274f9370759a2b92484f",
+      "sha256": "b8f29c3532085309a5e31e2c3816032764bbaeb527527d257aa25c86754e5e3e",
+      "size": 5133
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/notreached.h",
+      "mode": "100644",
+      "blob": "57086c20ef8339924036fc0f21e1910aa545a4a4",
+      "sha256": "06cf07d59ef2f107a1e32288ebcd4760f5f325057f26df441cccbedd5658eeb9",
+      "size": 1003
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/checked_math_impl.h",
+      "mode": "100644",
+      "blob": "ea92dba29a37977594c78c9354cee9ae5d4b06a6",
+      "sha256": "96d43ef684a3f6858037312a587461eae659dc8cedc7df1fb45bed623925fa2f",
+      "size": 22783
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/checked_math.h",
+      "mode": "100644",
+      "blob": "4f1beb06f3777164b336f12e4ca7c042248c9f93",
+      "sha256": "964559e66c13aa1f90d4192b467f11ed988a0b8042d55c0a2209ff23a367868b",
+      "size": 13475
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/clamped_math_impl.h",
+      "mode": "100644",
+      "blob": "b18d1d628af9c4c48e098f911e283686a561a9de",
+      "sha256": "9f297ef0fcb26baca1d807a695f73cc1c565b5adfdc6ceac396bfac14f4179fb",
+      "size": 12806
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/clamped_math.h",
+      "mode": "100644",
+      "blob": "5bd3546c7aca274ac0903400fb4e6df311effb9d",
+      "sha256": "aaf957a1deed28291c2a0dd8dae87831c706e97af05ca95ec23e00046d085c7d",
+      "size": 8789
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/safe_conversions_arm_impl.h",
+      "mode": "100644",
+      "blob": "e89f8ce6bfc1a4c2accc73e5ee44dd2542746c4e",
+      "sha256": "740cf20d19dfd224ece3d302e0a334de7fe207cc3bc3567872a0bf5a7f6f046b",
+      "size": 2014
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/safe_conversions_impl.h",
+      "mode": "100644",
+      "blob": "4c5ab0f0bd488f867a6e1020cd13787c094514a3",
+      "sha256": "70ea5411bec6bb7b73e368b1f380450d74deb53beec16c1d2953309316d553db",
+      "size": 34459
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/safe_conversions.h",
+      "mode": "100644",
+      "blob": "4fc28dcd1614ca434cbe614380b0c2e3b2865211",
+      "sha256": "0d5ce7c2988bafc4a04a02207454d3ad141b2ba96bcad539afc92f0935fadc9a",
+      "size": 15797
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/safe_math_arm_impl.h",
+      "mode": "100644",
+      "blob": "c23f41498415b665ebfad3fc3067d0def5c2466c",
+      "sha256": "adfbdfa401a61e75be6b1f0e63cf391265d714456ea52ab305148715907cc3f7",
+      "size": 4502
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/safe_math_clang_gcc_impl.h",
+      "mode": "100644",
+      "blob": "31cf5c23f297857c8d8f642150e926b992fe72ba",
+      "sha256": "05265abea5623d6e0a8146e2dfaa2ec6e8ac5c548d85317f879aa0dc504c8295",
+      "size": 4989
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/safe_math_shared_impl.h",
+      "mode": "100644",
+      "blob": "a0dda7aadf0ddfb8be792cfdba2e76fad36197fb",
+      "sha256": "9c4e38c785da6a90e3a5e4c95c656ba30e91c5947db1b41f165c8cd75a2b1ed9",
+      "size": 8075
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/numerics/safe_math.h",
+      "mode": "100644",
+      "blob": "fcf72d34ead3e415b82ee0f330c2a0674d8743a5",
+      "sha256": "31a48225a797ba284a06346993f009dad07307570e2b58352b062650249d57a5",
+      "size": 570
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/posix/eintr_wrapper.h",
+      "mode": "100644",
+      "blob": "35d4f45a91c0947c0cc187e94bd8761f647f1b1b",
+      "sha256": "35138f24ae4e679ac9908815a246e69cd294fb483a408091ecf1363042611de0",
+      "size": 1692
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/posix/safe_strerror.cc",
+      "mode": "100644",
+      "blob": "898c943665a5c25eaab667aa86c9df123d58da99",
+      "sha256": "1b5fbe26293fa51d42e85ddbe0737e1e3420a4f53fea80a94fe55860a8691eb8",
+      "size": 4568
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/posix/safe_strerror.h",
+      "mode": "100644",
+      "blob": "1637536718f2df785d57f0ff8af9aa002449e11e",
+      "sha256": "5f0fa6a800a97161aa765914b4a0bbd13bc4a9fb67c9816b01b8c36ec59bfd97",
+      "size": 1885
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/process/process_handle_posix.cc",
+      "mode": "100644",
+      "blob": "8989883dea4b71bc86d95a450a85a4be1ca1c2b4",
+      "sha256": "4407d592b81b9b0143849d480e6f125e93db97d848271527ad7ef01d2069555a",
+      "size": 385
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/process/process_handle_win.cc",
+      "mode": "100644",
+      "blob": "9fcc80990f6eb24111ae113e59e098056f17b72f",
+      "sha256": "857111dbf808e6551d8a3a000e316a0ea2a1a4c34d4d9efd097a096f0bd2704a",
+      "size": 401
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/process/process_handle.h",
+      "mode": "100644",
+      "blob": "f2961dd625f4d83cb6ebcf8fd58b88d748e9616f",
+      "sha256": "6ed07cff8d0b4a29fc33361706efa15ce23d016b555b43acb3c886b38fa88630",
+      "size": 1572
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/rand_util_fuchsia.cc",
+      "mode": "100644",
+      "blob": "e3e777396cad7f486679d77acf43cf3832e0f9e4",
+      "sha256": "82332e0c0210f28488b0978c54f1bbd71e63a10bd3329b84b98287c79332744c",
+      "size": 424
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/rand_util_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "c793b69d4419faae221e7f1ec62b68688963a4c6",
+      "sha256": "f6a77092c89b8371cf75fd156c3eb096fa20dcac352f7073f7e993a7cbcd9ccb",
+      "size": 9097
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/rand_util_posix.cc",
+      "mode": "100644",
+      "blob": "db79a65284dab8593e8b771a2b14d012aba0d02e",
+      "sha256": "8d9cb8c58d3be792f8ae8e8f4d585ae975309e77f0acbbfaef3bc062b4a4e730",
+      "size": 4649
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/rand_util_win.cc",
+      "mode": "100644",
+      "blob": "1596bc2a31a29fd1fb08e8d6491253b04b1a5aaa",
+      "sha256": "26c8a83625421a8339a711de48ae7215fba95bf78e75102d79be998472211f9b",
+      "size": 1520
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/rand_util.cc",
+      "mode": "100644",
+      "blob": "84634564c4f8dbd5e5679ff74c2716e986aa67c1",
+      "sha256": "5cd9139c30d5a3657a56353a642d4a7e69b08a1a4cb4e94425b3b06ed41e25f1",
+      "size": 1929
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/rand_util.h",
+      "mode": "100644",
+      "blob": "3682a342e1b1de8ce28c02caa90f75e6125a0c9e",
+      "sha256": "9ce0c5484c3134b24c66d8f1a7e66c5fabbd984c245c7f961ca4f475aff5817f",
+      "size": 3593
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/README.md",
+      "mode": "100644",
+      "blob": "06eae021d637a969731990cbd14a049a410ed13f",
+      "sha256": "2abf037ed6a60f883f3058d2ef3c49133be2bc0c96385e2504cec61d15593db4",
+      "size": 734
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/scoped_clear_last_error_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "afe7bcbe964a7e63e10949932c751c75e2990edd",
+      "sha256": "f639e36437eae5657068061df0aa57962f9829a3a87af88b431ce4775743c813",
+      "size": 1330
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/scoped_clear_last_error_win.cc",
+      "mode": "100644",
+      "blob": "e6ebe6a7a4708a5325fbe99f8248c3cdad0a28dd",
+      "sha256": "28259d2215fed7b43cfb579a4c5cd8420f67b85fb5d37a7dd6d682488660a1e2",
+      "size": 559
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/scoped_clear_last_error.h",
+      "mode": "100644",
+      "blob": "d3460d907e44bb585f6cda936f0b3aa9694b528a",
+      "sha256": "fa04c0b430f8ff97c7b882843425c5ba25e3bf61058faad931eaffc4fa5d73a0",
+      "size": 1944
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/cstring_builder_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "1f7c1d214a4726b010c2dbc61f1dc6f403c84068",
+      "sha256": "e2f452f6fcae9a0cc558f22b5db5073575cda4030f5c9d96d0ee72c9a886a150",
+      "size": 4532
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/cstring_builder.cc",
+      "mode": "100644",
+      "blob": "c951cdd8c4f5a247cc11405c412bc71e727a5b65",
+      "sha256": "4be8043d3702f4dfaa82b2c94ffb94fe93fa485afbf5898bea91a95e24ce2e66",
+      "size": 5650
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/cstring_builder.h",
+      "mode": "100644",
+      "blob": "e6987dabcafd101dd061087e98f14c205e4cc75b",
+      "sha256": "db84268fc58203f26e87a0a906d1ba2fb68920b502389212ff94138ffb861e96",
+      "size": 2169
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/safe_sprintf_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "f00695b054373c50f6e3653fb147c4227a001b9f",
+      "sha256": "11586e3d01be9763ec3b9e5d85dd8b4b7712cb8f0426d7e722f5fca6a481758c",
+      "size": 31806
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/safe_sprintf.cc",
+      "mode": "100644",
+      "blob": "3cf74e26d29d1902d56a3c32dc3224ad76598e98",
+      "sha256": "bda9ec8569679f869eda1fe3f000737015123127fa96bcf727c3bca1c0c506d9",
+      "size": 27628
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/safe_sprintf.h",
+      "mode": "100644",
+      "blob": "8f4f949294873d389b18dfee2295bc246fb1a374",
+      "sha256": "175df7ce2a2b283a8d32b6cfbf4fc3c4660e35eaeb725569ba673d678c684034",
+      "size": 10252
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/string_util_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "510d26d9ab51d022017039b18be62a1cb65d64ed",
+      "sha256": "7116f2aea0c8d702d485614953745f26dea38d2171bb84f2ef93b5729320699b",
+      "size": 1370
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/string_util.cc",
+      "mode": "100644",
+      "blob": "9c4ff7f7f832fdaa115d82e71f64d548880831d9",
+      "sha256": "58a44a4889411948d15ca1e925d9527986beb98d90a6db293655e98bc38d61f7",
+      "size": 1031
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/string_util.h",
+      "mode": "100644",
+      "blob": "41e1b917ee00767e0df8513d8f9a5a55e49343dc",
+      "sha256": "ed04921476f77967dfeb4ba030223ea1f6894eca189d537593fd9f41c8ba477f",
+      "size": 752
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/stringprintf_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "f0f46f89ddea990e136d6a93b7f0efec33336820",
+      "sha256": "09278a06070804b44c7098a816c206db4e3947307923e63c5973f2fe4a4927f8",
+      "size": 2020
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/stringprintf.cc",
+      "mode": "100644",
+      "blob": "e0a52657d76288ac3c75a309bb9129010b1725dc",
+      "sha256": "166b2f68c91d03aa35aef3b26937c38b8a36b34f495ce9d21d8bc9df26d56bb6",
+      "size": 1815
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/strings/stringprintf.h",
+      "mode": "100644",
+      "blob": "b445669923fd14aa82abef9451f773530fec9c82",
+      "sha256": "c82877d2d959391575970ce4250395004e0e4e8b010d781efdd4ba1a43fdf82c",
+      "size": 1152
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/system/sys_info_ios.mm",
+      "mode": "100644",
+      "blob": "0082bcb13a25f1a6da100311b31c15e0a3d13544",
+      "sha256": "727260a1e5c1769e48250e296b19b536149e1bcdefb6ebf3885df8f30699a1e1",
+      "size": 932
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/system/sys_info_mac.mm",
+      "mode": "100644",
+      "blob": "a89c27021f40774815cd1ce63b861a37f1dcc6cf",
+      "sha256": "1904dac8a8edabe1713a6dff2dfc15b5ffb40cab3b85e78f1712e76c57aab4e1",
+      "size": 927
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/system/sys_info.h",
+      "mode": "100644",
+      "blob": "b88a3d7f09954cbd2867dfc4b2442421d772eefb",
+      "sha256": "2c8eb3961c3bc5538812d90dedad3d1bdc183691ffa239d88ef14e4fe9814b61",
+      "size": 1197
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/template_util_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "20205fbe594f0163a2e82318c98b63a348e59515",
+      "sha256": "e17df775d429b8152eb2074ce3a45c414ff7b014a6871236a47942d0e5052a14",
+      "size": 721
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/template_util.h",
+      "mode": "100644",
+      "blob": "dbc7a7a1d11a76805dbd8bf0ff3c1920748bf72c",
+      "sha256": "029d9c9433c6c33d423b5f001f43413b52e179bb237465cc464f54f72dff0c7a",
+      "size": 1978
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/test/gtest_util.h",
+      "mode": "100644",
+      "blob": "81f6762f36af324524de26a4d66ddc1cc6745c2d",
+      "sha256": "c29c9ed4a675db5097fbe8cae90479542996d3542f83971e323725b0d6f6358f",
+      "size": 4248
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/test/move_only_int.h",
+      "mode": "100644",
+      "blob": "79c9141423ef87b90d443597f6d9833758e4ea1a",
+      "sha256": "096c5c222e68a083fad50ef77bd0d47ae813a2a06294ec43daeafa42c31630b9",
+      "size": 1636
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/thread_annotations_pa_nocompile.nc",
+      "mode": "100644",
+      "blob": "3ba937a95b0c5697edc7462a8cb6d5ee3beeb729",
+      "sha256": "8ca23e267cab76bf8e2af875354e3e6113a7ef353930d89bb90e77166cc196f8",
+      "size": 1776
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/thread_annotations_pa_unittest.cc",
+      "mode": "100644",
+      "blob": "3e5198cacd16d9ccdd069dfa4e034c261c61400a",
+      "sha256": "c8b51c57e481b6a7b275d58e26db45fd2881afd9fa601619f2fe040813f4714a",
+      "size": 1246
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/thread_annotations.h",
+      "mode": "100644",
+      "blob": "feb1d13ee93057c6fd0129570040b69aee8e08b9",
+      "sha256": "84b7d7d0de09723cf78693d506922019ed7c14bdd6d179683befc99590dde7e2",
+      "size": 10509
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_android_for_testing.cc",
+      "mode": "100644",
+      "blob": "0ee3fae4a5223d12987dbd809d059ac1bd4ac85c",
+      "sha256": "dae54a78421ba9fe14d09967a2a9e6f532161d96df0ddaebfe7fe92ce4fbbaf6",
+      "size": 924
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_apple_for_testing.mm",
+      "mode": "100644",
+      "blob": "fe9131b9e2472f6b25280502d63d44dd94aa503a",
+      "sha256": "ed6dadfb93ff560173fa3283731c91711374b9e4430c410740582a74ed1236c9",
+      "size": 3628
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_for_testing.h",
+      "mode": "100644",
+      "blob": "a99b483fe416f62588305a525b31f9be158e6354",
+      "sha256": "b61b6a5667a3f08430fa8c0ea5e73137f14b5960f41d34dd744e05f4011b53d5",
+      "size": 3022
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_fuchsia_for_testing.cc",
+      "mode": "100644",
+      "blob": "d0eb7ef8ac234bb92db79372033880f503365d55",
+      "sha256": "67ac5fc302f3509ba84f374d112163a0b0b96fa1becd6a772955f0fea21479df",
+      "size": 506
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_internal_posix.h",
+      "mode": "100644",
+      "blob": "aa217b850981efbae969209ba8325fe87ce93b52",
+      "sha256": "1cdb62ebccdf1784316d3571c32aa1e54739b289bf285dd37249b15e22a6da84",
+      "size": 1141
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_linux_for_testing.cc",
+      "mode": "100644",
+      "blob": "17a83348054704804fc17cfdd4c4ce9ecebb0881",
+      "sha256": "33e1a55d0cb7dbfd840bfb784d5db3de17f1c58ce025bdfd54ca5f8a008221d8",
+      "size": 823
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_posix_for_testing.cc",
+      "mode": "100644",
+      "blob": "a5c2625c494d4df69c01fd290517ead8f13e644f",
+      "sha256": "517af828c4fdf860206951b1e20629c741e0bf424e8780de66f1ff87ff6f4925",
+      "size": 4174
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_posix.cc",
+      "mode": "100644",
+      "blob": "ff4bf714e4bceec0348fadb8d603ff0118845a40",
+      "sha256": "f0cb69fb212e15b08ccae48ec876a7d5f3be9e499720b7a84421c82132dbdf62",
+      "size": 3191
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_ref.h",
+      "mode": "100644",
+      "blob": "751f83ae49c8417caf8f6dca0990ef50f3f6b811",
+      "sha256": "1c3ebe2d6f439d3af822562d804e6ddeb2b10595f435ac0d10ed2d2abc5710b7",
+      "size": 2052
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_win_for_testing.cc",
+      "mode": "100644",
+      "blob": "5648472d960ed18111cf7e1bd976850737864f4e",
+      "sha256": "6bb4158902ef2ec37763ad260266f3db6acde551c18d61a3f63e31b637ad6575",
+      "size": 6163
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread_win.cc",
+      "mode": "100644",
+      "blob": "82aa2e533eb05eca1c91b3f17191203f36da4cdc",
+      "sha256": "1e9d2dcf8e56728ba49e47402b7a2504e229aa56e8864b67469f2dde97cadf1d",
+      "size": 1345
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread.cc",
+      "mode": "100644",
+      "blob": "27d2cff8536d55cc8c4f08f8cf1064f0f69ba84b",
+      "sha256": "94c04b339e6f332ae85faf4997f95d54d6bb743d56a7d7cd54a18b57c952cae5",
+      "size": 382
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/threading/platform_thread.h",
+      "mode": "100644",
+      "blob": "f6c40b7cbcf6882d1a77135b98aa5d0de2d50a00",
+      "sha256": "32301595b9cba1db6178043724b7ec2af46e71acab082fcb1a4c4c2b743896eb",
+      "size": 3761
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time_apple.mm",
+      "mode": "100644",
+      "blob": "989adb8370063b1fdf87e73e9d9f9a810d2c2fc8",
+      "sha256": "942beb5827bf09e2275fef5dc0002e8b9a4a6fc1b4fa0c74f6aabcc05d4cf1f9",
+      "size": 7816
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time_conversion_posix.cc",
+      "mode": "100644",
+      "blob": "1039869ad0bcfa9f1e2057a88f6ccc0e4174db33",
+      "sha256": "834595f5da062cfcf466f4e3f3355dcc4b0cd6f78ed338d1a4e1b4cdfac2aab1",
+      "size": 2062
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time_fuchsia.cc",
+      "mode": "100644",
+      "blob": "475b49d627f987438e271bc770eca4ca7edc31e0",
+      "sha256": "e50c3f0b2c162c699c95cadb5a6bf7194918a6d149cd32347b60317e2fc0bb63",
+      "size": 2642
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time_now_posix.cc",
+      "mode": "100644",
+      "blob": "04d5b3246059e003e604de5e9e6f52d0e06ea3a1",
+      "sha256": "82363c896bd31ac4d4c331f53367d5514e5d5466297884cff72e9eca8b69eb0f",
+      "size": 3975
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time_override.cc",
+      "mode": "100644",
+      "blob": "b1c4c925a3563750d527e614515d47e209dec051",
+      "sha256": "37d6b6e7df94c5f5cae819303247e84be4c79271513cf506fcb64a8131fc4158",
+      "size": 1730
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time_override.h",
+      "mode": "100644",
+      "blob": "adff6be6a774f77119e77753a75a766f97631338",
+      "sha256": "d11907eefff2d8e90aa7b0b3739ea76321828fd4f819da880136e9a1fffa88e1",
+      "size": 3919
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time_win.cc",
+      "mode": "100644",
+      "blob": "bf37a99c7617246c759ada906df05f709a5cd434",
+      "sha256": "bb3d1f7e9bac41c965b4cfea0e86043c2da3da168e2ed690f56fd17333226b66",
+      "size": 21643
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time.cc",
+      "mode": "100644",
+      "blob": "5e7e92eba10c38d778fd7e23d76980e13d5908b6",
+      "sha256": "ed9262247a48b032a5c9de9a6cd5a59ba9dcf847cf217c43024ca4395e00ddd8",
+      "size": 9465
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/time/time.h",
+      "mode": "100644",
+      "blob": "eb19ab84a7a6c36158971bae40cfd61ead487b65",
+      "sha256": "d9bbab08cb28c99faac0f303b99fb4a2f29697ccd23507f18f8836c07d8a5fa6",
+      "size": 38520
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/types/same_as_any.h",
+      "mode": "100644",
+      "blob": "bed3cf34ced158aa105a5b8893fbb9aa03565d1d",
+      "sha256": "3dd24acff77b48855f587494cbbaa59e6559032d34c482e9ff9321f888a9f7ea",
+      "size": 692
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/types/strong_alias.h",
+      "mode": "100644",
+      "blob": "68703b788161eaa1e7d32288257513b1e800615c",
+      "sha256": "4abf93520392743b24e00195e45e3892fa99c0f9a3aca362b989adfcf1f03f3f",
+      "size": 5761
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/types/to_address.h",
+      "mode": "100644",
+      "blob": "8faa792705602379d3ee009ed7260c7a0a0c31e4",
+      "sha256": "931df8bec44c2c1fba2e19de86dba6c288eaddca67a3a30ec712b83477f2328e",
+      "size": 1814
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/win/win_handle_types_list.inc",
+      "mode": "100644",
+      "blob": "8d730ff2ac38155ef34365e75e3055042e89a2c5",
+      "sha256": "e659b2f4cf504ae142d35a6c78f8f3e0c80372785b07dec45863f31d6dee3856",
+      "size": 987
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/win/win_handle_types.h",
+      "mode": "100644",
+      "blob": "733aec162e14e51e94763a0ef3bfa258ce34b13e",
+      "sha256": "79ef0edbf0df8389eff08b7e192cad37517ddce80883915df40a567bdd9b38d4",
+      "size": 623
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/win/windows_handle_util.h",
+      "mode": "100644",
+      "blob": "0f87eb497327fd08d9a30bd7462c588f3a72cc41",
+      "sha256": "3d5ebf228aa6f9458beb64db60841091757d1482b11f4081f65c07e7f7f60fc9",
+      "size": 1531
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_base/win/windows_types.h",
+      "mode": "100644",
+      "blob": "649a3b74e5008a5bf95b927cb9078ffad16baae5",
+      "sha256": "fea9f1d3f8a8290c2494df0cdb6bc9e8c379cad30eff855ec1faff91d482d623",
+      "size": 2926
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_check.h",
+      "mode": "100644",
+      "blob": "674b5dbc2cde80959dde51dc2c191fc9aa92c16a",
+      "sha256": "0a7ff251bb91b8fbb30fd9bfcb83ef95a1286f8d61356570f6a4da8aad56dcd1",
+      "size": 6447
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_config.h",
+      "mode": "100644",
+      "blob": "d5bb9aefb6182294c1b91d75c2537667b477fcf1",
+      "sha256": "ce53ab76fa0d82865b6f4a6353556fbbeec37fd78cf40fc01cf68d0aa0f713f8",
+      "size": 10765
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_constants.h",
+      "mode": "100644",
+      "blob": "db7ef74d9767fff086a6a0b20dbeb784ab7cc4b0",
+      "sha256": "13828f44402f06c50cebbe0dc9024e179619c961d0d6bb9b0d9c938df6e00691",
+      "size": 19102
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_for_testing.h",
+      "mode": "100644",
+      "blob": "49773244e2602f180dfb4f86a05431c20d11ac04",
+      "sha256": "e809cf2e5bcf7c8a37ce4054284f148b6ad79ef2f7371d949dfe97851bbed4a4",
+      "size": 1590
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_forward.h",
+      "mode": "100644",
+      "blob": "1dd051362afadd2309fe5a74dcb5d046b486b0e4",
+      "sha256": "75d06228be90be18a4fafc1ceceab740c6cf1a166f75e8f12b66aeaa7766cfe8",
+      "size": 3479
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_hooks.cc",
+      "mode": "100644",
+      "blob": "209ac54729d464a0c56763efb68ee32f53d550ed",
+      "sha256": "230ff93ca04d4ea311496520b8c411d26e25400c1949595bcf02e4c9df39703e",
+      "size": 4706
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_hooks.h",
+      "mode": "100644",
+      "blob": "12176edf721e933b848bcb95dfbca0d607d6b5ef",
+      "sha256": "ef451728c16c73041d29be87393166dc51e7b668430b125f47e33a0c596e38fa",
+      "size": 4457
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_perftest.cc",
+      "mode": "100644",
+      "blob": "28880615d6101a91bef92b177ec64373f7c77c31",
+      "sha256": "91a1f6b9c96ec3e2daf0c19123d19ad2bd71ceb64d572cfe59f87c6122cff95c",
+      "size": 20805
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc_unittest.cc",
+      "mode": "100644",
+      "blob": "5627ec22f64ef7a87acc9c871f8ca3d0208d9423",
+      "sha256": "086ea27680b3210323e7e11bf45ba72c851bfd5425a85dd880e521cb32b8cf75",
+      "size": 263270
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc-inl.h",
+      "mode": "100644",
+      "blob": "004ce5e90a20079ff8be0a468492acf61a490be7",
+      "sha256": "99ecc3b0ae3bb849aaddbf12045885d006cdfac5e60637ea8a30438f961e1091",
+      "size": 4377
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc.cc",
+      "mode": "100644",
+      "blob": "6c0aa9bb4052581dafd2579d4b81fff3ae094bc4",
+      "sha256": "ae2631d2d2acb0901e0367f9d351a14d115379c5d2c4ce7d9c3e93c27833cb00",
+      "size": 5532
+    },
+    {
+      "path": "src/partition_alloc/partition_alloc.h",
+      "mode": "100644",
+      "blob": "db18d7d8a78287ff13bff06d893595c76e22bcab",
+      "sha256": "818392f55c0d3bb845a2e11d2e2ba0fe8ce9205d0d0278ff81dc910c2cec2ab5",
+      "size": 3061
+    },
+    {
+      "path": "src/partition_alloc/partition_bucket.cc",
+      "mode": "100644",
+      "blob": "cfd564ba9268a6470279a62ad4b10f39bb240d97",
+      "sha256": "d6e4cd940e1419ddb1579fa671437802f3c25c29646733e18ea54b239e9be677",
+      "size": 67022
+    },
+    {
+      "path": "src/partition_alloc/partition_bucket.h",
+      "mode": "100644",
+      "blob": "ecc156944becdc3e4e6ba381a3df5ebdb3aa79f3",
+      "sha256": "21a2b73b89aac35222173d931a856f0127af7709a8366259b738d04155c6a175",
+      "size": 10685
+    },
+    {
+      "path": "src/partition_alloc/partition_cookie.cc",
+      "mode": "100644",
+      "blob": "72851e3f70fbc73d16b2d344d01cee3c25d87b4f",
+      "sha256": "430164791b0741c44c8f5c66b9ba3b794ca2c12d5398845edc8ecc69321157e3",
+      "size": 979
+    },
+    {
+      "path": "src/partition_alloc/partition_cookie.h",
+      "mode": "100644",
+      "blob": "e94bd5fef7876abfaf6b65b6d7b6f471746b343f",
+      "sha256": "2672e11bdd42562250ef038debf27614c9b4c85826929cdaa2fdec8ec7d69e34",
+      "size": 2624
+    },
+    {
+      "path": "src/partition_alloc/partition_dcheck_helper.cc",
+      "mode": "100644",
+      "blob": "aa8c383058bd1a6bee16edc0bdbe799b5459ef4b",
+      "sha256": "a6901608f59bbbc6074f4fe5e7f411d75e30e6ff27cac44d6342ad1ff8b8c829",
+      "size": 2198
+    },
+    {
+      "path": "src/partition_alloc/partition_dcheck_helper.h",
+      "mode": "100644",
+      "blob": "1f535f60a98498d8ef112eb2aef12199410ff736",
+      "sha256": "3378465f14bff073039489c6f0e1dc737c05b53ac0cf64a5ea5d9f8f3b253660",
+      "size": 2423
+    },
+    {
+      "path": "src/partition_alloc/partition_direct_map_extent.h",
+      "mode": "100644",
+      "blob": "34889b2bcf18bfb8a0c23400b7204e498652ce0f",
+      "sha256": "da570b63ca192b0185905986d33e8b01d79225cba42c1c4923e51988834ec01f",
+      "size": 2802
+    },
+    {
+      "path": "src/partition_alloc/partition_freelist_entry.cc",
+      "mode": "100644",
+      "blob": "10ab7c68582927f5d1a10034b83521f2cd36d0b4",
+      "sha256": "14f188ad9029c08fcaa4c059b05e4c3488ecd9cbb1e46123b24535b3c326cd5e",
+      "size": 561
+    },
+    {
+      "path": "src/partition_alloc/partition_freelist_entry.h",
+      "mode": "100644",
+      "blob": "8c7810571b41029df0206c2dffc7d9552511e414",
+      "sha256": "e380bed4e9743a00222c08e41f0c3ff74da39baab87551531210e55d928fb0ab",
+      "size": 10354
+    },
+    {
+      "path": "src/partition_alloc/partition_lock_perftest.cc",
+      "mode": "100644",
+      "blob": "1bf5c01798d1f4fa0a5c9df94922bce7d7a86460",
+      "sha256": "656afa167926a7897a8b138c6efa324f6a9e927423c15237eb898390d175a20b",
+      "size": 3903
+    },
+    {
+      "path": "src/partition_alloc/partition_lock_unittest.cc",
+      "mode": "100644",
+      "blob": "c3d455ba2fd3a6d53bb959369d89ff36edff5746",
+      "sha256": "7a767122cf1eb24fc6cc6ba3c0f90a7953239fe8ab91e2808bad19e291911a31",
+      "size": 23632
+    },
+    {
+      "path": "src/partition_alloc/partition_lock.h",
+      "mode": "100644",
+      "blob": "0209ec62897566724ce51a8ffba5850edd74329a",
+      "sha256": "b4ccb180af330a59aed005a28ab52ebc16abeca5559a41c02cdcdf640ddd6814",
+      "size": 6721
+    },
+    {
+      "path": "src/partition_alloc/partition_oom.cc",
+      "mode": "100644",
+      "blob": "e56402d1cd3f6595b4e838d729e941450c6048a3",
+      "sha256": "5bb7046a841fce12a59d34c99a1aa8a554cf53ba9ab90208fed56ae77c8f0faf",
+      "size": 1054
+    },
+    {
+      "path": "src/partition_alloc/partition_oom.h",
+      "mode": "100644",
+      "blob": "6145c6520aa9f3772836c30c9e7e89aff8f7a52b",
+      "sha256": "51075c2de0aa89a7c2b3831f22c4edb597c828f80ffd3e25f38fbfa78c2f0972",
+      "size": 1249
+    },
+    {
+      "path": "src/partition_alloc/partition_page_constants.h",
+      "mode": "100644",
+      "blob": "68090efc49c2415f6baae940dec4aaba0ce9514c",
+      "sha256": "c1368934bcc993b9d337c598dd6d13afc9cd2245621e59c87f78dff5ecb25947",
+      "size": 1884
+    },
+    {
+      "path": "src/partition_alloc/partition_page.cc",
+      "mode": "100644",
+      "blob": "20607105ec781a5e378525171a66b49e350c42d5",
+      "sha256": "fbc4250d97a4109222e29f22560df71bd8e5510d5691a06be35b159f4b63fd7a",
+      "size": 15883
+    },
+    {
+      "path": "src/partition_alloc/partition_page.h",
+      "mode": "100644",
+      "blob": "6b2bee494ba3e45ebc6d65b843271bbed234d0d3",
+      "sha256": "a4434942c0c805b8f69470fdc6a7cd61cdc92de962b9124140747ecb2c0f20ca",
+      "size": 38930
+    },
+    {
+      "path": "src/partition_alloc/partition_root.cc",
+      "mode": "100644",
+      "blob": "47556e5b890a42f1f71948a680d2814a08674bdf",
+      "sha256": "d2904363ebe6eee07cef057f19014311d993c256d3d0ccc836f5da20618b7e1d",
+      "size": 76967
+    },
+    {
+      "path": "src/partition_alloc/partition_root.h",
+      "mode": "100644",
+      "blob": "755a6ba1e0accdf33118c8190fde6a20a586d57b",
+      "sha256": "9b6fb77b0ed278f3f536643b85f6400224b12145287b77143b3167f0221fa2ae",
+      "size": 115357
+    },
+    {
+      "path": "src/partition_alloc/partition_stats.cc",
+      "mode": "100644",
+      "blob": "8983a8a5a4ecf293dc3f60a61ea47ca9e8feccba",
+      "sha256": "11063ad86434b9b0b0191bf89858314dc4ab14c449e9b660a11ed90dfa657fce",
+      "size": 619
+    },
+    {
+      "path": "src/partition_alloc/partition_stats.h",
+      "mode": "100644",
+      "blob": "03a1e60bad963d677d209a8dc9b1e3b3e06c9594",
+      "sha256": "e8ec644700fcb2400af24c532a17e7f91d5c1e74d2398e9dd758e31d4da29ed4",
+      "size": 6927
+    },
+    {
+      "path": "src/partition_alloc/partition_superpage_extent_entry.h",
+      "mode": "100644",
+      "blob": "011144992dac79d549f99b1adc787de3c85dab52",
+      "sha256": "8dc93cb3174608028f4c115c4ec0206efc5c185c1f9fac110b150f8bdb37a105",
+      "size": 3475
+    },
+    {
+      "path": "src/partition_alloc/partition_tls_win.cc",
+      "mode": "100644",
+      "blob": "e28ffe82f3049d74ec1a86a567636017d734dd2f",
+      "sha256": "0f23c6e3cf264c92edeca9928c4a04a6bfeeb889429f5087591cabde5c28ff02",
+      "size": 3578
+    },
+    {
+      "path": "src/partition_alloc/partition_tls.h",
+      "mode": "100644",
+      "blob": "619115520aec1ac549ab1488d01e690effdcf1d5",
+      "sha256": "ef7f0eb7798f114dde391cb4793e979fbee419a583dd0dcc8bc41034dcebe762",
+      "size": 5360
+    },
+    {
+      "path": "src/partition_alloc/pointers/empty.cc",
+      "mode": "100644",
+      "blob": "f2cab7407671e21bec2d6c11bdb769a05d61bec5",
+      "sha256": "cdeede06e669ef0604fbfa66142b762486157bb98ce9bd60cb9fa2634ede6e08",
+      "size": 474
+    },
+    {
+      "path": "src/partition_alloc/pointers/instance_tracer.cc",
+      "mode": "100644",
+      "blob": "3b18942ed893d27e0a802cb8d1ed2bf8348b0887",
+      "sha256": "56741d6e42599a0a6793239d96a9f0269f308c4b612b6c9a0885f0c35eb03861",
+      "size": 3129
+    },
+    {
+      "path": "src/partition_alloc/pointers/instance_tracer.h",
+      "mode": "100644",
+      "blob": "38ce4ac84745a19608f203eb21d79ee31182a87d",
+      "sha256": "c67420a184d810173691541cfb36d60380f72c51a21e39230a4be240e997dd41",
+      "size": 3286
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_asan_unowned_impl.cc",
+      "mode": "100644",
+      "blob": "00724df455c4501c08f829f3a106a325a886f7e3",
+      "sha256": "bc89c3f384d14979e9866237e78359a54c5bc66aee812813630f7e7953e192bf",
+      "size": 1894
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_asan_unowned_impl.h",
+      "mode": "100644",
+      "blob": "37c75da812a260cf504ef176635e25fa5eb532c2",
+      "sha256": "db33c743fc73f110e11c9755f4d7f491622578985cd2eadce63838c15b8b0adb",
+      "size": 5316
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_backup_ref_impl.cc",
+      "mode": "100644",
+      "blob": "5900df4d2549a5a9cf5f542fb18d12032265d726",
+      "sha256": "8c4002af4fd8fba2f22b6f85cbb9d90b520ec01ab01bc449a47e3340bd8476fa",
+      "size": 5743
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_backup_ref_impl.h",
+      "mode": "100644",
+      "blob": "8ed9ae7f4cc94e9be410a5a7f2e20fb0311c998c",
+      "sha256": "bb7dfe414bdfff36ec02fc86e93dc5ad4fa0ebcefcc15224ed278fffa8061bfd",
+      "size": 21759
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_cast.h",
+      "mode": "100644",
+      "blob": "f00bad8d5d4069e74d4ec2b168dd9632682f28f4",
+      "sha256": "57b6cf6794763c283d384cb7e184128d52fea8c5f53133a0130c9a9e37b98d22",
+      "size": 2269
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_counting_impl_for_test.cc",
+      "mode": "100644",
+      "blob": "98134426fec7f32a9ae7ef68974b01da9d975a2c",
+      "sha256": "9d7e2f2d88d61757db5355cc5892d3c75d29c26926fa37debfd397d18b66914a",
+      "size": 991
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_counting_impl_for_test.h",
+      "mode": "100644",
+      "blob": "3628c09168ebffccbfccd2573449db70a4447be7",
+      "sha256": "16e6cc2562e8f804ffa0b874a2bf0660d277c024e23b46020c71b23b3de91f9c",
+      "size": 3662
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_exclusion.h",
+      "mode": "100644",
+      "blob": "f56f733984edd6ebb13d30d18e67f58aa1c29c02",
+      "sha256": "cc6e3e47d78faf39be1a73260f1f5164a0f524bebdc796fa75507dd8c8c8cce8",
+      "size": 1506
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_hookable_impl.cc",
+      "mode": "100644",
+      "blob": "e23ee5264d85cb550b8fbf56125e69c2a9f523b1",
+      "sha256": "72eca607c018454dd15b4ad68efde483ec60c7dd4af620483eff012fa55c2d03",
+      "size": 1524
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_hookable_impl.h",
+      "mode": "100644",
+      "blob": "1152f074d024e286d8848ee28fe4b41ce5022c97",
+      "sha256": "f6dc0ed920d3ec3214ccfe03fe9a18e2013ca11eeb772b5d5daafbeef2aa73ef",
+      "size": 8076
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_nocompile.nc",
+      "mode": "100644",
+      "blob": "f153f2b252a2ac5501df5e26a7887a354f6558ae",
+      "sha256": "ac33c32179eec7ec8af39b3947966b57c1253c3bc0c77c6cfe50166f07ed9585",
+      "size": 9650
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_noop_impl.h",
+      "mode": "100644",
+      "blob": "772a43b9830c916babb9fa0d2f008782ea2dc4e6",
+      "sha256": "81a799dcce7a03c68fc3acf5423b69398468832fe4b12d7ddc12bc959e54f9b4",
+      "size": 4878
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_test_support.h",
+      "mode": "100644",
+      "blob": "8f3b5501531a14e37556848b0d104c6753dd3540",
+      "sha256": "a357591c4e2e866bf85e90c7e4efb7cbbd6927fe103a15f30c601bb2ee46016f",
+      "size": 3835
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr_unittest.cc",
+      "mode": "100644",
+      "blob": "7389467b7ce261174b770f363232a4e3c8ee56c0",
+      "sha256": "7a36409bcba399e4ab50bee3a408508e1298955649150029b8e12d8183cae779",
+      "size": 110495
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ptr.h",
+      "mode": "100644",
+      "blob": "883c9a9bc4b4e15ddc00c3b9bcc7a5568d3f0575",
+      "sha256": "9b62f5e85babd6fc51620528ce4689418e4bb57437ad63c2204a8ab50d1f5b09",
+      "size": 55715
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ref_nocompile.nc",
+      "mode": "100644",
+      "blob": "98a3fc0e9f501e183b7bb38b7b2f680b82080c58",
+      "sha256": "3ff1ab2ecbd547a32c53ac917aa626f1b628d9c679ece6bb054fb4c28f817f1a",
+      "size": 3607
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ref_unittest.cc",
+      "mode": "100644",
+      "blob": "4e5b774368b606fd302ac3875f2b898e90f5bb42",
+      "sha256": "09a1fe23a19e1ce3b0f4b94d64fc12d7dbbebb25f4e3c3aa1c6a78f00c07f411",
+      "size": 30467
+    },
+    {
+      "path": "src/partition_alloc/pointers/raw_ref.h",
+      "mode": "100644",
+      "blob": "2e619ba69b0abd205ebcd53b00fac4719a6bd291",
+      "sha256": "e8c3da16b00749ce136f00defa4e1421ff69af632e0bb4666db613f46a999258",
+      "size": 19554
+    },
+    {
+      "path": "src/partition_alloc/pool_offset_freelist.h",
+      "mode": "100644",
+      "blob": "398f7b2640a9eeea5187be05464eebdac23c25df",
+      "sha256": "e2f639a1537d9b2dd5971fcc3c70774a5ded502bf69c6434367451f8650f236f",
+      "size": 5709
+    },
+    {
+      "path": "src/partition_alloc/random.cc",
+      "mode": "100644",
+      "blob": "32ddc753a23833f8d9c56c8d21a993ff6d9d8d87",
+      "sha256": "3e19b4c60e62d9363bc3bce4559cc81d0ca63e86359dbabe159b1a1a9321837c",
+      "size": 1892
+    },
+    {
+      "path": "src/partition_alloc/random.h",
+      "mode": "100644",
+      "blob": "9355b749f2766c2200c66827e4d31e65369d1611",
+      "sha256": "978f583c17225473bcfe1b9dc2621a4cadaa1992afa2b3060a105207ce913fcc",
+      "size": 1046
+    },
+    {
+      "path": "src/partition_alloc/reservation_offset_table.cc",
+      "mode": "100644",
+      "blob": "a333a74279dbc29d2f897579c733e4aa0e77fcd8",
+      "sha256": "4ab2e3c75efeed9c1b78f809f88654be466868397090a5a545a90aaafd8b1491",
+      "size": 1639
+    },
+    {
+      "path": "src/partition_alloc/reservation_offset_table.h",
+      "mode": "100644",
+      "blob": "31955d6bd4e42e94cc40877eb7c6b6b521357308",
+      "sha256": "70aacfacc28b39bd3ebc8061261db24c6f473e971703675341f34301915d2fc5",
+      "size": 13906
+    },
+    {
+      "path": "src/partition_alloc/reverse_bytes_unittest.cc",
+      "mode": "100644",
+      "blob": "975cef231c043c1887b2318d3189856d496a1d40",
+      "sha256": "944dab4deb8c541f1921c6891f23e11e0423f135ac30ced261ddb5e5e6f2c7fb",
+      "size": 779
+    },
+    {
+      "path": "src/partition_alloc/reverse_bytes.h",
+      "mode": "100644",
+      "blob": "d9db43e19743bce35f03078499b6dd93f38f057f",
+      "sha256": "e0795b3a0bcdb75aae8ed654c35500f658472dcf39c1a126a5ee2f70af50dca4",
+      "size": 1558
+    },
+    {
+      "path": "src/partition_alloc/scheduler_loop_quarantine_support.cc",
+      "mode": "100644",
+      "blob": "4c51fee0b44a3e0b475400a46a118756ae1cc8f2",
+      "sha256": "3f88cb95b9628cf86145c126cc078d4b7d4b3bf9d640266e89d88ca07a3a542a",
+      "size": 3738
+    },
+    {
+      "path": "src/partition_alloc/scheduler_loop_quarantine_support.h",
+      "mode": "100644",
+      "blob": "9d9db3975291aa889b0c7eb06ab60983b3dc0d92",
+      "sha256": "d37de1963133666527e2a2bf876b03d72ca4d139864b45c6fc9a945c7d633aae",
+      "size": 5232
+    },
+    {
+      "path": "src/partition_alloc/scheduler_loop_quarantine_unittest.cc",
+      "mode": "100644",
+      "blob": "25f73e868e00e9bc54b7ed36f472ccfa24e528fb",
+      "sha256": "08f9812f79994dbdf5f46a2aeb8c03a47592dcd688b3e0c698070a22a737acbb",
+      "size": 8014
+    },
+    {
+      "path": "src/partition_alloc/scheduler_loop_quarantine.cc",
+      "mode": "100644",
+      "blob": "dbe87e472b5e4937a8e3bf9c51aa34d52033b202",
+      "sha256": "5a8f11fd0536ee4aeb6e4863aac3ff6c133221f7095326e4d89c0f9ee6d877b3",
+      "size": 13420
+    },
+    {
+      "path": "src/partition_alloc/scheduler_loop_quarantine.h",
+      "mode": "100644",
+      "blob": "56e5f4ba2de3e2d5b7f8dd09e9f0921eaed64a5e",
+      "sha256": "96409aaf8f230d2f857f36754adc83f8a83fc5cfbff5c8f8905fe0e8b0a7fbef",
+      "size": 10761
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_dispatch.h",
+      "mode": "100644",
+      "blob": "b44c734a2515936a2f7c94c7ef4af8a77d37c9fb",
+      "sha256": "7f049afd5097ee1492475c69265a5ba934217f66403173deeb48b1165bf6546d",
+      "size": 8548
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_interception_apple_unittest.mm",
+      "mode": "100644",
+      "blob": "948b72f63938e47f28b1607d88ea9b5433e213b6",
+      "sha256": "7721029f8c2db5a85da11c7ae212306de1c1e77ba84abfa337e682a0b49961e1",
+      "size": 2434
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_interception_apple.h",
+      "mode": "100644",
+      "blob": "0ffe987a55f978699735aa69da190d271b07e99c",
+      "sha256": "69abb6e433389640b3fec6c7d8be9f74a117f30322825cfb6dfb62e7577c18a6",
+      "size": 2751
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_interception_apple.mm",
+      "mode": "100644",
+      "blob": "f8894e5b5bb296d704728e22ef59271138f66669",
+      "sha256": "cbe224a39a3c5529448f13975035c2e7e2963186914d1fd8f9e5dc29805805fc",
+      "size": 23482
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_alloc_token_symbols_apple.h",
+      "mode": "100644",
+      "blob": "0a4461aaec25aa0379e99a3cf1e0e9d92e7f949c",
+      "sha256": "0302f45a8a64aab1e4b5901963dededf774e94c315d0ab350379d5409408145a",
+      "size": 7046
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_alloc_token_symbols.h",
+      "mode": "100644",
+      "blob": "c037d13a373609a1127db9157e6ce47b67c340b2",
+      "sha256": "42c639dbf6cb93574a560b436cc6625311b217d4b0b98d8fc303ede4a7d5a77f",
+      "size": 9712
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_android.cc",
+      "mode": "100644",
+      "blob": "26f2db6d8bd59dad61b4df2a7eacb4241efcdbc0",
+      "sha256": "7793d7ffd6eb790d5e0a0560d5c2f0907e46d42ff72fbbb9d23f3ffb53425900",
+      "size": 2145
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_apple.cc",
+      "mode": "100644",
+      "blob": "f812a9bc779bbccfc19aa9796528d58ccb480c9e",
+      "sha256": "5f4f3532286f9af3d40405c0aa0e0772f876ad39f4b068116a086597c1ed3153",
+      "size": 4505
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_apple_zoned_malloc.cc",
+      "mode": "100644",
+      "blob": "76ca993263e4155964c73c1b8744c6a75a248740",
+      "sha256": "e0dba37deffcc58fee6ccbd70a54a363f2b118de04d50417af80225784ad8b85",
+      "size": 6083
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_glibc.cc",
+      "mode": "100644",
+      "blob": "2969ba46ced5a24a8675de6f6f6ade37bdb403b4",
+      "sha256": "0e06e954996448d5d6a61ab487e936ae4c40688d1edce85819a5cec14c13e959",
+      "size": 5941
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_linker_wrapped_symbols.cc",
+      "mode": "100644",
+      "blob": "397a58e7c7087c4456e9935d0b7001305da34b15",
+      "sha256": "8f5187f4d70fbf4a01169433dee7f311c6e1db5e9748d0a164f4a8595613b914",
+      "size": 3879
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc_internal.h",
+      "mode": "100644",
+      "blob": "b65a3b3ca15d7fffa61eff31f11482a6e104bf81",
+      "sha256": "c5b0ab41f6df85012fddef2702959e2ffa63f124e97af4bdf3e1c7b21d720225",
+      "size": 1138
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc_unittest.cc",
+      "mode": "100644",
+      "blob": "17d0b281673cc2aa82dd8c576b0d96c368b31214",
+      "sha256": "3b1c9fe424b83b0a1794584f9e76a4dc61692258e9bf61522212ff0156823bf0",
+      "size": 8774
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc.cc",
+      "mode": "100644",
+      "blob": "ddd62d5e5c2711f40f2e54a2fa527854c409d6ee",
+      "sha256": "8df85831ff47b88f7bb8c06c63f261716a29517aa2526f18a5a17f12e84a0e1f",
+      "size": 47695
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc.h",
+      "mode": "100644",
+      "blob": "4b0f5656b40f77a5675cd4823ac34de3eb8eb78b",
+      "sha256": "5f9ef07622cf9485b4e6059a3bac49a2b8c65256cdf1ca3b793f89e5af512725",
+      "size": 10842
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_default_dispatch_to_winheap.cc",
+      "mode": "100644",
+      "blob": "8150580910df8cb7c0ce1ecfa574b1726f448ad0",
+      "sha256": "0062da1752a98fb34e2419f2348d60548d639d68a8802f480697f855ed734eea",
+      "size": 4668
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_dispatch_to_noop_on_free.cc",
+      "mode": "100644",
+      "blob": "8eb3d5ce85fa94f85392a8b42065e5d6b4af54fa",
+      "sha256": "3072df3006afc4b4540647800c9a2e68893aad338009c2e9b215d59b147f3263",
+      "size": 2677
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_dispatch_to_noop_on_free.h",
+      "mode": "100644",
+      "blob": "b37bf97bfc7316ea5beeb52244de4ad69fa605a2",
+      "sha256": "1caf8eb477e262124412d71f9b8a29468ab69d6bfab261cc15029fd298a0ac4b",
+      "size": 753
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_functions_win_component.cc",
+      "mode": "100644",
+      "blob": "3781708f040fe7a53d4a05a23e35e09b169e5787",
+      "sha256": "1e07dc30fe0fc3f44435e153babfebe07731e744e852d4eaed5d77ceb941e889",
+      "size": 441
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_functions.h",
+      "mode": "100644",
+      "blob": "a306cc3e208ec95285ca0f7956213343f1fe49c5",
+      "sha256": "b29c9eff541d0f2e425dab376e5b7ea3fd07006316c51a7c5a2a78f9d7c99f2e",
+      "size": 5798
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_internals.h",
+      "mode": "100644",
+      "blob": "905b9f9be10275bf8d03cc2c894d879b01776917",
+      "sha256": "e962d65cf272f45f47dc614243baf3fd76c4d606e7bb87c68b54804ec4b7edc3",
+      "size": 2241
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_override_apple_default_zone.h",
+      "mode": "100644",
+      "blob": "76365ea38d4db813092fdda0e4ccc66dd463952b",
+      "sha256": "849300b836354eb2c1376074a52ae684dc2e9ecee41196f6ac8ea44807aaf826",
+      "size": 15395
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_override_apple_symbols.h",
+      "mode": "100644",
+      "blob": "058f01f57838eef3cdbe5efe5074d41f46eb7353",
+      "sha256": "99f4241333ec51dce454dee35db6993678aaa9edf02489fe7eb1ee0d904b0434",
+      "size": 3056
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_override_cpp_symbols.h",
+      "mode": "100644",
+      "blob": "1ba4cca8db9eeb891ab28ac321be6b79baaf7458",
+      "sha256": "6ae78ad8c1815616a49ce87b845cf598f77eec34f18103bd2b9289b1c98c74c1",
+      "size": 7079
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_override_glibc_weak_symbols.h",
+      "mode": "100644",
+      "blob": "e26027f5a57abeaaf95702d5f1cc10a7b01a7bfc",
+      "sha256": "1e18db8da1cf2757b888650390088c3d3fb159c13293aea872c38b86023c7fbc",
+      "size": 4285
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_override_libc_symbols.h",
+      "mode": "100644",
+      "blob": "5037b7034d475130a21ccb9f23011b72f2e1f100",
+      "sha256": "1c69d30fe18860837ea49d84d098a6d5b58030b1bc742fd1b5bb07122e8b0dc5",
+      "size": 2914
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_override_linker_wrapped_symbols.h",
+      "mode": "100644",
+      "blob": "d95230f4e7ddefa6e5f210a4cf64db68538069a6",
+      "sha256": "2501bba28be9dbb2ecfeda3fea248aa8d7b0cfc216300a49d8b5cf9e104f9070",
+      "size": 5748
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_override_ucrt_symbols_win.h",
+      "mode": "100644",
+      "blob": "53956ebb3843873341a69c22b89f477f9834ec60",
+      "sha256": "67ed47bf0e4295fa13d25f9056b0f822a08b982b9c8ea6e4b66b083bb9d0b897",
+      "size": 24740
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_unittest.cc",
+      "mode": "100644",
+      "blob": "ff0bc9bcc0e909a90b7e641d2a8e138835ef2f00",
+      "sha256": "8834a581af47b76c2ac306b1a1a7c8026deeb0a18e3e3ee964743cc99bba767b",
+      "size": 72743
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_win_component.cc",
+      "mode": "100644",
+      "blob": "f60e2b7e36d68b9e461bf6558a6fbbc310293b61",
+      "sha256": "e95ed0c7b8be5a43e9cf3b97c4e7540ee20879977c8702150f7f3b0957114ed2",
+      "size": 1777
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim_win_static.cc",
+      "mode": "100644",
+      "blob": "dc1061e4b454cb08069f0c83d88e2553b7fcbb90",
+      "sha256": "61cf2bf6ef0f0afa1e745cacd98b61de036e508eeb40b6fa448c6bc9f945dfcd",
+      "size": 1478
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim.cc",
+      "mode": "100644",
+      "blob": "b4bcb3c3ccd2d7ce5e9a07aa0ebbe52692119aef",
+      "sha256": "b9cbe498ffd675a2a53f3594583f14e34ae4c3961115809569b705333f01b408",
+      "size": 2932
+    },
+    {
+      "path": "src/partition_alloc/shim/allocator_shim.h",
+      "mode": "100644",
+      "blob": "850598fca43dfa713bbe505fb4e664ae7adb10eb",
+      "sha256": "86084882f0aa9d77b26ae9ca75c41291c7dabed90ae1dd0e7aea28c8b9a76389",
+      "size": 8351
+    },
+    {
+      "path": "src/partition_alloc/shim/checked_multiply_win.h",
+      "mode": "100644",
+      "blob": "a520b07139f82bbc5ed8a56703fafe1ef338d148",
+      "sha256": "6724d7625871ff179b637fb98b2ba31f885e886408ce81140443d3fe28265f63",
+      "size": 717
+    },
+    {
+      "path": "src/partition_alloc/shim/DEPS",
+      "mode": "100644",
+      "blob": "1caf9b85648cd84217dd07180da3115c05f54490",
+      "sha256": "76707338ad00e4d8c999ebdd007d405b5a1013c873d3050949c55d500382bc7e",
+      "size": 603
+    },
+    {
+      "path": "src/partition_alloc/shim/early_zone_registration_utils_apple.h",
+      "mode": "100644",
+      "blob": "725b3d78c27d9621500d8193b0b4e45c6103cff0",
+      "sha256": "98275fd8d8801dcf686fb56cd1cfe9118a3b78ede20ad1c62f27e73a4c7eb893",
+      "size": 3274
+    },
+    {
+      "path": "src/partition_alloc/shim/empty.cc",
+      "mode": "100644",
+      "blob": "b8096fd662598f9ebbc1c2d3f0fc20123a508aa2",
+      "sha256": "9d7f3ab084ec717aaff58bd121d1143e82f8c6bb776cf17fdca8b1ddd8ceb5c2",
+      "size": 488
+    },
+    {
+      "path": "src/partition_alloc/shim/HowToInterposeOrIntercept.md",
+      "mode": "100644",
+      "blob": "e4cd22cd3f35a0e80547558228da36b93964bb26",
+      "sha256": "9f729737be0d855e372d0640a3e76547231093c3d7d4c9f0ec2e4588ffdf5236",
+      "size": 8725
+    },
+    {
+      "path": "src/partition_alloc/shim/malloc_zone_functions_apple_unittest.cc",
+      "mode": "100644",
+      "blob": "e8c875fecf2bf08cdf707e43b608d37b88506945",
+      "sha256": "fb728fe2dbfda1dbd7ffaf1f0b95095f26cc9d96274492b3676dd38e71cefde6",
+      "size": 1917
+    },
+    {
+      "path": "src/partition_alloc/shim/malloc_zone_functions_apple.cc",
+      "mode": "100644",
+      "blob": "b48c23a850fa2fe0a576343d41a65836ebfc03b4",
+      "sha256": "c529b3598059e01ffeba67179889a2452b182c54488af137fb89382303c37ae9",
+      "size": 4161
+    },
+    {
+      "path": "src/partition_alloc/shim/malloc_zone_functions_apple.h",
+      "mode": "100644",
+      "blob": "be31168f012df4ba95a6f7ea74f593ca2457f3bd",
+      "sha256": "d64d0627b463709d11dd829ab9bf08ffe3d54969e74f32fd0018f36c2d8a2700",
+      "size": 5014
+    },
+    {
+      "path": "src/partition_alloc/shim/shim_alloc_functions.h",
+      "mode": "100644",
+      "blob": "485d833574ccc5c98b6c4bc63739e44c168de87b",
+      "sha256": "213cfa3f64b077aa66e7f961f4b23b9f6ee85dd2e627ced30432512639a9b0de",
+      "size": 15441
+    },
+    {
+      "path": "src/partition_alloc/shim/winheap_stubs_win_unittest.cc",
+      "mode": "100644",
+      "blob": "e4be9101ef63f348530b267c14b130272ba8e212",
+      "sha256": "4cdbc83c265e0dfc36afab7473053818b004c2b88eb12a599477d122d76834ed",
+      "size": 2066
+    },
+    {
+      "path": "src/partition_alloc/shim/winheap_stubs_win.cc",
+      "mode": "100644",
+      "blob": "04f26e4fb5343bd3661f96dca3a9b62cc5e9e27a",
+      "sha256": "b7e5f91fa30c88705080ef99c69e2d87162a11ac3920807aa4eaea1e9a7a4449",
+      "size": 6093
+    },
+    {
+      "path": "src/partition_alloc/shim/winheap_stubs_win.h",
+      "mode": "100644",
+      "blob": "61055584cf2ce99e0e9d9611dd8a9802171373cd",
+      "sha256": "bccf81a33f97dbd02f35f4ea72df244434fd93ab70763f4e7c5d4d956f5b0e9e",
+      "size": 1847
+    },
+    {
+      "path": "src/partition_alloc/slot_address_and_size.cc",
+      "mode": "100644",
+      "blob": "d8694b87462ea3ef903c12998ed6bf0fed3dd33e",
+      "sha256": "ce59f1d86b6abbd2c7cdfca1a3c10b88847aa3fb53491e94d04a5c8100d9d163",
+      "size": 3658
+    },
+    {
+      "path": "src/partition_alloc/slot_address_and_size.h",
+      "mode": "100644",
+      "blob": "9fda8e860752a832ed8063b6cc20f535a379f90c",
+      "sha256": "0d85e6178d6cecd4c455d6a11ae314d3bb130020d27bb7c72beace2a89b122b1",
+      "size": 1640
+    },
+    {
+      "path": "src/partition_alloc/slot_start_unittest.cc",
+      "mode": "100644",
+      "blob": "c6662eef525404f765d4dced87b94a2aa1e57590",
+      "sha256": "6086ce4d3b596b78fff7362f5aa2d0b8086cfc48473958c41c0bbac9be2854aa",
+      "size": 2782
+    },
+    {
+      "path": "src/partition_alloc/slot_start.cc",
+      "mode": "100644",
+      "blob": "dbaadb6a480da49f03aa849f5982042348ef94c9",
+      "sha256": "52a6cc5e80600669d29cf07ae58042e558ada904cd0a49a40666e61e45e5bc52",
+      "size": 1189
+    },
+    {
+      "path": "src/partition_alloc/slot_start.h",
+      "mode": "100644",
+      "blob": "7446b8f3a5b0ddeb709bdfe49b7917d21c62582f",
+      "sha256": "1084daeb97b2302c6cb440db412c667a531ceb8ea40464796ca21d0fa0e85c96",
+      "size": 7900
+    },
+    {
+      "path": "src/partition_alloc/spinning_mutex.cc",
+      "mode": "100644",
+      "blob": "0301845fc353a6b815d6bd402dc99a029e315fa7",
+      "sha256": "f51fd1eba7d293a80b6daf8cc48a31b2b27ec07ec4dd84fcf35132b1ee403baa",
+      "size": 12612
+    },
+    {
+      "path": "src/partition_alloc/spinning_mutex.h",
+      "mode": "100644",
+      "blob": "af39936411e70827f2361b6aeb849497f36fce06",
+      "sha256": "cc43fc01e395f6eb3b20cc0b5bf5b08ee01b608fc81b28b591933761ab2abc80",
+      "size": 12030
+    },
+    {
+      "path": "src/partition_alloc/stack/asm/arm/push_registers_asm.cc",
+      "mode": "100644",
+      "blob": "4a0e0cb7ae377c945dec6ada504127e89b1fc404",
+      "sha256": "7fb3b572858b8aa430f8d1e57d2abfce083d5926017137bb00b6770f48709892",
+      "size": 1750
+    },
+    {
+      "path": "src/partition_alloc/stack/asm/arm64/push_registers_asm.cc",
+      "mode": "100644",
+      "blob": "e9e872f1f2dd0154d616c00294feecfc1db1c41b",
+      "sha256": "9d96f3d3d800115a9550b3eada258f04515011d704d5c4717471d792da69612d",
+      "size": 2332
+    },
+    {
+      "path": "src/partition_alloc/stack/asm/loong64/push_registers_asm.cc",
+      "mode": "100644",
+      "blob": "574c9ea846e0707f634600bb4de358b7ba65f674",
+      "sha256": "d246bbde2f9e4d52830edc5d11915f76d5215674d9733b717c71accff5e6ee64",
+      "size": 2479
+    },
+    {
+      "path": "src/partition_alloc/stack/asm/riscv64/push_registers_asm.cc",
+      "mode": "100644",
+      "blob": "b387211a43e2cf2e133e8ac6d3641780aebfb10f",
+      "sha256": "2c8258aead070c83073790b89a6a2ce717b6f796ab9337e9f26c4cc599beb598",
+      "size": 2595
+    },
+    {
+      "path": "src/partition_alloc/stack/asm/x64/push_registers_asm.cc",
+      "mode": "100644",
+      "blob": "b5ed7116241bb2aec7fe181c942b44927c94ecd8",
+      "sha256": "7a41841906bc0430125cc430f6c48914d9f9d8e8ab1567d21b3542e9fe10bf02",
+      "size": 4652
+    },
+    {
+      "path": "src/partition_alloc/stack/asm/x86/push_registers_asm.cc",
+      "mode": "100644",
+      "blob": "edf6d11fdd1569e648c8058958612f2d3aae03c6",
+      "sha256": "ac1dc3cf3f95f38f624dc7726d05b724007ade043cfc7faafdaa7ea6b603475c",
+      "size": 2614
+    },
+    {
+      "path": "src/partition_alloc/stack/stack_unittest.cc",
+      "mode": "100644",
+      "blob": "adcb2166669ddc68f8651f77b4c872896ec8714c",
+      "sha256": "ec0a3647772e0f387d26ff492176996fd18c1f1efe127824ae59f844cbc19182",
+      "size": 14179
+    },
+    {
+      "path": "src/partition_alloc/stack/stack.cc",
+      "mode": "100644",
+      "blob": "81f0876bdf2334bf1e52664e04647540ce12fa2f",
+      "sha256": "ccff8ba8b177bd6ef8a11f9166d3948acf1107e91923d602f076faff0a759f2f",
+      "size": 6030
+    },
+    {
+      "path": "src/partition_alloc/stack/stack.h",
+      "mode": "100644",
+      "blob": "504924c4849d33d3055124e025bfd2558508198f",
+      "sha256": "2ee5884cf0d3ae04754402001d1549722a62201ab9c870a887c713ecf48bcb8e",
+      "size": 3349
+    },
+    {
+      "path": "src/partition_alloc/tagging_unittest.cc",
+      "mode": "100644",
+      "blob": "89ed62acb5f4cbfef7ba425be5c3a686a5774f12",
+      "sha256": "5edb3969e31386591dc3bbd8cd0e779b023fbdd13edfd074575b8eae6bed922f",
+      "size": 8189
+    },
+    {
+      "path": "src/partition_alloc/tagging.cc",
+      "mode": "100644",
+      "blob": "c2b3ad3ce8301031c03d28e114e42063d5c38e49",
+      "sha256": "02cae23b81bf6c6bb3e86af0b4f494cbfeafa7b1b58381fd37ee0e735b8d53e1",
+      "size": 11921
+    },
+    {
+      "path": "src/partition_alloc/tagging.h",
+      "mode": "100644",
+      "blob": "e5243fa9959d493597f203c583c751e267260e86",
+      "sha256": "b8d3dfe55c7df1272f7f44f5831a97dd975e373d8c8a23bf5b5068b7fe43840b",
+      "size": 6506
+    },
+    {
+      "path": "src/partition_alloc/third_party/apple_apsl/CFBase.h",
+      "mode": "100644",
+      "blob": "06328679fb5e527232a34fa7fe7315ea3328ed59",
+      "sha256": "6587f3b0e1eb19b55a969203467525203aba0476118e73485a8bf096082c4894",
+      "size": 3536
+    },
+    {
+      "path": "src/partition_alloc/third_party/apple_apsl/CFRuntime.h",
+      "mode": "100644",
+      "blob": "bf1fa5fcaa2bc1e3ed76c4a97efe5c5a90be6473",
+      "sha256": "f823d6354d12e788265e737f56b7d0fad7ed999fe1b5d809332202ec20a8ebcd",
+      "size": 1657
+    },
+    {
+      "path": "src/partition_alloc/third_party/apple_apsl/LICENSE",
+      "mode": "100644",
+      "blob": "9fb3c2cee31bc64eb33081a9b816476b30f0eb46",
+      "sha256": "b23e682fda7310afe43505ed6041919ccff8f9e0c6799ebd7542cbcef11102e3",
+      "size": 20089
+    },
+    {
+      "path": "src/partition_alloc/third_party/apple_apsl/malloc.h",
+      "mode": "100644",
+      "blob": "02de5cfdbd265e0548aeee0cb16b26c3364ca468",
+      "sha256": "23352e9078d3ff739f6d6e0a2ba0f4874a50458d429bcbfadd3aa9fe9412f115",
+      "size": 5388
+    },
+    {
+      "path": "src/partition_alloc/third_party/apple_apsl/README.chromium",
+      "mode": "100644",
+      "blob": "980b48323a27e245b76ec029227d4100e2b2d0a3",
+      "sha256": "ee82868a98861e747f798df807e400f02318d019e0afaaf165d465a6526be83b",
+      "size": 1548
+    },
+    {
+      "path": "src/partition_alloc/thread_cache_unittest.cc",
+      "mode": "100644",
+      "blob": "b901e0f61b20bd046632f22d8566d76bee816b86",
+      "sha256": "c432f65d365599121834f35f3d9708ceef04149ec1bcf9bb40f3a17713f72bfc",
+      "size": 54684
+    },
+    {
+      "path": "src/partition_alloc/thread_cache.cc",
+      "mode": "100644",
+      "blob": "7f931ae2a42867afc76dccfbe97150f07b0cf3d6",
+      "sha256": "6033261e4c57740fae0e562c6fe93466bddba5d15dc17f451e7ab48c2b0ab316",
+      "size": 34204
+    },
+    {
+      "path": "src/partition_alloc/thread_cache.h",
+      "mode": "100644",
+      "blob": "7e567cf1176740db4c5926c945c2279d4c875521",
+      "sha256": "2fb75f1ae63a0359b4c8eaf6149c712fe1a20713a9ba7e9d7d36c161dc382bb2",
+      "size": 26902
+    },
+    {
+      "path": "src/partition_alloc/thread_isolation/alignment.h",
+      "mode": "100644",
+      "blob": "9b68a05fc64e829f38f9026ec485224e8f89d2d0",
+      "sha256": "094f38accd7f09f527c2ed9d4e2367a67e1987f5c51f2e1e3e2e1b35fefb0cfd",
+      "size": 1861
+    },
+    {
+      "path": "src/partition_alloc/thread_isolation/pkey_unittest.cc",
+      "mode": "100644",
+      "blob": "b9b98f9c24615c8e62514a686da48a830776de52",
+      "sha256": "d45c641ad5f0b24c1110ca1301a2d31f39971d86f39d5a8cab220ebfc5b622c5",
+      "size": 10196
+    },
+    {
+      "path": "src/partition_alloc/thread_isolation/pkey.cc",
+      "mode": "100644",
+      "blob": "47ea68cdab7f5d06189f8685262b91cdbe154254",
+      "sha256": "f1e3af78725b4086343faf6db684e75fa84565b2af78284e2e96c718add9e335",
+      "size": 2607
+    },
+    {
+      "path": "src/partition_alloc/thread_isolation/pkey.h",
+      "mode": "100644",
+      "blob": "8c233f6bc57b822e5b630ad8dccde2a604588f93",
+      "sha256": "c3d46fa12a5586092554d8af5523338b7fd89974c013a8ea493a02a83cdf6952",
+      "size": 1690
+    },
+    {
+      "path": "src/partition_alloc/thread_isolation/thread_isolation.cc",
+      "mode": "100644",
+      "blob": "55352b5a5b0447212f30c11b58f856def181e530",
+      "sha256": "26f0e5f61dacfcb882b07efc706d6df1080b3314969e354f0541ca78f5e3401f",
+      "size": 3644
+    },
+    {
+      "path": "src/partition_alloc/thread_isolation/thread_isolation.h",
+      "mode": "100644",
+      "blob": "f3dbe9de17f4f77339b80ecb417cc61ca653c40d",
+      "sha256": "ac934d9cbb2f6b5994a3e7aa3bc8fff1d1c87e73cfb5981774ccd8716acf0c09",
+      "size": 2247
+    },
+    {
+      "path": "src/partition_alloc/use_death_tests.h",
+      "mode": "100644",
+      "blob": "5138362d2c0f3df715b104c4f4d58fba0c9bf4fe",
+      "sha256": "6c71b6b009b5a1cd4fb59907809dbb14763d0af3ea3bd6b2773c0ae3ca32fced",
+      "size": 1115
+    },
+    {
+      "path": "src/partition_alloc/write_buildflag_header.py",
+      "mode": "100755",
+      "blob": "e2eaf331655d1580d92fb49f74cec24fb7e0e438",
+      "sha256": "7c21cf63a64a89c514cb8f32055feb9733fc3b569dce1f352c7b65814c251118",
+      "size": 3507
+    },
+    {
+      "path": "src/partition_alloc/yield_processor.h",
+      "mode": "100644",
+      "blob": "e486f59a3c80b7adc54a2b453e7aff83b9c9c199",
+      "sha256": "7a70f9c96cb71c825a9a0fa321e453216a597b3f52a55b9685d4dc1712b880d1",
+      "size": 2109
+    },
+    {
+      "path": "static_local_danger.md",
+      "mode": "100644",
+      "blob": "0b51ff5acc76a6ad445d5530faebf17d68f27053",
+      "sha256": "8895d9e8d59e278975a3ded92ed7a4988e7c9df84a0d21cb9beec3af4e17b660",
+      "size": 2754
+    }
+  ]
+}

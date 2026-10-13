@@ -18805,6 +18805,13 @@
         {
           "path": "evidence/cargo/utf8_iter@1.0.4/utf8_iter-1.0.4_LICENSE-MIT",
           "sha256": "3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c"
+        },
+        {
+          "path": "evidence/cargo/utf8_iter@1.0.4/utf8_iter-1.0.4_COPYRIGHT",
+          "sha256": "c30152c94a6d75e021adbc52b3a52470366a46edb917e17deae3259251af244c",
+          "role": "notice",
+          "immutable_source": "https://chromium.googlesource.com/chromium/src/third_party/rust/+/2b055f4ecac78bbf34a0d34217c699b7b09b44dd/chromium_crates_io/vendor/utf8_iter-v1/COPYRIGHT?format=TEXT",
+          "source_pin": "2b055f4ecac78bbf34a0d34217c699b7b09b44dd"
         }
       ]
     },

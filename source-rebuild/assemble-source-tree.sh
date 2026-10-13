@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Materialize a build input from immutable upstream bytes and tracked source
-# files only.  Do not point this at a previous build tree: generated target/
-# files, GN output, downloaded compilers, and Git object stores must never be
-# accepted as source release material.
+# Materialize a build input from immutable upstream bytes and checked-in source
+# descriptors only.  Git trees are exported directly from verified commit/blob
+# objects; this intentionally has no rusty_v8 working-tree argument.
 #
 # Usage:
-#   assemble-source-tree.sh DENO_SRC_TAR_GZ RUSTY_V8_GIT_ROOT CARGO_VENDOR OUT
+#   assemble-source-tree.sh DENO_SRC_TAR_GZ GIT_OBJECT_CACHE CARGO_VENDOR OUT
 
 if [[ $# -ne 4 ]]; then
-  echo "usage: $0 DENO_SRC_TAR_GZ RUSTY_V8_GIT_ROOT CARGO_VENDOR OUT" >&2
+  echo "usage: $0 DENO_SRC_TAR_GZ GIT_OBJECT_CACHE CARGO_VENDOR OUT" >&2
   exit 64
 fi
 
 deno_archive="$(readlink -f "$1")"
-rusty_repo="$(readlink -f "$2")"
+git_cache="$2"
 vendor="$(readlink -f "$3")"
 out="$4"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -23,7 +22,7 @@ release_root="$(cd "$script_dir/.." && pwd -P)"
 pins="$release_root/source-materials/pins.json"
 materials="$release_root/scripts/release/source-materials.ts"
 
-[[ -f "$deno_archive" && -d "$rusty_repo" && -d "$vendor" && -f "$pins" && -f "$materials" ]] || {
+[[ -f "$deno_archive" && -d "$vendor" && -f "$pins" && -f "$materials" ]] || {
   echo "assembly inputs are missing" >&2
   exit 65
 }
@@ -36,6 +35,8 @@ else
   mkdir -p "$out"
 fi
 out="$(cd "$out" && pwd -P)"
+mkdir -p "$git_cache"
+git_cache="$(cd "$git_cache" && pwd -P)"
 
 expected_deno_sha=58da10e48968a80a6c205b31584d1f1f4583226e59ebb08cb3783b12e7f22d4d
 actual_deno_sha="$(sha256sum "$deno_archive" | awk '{print $1}')"
@@ -43,43 +44,34 @@ actual_deno_sha="$(sha256sum "$deno_archive" | awk '{print $1}')"
   echo "Deno archive hash does not match the 2.9.3 source pin" >&2
   exit 65
 }
-[[ "$(git -C "$rusty_repo" rev-parse HEAD)" == "dd1b4e9c743b7a11dbeb99d4d0dc55979218b905" ]] || {
-  echo "rusty_v8 checkout does not match the pinned commit" >&2
-  exit 65
-}
-[[ "$(git -C "$rusty_repo" -c submodule.recurse=true status --porcelain --ignore-submodules=none)" == "" ]] || {
-  echo "rusty_v8 checkout is dirty; refusing to copy working-tree bytes" >&2
-  exit 65
-}
-[[ "$(git -C "$rusty_repo" ls-tree HEAD v8 | awk '{print $3}')" == "73d19698991616a34a00ca691a6e697dbb69e2ef" ]] || {
-  echo "rusty_v8's V8 gitlink does not match the pinned commit" >&2
-  exit 65
-}
-if git -C "$rusty_repo" submodule status --recursive | awk '$1 ~ /^[+-]/ { exit 1 }'; then :; else
-  echo "rusty_v8 has an uninitialized or divergent submodule" >&2
-  exit 65
-fi
 
-# Reject unsafe member names before extraction.  The official archive is
+# Keep all helper-only state outside OUT. The materializer requires OUT to be
+# empty and the object-store receipt to be absent when it begins.
+temporary_directory="$(mktemp -d)"
+trap 'rm -rf "$temporary_directory"' EXIT
+members="$temporary_directory/deno-members"
+object_receipt="$temporary_directory/rusty-v8-git-object-stores.json"
+
+# Reject unsafe member names before extraction. The official archive is
 # expected to have exactly the deno/ root; keeping its original files avoids
-# copying the mutated build worktree.
-members="$out/.deno-members"
+# copying a mutated build worktree.
 tar -tzf "$deno_archive" > "$members"
 if ! awk 'BEGIN { ok = 1 } $0 !~ /^deno\// || $0 ~ /(^|\/)\.\.?(\/|$)/ { ok = 0 } END { exit ok ? 0 : 1 }' "$members"; then
   echo "Deno archive contains an unexpected or unsafe member path" >&2
   exit 65
 fi
-mkdir "$out/deno" "$out/rusty_v8" "$out/cargo-vendor"
-tar --no-same-owner --no-same-permissions --strip-components=1 -xzf "$deno_archive" -C "$out/deno"
 
-# git ls-files --recurse-submodules is an allow-list of tracked source.  It
-# excludes native/deno/target, rusty_v8/third_party/rust-toolchain, .git, and
-# every other local build/cache file without a broad target-name exclusion.
-tracked="$out/.rusty-v8-tracked"
-git -C "$rusty_repo" ls-files --cached --recurse-submodules -z > "$tracked"
-tar -C "$rusty_repo" --null --files-from="$tracked" --create | tar -C "$out/rusty_v8" --extract
+# The TypeScript materializer checks the descriptor hash, derives the exact
+# direct gitlink set from the pinned root commit, disables Git replacements,
+# verifies each commit/tree/blob, and writes source-only legal supplements.
+# Its local store receipt is deliberately outside OUT: source archives never
+# contain host cache paths.
+deno run --quiet --allow-read --allow-write --allow-run --allow-net "$materials" \
+  materialize-rusty-v8-source "$release_root" "$pins" "$git_cache" "$out" "$object_receipt"
+
+mkdir "$out/deno" "$out/cargo-vendor"
+tar --no-same-owner --no-same-permissions --strip-components=1 -xzf "$deno_archive" -C "$out/deno"
 tar -C "$vendor" --create . | tar -C "$out/cargo-vendor" --extract
-rm -- "$members" "$tracked"
 
 for required in \
   "$out/deno/Cargo.lock" \
@@ -96,16 +88,12 @@ SOURCE_ARCHIVE="$deno_archive" deno run --quiet --allow-read --allow-env "$mater
 
 {
   printf 'schema_version=1\n'
-  printf 'assembly=tracked-source-only\n'
-  printf 'deno_archive=%s\n' "$deno_archive"
+  printf 'assembly=exact-git-object-source\n'
   printf 'deno_archive_sha256=%s\n' "$actual_deno_sha"
   printf 'deno_archive_bytes=%s\n' "$(wc -c < "$deno_archive" | tr -d ' ')"
-  printf 'rusty_v8_git_root=%s\n' "$rusty_repo"
-  printf 'rusty_v8_commit=%s\n' "$(git -C "$rusty_repo" rev-parse HEAD)"
-  printf 'v8_gitlink_commit=%s\n' "$(git -C "$rusty_repo" ls-tree HEAD v8 | awk '{print $3}')"
-  printf 'rusty_v8_tracked_paths=%s\n' "$(git -C "$rusty_repo" ls-files --cached --recurse-submodules | wc -l | tr -d ' ')"
-  printf 'cargo_vendor=%s\n' "$vendor"
-  printf 'assembly_command=%s\n' 'extract pinned deno archive; git ls-files --cached --recurse-submodules; copy vendor'
+  printf 'gitlink_descriptor_sha256=%s\n' "$(sha256sum "$release_root/source-materials/rusty-v8-gitlinks.json" | awk '{print $1}')"
+  printf 'cargo_vendor_lock_sha256=%s\n' "$(sha256sum "$out/cargo-vendor/Cargo.lock" | awk '{print $1}')"
+  printf 'assembly_command=%s\n' 'extract pinned Deno archive; export exact RustyV8 Git objects; copy vendor'
 } > "$out/assembly-receipt.env"
 
 printf 'assembled pure source tree: %s\n' "$out"

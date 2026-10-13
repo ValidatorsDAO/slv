@@ -5,6 +5,7 @@ import {
   assertSecuritySelection,
   assertSourceClosure,
   deterministicArchive,
+  materializeRustyV8GitlinkClosure,
   normalizeDenoRemoteMetadata,
   parseSelectedVendorCoverage,
   pruneDenoEphemeralCache,
@@ -18,6 +19,7 @@ import {
   verifySourceProofSet,
   writeInventory,
 } from './source-materials.ts'
+import type { Pins } from './source-materials.ts'
 import { canonicalTargetDescriptorBytes } from '../../source-rebuild/prepare-tools.ts'
 
 Deno.test('pins require immutable commit-bound HTTPS archives', () => {
@@ -364,6 +366,22 @@ Deno.test('release receipt binds exactly three small source archives and rejects
         archive: `https://github.com/denoland/v8/archive/${commit}.tar.gz`,
         sha256: digest,
       },
+      gitlink_closure: {
+        path: 'source-materials/rusty-v8-gitlinks.json',
+        sha256: digest,
+      },
+    },
+    gitlink_closure: {
+      path: 'source-materials/rusty-v8-gitlinks.json',
+      sha256: digest,
+      root_tree: commit,
+      gitlink_count: 20,
+    },
+    source_legal_evidence: {
+      index_path: 'source-materials/rusty-v8-source-license-index.json',
+      sha256: digest,
+      source_distributed_extra_tree_count: 7,
+      supplement_count: 3,
     },
     closure: {
       embedded_path: 'source-materials/closure.json',
@@ -437,6 +455,507 @@ async function textHash(text: string): Promise<string> {
     byte.toString(16).padStart(2, '0')
   ).join('')
 }
+
+async function fixtureGit(
+  args: string[],
+  cwd?: string,
+): Promise<Uint8Array> {
+  const result = await new Deno.Command('git', {
+    args: ['--no-replace-objects', ...args],
+    cwd,
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  if (!result.success) {
+    throw new Error(new TextDecoder().decode(result.stderr))
+  }
+  return result.stdout
+}
+
+async function fixtureGitTreeInventory(
+  repositoryPath: string,
+  repository: string,
+  commit: string,
+): Promise<{ tree: string; digest: string }> {
+  const decode = new TextDecoder('utf-8', { fatal: true })
+  const tree = decode.decode(
+    await fixtureGit([
+      '-C',
+      repositoryPath,
+      'rev-parse',
+      `${commit}^{tree}`,
+    ]),
+  ).trim()
+  const rows = decode.decode(
+    await fixtureGit([
+      '-C',
+      repositoryPath,
+      'ls-tree',
+      '-r',
+      '-z',
+      commit,
+    ]),
+  ).split('\0').filter(Boolean)
+  const files: Array<{
+    path: string
+    mode: string
+    blob: string
+    sha256: string
+    size: number
+  }> = []
+  for (const row of rows) {
+    const divider = row.indexOf('\t')
+    const [mode, type, blob] = row.slice(0, divider).split(' ')
+    if (type === 'commit') continue
+    if (type !== 'blob') throw new Error('unexpected fixture Git object')
+    const bytes = await fixtureGit([
+      '-C',
+      repositoryPath,
+      'cat-file',
+      'blob',
+      blob,
+    ])
+    files.push({
+      path: row.slice(divider + 1),
+      mode,
+      blob,
+      sha256: await textHash(new TextDecoder().decode(bytes)),
+      size: bytes.length,
+    })
+  }
+  files.sort((left, right) => left.path.localeCompare(right.path))
+  const text = JSON.stringify(
+    {
+      schema_version: 1,
+      repository,
+      commit,
+      tree,
+      files,
+    },
+    null,
+    2,
+  ) + '\n'
+  return { tree, digest: await textHash(text) }
+}
+
+async function fixtureCommit(repository: string): Promise<string> {
+  return new TextDecoder().decode(
+    await fixtureGit([
+      '-C',
+      repository,
+      'rev-parse',
+      'HEAD',
+    ]),
+  ).trim()
+}
+
+Deno.test('gitlink closure exports only exact cached objects and rejects omission or a wrong child pin', async () => {
+  const root = await Deno.makeTempDir()
+  const child = `${root}/v8-worktree`
+  const parent = `${root}/rusty-v8-worktree`
+  const sourceRoot = `${root}/source-root`
+  const cache = `${root}/cache`
+  const destination = `${root}/exported`
+  const metadata = `${root}/metadata`
+  const metadataSecond = `${root}/metadata-second`
+  const metadataFailed = `${root}/metadata-failed`
+  const metadataOmitted = `${root}/metadata-omitted`
+  const metadataNested = `${root}/metadata-nested`
+  const receipt = `${root}/object-stores.json`
+  const rootUrl = 'https://github.com/denoland/rusty_v8.git'
+  const childUrl = 'https://github.com/denoland/v8.git'
+  try {
+    await Deno.mkdir(child, { recursive: true })
+    await fixtureGit(['init'], child)
+    await Deno.writeTextFile(`${child}/binding.hpp`, 'pinned child bytes\n')
+    await Deno.symlink('./binding.hpp', `${child}/binding-link`)
+    await fixtureGit(['-C', child, 'add', '.'])
+    await fixtureGit([
+      '-C',
+      child,
+      '-c',
+      'user.name=fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '-m',
+      'child',
+    ])
+    const childCommit = await fixtureCommit(child)
+    const childInventory = await fixtureGitTreeInventory(
+      child,
+      childUrl,
+      childCommit,
+    )
+
+    await Deno.mkdir(parent)
+    await fixtureGit(['init'], parent)
+    await Deno.writeTextFile(
+      `${parent}/.gitmodules`,
+      [
+        '[submodule "v8"]',
+        '\tpath = v8',
+        `\turl = ${childUrl}`,
+        '',
+      ].join('\n'),
+    )
+    await Deno.writeTextFile(
+      `${parent}/Cargo.toml`,
+      '[package]\nname="fixture"\n',
+    )
+    await fixtureGit(['-C', parent, 'add', '.gitmodules', 'Cargo.toml'])
+    await fixtureGit([
+      '-C',
+      parent,
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      '160000',
+      childCommit,
+      'v8',
+    ])
+    await fixtureGit([
+      '-C',
+      parent,
+      '-c',
+      'user.name=fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '-m',
+      'root',
+    ])
+    const parentCommit = await fixtureCommit(parent)
+    const parentInventory = await fixtureGitTreeInventory(
+      parent,
+      rootUrl,
+      parentCommit,
+    )
+
+    await Deno.mkdir(`${sourceRoot}/source-materials`, { recursive: true })
+    const descriptor = {
+      schema_version: 1,
+      kind: 'rusty-v8-gitlink-closure',
+      root: {
+        repository: rootUrl,
+        commit: parentCommit,
+        tree: parentInventory.tree,
+        inventory_path:
+          'source-materials/rusty-v8-gitlink-inventories/rusty_v8.json',
+        inventory_sha256: parentInventory.digest,
+      },
+      gitlinks: [{
+        path: 'v8',
+        repository: childUrl,
+        commit: childCommit,
+        tree: childInventory.tree,
+        inventory_path: 'source-materials/rusty-v8-gitlink-inventories/v8.json',
+        inventory_sha256: childInventory.digest,
+      }],
+    }
+    const descriptorPath =
+      `${sourceRoot}/source-materials/rusty-v8-gitlinks.json`
+    await Deno.writeTextFile(
+      descriptorPath,
+      JSON.stringify(descriptor, null, 2) + '\n',
+    )
+    const pins: Pins = {
+      schema_version: 1,
+      deno: {
+        version: '2.9.3',
+        commit: parentCommit,
+        archive:
+          'https://github.com/denoland/deno/releases/download/v2.9.3/deno_src.tar.gz',
+        sha256: 'a'.repeat(64),
+      },
+      rusty_v8: {
+        commit: parentCommit,
+        archive:
+          `https://github.com/denoland/rusty_v8/archive/${parentCommit}.tar.gz`,
+        sha256: 'b'.repeat(64),
+      },
+      v8: {
+        commit: childCommit,
+        archive: `https://github.com/denoland/v8/archive/${childCommit}.tar.gz`,
+        sha256: 'c'.repeat(64),
+      },
+      gitlink_closure: {
+        path: 'source-materials/rusty-v8-gitlinks.json',
+        sha256: await sha256(descriptorPath),
+      },
+    }
+    const cachePath = async (url: string) => {
+      const digest = await textHash(url)
+      return `${cache}/git-objects/${digest}`
+    }
+    for (
+      const [worktree, url] of [[parent, rootUrl], [child, childUrl]] as const
+    ) {
+      const target = await cachePath(url)
+      await Deno.mkdir(target.slice(0, target.lastIndexOf('/')), {
+        recursive: true,
+      })
+      await fixtureGit(['clone', '--bare', worktree, target])
+    }
+
+    await Deno.mkdir(destination)
+    await materializeRustyV8GitlinkClosure(
+      sourceRoot,
+      pins,
+      cache,
+      destination,
+      metadata,
+      receipt,
+    )
+    if (
+      await Deno.readTextFile(`${destination}/v8/binding.hpp`) !==
+        'pinned child bytes\n' ||
+      await Deno.readLink(`${destination}/v8/binding-link`) !== './binding.hpp'
+    ) throw new Error('exact pinned Git objects were not exported')
+    if (
+      await Deno.lstat(`${destination}/source-materials`).catch(() => undefined)
+    ) {
+      throw new Error(
+        'generated closure metadata was written inside the upstream source tree',
+      )
+    }
+    const descriptorInfo = await Deno.lstat(
+      `${root}/metadata/source-materials/rusty-v8-gitlinks.json`,
+    )
+    const rootInventoryInfo = await Deno.lstat(
+      `${root}/metadata/source-materials/rusty-v8-gitlink-inventories/rusty_v8.json`,
+    )
+    if (
+      !descriptorInfo.isFile || !rootInventoryInfo.isFile ||
+      (descriptorInfo.mode! & 0o777) !== 0o644 ||
+      (rootInventoryInfo.mode! & 0o777) !== 0o644
+    ) {
+      throw new Error(
+        'generated closure metadata is not separate, regular 0644 output',
+      )
+    }
+
+    // A dirty worktree cannot affect a cache-object export.
+    await Deno.writeTextFile(`${child}/binding.hpp`, 'dirty bytes\n')
+    const second = `${root}/exported-second`
+    await Deno.mkdir(second)
+    await materializeRustyV8GitlinkClosure(
+      sourceRoot,
+      pins,
+      cache,
+      second,
+      metadataSecond,
+      `${root}/object-stores-second.json`,
+    )
+    if (
+      await Deno.readTextFile(`${second}/v8/binding.hpp`) !==
+        'pinned child bytes\n'
+    ) {
+      throw new Error('dirty working-tree bytes contaminated Git object export')
+    }
+
+    const wrong = structuredClone(descriptor)
+    wrong.gitlinks[0].commit = parentCommit
+    await Deno.writeTextFile(
+      descriptorPath,
+      JSON.stringify(wrong, null, 2) + '\n',
+    )
+    pins.v8.commit = parentCommit
+    pins.v8.archive =
+      `https://github.com/denoland/v8/archive/${parentCommit}.tar.gz`
+    pins.gitlink_closure.sha256 = await sha256(descriptorPath)
+    const failed = `${root}/wrong-child`
+    await Deno.mkdir(failed)
+    await assertRejects(
+      () =>
+        materializeRustyV8GitlinkClosure(
+          sourceRoot,
+          pins,
+          cache,
+          failed,
+          metadataFailed,
+          `${root}/wrong-child.json`,
+        ),
+      Error,
+      'differs from pinned Git tree',
+    )
+
+    const missing = structuredClone(descriptor)
+    missing.gitlinks = []
+    await Deno.writeTextFile(
+      descriptorPath,
+      JSON.stringify(missing, null, 2) + '\n',
+    )
+    pins.gitlink_closure.sha256 = await sha256(descriptorPath)
+    const omitted = `${root}/omitted-child`
+    await Deno.mkdir(omitted)
+    await assertRejects(
+      () =>
+        materializeRustyV8GitlinkClosure(
+          sourceRoot,
+          pins,
+          cache,
+          omitted,
+          metadataOmitted,
+          `${root}/omitted-child.json`,
+        ),
+      Error,
+      'has no gitlinks',
+    )
+
+    // Direct children may not conceal another gitlink. The recursive set is
+    // part of the pinned source closure, not something the archive exporter
+    // is allowed to silently skip.
+    const nested = `${root}/nested-worktree`
+    await Deno.mkdir(nested)
+    await fixtureGit(['init'], nested)
+    await Deno.writeTextFile(`${nested}/nested.txt`, 'nested\n')
+    await fixtureGit(['-C', nested, 'add', '.'])
+    await fixtureGit([
+      '-C',
+      nested,
+      '-c',
+      'user.name=fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '-m',
+      'nested',
+    ])
+    const nestedCommit = await fixtureCommit(nested)
+    await fixtureGit(['-C', child, 'checkout', '--', 'binding.hpp'])
+    await Deno.writeTextFile(
+      `${child}/.gitmodules`,
+      [
+        '[submodule "nested"]',
+        '\tpath = nested',
+        '\turl = https://github.com/example/nested.git',
+        '',
+      ].join('\n'),
+    )
+    await fixtureGit(['-C', child, 'add', '.gitmodules'])
+    await fixtureGit([
+      '-C',
+      child,
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      '160000',
+      nestedCommit,
+      'nested',
+    ])
+    await fixtureGit([
+      '-C',
+      child,
+      '-c',
+      'user.name=fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '-m',
+      'nested link',
+    ])
+    const nestedChildCommit = await fixtureCommit(child)
+    const nestedChildInventory = await fixtureGitTreeInventory(
+      child,
+      childUrl,
+      nestedChildCommit,
+    )
+    await fixtureGit([
+      '-C',
+      parent,
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      '160000',
+      nestedChildCommit,
+      'v8',
+    ])
+    await fixtureGit([
+      '-C',
+      parent,
+      '-c',
+      'user.name=fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '-m',
+      'nested child',
+    ])
+    const nestedParentCommit = await fixtureCommit(parent)
+    const nestedParentInventory = await fixtureGitTreeInventory(
+      parent,
+      rootUrl,
+      nestedParentCommit,
+    )
+    const rootStore = await cachePath(rootUrl)
+    const childStore = await cachePath(childUrl)
+    await fixtureGit([
+      '-C',
+      rootStore,
+      'fetch',
+      '--no-tags',
+      parent,
+      nestedParentCommit,
+    ])
+    await fixtureGit([
+      '-C',
+      childStore,
+      'fetch',
+      '--no-tags',
+      child,
+      nestedChildCommit,
+    ])
+    const nestedDescriptor = {
+      schema_version: 1,
+      kind: 'rusty-v8-gitlink-closure',
+      root: {
+        repository: rootUrl,
+        commit: nestedParentCommit,
+        tree: nestedParentInventory.tree,
+        inventory_path:
+          'source-materials/rusty-v8-gitlink-inventories/rusty_v8.json',
+        inventory_sha256: nestedParentInventory.digest,
+      },
+      gitlinks: [{
+        path: 'v8',
+        repository: childUrl,
+        commit: nestedChildCommit,
+        tree: nestedChildInventory.tree,
+        inventory_path: 'source-materials/rusty-v8-gitlink-inventories/v8.json',
+        inventory_sha256: nestedChildInventory.digest,
+      }],
+    }
+    await Deno.writeTextFile(
+      descriptorPath,
+      JSON.stringify(nestedDescriptor, null, 2) + '\n',
+    )
+    pins.rusty_v8.commit = nestedParentCommit
+    pins.rusty_v8.archive =
+      `https://github.com/denoland/rusty_v8/archive/${nestedParentCommit}.tar.gz`
+    pins.v8.commit = nestedChildCommit
+    pins.v8.archive =
+      `https://github.com/denoland/v8/archive/${nestedChildCommit}.tar.gz`
+    pins.gitlink_closure.sha256 = await sha256(descriptorPath)
+    const nestedOutput = `${root}/nested-child`
+    await Deno.mkdir(nestedOutput)
+    await assertRejects(
+      () =>
+        materializeRustyV8GitlinkClosure(
+          sourceRoot,
+          pins,
+          cache,
+          nestedOutput,
+          metadataNested,
+          `${root}/nested-child.json`,
+        ),
+      Error,
+      'unexpected nested gitlinks',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
 
 const testCommand = {
   command: ['test', '--offline'],
@@ -651,6 +1170,10 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
         archive: `https://github.com/denoland/v8/archive/${commit}.tar.gz`,
         sha256: sha,
       },
+      gitlink_closure: {
+        path: 'source-materials/rusty-v8-gitlinks.json',
+        sha256: sha,
+      },
     }
     await Deno.writeTextFile(pinsPath, JSON.stringify(pins))
     const pinsHash = await sha256(pinsPath)
@@ -703,6 +1226,18 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
         omissions: [],
       },
       runtime_security: testRuntimeSecurity(sha),
+      gitlink_closure: {
+        path: 'source-materials/rusty-v8-gitlinks.json',
+        sha256: sha,
+        root_tree: commit,
+        gitlink_count: 20,
+      },
+      source_legal_evidence: {
+        index_path: 'source-materials/rusty-v8-source-license-index.json',
+        sha256: sha,
+        source_distributed_extra_tree_count: 7,
+        supplement_count: 3,
+      },
       assets,
       rebuild_proof: { required: true, status: 'separate' },
     }
