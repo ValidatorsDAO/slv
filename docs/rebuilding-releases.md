@@ -51,7 +51,7 @@ if len(matches) != 1:
 header, raw = matches[0].split(prefix, 1)
 match = re.fullmatch(
     r'SLV source-materials receipt \(verbatim UTF-8; SHA-256 ([0-9a-f]{64})\)\. '
-    r'Extract every byte after the delimiter and verify it against the three source archives\n',
+    r'Extract every byte after the delimiter and verify it against the three source archives\.\n',
     header,
 )
 if not match or not raw.endswith('\n'):
