@@ -21,8 +21,8 @@ export const PROCESS_ENVIRON =
 
 // Placeholders the command reader leaves in a word for text it cannot know:
 // RUNTIME for an expansion, PATTERN for a glob character.
-const RUNTIME = '\u0000'
-const PATTERN = '\u0001'
+export const RUNTIME = '\u0000'
+export const PATTERN = '\u0001'
 const PLACEHOLDERS = `${RUNTIME}${PATTERN}`
 
 // A path component starts at the start of a word, after a separator or after
@@ -88,8 +88,50 @@ const STAND_INS = [
   '/home/solv/.ssh',
 ]
 
+// The home directories the patterns below are written for. A path under any
+// other home is read as if it were under the first one.
 const HOMES = ['/home/solv', '/root']
 const KEY_DIRECTORIES = HOMES.map((home) => `${home}/.slv/keys`)
+
+/**
+ * The home directories of this process: HOME, and the home of the user who ran
+ * sudo. The list is empty where the environment cannot be read.
+ */
+export function ownHomes(): string[] {
+  const homes: string[] = []
+  try {
+    const home = Deno.env.get('HOME')
+    if (home) homes.push(home)
+    const sudoUser = Deno.env.get('SUDO_USER')
+    if (sudoUser && /^[A-Za-z0-9._-]+$/.test(sudoUser)) {
+      homes.push(sudoUser === 'root' ? '/root' : `/home/${sudoUser}`)
+    }
+  } catch { /* no permission to read the environment */ }
+  return homes.map((home) => home.replace(/\/+$/, '')).filter((home) =>
+    home.startsWith('/') && home.length > 1
+  )
+}
+
+/** The start of a path under any user's home: /home/NAME or /Users/NAME. */
+const NAMED_HOME = /^\/(?:home|users)\/[^/]+(?=\/|$)/i
+
+/**
+ * The path with the home directory it starts with, if it starts with one,
+ * written as the first of HOMES: /home/NAME and /Users/NAME for any name, and
+ * the home of this process.
+ */
+function underFirstHome(path: string): string {
+  const named = NAMED_HOME.exec(path)
+  if (named !== null) return HOMES[0] + path.slice(named[0].length)
+  const lower = path.toLowerCase()
+  for (const home of ownHomes()) {
+    const own = home.toLowerCase()
+    if (lower === own || lower.startsWith(`${own}/`)) {
+      return HOMES[0] + path.slice(home.length)
+    }
+  }
+  return path
+}
 // Files a pattern word may stand for, under a home directory.
 const FILE_PROBES: Array<[string, string]> = [
   ['.slv/gateway/gateway.json', 'the gateway credentials'],
@@ -254,6 +296,7 @@ function patternReason(text: string): string | null {
   if (!t.includes('/')) return nameInDirectoryReason(t)
   // a path relative to a directory the gate does not know names nothing here
   if (!t.startsWith('/')) return null
+  t = underFirstHome(t)
   const parts = t.split('/')
   for (let k = 1; k <= parts.length; k++) {
     const prefix = patternToRegExp(parts.slice(0, k).join('/'))

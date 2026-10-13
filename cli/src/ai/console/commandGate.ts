@@ -7,7 +7,8 @@
 // programs, systemctl and service verbs that change a unit, solana
 // subcommands that sign, interpreters, and the programs that run their
 // arguments. A line that names key material, or has a command substitution,
-// is gated as well. A gated command always needs a confirmation in a
+// is gated as well, and so is a recursive search that may read a directory
+// that holds key material. A gated command always needs a confirmation in a
 // terminal. A line the reader cannot parse, or whose command is only known
 // when the shell runs, counts as gated.
 // ---------------------------------------------------------------------------
@@ -16,6 +17,10 @@ import {
   AUTO_EXECUTE_NOTE,
   keyMaterialInWord,
 } from '@/ai/console/keyMaterial.ts'
+import {
+  RECURSIVE_READERS,
+  recursiveReadReason,
+} from '@/ai/console/recursiveRead.ts'
 import { awkProgramRisk, sedScriptRisk } from '@/ai/console/scriptRisk.ts'
 
 /** What `classifyCommand` found in a command line. */
@@ -2613,6 +2618,9 @@ function analyzeWords(
     analyzeStoredCommands(name, args, depth, found)
   } else if (name === 'find') {
     analyzeFind(args, depth, found)
+  } else if (RECURSIVE_READERS.has(name)) {
+    const reason = recursiveReadReason(name, args)
+    if (reason !== null) found.push(reason)
   } else if (Object.hasOwn(WRAPPERS, name)) {
     const spec = WRAPPERS[name]
     const read = readWrapper(spec, args)

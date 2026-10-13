@@ -801,7 +801,7 @@ gateTest(
       'ls ~/.slv/template',
       'ls -d ~/.slv/template/*/',
       'cat ~/.slv/inventory.testnet.validators.yml',
-      'grep -r identity ~/.slv/inventory.testnet.validators.yml',
+      'grep identity ~/.slv/inventory.testnet.validators.yml',
       'du -sh ~/.slv',
       'cat ~/.slv/keys-old',
       'cat ~/.slv/keys.txt',
@@ -1082,7 +1082,7 @@ gateTest(
       'echo "a;b ssh"',
       "echo 'a && ssh'",
       'grep ssh /etc/ssh/sshd_config',
-      'grep -r "op" .',
+      'grep "op" notes.txt',
       'man ssh',
       'systemctl status ssh',
       'sudo systemctl status ssh',
@@ -1559,9 +1559,12 @@ const ORDINARY_COMMANDS: string[] = [
   'du -sh ~/.slv',
 ]
 
-// The ones that are gated since the gate reads a command substitution and an
-// interpreter, with the reason the gate gives.
+// The ones that are gated since the gate reads a command substitution, an
+// interpreter and a recursive search of a directory that holds credentials,
+// with the reason the gate gives.
 const ORDINARY_GATED: Record<string, string> = {
+  "grep -r 'identity' ~/.slv/inventory.testnet.validators.yml":
+    'a recursive grep',
   'echo $(date)': 'a command substitution',
   'TEMPLATE_DIR=$(ls -d ~/.slv/template/*/ | sort -V | tail -1) && ls ${TEMPLATE_DIR}ansible':
     'a command substitution',
@@ -1569,7 +1572,7 @@ const ORDINARY_GATED: Record<string, string> = {
 }
 
 gateTest(
-  'the gate leaves the ordinary read-only commands alone, but for three',
+  'the gate leaves the ordinary read-only commands alone, but for four',
   ({ classify }) => {
     assertEquals(ORDINARY_COMMANDS.length, 65)
     const gated: Record<string, string> = {}

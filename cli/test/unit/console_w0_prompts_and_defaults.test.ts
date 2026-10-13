@@ -116,6 +116,20 @@ Deno.test('every description of auto_execute says that it runs read-only command
   includes(notReadOnly, 'touch is not a read-only program', 'refusal')
 })
 
+Deno.test('the run_command description names the recursive searches that need a person', () => {
+  const description = EXTENDED_TOOLS.find((tool) => tool.name === 'run_command')
+    ?.description
+  assert(description !== undefined, 'run_command: no description')
+  includes(
+    description,
+    'a recursive grep, rg or diff of a directory that may hold them',
+    'run_command',
+  )
+  includes(description, 'a home directory or one above it', 'run_command')
+  includes(description, 'anything under .slv or .ssh', 'run_command')
+  includes(description, 'or no path at all', 'run_command')
+})
+
 Deno.test('the write_file description and the validator onboarding text say who confirms a write', async () => {
   const description = EXTENDED_TOOLS.find((tool) => tool.name === 'write_file')
     ?.description
