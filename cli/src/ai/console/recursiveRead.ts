@@ -426,6 +426,15 @@ function directoryReason(operand: string): string | null {
   ) {
     return 'holds the environment of a process, which may hold credentials'
   }
+  if (parts.length === 1 && first === 'etc') {
+    return 'holds the password hashes and the SSH host keys'
+  }
+  if (parts.length === 2 && first === 'etc' && second === 'ssh') {
+    return 'holds the SSH host keys'
+  }
+  if (parts.length === 1 && first === 'dev') {
+    return 'holds the memory devices'
+  }
   for (const home of ownHomes()) {
     const own = home.toLowerCase().split('/').filter((part) => part !== '')
     if (parts.length <= own.length && parts.every((p, i) => p === own[i])) {

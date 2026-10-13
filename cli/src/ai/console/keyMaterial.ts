@@ -34,6 +34,41 @@ const NAME = `[^/\\s'"]`
 const NAME_END = `(?![A-Za-z0-9_.-])`
 const HOME_SLV = `${START}\\.slv/`
 
+// Secrets and memory of the machine that sit at a fixed absolute path. Each
+// source matches a whole path; a process under /proc is `self`, `thread-self`
+// or a number, and a word of a command line may leave an expansion or a glob
+// in its place.
+const PASSWORD_HASHES = 'the password hashes (/etc/shadow, /etc/gshadow)'
+const HOST_KEY = 'an SSH host private key'
+const KERNEL_MEMORY = 'the memory of the kernel (/proc/kcore)'
+const PROCESS_MEMORY = 'the memory of a process'
+const MACHINE_MEMORY =
+  'the memory or the I/O ports of the machine (/dev/mem, /dev/kmem, /dev/port)'
+const PROCESS_SLOT = `(?:self|thread-self|\\d+|[${PLACEHOLDERS}]+)`
+const TASK_SLOT = `(?:task/(?:\\d+|[${PLACEHOLDERS}]+)/)?`
+const SYSTEM_PATHS: Array<[string, string]> = [
+  ['/etc/g?shadow-?', PASSWORD_HASHES],
+  [`/etc/ssh/ssh_host_${NAME}*_key`, HOST_KEY],
+  ['/proc/kcore', KERNEL_MEMORY],
+  [`/proc/${PROCESS_SLOT}/${TASK_SLOT}mem`, PROCESS_MEMORY],
+  ['/dev/(?:mem|kmem|port)', MACHINE_MEMORY],
+]
+const SYSTEM_PATH_EXACT = SYSTEM_PATHS.map((
+  [source, reason],
+): [RegExp, string] => [new RegExp(`^${source}$`, 'i'), reason])
+
+/**
+ * Why a file tool must not handle this absolute path, or null: a password
+ * hash file, an SSH host private key, the memory of the kernel or of a
+ * process, a memory device.
+ */
+export function systemSecretReason(path: string): string | null {
+  for (const [pattern, reason] of SYSTEM_PATH_EXACT) {
+    if (pattern.test(path)) return reason
+  }
+  return null
+}
+
 // The classes that are a place: a directory or a file under a home directory.
 // The key files that are named by their file name are read by `nameReason`.
 const PLACES: Array<[RegExp, string]> = [
@@ -71,6 +106,11 @@ const PLACES: Array<[RegExp, string]> = [
     ),
     'the environment of a process',
   ],
+  // a path is matched by its tail, so a path through /proc/PID/root counts
+  ...SYSTEM_PATHS.map(([source, reason]): [RegExp, string] => [
+    new RegExp(`${source}${NAME_END}`, 'i'),
+    reason,
+  ]),
 ]
 
 /** The same places with the `g` flag, to read every match of a word. */
@@ -159,6 +199,28 @@ const NAME_PROBES: Array<[string, string]> = [
   ['id_rsa', 'an SSH private key'],
   ['id_ed25519', 'an SSH private key'],
   ['id_ecdsa', 'an SSH private key'],
+]
+
+// Files at a fixed path that a pattern word may stand for, as the components
+// of the path; # stands for a number.
+const SYSTEM_TEMPLATES: Array<[string[], string]> = [
+  [['etc', 'shadow'], PASSWORD_HASHES],
+  [['etc', 'gshadow'], PASSWORD_HASHES],
+  [['etc', 'shadow-'], PASSWORD_HASHES],
+  [['etc', 'gshadow-'], PASSWORD_HASHES],
+  [['etc', 'ssh', 'ssh_host_rsa_key'], HOST_KEY],
+  [['etc', 'ssh', 'ssh_host_dsa_key'], HOST_KEY],
+  [['etc', 'ssh', 'ssh_host_ecdsa_key'], HOST_KEY],
+  [['etc', 'ssh', 'ssh_host_ed25519_key'], HOST_KEY],
+  [['proc', 'kcore'], KERNEL_MEMORY],
+  [['proc', 'self', 'mem'], PROCESS_MEMORY],
+  [['proc', 'thread-self', 'mem'], PROCESS_MEMORY],
+  [['proc', '#', 'mem'], PROCESS_MEMORY],
+  [['proc', 'self', 'task', '#', 'mem'], PROCESS_MEMORY],
+  [['proc', '#', 'task', '#', 'mem'], PROCESS_MEMORY],
+  [['dev', 'mem'], MACHINE_MEMORY],
+  [['dev', 'kmem'], MACHINE_MEMORY],
+  [['dev', 'port'], MACHINE_MEMORY],
 ]
 
 const escapeRegExp = (text: string): string =>
@@ -269,6 +331,54 @@ function patternToRegExp(pattern: string): RegExp {
   }
 }
 
+/** Can a component of a pattern word be a number: digits only? */
+function standsForNumber(pattern: string): boolean {
+  if (pattern === '') return false
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === PATTERN || ch === RUNTIME) continue
+    if (ch === '[') {
+      const close = pattern.indexOf(']', i + 2)
+      if (close !== -1) {
+        const one = patternToRegExp(pattern.slice(i, close + 1))
+        if (!'0123456789'.split('').some((digit) => one.test(digit))) {
+          return false
+        }
+        i = close
+        continue
+      }
+    }
+    if (!/[0-9]/.test(ch)) return false
+  }
+  return true
+}
+
+/**
+ * Can a pattern word stand for a path that ends in one of the system files
+ * above? The last components of the word are read against the components of
+ * the file, so that a path through /proc/PID/root counts. A relative word
+ * counts only when it writes out one of the components itself, so that `*` and
+ * a/*b name nothing, unless it starts with `..`, which may reach the root.
+ */
+function systemPatternReason(pattern: string): string | null {
+  const parts = pattern.split('/')
+  const rooted = pattern.startsWith('/') || pattern.startsWith('../')
+  for (const [template, reason] of SYSTEM_TEMPLATES) {
+    if (parts.length < template.length) continue
+    const tail = parts.slice(parts.length - template.length)
+    const matches = template.every((name, i) =>
+      name === '#'
+        ? standsForNumber(tail[i])
+        : patternToRegExp(tail[i]).test(name)
+    )
+    const written = template.some((name, i) =>
+      name !== '#' && tail[i].toLowerCase() === name
+    )
+    if (matches && (rooted || written)) return reason
+  }
+  return null
+}
+
 /**
  * Can a file name with glob characters stand for a key file in the current
  * directory? At least two characters besides `.json` must be written out, so
@@ -294,6 +404,8 @@ function patternReason(text: string): string | null {
   let t = text.replace(/^(?:~|\u0000)[^/\u0000\u0001]*(?=\/|$)/, HOMES[0])
   if (/^\.(slv|ssh)\//.test(t)) t = `${HOMES[0]}/${t}`
   if (!t.includes('/')) return nameInDirectoryReason(t)
+  const system = systemPatternReason(t)
+  if (system !== null) return system
   // a path relative to a directory the gate does not know names nothing here
   if (!t.startsWith('/')) return null
   t = underFirstHome(t)

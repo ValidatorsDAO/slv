@@ -8,6 +8,7 @@ import {
   IDENTITY_FILE_NAME,
   KEYPAIR_FILE_NAME,
   PROCESS_ENVIRON,
+  systemSecretReason,
 } from '@/ai/console/keyMaterial.ts'
 import { resolveMemoryMdPath } from '@/ai/agentConfig/paths.ts'
 
@@ -280,6 +281,8 @@ async function protectedPathReason(
     if (KEYPAIR_FILE_NAME.test(name)) return 'a keypair file'
     if (IDENTITY_FILE_NAME.test(name)) return 'an identity key file'
     if (PROCESS_ENVIRON.test(p)) return 'the environment of a process'
+    const system = systemSecretReason(p)
+    if (system !== null) return system
     for (const h of homes) {
       const slv = `${h}/.slv`
       if (isUnder(p, `${slv}/keys`)) return 'the files under ~/.slv/keys'

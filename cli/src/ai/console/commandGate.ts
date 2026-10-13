@@ -84,6 +84,8 @@ export type ParseNotes = {
   background: boolean
   /** a `${name=word}` or `${name:=word}` expansion, which assigns */
   parameterAssignment: boolean
+  /** a `${...}` expansion that applies an operator to the value */
+  parameterOperator: boolean
   /** `((`, `$((` or `$[` with any body */
   arithmeticSyntax: boolean
   /** an arithmetic expansion of more than numbers and operators */
@@ -116,6 +118,7 @@ const newNotes = (): ParseNotes => ({
   promptExpansion: false,
   background: false,
   parameterAssignment: false,
+  parameterOperator: false,
   arithmeticSyntax: false,
   arithmeticExpansion: false,
   arithmetic: false,
@@ -276,6 +279,19 @@ function parameterEvaluates(inner: string): boolean {
   return false
 }
 
+/**
+ * Does the text of a `${...}` expansion apply an operator to the value: a
+ * default or alternate value, a check, an offset, a removal, a replacement, a
+ * case change, a transformation, a length or an indirection? Only the name of
+ * a parameter (with a subscript), a number and a special parameter stand
+ * alone.
+ */
+function parameterHasOperator(inner: string): boolean {
+  return !/^(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?|[0-9]+|[@*#?$!-])$/.test(
+    inner,
+  )
+}
+
 /** After `${`: skip to the matching `}`, reading any substitution inside. */
 function skipParameter(st: ParseState, depth: number): void {
   const src = st.src
@@ -308,6 +324,7 @@ function skipParameter(st: ParseState, depth: number): void {
         const inner = src.slice(start, st.pos - 1)
         if (/@P/.test(inner)) st.notes.promptExpansion = true
         if (parameterEvaluates(inner)) st.notes.arithmetic = true
+        if (parameterHasOperator(inner)) st.notes.parameterOperator = true
         if (/^[!#]?[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?:?=/.test(inner)) {
           st.notes.parameterAssignment = true
         }

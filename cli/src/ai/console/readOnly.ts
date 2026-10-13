@@ -7,7 +7,9 @@
 // program from the table below, used in a form in which no option or operand
 // writes a file, runs another program, changes the state of the system or of
 // a service, or sends data over the network. Anything the reader cannot
-// follow is not read-only, and so is a program that is not in the table.
+// follow is not read-only, and so is a program that is not in the table and a
+// `${...}` expansion with an operator, whose value can stand for any path or
+// option.
 // ---------------------------------------------------------------------------
 
 import {
@@ -848,6 +850,9 @@ export function isReadOnlyLine(line: string): ReadOnlyResult {
     }
     if (notes.background) reasons.add('a command run in the background')
     if (notes.parameterAssignment) reasons.add('an assignment')
+    if (notes.parameterOperator) {
+      reasons.add('a parameter expansion with an operator')
+    }
     for (const command of read.commands) {
       const reason = commandReason(command)
       if (reason !== null) reasons.add(reason)

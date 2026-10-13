@@ -784,7 +784,6 @@ readOnlyTest(
       'ls -la "$HOME"',
       'ls $HOME',
       'echo ${HOME}',
-      'echo ${HOME:-x}',
       'echo $? $$',
       'echo \'a b\' "c d"',
       'ls ~/x',
@@ -805,6 +804,7 @@ readOnlyTest(
       'echo ${x@P}',
       'echo ${!x}',
       'echo ${y:$x}',
+      'echo ${HOME:-x}',
       'echo $((1+2))',
       'echo $(( 2 * 3 ))',
       'echo $[1+2]',
@@ -940,5 +940,84 @@ readOnlyTest(
         }`,
       )
     }
+  },
+)
+
+readOnlyTest(
+  'a parameter expansion with an operator needs a person, and the plain forms run',
+  ({ decide, isReadOnly, expectReadOnly, expectNotReadOnly }) => {
+    // a default value can stand for any path or option
+    for (
+      const line of [
+        'cat ${X:-/home/solv/.slv/api.yml}',
+        'cat ${X-/home/solv/.slv/api.yml}',
+        'cat ${X:+/home/solv/.slv/api.yml}',
+        'head ${X:-/home/solv/.ssh/id_ed25519}',
+        'grep -i ${X:--r pat ~/.slv}',
+        'cat ${X:-$HOME/.slv/api.yml}',
+        'cat "${X:-/home/solv/.slv/api.yml}"',
+        'cat ${X:-~/.slv/api.yml}',
+        'ls ${X:-/home/solv/.slv}',
+      ]
+    ) {
+      assertEquals(decide(line, true), 'confirm', line)
+      assertEquals(decide(line, false), 'refuse', line)
+      assert(
+        isReadOnly(line).reasons.includes(
+          'a parameter expansion with an operator',
+        ),
+        line,
+      )
+    }
+    expectNotReadOnly([
+      'echo ${X:-a}',
+      'echo ${X-a}',
+      'echo ${X:+a}',
+      'echo ${X+a}',
+      'echo ${X:?a}',
+      'echo ${X?a}',
+      'echo ${X#a}',
+      'echo ${X##a}',
+      'echo ${X%a}',
+      'echo ${X%%a}',
+      'echo ${X/a/b}',
+      'echo ${X//a/b}',
+      'echo ${X/#a/b}',
+      'echo ${X/%a/b}',
+      'echo ${X^}',
+      'echo ${X^^}',
+      'echo ${X,}',
+      'echo ${X,,}',
+      'echo ${X:1}',
+      'echo ${X:1:2}',
+      'echo ${#X}',
+      'echo ${!X}',
+      'echo ${!X*}',
+      'echo ${!X@}',
+      'echo ${X@Q}',
+      'echo ${X@U}',
+      'echo ${X:=a}',
+      'echo ${X=a}',
+      // in double quotes, in a here-document that expands, in another one
+      'echo "${X:-a}"',
+      'cat <<EOF\n${X:-a}\nEOF',
+      'echo ${X:-${Y}}',
+      'echo ${X:-a} && ls',
+      'ls | cat ${X:-a}',
+      'cat < ${X:-/dev/null}',
+    ])
+    expectReadOnly([
+      'cat $HOME/notes.txt',
+      'cat ${HOME}/notes.txt',
+      'cat "$HOME/notes.txt"',
+      'cat "${HOME}/notes.txt"',
+      'echo $X ${X} "${X}"',
+      'echo $1 ${1} ${10} $@ ${@} $* ${*} $# ${#} $? ${?} $$ ${$} $! ${!} $- ${-}',
+      'echo ${_} ${X1} ${my_var_2}',
+      // text that the shell does not expand
+      "echo '${X:-a}'",
+      'echo \\${X:-a}',
+      "cat <<'EOF'\n${X:-a}\nEOF",
+    ])
   },
 )
