@@ -9,7 +9,7 @@
  * the onboarding text and the run_command and read_file tool descriptions.
  */
 export const AUTO_EXECUTE_NOTE =
-  'With auto_execute on, the console runs commands that do not change nodes or keys without asking, and it can read files outside the refused classes (keys and credentials). Output redaction hides only three key shapes: a PEM private key, a JSON array of 64 integers and a base58 Solana keypair.'
+  'With auto_execute on, the console runs read-only commands without asking, and every other command needs a person to confirm it in a terminal. A read-only command can still read files outside the refused classes (keys and credentials), and output redaction hides only three key shapes: a PEM private key, a JSON array of 64 integers and a base58 Solana keypair.'
 
 /** Base names, in lower case, of key files anywhere on disk. */
 export const KEYPAIR_FILE_NAME = /keypair.*\.json$/

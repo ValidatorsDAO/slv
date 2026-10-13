@@ -62,13 +62,19 @@ Deno.test('slv onboard writes auto_execute: false', async () => {
   assertFalse(/auto_execute:\s*true/.test(text), 'onboard writes true')
 })
 
-// What the descriptions of auto_execute say about reading files and redaction.
+// What the descriptions of auto_execute say about read-only commands, reading
+// files and redaction.
+const READ_ONLY_ONLY = 'runs read-only commands without asking'
+const OTHERS_NEED_A_PERSON =
+  'every other command needs a person to confirm it in a terminal'
 const CAN_READ_OUTSIDE = 'read files outside the refused classes'
 const THREE_SHAPES = 'redaction hides only three key shapes'
 
-Deno.test('every description of auto_execute says that the console can read files outside the refused classes and that redaction hides only three key shapes', async () => {
+Deno.test('every description of auto_execute says that it runs read-only commands only, that the console can read files outside the refused classes and that redaction hides only three key shapes', async () => {
   const note = (text: string | undefined, label: string): void => {
     assert(text !== undefined, `${label}: no description`)
+    includes(text, READ_ONLY_ONLY, label)
+    includes(text, OTHERS_NEED_A_PERSON, label)
     includes(text, CAN_READ_OUTSIDE, label)
     includes(text, THREE_SHAPES, label)
   }
@@ -92,7 +98,22 @@ Deno.test('every description of auto_execute says that the console can read file
   const gate = await import('@/ai/console/commandGate.ts')
   const refusal = gate.describeRefusal('ls', { gated: false, reasons: [] })
   includes(refusal, 'auto_execute: true', 'refusal')
+  includes(refusal, 'run read-only commands', 'refusal')
+  includes(refusal, READ_ONLY_ONLY, 'refusal')
   includes(refusal, CAN_READ_OUTSIDE, 'refusal')
+
+  // with auto_execute on, a line that is not read-only is told why
+  const notReadOnly = gate.describeRefusal(
+    'touch /tmp/x',
+    { gated: false, reasons: [] },
+    { autoExecute: true, notReadOnly: ['touch is not a read-only program'] },
+  )
+  includes(
+    notReadOnly,
+    'with auto-execute on only read-only commands run without a person',
+    'refusal',
+  )
+  includes(notReadOnly, 'touch is not a read-only program', 'refusal')
 })
 
 Deno.test('the validator prompts name the staked mainnet key as the template does', async () => {

@@ -80,17 +80,57 @@ const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
 Deno.test('run_command does not execute without a terminal when auto-execute is off', async () => {
   await sandbox(async (dir) => {
     setTuiInstance(null)
+    await Deno.writeTextFile(`${dir}/note`, 'content-of-the-note\n')
 
-    // a command runs when auto-execute is on
+    // a read-only command runs when auto-execute is on
     setAutoExecute(true)
-    await quiet(() => run(`touch '${dir}/control'`))
-    assert(await exists(`${dir}/control`), 'control command did not run')
+    const control = await quiet(() => run(`cat '${dir}/note'`))
+    assertStringIncludes(control, 'content-of-the-note')
 
     setAutoExecute(false)
-    const result = await quiet(() => run(`touch '${dir}/marker'`))
-    assertFalse(await exists(`${dir}/marker`), 'the command ran')
+    const result = await quiet(() => run(`cat '${dir}/note'`))
+    assertFalse(result.includes('content-of-the-note'), 'the command ran')
     assertStringIncludes(result, 'not run')
     assertStringIncludes(result, 'terminal')
+  })
+})
+
+Deno.test('with auto-execute on, run_command runs only read-only commands without a person', async () => {
+  await sandbox(async (dir) => {
+    setTuiInstance(null)
+    setAutoExecute(true)
+    await Deno.writeTextFile(`${dir}/a.txt`, 'beta\nalpha\n')
+
+    // read-only lines run: a pipeline, a list, a redirection to /dev/null
+    const listed = await quiet(() => run(`ls '${dir}' && sort '${dir}/a.txt'`))
+    assertStringIncludes(listed, 'a.txt')
+    assertStringIncludes(listed, 'alpha\nbeta')
+    const piped = await quiet(() =>
+      run(`cat '${dir}/a.txt' | grep alpha 2>/dev/null`)
+    )
+    assertEquals(piped.trim(), 'alpha')
+
+    // lines that write, run another program or change something do not
+    const lines = [
+      `touch '${dir}/m1'`,
+      `echo x > '${dir}/m2'`,
+      `sort -o '${dir}/m3' '${dir}/a.txt'`,
+      `cp '${dir}/a.txt' '${dir}/m4'`,
+      `cat '${dir}/a.txt' | tee '${dir}/m5'`,
+      `ls > '${dir}/m6'`,
+      `ls '${dir}' & touch '${dir}/m7'`,
+      `M=1 ls '${dir}'; touch '${dir}/m8'`,
+      `sudo -n touch '${dir}/m9'`,
+      `bash -c "touch '${dir}/m10'"`,
+    ]
+    for (const line of lines) {
+      const result = await quiet(() => run(line))
+      assertStringIncludes(result, 'not run', line)
+      assertStringIncludes(result, 'read-only', line)
+    }
+    for (let n = 1; n <= 10; n++) {
+      assertFalse(await exists(`${dir}/m${n}`), `m${n} was created`)
+    }
   })
 })
 
@@ -101,16 +141,18 @@ Deno.test('run_command refuses a command until something turns auto-execute on',
   const dir = await Deno.makeTempDir({ prefix: 'console-w0-default-' })
   try {
     fresh.setTuiInstance(null)
+    await Deno.writeTextFile(`${dir}/note`, 'content-of-the-note\n')
+    const command = `cat '${dir}/note'`
     const result = await quiet(() =>
-      fresh.executeTool('run_command', { command: `touch '${dir}/marker'` })
+      fresh.executeTool('run_command', { command })
     )
     assertStringIncludes(result, 'not run')
-    assertFalse(await exists(`${dir}/marker`), 'the command ran')
+    assertFalse(result.includes('content-of-the-note'), 'the command ran')
     fresh.setAutoExecute(true)
-    await quiet(() =>
-      fresh.executeTool('run_command', { command: `touch '${dir}/marker'` })
+    const control = await quiet(() =>
+      fresh.executeTool('run_command', { command })
     )
-    assert(await exists(`${dir}/marker`), 'the control command did not run')
+    assertStringIncludes(control, 'content-of-the-note')
   } finally {
     await Deno.remove(dir, { recursive: true })
   }
@@ -142,8 +184,9 @@ Deno.test('run_command leaves no timer running when a command ends, whatever the
       setAutoExecute(true)
       // a command that ends well, one that fails, and one that outlives the
       // first check of the inactivity watcher
-      for (const command of ['true', 'echo out; exit 3', 'sleep 1.3']) {
-        await quiet(() => run(command))
+      for (const command of ['true', 'false', 'sleep 1.3']) {
+        const result = await quiet(() => run(command))
+        assertFalse(result.includes('not run'), `${command}: ${result}`)
         assertEquals(
           pending.size,
           0,
@@ -208,36 +251,49 @@ Deno.test('with a terminal a gated command asks first even when auto-execute is 
     await sandbox(async (dir) => {
       setTuiInstance(fakeTui)
       setAutoExecute(true)
+      await Deno.writeTextFile(`${dir}/note`, 'content-of-the-note\n')
 
-      // a command outside the gated classes runs without a question
-      await quiet(() => run(`touch '${dir}/plain'`))
-      assert(await exists(`${dir}/plain`), 'the plain command did not run')
+      // a read-only command runs without a question
+      const plain = await quiet(() => run(`cat '${dir}/note'`))
+      assertStringIncludes(plain, 'content-of-the-note')
       assertEquals(asked.length, 0)
+
+      // a command that is not read-only asks, and a "no" runs nothing
+      answer = false
+      const notAsked = await quiet(() => run(`touch '${dir}/plain'`))
+      assertEquals(asked.length, 1)
+      assertEquals(asked[0].default, true, 'a plain command defaults to yes')
+      assertStringIncludes(notAsked, 'declined')
+      assertFalse(await exists(`${dir}/plain`), 'the declined command ran')
+      answer = true
+      await quiet(() => run(`touch '${dir}/plain'`))
+      assertEquals(asked.length, 2)
+      assert(await exists(`${dir}/plain`), 'the confirmed command did not run')
 
       // a gated command asks, and a "no" runs nothing
       await Deno.mkdir(`${dir}/victim`)
       answer = false
       const declined = await quiet(() => run(`rm -rf '${dir}/victim'`))
-      assertEquals(asked.length, 1)
-      assertEquals(asked[0].default, false, 'a gated command defaults to no')
+      assertEquals(asked.length, 3)
+      assertEquals(asked[2].default, false, 'a gated command defaults to no')
       assertStringIncludes(declined, 'declined')
       assert(await exists(`${dir}/victim`), 'the declined command ran')
 
       // a "yes" runs it
       answer = true
       await quiet(() => run(`rm -rf '${dir}/victim'`))
-      assertEquals(asked.length, 2)
+      assertEquals(asked.length, 4)
       assertFalse(
         await exists(`${dir}/victim`),
         'the confirmed command did not run',
       )
 
-      // with auto-execute off every command asks
+      // with auto-execute off every command asks, a read-only one too
       setAutoExecute(false)
       answer = false
-      await quiet(() => run(`touch '${dir}/asked'`))
-      assertEquals(asked.length, 3)
-      assertFalse(await exists(`${dir}/asked`))
+      const off = await quiet(() => run(`cat '${dir}/note'`))
+      assertEquals(asked.length, 5)
+      assertStringIncludes(off, 'declined')
     })
   } finally {
     confirm.prompt = original
@@ -388,13 +444,9 @@ Deno.test('the command runs in a session of its own when setsid exists', async (
   await sandbox(async () => {
     setTuiInstance(null)
     setAutoExecute(true)
-    const output = await quiet(() =>
-      run(
-        'read -r pid comm state ppid pgrp session rest < /proc/$$/stat; echo "$$ $session"',
-      )
-    )
-    const [pid, session] = output.trim().split(' ')
-    assert(pid !== undefined && pid !== '', output)
+    const output = await quiet(() => run('ps -o pid=,sid= -p $$'))
+    const [pid, session] = output.trim().split(/\s+/)
+    assert(pid !== undefined && /^[0-9]+$/.test(pid), output)
     assertEquals(session, pid, 'the shell is not a session leader')
   })
 })

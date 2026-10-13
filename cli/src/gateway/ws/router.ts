@@ -105,8 +105,8 @@ type MethodHandler = (
 /**
  * Load the agent config and hand its auto_execute to run_command. A gateway
  * session has no terminal to confirm at: with auto_execute off, which is the
- * default, run_command refuses every command; commands that need a
- * confirmation are refused whatever the setting.
+ * default, run_command refuses every command; with it on, run_command runs
+ * read-only commands and refuses every other command.
  */
 const applyAgentConfig = async () => {
   const ctx = await loadAgentContext()

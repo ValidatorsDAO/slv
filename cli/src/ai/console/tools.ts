@@ -23,6 +23,7 @@ import {
   redactSecretKeys,
 } from '@/ai/console/toolSafety.ts'
 import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
+import { isReadOnlyLine } from '@/ai/console/readOnly.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
@@ -234,7 +235,7 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'run_command',
     description:
-      'Execute a shell command on the system. Use this to run slv commands, check system status, manage services, etc. The user will be asked to confirm before execution. Commands that change nodes or keys, touch credentials or run other commands always need the user to confirm in a terminal, and are refused when none is attached: ansible-playbook, ssh, scp, rsync, solana-keygen, op, rm -r/-f, the slv deploy, start, stop, restart, switch, set:identity and init verbs, agave-validator, solana-validator and fdctl (but for their version and monitor forms), systemctl and service verbs that change a unit, solana subcommands that sign, interpreters such as python, perl or node, programs that run their arguments, a command substitution, and any path to a key or credential. ' +
+      'Execute a shell command on the system. Use this to run slv commands, check system status, manage services, etc. The user will be asked to confirm before execution. Only read-only commands can run without the user: a line of programs such as ls, cat, head, tail, grep, ps, df, free, journalctl, systemctl status, ss, ip addr and solana epoch-info, with no output redirection except to /dev/null, no assignment, no substitution, no background job and no program named by a path. Every other command needs the user to confirm in a terminal, and is refused when none is attached; that includes sudo, shells and interpreters, curl, git, tar, awk, sed and find. Commands that change nodes or keys, touch credentials or run other commands are put to the user even in a line that looks read-only: ansible-playbook, ssh, scp, rsync, solana-keygen, op, rm -r/-f, the slv deploy, start, stop, restart, switch, set:identity and init verbs, agave-validator, solana-validator and fdctl (but for their version and monitor forms), systemctl and service verbs that change a unit, solana subcommands that sign, interpreters such as python, perl or node, programs that run their arguments, a command substitution, and any path to a key or credential. ' +
       AUTO_EXECUTE_NOTE,
     parameters: {
       type: 'object',
@@ -578,14 +579,19 @@ async function executeRunCommand(command: string): Promise<string> {
 
   const tui = tuiInstance
   const classification = classifyCommand(command)
+  const readOnly = isReadOnlyLine(command)
   const decision = decideCommandGate({
     gated: classification.gated,
     autoExecute: autoExecuteCommands,
     hasTerminal: tui !== null,
+    readOnly: readOnly.readOnly,
   })
 
   if (decision === 'refuse') {
-    const msg = describeRefusal(command, classification)
+    const msg = describeRefusal(command, classification, {
+      autoExecute: autoExecuteCommands,
+      notReadOnly: readOnly.reasons,
+    })
     console.log(`  ✗ ${msg.split('\n')[0]}`)
     return msg
   }
@@ -599,6 +605,12 @@ async function executeRunCommand(command: string): Promise<string> {
       console.log(
         `  ! This command may change nodes or keys, touch credentials or run another command (${
           classification.reasons.join(', ')
+        }).`,
+      )
+    } else if (autoExecuteCommands && !readOnly.readOnly) {
+      console.log(
+        `  ! Auto-execute runs read-only commands only, and this one is not read-only (${
+          readOnly.reasons.join(', ')
         }).`,
       )
     }

@@ -5,7 +5,12 @@ type Decision = 'run' | 'confirm' | 'refuse'
 type GateModule = {
   classifyCommand: (command: string) => Classification
   decideCommandGate: (
-    input: { gated: boolean; autoExecute: boolean; hasTerminal: boolean },
+    input: {
+      gated: boolean
+      autoExecute: boolean
+      hasTerminal: boolean
+      readOnly: boolean
+    },
   ) => Decision
 }
 
@@ -504,26 +509,34 @@ gateTest(
 )
 
 gateTest(
-  'a gated class always needs a terminal; other commands follow auto-execute',
+  'a command runs on its own only with auto-execute on, a read-only line and no gated class',
   ({ decide }) => {
     const rows: Array<
-      [boolean, boolean, boolean, Decision]
+      [boolean, boolean, boolean, boolean, Decision]
     > = [
-      // gated, auto-execute, terminal, decision
-      [true, true, true, 'confirm'],
-      [true, true, false, 'refuse'],
-      [true, false, true, 'confirm'],
-      [true, false, false, 'refuse'],
-      [false, true, true, 'run'],
-      [false, true, false, 'run'],
-      [false, false, true, 'confirm'],
-      [false, false, false, 'refuse'],
+      // gated, auto-execute, read-only, terminal, decision
+      [false, true, true, true, 'run'],
+      [false, true, true, false, 'run'],
+      [false, true, false, true, 'confirm'],
+      [false, true, false, false, 'refuse'],
+      [false, false, true, true, 'confirm'],
+      [false, false, true, false, 'refuse'],
+      [false, false, false, true, 'confirm'],
+      [false, false, false, false, 'refuse'],
+      [true, true, true, true, 'confirm'],
+      [true, true, true, false, 'refuse'],
+      [true, true, false, true, 'confirm'],
+      [true, true, false, false, 'refuse'],
+      [true, false, true, true, 'confirm'],
+      [true, false, true, false, 'refuse'],
+      [true, false, false, true, 'confirm'],
+      [true, false, false, false, 'refuse'],
     ]
-    for (const [gated, autoExecute, hasTerminal, expected] of rows) {
+    for (const [gated, autoExecute, readOnly, hasTerminal, expected] of rows) {
       assertEquals(
-        decide({ gated, autoExecute, hasTerminal }),
+        decide({ gated, autoExecute, hasTerminal, readOnly }),
         expected,
-        `gated=${gated} auto=${autoExecute} terminal=${hasTerminal}`,
+        `gated=${gated} auto=${autoExecute} readOnly=${readOnly} terminal=${hasTerminal}`,
       )
     }
   },

@@ -156,7 +156,7 @@ const gatewayToolCall = async (
 const gatewayRunCommand = (command: string): Promise<string> =>
   gatewayToolCall('run_command', { command })
 
-Deno.test('a gateway session runs no command with the default config and runs one with auto_execute: true', async () => {
+Deno.test('a gateway session runs no command with the default config and runs a read-only one with auto_execute: true', async () => {
   await withGatewayHome(undefined, async (home) => {
     const marker = `${home}/ran`
     const ls = await gatewayRunCommand(`ls -la '${home}'`)
@@ -175,9 +175,11 @@ Deno.test('a gateway session runs no command with the default config and runs on
     assertFalse(ls.includes('not run'), ls)
     assert(/ \.slv$/m.test(ls), 'the listing was not returned')
 
+    // a command that writes is not read-only: no person, no run
     const touched = await gatewayRunCommand(`touch '${marker}'`)
-    assertFalse(touched.includes('not run'), touched)
-    assert(await exists(marker), 'the command did not run')
+    assertStringIncludes(touched, 'not run')
+    assertStringIncludes(touched, 'read-only')
+    assertFalse(await exists(marker), 'the command ran')
   })
 
   // run_command itself starts with auto-execute off
@@ -226,26 +228,24 @@ Deno.test('a gateway session cannot switch auto_execute on by writing the agent 
 
 Deno.test('the config is read again for each turn', async () => {
   await withGatewayHome(false, async (home) => {
-    const marker = `${home}/ran`
-    const before = await gatewayRunCommand(`touch '${marker}'`)
+    const listing = `ls -a '${home}'`
+    const before = await gatewayRunCommand(listing)
     assertStringIncludes(before, 'not run')
-    assertFalse(await exists(marker))
 
     await Deno.writeTextFile(
       `${home}/.slv/agent/config.yml`,
       'auto_execute: true\n',
     )
-    await gatewayRunCommand(`touch '${marker}'`)
-    assert(await exists(marker), 'the new setting was not used')
+    const during = await gatewayRunCommand(listing)
+    assertFalse(during.includes('not run'), during)
+    assertStringIncludes(during, '.slv')
 
-    await Deno.remove(marker)
     await Deno.writeTextFile(
       `${home}/.slv/agent/config.yml`,
       'auto_execute: false\n',
     )
-    const after = await gatewayRunCommand(`touch '${marker}'`)
+    const after = await gatewayRunCommand(listing)
     assertStringIncludes(after, 'not run')
-    assertFalse(await exists(marker))
   })
 })
 
@@ -261,11 +261,10 @@ Deno.test('session.info applies the config as well', async () => {
         { token: 'x', emitEvent: () => {} },
       )
       assertEquals(res.ok, true)
-      const marker = `${home}/ran`
       const result = await tools.executeTool('run_command', {
-        command: `touch '${marker}'`,
+        command: `ls -a '${home}'`,
       })
-      assertEquals(await exists(marker), autoExecute, result)
+      assertEquals(result.includes('not run'), !autoExecute, result)
     })
   }
 })

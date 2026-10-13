@@ -40,29 +40,40 @@ type Found = string[] & {
 }
 
 /** Stands in a word for text that is only known when the shell runs. */
-const RUNTIME = '\u0000'
+export const RUNTIME = '\u0000'
 /** Stands in a word for an unquoted glob or brace character. */
-const PATTERN = '\u0001'
+export const PATTERN = '\u0001'
 
 const MAX_NESTING = 8
 
 /** The body of an arithmetic expansion that is only numbers and operators. */
 const NUMERIC_ARITHMETIC = /^[0-9\s+\-*/%()<>=!&|^~?:]*$/
 
-type SimpleCommand = {
+/** One simple command of a command line, after quote removal. */
+export type SimpleCommand = {
   words: string[]
   /** The words after a redirection operator: the files it opens. */
   redirects: string[]
+  /** Each redirection with its operator: `>`, `>>`, `>&`, `<`, `&>` ... */
+  redirections: Array<{ operator: string; target: string }>
   hereDocs: string[]
   hereStrings: string[]
 }
 
-/** What the reader saw in a command line besides its commands. */
-type ParseNotes = {
+/** What the reader saw in a command line besides its simple commands. */
+export type ParseNotes = {
   /** `$(`, a backquote or an escaped form of them outside single quotes */
   substitution: boolean
+  /** a process substitution: `<(...)` or `>(...)` */
+  processSubstitution: boolean
   /** a `${...@P}` expansion */
   promptExpansion: boolean
+  /** a `&` that puts a command in the background */
+  background: boolean
+  /** a `${name=word}` or `${name:=word}` expansion, which assigns */
+  parameterAssignment: boolean
+  /** `((`, `$((` or `$[` with any body */
+  arithmeticSyntax: boolean
   /** an arithmetic expansion of more than numbers and operators */
   arithmeticExpansion: boolean
   /**
@@ -86,6 +97,17 @@ const isNameChar = (c: string | undefined): boolean =>
   c !== undefined && /[A-Za-z0-9_]/.test(c)
 const hasUnknownPart = (word: string): boolean =>
   word.includes(RUNTIME) || word.includes(PATTERN)
+
+const newNotes = (): ParseNotes => ({
+  substitution: false,
+  processSubstitution: false,
+  promptExpansion: false,
+  background: false,
+  parameterAssignment: false,
+  arithmeticSyntax: false,
+  arithmeticExpansion: false,
+  arithmetic: false,
+})
 
 function parseNested(st: ParseState, text: string, depth: number): void {
   const sub: ParseState = {
@@ -274,6 +296,9 @@ function skipParameter(st: ParseState, depth: number): void {
         const inner = src.slice(start, st.pos - 1)
         if (/@P/.test(inner)) st.notes.promptExpansion = true
         if (parameterEvaluates(inner)) st.notes.arithmetic = true
+        if (/^[!#]?[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?:?=/.test(inner)) {
+          st.notes.parameterAssignment = true
+        }
         return
       }
     } else {
@@ -291,6 +316,7 @@ function readDollar(st: ParseState, depth: number, inDouble: boolean): string {
     if (src[st.pos + 2] === '(') {
       const end = arithmeticEnd(src, st.pos + 3)
       if (end !== -1) {
+        st.notes.arithmeticSyntax = true
         const body = src.slice(st.pos + 3, end - 2)
         if (/`|\$\(/.test(body)) {
           st.unparsable = true
@@ -318,6 +344,7 @@ function readDollar(st: ParseState, depth: number, inDouble: boolean): string {
   if (n === '[') {
     // the old form of an arithmetic expansion, which also reads its operands
     // as expressions
+    st.notes.arithmeticSyntax = true
     st.notes.arithmeticExpansion = true
     st.notes.arithmetic = true
   }
@@ -441,18 +468,21 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
     return
   }
   const src = st.src
-  let cur: SimpleCommand = {
+  const emptyCommand = (): SimpleCommand => ({
     words: [],
     redirects: [],
+    redirections: [],
     hereDocs: [],
     hereStrings: [],
-  }
+  })
+  let cur = emptyCommand()
   let word = null as string | null
   let quoted = false
   let bracket = false
   let brace = false
   let globbed = false
   let redirect = null as 'plain' | 'string' | 'doc' | null
+  let redirectOperator = ''
   let tabs = false
   const pendingDocs: Array<
     { target: SimpleCommand; delimiter: string; raw: boolean; tabs: boolean }
@@ -475,6 +505,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       cur.hereStrings.push(finished)
     } else if (redirect === 'plain') {
       cur.redirects.push(finished)
+      cur.redirections.push({ operator: redirectOperator, target: finished })
     } else {
       cur.words.push(finished)
     }
@@ -495,7 +526,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
     if (cur.words.length > 0 || cur.redirects.length > 0) {
       st.commands.push(cur)
     }
-    cur = { words: [], redirects: [], hereDocs: [], hereStrings: [] }
+    cur = emptyCommand()
   }
 
   while (st.pos < src.length) {
@@ -552,8 +583,11 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       } else if (src[st.pos + 1] === '>') {
         endWord()
         redirect = 'plain'
-        st.pos += src[st.pos + 2] === '>' ? 3 : 2
+        const length = src[st.pos + 2] === '>' ? 3 : 2
+        redirectOperator = src.slice(st.pos, st.pos + length)
+        st.pos += length
       } else {
+        st.notes.background = true
         endCommand()
         st.pos++
       }
@@ -562,7 +596,10 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       st.pos++
       if (src[st.pos] === '|' || src[st.pos] === '&') st.pos++
     } else if (c === '(') {
-      if (src[st.pos + 1] === '(') st.notes.arithmetic = true
+      if (src[st.pos + 1] === '(') {
+        st.notes.arithmeticSyntax = true
+        st.notes.arithmetic = true
+      }
       endCommand()
       st.pos++
       parseList(st, ')', depth + 1)
@@ -575,6 +612,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
       st.unparsable = true
     } else if (c === '<' || c === '>') {
       if (src[st.pos + 1] === '(') {
+        st.notes.processSubstitution = true
         st.pos += 2
         parseList(st, ')', depth + 1)
         append(RUNTIME)
@@ -608,6 +646,7 @@ function parseList(st: ParseState, closer: ')' | null, depth: number): void {
         ) {
           length = 2
         }
+        redirectOperator = src.slice(st.pos, st.pos + length)
         st.pos += length
         redirect = kind
       }
@@ -749,7 +788,7 @@ const NON_COMMAND_WORDS = new Set([
   '}',
 ])
 
-const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/
+export const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/
 
 // ---------------------------------------------------------------------------
 // Local node and service control
@@ -808,7 +847,7 @@ const VALIDATOR_CHANGING_COMMANDS = new Set([
 ])
 
 /** The options of systemctl that the gate can read; -H and -M are not among them. */
-const SYSTEMCTL_OPTIONS: WrapperSpec = {
+export const SYSTEMCTL_OPTIONS: WrapperSpec = {
   argShort: 'nopst',
   flagShort: 'alqrhfi',
   argLong: [
@@ -943,7 +982,7 @@ const STATE_VERBS = new Set([
 ])
 
 /** The options in front of a solana subcommand. */
-const SOLANA_OPTIONS: WrapperSpec = {
+export const SOLANA_OPTIONS: WrapperSpec = {
   argShort: 'ukC',
   flagShort: 'vhV',
   argLong: [
@@ -970,7 +1009,7 @@ const SOLANA_OPTIONS: WrapperSpec = {
  * cluster or decode data. `config` and `feature` are read-only only with
  * `get` and `status`.
  */
-const SOLANA_READ_ONLY = new Set([
+export const SOLANA_READ_ONLY = new Set([
   'account',
   'address',
   'balance',
@@ -1176,7 +1215,7 @@ const CODE_FLAGS = new Set([
 const SCRIPT_NAME = /\.(py|pl|rb|js|mjs|cjs|ts|php|lua|sh|r)$/i
 
 /** How a wrapper command (sudo, env, timeout, ...) takes its options. */
-type WrapperSpec = {
+export type WrapperSpec = {
   /** short options with an argument */
   argShort?: string
   /** short options without an argument */
@@ -1767,7 +1806,7 @@ const WRAPPERS: Record<string, WrapperSpec> = {
   chpst: { argShort: 'uUbe/CnlLmdopfc', flagShort: 'vP012' },
 }
 
-type WrapperRead = {
+export type WrapperRead = {
   rest: string[]
   script?: string
   shell: boolean
@@ -1775,7 +1814,7 @@ type WrapperRead = {
   unreadable: boolean
 }
 
-function readWrapper(spec: WrapperSpec, args: string[]): WrapperRead {
+export function readWrapper(spec: WrapperSpec, args: string[]): WrapperRead {
   const has = (list: string | undefined, ch: string) =>
     list !== undefined && list.includes(ch)
   const unreadable: WrapperRead = {
@@ -2746,24 +2785,34 @@ function assignsToSubscript(word: string): boolean {
   return match !== null && EXPRESSION_TEXT.test(match[1])
 }
 
-function analyzeScript(src: string, depth: number, found: Found): void {
-  if (depth > MAX_NESTING) {
-    found.push('a command line nested too deeply to read')
-    return
-  }
+/** What the reader makes of a command line. */
+export type CommandLineRead = {
+  /** Every simple command, those inside substitutions and groups too. */
+  commands: SimpleCommand[]
+  /** The line has text the reader cannot follow. */
+  unparsable: boolean
+  notes: ParseNotes
+}
+
+/** Read a command line into its simple commands, with quotes removed. */
+export function readCommandLine(src: string): CommandLineRead {
   const st: ParseState = {
     src,
     pos: 0,
     commands: [],
     unparsable: false,
-    notes: {
-      substitution: false,
-      promptExpansion: false,
-      arithmeticExpansion: false,
-      arithmetic: false,
-    },
+    notes: newNotes(),
   }
   parseList(st, null, 0)
+  return { commands: st.commands, unparsable: st.unparsable, notes: st.notes }
+}
+
+function analyzeScript(src: string, depth: number, found: Found): void {
+  if (depth > MAX_NESTING) {
+    found.push('a command line nested too deeply to read')
+    return
+  }
+  const st = readCommandLine(src)
   if (st.unparsable) found.push('a command line the gate cannot parse')
   if (st.notes.substitution) {
     found.push('a command substitution or a backquote')
@@ -2806,32 +2855,43 @@ export function classifyCommand(command: string): CommandClassification {
 export type CommandGateDecision = 'run' | 'confirm' | 'refuse'
 
 /**
- * A gated class always needs a person to confirm at a terminal. Other
- * commands run on their own only when auto-execute is on. Where a person is
- * needed and no terminal is attached, the command is refused.
+ * A command runs on its own only when auto-execute is on, the line is
+ * read-only and no gated class matched. Every other command needs a person to
+ * confirm it at a terminal, and is refused where no terminal is attached.
  */
 export function decideCommandGate(
-  input: { gated: boolean; autoExecute: boolean; hasTerminal: boolean },
+  input: {
+    gated: boolean
+    autoExecute: boolean
+    hasTerminal: boolean
+    readOnly: boolean
+  },
 ): CommandGateDecision {
-  if (input.gated || !input.autoExecute) {
-    return input.hasTerminal ? 'confirm' : 'refuse'
-  }
-  return 'run'
+  if (input.autoExecute && input.readOnly && !input.gated) return 'run'
+  return input.hasTerminal ? 'confirm' : 'refuse'
 }
 
 /** What run_command returns for a command it refuses without a terminal. */
 export function describeRefusal(
   command: string,
   classification: CommandClassification,
+  context: { autoExecute: boolean; notReadOnly: string[] } = {
+    autoExecute: false,
+    notReadOnly: [],
+  },
 ): string {
   const why = classification.gated
     ? `it may change nodes or keys, touch credentials or run another command (${
       classification.reasons.join(', ')
     }), and that needs a person to confirm it in a terminal`
+    : context.autoExecute
+    ? `with auto-execute on only read-only commands run without a person, and this one is not read-only (${
+      context.notReadOnly.join(', ')
+    })`
     : `commands here need a person to confirm them in a terminal while auto-execute is off`
-  const how = classification.gated
+  const how = classification.gated || context.autoExecute
     ? ''
-    : ` To let a session without a terminal run commands that do not change nodes or keys, the operator sets \`auto_execute: true\` in ~/.slv/agent/config.yml. ${AUTO_EXECUTE_NOTE}`
+    : ` To let a session without a terminal run read-only commands, the operator sets \`auto_execute: true\` in ~/.slv/agent/config.yml. ${AUTO_EXECUTE_NOTE}`
   return `Command not run: ${why}, and no terminal is attached to this session.\n\n` +
     `Command: ${command}\n\n` +
     `Do not retry it or rewrite it into another form. Tell the user the exact command and ask them to run it themselves in a terminal.${how}`
