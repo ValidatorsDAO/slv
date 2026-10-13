@@ -414,9 +414,11 @@ def scenario_cells(pins):
             },
             host_facts={
                 "default_route_ifaces": ["eno1"],
-                "ifaces": ["lo", "eno1", "eno2", "docker0", "mgmt0"],
-                "bridges": ["docker0"],
+                "ifaces": ["lo", "eno1", "eno2", "docker0", "virbr0", "mgmt0"],
+                "bridges": ["docker0", "virbr0"],
                 "dhcp4_ifaces": ["eno1", "eno2"],
+                # the host could not tell: the model covers eno1, eno2 and mgmt0, not the two
+                # bridges, which carry no default route
                 "dhcp6_ifaces": None,
                 "ra_ifaces": None,
                 "sshd_ports": [22, 2222],

@@ -279,7 +279,7 @@ class ModelTestCase(unittest.TestCase):
 
 
 class ListenModelBehaviors(ModelTestCase):
-    """One test per behavior of the model (b01 to b34)."""
+    """One test per behavior of the model (b01 to b38)."""
 
     def test_b01_mainnet_agave_validator_with_cli_values(self):
         model = agave_validator()
@@ -689,7 +689,7 @@ class ListenModelBehaviors(ModelTestCase):
             rendered, facts=host_facts(ifaces=ifaces, dhcp4_ifaces=None, dhcp6_ifaces=None, ra_ifaces=None)
         )
         host = unknown["host"]
-        everywhere = ["docker0", "eno1", "eno2"]
+        everywhere = ["eno1", "eno2"]  # docker0 is a bridge without a default route (see b37)
         self.assertEqual((host["dhcp4_ifaces"], host["dhcp6_ifaces"], host["ra_ifaces"]), (everywhere,) * 3)
         self.assertTrue(host["dhcp_undetermined"] and host["ra_undetermined"])
         mixed = derive(rendered, facts=host_facts(ifaces=ifaces, dhcp4_ifaces=None, ra_ifaces=["eno2"]))
@@ -852,9 +852,10 @@ class ListenModelBehaviors(ModelTestCase):
 
     # A port is in one class only: the table opens a port to the sources of each class that
     # holds it, and the model does not say which class the node means, so the model stops
-    # with class_overlap (b28 to b34).  b28 to b30 are ranges and components that grow over a
+    # with class_overlap (b28 to b35).  b28 to b30 are ranges and components that grow over a
     # public port; b31 and b32 are the SSH ports and the consumer ports; b33 is every pair of
-    # the port sets of the model and b34 is the DHCP client ports of the host.
+    # the port sets of the model, b34 the DHCP client ports of the host and b35 the union of the
+    # applied model and the new one.
 
     def test_b28_a_range_over_an_allowlist_port_stops(self):
         relay = inputs(components=[{"id": "shred-relay", "sources": ["203.0.113.0/24"]}])
@@ -1101,6 +1102,189 @@ class ListenModelBehaviors(ModelTestCase):
                     model = blank_model()
                     put(model, [[port - 8, port + 8]])
                     self.assertIsNone(check(model))
+
+
+    def test_b35_the_union_stops_when_a_port_changes_class_between_the_two_models(self):
+        two_steps = "Apply the change in two steps: first a configuration without that port, then the new configuration."
+        relay = inputs(components=[{"id": "shred-relay", "sources": ["203.0.113.0/24"]}])
+        start = fixture("mainnet-validator.agave-4.3.0.start-validator.sh")
+
+        def gossip(port):
+            return [args_item(replaced(start, "--no-port-check \\\n", "--no-port-check \\\n--gossip-port %d \\\n" % port), literal=True)]
+
+        def rpc(port):
+            return [args_item(replaced(start, "--rpc-port 7211", "--rpc-port %d" % port), literal=True)]
+
+        cases = (
+            # (what changes, applied model, new model, what the detail says)
+            (
+                "UDP 20001 leaves the dynamic range and becomes shred-relay's allowlist",
+                derive(validator_with_range("8000-30000")),
+                derive(validator_with_range("8900-8930"), inp=relay),
+                "udp port 20001 is in udp.allowlist (shred-relay) of the new model and in udp.public of the applied model",
+            ),
+            (
+                "UDP 20000 leaves the dynamic range and becomes rpc-gateway's local port",
+                derive(validator_with_range("8000-30000")),
+                derive(validator_with_range("8900-8930"), inp=inputs(components=["rpc-gateway"])),
+                "udp port 20000 is in local_only.udp of the new model and in udp.public of the applied model",
+            ),
+            (
+                "TCP 8001 stops being the public ip-echo port and becomes the RPC port",
+                derive(gossip(8001), inp=inputs(ip_echo_public=True)),
+                derive(rpc(8001)),
+                "tcp port 8001 is in tcp.mgmt of the new model and in tcp.public of the applied model",
+            ),
+            (
+                "TCP 8001 stops being the RPC port and becomes the public ip-echo port",
+                derive(rpc(8001)),
+                derive(gossip(8001), inp=inputs(ip_echo_public=True)),
+                "tcp port 8001 is in tcp.mgmt of the applied model and in tcp.public of the new model",
+            ),
+        )
+        for what, applied, new, says in cases:
+            with self.subTest(what):
+                # each model is a table of its own
+                self.assertEqual(plugin().slv_listen_model_union(applied, applied)["udp"], applied["udp"])
+                exc = self.assertStops("class_overlap", applied, new, func=plugin().slv_listen_model_union)
+                self.assertIn(says, exc.detail)
+                self.assertIn(two_steps, exc.detail)
+        with self.subTest("a port that stays in its class is a union (b25)"):
+            moved = derive(validator_with_range("8930-8960"))
+            self.assertEqual(
+                plugin().slv_listen_model_union(derive(validator_with_range("8900-8930")), moved)["udp"]["public"],
+                [[8900, 8959]],
+            )
+        with self.subTest("an applied model that holds a port in two classes itself says so"):
+            applied = copy.deepcopy(agave_validator())
+            applied["tcp"]["public"] = P(22)  # 22 is an SSH port
+            applied = plugin()._seal(applied)
+            exc = self.assertStops("class_overlap", applied, agave_validator(), func=plugin().slv_listen_model_union)
+            self.assertIn("the applied model itself holds tcp port 22 in tcp.ssh and in tcp.public", exc.detail)
+
+    def test_b36_an_address_list_that_covers_every_address_stops_like_a_single_slash_0(self):
+        # the pieces collapse to the whole address space (admin_ips, lb_ips, metrics_ips, deny_ips and the
+        # sources of a component are parsed by the same function)
+        covering = (
+            ("two IPv4 halves", ["0.0.0.0/1", "128.0.0.0/1"], "0.0.0.0/0"),
+            ("two IPv6 halves", ["::/1", "8000::/1"], "::/0"),
+            ("four IPv4 quarters", ["0.0.0.0/2", "64.0.0.0/2", "128.0.0.0/2", "192.0.0.0/2"], "0.0.0.0/0"),
+            ("a half and two quarters", ["0.0.0.0/1", "128.0.0.0/2", "192.0.0.0/2"], "0.0.0.0/0"),
+        )
+        rendered = [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]
+        lists = (
+            ("admin_ips", lambda nets: inputs(admin_ips=nets)),
+            ("lb_ips", lambda nets: inputs(lb_ips=nets)),
+            ("metrics_ips", lambda nets: inputs(metrics_ips=nets)),
+            ("deny_ips", lambda nets: inputs(deny_ips=nets)),
+            (
+                "components[shred-relay].sources",
+                lambda nets: inputs(components=[{"id": "shred-relay", "sources": nets}]),
+            ),
+        )
+        for what, nets, whole in covering:
+            for name, make in lists:
+                with self.subTest("%s in %s" % (what, name)):
+                    exc = self.assertStopsDerive("allowlist_has_any", rendered, inp=make(nets))
+                    self.assertIn("%s together cover %s" % (name, whole), exc.detail)
+        with self.subTest("a single /0 still stops"):
+            self.assertStopsDerive("allowlist_has_any", rendered, inp=inputs(admin_ips=["0.0.0.0/0"]))
+        with self.subTest("a list that does not cover every address is a list"):
+            for nets in (["0.0.0.0/1"], ["0.0.0.0/1", "128.0.0.0/2"], ["0.0.0.0/1", "::/1"], ["0.0.0.0/1", "0.0.0.0/2"]):
+                model = derive(rendered, inp=inputs(admin_ips=nets + [ADMIN], controller_ip=ADMIN))
+                self.assertTrue(model["sources"]["mgmt"]["v4"] or model["sources"]["mgmt"]["v6"])
+
+    def test_b37_undetermined_dhcp_and_ra_interfaces_leave_out_the_bridges_without_a_default_route(self):
+        rendered = [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]
+        ifaces = ["lo", "eno1", "eno2", "docker0", "virbr0", "virbr1", "br-1", "br-lan"]
+
+        def host(**over):
+            facts = dict(
+                ifaces=ifaces,
+                bridges=["br-1", "br-lan"],
+                default_route_ifaces=["eno1"],
+                dhcp4_ifaces=None,
+                dhcp6_ifaces=None,
+                ra_ifaces=None,
+            )
+            facts.update(over)
+            return derive(rendered, facts=host_facts(**facts))["host"]
+
+        with self.subTest("docker0 and virbr* by name, the other bridges by host_facts.bridges"):
+            section = host()
+            self.assertEqual((section["dhcp4_ifaces"], section["dhcp6_ifaces"], section["ra_ifaces"]), (["eno1", "eno2"],) * 3)
+            self.assertTrue(section["dhcp_undetermined"] and section["ra_undetermined"])
+        with self.subTest("a bridge that carries the default route stays"):
+            self.assertEqual(host(default_route_ifaces=["br-lan"])["dhcp4_ifaces"], ["br-lan", "eno1", "eno2"])
+            self.assertEqual(host(default_route_ifaces=["docker0"])["ra_ifaces"], ["docker0", "eno1", "eno2"])
+        with self.subTest("a list that the host determined is taken as it is"):
+            section = host(dhcp4_ifaces=["docker0"], dhcp6_ifaces=[], ra_ifaces=["virbr0", "eno1"])
+            self.assertEqual((section["dhcp4_ifaces"], section["dhcp6_ifaces"], section["ra_ifaces"]), (["docker0"], [], ["eno1", "virbr0"]))
+        with self.subTest("the DHCP class of the overlap rule follows the interfaces that are left"):
+            # richat's QUIC port on 68 meets the DHCPv4 rule that the table then has on eno1 and eno2
+            geyser = rpc_profile("Geyser gRPC")
+            facts = host_facts(ifaces=ifaces, bridges=["br-1", "br-lan"], dhcp4_ifaces=None)
+            self.assertStopsDerive("class_overlap", richat_node(quic="127.0.0.1:68"), geyser, facts=facts)
+            # and the same port is free on a host whose DHCP interfaces are all determined to be none
+            model = derive(richat_node(quic="127.0.0.1:68"), geyser, facts=host_facts(ifaces=ifaces, dhcp4_ifaces=[]))
+            self.assertEqual(model["local_only"]["udp"], P(68))
+        with self.subTest("nothing is left to cover"):
+            exc = self.assertStopsDerive(
+                "invalid_input", rendered, facts=host_facts(ifaces=["lo", "docker0", "virbr0"], dhcp4_ifaces=None)
+            )
+            self.assertIn("besides lo and the bridges without a default route", exc.detail)
+
+    def test_b38_the_header_of_an_nft_file_takes_a_timestamp_and_an_address_and_nothing_else(self):
+        meta = plugin().slv_listen_model_meta
+        with self.subTest("what the header takes"):
+            self.assertEqual(
+                meta({"generated_at": "2026-01-01T00:00:00Z", "controller_ip": "198.51.100.7"}),
+                {"generated_at": "2026-01-01T00:00:00Z", "controller_ip": "198.51.100.7"},
+            )
+            self.assertEqual(
+                meta({"generated_at": "2026-12-31T23:59:59.123456Z", "controller_ip": "2001:DB8::7"}),
+                {"generated_at": "2026-12-31T23:59:59.123456Z", "controller_ip": "2001:db8::7"},
+            )
+            self.assertEqual(meta({"generated_at": "2026-01-01T00:00:00+00:00"})["controller_ip"], "")
+            self.assertEqual(meta({"generated_at": "2026-01-01T00:00:00Z", "controller_ip": ""})["controller_ip"], "")
+            self.assertEqual(meta({"generated_at": "2026-01-01T00:00:00Z", "controller_ip": None})["controller_ip"], "")
+        stamp = "2026-01-01T00:00:00Z"
+        controls = (
+            ("a newline in the address ends the comment", {"generated_at": stamp, "controller_ip": "198.51.100.7\n# table inet evil"}),
+            ("a newline after the timestamp", {"generated_at": stamp + "\n"}),
+            ("a carriage return", {"generated_at": stamp, "controller_ip": "198.51.100.7\r"}),
+            ("a line separator", {"generated_at": stamp, "controller_ip": "198.51.100.7\u2028"}),
+            ("an escape", {"generated_at": "\x1b[2J" + stamp}),
+            ("a NUL", {"generated_at": stamp, "controller_ip": "198.51.100.7\x00"}),
+            ("a right-to-left override", {"generated_at": stamp, "controller_ip": "198.51.100.7\u202e"}),
+        )
+        for what, bad in controls:
+            with self.subTest(what):
+                exc = self.assertStops("invalid_meta", bad, func=meta)
+                self.assertIn("control character", exc.detail)
+                self.assertNotIn("\n", exc.detail)
+                self.assertNotIn("\x1b", exc.detail)
+        hostile = (
+            ("a date that does not exist", {"generated_at": "2026-02-30T00:00:00Z"}),
+            ("a time that does not exist", {"generated_at": "2026-01-01T24:00:00Z"}),
+            ("a space instead of the T", {"generated_at": "2026-01-01 00:00:00Z"}),
+            ("no zone", {"generated_at": "2026-01-01T00:00:00"}),
+            ("a zone that is not UTC", {"generated_at": "2026-01-01T09:00:00+09:00"}),
+            ("a word", {"generated_at": "yesterday"}),
+            ("no timestamp", {"controller_ip": "198.51.100.7"}),
+            ("a number", {"generated_at": 20260101}),
+            ("a name instead of an address", {"generated_at": stamp, "controller_ip": "controller.example"}),
+            ("an address with a space", {"generated_at": stamp, "controller_ip": " 198.51.100.7"}),
+            ("an address with a scope", {"generated_at": stamp, "controller_ip": "fe80::1%eno1"}),
+            ("a network", {"generated_at": stamp, "controller_ip": "198.51.100.0/24"}),
+            ("a key that is not written", {"generated_at": stamp, "host": "node"}),
+            ("a list", ["generated_at"]),
+        )
+        for what, bad in hostile:
+            with self.subTest(what):
+                exc = self.assertStops("invalid_meta", bad, func=meta)
+                self.assertNotIn("\n", exc.detail)
+                self.assertNotIn("\x1b", exc.detail)
 
 
 class ListenModelSupport(ModelTestCase):
@@ -1484,7 +1668,8 @@ class ListenModelSupport(ModelTestCase):
         module = plugin()
         filters = module.FilterModule().filters()
         self.assertEqual(
-            sorted(filters), ["slv_listen_model", "slv_listen_model_canonical_json", "slv_listen_model_union"]
+            sorted(filters),
+            ["slv_listen_model", "slv_listen_model_canonical_json", "slv_listen_model_meta", "slv_listen_model_union"],
         )
         arguments = (
             [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")],
@@ -1515,6 +1700,13 @@ class ListenModelSupport(ModelTestCase):
             self.assertEqual(filters["slv_listen_model_canonical_json"](good), module.canonical_json(good))
             with self.assertRaises(AnsibleFilterError):
                 filters["slv_listen_model_union"]({"schema": "x"}, good)
+            with self.assertRaises(AnsibleFilterError) as caught:
+                filters["slv_listen_model_meta"]({"generated_at": "yesterday"})
+            self.assertIn("invalid_meta", str(caught.exception))
+            self.assertEqual(
+                filters["slv_listen_model_meta"]({"generated_at": "2026-01-01T00:00:00Z"}),
+                {"generated_at": "2026-01-01T00:00:00Z", "controller_ip": ""},
+            )
         finally:
             for key, value in saved.items():
                 if value is None:

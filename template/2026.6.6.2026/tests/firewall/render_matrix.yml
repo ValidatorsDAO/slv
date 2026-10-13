@@ -35,6 +35,10 @@
 # the start configurations that matrix.py lists, or that names a `play` whose text does not
 # contain the `path` of its template.
 #
+# One cell (verdict/refuse) also tries both nft templates with a newline in the controller
+# address, which would end the comment it is written into: each template has to refuse it with
+# invalid_meta, or the run fails.
+#
 # The init.yml playbooks, which import the plays, are not read. Which plays an init run imports
 # for each validator_type and rpc_type (the conditions in ansible/<network>-<role>/init.yml) is
 # kept by hand in startup_templates.yml and in the lists of matrix.py, and a play that starts
@@ -256,6 +260,50 @@
           vars:
             slv_fw_model: "{{ m_model }}"
             slv_fw_meta: "{{ m_cell.meta }}"
+
+        # The nft templates write generated_at and controller_ip into a comment through
+        # slv_listen_model_meta. One cell tries both templates with a newline in the controller
+        # address, which would end that comment: each template has to refuse it by name.
+        - name: Try slv.nft with a newline in the controller address
+          when: m_cell.id == 'verdict/refuse'
+          block:
+            - name: Render slv.nft with that header
+              ansible.builtin.set_fact:
+                m_hostile_taken_by_nft: "{{ lookup('ansible.builtin.template', m_nft_templates ~ '/slv.nft.j2', template_vars={'slv_fw_model': m_model, 'slv_fw_meta': m_hostile_meta}) | length }}"
+          rescue:
+            - name: Keep what slv.nft said
+              ansible.builtin.set_fact:
+                m_hostile_said_by_nft: "{{ ansible_failed_result.msg | default('') }}"
+          vars:
+            m_hostile_meta:
+              generated_at: "{{ m_cell.meta.generated_at }}"
+              controller_ip: "198.51.100.7\n# table inet evil"
+
+        - name: Try slv-fallback.nft with a newline in the controller address
+          when: m_cell.id == 'verdict/refuse'
+          block:
+            - name: Render slv-fallback.nft with that header
+              ansible.builtin.set_fact:
+                m_hostile_taken_by_fallback: "{{ lookup('ansible.builtin.template', m_nft_templates ~ '/slv-fallback.nft.j2', template_vars={'slv_fw_model': m_model, 'slv_fw_meta': m_hostile_meta}) | length }}"
+          rescue:
+            - name: Keep what slv-fallback.nft said
+              ansible.builtin.set_fact:
+                m_hostile_said_by_fallback: "{{ ansible_failed_result.msg | default('') }}"
+          vars:
+            m_hostile_meta:
+              generated_at: "{{ m_cell.meta.generated_at }}"
+              controller_ip: "198.51.100.7\n# table inet evil"
+
+        - name: Check that both templates refused that header by name
+          when: m_cell.id == 'verdict/refuse'
+          ansible.builtin.assert:
+            that:
+              - m_hostile_taken_by_nft is not defined
+              - m_hostile_taken_by_fallback is not defined
+              - "'invalid_meta' in (m_hostile_said_by_nft | default(''))"
+              - "'invalid_meta' in (m_hostile_said_by_fallback | default(''))"
+            fail_msg: "slv.nft.j2 and slv-fallback.nft.j2 have to refuse a controller address with a newline in it (invalid_meta)"
+            quiet: true
 
         - name: Note that the cell rendered
           ansible.builtin.set_fact:

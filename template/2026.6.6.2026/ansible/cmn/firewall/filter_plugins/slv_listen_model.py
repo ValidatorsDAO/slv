@@ -9,13 +9,16 @@ fixes for the node exporter and for each opt-in component (no host is touched, n
 is involved).  A renderer turns the model into nftables.  The model is meant to be the
 only source of the ports of the firewall; nothing in this release enforces that.
 
-Two Jinja filters are provided:
+Three Jinja filters are provided:
 
     rendered | slv_listen_model(profile, inputs, host_facts)
     old_model | slv_listen_model_union(new_model)
+    slv_fw_meta | slv_listen_model_meta
 
-and, because the model is meant to be stored on the host as JSON, one helper that
-writes the canonical form the checksum is computed from:
+the last one checks generated_at and controller_ip, which the nft templates write into the
+header comment of their files (see Errors, invalid_meta); and, because the model is meant to
+be stored on the host as JSON, one helper that writes the canonical form the checksum is
+computed from:
 
     model | slv_listen_model_canonical_json
 
@@ -64,7 +67,9 @@ Input: host_facts (every key is required)
     default_route_ifaces, ifaces, bridges, dhcp4_ifaces, dhcp6_ifaces,
     ra_ifaces, sshd_ports, ssh_socket_ports, sshd_listen_ports, has_global_v6.
     dhcp4_ifaces, dhcp6_ifaces and ra_ifaces are null when the host could not
-    tell; the model then covers every interface of ifaces except lo.
+    tell; the model then covers every interface of ifaces except lo and the bridges that
+    carry no default route: docker0 and virbr* by name, and every entry of bridges, unless
+    it is in default_route_ifaces.
 
 Output (schema "slv-listen-model/1")
     schema, profile, udp{public, xdp, xdp_rx_bypass, xdp_bind_address, pub,
@@ -88,10 +93,14 @@ Output (schema "slv-listen-model/1")
     classes, when a port is in two of: udp.public, udp.xdp, udp.pub, udp.allowlist (each
     component), local_only.udp, the interface rules of a component (libvirt), the DHCP
     client ports of the host (udp 68 where dhcp4_ifaces names interfaces, udp 546 where
-    dhcp6_ifaces does: the two ports the table accepts DHCP replies on), and for TCP
-    tcp.public, tcp.consumer, tcp.mgmt, tcp.metrics, tcp.ssh, tcp.wg_only, local_only.tcp.
-    The one overlap it allows is udp.xdp inside udp.public: the same ports for the same
-    sources.
+    dhcp6_ifaces does), and for TCP tcp.public, tcp.consumer, tcp.mgmt, tcp.metrics, tcp.ssh,
+    tcp.wg_only, local_only.tcp.  The one overlap it allows is udp.xdp inside udp.public:
+    the same ports for the same sources.  The DHCP rules of the table are stricter than the
+    ports: they accept a packet on udp 68 only from source port 67 (from any IPv4 address)
+    and on udp 546 only from source port 547 and a link-local address.  A listener on one
+    of the two ports is refused all the same: the model says nothing about who may reach
+    it, and the rule lets in whatever comes from the server port.
+    slv_listen_model_union applies the same rule to its result.
       udp.pub            public UDP ports of components (wireguard)
       udp.allowlist      [{"component", "ports", "sources": {"v4", "v6"}}]: UDP ports
                          that only the listed sources may reach (shred-relay)
@@ -118,7 +127,7 @@ Errors (ModelError.code)
     unknown_component, component_sources_required, gateway_never_public,
     admin_empty_refused, controller_unknown, controller_not_in_admin,
     agave_args_unreadable, rendered_missing, gossip_port_unpinned, class_overlap,
-    invalid_input.
+    invalid_input, invalid_meta.
 
 Warnings (model["warnings"], each {"code", "detail", ...})
     lb_empty_fail_closed, public_rpc_unauthenticated, public_rpc_no_effect,
@@ -126,12 +135,14 @@ Warnings (model["warnings"], each {"code", "detail", ...})
     controller_only_mgmt.
 """
 
+import datetime
 import fnmatch
 import hashlib
 import ipaddress
 import json
 import os
 import re
+import unicodedata
 from collections import namedtuple
 
 SCHEMA = "slv-listen-model/1"
@@ -229,15 +240,20 @@ def _network(text, what):
 
 
 def _networks(values, what):
-    """Parse addresses and CIDRs into collapsed (v4, v6) lists of networks."""
+    """Parse addresses and CIDRs into collapsed (v4, v6) lists of networks.
+
+    A list that covers every address stops the model like a single /0 does, whether it is
+    written as /0 or as pieces (two /1 networks, four /2 networks) that collapse to it.
+    """
     v4, v6 = [], []
     for item in _list(values, what):
         net = _network(item, what)
         (v4 if net.version == 4 else v6).append(net)
-    return (
-        list(ipaddress.collapse_addresses(v4)),
-        list(ipaddress.collapse_addresses(v6)),
-    )
+    collapsed = (list(ipaddress.collapse_addresses(v4)), list(ipaddress.collapse_addresses(v6)))
+    for net in collapsed[0] + collapsed[1]:
+        if net.prefixlen == 0:
+            raise ModelError("allowlist_has_any", "%s together cover %s" % (what, net))
+    return collapsed
 
 
 def _net_strings(pair):
@@ -1546,14 +1562,31 @@ def _mgmt_sources(inp):
     return ([], []), False
 
 
+# bridges that the host makes for containers and VMs, known by name even when host_facts.bridges
+# does not list them
+_BRIDGE_NAMES = ("docker0", "virbr*")
+
+
 def _host_section(facts):
-    others = [name for name in facts["ifaces"] if name != "lo"]
+    default_route = set(facts["default_route_ifaces"])
+    bridges = set(facts["bridges"])
+
+    def bridge_without_route(name):
+        named = name in bridges or any(fnmatch.fnmatchcase(name, pattern) for pattern in _BRIDGE_NAMES)
+        return named and name not in default_route
+
+    # what "the host could not tell" covers: every interface but lo and the bridges that carry
+    # no default route
+    others = [name for name in facts["ifaces"] if name != "lo" and not bridge_without_route(name)]
 
     def covered(key):
         if facts[key] is not None:
             return list(facts[key]), False
         if not others:
-            _invalid("host_facts.ifaces", "no interface besides lo to cover %s" % key)
+            _invalid(
+                "host_facts.ifaces",
+                "no interface besides lo and the bridges without a default route to cover %s" % key,
+            )
         return others, True
 
     dhcp4, undetermined4 = covered("dhcp4_ifaces")
@@ -1630,8 +1663,11 @@ def _port_classes(model):
 _SAME_SOURCES = {("udp.public", "udp.xdp")}
 
 
-def _refuse_class_overlap(model):
-    """Stop when one port is in two classes of the model (see "Output" in the module docstring)."""
+def _class_overlap(model):
+    """The first port that two classes of the model hold, or None.
+
+    Returns (protocol, name, other name, the shared interval, the ports of the other class).
+    """
     classes = [(proto, name, _merge(ports)) for proto, name, ports in _port_classes(model)]
     for index, (proto, name, ports) in enumerate(classes):
         for other_proto, other_name, other_ports in classes[index + 1 :]:
@@ -1639,13 +1675,22 @@ def _refuse_class_overlap(model):
                 continue
             shared = _shared_ports(ports, other_ports)
             if shared:
-                raise ModelError(
-                    "class_overlap",
-                    "%s port %s is in %s and in %s (%s). The table opens a port to the sources of each "
-                    "class that holds it, and the model does not say which class the node means. Move one "
-                    "of them: the dynamic port range, a component's port or the other listener."
-                    % (proto, _port_text([shared]), name, other_name, _port_text(other_ports)),
-                )
+                return proto, name, other_name, shared, other_ports
+    return None
+
+
+def _refuse_class_overlap(model):
+    """Stop when one port is in two classes of the model (see "Output" in the module docstring)."""
+    hit = _class_overlap(model)
+    if hit:
+        proto, name, other_name, shared, other_ports = hit
+        raise ModelError(
+            "class_overlap",
+            "%s port %s is in %s and in %s (%s). The table opens a port to the sources of each "
+            "class that holds it, and the model does not say which class the node means. Move one "
+            "of them: the dynamic port range, a component's port or the other listener."
+            % (proto, _port_text([shared]), name, other_name, _port_text(other_ports)),
+        )
 
 
 def slv_listen_model(rendered, profile, inputs, host_facts):
@@ -1839,21 +1884,129 @@ def _model_copy(model, what):
     return copy
 
 
+def _holders(proto, name, shared, models):
+    """Which of the models hold the shared ports in the class: the applied model, the new one or both.
+
+    models is [(label, model)].
+    """
+    labels = []
+    for label, model in models:
+        for other_proto, other_name, ports in _port_classes(model):
+            if (other_proto, other_name) == (proto, name) and _shared_ports([shared], _merge(ports)):
+                labels.append(label)
+                break
+    if len(labels) == 2:
+        return "both models"
+    return "the %s model" % labels[0] if labels else "neither model"
+
+
 def slv_listen_model_union(old, new):
     """For each port set in _UNION_FIELDS, the ports of both models; everything else, the
     allowlist included, comes from the new one.
 
-    The union is not checked for class_overlap: a port may be in one class of the old model
-    and in another of the new one while a node moves from one to the other.
+    The union is checked like a model (class_overlap). A port that is in one class of the old
+    model and in another of the new one would be open to the sources of both classes in the
+    table that carries the ports of both, so the union stops: the change is applied in two
+    steps, first a configuration without that port, then the new configuration.
     """
     old_copy = _model_copy(old, "old model")
+    new_copy = _model_copy(new, "new model")
+    for label, model in (("applied", old_copy), ("new", new_copy)):
+        hit = _class_overlap(model)
+        if hit:
+            proto, name, other_name, shared, _ = hit
+            raise ModelError(
+                "class_overlap",
+                "the %s model itself holds %s port %s in %s and in %s, which this version refuses to "
+                "derive. Apply a configuration without that port first."
+                % (label, proto, _port_text([shared]), name, other_name),
+            )
     result = _model_copy(new, "new model")
     for group, key in _UNION_FIELDS:
         try:
             result[group][key] = _merge(old_copy[group][key] + result[group][key])
         except (KeyError, TypeError, ValueError):
             _invalid("model", "%s.%s is missing or not a list of port intervals" % (group, key))
+    hit = _class_overlap(result)
+    if hit:
+        proto, name, other_name, shared, _ = hit
+        models = [("applied", old_copy), ("new", new_copy)]
+        raise ModelError(
+            "class_overlap",
+            "%s port %s is in %s of %s and in %s of %s, so the table that carries the ports of both "
+            "models would open it to the sources of both classes. Apply the change in two steps: first a "
+            "configuration without that port, then the new configuration."
+            % (
+                proto,
+                _port_text([shared]),
+                name,
+                _holders(proto, name, shared, models),
+                other_name,
+                _holders(proto, other_name, shared, models),
+            ),
+        )
     return _seal(result)
+
+
+# ---------------------------------------------------------------------------
+# The header of an nft file
+# ---------------------------------------------------------------------------
+
+_TIMESTAMP_RE = re.compile(
+    r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]{1,9})?(?:Z|\+00:00)"
+)
+
+
+def _meta_text(value, what):
+    """A string without a control character (a newline would end the comment it is written into)."""
+    if not isinstance(value, str):
+        raise ModelError("invalid_meta", "%s must be a string, got %r" % (what, value))
+    for char in value:
+        category = unicodedata.category(char)
+        if category[0] == "C" or category in ("Zl", "Zp"):
+            raise ModelError("invalid_meta", "%s contains a control character (U+%04X)" % (what, ord(char)))
+    return value
+
+
+def slv_listen_model_meta(meta):
+    """Check slv_fw_meta before it is written into the header comment of an nft file.
+
+    generated_at is required and has to be an ISO-8601 UTC timestamp (2026-01-01T00:00:00Z, with
+    optional fraction of a second, or +00:00 for Z); controller_ip is optional and has to be an
+    IP address. Neither may contain a control character, and no other key is accepted. Anything
+    else stops with invalid_meta. Returns {"generated_at", "controller_ip"}: the timestamp as it
+    was given and the address as the ipaddress module writes it ("" when there is none).
+    """
+    if not isinstance(meta, dict):
+        raise ModelError("invalid_meta", "slv_fw_meta must be a mapping with generated_at and controller_ip")
+    extra = sorted(str(k) for k in meta if k not in ("generated_at", "controller_ip"))
+    if extra:
+        raise ModelError("invalid_meta", "slv_fw_meta has unknown keys: %s" % ", ".join(extra))
+    stamp = meta.get("generated_at")
+    if stamp is None or stamp == "":
+        raise ModelError("invalid_meta", "slv_fw_meta.generated_at is required")
+    stamp = _meta_text(stamp, "slv_fw_meta.generated_at")
+    match = _TIMESTAMP_RE.fullmatch(stamp)
+    try:
+        if not match:
+            raise ValueError("not in that form")
+        datetime.datetime(*(int(part) for part in match.groups()))
+    except ValueError:
+        raise ModelError(
+            "invalid_meta",
+            "slv_fw_meta.generated_at %r is not an ISO-8601 UTC timestamp such as 2026-01-01T00:00:00Z" % (stamp,),
+        )
+    address = meta.get("controller_ip")
+    if address is None or address == "":
+        return {"generated_at": stamp, "controller_ip": ""}
+    address = _meta_text(address, "slv_fw_meta.controller_ip")
+    try:
+        if "%" in address:
+            raise ValueError("a scope id")
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        raise ModelError("invalid_meta", "slv_fw_meta.controller_ip %r is not an IP address" % (address,))
+    return {"generated_at": stamp, "controller_ip": str(ip)}
 
 
 def _ansible_filter_error():
@@ -1886,5 +2039,6 @@ class FilterModule(object):
         return {
             "slv_listen_model": _wrap(slv_listen_model),
             "slv_listen_model_union": _wrap(slv_listen_model_union),
+            "slv_listen_model_meta": _wrap(slv_listen_model_meta),
             "slv_listen_model_canonical_json": canonical_json,
         }
