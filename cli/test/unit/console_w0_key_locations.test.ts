@@ -328,7 +328,11 @@ Deno.test('the exclude lists of tar, restic and rsync are those of the lists wri
   for (const tool of ['tar', 'rsync', 'restic'] as const) {
     const list = buildExcludeList({ tool })
     const secrets = secretExcludes(tool)
-    assertEquals(list.slice(list.length - secrets.length), secrets, tool)
+    // rsync applies the first rule that matches: its secret entries come first
+    const placed = tool === 'rsync'
+      ? list.slice(0, secrets.length)
+      : list.slice(list.length - secrets.length)
+    assertEquals(placed, secrets, tool)
   }
 })
 

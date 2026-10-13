@@ -1,6 +1,8 @@
 import { colors } from '@cliffy/colors'
 import {
   buildExcludeList,
+  filterSyntaxMessage,
+  filterSyntaxProblems,
   findPrivateKeys,
   printExcludes,
   type PrivateKeyFinder,
@@ -37,6 +39,24 @@ interface MigrateOptions {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Refuse an exclude or include value that is a filter rule and not a path
+ * (rsync reads a value that starts with `+`, `-` or `!` as one), before
+ * anything runs. Returns true when it refused.
+ */
+export function refuseFilterSyntax(
+  extraExcludes: readonly string[],
+  extraIncludes: readonly string[],
+): boolean {
+  const problems = filterSyntaxProblems({ extraExcludes, extraIncludes })
+  if (problems.length === 0) return false
+  const lines = filterSyntaxMessage(problems)
+  console.error(colors.red(`\n❌ ${lines[0]}\n`))
+  for (const line of lines.slice(1)) console.error(colors.white(`  ${line}`))
+  console.error('')
+  return true
+}
 
 async function run(
   cmd: string,
@@ -571,6 +591,8 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     findPrivateKeysAsRoot: findKeysAsRoot,
     findUnlistedSshDirs: findUnlisted,
   } = options
+
+  if (refuseFilterSyntax(extraExcludes, extraIncludes)) return false
 
   // Build exclude list using shared module
   const keysAsUser = await searchSshKeys({ underSudo: false, find: findKeys })

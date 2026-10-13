@@ -9,14 +9,21 @@ import {
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import {
   type BackupTool,
-  buildExcludeList,
+  buildExcludeParts,
+  type ExcludeParts,
+  filterSyntaxMessage,
+  type FilterSyntaxProblem,
+  filterSyntaxProblems,
   findExistingPaths,
+  joinExcludes,
+  perComponentPatterns,
   printExcludes,
   type PrivateKeyFinder,
   searchSshKeys,
   secretExcludes,
   type SshKeySearch,
   sshScanNote,
+  TAR_PER_COMPONENT,
 } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
 import { resticBackup, type ResticBackupOptions } from '@/backup/restic.ts'
@@ -178,20 +185,61 @@ async function refusePlainBackup(
   Deno.exit(1)
 }
 
+/**
+ * Refuse an exclude or include value that is a filter rule and not a path,
+ * before anything runs. A scheduled run has nobody watching its output, so the
+ * webhook hears about it too.
+ */
+async function refuseFilterSyntax(
+  problems: readonly FilterSyntaxProblem[],
+  webhookUrl: string | undefined,
+): Promise<never> {
+  const lines = filterSyntaxMessage(problems)
+  console.log(colors.red(`\n❌ ${lines[0]}\n`))
+  for (const line of lines.slice(1)) console.log(colors.white(`  ${line}`))
+  console.log('')
+  if (webhookUrl) {
+    const host = await getHostname()
+    await notifyWebhook(
+      webhookUrl,
+      ['❌ **SLV Backup Refused**', `**Host**: ${host}`, ...lines].join('\n'),
+    )
+  }
+  Deno.exit(1)
+}
+
 /** tar runs under this umask, so it creates the archive with mode 0600. */
 const PRIVATE_TAR_SCRIPT = 'umask 077 && exec tar "$@"'
 
 /**
  * The command that writes the local archive. The archive is private to its
  * owner (mode 0600), whatever the output path.
+ *
+ * tar reads `--exclude` patterns with a `*` that also matches a `/`, and an
+ * option such as --no-wildcards-match-slash applies to the patterns after it.
+ * `excludes` are read the way tar reads them. `secretExcludes` (key material,
+ * wallets, SSH private keys found) come after the option, so a `*` in them stays
+ * inside one path component, as it does for restic, rsync and the list of the
+ * files left out. tar has no `**`: an entry that reaches any depth is given as
+ * one pattern for each number of directories.
  */
 export function buildTarCreateCommand(options: {
   useSudo: boolean
   useZstd: boolean
   excludes: string[]
+  secretExcludes?: string[]
   output: string
 }): { cmd: string; args: string[] } {
   const excludeArgs = options.excludes.flatMap((e) => ['--exclude', e])
+  if (options.secretExcludes) {
+    const patterns = new Set(
+      options.secretExcludes.flatMap(perComponentPatterns),
+    )
+    excludeArgs.push(
+      TAR_PER_COMPONENT,
+      ...[...patterns].flatMap((e) => ['--exclude', e]),
+    )
+  }
   // Also exclude the output file itself
   excludeArgs.push(
     '--exclude',
@@ -322,6 +370,16 @@ export const backupAction = async (options: {
   restic?: boolean
   yes?: boolean
 }, deps: BackupDeps = {}) => {
+  // An exclude or include value that is a filter rule and not a path is refused
+  // before anything runs, for every tool
+  const filterRules = filterSyntaxProblems({
+    extraExcludes: options.exclude,
+    extraIncludes: options.include,
+  })
+  if (filterRules.length > 0) {
+    return await refuseFilterSyntax(filterRules, getWebhookUrl(options.webhook))
+  }
+
   // Capture webhook URL BEFORE any sudo escalation resets the environment
   const webhookUrl = getWebhookUrl(options.webhook)
 
@@ -337,9 +395,9 @@ export const backupAction = async (options: {
       findAsRoot: deps.findPrivateKeysAsRoot,
       findUnlisted: deps.findUnlistedSshDirs,
     })
-  const buildList = async (underSudo = false): Promise<string[]> => {
+  const buildParts = async (underSudo = false): Promise<ExcludeParts> => {
     const search = await sshSearch(underSudo)
-    return buildExcludeList({
+    return buildExcludeParts({
       extraExcludes: options.exclude,
       extraIncludes: options.include,
       includeSSH: true, // backup includes SSH files
@@ -348,6 +406,8 @@ export const backupAction = async (options: {
       unlistedSshDirs: search.wholeDirs,
     })
   }
+  const buildList = async (underSudo = false): Promise<string[]> =>
+    joinExcludes(await buildParts(underSudo), tool)
 
   // --list-excludes: show and exit
   if (options.listExcludes) {
@@ -492,7 +552,8 @@ export const backupAction = async (options: {
   const defaultFilename = `backup-${hostname}-${timestamp}.${ext}`
   const output = options.output || defaultFilename
 
-  const excludes = await buildList(useSudo)
+  const parts = await buildParts(useSudo)
+  const excludes = joinExcludes(parts, tool)
 
   // Show plan
   console.log(colors.bold(colors.blue('\n🗄️  SLV Backup\n')))
@@ -529,7 +590,13 @@ export const backupAction = async (options: {
   }
 
   // Build tar command
-  const tar = buildTarCreateCommand({ useSudo, useZstd, excludes, output })
+  const tar = buildTarCreateCommand({
+    useSudo,
+    useZstd,
+    excludes: parts.general,
+    secretExcludes: parts.secrets,
+    output,
+  })
 
   const spinner = new Kia(colors.cyan('Creating backup archive...'))
   spinner.start()

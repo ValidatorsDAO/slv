@@ -1,6 +1,6 @@
 import { Command } from '@cliffy'
 import { colors } from '@cliffy/colors'
-import { migrateLinux } from '/lib/migrate/linuxMigrate.ts'
+import { migrateLinux, refuseFilterSyntax } from '/lib/migrate/linuxMigrate.ts'
 
 export const migrateLinuxCmd = new Command()
   .description(
@@ -12,16 +12,19 @@ export const migrateLinuxCmd = new Command()
   .option('-y, --yes', 'Skip confirmation prompt')
   .option(
     '--exclude <exclude:string>',
-    'Additional rsync exclude pattern (can be repeated)',
+    'Additional rsync exclude: a path or a glob (can be repeated; a value that starts with +, - or ! is refused)',
     { collect: true },
   )
   .option(
     '--include <include:string>',
-    'Remove path from default excludes (can be repeated; key material and wallets cannot be removed)',
+    'Remove path from default excludes (can be repeated; key material and wallets cannot be removed; a value that starts with +, - or ! is refused)',
     { collect: true },
   )
   .option('--list-excludes', 'Show current exclude list and exit')
   .action(async (options) => {
+    if (refuseFilterSyntax(options.exclude ?? [], options.include ?? [])) {
+      Deno.exit(1)
+    }
     if (!options.listExcludes && !options.to) {
       const { Input } = await import('@cliffy/prompt')
       const to = await Input.prompt({

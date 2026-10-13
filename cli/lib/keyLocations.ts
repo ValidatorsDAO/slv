@@ -250,6 +250,32 @@ export const BACKUP_HOMES: readonly string[] = Object.freeze([
 export const isHomeRelative = (path: string): boolean => !path.startsWith('/')
 
 /**
+ * The patterns that stand for a pattern with a `**` component when a `**` can
+ * only be one path component, as it is for a tool that reads a `*` inside one
+ * component: one pattern for each number of directories, from none (a `**`
+ * between components) or one (a `**` that ends the pattern) up to
+ * `maxDirectories`. A pattern without a `**` stands for itself.
+ */
+export function expandAnyDepth(
+  pattern: string,
+  maxDirectories: number,
+): string[] {
+  const parts = pattern.split('/')
+  const at = parts.indexOf('**')
+  if (at === -1) return [pattern]
+  const first = at === parts.length - 1 ? 1 : 0
+  const expanded: string[] = []
+  for (let count = first; count <= maxDirectories; count++) {
+    const stars: string[] = Array(count).fill('*')
+    expanded.push(
+      [...parts.slice(0, at), ...stars, ...parts.slice(at + 1)].join('/'),
+    )
+  }
+  // a pattern with another `**` is expanded again
+  return expanded.flatMap((p) => expandAnyDepth(p, maxDirectories))
+}
+
+/**
  * The exclude patterns of one location, for GNU tar, restic and rsync: a
  * home-relative pattern once for each of BACKUP_HOMES, one home after the
  * other; an absolute pattern as it is.

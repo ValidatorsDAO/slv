@@ -1,5 +1,5 @@
 import { colors } from '@cliffy/colors'
-import { backupPatterns } from '/lib/keyLocations.ts'
+import { backupPatterns, expandAnyDepth } from '/lib/keyLocations.ts'
 
 /** Default exclude list — system pseudo-filesystems and volatile dirs */
 export const DEFAULT_EXCLUDES = [
@@ -30,17 +30,20 @@ export const SSH_EXCLUDES = [
 /**
  * Key material and credentials. A tar backup, a restic backup, a
  * `slv migrate linux` copy and a restore never carry these, and nothing takes an
- * entry out of the list: `--include` and SLV_BACKUP_EXCLUDES cannot.
+ * entry out of the list: `--include` cannot, and a value of `--exclude` or
+ * SLV_BACKUP_EXCLUDES that starts with `+`, `-` or `!` is refused before
+ * anything runs (rsync reads such a value as an include rule, an exclude rule or
+ * "forget the rules so far"). In an rsync list these entries come first, since
+ * rsync applies the first rule that matches.
  *
  * The list is built from the locations in lib/keyLocations.ts, which the AI
  * console reads as well. Every entry is an absolute path pattern anchored at the
  * filesystem root. The same string is the pattern for GNU tar `--exclude`,
  * restic `--exclude` and rsync `--exclude`, and a directory takes everything
- * below it along. In restic and rsync a `*` stays inside one path component, so
- * the patterns for key file names reach files directly inside a home directory;
- * tar's `*` also crosses `/`, so tar skips a match nested deeper as well. A
- * plain `--exclude` cannot spare `*.pub`, so `id_*` also skips the public
- * `id_*.pub` keys.
+ * below it along. A `*` stays inside one path component in all three (tar reads
+ * these entries with --no-wildcards-match-slash), so the patterns for key file
+ * names reach files directly inside a home directory. A plain `--exclude`
+ * cannot spare `*.pub`, so `id_*` also skips the public `id_*.pub` keys.
  */
 export const KEY_MATERIAL_EXCLUDES: readonly string[] = Object.freeze(
   backupPatterns('key'),
@@ -115,12 +118,66 @@ export function exactExclude(path: string): string {
   return path.replace(/[\\*?[]/g, '?').replace(/\uFFFD/g, '*')
 }
 
+/** Where the value of an exclude or include came from. */
+export type FilterSource = '--exclude' | '--include' | 'SLV_BACKUP_EXCLUDES'
+
+/** A value of an exclude or include option that is not a path pattern. */
+export interface FilterSyntaxProblem {
+  source: FilterSource
+  value: string
+}
+
+/** Does the value, without the white space around it, start like a filter rule? */
+const startsLikeFilterRule = (value: string): boolean =>
+  /^[+\-!]/.test(value.trim())
+
 /**
- * Build a unified exclude list from defaults, env var, and CLI options.
- * secretExcludes(tool), the `privateKeys` found and the `unlistedSshDirs` are
- * always part of the result.
+ * The values of `--exclude`, `--include` and SLV_BACKUP_EXCLUDES that start with
+ * `+`, `-` or `!`. rsync reads an `--exclude` value that starts with `+ ` as an
+ * include rule, one that starts with `- ` as an exclude rule, and a lone `!` as
+ * "forget the rules so far", and rsync applies the first rule that matches: such
+ * a value can be a filter rule and not a path. The check is the same for every
+ * tool, so an option means the same whichever tool reads it.
  */
-export function buildExcludeList(options: {
+export function filterSyntaxProblems(options: {
+  extraExcludes?: readonly string[]
+  extraIncludes?: readonly string[]
+} = {}): FilterSyntaxProblem[] {
+  const given: [FilterSource, readonly string[]][] = [
+    ['--exclude', options.extraExcludes ?? []],
+    ['--include', options.extraIncludes ?? []],
+    ['SLV_BACKUP_EXCLUDES', getCustomExcludes()],
+  ]
+  return given.flatMap(([source, values]) =>
+    values.filter(startsLikeFilterRule).map((value) => ({ source, value }))
+  )
+}
+
+/** What to tell the operator about values that are refused: a headline, then the way out. */
+export function filterSyntaxMessage(
+  problems: readonly FilterSyntaxProblem[],
+): string[] {
+  return [
+    `${
+      problems.map((p) => `${p.source} ${JSON.stringify(p.value)}`).join(', ')
+    } ${
+      problems.length === 1 ? 'is' : 'are'
+    } refused: a value that starts with +, - or ! can be read as a filter rule, not as a path.`,
+    'rsync reads "+ " as an include rule, "- " as an exclude rule and a lone "!" as "forget the rules so far".',
+    'Give a path or a glob only, for example --exclude "/var/cache/**" or --exclude "*.log".',
+    'To name a path that starts with one of those characters, write it with its directory, for example ./-name.',
+  ]
+}
+
+/** Thrown when an exclude or include value is a filter rule and not a path. */
+export class FilterSyntaxError extends Error {
+  constructor(readonly problems: readonly FilterSyntaxProblem[]) {
+    super(filterSyntaxMessage(problems).join(' '))
+    this.name = 'FilterSyntaxError'
+  }
+}
+
+interface ExcludeListOptions {
   extraExcludes?: string[]
   extraIncludes?: string[] // paths to remove from the exclude list (never key material or wallets)
   includeSSH?: boolean // true for backup (keep SSH files), false for migrate
@@ -128,7 +185,26 @@ export function buildExcludeList(options: {
   resticIncludesWallets?: boolean // stands in for RESTIC_INCLUDES_WALLETS
   privateKeys?: readonly string[] // SSH private keys found by the search, by path
   unlistedSshDirs?: readonly string[] // .ssh directories to leave out as a whole
-}): string[] {
+}
+
+/** The entries of an exclude list, in the two groups tools read differently. */
+export interface ExcludeParts {
+  /** The defaults, SLV_BACKUP_EXCLUDES and `--exclude`, less what `--include` lifts. */
+  general: string[]
+  /** Key material, wallets (except in a restic backup), the SSH private keys found and the .ssh directories left out as a whole. */
+  secrets: string[]
+}
+
+/**
+ * The entries of the exclude list of a run, in two groups. secretExcludes(tool),
+ * the `privateKeys` found and the `unlistedSshDirs` are always part of it. A
+ * value of `--exclude`, `--include` or SLV_BACKUP_EXCLUDES that starts with `+`,
+ * `-` or `!` throws a FilterSyntaxError.
+ */
+export function buildExcludeParts(options: ExcludeListOptions): ExcludeParts {
+  const problems = filterSyntaxProblems(options)
+  if (problems.length > 0) throw new FilterSyntaxError(problems)
+
   const base = [...DEFAULT_EXCLUDES]
   if (!options.includeSSH) {
     base.push(...SSH_EXCLUDES)
@@ -140,13 +216,50 @@ export function buildExcludeList(options: {
   // and private-key entries are added after this step, so no include can lift
   // them.
   const includes = new Set(options.extraIncludes || [])
-  const kept = all.filter((e) => !includes.has(e))
+  const general = all.filter((e) => !includes.has(e))
   const secrets = [
     ...secretExcludes(options.tool, options.resticIncludesWallets),
     ...[...(options.privateKeys ?? []), ...(options.unlistedSshDirs ?? [])]
       .map(exactExclude),
   ]
-  return [...new Set([...kept, ...secrets])]
+  return { general, secrets }
+}
+
+/**
+ * The exclude list `tool` reads: the general entries, then the secret ones, each
+ * entry once. restic applies the last rule that matches, so its secret entries
+ * stay last; rsync applies the first, so its secret entries come first.
+ */
+export function joinExcludes(
+  parts: ExcludeParts,
+  tool: BackupTool = 'tar',
+): string[] {
+  const ordered = tool === 'rsync'
+    ? [...parts.secrets, ...parts.general]
+    : [...parts.general, ...parts.secrets]
+  return [...new Set(ordered)]
+}
+
+/**
+ * Build a unified exclude list from defaults, env var, and CLI options.
+ * secretExcludes(tool), the `privateKeys` found and the `unlistedSshDirs` are
+ * always part of the result.
+ */
+export function buildExcludeList(options: ExcludeListOptions): string[] {
+  return joinExcludes(buildExcludeParts(options), options.tool)
+}
+
+/** The tar option that makes a `*` stop at a `/`. It applies to the patterns that follow it. */
+export const TAR_PER_COMPONENT = '--no-wildcards-match-slash'
+
+/**
+ * The patterns tar reads, per path component, for an entry of an exclude list.
+ * tar has no `**`, so an entry that reaches any depth becomes one pattern for
+ * each number of directories that findExistingPaths goes down; any other entry
+ * stands for itself.
+ */
+export function perComponentPatterns(pattern: string): string[] {
+  return expandAnyDepth(pattern, MAX_DEPTH)
 }
 
 /**
@@ -156,7 +269,10 @@ export function buildExcludeList(options: {
  * In an archive made by `tar -cf out /` the member names have no leading `/`
  * (`etc/fstab`); another tool may store `./etc/fstab` or `/etc/fstab`. All
  * three spellings are excluded, and `--anchored` keeps each one from matching a
- * same-named path deeper in the tree (`opt/app/boot`).
+ * same-named path deeper in the tree (`opt/app/boot`). `--no-wildcards-match-slash`
+ * keeps a `*` inside one path component, as it is in the backup lists, so only
+ * the key files in a home directory are skipped and not every file below a
+ * directory whose name has a keypair or an identity in it.
  */
 export function tarExtractExcludeArgs(
   options: { includeSystem?: boolean } = {},
@@ -164,8 +280,8 @@ export function tarExtractExcludeArgs(
   const patterns = [
     ...(options.includeSystem ? [] : SYSTEM_IDENTITY_EXCLUDES),
     ...KEY_MATERIAL_EXCLUDES,
-  ]
-  const args = ['--anchored']
+  ].flatMap(perComponentPatterns)
+  const args = ['--anchored', TAR_PER_COMPONENT]
   for (const pattern of patterns) {
     const relative = pattern.replace(/^\/+/, '')
     for (const name of [relative, `./${relative}`, `/${relative}`]) {
@@ -538,6 +654,11 @@ export function printExcludes(excludes: string[]): void {
   console.log(
     colors.yellow(
       '   Use SLV_BACKUP_EXCLUDES env var or --exclude/--include CLI options to customize.',
+    ),
+  )
+  console.log(
+    colors.yellow(
+      '   They take paths and globs; a value that starts with +, - or ! is refused.',
     ),
   )
   console.log(

@@ -24,12 +24,12 @@ export const backupCmd = new Command()
   )
   .option(
     '--exclude <path:string>',
-    'Additional paths to exclude (repeatable)',
+    'Additional paths to exclude: a path or a glob (repeatable; a value that starts with +, - or ! is refused)',
     { collect: true },
   )
   .option(
     '--include <path:string>',
-    'Remove path from default excludes (repeatable; key material, and wallets in tar archives, cannot be removed)',
+    'Remove path from default excludes (repeatable; key material, and wallets in tar archives, cannot be removed; a value that starts with +, - or ! is refused)',
     { collect: true },
   )
   .option('--list-excludes', 'Show current exclude list and exit')

@@ -8,13 +8,21 @@ import {
   assertMatch,
   assertRejects,
   assertStringIncludes,
+  assertThrows,
 } from '@std/assert'
 
 import { backupAction } from '@/backup/backupAction.ts'
 import * as cron from '@/backup/cron.ts'
 import { backupCmd } from '@/backup/index.ts'
 import * as excludesModule from '@/backup/excludes.ts'
-import { buildExcludeList } from '@/backup/excludes.ts'
+import {
+  buildExcludeList,
+  DEFAULT_EXCLUDES,
+  FilterSyntaxError,
+  perComponentPatterns,
+  SSH_EXCLUDES,
+  TAR_PER_COMPONENT,
+} from '@/backup/excludes.ts'
 import { importAction } from '@/backup/importAction.ts'
 import { resticBackup, resticSnapshots } from '@/backup/restic.ts'
 import { migrateLinuxCmd } from '@/migrate/linux.ts'
@@ -378,10 +386,11 @@ Deno.test('k2: the tar archive command excludes every key-material and wallet en
           assert(tar, `${name}: no tar call`)
           const excludes = excludesIn(tar.args)
           assertEquals(missing(excludes, KEY_MATERIAL), [], name)
-          // a tar archive never carries a wallet, whatever --include says
+          // a tar archive never carries a wallet, whatever --include says (tar
+          // reads an entry that reaches any depth as one pattern per number of directories)
           assert(WALLET_EXCLUDES, 'excludes.ts does not export WALLET_EXCLUDES')
           assertEquals(
-            missing(excludes, WALLET_EXCLUDES),
+            missing(excludes, WALLET_EXCLUDES.flatMap(perComponentPatterns)),
             [],
             `${name}: wallets`,
           )
@@ -2544,6 +2553,1012 @@ Deno.test('n12: .ssh directories this user cannot list are found, and one that d
     assertEquals(await findUnlistedSshDirs({ root }), ['/home/bob/.ssh'])
   } finally {
     await Deno.chmod(`${root}/home/bob/.ssh`, 0o700).catch(() => {})
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 12. An exclude value is a path, rsync reads the secret entries first, and
+//     tar reads them per path component
+// ---------------------------------------------------------------------------
+
+/** The program runner as it is before a test replaces Deno.Command. */
+const RealCommand = Deno.Command
+
+/** The first line a program prints for --version, or null if it is not installed or not the one asked for. */
+const versionOf = async (
+  name: string,
+  banner: RegExp,
+): Promise<string | null> => {
+  try {
+    const result = await new RealCommand(name, {
+      args: ['--version'],
+      stdout: 'piped',
+      stderr: 'null',
+    }).output()
+    const first = new TextDecoder().decode(result.stdout).split('\n')[0]
+    return result.success && banner.test(first) ? first : null
+  } catch {
+    return null
+  }
+}
+
+/** Run a program for real, from inside the handler of a replaced Deno.Command. */
+const runReal = (command: string, args: string[]): Reply => {
+  const result = new RealCommand(command, {
+    args,
+    stdout: 'piped',
+    stderr: 'piped',
+  }).outputSync()
+  return {
+    success: result.success,
+    code: result.code,
+    stdout: new TextDecoder().decode(result.stdout),
+    stderr: new TextDecoder().decode(result.stderr),
+  }
+}
+
+/** Text without the colour codes of the terminal. */
+const withoutColors = (text: string): string =>
+  text.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '')
+
+/** Values that rsync reads as a filter rule, or that start like one. */
+const FILTER_RULES = [
+  '+ /home/*/.ssh/id_*',
+  '+ **',
+  '!',
+  '- foo',
+  '-x',
+  '+x',
+  ' + /home/*/*keypair*.json',
+  '!/srv/a',
+]
+
+/** Paths and globs that are not filter rules, however they look. */
+const PLAIN_PATTERNS = [
+  '.cache',
+  '*.log',
+  '/var/cache/**',
+  './-name',
+  'a+b',
+  'a-b',
+  'a!b',
+  '/srv/data/-x',
+]
+
+Deno.test('x1: backup refuses an exclude or include value that starts with +, - or !, from the options and from SLV_BACKUP_EXCLUDES, before anything runs, for every tool', async () => {
+  const channels: [string, (v: string) => Record<string, unknown>][] = [
+    ['--exclude', (v) => ({ exclude: [v] })],
+    ['--include', (v) => ({ include: [v] })],
+    ['SLV_BACKUP_EXCLUDES', () => ({})],
+  ]
+  const modes: [string, Record<string, unknown>][] = [
+    ['tar', {}],
+    ['restic', { restic: true }],
+    ['--list-excludes', { listExcludes: true }],
+    ['--cron with restic', { cron: 'daily', restic: true }],
+  ]
+  for (const value of FILTER_RULES) {
+    for (const [source, options] of channels) {
+      for (const [mode, modeOptions] of modes) {
+        const label = `${source} ${JSON.stringify(value)}, ${mode}`
+        const env = source === 'SLV_BACKUP_EXCLUDES'
+          ? { ...cleanBackupEnv, SLV_BACKUP_EXCLUDES: `/srv/a, ${value}` }
+          : cleanBackupEnv
+        await withEnv(env, async () => {
+          await withHome(null, async () => {
+            await withProcesses(asHost('node-1'), async (calls) => {
+              await withFetch(() => json({}, 500), async (requests) => {
+                await withUid(0, async () => {
+                  const outcome = await runCaptured(() =>
+                    backup({ yes: true, ...modeOptions, ...options(value) })
+                  )
+                  assertEquals(outcome.error, undefined, label)
+                  assertEquals(outcome.exit, 1, `${label}: ${outcome.output}`)
+                  const shown = source === 'SLV_BACKUP_EXCLUDES'
+                    ? value.trim()
+                    : value
+                  assertStringIncludes(outcome.output, source)
+                  assertStringIncludes(outcome.output, JSON.stringify(shown))
+                  assertStringIncludes(outcome.output, 'refused')
+                })
+                // no process started, nothing requested, nothing archived
+                assertEquals(calls.length, 0, `${label}: a process started`)
+                assertEquals(requests.length, 0, `${label}: a request`)
+              })
+            })
+          })
+        })
+      }
+    }
+  }
+
+  // an unattended run has nobody watching its output: the webhook hears about it, once
+  await withEnv(cleanBackupEnv, async () => {
+    await withHome(null, async () => {
+      await withProcesses(asHost('node-1'), async (calls) => {
+        await withFetch(toWebhook, async (requests) => {
+          await withUid(0, async () => {
+            const outcome = await runCaptured(() =>
+              backup({
+                yes: true,
+                restic: true,
+                exclude: ['+ /home/*/.ssh/id_*'],
+                webhook: WEBHOOK,
+              })
+            )
+            assertEquals(outcome.exit, 1, outcome.output)
+          })
+          const messages = posted(requests)
+          assertEquals(messages.length, 1, 'webhook posts')
+          assertStringIncludes(messages[0], 'Refused')
+          assertStringIncludes(messages[0], '--exclude')
+          assertEquals(requests.filter((r) => r.url !== WEBHOOK).length, 0)
+        })
+        assertEquals(
+          calls.filter((c) => c.command !== 'hostname').length,
+          0,
+          'a process other than hostname started',
+        )
+      })
+    })
+  })
+
+  // the command line reaches the same refusal
+  await withEnv(cleanBackupEnv, async () => {
+    await withProcesses(asHost('node-1'), async (calls) => {
+      const outcome = await runCaptured(() =>
+        backupCmd.parse(['create', '--yes', '--exclude', '!'])
+      )
+      assertEquals(outcome.exit, 1, outcome.output)
+      assertEquals(calls.length, 0)
+    })
+  })
+})
+
+Deno.test('x1: paths and globs are not refused, whatever characters they hold, and reach the tar command', async () => {
+  for (const value of PLAIN_PATTERNS) {
+    for (
+      const [source, options] of [
+        ['--exclude', { exclude: [value] }],
+        ['--include', { include: [value] }],
+        ['SLV_BACKUP_EXCLUDES', {}],
+      ] as const
+    ) {
+      const label = `${source} ${JSON.stringify(value)}`
+      const env = source === 'SLV_BACKUP_EXCLUDES'
+        ? { ...cleanBackupEnv, SLV_BACKUP_EXCLUDES: value }
+        : cleanBackupEnv
+      await withEnv(env, async () => {
+        await withHome(null, async (home) => {
+          const output = `${home}/out.tar.gz`
+          await withProcesses(archivingHost(output), async (calls) => {
+            await withUid(0, async () => {
+              const outcome = await runCaptured(() =>
+                backup({ yes: true, output, ...options })
+              )
+              assertEquals(outcome.error, undefined, label)
+              assertEquals(outcome.exit, null, `${label}: ${outcome.output}`)
+            })
+            const tar = archiveCall(calls)
+            assert(tar, `${label}: no tar call`)
+            // an exclude is kept; an include only lifts what the defaults hold
+            assertEquals(
+              excludesIn(tar.args).includes(value),
+              source !== '--include',
+              label,
+            )
+          })
+        })
+      })
+    }
+  }
+})
+
+Deno.test('x2: slv migrate linux refuses an exclude or include value that starts with +, - or !, through the function and the command, before anything runs', async () => {
+  const channels: [string, (v: string) => Record<string, unknown>][] = [
+    ['--exclude', (v) => ({ extraExcludes: [v] })],
+    ['--include', (v) => ({ extraIncludes: [v] })],
+    ['SLV_BACKUP_EXCLUDES', () => ({})],
+  ]
+  for (const value of FILTER_RULES) {
+    for (const [source, options] of channels) {
+      const label = `${source} ${JSON.stringify(value)}`
+      const env = source === 'SLV_BACKUP_EXCLUDES'
+        ? { ...cleanBackupEnv, SLV_BACKUP_EXCLUDES: `/srv/a, ${value}` }
+        : cleanBackupEnv
+      const shown = source === 'SLV_BACKUP_EXCLUDES' ? value.trim() : value
+      await withEnv(env, async () => {
+        await withProcesses(migrationHost, async (calls) => {
+          await withUid(0, async () => {
+            let result: boolean | undefined
+            const outcome = await runCaptured(async () => {
+              result = await migrate({
+                to: 'root@new-server',
+                yes: true,
+                skipReboot: true,
+                ...options(value),
+              })
+            })
+            assertEquals(outcome.error, undefined, label)
+            assertEquals(result, false, `${label}: ${outcome.output}`)
+            assertStringIncludes(outcome.output, source)
+            assertStringIncludes(outcome.output, JSON.stringify(shown))
+            assertEquals(calls.length, 0, `${label}: a process started`)
+
+            // --list-excludes shows nothing for such a value either
+            const listing = await runCaptured(async () => {
+              result = await migrate({ listExcludes: true, ...options(value) })
+            })
+            assertEquals(result, false, `${label}: --list-excludes`)
+            assertFalse(listing.output.includes('Current exclude list'))
+
+            // the command: refused before it asks where to migrate to
+            const flags = source === '--exclude'
+              ? ['--exclude', value]
+              : source === '--include'
+              ? ['--include', value]
+              : []
+            const command = await runCaptured(() =>
+              migrateLinuxCmd.parse(['--yes', ...flags])
+            )
+            assertEquals(command.exit, 1, `${label}: ${command.output}`)
+            assertStringIncludes(command.output, JSON.stringify(shown))
+            assertEquals(calls.length, 0, `${label}: the command started one`)
+          })
+        })
+      })
+    }
+  }
+})
+
+Deno.test('x2: slv migrate linux takes paths and globs for --exclude, and its help says what is refused', async () => {
+  await withEnv(
+    { ...cleanBackupEnv, SLV_BACKUP_EXCLUDES: '/var/cache/**' },
+    async () => {
+      await withProcesses(migrationHost, async (calls) => {
+        await withUid(0, async () => {
+          const outcome = await runCaptured(() =>
+            migrate({
+              to: 'root@new-server',
+              yes: true,
+              skipReboot: true,
+              extraExcludes: PLAIN_PATTERNS,
+            })
+          )
+          assertEquals(outcome.error, undefined, outcome.output)
+          const rsync = calls.find((c) => c.args.includes('-aHAXSx'))
+          assert(rsync, `rsync was not started: ${outcome.output}`)
+          const excludes = excludesIn(rsync.args)
+          assertEquals(
+            missing(excludes, [...PLAIN_PATTERNS, '/var/cache/**']),
+            [],
+          )
+        })
+      })
+    },
+  )
+  for (const command of [migrateLinuxCmd, backupCmd.getCommand('create')!]) {
+    const help = command.getOptions().filter((o) =>
+      o.name === 'exclude' || o.name === 'include'
+    )
+    assertEquals(help.length, 2)
+    for (const option of help) {
+      assertMatch(
+        option.description,
+        /starts with \+, - or !.*refused/,
+        `${command.getName()} --${option.name}`,
+      )
+    }
+  }
+})
+
+Deno.test('x3: the lists are not built from a value that is a filter rule, and the plain values are kept', () => {
+  for (const value of FILTER_RULES) {
+    for (
+      const options of [
+        { extraExcludes: [value] },
+        { extraIncludes: [value] },
+      ]
+    ) {
+      for (const tool of ['tar', 'restic', 'rsync']) {
+        assertThrows(
+          () => buildList({ tool, ...options }),
+          FilterSyntaxError,
+          'refused',
+        )
+      }
+    }
+  }
+  const plain = buildExcludeList({
+    tool: 'rsync',
+    extraExcludes: PLAIN_PATTERNS,
+  })
+  assertEquals(missing(plain, PLAIN_PATTERNS), [])
+})
+
+/** The key-material entries of the backup lists before the shared definition, in order. */
+const KEY_MATERIAL_LIST = [
+  '/root/.slv/keys',
+  '/home/*/.slv/keys',
+  '/root/*keypair*.json',
+  '/home/*/*keypair*.json',
+  '/root/*identity*.json',
+  '/home/*/*identity*.json',
+  '/root/.slv/api.yml',
+  '/home/*/.slv/api.yml',
+  '/root/.slv/gateway/gateway.json',
+  '/home/*/.slv/gateway/gateway.json',
+  '/root/.slv/backup.env',
+  '/home/*/.slv/backup.env',
+  '/root/.slv/restic-password',
+  '/home/*/.slv/restic-password',
+  '/root/.ssh/id_*',
+  '/home/*/.ssh/id_*',
+  '/etc/ssh/ssh_host_*_key',
+  '/etc/shadow',
+  '/etc/shadow-',
+  '/etc/gshadow',
+  '/etc/gshadow-',
+  '/etc/wireguard',
+  '/etc/doublezero/keys',
+  '/etc/ssl/private',
+  '/etc/nginx/ssl',
+]
+
+/** The wallet entries of those lists, in order. */
+const WALLET_LIST = [
+  '/root/slv/wallet*.json*',
+  '/root/slv/**/wallet*.json*',
+  '/home/*/slv/wallet*.json*',
+  '/home/*/slv/**/wallet*.json*',
+  '/root/.slv/wallet-rescue',
+  '/home/*/.slv/wallet-rescue',
+  '/root/.config/solana/id.json',
+  '/home/*/.config/solana/id.json',
+]
+
+/** The entries a tool leaves secrets out with, for a run that found nothing else. */
+const secretsOf = (tool: string): string[] => secretExcludes!(tool)
+
+Deno.test('x4: in the rsync list every secret entry comes before every other entry; the tar and restic lists are the ones they were', async () => {
+  assert(secretExcludes, 'excludes.ts does not export secretExcludes')
+  const found = ['/home/alice/.ssh/deploy_key']
+  const whole = ['/home/bob/.ssh']
+  await withEnv(
+    { ...cleanBackupEnv, SLV_BACKUP_EXCLUDES: '/srv/cache/*' },
+    () => {
+      const rsync = buildList({
+        tool: 'rsync',
+        includeSSH: false,
+        extraExcludes: ['/srv/extra', '*.log'],
+        privateKeys: found,
+        unlistedSshDirs: whole,
+      })
+      const secrets = [...secretsOf('rsync'), ...found, ...whole]
+      // rsync applies the first rule that matches
+      assertEquals(rsync.slice(0, secrets.length), secrets)
+      const rest = rsync.slice(secrets.length)
+      assertEquals(
+        rest.filter((e) => secrets.includes(e)),
+        [],
+        'a secret entry after the others',
+      )
+      for (
+        const entry of [
+          ...DEFAULT_EXCLUDES,
+          ...SSH_EXCLUDES,
+          '/srv/cache/*',
+          '/srv/extra',
+          '*.log',
+        ]
+      ) {
+        assert(rest.includes(entry), `rsync list lacks ${entry}`)
+      }
+
+      // tar and restic: the defaults, the operator's entries, then the secret ones, as before
+      for (const tool of ['tar', 'restic']) {
+        const list = buildList({
+          tool,
+          includeSSH: true,
+          extraExcludes: ['/srv/extra', '*.log'],
+          privateKeys: found,
+          unlistedSshDirs: whole,
+        })
+        assertEquals(list, [
+          ...DEFAULT_EXCLUDES,
+          '/srv/cache/*',
+          '/srv/extra',
+          '*.log',
+          ...KEY_MATERIAL_LIST,
+          ...(tool === 'tar' ? WALLET_LIST : []),
+          ...found,
+          ...whole,
+        ], tool)
+      }
+    },
+  )
+
+  // nothing from the operator
+  assertEquals(buildList({ tool: 'tar', includeSSH: true }), [
+    ...DEFAULT_EXCLUDES,
+    ...KEY_MATERIAL_LIST,
+    ...WALLET_LIST,
+  ])
+  assertEquals(buildList({ tool: 'restic', includeSSH: true }), [
+    ...DEFAULT_EXCLUDES,
+    ...KEY_MATERIAL_LIST,
+  ])
+  assertEquals(buildList({ tool: 'rsync', includeSSH: false }), [
+    ...KEY_MATERIAL_LIST,
+    ...WALLET_LIST,
+    ...DEFAULT_EXCLUDES,
+    ...SSH_EXCLUDES,
+  ])
+
+  // slv migrate linux hands rsync that order
+  await withEnv(cleanBackupEnv, async () => {
+    await withProcesses(migrationHost, async (calls) => {
+      await withUid(0, async () => {
+        const outcome = await runCaptured(() =>
+          migrate({
+            to: 'root@new-server',
+            yes: true,
+            skipReboot: true,
+            extraExcludes: ['/srv/extra', '*.log'],
+          })
+        )
+        assertEquals(outcome.error, undefined, outcome.output)
+      })
+      const rsync = calls.find((c) => c.args.includes('-aHAXSx'))
+      assert(rsync, 'rsync was not started')
+      const excludes = excludesIn(rsync.args)
+      const secrets = secretsOf('rsync')
+      assertEquals(excludes.slice(0, secrets.length), secrets)
+      assert(excludes.indexOf('/srv/extra') >= secrets.length)
+    })
+  })
+})
+
+// The tree of a host that holds key material, wallets and files that only look like them
+
+const HOST_KEYS = [
+  '/home/alice/validator-keypair.json',
+  '/home/alice/identity.json',
+  '/home/alice/.slv/keys/main.json',
+  '/home/alice/.slv/api.yml',
+  '/home/alice/.ssh/id_ed25519',
+  '/home/alice/.ssh/id_ed25519.pub',
+  '/root/.ssh/id_rsa',
+  '/etc/shadow',
+  '/etc/ssh/ssh_host_ed25519_key',
+  '/etc/wireguard/wg0.conf',
+  '/etc/ssl/private/site.key',
+  '/etc/nginx/ssl/site.key',
+]
+
+/** A private key whose name says nothing: only its header does. */
+const HOST_CUSTOM_KEY = '/home/alice/.ssh/deploy_key'
+
+const HOST_WALLETS = [
+  '/home/alice/slv/wallet.json',
+  '/home/alice/slv/wallet.json.bak.1710000000',
+  '/home/alice/slv/bot/x/wallet.json',
+  '/home/alice/slv/a/b/c/wallet-2.json',
+  '/home/alice/.slv/wallet-rescue/1700-bot/wallet.json',
+  '/home/alice/.config/solana/id.json',
+  '/root/slv/bot/wallet.json',
+]
+
+/** Files that are not key material and not wallets, some of them named like them. */
+const HOST_ORDINARY = [
+  '/home/alice/notes.txt',
+  '/home/alice/.ssh/authorized_keys',
+  '/home/alice/.ssh/known_hosts',
+  '/home/alice/.config/identity-svc/settings.json',
+  '/home/alice/app/node_modules/@azure/identity/package.json',
+  '/home/alice/slv/walletapp/config.json',
+  '/home/alice/slv/bot/config.json',
+  '/home/alice/keys/nested-validator-keypair.json',
+  '/home/alice/projects/p1/other/keep',
+  '/etc/hostname',
+  '/etc/ssh/ssh_host_ed25519_key.pub',
+  '/root/notes.txt',
+]
+
+// Files the operator leaves out of a tar archive with an --exclude that holds a `**` (see x7)
+const HOST_OPERATOR_EXCLUDED = ['/home/alice/projects/p1/sub/target/obj']
+
+/** Files the operator leaves out of a migrate copy with the entries of the test. */
+const HOST_MIGRATE_EXCLUDED = [
+  '/home/alice/.cache/blob',
+  '/home/alice/app/debug.log',
+  '/srv/cache/blob',
+  '/var/cache/blob',
+]
+
+/** A tree of stand-ins that stands for the root of a host. */
+const makeHost = async (
+  root: string,
+  paths: readonly string[],
+): Promise<void> => {
+  for (const path of paths) {
+    await Deno.mkdir(`${root}${path.slice(0, path.lastIndexOf('/'))}`, {
+      recursive: true,
+    })
+    await Deno.writeTextFile(
+      `${root}${path}`,
+      path === HOST_CUSTOM_KEY ? OPENSSH_KEY : `stand-in for ${path}\n`,
+    )
+  }
+}
+
+/** The files under a directory, from its root, sorted. */
+const filesUnder = async (dir: string, prefix = ''): Promise<string[]> => {
+  const files: string[] = []
+  for await (const entry of Deno.readDir(`${dir}${prefix}`)) {
+    const path = `${prefix}/${entry.name}`
+    if (entry.isDirectory) files.push(...await filesUnder(dir, path))
+    else files.push(path)
+  }
+  return files.sort()
+}
+
+/** Whether `path` is one of `entries` or lies below one. */
+const isOrBelow = (path: string, entries: readonly string[]): boolean =>
+  entries.some((entry) => path === entry || path.startsWith(`${entry}/`))
+
+Deno.test('x5: the real rsync, run on a tree of stand-ins with the list migrate builds, copies none of the key material and wallets', async () => {
+  const version = await versionOf('rsync', /^rsync\s+version/)
+  if (!version) {
+    console.log('x5 skipped: rsync is not installed')
+    return
+  }
+  const dir = await Deno.makeTempDir({ prefix: 'slv-rsync-' })
+  try {
+    const standIns = [...HOST_KEYS, HOST_CUSTOM_KEY, ...HOST_WALLETS]
+    const src = `${dir}/src`
+    await makeHost(src, [
+      ...standIns,
+      ...HOST_ORDINARY,
+      ...HOST_MIGRATE_EXCLUDED,
+    ])
+
+    /** The files rsync copies with these exclude entries, as given. */
+    const copyOf = async (excludes: readonly string[]): Promise<string[]> => {
+      const dst = await Deno.makeTempDir({ dir, prefix: 'copy-' })
+      const result = runReal('rsync', [
+        '-a',
+        ...excludes.flatMap((e) => ['--exclude', e]),
+        `${src}/`,
+        `${dst}/`,
+      ])
+      assert(result.success, `rsync: ${result.stderr}`)
+      return await filesUnder(dst)
+    }
+    const carried = (copied: string[]): string[] =>
+      copied.filter((f) => standIns.includes(f))
+
+    // The sandbox sees a leak: a rule ahead of the secret entries lets a key through,
+    const secrets = secretsOf('rsync')
+    assert(
+      carried(await copyOf(['+ /home/*/.ssh/id_*', ...secrets])).includes(
+        '/home/alice/.ssh/id_ed25519',
+      ),
+      'control: an include ahead of the secret entries did not copy the key',
+    )
+    // and so does a rule that clears the list, even after them
+    assert(
+      carried(await copyOf([...secrets, '!'])).includes(
+        '/home/alice/.ssh/id_ed25519',
+      ),
+      'control: a clear-list rule after the secret entries did not copy the key',
+    )
+    // an include after the secret entries lifts nothing they name; the key no entry names is copied
+    assertEquals(carried(await copyOf([...secrets, '+ /home/*/.ssh/id_*'])), [
+      HOST_CUSTOM_KEY,
+    ])
+
+    // Through slv migrate linux, with the entries an operator may give
+    const cases: [string, Record<string, unknown>, string | undefined][] = [
+      ['no entries', {}, undefined],
+      [
+        'plain entries',
+        { extraExcludes: ['.cache', '*.log', '/srv/cache/**'] },
+        '/var/cache/**',
+      ],
+      [
+        '--include of key material and wallets',
+        { extraIncludes: [...KEY_MATERIAL_LIST, ...WALLET_LIST] },
+        undefined,
+      ],
+    ]
+    const migrated = async (
+      options: Record<string, unknown>,
+      env: string | undefined,
+    ): Promise<{ copied: string[]; result: boolean | undefined }> => {
+      const dst = await Deno.makeTempDir({ dir, prefix: 'migrated-' })
+      let result: boolean | undefined
+      await withEnv(
+        { ...cleanBackupEnv, SLV_BACKUP_EXCLUDES: env },
+        async () => {
+          await withProcesses((call) => {
+            if (call.args.includes('-aHAXSx')) {
+              return runReal('rsync', [
+                '-a',
+                ...excludesIn(call.args).flatMap((e) => ['--exclude', e]),
+                `${src}/`,
+                `${dst}/`,
+              ])
+            }
+            return migrationHost(call)
+          }, async () => {
+            await withUid(0, async () => {
+              const outcome = await runCaptured(async () => {
+                result = await migrate({
+                  to: 'root@new-server',
+                  yes: true,
+                  skipReboot: true,
+                  // the keys the search finds on this tree
+                  findPrivateKeys: () => [HOST_CUSTOM_KEY],
+                  ...options,
+                })
+              })
+              assertEquals(outcome.error, undefined, outcome.output)
+            })
+          })
+        },
+      )
+      return { copied: await filesUnder(dst), result }
+    }
+    const sshAccess = (f: string) =>
+      f.endsWith('/authorized_keys') || f.startsWith('/etc/ssh/ssh_host_')
+    for (const [name, options, env] of cases) {
+      const { copied, result } = await migrated(options, env)
+      assertEquals(result, true, name)
+      assertEquals(carried(copied), [], `${name}: stand-ins were copied`)
+      // everything else is copied, less the operator's entries and the destination's own SSH access
+      const expected = [
+        ...HOST_ORDINARY.filter((f) => !sshAccess(f)),
+        ...(name === 'plain entries' ? [] : HOST_MIGRATE_EXCLUDED),
+      ].sort()
+      assertEquals(copied, expected, name)
+    }
+
+    // A value that is a filter rule never reaches rsync: migrate refuses it
+    for (const value of FILTER_RULES) {
+      const { copied, result } = await migrated(
+        { extraExcludes: [value] },
+        undefined,
+      )
+      assertEquals(result, false, JSON.stringify(value))
+      assertEquals(
+        copied,
+        [],
+        `${JSON.stringify(value)}: rsync copied something`,
+      )
+    }
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('x6: the tar command reads the secret entries per path component and the other entries as tar reads them; the restore reads its entries per path component', async () => {
+  await withEnv(cleanBackupEnv, async () => {
+    await withHome(null, async (home) => {
+      const output = `${home}/out.tar.gz`
+      await withProcesses(archivingHost(output), async (calls) => {
+        await withUid(0, async () => {
+          const outcome = await runCaptured(() =>
+            backup({
+              yes: true,
+              output,
+              exclude: ['/srv/extra', '/home/*/projects/**/target'],
+            }, { findPrivateKeys: () => ['/home/alice/.ssh/deploy_key'] })
+          )
+          assertEquals(outcome.exit, null, outcome.output)
+        })
+        const tar = archiveCall(calls)
+        assert(tar, 'no tar call')
+        const at = tar.args.indexOf(TAR_PER_COMPONENT)
+        assert(at > 0, 'the option is missing')
+        assertEquals(tar.args.lastIndexOf(TAR_PER_COMPONENT), at, 'once')
+        // before the option: the defaults and the operator's entries, read as tar reads them
+        assertEquals(excludesIn(tar.args.slice(0, at)), [
+          ...DEFAULT_EXCLUDES,
+          '/srv/extra',
+          '/home/*/projects/**/target',
+        ])
+        // after it: each secret entry, an entry that reaches any depth as one pattern per number of directories, then the archive itself
+        const secrets = [...secretsOf('tar'), '/home/alice/.ssh/deploy_key']
+        const patterns = [...new Set(secrets.flatMap(perComponentPatterns))]
+        assertEquals(excludesIn(tar.args.slice(at)), [...patterns, output])
+        assertEquals(patterns.filter((p) => p.includes('**')), [])
+        assertEquals(
+          missing(patterns, KEY_MATERIAL_LIST),
+          [],
+          'a key-material entry is gone',
+        )
+        for (const entry of WALLET_LIST.filter((e) => !e.includes('**'))) {
+          assert(patterns.includes(entry), entry)
+        }
+        // the option comes before the file that is archived
+        assert(at < tar.args.indexOf('-cf'))
+      })
+    })
+  })
+
+  // the restore: the option follows --anchored and comes before every pattern
+  await withEnv(cleanBackupEnv, async () => {
+    await withHome(null, async (home) => {
+      const archive = await writeArchive(home, 'node-1')
+      await withProcesses(asHost('node-1'), async (calls) => {
+        await withUid(0, async () => {
+          for (const includeSystem of [false, true]) {
+            const before = calls.length
+            const outcome = await runCaptured(() =>
+              restore({ yes: true, includeSystem }, archive)
+            )
+            assertEquals(outcome.exit, null, outcome.output)
+            const tar = tarExtractCall(calls.slice(before))
+            assert(tar, 'tar did not run')
+            const anchored = tar.args.indexOf('--anchored')
+            assertEquals(tar.args[anchored + 1], TAR_PER_COMPONENT)
+            assert(anchored + 1 < tar.args.indexOf('--exclude'))
+            assertEquals(
+              excludesIn(tar.args).filter((e) => e.includes('**')),
+              [],
+              'a pattern that reaches any depth',
+            )
+          }
+        })
+      })
+    })
+  })
+})
+
+/** The tar arguments of a backup, aimed at a tree that stands for `/`: patterns and paths start at `root`, and the members are named from the root of the tree, as an archive of `/` names them. */
+const aimedAtTree = (tarArgs: string[], root: string): string[] => {
+  const args: string[] = []
+  for (let i = 0; i < tarArgs.length; i++) {
+    if (tarArgs[i] === '--exclude') {
+      const pattern = tarArgs[++i]
+      args.push(
+        '--exclude',
+        pattern.startsWith('/') ? `${root}${pattern}` : pattern,
+      )
+    } else {
+      args.push(tarArgs[i])
+    }
+  }
+  assertEquals(args.pop(), '/', 'the backup archives /')
+  const prefix = `${root.slice(1)}/`.replace(/[.[\]*^$\\,]/g, '\\$&')
+  const top = [...Deno.readDirSync(root)].map((e) => `${root}/${e.name}`)
+  return [...args, `--transform=s,^${prefix},,`, ...top]
+}
+
+/** What a run of backupAction did with the real tar on the tree under `root`. */
+const tarBackupOf = async (
+  root: string,
+  archive: string,
+  options: Record<string, unknown> = {},
+): Promise<Awaited<ReturnType<typeof runCaptured>>> => {
+  let outcome: Awaited<ReturnType<typeof runCaptured>> | undefined
+  await withEnv(cleanBackupEnv, async () => {
+    await withHome(null, async () => {
+      await withProcesses((call) => {
+        if (call.command === 'which') return { success: false } // no zstd: a gzip archive
+        if (call.command === 'hostname') return { stdout: 'node-1\n' }
+        if (call.args.includes('-cf')) {
+          // sh -c 'umask 077 && exec tar "$@"' tar <tar arguments>
+          return runReal('sh', [
+            '-c',
+            call.args[1],
+            'tar',
+            ...aimedAtTree(call.args.slice(3), root),
+          ])
+        }
+      }, async () => {
+        await withUid(0, async () => {
+          outcome = await runCaptured(() =>
+            backup({ yes: true, output: archive, ...options }, {
+              findFiles: (patterns) => findExistingPaths!(patterns, { root }),
+              findPrivateKeys: () => findPrivateKeys!({ root }),
+            })
+          )
+        })
+      })
+    })
+  })
+  assert(outcome, 'backup did not run')
+  return outcome
+}
+
+/** What a run of the restore did with the real tar, extracting into `target` and not over `/`. */
+const restoreInto = async (
+  archive: string,
+  target: string,
+  options: Record<string, unknown> = {},
+): Promise<Awaited<ReturnType<typeof runCaptured>>> => {
+  let outcome: Awaited<ReturnType<typeof runCaptured>> | undefined
+  await withEnv(cleanBackupEnv, async () => {
+    await withHome(null, async () => {
+      await withProcesses((call) => {
+        if (call.command === 'hostname') return { stdout: 'node-1\n' }
+        if (call.command === 'tar' && call.args.includes('-xf')) {
+          const args = [...call.args]
+          const at = args.indexOf('-C')
+          assertEquals(args[at + 1], '/', 'the restore extracts over /')
+          args[at + 1] = target
+          return runReal('tar', args)
+        }
+      }, async () => {
+        await withUid(0, async () => {
+          outcome = await runCaptured(() =>
+            restore({ yes: true, ...options }, archive)
+          )
+        })
+      })
+    })
+  })
+  assert(outcome, 'restore did not run')
+  return outcome
+}
+
+/** The files an archive holds, from the root. */
+const archiveFiles = (archive: string): string[] =>
+  (runReal('tar', ['-tzf', archive]).stdout ?? '').split('\n')
+    .filter((name) => name !== '' && !name.endsWith('/'))
+    .map((name) => `/${name}`).sort()
+
+/** The files a backup said it left out, from its output. */
+const leftOutReport = (output: string): string[] => {
+  const lines = output.split('\n').map((line) => withoutColors(line).trim())
+  const start = lines.findIndex((line) =>
+    line.includes('Left out of this backup')
+  )
+  if (start < 0) return []
+  const end = lines.findIndex((line, i) =>
+    i > start && line.includes('Keep an offline copy')
+  )
+  return lines.slice(start + 1, end).filter((line) => line !== '')
+}
+
+Deno.test('x7: real tar leaves out the key material and wallets and keeps every other file, and the list of files left out is the files tar left out', async () => {
+  const version = await versionOf('tar', /GNU tar/)
+  if (!version) {
+    console.log('x7 skipped: GNU tar is not installed')
+    return
+  }
+  const dir = await Deno.makeTempDir({ prefix: 'slv-tar-' })
+  try {
+    const root = `${dir}/host`
+    const standIns = [...HOST_KEYS, HOST_CUSTOM_KEY, ...HOST_WALLETS]
+    await makeHost(root, [
+      ...standIns,
+      ...HOST_ORDINARY,
+      ...HOST_OPERATOR_EXCLUDED,
+    ])
+    await Deno.mkdir(`${dir}/out`)
+    const archive = `${dir}/out/backup-node-1-20260101-000000.tar.gz`
+    const run = await tarBackupOf(root, archive, {
+      exclude: ['/home/*/projects/**/target'],
+    })
+    assertEquals(run.error, undefined, run.output)
+    assertEquals(run.exit, null, run.output)
+
+    const archived = archiveFiles(archive)
+    // every file that is not key material and not a wallet is in the archive
+    assertEquals(HOST_ORDINARY.filter((f) => !archived.includes(f)), [])
+    // no key and no wallet is
+    assertEquals(archived.filter((f) => standIns.includes(f)), [])
+    // a pattern of the operator is read as tar reads it: a ** crosses directories
+    assertEquals(HOST_OPERATOR_EXCLUDED.filter((f) => archived.includes(f)), [])
+
+    // the list of files left out names exactly the files tar left out
+    const everything = await filesUnder(root)
+    const reported = leftOutReport(run.output)
+    assert(reported.length > 0, `no list of files left out: ${run.output}`)
+    assertEquals(
+      everything.filter((f) => isOrBelow(f, reported)),
+      everything.filter((f) =>
+        !archived.includes(f) && !HOST_OPERATOR_EXCLUDED.includes(f)
+      ),
+    )
+    for (const file of standIns) {
+      assert(isOrBelow(file, reported), `${file} is not in the list`)
+    }
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('x8: real tar restores every file an archive holds except the key material, and a file that only looks like key material comes back', async () => {
+  const version = await versionOf('tar', /GNU tar/)
+  if (!version) {
+    console.log('x8 skipped: GNU tar is not installed')
+    return
+  }
+  const dir = await Deno.makeTempDir({ prefix: 'slv-tar-restore-' })
+  try {
+    const root = `${dir}/host`
+    const standIns = [...HOST_KEYS, HOST_CUSTOM_KEY, ...HOST_WALLETS]
+    await makeHost(root, [...standIns, ...HOST_ORDINARY])
+    await Deno.mkdir(`${dir}/out`)
+
+    // the archive this version makes comes back whole, but for the system identity files
+    const made = `${dir}/out/backup-node-1-20260101-000000.tar.gz`
+    const run = await tarBackupOf(root, made)
+    assertEquals(run.exit, null, run.output)
+    const archived = archiveFiles(made)
+    const systemIdentity = (f: string) => f.startsWith('/etc/ssh/ssh_host_')
+    const first = `${dir}/restored-1`
+    await Deno.mkdir(first)
+    const restored = await restoreInto(made, first)
+    assertEquals(restored.exit, null, restored.output)
+    assertEquals(
+      await filesUnder(first),
+      archived.filter((f) => !systemIdentity(f)),
+    )
+    for (const file of HOST_ORDINARY.filter((f) => !systemIdentity(f))) {
+      assert(archived.includes(file), `${file} is not in the archive`)
+    }
+
+    // an archive that holds everything (made by an older version or by hand): the key material stays out
+    const full = `${dir}/out/backup-node-1-20260101-000001.tar.gz`
+    assert(
+      runReal('tar', ['-czf', full, '-C', root, 'home', 'root', 'etc']).success,
+    )
+    const second = `${dir}/restored-2`
+    await Deno.mkdir(second)
+    const again = await restoreInto(full, second)
+    assertEquals(again.exit, null, again.output)
+    // the restore leaves out key material only, so wallets and a key named by its header alone are not asserted
+    const notAsserted = (f: string) =>
+      HOST_WALLETS.includes(f) || f === HOST_CUSTOM_KEY
+    const keyMaterial = HOST_KEYS
+    const everything = await filesUnder(root)
+    assertEquals(
+      (await filesUnder(second)).filter((f) => !notAsserted(f)),
+      everything.filter((f) =>
+        !notAsserted(f) && !keyMaterial.includes(f) && !systemIdentity(f)
+      ),
+    )
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('x9: tar reads an entry that reaches any depth as one pattern for each number of directories the search goes down', async () => {
+  const wallets = perComponentPatterns('/home/*/slv/**/wallet*.json*')
+  assertEquals(wallets.length, 9)
+  assertEquals(wallets[0], '/home/*/slv/wallet*.json*')
+  assertEquals(wallets[1], '/home/*/slv/*/wallet*.json*')
+  assertEquals(wallets[8], '/home/*/slv/*/*/*/*/*/*/*/*/wallet*.json*')
+  // a ** that ends an entry stands for one directory at least
+  assertEquals(perComponentPatterns('/x/**').slice(0, 2), ['/x/*', '/x/*/*'])
+  // any other entry is itself
+  for (
+    const entry of [...KEY_MATERIAL_LIST, ...WALLET_LIST].filter((e) =>
+      !e.includes('**')
+    )
+  ) {
+    assertEquals(perComponentPatterns(entry), [entry])
+  }
+
+  // the search goes down as far: a wallet 8 directories below ~/slv is found, one 9 below is not
+  assert(findExistingPaths, 'excludes.ts does not export findExistingPaths')
+  const root = await Deno.makeTempDir({ prefix: 'slv-depth-' })
+  try {
+    await makeHost(root, [
+      `/root/slv${'/d'.repeat(8)}/wallet.json`,
+      `/root/slv${'/d'.repeat(9)}/wallet.json`,
+    ])
+    assertEquals(
+      await findExistingPaths(['/root/slv/**/wallet*.json*'], { root }),
+      [`/root/slv${'/d'.repeat(8)}/wallet.json`],
+    )
+  } finally {
     await Deno.remove(root, { recursive: true })
   }
 })
