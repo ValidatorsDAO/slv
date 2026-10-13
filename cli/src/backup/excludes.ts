@@ -139,8 +139,19 @@ export function getCustomExcludes(): string[] {
 }
 
 /**
+ * An exclude pattern for one path, for GNU tar, restic and rsync alike. The
+ * characters they read as wildcard syntax or escapes (`\`, `*`, `?`, `[`) are
+ * written as `?`, which all three read the same way: a path is matched even when
+ * its name holds one of them (and a few other names of the same length are
+ * matched too).
+ */
+export function exactExclude(path: string): string {
+  return path.replace(/[\\*?[]/g, '?').replace(/\uFFFD/g, '*')
+}
+
+/**
  * Build a unified exclude list from defaults, env var, and CLI options.
- * secretExcludes(tool) are always part of the result.
+ * secretExcludes(tool) and the `privateKeys` found are always part of the result.
  */
 export function buildExcludeList(options: {
   extraExcludes?: string[]
@@ -148,6 +159,7 @@ export function buildExcludeList(options: {
   includeSSH?: boolean // true for backup (keep SSH files), false for migrate
   tool?: BackupTool // who reads the list; wallets stay in a restic backup (default: tar)
   resticIncludesWallets?: boolean // stands in for RESTIC_INCLUDES_WALLETS
+  privateKeys?: readonly string[] // SSH private keys found by findPrivateKeys, by path
 }): string[] {
   const base = [...DEFAULT_EXCLUDES]
   if (!options.includeSSH) {
@@ -156,11 +168,15 @@ export function buildExcludeList(options: {
   const custom = getCustomExcludes()
   const all = [...base, ...custom, ...(options.extraExcludes || [])]
 
-  // --include lifts an exclude from the list above. The key-material and
-  // wallet entries are added after this step, so no include can lift them.
+  // --include lifts an exclude from the list above. The key-material, wallet
+  // and private-key entries are added after this step, so no include can lift
+  // them.
   const includes = new Set(options.extraIncludes || [])
   const kept = all.filter((e) => !includes.has(e))
-  const secrets = secretExcludes(options.tool, options.resticIncludesWallets)
+  const secrets = [
+    ...secretExcludes(options.tool, options.resticIncludesWallets),
+    ...(options.privateKeys ?? []).map(exactExclude),
+  ]
   return [...new Set([...kept, ...secrets])]
 }
 
@@ -284,6 +300,93 @@ export async function findExistingPaths(
     await walk('', pattern.split('/').filter(Boolean), 0)
   }
   return [...found].sort()
+}
+
+/** Where a private key header is looked for: the start of the file. */
+const HEAD_BYTES = 8192
+
+/** The header of a PEM or OpenSSH private key (and of a PuTTY one). */
+const PRIVATE_KEY_HEADER =
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|PuTTY-User-Key-File-/
+
+/** ssh files that are not private keys; an unreadable one of these is left alone. */
+const NOT_KEY_NAMES = new Set(['authorized_keys', 'known_hosts', 'config'])
+
+const readHeadOfFile = async (path: string): Promise<Uint8Array> => {
+  const file = await Deno.open(path, { read: true })
+  try {
+    const head = new Uint8Array(HEAD_BYTES)
+    let filled = 0
+    while (filled < HEAD_BYTES) {
+      const count = await file.read(head.subarray(filled))
+      if (count === null) break
+      filled += count
+    }
+    return head.subarray(0, filled)
+  } finally {
+    file.close()
+  }
+}
+
+/** Looks for SSH private keys; replaced in tests. */
+export type PrivateKeyFinder = () => Promise<string[]> | string[]
+
+/**
+ * The SSH private keys directly in `/root/.ssh` and `/home/<user>/.ssh`,
+ * whatever they are called: a regular file whose first bytes hold a PEM, OpenSSH
+ * or PuTTY private key header. A file that cannot be read counts as a private
+ * key too, unless its name is `*.pub`, `authorized_keys`, `known_hosts` or
+ * `config`. A symlink, a directory or anything below one is not looked at. Paths
+ * come back without `root`, sorted.
+ */
+export async function findPrivateKeys(
+  options: {
+    root?: string
+    readHead?: (path: string) => Promise<Uint8Array>
+  } = {},
+): Promise<string[]> {
+  const root = (options.root ?? '').replace(/\/+$/, '')
+  const readHead = options.readHead ?? readHeadOfFile
+  const dirs = ['/root/.ssh']
+  for (const user of await readNames(`${root}/home`)) {
+    dirs.push(`/home/${user}/.ssh`)
+  }
+
+  const found = new Set<string>()
+  for (const dir of dirs) {
+    const files: string[] = []
+    try {
+      for await (const entry of Deno.readDir(`${root}${dir}`)) {
+        if (entry.isFile) files.push(entry.name)
+      }
+    } catch {
+      continue // no such directory, or one this user cannot list
+    }
+    for (const name of files) {
+      let head: Uint8Array
+      try {
+        head = await readHead(`${root}${dir}/${name}`)
+      } catch {
+        // a file that cannot be read may be a key: fail closed
+        if (!name.endsWith('.pub') && !NOT_KEY_NAMES.has(name)) {
+          found.add(`${dir}/${name}`)
+        }
+        continue
+      }
+      if (PRIVATE_KEY_HEADER.test(new TextDecoder().decode(head))) {
+        found.add(`${dir}/${name}`)
+      }
+    }
+  }
+  return [...found].sort()
+}
+
+/**
+ * What to tell the operator when `tool` runs as root for a user: the search for
+ * SSH private keys under any name ran as that user.
+ */
+export function sshScanNote(tool: 'tar' | 'rsync', rerun: string): string {
+  return `\n⚠️  ${tool} runs as root, but SSH private keys named other than id_* are looked for as this user: those in .ssh directories only root can read are not excluded. Run as root (${rerun}) to check them all.\n`
 }
 
 /** Pretty-print the current exclude list */

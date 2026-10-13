@@ -2,7 +2,9 @@ import { colors } from '@cliffy/colors'
 import { resolveHome, type StorageAccessKey } from '/lib/getApiKeyFromYml.ts'
 import {
   buildExcludeList,
+  findPrivateKeys,
   KEY_MATERIAL_EXCLUDES,
+  type PrivateKeyFinder,
   SYSTEM_IDENTITY_EXCLUDES,
 } from '@/backup/excludes.ts'
 
@@ -162,6 +164,8 @@ export interface ResticBackupOptions {
   retention?: number
   /** Stands in for RESTIC_INCLUDES_WALLETS. */
   resticIncludesWallets?: boolean
+  /** Looks for SSH private keys; the search of this host when absent. */
+  findPrivateKeys?: PrivateKeyFinder
 }
 
 /**
@@ -193,6 +197,7 @@ export async function resticBackup(
     includeSSH: true,
     tool: 'restic',
     resticIncludesWallets: options.resticIncludesWallets,
+    privateKeys: await (options.findPrivateKeys ?? findPrivateKeys)(),
   })
   const excludeArgs = excludes.flatMap((e) => ['--exclude', e])
   // Exclude sensitive credential files from backup

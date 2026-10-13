@@ -74,18 +74,33 @@ const SYSTEM_IDENTITY = [
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** backupAction with loosely typed options and its lookups; no search of the real file system unless a test asks. */
-const noFiles = { findFiles: (): string[] => [] }
+/** The lookups of a backup or migrate run: they find nothing unless a test says otherwise, so no test searches this host. */
+const nothing = {
+  findFiles: (): string[] => [],
+  findPrivateKeys: (): string[] => [],
+}
+
+/** backupAction with loosely typed options and lookups (the lookups are new). */
 const backup = (
   options: Record<string, unknown>,
   deps: {
     findFiles?: (patterns: readonly string[]) => string[] | Promise<string[]>
-  } = noFiles,
+    findPrivateKeys?: () => string[] | Promise<string[]>
+  } = {},
 ): Promise<void> =>
   (backupAction as unknown as (
     options: Record<string, unknown>,
     deps: unknown,
-  ) => Promise<void>)(options, deps)
+  ) => Promise<void>)(options, { ...nothing, ...deps })
+
+/** migrateLinux with loosely typed options (findPrivateKeys is new). */
+const migrate = (options: Record<string, unknown>): Promise<boolean> =>
+  (migrateLinux as unknown as (
+    options: Record<string, unknown>,
+  ) => Promise<boolean>)({
+    findPrivateKeys: nothing.findPrivateKeys,
+    ...options,
+  })
 
 /** buildExcludeList with the options this change adds (tool, resticIncludesWallets). */
 const buildList = buildExcludeList as unknown as (
@@ -438,30 +453,30 @@ Deno.test('k3: the restic backup excludes every key-material entry, keeps wallet
   )
 })
 
-Deno.test('k4: the migrate rsync excludes every key-material and wallet entry, --include or not', async () => {
-  const remote = (command: string): Reply | void => {
-    if (command === 'echo ok') return { stdout: 'ok\n' }
-    if (command.startsWith('ls -1 /home')) return { stdout: '' }
-    if (command.includes('/proc/uptime')) return { stdout: '60\n' }
-    if (command.includes('df --output=avail')) {
-      return { stdout: '999999999999\n' }
-    }
+/** The processes of a migrate run: a fresh destination that answers ssh, and a local df. */
+const migrationHost = (call: Call): Reply | void => {
+  if (call.command === 'df') return { stdout: 'Used\n1000\n' }
+  if (call.command !== 'ssh') return
+  const command = call.args[call.args.length - 1]
+  if (command === 'echo ok') return { stdout: 'ok\n' }
+  if (command.startsWith('ls -1 /home')) return { stdout: '' }
+  if (command.includes('/proc/uptime')) return { stdout: '60\n' }
+  if (command.includes('df --output=avail')) {
+    return { stdout: '999999999999\n' }
   }
+}
+
+Deno.test('k4: the migrate rsync excludes every key-material and wallet entry, --include or not', async () => {
   const cases: [string, string[]][] = [['defaults', []], [
     'include names key material and wallets',
     [...KEY_MATERIAL, ...(WALLET_EXCLUDES ?? [])],
   ]]
   for (const [name, extraIncludes] of cases) {
     await withEnv(cleanBackupEnv, async () => {
-      await withProcesses((call) => {
-        if (call.command === 'ssh') {
-          return remote(call.args[call.args.length - 1])
-        }
-        if (call.command === 'df') return { stdout: 'Used\n1000\n' }
-      }, async (calls) => {
+      await withProcesses(migrationHost, async (calls) => {
         await withUid(0, async () => {
           const outcome = await runCaptured(() =>
-            migrateLinux({
+            migrate({
               to: 'root@new-server',
               yes: true,
               skipReboot: true,
@@ -1262,7 +1277,7 @@ Deno.test('w2: with the restic switch off the restic backup leaves wallets out t
             options: unknown,
           ) => Promise<void>)(
             { id: STORAGE_KEY_ID, secret: STORAGE_SECRET },
-            { resticIncludesWallets: false },
+            { resticIncludesWallets: false, findPrivateKeys: () => [] },
           )
         )
         assertEquals(outcome.error, undefined, outcome.output)
@@ -1726,4 +1741,414 @@ Deno.test('m1: slv migrate linux says in its help that key material is not copie
   const description = migrateLinuxCmd.getDescription()
   assertMatch(description, /key material/i)
   assertMatch(description, /not copied/i)
+})
+
+// ---------------------------------------------------------------------------
+// 11. SSH private keys are found by what they hold, not by their name
+// ---------------------------------------------------------------------------
+
+/** The exports that find private keys, reached through a loose type. */
+const { findPrivateKeys, exactExclude } = excludesModule as unknown as {
+  findPrivateKeys?: (
+    options?: {
+      root?: string
+      readHead?: (path: string) => Promise<Uint8Array>
+    },
+  ) => Promise<string[]>
+  exactExclude?: (path: string) => string
+}
+
+const OPENSSH_KEY =
+  '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n-----END OPENSSH PRIVATE KEY-----\n'
+const PUBLIC_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample alice@laptop\n'
+
+/**
+ * A fake file system root with the .ssh directories of three users. Files named
+ * in `sealed` cannot be read: chmod 000, or (as root, who reads anything) a
+ * reader that refuses them.
+ */
+const withSshHomes = async (
+  fn: (setup: {
+    root: string
+    find: () => Promise<string[]>
+    readHead?: (path: string) => Promise<Uint8Array>
+  }) => Promise<void>,
+): Promise<void> => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-ssh-keys-' })
+  const sealed = new Set<string>()
+  try {
+    const put = async (path: string, text: string, locked = false) => {
+      await Deno.mkdir(`${root}${path.slice(0, path.lastIndexOf('/'))}`, {
+        recursive: true,
+      })
+      await Deno.writeTextFile(`${root}${path}`, text)
+      if (locked) {
+        await Deno.chmod(`${root}${path}`, 0o000)
+        sealed.add(`${root}${path}`)
+      }
+    }
+    // alice: the files of the acceptance example, and a few other key formats
+    const alice = '/home/alice/.ssh'
+    await put(`${alice}/id_ed25519`, OPENSSH_KEY)
+    await put(`${alice}/mykey`, OPENSSH_KEY)
+    await put(`${alice}/mykey.pub`, PUBLIC_KEY)
+    await put(`${alice}/authorized_keys`, PUBLIC_KEY)
+    await put(`${alice}/known_hosts`, 'github.com ssh-ed25519 AAAAC3Example\n')
+    await put(`${alice}/config`, 'Host *\n  ServerAliveInterval 60\n')
+    await put(`${alice}/locked`, 'cannot be read', true)
+    await put(
+      `${alice}/old.pem`,
+      'Bag Attributes\n    friendlyName: deploy\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\n',
+    )
+    await put(`${alice}/pkcs8`, '-----BEGIN PRIVATE KEY-----\nMIIEvQ\n')
+    await put(`${alice}/enc`, '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFH\n')
+    await put(`${alice}/ec`, '-----BEGIN EC PRIVATE KEY-----\nMHcCAQ\n')
+    await put(
+      `${alice}/deploy.ppk`,
+      'PuTTY-User-Key-File-3: ssh-ed25519\nEncryption: none\n',
+    )
+    await put(`${alice}/server.crt`, '-----BEGIN CERTIFICATE-----\nMIIDdz\n')
+    await put(`${alice}/notes.txt`, 'my keys are in a safe place\n')
+    // not regular files directly in .ssh: a symlink, and a directory
+    await Deno.symlink('mykey', `${root}${alice}/link`)
+    await put(`${alice}/keys/prod`, OPENSSH_KEY)
+    // bob: unreadable files, which are keys unless their name says they are not
+    const bob = '/home/bob/.ssh'
+    await put(`${bob}/mykey2`, OPENSSH_KEY)
+    await put(`${bob}/secret_notes`, 'unreadable', true)
+    await put(`${bob}/known_hosts`, 'unreadable', true)
+    await put(`${bob}/config`, 'unreadable', true)
+    await put(`${bob}/authorized_keys`, 'unreadable', true)
+    await put(`${bob}/laptop.pub`, 'unreadable', true)
+    // root; carol has no .ssh at all
+    await put('/root/.ssh/rootkey', OPENSSH_KEY)
+    await Deno.mkdir(`${root}/home/carol`, { recursive: true })
+
+    const readHead = Deno.uid() === 0
+      ? async (path: string): Promise<Uint8Array> => {
+        if (sealed.has(path)) throw new Deno.errors.PermissionDenied(path)
+        return (await Deno.readFile(path)).subarray(0, 8192)
+      }
+      : undefined
+    assert(findPrivateKeys, 'excludes.ts does not export findPrivateKeys')
+    await fn({
+      root,
+      readHead,
+      find: () => findPrivateKeys({ root, readHead }),
+    })
+  } finally {
+    // the sealed files cannot be removed with the rest
+    for (const path of sealed) await Deno.chmod(path, 0o600).catch(() => {})
+    await Deno.remove(root, { recursive: true })
+  }
+}
+
+/** What the example directory holds that is a private key, by path. */
+const PRIVATE_KEYS = [
+  '/home/alice/.ssh/deploy.ppk',
+  '/home/alice/.ssh/ec',
+  '/home/alice/.ssh/enc',
+  '/home/alice/.ssh/id_ed25519',
+  '/home/alice/.ssh/locked',
+  '/home/alice/.ssh/mykey',
+  '/home/alice/.ssh/old.pem',
+  '/home/alice/.ssh/pkcs8',
+  '/home/bob/.ssh/mykey2',
+  '/home/bob/.ssh/secret_notes',
+  '/root/.ssh/rootkey',
+]
+
+/** Files beside the keys that must not be counted as keys. */
+const NOT_PRIVATE_KEYS = [
+  '/home/alice/.ssh/mykey.pub',
+  '/home/alice/.ssh/authorized_keys',
+  '/home/alice/.ssh/known_hosts',
+  '/home/alice/.ssh/config',
+  '/home/alice/.ssh/server.crt',
+  '/home/alice/.ssh/notes.txt',
+  '/home/alice/.ssh/link',
+  '/home/alice/.ssh/keys/prod',
+  '/home/bob/.ssh/known_hosts',
+  '/home/bob/.ssh/config',
+  '/home/bob/.ssh/authorized_keys',
+  '/home/bob/.ssh/laptop.pub',
+]
+
+Deno.test('n1: a private key is found by its header whatever its name, and a file that cannot be read counts unless its name says it is not a key', async () => {
+  await withSshHomes(async ({ find }) => {
+    assertEquals(await find(), PRIVATE_KEYS)
+  })
+})
+
+Deno.test('n2: the tar, restic and rsync exclude lists carry id_* and every private key found, and not the public key, authorized_keys or known_hosts', async () => {
+  await withSshHomes(async ({ find }) => {
+    const carries = (list: string[], name: string, tar: boolean) => {
+      // the patterns that were always there, and the keys that were found
+      assert(list.includes('/home/*/.ssh/id_*'), `${name}: id_*`)
+      for (const key of PRIVATE_KEYS) {
+        assert(list.includes(key), `${name}: ${key}`)
+      }
+      for (const path of NOT_PRIVATE_KEYS) {
+        assertFalse(list.includes(path), `${name} lists ${path}`)
+      }
+      // and nothing in the list reaches the public key or the ssh files
+      if (name !== 'rsync') {
+        for (const path of NOT_PRIVATE_KEYS) {
+          assertFalse(coveredBy(list, path, tar), `${name}: ${path} is covered`)
+        }
+      }
+    }
+
+    // tar: the command backupAction starts
+    await withEnv(cleanBackupEnv, async () => {
+      await withHome(null, async (home) => {
+        const output = `${home}/out.tar.zst`
+        await withProcesses(archivingHost(output), async (calls) => {
+          await withUid(0, async () => {
+            const outcome = await runCaptured(() =>
+              backup({ yes: true, output }, { findPrivateKeys: find })
+            )
+            assertEquals(outcome.exit, null, outcome.output)
+          })
+          const tar = archiveCall(calls)
+          assert(tar, 'no tar call')
+          carries(excludesIn(tar.args), 'tar', true)
+        })
+      })
+    })
+
+    // restic: through backupAction, and on its own
+    await withResticHome(async () => {
+      await withProcesses(asHost('node-1'), async (calls) => {
+        await withUid(0, async () => {
+          const outcome = await runCaptured(() =>
+            backup({ restic: true, yes: true }, { findPrivateKeys: find })
+          )
+          assertEquals(outcome.exit, null, outcome.output)
+          const direct = await runCaptured(() =>
+            (resticBackup as unknown as (
+              key: unknown,
+              options: unknown,
+            ) => Promise<void>)(
+              { id: STORAGE_KEY_ID, secret: STORAGE_SECRET },
+              { findPrivateKeys: find },
+            )
+          )
+          assertEquals(direct.error, undefined, direct.output)
+        })
+        const backups = calls.filter((c) =>
+          c.command === 'restic' && c.args[0] === 'backup'
+        )
+        assertEquals(backups.length, 2, 'restic backup calls')
+        for (const call of backups) {
+          carries(excludesIn(call.args), 'restic', false)
+        }
+      })
+    })
+
+    // rsync: slv migrate linux
+    await withEnv(cleanBackupEnv, async () => {
+      await withProcesses(migrationHost, async (calls) => {
+        await withUid(0, async () => {
+          const outcome = await runCaptured(() =>
+            migrate({
+              to: 'root@new-server',
+              yes: true,
+              skipReboot: true,
+              findPrivateKeys: find,
+            })
+          )
+          assertEquals(outcome.error, undefined, outcome.output)
+        })
+        const rsync = calls.find((c) => c.args.includes('-aHAXSx'))
+        assert(rsync, 'rsync was not started')
+        carries(excludesIn(rsync.args), 'rsync', false)
+      })
+    })
+  })
+})
+
+Deno.test('n3: --include cannot lift a private key found, and a name with glob characters is still matched', () => {
+  assert(exactExclude, 'excludes.ts does not export exactExclude')
+  const keys = [
+    '/home/alice/.ssh/mykey',
+    '/home/alice/.ssh/key[1]',
+    '/home/alice/.ssh/a*b',
+    '/home/alice/.ssh/c?d',
+    '/home/alice/.ssh/e\\f',
+  ]
+  for (const tool of ['tar', 'restic', 'rsync']) {
+    const list = buildList({
+      tool,
+      includeSSH: tool !== 'rsync',
+      privateKeys: keys,
+      extraIncludes: [...keys, ...keys.map(exactExclude)],
+    })
+    for (const key of keys) {
+      assert(list.includes(exactExclude(key)), `${tool}: ${key}`)
+    }
+  }
+  // a plain name stays as it is; glob syntax and escapes become `?`, which tar, restic and rsync read alike
+  assertEquals(exactExclude('/home/alice/.ssh/mykey'), '/home/alice/.ssh/mykey')
+  assertEquals(
+    exactExclude('/home/alice/.ssh/key[1]'),
+    '/home/alice/.ssh/key?1]',
+  )
+  assertEquals(exactExclude('/home/alice/.ssh/a*b'), '/home/alice/.ssh/a?b')
+  assertEquals(exactExclude('/home/alice/.ssh/c?d'), '/home/alice/.ssh/c?d')
+  assertEquals(exactExclude('/home/alice/.ssh/e\\f'), '/home/alice/.ssh/e?f')
+  // a name that is not valid UTF-8 arrives with U+FFFD in it: any run of characters
+  assertEquals(exactExclude('/home/alice/.ssh/k�y'), '/home/alice/.ssh/k*y')
+})
+
+Deno.test('n4: the private keys found are listed with the files a backup left out, and posted to the webhook', async () => {
+  await withSshHomes(async ({ find }) => {
+    // the file search finds nothing: the keys come from the scan alone
+    const deps = { findPrivateKeys: find, findFiles: () => [] }
+    for (const restic of [false, true]) {
+      const name = restic ? 'restic' : 'tar'
+      const check = async (home: string) => {
+        const output = `${home}/out.tar.zst`
+        await withProcesses(
+          restic ? asHost('node-1') : archivingHost(output),
+          async () => {
+            await withFetch(toWebhook, async (requests) => {
+              await withUid(0, async () => {
+                const outcome = await runCaptured(() =>
+                  backup({ yes: true, restic, output, webhook: WEBHOOK }, deps)
+                )
+                assertEquals(outcome.exit, null, `${name}: ${outcome.output}`)
+                const text = posted(requests).join('\n')
+                for (const key of PRIVATE_KEYS) {
+                  assertStringIncludes(outcome.output, key)
+                  assertStringIncludes(text, key)
+                }
+                for (const path of NOT_PRIVATE_KEYS) {
+                  assertFalse(outcome.output.includes(path), `${name}: ${path}`)
+                  assertFalse(text.includes(path), `${name}: ${path} (webhook)`)
+                }
+              })
+            })
+          },
+        )
+      }
+      if (restic) await withResticHome(check)
+      else await withEnv(cleanBackupEnv, () => withHome(null, check))
+    }
+  })
+})
+
+Deno.test('n5: --list-excludes shows the private keys found, for backup and for migrate', async () => {
+  await withSshHomes(async ({ find }) => {
+    await withEnv(cleanBackupEnv, async () => {
+      const backups = await runCaptured(() =>
+        backup({ listExcludes: true }, { findPrivateKeys: find })
+      )
+      assertEquals(backups.exit, null, backups.output)
+      const migration = await runCaptured(() =>
+        migrate({ to: '', listExcludes: true, findPrivateKeys: find })
+      )
+      assertEquals(migration.error, undefined, migration.output)
+      for (const key of PRIVATE_KEYS) {
+        assertStringIncludes(backups.output, key)
+        assertStringIncludes(migration.output, key)
+      }
+    })
+  })
+})
+
+Deno.test('n6: when tar or rsync run as root for another user, the operator is told the search for keys ran as that user', async () => {
+  const note = 'looked for as this user'
+  for (const uid of [0, 1000]) {
+    // tar, through sudo for a user who is not root
+    await withEnv(cleanBackupEnv, () =>
+      withHome(null, async (home) => {
+        const output = `${home}/out.tar.zst`
+        await withProcesses(archivingHost(output), async () => {
+          await withUid(uid, async () => {
+            const outcome = await runCaptured(() =>
+              backup({ yes: true, output })
+            )
+            assertEquals(outcome.exit, null, outcome.output)
+            assertEquals(
+              outcome.output.includes(note),
+              uid !== 0,
+              `tar, uid ${uid}`,
+            )
+          })
+        })
+      }))
+    // restic runs as the user, so it reads what the search could read
+    await withResticHome(async () => {
+      await withProcesses(asHost('node-1'), async () => {
+        await withUid(uid, async () => {
+          const outcome = await runCaptured(() =>
+            backup({ restic: true, yes: true })
+          )
+          assertEquals(outcome.exit, null, outcome.output)
+          assertFalse(outcome.output.includes(note), `restic, uid ${uid}`)
+        })
+      })
+    })
+    // rsync, through sudo for a user who is not root
+    await withEnv(cleanBackupEnv, async () => {
+      await withProcesses(migrationHost, async () => {
+        await withUid(uid, async () => {
+          const outcome = await runCaptured(() =>
+            migrate({ to: 'root@new-server', yes: true, skipReboot: true })
+          )
+          assertEquals(outcome.error, undefined, outcome.output)
+          assertEquals(
+            outcome.output.includes(note),
+            uid !== 0,
+            `rsync, uid ${uid}`,
+          )
+        })
+      })
+    })
+  }
+})
+
+Deno.test('n7: the search for private keys runs once per backup, and not at all when the backup is refused', async () => {
+  let scans = 0
+  const counted = () => {
+    scans += 1
+    return [] as string[]
+  }
+  await withEnv(cleanBackupEnv, async () => {
+    // refused before anything is read
+    const refused = await runCaptured(() =>
+      backup({ upload: true, yes: true }, { findPrivateKeys: counted })
+    )
+    assertEquals(refused.exit, 1, refused.output)
+    assertEquals(scans, 0, 'a refused backup read the .ssh directories')
+
+    // a tar backup
+    await withHome(null, async (home) => {
+      const output = `${home}/out.tar.zst`
+      await withProcesses(archivingHost(output), async () => {
+        await withUid(0, async () => {
+          const outcome = await runCaptured(() =>
+            backup({ yes: true, output }, { findPrivateKeys: counted })
+          )
+          assertEquals(outcome.exit, null, outcome.output)
+        })
+      })
+    })
+    assertEquals(scans, 1, 'tar backup')
+
+    // a restic backup builds two lists and lists what it left out: one search
+    scans = 0
+    await withResticHome(async () => {
+      await withProcesses(asHost('node-1'), async () => {
+        await withUid(0, async () => {
+          const outcome = await runCaptured(() =>
+            backup({ restic: true, yes: true }, { findPrivateKeys: counted })
+          )
+          assertEquals(outcome.exit, null, outcome.output)
+        })
+      })
+    })
+    assertEquals(scans, 1, 'restic backup')
+  })
 })

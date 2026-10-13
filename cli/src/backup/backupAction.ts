@@ -11,8 +11,11 @@ import {
   type BackupTool,
   buildExcludeList,
   findExistingPaths,
+  findPrivateKeys,
   printExcludes,
+  type PrivateKeyFinder,
   secretExcludes,
+  sshScanNote,
 } from '@/backup/excludes.ts'
 import { setupCron } from '@/backup/cron.ts'
 import { resticBackup, type ResticBackupOptions } from '@/backup/restic.ts'
@@ -230,22 +233,30 @@ async function makeExistingArchivePrivate(output: string): Promise<void> {
 export interface BackupDeps {
   /** The files and directories on this host that match `patterns`. */
   findFiles?: (patterns: readonly string[]) => Promise<string[]> | string[]
+  /** The SSH private keys on this host, by path. */
+  findPrivateKeys?: PrivateKeyFinder
 }
 
 const OFFLINE_COPY =
   'Keep an offline copy of these files: this backup does not contain them.'
 
-/** The key material and wallets on this host that a backup read by `tool` leaves out. */
+/**
+ * The key material and wallets on this host that a backup read by `tool` leaves
+ * out, and the SSH private keys found under any name.
+ */
 async function filesLeftOut(
   tool: BackupTool,
   deps: BackupDeps,
+  privateKeys: readonly string[],
 ): Promise<string[]> {
   const find = deps.findFiles ?? ((patterns) => findExistingPaths(patterns))
+  let found: string[] = []
   try {
-    return await find(secretExcludes(tool))
+    found = await find(secretExcludes(tool))
   } catch {
-    return []
+    // nothing found by pattern
   }
+  return [...new Set([...found, ...privateKeys])].sort()
 }
 
 function printLeftOut(files: string[]): void {
@@ -306,16 +317,23 @@ export const backupAction = async (options: {
   const webhookUrl = getWebhookUrl(options.webhook)
 
   const tool: BackupTool = options.restic ? 'restic' : 'tar'
-  const excludes = buildExcludeList({
-    extraExcludes: options.exclude,
-    extraIncludes: options.include,
-    includeSSH: true, // backup includes SSH files
-    tool,
-  })
+
+  // SSH private keys under any name are looked for once, when a list is built
+  let scan: Promise<string[]> | undefined
+  const sshKeys = (): Promise<string[]> =>
+    scan ??= Promise.resolve((deps.findPrivateKeys ?? findPrivateKeys)())
+  const buildList = async (): Promise<string[]> =>
+    buildExcludeList({
+      extraExcludes: options.exclude,
+      extraIncludes: options.include,
+      includeSSH: true, // backup includes SSH files
+      tool,
+      privateKeys: await sshKeys(),
+    })
 
   // --list-excludes: show and exit
   if (options.listExcludes) {
-    printExcludes(excludes)
+    printExcludes(await buildList())
     return
   }
 
@@ -337,11 +355,13 @@ export const backupAction = async (options: {
     if (!storage.ok) return await stopWithoutCredential(storage, webhookUrl)
     const storageKey = storage.key
     const hostname = await getHostname()
+    const excludes = await buildList()
     const resticOpts: ResticBackupOptions = {
       region: options.region,
       exclude: options.exclude,
       include: options.include,
       retention: options.retention,
+      findPrivateKeys: sshKeys,
     }
 
     console.log(colors.bold(colors.blue('\n🗄️  SLV Backup (restic mode)\n')))
@@ -379,7 +399,7 @@ export const backupAction = async (options: {
       throw error
     }
 
-    const left = await filesLeftOut(tool, deps)
+    const left = await filesLeftOut(tool, deps, await sshKeys())
     printLeftOut(left)
     await postLeftOut(webhookUrl, hostname, left)
 
@@ -454,6 +474,8 @@ export const backupAction = async (options: {
   const defaultFilename = `backup-${hostname}-${timestamp}.${ext}`
   const output = options.output || defaultFilename
 
+  const excludes = await buildList()
+
   // Show plan
   console.log(colors.bold(colors.blue('\n🗄️  SLV Backup\n')))
   console.log(colors.white(`  Output:      ${output}`))
@@ -466,6 +488,9 @@ export const backupAction = async (options: {
   )
 
   printExcludes(excludes)
+  if (useSudo) {
+    console.log(colors.yellow(sshScanNote('tar', 'sudo slv backup create')))
+  }
 
   // Confirmation
   if (!options.yes) {
@@ -533,7 +558,7 @@ export const backupAction = async (options: {
     Deno.exit(1)
   }
 
-  const left = await filesLeftOut(tool, deps)
+  const left = await filesLeftOut(tool, deps, await sshKeys())
   printLeftOut(left)
   await postLeftOut(webhookUrl, hostname, left)
 

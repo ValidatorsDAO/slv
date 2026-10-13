@@ -1,5 +1,12 @@
 import { colors } from '@cliffy/colors'
-import { buildExcludeList, printExcludes, SSH_EXCLUDES } from '@/backup/excludes.ts'
+import {
+  buildExcludeList,
+  findPrivateKeys,
+  printExcludes,
+  type PrivateKeyFinder,
+  SSH_EXCLUDES,
+  sshScanNote,
+} from '@/backup/excludes.ts'
 
 interface MigrateOptions {
   /** SSH destination, e.g. "root@192.168.1.100" */
@@ -18,6 +25,8 @@ interface MigrateOptions {
   yes?: boolean
   /** Use sudo for rsync (for non-root users) */
   useSudo?: boolean
+  /** Looks for SSH private keys; the search of this host when absent. */
+  findPrivateKeys?: PrivateKeyFinder
 }
 
 // ---------------------------------------------------------------------------
@@ -553,6 +562,7 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     listExcludes = false,
     skipReboot = false,
     yes = false,
+    findPrivateKeys: findKeys = findPrivateKeys,
   } = options
 
   // Build exclude list using shared module
@@ -561,6 +571,7 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     extraIncludes,
     includeSSH: false, // SSH is always excluded for migrate
     tool: 'rsync',
+    privateKeys: await findKeys(),
   })
   // SSH_EXCLUDES are already included via buildExcludeList when includeSSH=false
   const allExcludes = excludes
@@ -623,6 +634,10 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
         console.log(colors.green('  ✔ Local sudo access verified (auto-enabled for --yes mode)'))
       }
     }
+  }
+
+  if (useSudo) {
+    console.log(colors.yellow(sshScanNote('rsync', 'sudo slv migrate linux')))
   }
 
   // Step 1: Pre-flight checks
