@@ -339,3 +339,66 @@ Deno.test('the command gate and the file tools name the same paths, for the same
   }
   assertFalse(classifyCommand('cat /etc/passwd').gated)
 })
+
+Deno.test('the environment of a process is held in the ways its memory is: a glob that can stand for it, the task forms and the file tools', async () => {
+  for (
+    const pattern of [
+      '/proc/s*/environ',
+      '/proc/t*/environ',
+      '/proc/1*/environ',
+      '/proc/[0-9]*/environ',
+      '/proc/*/environ',
+      '/proc/self/e*',
+      '/proc/self/envir?n',
+      '/proc/self/env*',
+      '/proc/self/task/*/environ',
+      '/proc/self/task/12*/environ',
+      '/proc/self/task/[0-9]*/environ',
+      '/proc/2*/task/1*/environ',
+      '/proc/self/root/proc/s*/environ',
+      '../../../proc/s*/environ',
+    ]
+  ) {
+    for (const line of [`cat ${pattern}`, `head -n 1 ${pattern}`]) {
+      needsAPerson(line)
+      assertStringIncludes(reasonsOf(line), 'the environment of a process')
+    }
+  }
+  // a word that cannot stand for an environment names no environment
+  for (
+    const line of [
+      'cat /proc/self/status',
+      'cat /proc/[0-9]*/cmdline',
+      'cat /proc/*/status',
+      'cat /proc/self/cmdline',
+      'cat /proc/a*/environ',
+      'cat /proc/[a-z]1/environ',
+      'cat /proc/self/environment',
+    ]
+  ) runsAlone(line)
+  // the file tools refuse the literal forms, the task forms included
+  for (
+    const path of [
+      '/proc/self/environ',
+      '/proc/thread-self/environ',
+      '/proc/1234/environ',
+      '/proc/self/task/12/environ',
+      '/proc/1234/task/12/environ',
+    ]
+  ) {
+    const read = await fileToolRefusal('read_file', path)
+    assert(
+      read !== null &&
+        read.startsWith(
+          'Error: read_file does not read the environment of a process',
+        ),
+      `read_file ${path}: ${read}`,
+    )
+    const list = await fileToolRefusal('list_files', path)
+    assert(list !== null && list.startsWith('Error: list_files'), path)
+    assertStringIncludes(keyMaterialInWord(path) ?? '', 'the environment')
+  }
+  for (const path of ['/proc/self/status', '/proc/1234/cmdline']) {
+    assertEquals(await fileToolRefusal('read_file', path), null, path)
+  }
+})

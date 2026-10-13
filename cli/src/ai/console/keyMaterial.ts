@@ -41,6 +41,7 @@ const HOME_SLV = `${START}\\.slv/`
 const PASSWORD_HASHES = 'the password hashes (/etc/shadow, /etc/gshadow)'
 const HOST_KEY = 'an SSH host private key'
 const KERNEL_MEMORY = 'the memory of the kernel (/proc/kcore)'
+const PROCESS_ENVIRONMENT = 'the environment of a process'
 const PROCESS_MEMORY = 'the memory of a process'
 const MACHINE_MEMORY =
   'the memory or the I/O ports of the machine (/dev/mem, /dev/kmem, /dev/port)'
@@ -104,7 +105,7 @@ const PLACES: Array<[RegExp, string]> = [
       `${START}/proc/(?:self|thread-self|\\d+|[${PLACEHOLDERS}]+)/(?:task/(?:\\d+|[${PLACEHOLDERS}]+)/)?environ${NAME_END}`,
       'i',
     ),
-    'the environment of a process',
+    PROCESS_ENVIRONMENT,
   ],
   // a path is matched by its tail, so a path through /proc/PID/root counts
   ...SYSTEM_PATHS.map(([source, reason]): [RegExp, string] => [
@@ -213,6 +214,11 @@ const SYSTEM_TEMPLATES: Array<[string[], string]> = [
   [['etc', 'ssh', 'ssh_host_ecdsa_key'], HOST_KEY],
   [['etc', 'ssh', 'ssh_host_ed25519_key'], HOST_KEY],
   [['proc', 'kcore'], KERNEL_MEMORY],
+  [['proc', 'self', 'environ'], PROCESS_ENVIRONMENT],
+  [['proc', 'thread-self', 'environ'], PROCESS_ENVIRONMENT],
+  [['proc', '#', 'environ'], PROCESS_ENVIRONMENT],
+  [['proc', 'self', 'task', '#', 'environ'], PROCESS_ENVIRONMENT],
+  [['proc', '#', 'task', '#', 'environ'], PROCESS_ENVIRONMENT],
   [['proc', 'self', 'mem'], PROCESS_MEMORY],
   [['proc', 'thread-self', 'mem'], PROCESS_MEMORY],
   [['proc', '#', 'mem'], PROCESS_MEMORY],
@@ -354,11 +360,11 @@ function standsForNumber(pattern: string): boolean {
 }
 
 /**
- * Can a pattern word stand for a path that ends in one of the system files
- * above? The last components of the word are read against the components of
- * the file, so that a path through /proc/PID/root counts. A relative word
- * counts only when it writes out one of the components itself, so that `*` and
- * a/*b name nothing, unless it starts with `..`, which may reach the root.
+ * Can a pattern word stand for a path that ends in one of the files above?
+ * The last components of the word are read against the components of the
+ * file, so that a path through /proc/PID/root counts. A relative word counts
+ * only when it writes out one of the components itself, so that `*` and a/*b
+ * name nothing, unless it starts with `..`, which may reach the root.
  */
 function systemPatternReason(pattern: string): string | null {
   const parts = pattern.split('/')
