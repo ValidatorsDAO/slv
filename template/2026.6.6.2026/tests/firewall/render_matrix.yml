@@ -1,0 +1,326 @@
+---
+# Renders slv.nft and slv-fallback.nft for every cell of the firewall matrix (matrix.py cells)
+# into a new directory, the way an init run would: the start templates are rendered with
+# lookup('template'), the model is derived from that text with the slv_listen_model filter,
+# and the two nft templates are rendered from the model. CI compares the directory with
+# golden/, checks its tables and loads every file with nft.
+#
+#   export ANSIBLE_FILTER_PLUGINS=template/latest/ansible/cmn/firewall/filter_plugins
+#   ansible-playbook -i localhost, -c local template/latest/tests/firewall/render_matrix.yml -e out=<new directory>
+#
+# After the render, CI runs
+#   diff -r template/latest/tests/firewall/golden <directory>                          (b02)
+#   python3 template/latest/tests/firewall/matrix.py pins <directory> --golden template/latest/tests/firewall/golden   (b03)
+#   python3 template/latest/tests/firewall/matrix.py shape <directory>                 (b04)
+# To refresh golden/ after an intended change: remove it, render into the same path, and
+# review `git diff`. The run needs ansible-core of the version that .github/workflows/slv-firewall-render.yml
+# names, because the files are compared byte for byte.
+#
+# Optional: -e version_file=<a copy of cmn/constants/version.ts>
+#
+# What a cell leaves in the directory:
+#   cells/<network>-<role>/<validator_type>[/<rpc_type>]/<inventory>/, verdict/<name>/,
+#   scenarios/<name>/   slv.nft and slv-fallback.nft, or
+#                       error, one line: the name of the model error that stopped the cell
+#                       (rpc_port_in_range, ...) or template_missing
+#   probes/<pin>/       error, only when the model has no profile for a pinned version that no cell uses
+#   verdict/topology.env   the addresses and interfaces that netns_verdicts.sh builds
+#
+# A cell that stops on a model error or a missing template prints a `fatal: [cell-...]` line
+# and is rescued at once: the error is the result of that cell, and golden/ records it. The
+# recap counts those cells as rescued, not failed. A cell that fails for any other reason
+# fails the run, with the cell named; so does a startup_templates.yml that disagrees with the
+# init playbooks or with the cells.
+
+- name: Prepare the matrix
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../../ansible/cmn/vars/startup_templates.yml
+  vars:
+    m_release: "{{ (playbook_dir ~ '/../..') | realpath }}"
+    m_out: "{{ out | expanduser | realpath }}"
+  tasks:
+    - name: Check that the output directory is named
+      ansible.builtin.assert:
+        that:
+          - out is defined
+        fail_msg: "Pass -e out=<a new or empty directory>."
+        quiet: true
+
+    - name: Check that the model filter is loaded
+      block:
+        - name: Call a filter of the model plugin
+          ansible.builtin.set_fact:
+            m_filter_probe: "{{ {} | slv_listen_model_canonical_json }}"
+      rescue:
+        - name: Say how to load it
+          ansible.builtin.fail:
+            msg: >-
+              The slv_listen_model filters are not loaded. Set ANSIBLE_FILTER_PLUGINS to
+              {{ m_release }}/ansible/cmn/firewall/filter_plugins and run again.
+
+    - name: Check the output directory
+      ansible.builtin.stat:
+        path: "{{ m_out }}"
+      register: m_out_stat
+
+    - name: Find what the output directory already holds
+      ansible.builtin.find:
+        paths: "{{ m_out }}"
+        file_type: any
+        hidden: true
+      register: m_out_files
+      when: m_out_stat.stat.exists
+
+    - name: Stop when the output directory is not new or empty
+      ansible.builtin.assert:
+        that:
+          - not m_out_stat.stat.exists or (m_out_stat.stat.isdir and (m_out_files.files | length) == 0)
+        fail_msg: "{{ m_out }} has to be a new or empty directory: the result is compared with golden/ as a whole."
+        quiet: true
+
+    - name: List the cells
+      ansible.builtin.command:
+        argv: "{{ ['python3', playbook_dir ~ '/matrix.py', 'cells'] + (['--version-file', version_file] if version_file is defined else []) }}"
+      register: m_cells_json
+      changed_when: false
+
+    - name: Read the cells
+      ansible.builtin.set_fact:
+        m_matrix: "{{ m_cells_json.stdout | from_json }}"
+
+    - name: Compare startup_templates.yml with the cells
+      ansible.builtin.command:
+        argv: ["python3", "{{ playbook_dir }}/matrix.py", "check-table"]
+        stdin: "{{ {'slv_startup_templates': slv_startup_templates} | to_json }}"
+      register: m_table_check
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when the table and the cells differ
+      ansible.builtin.fail:
+        msg: "{{ m_table_check.stdout }}{{ m_table_check.stderr }}"
+      when: m_table_check.rc != 0
+
+    - name: Create the output directory
+      ansible.builtin.file:
+        path: "{{ m_out }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create the directory of the verdict tables
+      ansible.builtin.file:
+        path: "{{ m_out }}/verdict"
+        state: directory
+        mode: "0755"
+
+    - name: Write the topology that the verdict script builds
+      ansible.builtin.copy:
+        content: |
+          # Addresses, interfaces and ports of the netns topology that netns_verdicts.sh builds.
+          {% for key in m_matrix.topology | sort %}
+          {{ key }}={{ m_matrix.topology[key] }}
+          {% endfor %}
+        dest: "{{ m_out }}/verdict/topology.env"
+        mode: "0644"
+
+    - name: Make a host of each cell
+      ansible.builtin.add_host:
+        name: "{{ item.host }}"
+        groups: m_cells
+        m_cell: "{{ item }}"
+        m_out: "{{ m_out }}"
+        m_release: "{{ m_release }}"
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      loop: "{{ m_matrix.cells }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+- name: Render the cells
+  hosts: m_cells
+  gather_facts: false
+  vars_files:
+    - ../../ansible/cmn/vars/startup_templates.yml
+  vars:
+    m_jinja_root: "{{ m_release }}/jinja"
+    m_ansible_root: "{{ m_release }}/ansible"
+    m_nft_templates: "{{ m_release }}/ansible/cmn/firewall/templates"
+    m_cell_dir: "{{ m_out }}/{{ m_cell.dir }}"
+  tasks:
+    - name: Render one cell
+      block:
+        - name: Look up the profile of a pinned version that no cell renders
+          ansible.builtin.set_fact:
+            m_model: "{{ [] | slv_listen_model(m_cell.profile, {}, m_cell.host_facts) }}"
+          when: m_cell.kind == 'probe'
+
+        - name: Look up the templates that init draws
+          ansible.builtin.set_fact:
+            m_entries: >-
+              {{ m_cell.entries if m_cell.entries
+                 else (slv_startup_templates[m_cell.network][m_cell.role][m_cell.validator_type][m_cell.rpc_type]
+                       if m_cell.rpc_type
+                       else slv_startup_templates[m_cell.network][m_cell.role][m_cell.validator_type]) }}
+
+        - name: Load the inventory values of the cell
+          ansible.builtin.include_vars:
+            file: "{{ playbook_dir }}/inventories/{{ m_cell.inventory }}.yml"
+            name: m_inv
+
+        - name: Compose the variables of the start templates
+          ansible.builtin.set_fact:
+            m_template_vars: >-
+              {{ m_inv[m_cell.role]
+                 | combine(m_inv.validator_xdp if m_cell.xdp_answers else {})
+                 | combine({'validator_type': m_cell.validator_type})
+                 | combine({'rpc_type': m_cell.rpc_type} if m_cell.rpc_type else {})
+                 | combine({m_cell.group: m_cell.group_versions}) }}
+
+        - name: Check that the init playbooks still draw the listed templates
+          ansible.builtin.assert:
+            that:
+              - item.path in lookup('ansible.builtin.file', m_ansible_root ~ '/' ~ item.play)
+            fail_msg: "{{ item.play }} does not name {{ item.path }}: fix startup_templates.yml or the cell"
+            quiet: true
+          loop: "{{ m_entries | rejectattr('kind', 'equalto', 'of1-listen') | list }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Render the start configuration
+          ansible.builtin.set_fact:
+            m_part: >-
+              {{ {'kind': item.kind, 'data': m_text | from_yaml} if item.kind == 'richat'
+                 else {'kind': item.kind, 'data': m_text | from_json} if item.kind == 'yellowstone'
+                 else {'kind': item.kind, 'text': m_text} }}
+          vars:
+            m_text: "{{ lookup('ansible.builtin.template', m_jinja_root ~ '/' ~ item.path, template_vars=m_template_vars, convert_data=False) | string }}"
+          loop: "{{ m_entries | rejectattr('kind', 'equalto', 'of1-listen') | list }}"
+          loop_control:
+            label: "{{ item.path }}"
+          register: m_rendered_parts
+
+        - name: Read the Old Faithful listen address from its playbook
+          ansible.builtin.set_fact:
+            m_part: "{{ {'kind': 'of1-listen', 'text': (lookup('ansible.builtin.file', m_ansible_root ~ '/' ~ item.play) | from_yaml)[0].vars[item.var]} }}"
+          loop: "{{ m_entries | selectattr('kind', 'equalto', 'of1-listen') | list }}"
+          loop_control:
+            label: "{{ item.play }}"
+          register: m_of1_parts
+
+        - name: Derive the listen model
+          ansible.builtin.set_fact:
+            m_model: >-
+              {{ (m_rendered_parts.results | map(attribute='ansible_facts.m_part') | list
+                  + m_of1_parts.results | map(attribute='ansible_facts.m_part') | list)
+                 | slv_listen_model(m_cell.profile, m_cell.inputs, m_cell.host_facts) }}
+
+        - name: Add what a synthetic scenario puts into the model by hand
+          ansible.builtin.set_fact:
+            m_model: >-
+              {{ m_unsealed | combine({'model_sha256': (m_unsealed | slv_listen_model_canonical_json | hash('sha256'))}) }}
+          vars:
+            m_unsealed: "{{ m_model | combine(m_cell.model_patch, recursive=True) | dict2items | rejectattr('key', 'equalto', 'model_sha256') | items2dict }}"
+          when: m_cell.model_patch
+
+        - name: Create the directory of the cell
+          ansible.builtin.file:
+            path: "{{ m_cell_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Render slv.nft
+          ansible.builtin.template:
+            src: "{{ m_nft_templates }}/slv.nft.j2"
+            dest: "{{ m_cell_dir }}/slv.nft"
+            mode: "0644"
+          vars:
+            slv_fw_model: "{{ m_model }}"
+            slv_fw_meta: "{{ m_cell.meta }}"
+
+        - name: Render slv-fallback.nft
+          ansible.builtin.template:
+            src: "{{ m_nft_templates }}/slv-fallback.nft.j2"
+            dest: "{{ m_cell_dir }}/slv-fallback.nft"
+            mode: "0644"
+          vars:
+            slv_fw_model: "{{ m_model }}"
+            slv_fw_meta: "{{ m_cell.meta }}"
+
+        - name: Note that the cell rendered
+          ansible.builtin.set_fact:
+            m_outcome: rendered
+          when: m_cell.kind != 'probe'
+
+      rescue:
+        - name: Read what stopped the cell
+          ansible.builtin.set_fact:
+            m_stopped_by: "{{ ansible_failed_task.name }}"
+            m_stopped_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+        - name: Name the error
+          ansible.builtin.set_fact:
+            m_code: >-
+              {{ 'template_missing'
+                 if (m_stopped_by == 'Render the start configuration'
+                     and 'could not be found for the lookup' in m_stopped_msg)
+                 else (m_stopped_msg | regex_findall('(?:^|original message: )([a-z][a-z0-9]*(?:_[a-z0-9]+)+): ') | first | default('')) }}
+
+        - name: Note that the profile of a probe was found
+          ansible.builtin.set_fact:
+            m_outcome: profile_found
+          when:
+            - m_cell.kind == 'probe'
+            - m_code == 'rendered_missing'
+
+        - name: Stop on anything that is not a result of the model or a missing template
+          ansible.builtin.fail:
+            msg: >-
+              {{ m_cell.id }} stopped in "{{ m_stopped_by }}" without a model error or a missing
+              template: {{ m_stopped_msg }}
+          when:
+            - m_outcome is not defined
+            - m_code == '' or (m_cell.kind == 'probe' and m_code != 'no_profile')
+
+        - name: Create the directory of the stopped cell
+          ansible.builtin.file:
+            path: "{{ m_cell_dir }}"
+            state: directory
+            mode: "0755"
+          when: m_outcome is not defined
+
+        - name: Record the name of the error
+          ansible.builtin.copy:
+            content: "{{ m_code }}\n"
+            dest: "{{ m_cell_dir }}/error"
+            mode: "0644"
+          when: m_outcome is not defined
+
+        - name: Note why the cell stopped
+          ansible.builtin.set_fact:
+            m_outcome: "{{ m_code }}"
+          when: m_outcome is not defined
+
+- name: Check the result
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    m_outcomes: "{{ groups['m_cells'] | map('extract', hostvars) | selectattr('m_outcome', 'defined') | map(attribute='m_outcome') | list }}"
+  tasks:
+    - name: Check that every cell reached an outcome
+      ansible.builtin.assert:
+        that:
+          - (m_outcomes | length) == (groups['m_cells'] | length)
+        fail_msg: >-
+          {{ (groups['m_cells'] | length) - (m_outcomes | length) }} of {{ groups['m_cells'] | length }} cells did
+          not finish; see the failures above.
+        quiet: true
+
+    - name: Report
+      ansible.builtin.debug:
+        msg:
+          - "{{ groups['m_cells'] | length }} cells and probes, from {{ m_matrix.pins | length }} pins in version.ts"
+          - "outcomes: {% for o in m_outcomes | unique | sort %}{{ o }}={{ m_outcomes | select('equalto', o) | list | length }} {% endfor %}"

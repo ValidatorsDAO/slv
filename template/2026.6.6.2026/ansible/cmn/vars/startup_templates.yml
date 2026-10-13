@@ -1,0 +1,123 @@
+---
+# The templates the init playbooks draw to start a node, by network, role and
+# validator_type (and rpc_type for role rpc). One entry for each template whose
+# text decides what the node listens on:
+#
+#   kind  how the listen model reads the rendered text: agave-args (start script),
+#         fd-toml (Frankendancer config), unit (systemd unit), richat (richat
+#         config, a YAML document), yellowstone (Yellowstone plugin config, a JSON
+#         document) or of1-listen (the Old Faithful listen address)
+#   path  the template, relative to the jinja/ directory of this release
+#   play  the init playbook that draws it, relative to the ansible/ directory
+#   var   of1-listen only: the play variable whose default is the listen address
+#         (the address is not a template, so there is no path)
+#
+# Nothing in a playbook reads this file yet. The firewall render matrix reads it
+# and checks that each `play` still names its `path`, so the table cannot drift
+# from the playbooks without a red job.
+#
+# Not listed because init draws nothing for them:
+#   - testnet validator with allnodes-jito: testnet-validator/init.yml starts
+#     agave and jito only
+#   - the files that update_startup_config.yml draws later. For the testnet
+#     validator that is a different start script from the one init draws
+#     (start-validator-agave.sh.j2 and start-validator-jito.sh.j2 instead of
+#     start-validator.sh.j2), so a node's arguments change after its first update.
+#   - testnet and devnet RPC with Old Faithful: those init playbooks do not install it
+#
+# testnet-rpc and devnet-rpc name a richat template that their jinja/ directory
+# does not have; the matrix records those cells as template_missing.
+slv_startup_templates:
+  mainnet:
+    validator:
+      agave: &mainnet_validator_agave_line
+        - {kind: agave-args, path: mainnet-validator/start-validator.sh.j2, play: mainnet-validator/create-start-validator-sh.yml}
+        - {kind: unit, path: mainnet-validator/solv.service.j2, play: mainnet-validator/setup_solv_service.yml}
+      jito: *mainnet_validator_agave_line
+      allnodes-jito: *mainnet_validator_agave_line
+      firedancer-agave: &mainnet_validator_firedancer_line
+        - {kind: fd-toml, path: mainnet-validator/firedancer-config.toml.j2, play: mainnet-validator/setup_firedancer.yml}
+      firedancer-jito: *mainnet_validator_firedancer_line
+    rpc:
+      agave: &mainnet_rpc_agave_line
+        "Geyser gRPC":
+          - &mainnet_rpc_start {kind: agave-args, path: mainnet-rpc/start-validator.sh.j2, play: mainnet-rpc/create-start-validator-sh.yml}
+          - &mainnet_rpc_unit {kind: unit, path: mainnet-rpc/solv.service.j2, play: mainnet-rpc/setup-solv-service.yml}
+          - &mainnet_rpc_richat {kind: richat, path: mainnet-rpc/richat-setting.yml.j2, play: mainnet-rpc/install_richat.yml}
+        "Index RPC":
+          - *mainnet_rpc_start
+          - *mainnet_rpc_unit
+          - &mainnet_rpc_of1 {kind: of1-listen, play: mainnet-rpc/install_of1_service.yml, var: faithful_listen}
+        "SendTx RPC":
+          - *mainnet_rpc_start
+          - *mainnet_rpc_unit
+        "Index RPC + gRPC":
+          - *mainnet_rpc_start
+          - *mainnet_rpc_unit
+          - *mainnet_rpc_richat
+          - *mainnet_rpc_of1
+      jito: *mainnet_rpc_agave_line
+      firedancer-agave: &mainnet_rpc_firedancer_line
+        "Index RPC":
+          - &mainnet_rpc_fd {kind: fd-toml, path: mainnet-rpc/firedancer-config.toml.j2, play: mainnet-rpc/setup_firedancer.yml}
+          - *mainnet_rpc_of1
+        "SendTx RPC":
+          - *mainnet_rpc_fd
+      firedancer-jito: *mainnet_rpc_firedancer_line
+  testnet:
+    validator:
+      agave: &testnet_validator_agave_line
+        - {kind: agave-args, path: testnet-validator/start-validator.sh.j2, play: testnet-validator/deploy-start-validator-sh.yml}
+        - {kind: unit, path: testnet-validator/solv.service.j2, play: testnet-validator/setup_solv_service.yml}
+      jito: *testnet_validator_agave_line
+      firedancer-agave:
+        - {kind: fd-toml, path: testnet-validator/firedancer-config-agave.toml.j2, play: testnet-validator/setup_firedancer_agave.yml}
+      firedancer-jito:
+        - {kind: fd-toml, path: testnet-validator/firedancer-config-jito.toml.j2, play: testnet-validator/setup_firedancer_jito.yml}
+    rpc:
+      agave: &testnet_rpc_agave_line
+        "Geyser gRPC":
+          - &testnet_rpc_start {kind: agave-args, path: testnet-rpc/start-validator.sh.j2, play: testnet-rpc/create-start-validator-sh.yml}
+          - &testnet_rpc_unit {kind: unit, path: testnet-rpc/solv.service.j2, play: testnet-rpc/setup_solv_service.yml}
+          - &testnet_rpc_richat {kind: richat, path: testnet-rpc/richat-setting.yml.j2, play: testnet-rpc/install_richat.yml}
+        "Index RPC":
+          - *testnet_rpc_start
+          - *testnet_rpc_unit
+        "SendTx RPC":
+          - *testnet_rpc_start
+          - *testnet_rpc_unit
+        "Index RPC + gRPC":
+          - *testnet_rpc_start
+          - *testnet_rpc_unit
+          - *testnet_rpc_richat
+      jito: *testnet_rpc_agave_line
+      firedancer-agave: &testnet_rpc_firedancer_line
+        "Index RPC":
+          - &testnet_rpc_fd {kind: fd-toml, path: testnet-rpc/firedancer-config.toml.j2, play: testnet-rpc/setup_firedancer.yml}
+        "SendTx RPC":
+          - *testnet_rpc_fd
+      firedancer-jito: *testnet_rpc_firedancer_line
+  devnet:
+    rpc:
+      agave: &devnet_rpc_agave_line
+        "Geyser gRPC":
+          - &devnet_rpc_start {kind: agave-args, path: devnet-rpc/start-validator.sh.j2, play: devnet-rpc/create-start-validator-sh.yml}
+          - &devnet_rpc_unit {kind: unit, path: devnet-rpc/solv.service.j2, play: devnet-rpc/setup_solv_service.yml}
+          - &devnet_rpc_richat {kind: richat, path: devnet-rpc/richat-setting.yml.j2, play: devnet-rpc/install_richat.yml}
+        "Index RPC":
+          - *devnet_rpc_start
+          - *devnet_rpc_unit
+        "SendTx RPC":
+          - *devnet_rpc_start
+          - *devnet_rpc_unit
+        "Index RPC + gRPC":
+          - *devnet_rpc_start
+          - *devnet_rpc_unit
+          - *devnet_rpc_richat
+      jito: *devnet_rpc_agave_line
+      firedancer-agave: &devnet_rpc_firedancer_line
+        "Index RPC":
+          - &devnet_rpc_fd {kind: fd-toml, path: devnet-rpc/firedancer-config.toml.j2, play: devnet-rpc/setup_firedancer.yml}
+        "SendTx RPC":
+          - *devnet_rpc_fd
+      firedancer-jito: *devnet_rpc_firedancer_line

@@ -1,0 +1,143 @@
+name: SLV Firewall Render
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "template/**/firewall/**"
+      - "template/**/tests/firewall/**"
+      - "template/**/jinja/**"
+      - "template/**/ansible/cmn/vars/startup_templates.yml"
+      - "template/**/ansible/mainnet-rpc/install_of1_service.yml"
+      - "cmn/constants/version.ts"
+      - ".github/workflows/slv-firewall-render.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "template/**/firewall/**"
+      - "template/**/tests/firewall/**"
+      - "template/**/jinja/**"
+      - "template/**/ansible/cmn/vars/startup_templates.yml"
+      - "template/**/ansible/mainnet-rpc/install_of1_service.yml"
+      - "cmn/constants/version.ts"
+      - ".github/workflows/slv-firewall-render.yml"
+
+permissions:
+  contents: read
+
+env:
+  # The ansible-core that noble's apt installs, which is what slv's CLI gets with
+  # `apt-get install ansible` (cli/lib/runAnsibleLocal.ts). The golden files are rendered by
+  # this version: when noble moves to another one, the install below fails, and the golden
+  # files are rendered again together with this line.
+  ANSIBLE_CORE_APT_VERSION: "2.16.3-0ubuntu2"
+  ANSIBLE_CORE_VERSION: "2.16.3"
+  # where render_matrix.yml finds the slv_listen_model filter
+  ANSIBLE_FILTER_PLUGINS: ${{ github.workspace }}/template/latest/ansible/cmn/firewall/filter_plugins
+  ANSIBLE_DISPLAY_SKIPPED_HOSTS: "false"
+  ANSIBLE_FORKS: "16"
+  ANSIBLE_NOCOLOR: "1"
+  DEBIAN_FRONTEND: noninteractive
+  LC_ALL: C.UTF-8
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  render:
+    name: Render matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install ansible-core ${{ env.ANSIBLE_CORE_APT_VERSION }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends --allow-downgrades "ansible-core=${ANSIBLE_CORE_APT_VERSION}"
+          /usr/bin/ansible-playbook --version | head -n 1
+          /usr/bin/ansible-playbook --version | grep -F "core ${ANSIBLE_CORE_VERSION}"
+
+      # Cells that stop on a model error print a `fatal` line and are rescued: the error is
+      # their recorded result (see the header of render_matrix.yml).
+      - name: Render every cell
+        run: >-
+          /usr/bin/ansible-playbook -i localhost, -c local
+          template/latest/tests/firewall/render_matrix.yml -e out="$RUNNER_TEMP/render"
+
+      # The checks below run even when the render failed, so that each prints its own name.
+      - name: b02_render_equals_golden
+        if: ${{ !cancelled() }}
+        run: |
+          if diff -r template/latest/tests/firewall/golden "$RUNNER_TEMP/render"; then
+            echo "PASS b02_render_equals_golden"
+          else
+            echo "FAIL b02_render_equals_golden: the render differs from golden/. If the change is intended, render into golden/ again (the header of render_matrix.yml says how) and review the diff."
+            exit 1
+          fi
+
+      - name: b03_pinned_versions_have_profile
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 template/latest/tests/firewall/matrix.py pins "$RUNNER_TEMP/render"
+          --golden template/latest/tests/firewall/golden
+
+      - name: b04_table_shape
+        if: ${{ !cancelled() }}
+        run: python3 template/latest/tests/firewall/matrix.py shape "$RUNNER_TEMP/render"
+
+  nft:
+    name: nft -c and netns verdicts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends --allow-downgrades \
+            "ansible-core=${ANSIBLE_CORE_APT_VERSION}" nftables python3-scapy conntrack iproute2 iputils-ping
+          /usr/bin/ansible-playbook --version | grep -F "core ${ANSIBLE_CORE_VERSION}"
+          nft --version
+          nft --version | grep -F "v1.0.9"
+
+      - name: Render every cell
+        run: >-
+          /usr/bin/ansible-playbook -i localhost, -c local
+          template/latest/tests/firewall/render_matrix.yml -e out="$RUNNER_TEMP/render"
+
+      # Every table is loaded in a namespace of its own with nft -c: parsed, checked against the
+      # kernel's expressions, and not applied.
+      - name: b01_nft_check_all_cells
+        if: ${{ !cancelled() }}
+        run: |
+          sudo unshare -n bash -s "$RUNNER_TEMP/render" <<'EOF'
+          status=0
+          count=0
+          while IFS= read -r file; do
+            count=$((count + 1))
+            if ! out=$(nft -c -f "$file" 2>&1); then
+              status=1
+              echo "FAIL b01_nft_check_all_cells: ${file#"$1"/}"
+              printf '%s\n' "$out" | sed 's/^/    /'
+            fi
+          done < <(find "$1" -name '*.nft' | sort)
+          if [ "$count" -eq 0 ]; then
+            echo "FAIL b01_nft_check_all_cells: no .nft file under $1"
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "FAIL b01_nft_check_all_cells"
+            exit 1
+          fi
+          echo "PASS b01_nft_check_all_cells ($count files)"
+          EOF
+
+      - name: Verdicts in network namespaces (b05 to b16)
+        if: ${{ !cancelled() }}
+        run: sudo template/latest/tests/firewall/netns_verdicts.sh "$RUNNER_TEMP/render"
