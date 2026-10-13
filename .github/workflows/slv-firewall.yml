@@ -1,0 +1,48 @@
+name: SLV Firewall
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "template/**/firewall/**"
+      - "template/**/tests/firewall/**"
+      - ".github/workflows/slv-firewall.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "template/**/firewall/**"
+      - "template/**/tests/firewall/**"
+      - ".github/workflows/slv-firewall.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  model:
+    name: Listen model (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      # The richat fixture is kept twice, as the rendered YAML and as the dict that
+      # from_yaml makes of it; a test compares the two and needs PyYAML for that.
+      - name: Install PyYAML
+        run: python3 -m pip install "PyYAML==6.0.2"
+
+      - name: Run listen model tests
+        env:
+          SLV_FW_REQUIRE_YAML: "1"
+        run: python3 -m unittest discover -s template/latest/tests/firewall -p 'test_*.py' -v

@@ -1,0 +1,35 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/jinja/mainnet-rpc/geyser.json.j2
+# source-sha256: 858714c30dc172c410c04d848be693e6ca8c228c93c355cbec8032705316ae0f
+# source-state: unmodified (identical to HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# vars: {}
+# render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
+# slv-fixture: body
+{
+  "libpath": "/home/solv/yellowstone-grpc/target/release/libyellowstone_grpc_geyser.so",
+  "log": {
+    "level": "error"
+  },
+  "tokio": {
+    "worker_threads": 32,
+    "affinity": "0-31"
+  },
+  "grpc": {
+    "address": "0.0.0.0:10000",
+    "compression": {
+      "accept": ["gzip", "zstd"],
+      "send": ["gzip", "zstd"]
+    },
+    "server_http2_keepalive_timeout": "5s",
+    "max_decoding_message_size": "8_000_000",
+    "channel_capacity": "4_000_000",
+    "unary_disabled": true,
+    "replay_stored_slots": 0,
+    "filter_name_size_limit": 128,
+    "filter_names_size_limit": 4096,
+    "filter_names_cleanup_interval": "10s"
+  },
+  "prometheus": {
+    "address": "0.0.0.0:8999"
+  }
+}

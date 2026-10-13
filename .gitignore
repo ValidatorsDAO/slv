@@ -94,3 +94,7 @@ cli/dist/
 # Local Claude design notes / prompts — internal-only context that
 # may reference vendor names, customer IPs, or unmerged PoCs.
 .claude/
+
+# Python bytecode caches
+__pycache__/
+*.pyc

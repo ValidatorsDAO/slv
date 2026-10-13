@@ -1,0 +1,29 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/jinja/mainnet-validator/solv.service.j2
+# source-sha256: e412807646f0e5e48372e8c54503bedb46064cc30ee6defd445471bb31c0da9b
+# source-state: unmodified (identical to HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# vars: {"xdp_enabled": true}
+# render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
+# slv-fixture: body
+[Unit]
+Description=Solana Validator
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+LimitNOFILE=1000000
+LimitMEMLOCK=2000000000
+LogRateLimitIntervalSec=0
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+User=solv
+Environment=PATH=/home/solv/.local/share/solana/install/active_release/bin
+WorkingDirectory=/home/solv
+Environment=SOLANA_METRICS_CONFIG=host=https://metrics.solana.com:8086,db=mainnet-beta,u=mainnet-beta_write,p=password
+ExecStart=/home/solv/start-validator.sh
+
+[Install]
+WantedBy=multi-user.target
