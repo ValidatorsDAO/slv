@@ -1323,5 +1323,4 @@ if __name__ == '__main__':
     except ReleaseError as exc:
         print(f'slv release: {exc}', file=sys.stderr)
         raise SystemExit(1)
-
 PY

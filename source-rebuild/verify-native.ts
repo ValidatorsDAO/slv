@@ -62,7 +62,7 @@ type ToolReceipt = {
     included_members?: string[]
   }>
 }
-type Artifacts = {
+export type Artifacts = {
   baseline: {
     denort_sha256: string
     v8_archive_sha256: string
@@ -2288,6 +2288,85 @@ function requiredExecutionChecks(value: unknown): Record<string, unknown> {
   return checks
 }
 
+function boundedBuildJobs(value: unknown): string {
+  const jobs = text(value, 'build receipt jobs')
+  if (!/^(?:[1-9]|1[0-6])$/.test(jobs)) {
+    throw new Error('build receipt has an invalid bounded jobs value')
+  }
+  return jobs
+}
+
+type NativeProofSourceBindings = {
+  sourceCommit: string
+  sourceReceiptSha256: string
+  sourceAssets: Array<{ name: AssetName; sha256: string; size: number }>
+  sourcePinSha256: string
+}
+
+type NativeProofBuild = {
+  value: Record<string, unknown>
+  sha256: string
+  artifacts: Artifacts
+}
+
+/**
+ * Create the proof record consumed unchanged by the release-side parser.
+ * Keeping this boundary explicit makes the merge producer testable without a
+ * multi-hour native build and prevents build receipt fields from being
+ * silently dropped when the proof schema grows.
+ */
+export function emitNativeTargetProof(
+  target: string,
+  source: NativeProofSourceBindings,
+  build: NativeProofBuild,
+  execution: Record<string, unknown>,
+  executionReceiptSha256: string,
+): Record<string, unknown> {
+  const buildChecks = requiredBuildChecks(build.value.checks)
+  const executionChecks = requiredExecutionChecks(execution.checks)
+  const checks = {
+    baseline_build: buildChecks.baseline_build,
+    baseline_probe: executionChecks.baseline_probe,
+    patch: buildChecks.patch,
+    modified_build: buildChecks.modified_build,
+    modified_probe: executionChecks.modified_probe,
+    slv_compile: buildChecks.slv_compile,
+    slv_version: executionChecks.slv_version,
+    licenses: executionChecks.licenses,
+    slv_help: executionChecks.slv_help,
+    release_bridge: executionChecks.release_bridge,
+  }
+  return {
+    schema_version: 1,
+    kind: 'slv-source-target-proof',
+    target,
+    source_commit: source.sourceCommit,
+    source_receipt_sha256: source.sourceReceiptSha256,
+    source_assets: source.sourceAssets,
+    build_mode: build.value.build_mode,
+    build_host: build.value.build_host,
+    execution_host: execution.execution_host,
+    source_pin_sha256: source.sourcePinSha256,
+    source_selected_cargo_lock_sha256: text(
+      build.value.source_selected_cargo_lock_sha256,
+      'build receipt selected Cargo.lock SHA-256',
+    ),
+    tool_pin_sha256: build.value.tool_pin_sha256,
+    patch_sha256: build.value.patch_sha256,
+    jobs: boundedBuildJobs(build.value.jobs),
+    build_receipt_sha256: build.sha256,
+    execution_receipt_sha256: executionReceiptSha256,
+    build_artifacts: build.artifacts,
+    execution_artifacts: parseArtifacts(
+      execution.artifacts,
+      'execution receipt artifacts',
+    ),
+    artifacts: build.artifacts,
+    checks,
+    status: 'passed',
+  }
+}
+
 async function mergePhase(args: Args): Promise<void> {
   const target = args['--target']
   if (!TARGETS.has(target)) throw new Error(`unsupported target: ${target}`)
@@ -2318,48 +2397,18 @@ async function mergePhase(args: Args): Promise<void> {
       'execution receipt does not bind the build receipt and target',
     )
   }
-  const buildChecks = requiredBuildChecks(build.value.checks)
-  const executionChecks = requiredExecutionChecks(execution.checks)
-  const checks = {
-    baseline_build: buildChecks.baseline_build,
-    baseline_probe: executionChecks.baseline_probe,
-    patch: buildChecks.patch,
-    modified_build: buildChecks.modified_build,
-    modified_probe: executionChecks.modified_probe,
-    slv_compile: buildChecks.slv_compile,
-    slv_version: executionChecks.slv_version,
-    licenses: executionChecks.licenses,
-    slv_help: executionChecks.slv_help,
-    release_bridge: executionChecks.release_bridge,
-  }
-  const proof = {
-    schema_version: 1,
-    kind: 'slv-source-target-proof',
+  const proof = emitNativeTargetProof(
     target,
-    source_commit: inputs.assembly.source.commit,
-    source_receipt_sha256: inputs.assemblyReceiptSha256,
-    source_assets: inputs.sourceAssets,
-    build_mode: build.value.build_mode,
-    build_host: build.value.build_host,
-    execution_host: execution.execution_host,
-    source_pin_sha256: inputs.pinsSha256,
-    source_selected_cargo_lock_sha256: text(
-      build.value.source_selected_cargo_lock_sha256,
-      'build receipt selected Cargo.lock SHA-256',
-    ),
-    tool_pin_sha256: build.value.tool_pin_sha256,
-    patch_sha256: build.value.patch_sha256,
-    build_receipt_sha256: build.sha256,
-    execution_receipt_sha256: executionReceiptSha256,
-    build_artifacts: build.artifacts,
-    execution_artifacts: parseArtifacts(
-      execution.artifacts,
-      'execution receipt artifacts',
-    ),
-    artifacts: build.artifacts,
-    checks,
-    status: 'passed',
-  }
+    {
+      sourceCommit: inputs.assembly.source.commit,
+      sourceReceiptSha256: inputs.assemblyReceiptSha256,
+      sourceAssets: inputs.sourceAssets,
+      sourcePinSha256: inputs.pinsSha256,
+    },
+    build,
+    execution,
+    executionReceiptSha256,
+  )
   verifyNativeSourceRebuildProof(proof)
   const proofPath = `${out}/native-proof.json`
   const existing = await Deno.lstat(proofPath).catch(() => undefined)

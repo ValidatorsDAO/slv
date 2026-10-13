@@ -235,7 +235,7 @@ deno run --frozen --allow-read --allow-write --allow-run --allow-env \
   --target "$TARGET" \
   --build-receipt "$PROOF/build-receipt.json" \
   --native-proof "$PROOF/native-proof.json" \
-  --runtime-dir "$RUNTIME/transport" \
+  --runtime-dir "$PROOF/transport" \
   --tools-receipt ./tools-execution-receipt.json \
   --executable ./dist/slv \
   --bridge ./dist/slv-bridge \
@@ -272,30 +272,87 @@ published selected vendor tree read-only, and run the frozen recipe with the
 same public prepared-tool environment used for the target:
 
 ```bash
+set -eu
+: "${TARGET:?set TARGET to x86_64-unknown-linux-gnu or aarch64-unknown-linux-gnu}"
+: "${EXTRACTED:?set EXTRACTED to the verified source-archive directory}"
+: "${TOOLS:?set TOOLS to the matching prepared build-tool directory}"
+: "${SLV_HOST_PYTHON:?set SLV_HOST_PYTHON to the recorded Python 3.11+ path}"
+: "${DENO_FRONTEND:?set DENO_FRONTEND from the matching prepared build receipt}"
+for required_absolute in EXTRACTED TOOLS SLV_HOST_PYTHON DENO_FRONTEND; do
+  case "${!required_absolute}" in
+    /*) ;;
+    *)
+      printf '%s must be an absolute path\n' "$required_absolute" >&2
+      exit 64
+      ;;
+  esac
+done
+
+test ! -e ./my-change || {
+  echo './my-change already exists; choose a fresh private work directory' >&2
+  exit 64
+}
+mkdir ./my-change
 cp -a "$EXTRACTED/deno-source/deno" ./my-change/deno
 cp -a "$EXTRACTED/deno-source/rusty_v8" ./my-change/rusty_v8
 # Edit ./my-change/deno or ./my-change/rusty_v8.
 
+case "$TARGET" in
+  x86_64-unknown-linux-gnu)
+    DENO_SYSROOT_SHA256='64513b04d8a38da6f47c0a9c4cb47b2ce7bcb735250b10eb10751aec6afe46ee'
+    ;;
+  aarch64-unknown-linux-gnu)
+    DENO_SYSROOT_SHA256='0a29c63c52cc1e59228686602cf3cf41080a809655afc29d1b8a27af4b20cedb'
+    CROSS_LINKER="$TOOLS/clang/bin/clang"
+    export CROSS_LINKER
+    ;;
+  *)
+    echo "unsupported Linux target: $TARGET" >&2
+    exit 64
+    ;;
+esac
+
 DENO_SOURCE_DIR="$PWD/my-change/deno" \
 RUSTY_V8_SOURCE_DIR="$PWD/my-change/rusty_v8" \
 CARGO_VENDOR_DIR="$EXTRACTED/deno-cargo-vendor/vendor" \
-RUST_BIN="$TOOLS/rustc/prefix/bin" \
+RUST_BIN="$TOOLS/rustc/prefix/bin" PYTHON="$SLV_HOST_PYTHON" \
 GN="$TOOLS/gn/gn" NINJA="$TOOLS/ninja/ninja" \
 CLANG_BASE_PATH="$TOOLS/clang" LIBCLANG_PATH="$TOOLS/clang/lib" \
 CHROMIUM_RUST_TOOLCHAIN="$TOOLS/chromium-rust" \
 SLV_LINKER="$TOOLS/clang/bin/ld.lld" \
 BUILD_TARGET="$TARGET" DENO_SYSROOT="$TOOLS/deno-sysroot/sysroot" \
+DENO_SYSROOT_SHA256="$DENO_SYSROOT_SHA256" \
 V8_SYSROOT_AMD64="$TOOLS/sysroot-amd64" \
 V8_SYSROOT_ARM64="$TOOLS/sysroot-arm64" \
 V8_SYSROOT_AMD64_SHA256='52d61d4446ffebfaa3dda2cd02da4ab4876ff237853f46d273e7f9b666652e1d' \
 V8_SYSROOT_ARM64_SHA256='c7176a4c7aacbf46bda58a029f39f79a68008d3dee6518f154dcf5161a5486d8' \
 "$EXTRACTED/slv-source/source-rebuild/build-baseline-denort.sh" \
   "$EXTRACTED/deno-source" ./my-change/build
+
+RUNTIME="$PWD/my-change/build/target/$TARGET/release/denort"
+test -x "$RUNTIME"
+APP="$PWD/my-change/slv-app"
+cp -a "$EXTRACTED/slv-source" "$APP"
+mkdir -p "$APP/dist/release-inputs" "$APP/deno-cache" \
+  "$PWD/my-change/private-home" "$PWD/my-change/dist"
+cp "$EXTRACTED/slv-source/THIRD_PARTY_NOTICES" \
+  "$APP/dist/release-inputs/THIRD_PARTY_NOTICES"
+(
+  cd "$APP"
+  DENORT_BIN="$RUNTIME" DENO_DIR="$APP/deno-cache" \
+  HOME="$PWD/../private-home" \
+  "$DENO_FRONTEND" compile --frozen --cached-only --no-prompt -A \
+    --include cli/lib/release/engine.py \
+    --include dist/release-inputs/THIRD_PARTY_NOTICES \
+    --target "$TARGET" --output "$PWD/../dist/slv" cli/src/index.ts
+)
 ```
 
-Use the resulting target `denort` through `DENORT_BIN` when compiling the
-modified SLV source with the shipped Deno frontend and frozen application
-cache. The canonical notices describe the published selected closure. If a
-local modification changes dependency closure or notices, its distributor must
-produce accurate local licensing material before redistributing those changed
-bytes.
+This is the local Linux rebuild path. `DENO_SYSROOT_SHA256` is mandatory and
+target-specific; the ARM case also requires the matching prepared
+`CROSS_LINKER`. The copied app uses its shipped frozen dependency cache as
+`DENO_DIR`, and the command copies the shipped notice to its compiled asset
+path before invoking the source-built runtime. The canonical notices describe
+the published selected closure. If a local modification changes dependency
+closure or notices, its distributor must produce accurate local licensing
+material before redistributing those changed bytes.

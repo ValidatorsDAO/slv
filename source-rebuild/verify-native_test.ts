@@ -1,10 +1,12 @@
 import {
   assertSafeTree,
+  emitNativeTargetProof,
   extractArchive,
   prepareBuildDirectories,
   resolveSourceArchivePaths,
   scanArchiveForUnsafeMembers,
 } from './verify-native.ts'
+import { verifyNativeSourceRebuildProof } from '../scripts/release/source-materials.ts'
 
 async function createArchive(
   archive: string,
@@ -315,5 +317,159 @@ Deno.test('relative source archives are resolved before scanners change extracti
     }
   } finally {
     await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('merge emitter carries bounded build jobs through the unchanged release proof parser', () => {
+  const hash = (character: string) => character.repeat(64)
+  const command = {
+    command: ['fixture'],
+    cwd: '.',
+    started_at: '2026-10-13T00:00:00Z',
+    finished_at: '2026-10-13T00:00:01Z',
+    exit_code: 0,
+    log: 'fixture.log',
+    log_sha256: hash('a'),
+  }
+  const artifacts = {
+    baseline: {
+      denort_sha256: hash('1'),
+      v8_archive_sha256: hash('2'),
+      ninja_sha256: hash('3'),
+      probe_standalone_sha256: hash('4'),
+      derived_relink_cargo_lock_sha256: hash('5'),
+      slv_executable_sha256: hash('6'),
+      bridge_standalone_sha256: hash('7'),
+    },
+    modified: {
+      denort_sha256: hash('8'),
+      v8_archive_sha256: hash('9'),
+      ninja_sha256: hash('b'),
+      probe_standalone_sha256: hash('c'),
+    },
+  }
+  const runtimeAbi = (denortSha256: string) => ({
+    schema_version: 1,
+    kind: 'slv-macos-denort-abi',
+    denort_sha256: denortSha256,
+    minimum_os: '12.0',
+    load_commands_sha256: hash('d'),
+    status: 'passed',
+  })
+  const checks = {
+    baseline_build: {
+      passed: true,
+      command,
+      runtime_abi: runtimeAbi(artifacts.baseline.denort_sha256),
+      runtime_abi_receipt_sha256: hash('e'),
+    },
+    baseline_probe: {
+      passed: true,
+      sentinel: { input: 0.125, output: 0.124, command },
+      control: { input: 0.126, output: 0.125, command },
+    },
+    patch: {
+      passed: true,
+      before_sha256: hash('f'),
+      after_sha256: hash('0'),
+      command,
+    },
+    modified_build: {
+      passed: true,
+      command,
+      runtime_abi: runtimeAbi(artifacts.modified.denort_sha256),
+      runtime_abi_receipt_sha256: hash('1'),
+    },
+    modified_probe: {
+      passed: true,
+      sentinel: { input: 0.125, output: 0.5, command },
+      control: { input: 0.126, output: 0.125, command },
+    },
+    slv_compile: { passed: true, command },
+    slv_version: { passed: true, command },
+    licenses: {
+      passed: true,
+      canonical_notice_sha256: hash('2'),
+      command,
+    },
+    slv_help: { passed: true, command },
+    release_bridge: { passed: true, compile: command, command },
+  }
+  const build = {
+    value: {
+      build_mode: 'native',
+      build_host: { os: 'darwin', arch: 'x64' },
+      source_selected_cargo_lock_sha256: hash('3'),
+      tool_pin_sha256: hash('4'),
+      patch_sha256: hash('5'),
+      jobs: '8',
+      checks: {
+        baseline_build: checks.baseline_build,
+        patch: checks.patch,
+        modified_build: checks.modified_build,
+        slv_compile: checks.slv_compile,
+      },
+    },
+    sha256: hash('6'),
+    artifacts,
+  }
+  const execution = {
+    execution_host: { os: 'darwin', arch: 'x64' },
+    artifacts,
+    checks: {
+      baseline_probe: checks.baseline_probe,
+      modified_probe: checks.modified_probe,
+      slv_version: checks.slv_version,
+      licenses: checks.licenses,
+      slv_help: checks.slv_help,
+      release_bridge: checks.release_bridge,
+    },
+  }
+  const proof = emitNativeTargetProof(
+    'x86_64-apple-darwin',
+    {
+      sourceCommit: 'f'.repeat(40),
+      sourceReceiptSha256: hash('7'),
+      sourceAssets: [
+        { name: 'slv-source.tar.gz', sha256: hash('8'), size: 1 },
+        { name: 'deno-source.tar.gz', sha256: hash('9'), size: 1 },
+        { name: 'deno-cargo-vendor.tar.gz', sha256: hash('a'), size: 1 },
+      ],
+      sourcePinSha256: hash('b'),
+    },
+    build,
+    execution,
+    hash('c'),
+  )
+  if (proof.jobs !== '8') {
+    throw new Error('merge emitter dropped the build receipt jobs value')
+  }
+  verifyNativeSourceRebuildProof(proof)
+  build.value.jobs = '17'
+  let rejected = false
+  try {
+    emitNativeTargetProof(
+      'x86_64-apple-darwin',
+      {
+        sourceCommit: 'f'.repeat(40),
+        sourceReceiptSha256: hash('7'),
+        sourceAssets: [
+          { name: 'slv-source.tar.gz', sha256: hash('8'), size: 1 },
+          { name: 'deno-source.tar.gz', sha256: hash('9'), size: 1 },
+          { name: 'deno-cargo-vendor.tar.gz', sha256: hash('a'), size: 1 },
+        ],
+        sourcePinSha256: hash('b'),
+      },
+      build,
+      execution,
+      hash('c'),
+    )
+  } catch (error) {
+    rejected = error instanceof Error && error.message.includes(
+      'invalid bounded jobs',
+    )
+  }
+  if (!rejected) {
+    throw new Error('merge emitter accepted an out-of-range jobs value')
   }
 })
