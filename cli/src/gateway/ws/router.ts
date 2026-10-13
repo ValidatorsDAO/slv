@@ -15,6 +15,7 @@ import {
   loadAgentContext,
 } from '/src/ai/agentConfig/loader.ts'
 import { buildSystemPrompt } from '/src/ai/console/systemPrompt.ts'
+import { setAutoExecute } from '/src/ai/console/tools.ts'
 import {
   explainImageParseError,
   type MessageInput,
@@ -101,6 +102,18 @@ type MethodHandler = (
   ctx: DispatchCtx,
 ) => Promise<ResFrame> | ResFrame
 
+/**
+ * Load the agent config and hand its auto_execute to run_command. A gateway
+ * session has no terminal to confirm at: with auto_execute off, which is the
+ * default, run_command refuses every command; commands that need a
+ * confirmation are refused whatever the setting.
+ */
+const applyAgentConfig = async () => {
+  const ctx = await loadAgentContext()
+  setAutoExecute(ctx.autoExecute)
+  return ctx
+}
+
 const methods: Record<string, MethodHandler> = {
   /**
    * Unauthenticated handshake. Every client SHOULD call this first
@@ -141,7 +154,7 @@ const methods: Record<string, MethodHandler> = {
    */
   'session.info': async (req, state) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
-    const ctx = await loadAgentContext()
+    const ctx = await applyAgentConfig()
     const aiCfg = await readAiConfig().catch(() => null)
     return resOk(req, {
       agentName: ctx.soul?.name ?? 'Assistant',
@@ -261,6 +274,7 @@ const methods: Record<string, MethodHandler> = {
     // write_file) propagate on the next turn without waiting for
     // a gateway restart.
     invalidateAgentContext()
+    await applyAgentConfig()
 
     // Hydrate the same system prompt the TUI uses so browser chat has
     // access to SOUL.md (agent identity), USER.md (user profile + name),

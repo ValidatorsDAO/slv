@@ -62,8 +62,10 @@ slv v start  -n testnet
 レジャーの読み込みが完了した後、以下のコマンドでアイデンティティを変更してください。
 
 ```
-slv v set:identity -n testnet
+slv v set:identity -p <host> -n testnet
 ```
+
+`-p <host>` には、アイデンティティを設定する 1 台のノードの inventory 上の名前を指定します。ステーク済みノードとアンステークノードの 2 台を切り替える場合は `slv v switch` を使います。
 
 > ℹ️ 実行前に、`~/.slv/inventory.testnet.validators.yml` ファイルに Identity アドレスと Vote アドレスが正しく設定されていることを確認してください。
 

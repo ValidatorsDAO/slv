@@ -25,7 +25,7 @@ export type SkillEntry = z.infer<typeof SkillEntrySchema>
 
 export const AgentConfigSchema = z.object({
   skills: z.array(SkillEntrySchema).default([]),
-  auto_execute: z.boolean().default(true),
+  auto_execute: z.boolean().default(false),
   mode: DeploymentModeSchema.default('remote'),
   notifications: z.object({
     discord_webhook: z.string().optional(),

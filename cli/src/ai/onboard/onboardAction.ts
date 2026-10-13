@@ -595,7 +595,7 @@ Session history and important notes.
   // Do NOT add a duplicate slv-rpc entry for Cid here.
   const configData = {
     skills,
-    auto_execute: true,  // Commands execute without confirmation by default
+    auto_execute: false,  // Commands ask for confirmation by default
     mode: deployMode,
   }
   const configYml = stringify(configData as Record<string, unknown>)

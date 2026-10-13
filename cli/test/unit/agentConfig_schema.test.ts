@@ -9,7 +9,7 @@ import {
 Deno.test('AgentConfigSchema applies defaults for an empty object', () => {
   const parsed = AgentConfigSchema.parse({})
   assertEquals(parsed.skills, [])
-  assertEquals(parsed.auto_execute, true)
+  assertEquals(parsed.auto_execute, false)
   assertEquals(parsed.mode, 'remote')
   assertEquals(parsed.notifications, undefined)
 })
