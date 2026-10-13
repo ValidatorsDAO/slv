@@ -1,4 +1,5 @@
 import { z } from '@hono/zod-openapi'
+import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
 
 /**
  * Zod schemas for all agent-configuration files under ~/.slv/.
@@ -25,7 +26,7 @@ export type SkillEntry = z.infer<typeof SkillEntrySchema>
 
 export const AgentConfigSchema = z.object({
   skills: z.array(SkillEntrySchema).default([]),
-  auto_execute: z.boolean().default(true),
+  auto_execute: z.boolean().default(false).describe(AUTO_EXECUTE_NOTE),
   mode: DeploymentModeSchema.default('remote'),
   notifications: z.object({
     discord_webhook: z.string().optional(),

@@ -10,7 +10,11 @@ import {
 } from '/src/storage/api.ts'
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
 import { Select } from '@cliffy/prompt'
-import { hasRestic, resticRestore } from '@/backup/restic.ts'
+import { currentHostname, hasRestic, resticRestore } from '@/backup/restic.ts'
+import {
+  SYSTEM_IDENTITY_EXCLUDES,
+  tarExtractExcludeArgs,
+} from '@/backup/excludes.ts'
 
 async function hasZstd(): Promise<boolean> {
   try {
@@ -24,6 +28,78 @@ async function hasZstd(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+const ARCHIVE_NAME = /^backup-(.+)-\d{8}-\d{6}\.tar\.(?:zst|gz)$/
+
+/**
+ * The host an archive was taken on: the `<hostname>` of its
+ * `backup-<hostname>-<timestamp>.tar.(zst|gz)` name, or null for any other name.
+ */
+export function archiveHostname(path: string): string | null {
+  const name = path.split('/').pop() ?? ''
+  return ARCHIVE_NAME.exec(name)?.[1] ?? null
+}
+
+/**
+ * A tar restore writes over this host's own files, so an archive taken on
+ * another host is refused unless --other-host says that is meant. A name that
+ * carries no host (a renamed archive, or one made with -o) cannot be checked and
+ * is refused the same way.
+ */
+async function requireSameHost(
+  path: string,
+  otherHost: boolean,
+): Promise<void> {
+  const name = path.split('/').pop() ?? path
+  const archiveHost = archiveHostname(path)
+  if (archiveHost === null) {
+    if (otherHost) {
+      console.log(
+        colors.yellow(
+          `\n⚠️  Cannot tell which host ${name} was taken on: its name is not backup-<hostname>-<timestamp>. Restoring it because --other-host was given.`,
+        ),
+      )
+      return
+    }
+    console.log(
+      colors.red(
+        `\n❌ Cannot tell which host ${name} was taken on: its name is not backup-<hostname>-<timestamp>.`,
+      ),
+    )
+    console.log(
+      colors.yellow(
+        '   If it was taken on this host, or you mean to restore it anyway, run the restore again with --other-host.\n',
+      ),
+    )
+    Deno.exit(1)
+  }
+  const thisHost = await currentHostname()
+  if (archiveHost.toLowerCase() === thisHost.toLowerCase()) return
+  if (otherHost) {
+    console.log(
+      colors.yellow(
+        `\n⚠️  ${name} was taken on ${archiveHost}, not on this host (${thisHost}). Restoring it because --other-host was given.`,
+      ),
+    )
+    return
+  }
+  console.log(
+    colors.red(
+      `\n❌ ${name} was taken on ${archiveHost}, not on this host (${thisHost}).`,
+    ),
+  )
+  console.log(
+    colors.white(
+      "   Restoring it would overwrite this host's files with another host's.",
+    ),
+  )
+  console.log(
+    colors.yellow(
+      '   If that is what you want, run the restore again with --other-host.\n',
+    ),
+  )
+  Deno.exit(1)
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -43,7 +119,12 @@ async function downloadFile(
   if (!res.ok || !res.body) {
     throw new Error(`Download failed (HTTP ${res.status})`)
   }
-  const file = await Deno.open(output, { write: true, create: true, truncate: true })
+  const file = await Deno.open(output, {
+    write: true,
+    create: true,
+    truncate: true,
+    mode: 0o600,
+  })
   await res.body.pipeTo(file.writable)
 }
 
@@ -103,6 +184,8 @@ export const importAction = async (
   options: {
     region?: string
     yes?: boolean
+    otherHost?: boolean
+    includeSystem?: boolean
   },
   file?: string,
 ) => {
@@ -125,7 +208,8 @@ export const importAction = async (
 
     console.log(colors.bold(colors.red('\n⚠️  WARNING: This will restore restic snapshot over the current filesystem.')))
     console.log(colors.white(`\n  Snapshot: ${file}`))
-    console.log(colors.white(`  Target:   /\n`))
+    console.log(colors.white(`  Target:   /`))
+    printRestoreScope(options, 'snapshot')
 
     if (!options.yes) {
       const { Confirm } = await import('@cliffy/prompt')
@@ -139,7 +223,10 @@ export const importAction = async (
       }
     }
 
-    await resticRestore(storageKey, file, options.region)
+    await resticRestore(storageKey, file, options.region, {
+      otherHost: options.otherHost,
+      includeSystem: options.includeSystem,
+    })
     console.log(colors.green('\n✅ Restore completed. Please reboot to apply changes:'))
     console.log(colors.white('   $ sudo reboot\n'))
     return
@@ -168,6 +255,8 @@ export const importAction = async (
         }
 
         const storageKey = await getStorageAccessKey()
+        console.log(colors.white('\n  Target:       /'))
+        printRestoreScope(options, 'snapshot')
         if (!options.yes) {
           const { Confirm } = await import('@cliffy/prompt')
           const proceed = await Confirm.prompt({
@@ -180,7 +269,10 @@ export const importAction = async (
           }
         }
 
-        await resticRestore(storageKey, undefined, options.region)
+        await resticRestore(storageKey, undefined, options.region, {
+          otherHost: options.otherHost,
+          includeSystem: options.includeSystem,
+        })
         console.log(colors.green('\n✅ Restore completed. Please reboot to apply changes:'))
         console.log(colors.white('   $ sudo reboot\n'))
         return
@@ -192,11 +284,22 @@ export const importAction = async (
   }
 
   let localFile: string
+  let downloadDir: string | undefined
 
   if (file && await fileExists(file)) {
     // Local file provided
+    await requireSameHost(file, !!options.otherHost)
     localFile = file
   } else {
+    // A named remote archive carries its host in the name: decide before signing
+    // in or downloading anything.
+    if (file) {
+      await requireSameHost(
+        file.startsWith('backups/') ? file : `backups/${file}`,
+        !!options.otherHost,
+      )
+    }
+
     // Download from cloud storage
     const auth = await getUserApiAuth()
     const region = options.region as StorageRegion | undefined
@@ -232,6 +335,9 @@ export const importAction = async (
       return
     }
 
+    // Picked from the list: decide before downloading.
+    if (!file) await requireSameHost(remotePath, !!options.otherHost)
+
     const spinner = new Kia(colors.cyan('Requesting download URL...'))
     spinner.start()
 
@@ -240,7 +346,10 @@ export const importAction = async (
       spinner.succeed('Got download URL')
 
       const filename = remotePath.split('/').pop() || 'backup.tar.zst'
-      localFile = `/tmp/${filename}`
+      // Download into a directory of its own (mode 0700); it is removed when the
+      // restore ends.
+      downloadDir = await Deno.makeTempDir({ prefix: 'slv-restore-' })
+      localFile = `${downloadDir}/${filename}`
 
       const dlSpinner = new Kia(
         colors.cyan(`Downloading ${filename}...`),
@@ -260,10 +369,87 @@ export const importAction = async (
       } else {
         console.log(colors.red(String(error)))
       }
+      await removeDownload(downloadDir)
       return
     }
   }
 
+  // Deno.exit does not run finally blocks, so restoreArchive returns the exit
+  // code and the downloaded archive is removed before the process exits.
+  let exitCode: number
+  try {
+    exitCode = await restoreArchive(localFile, options)
+  } finally {
+    await removeDownload(downloadDir)
+  }
+  if (exitCode !== 0) Deno.exit(exitCode)
+}
+
+/** Remove the directory a downloaded archive was written to. */
+async function removeDownload(dir: string | undefined): Promise<void> {
+  if (!dir) return
+  try {
+    await Deno.remove(dir, { recursive: true })
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return
+    const reason = String(error)
+    console.log(
+      colors.yellow(
+        `\n⚠️  Could not remove the downloaded archive in ${dir}: ${reason}`,
+      ),
+    )
+  }
+}
+
+/**
+ * What a restore leaves alone. `source` names what is restored from; a snapshot
+ * restore also says whose snapshots it takes.
+ */
+function printRestoreScope(
+  options: { otherHost?: boolean; includeSystem?: boolean },
+  source: 'archive' | 'snapshot',
+): void {
+  const systemPaths = SYSTEM_IDENTITY_EXCLUDES.join(', ')
+  if (source === 'snapshot') {
+    console.log(
+      colors.white(
+        options.otherHost
+          ? '  Snapshots:    any host (--other-host)'
+          : '  Snapshots:    this host only',
+      ),
+    )
+  }
+  if (options.includeSystem) {
+    console.log(
+      colors.red(`  System:       ${systemPaths} come from the ${source}`),
+    )
+  } else {
+    console.log(
+      colors.white(`  Not restored: ${systemPaths} (--include-system)`),
+    )
+  }
+  console.log(colors.white('  Never restored: key material and credentials\n'))
+}
+
+/** The `tar -x` command line for a restore over `/`. */
+export function buildTarExtractArgs(options: {
+  localFile: string
+  useZstd: boolean
+  includeSystem: boolean
+}): string[] {
+  const excludes = tarExtractExcludeArgs({
+    includeSystem: options.includeSystem,
+  })
+  return options.useZstd
+    ? ['-I', 'zstd -d', '-xf', options.localFile, '-C', '/', ...excludes]
+    : ['--gzip', '-xf', options.localFile, '-C', '/', ...excludes]
+}
+
+/** Extract a tar archive over `/`. Returns the process exit code. */
+async function restoreArchive(
+  localFile: string,
+  options: { yes?: boolean; includeSystem?: boolean },
+): Promise<number> {
   // Detect compression
   const useZstd = localFile.endsWith('.tar.zst')
   if (useZstd && !(await hasZstd())) {
@@ -273,7 +459,7 @@ export const importAction = async (
       ),
     )
     console.log(colors.yellow('   Install zstd: apt install zstd\n'))
-    Deno.exit(1)
+    return 1
   }
 
   // Root check
@@ -284,7 +470,7 @@ export const importAction = async (
       ),
     )
     console.log(colors.yellow('   Run with: sudo slv backup restore\n'))
-    Deno.exit(1)
+    return 1
   }
 
   // Warning
@@ -301,8 +487,9 @@ export const importAction = async (
     colors.white(`  Compression: ${useZstd ? 'zstd' : 'gzip'}`),
   )
   console.log(
-    colors.white(`  Target:      /\n`),
+    colors.white(`  Target:      /`),
   )
+  printRestoreScope(options, 'archive')
 
   // Confirmation for download/general proceed (skipped with --yes)
   if (!options.yes) {
@@ -313,7 +500,7 @@ export const importAction = async (
     })
     if (!proceed) {
       console.log(colors.yellow('\n⚠️  Restore cancelled.\n'))
-      return
+      return 0
     }
   }
 
@@ -336,7 +523,7 @@ export const importAction = async (
       })
       if (!proceed) {
         console.log(colors.yellow('Import cancelled.'))
-        return
+        return 0
       }
     } else {
       console.log(
@@ -348,12 +535,11 @@ export const importAction = async (
   }
 
   // Extract
-  const tarArgs: string[] = []
-  if (useZstd) {
-    tarArgs.push('-I', 'zstd -d', '-xf', localFile, '-C', '/')
-  } else {
-    tarArgs.push('--gzip', '-xf', localFile, '-C', '/')
-  }
+  const tarArgs = buildTarExtractArgs({
+    localFile,
+    useZstd,
+    includeSystem: !!options.includeSystem,
+  })
 
   const spinner = new Kia(colors.cyan('Restoring backup...'))
   spinner.start()
@@ -370,18 +556,19 @@ export const importAction = async (
       const stderr = new TextDecoder().decode(result.stderr)
       spinner.fail('Restore failed')
       console.log(colors.red(`\ntar error:\n${stderr}`))
-      Deno.exit(1)
+      return 1
     }
 
     spinner.succeed('Restore complete')
   } catch (error) {
     spinner.fail('Restore failed')
     console.log(colors.red(String(error)))
-    Deno.exit(1)
+    return 1
   }
 
   console.log(
     colors.green('\n✅ Import completed. Please reboot to apply changes:'),
   )
   console.log(colors.white('   $ sudo reboot\n'))
+  return 0
 }

@@ -1,10 +1,27 @@
 ---
-- name: Rm ledger and snapshot except contact-info.bin
+- name: Rm ledger and snapshot except contact-info.bin, tower-1_9-* and vote_history-*
   hosts: all
   become: yes
   tasks:
-    - name: Remove all files in /mnt/ledger/ using rm -rf except contact-info.bin
-      shell: sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -delete
+    - name: Read the state of the validator services
+      ansible.builtin.command: systemctl is-active {{ item }}
+      loop:
+        - solv.service
+        - firedancer.service
+      register: validator_service_state
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Refuse to remove the ledger while a validator service is not stopped
+      ansible.builtin.fail:
+        msg: "Refusing to remove the ledger on {{ inventory_hostname }}: {{ running_services | join(', ') }} is not stopped. Stop the validator first, then run this again."
+      vars:
+        running_services: "{{ validator_service_state.results | rejectattr('stdout', 'in', ['inactive', 'failed']) | map(attribute='item') | list }}"
+      when: running_services | length > 0
+
+    - name: Remove all files in /mnt/ledger/ using rm -rf except contact-info.bin, tower-1_9-* and vote_history-*
+      shell: sudo find /mnt/ledger/ -mindepth 1 -not -name 'contact-info.bin' -not -name 'tower-1_9-*' -not -name 'vote_history-*' -delete
       become: true
       become_user: root
 

@@ -51,7 +51,7 @@ Deno.test('loadAgentContext returns defaults when no files exist', async () => {
   const ctx = await loadAgentContext({ home, force: true })
   assertEquals(ctx.enabledAgents, [])
   assertEquals(ctx.mode, 'remote')
-  assertEquals(ctx.autoExecute, true)
+  assertEquals(ctx.autoExecute, false)
   assertEquals(ctx.soul, null)
   assertEquals(ctx.user, null)
   assertEquals(ctx.memory, null)

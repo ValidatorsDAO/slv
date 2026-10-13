@@ -5,7 +5,8 @@
   vars_files:
     - ~/.slv/versions.yml
   vars:
-    allnodes_jito_version: 'v{{ mainnet_validators.version_allnodes_jito }}-allnodes'
+    allnodes_jito_version_configured: '{{ mainnet_validators.version_allnodes_jito }}'
+    allnodes_jito_version: "v{{ allnodes_jito_version_configured }}{{ '' if '-allnodes' in allnodes_jito_version_configured else '-allnodes' }}"
     allnodes_jito_repo: https://github.com/allnodes/solana-jito.git
     allnodes_jito_install_dir: '/home/solv/allnodes-jito'
     allnodes_jito_release_dir: '{{ allnodes_jito_install_dir }}/target/release'

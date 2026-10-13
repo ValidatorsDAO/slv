@@ -26,6 +26,25 @@ exec agave-validator \
 --use-snapshot-archives-at-startup when-newest \
 --no-skip-initial-accounts-db-clean \
 --private-rpc \
+{# _agave_version is the X.Y.Z of the agave this host starts next as major*1000000 + minor*1000 + patch: installed_agave_version, which the play reads from the installed agave-validator, when there is one, else the version of this host's agave, jito or allnodes client from the -e override or versions.yml; suffixes such as -jito.0 are ignored #}
+{% set _slv = mainnet_rpcs | default({}) %}
+{% if validator_type | default('agave') == 'jito' %}
+{% set _client_version = jito_version | default(_slv.version_jito | default('', true), true) %}
+{% elif validator_type | default('agave') == 'allnodes-jito' %}
+{% set _client_version = allnodes_jito_version | default(_slv.version_allnodes_jito | default('', true), true) %}
+{% else %}
+{% set _client_version = agave_version | default(_slv.version_agave | default('', true), true) %}
+{% endif %}
+{% set _client_version = installed_agave_version | default('', true) or _client_version %}
+{% set _digits = (_client_version | string).split('-')[0] | regex_findall('[0-9]+') %}
+{% if not _digits %}
+{{ agave_version_not_found | mandatory('Cannot tell which agave version this host runs: set agave_version, jito_version or allnodes_jito_version, or the matching version_* key under mainnet_rpcs in ~/.slv/versions.yml') }}
+{% endif %}
+{% set _num = _digits + ['0', '0'] %}
+{% set _agave_version = (_num[0] | int) * 1000000 + (_num[1] | int) * 1000 + (_num[2] | int) %}
+{% if _agave_version >= 4002000 %}
+--no-xdp \
+{% endif %}
 {% if rpc_type == 'Geyser gRPC' -%}
 --limit-ledger-size 200000000 \
 --enable-rpc-transaction-history \

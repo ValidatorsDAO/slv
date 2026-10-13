@@ -2,10 +2,9 @@ import { colors } from '@cliffy/colors'
 import { Command } from '@cliffy'
 import { Input } from '@cliffy/prompt'
 import type { CmnType, InventoryType, NetworkType } from '@cmn/types/config.ts'
-import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import { genOrReadInventory } from '/lib/genOrReadInventory.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
-import { runAnsilbe } from '/lib/runAnsible.ts'
+import { installAgaveBinary, type StartScriptDeps } from '/lib/startScript.ts'
 
 type Sha256PatchRole = 'validator' | 'rpc'
 type VersionsSection = keyof CmnType
@@ -194,6 +193,7 @@ export const runSha256Patch = async (
   network: NetworkType,
   pubkey?: string,
   solanaVersion?: string,
+  deps: Partial<StartScriptDeps> = {},
 ): Promise<boolean> => {
   const label = role === 'validator' ? 'Validator' : 'RPC'
   const inventoryType = getSha256PatchInventoryType(role, network)
@@ -215,12 +215,15 @@ export const runSha256Patch = async (
     ),
   )
 
-  const templateRoot = getTemplatePath()
-  const playbook = `${templateRoot}/ansible/cmn/patch_sha256.yml`
-  const extraVars = { solana_version: resolvedVersion }
-  const result = pubkey
-    ? await runAnsilbe(playbook, inventoryType, pubkey, extraVars)
-    : await runAnsilbe(playbook, inventoryType, undefined, extraVars)
+  // The patched binary replaces the agave-validator on the host, so the start
+  // script is updated for it on the same hosts.
+  const result = await installAgaveBinary({
+    role,
+    network,
+    play: () => 'cmn/patch_sha256.yml',
+    limit: pubkey,
+    extraVars: { solana_version: resolvedVersion },
+  }, deps)
 
   if (result) {
     console.log(
@@ -236,11 +239,14 @@ export const registerSha256PatchCommands = (
   parentCmd: Command,
   role: Sha256PatchRole,
   defaultNetwork: NetworkType,
+  deps: Partial<StartScriptDeps> = {},
 ) => {
   const label = role === 'validator' ? 'Validator' : 'RPC'
 
   parentCmd.command('patch:sha256')
-    .description(`⚙️ Patch ${label} with optimized SHA256 binary`)
+    .description(
+      `⚙️ Patch ${label} with optimized SHA256 binary, then update the start script`,
+    )
     .option('-n, --network <network>', 'Solana Network', {
       default: defaultNetwork,
     })
@@ -260,15 +266,13 @@ export const registerSha256PatchCommands = (
           options.pubkey,
           options.solanaVersion,
         )
-        const templateRoot = getTemplatePath()
-        const playbook = `${templateRoot}/ansible/cmn/patch_sha256.yml`
-        const extraVars = {
-          solana_version: solanaVersion,
-        }
-
-        const result = options.pubkey
-          ? await runAnsilbe(playbook, inventoryType, options.pubkey, extraVars)
-          : await runAnsilbe(playbook, inventoryType, undefined, extraVars)
+        const result = await installAgaveBinary({
+          role,
+          network,
+          play: () => 'cmn/patch_sha256.yml',
+          limit: options.pubkey,
+          extraVars: { solana_version: solanaVersion },
+        }, deps)
 
         if (result) {
           console.log(

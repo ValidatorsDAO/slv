@@ -189,7 +189,7 @@ if ! mv -- "${selected_staging}" "${live_snapshot}"; then
 fi
 promoted=1
 
-if ! sudo find "${ledger_root}/" -mindepth 1 -not -name 'contact-info.bin' -delete; then
+if ! sudo find "${ledger_root}/" -mindepth 1 -not -name 'tower-1_9-*' -not -name 'vote_history-*' -not -name 'contact-info.bin' -delete; then
   restore_service
   exit 1
 fi

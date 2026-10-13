@@ -1,0 +1,49 @@
+---
+# Read-only report of the identity each host is running right now.
+# Prints one line per host:
+#   SLV_RUNNING_IDENTITY <inventory_hostname> <base58 pubkey | unknown>
+- name: Report the identity each host is running
+  hosts: all
+  gather_facts: no
+  become: true
+  become_user: solv
+  tasks:
+    - name: Read the running identity (agave family)
+      shell: |
+        . ~/.profile
+        agave-validator -l /mnt/ledger contact-info --output json
+      args:
+        executable: /bin/bash
+      register: agave_contact_info
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      ignore_unreachable: true
+      when: validator_type | default('') in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Read the running identity (Frankendancer family)
+      shell: |
+        . ~/.profile
+        sudo fdctl get-identity --config /home/solv/firedancer-config.toml
+      args:
+        executable: /bin/bash
+      register: frankendancer_identity
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      ignore_unreachable: true
+      when: validator_type | default('') in ['firedancer-agave', 'firedancer-jito']
+
+    - name: Report the running identity
+      ansible.builtin.debug:
+        msg: "SLV_RUNNING_IDENTITY {{ inventory_hostname }} {{ running_identity }}"
+      vars:
+        agave_identity: >-
+          {{ (agave_contact_info.stdout | default(''))
+             | regex_findall('"id"[ ]*:[ ]*"([1-9A-HJ-NP-Za-km-z]{32,44})"')
+             | first | default('') | string }}
+        frankendancer_identity_line: >-
+          {{ (frankendancer_identity.stdout_lines | default([]))
+             | map('trim') | select('match', '^[1-9A-HJ-NP-Za-km-z]{32,44}$')
+             | list | last | default('') | string }}
+        running_identity: "{{ agave_identity or frankendancer_identity_line or 'unknown' }}"

@@ -1,4 +1,4 @@
-import { Confirm, prompt } from '@cliffy/prompt'
+import { confirmDeploy } from '/lib/targetGuard.ts'
 import { colors } from '@cliffy/colors'
 import { runAnsilbe } from '/lib/runAnsible.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
@@ -17,20 +17,14 @@ const deployHermesMainnet = async (limit?: string) => {
       `Deploying Hermes to ${ansibleHosts.length} host(s) from inventory.mainnet.hermes.yml`,
     ),
   )
-  const confirm = await prompt([{
-    type: Confirm,
-    name: 'continue',
-    message: 'Do you want to continue?',
-    default: true,
-  }])
-  if (!confirm.continue) {
+  if (!await confirmDeploy()) {
     console.log(colors.blue('Cancelled...🌝'))
     return false
   }
   const yml = `${templateRoot}/ansible/mainnet-hermes/init.yml`
-  const result = limit
-    ? await runAnsilbe(yml, inventoryType, limit)
-    : await runAnsilbe(yml, inventoryType)
+  const result = await runAnsilbe(yml, inventoryType, limit, undefined, {
+    allHostsConfirmed: true,
+  })
   if (result) {
     console.log(colors.white('✅ Successfully deployed Hermes stack on mainnet'))
     return true

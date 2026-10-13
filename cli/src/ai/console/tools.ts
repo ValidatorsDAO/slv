@@ -4,13 +4,31 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
 import { parse } from '@std/yaml'
-import { basename, dirname, normalize, resolve } from '@std/path'
+import { normalize } from '@std/path'
 import type { TUI } from '@mariozechner/pi-tui'
 import {
   injectSkillDocs,
   isModuleLoaded,
   loadContextModules,
 } from '@/ai/console/systemPrompt.ts'
+import {
+  classifyCommand,
+  decideCommandGate,
+  describeRefusal,
+} from '@/ai/console/commandGate.ts'
+import {
+  buildCommandEnv,
+  buildShellInvocation,
+  decideWriteFile,
+  describeWrite,
+  describeWriteRefusal,
+  fileToolRefusal,
+  findExecutable,
+  isAgentMemoryFile,
+  redactSecretKeys,
+} from '@/ai/console/toolSafety.ts'
+import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
+import { isReadOnlyLine } from '@/ai/console/readOnly.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
@@ -23,7 +41,7 @@ import {
 
 // TUI instance for suspend/resume during confirm prompts
 let tuiInstance: TUI | null = null
-let autoExecuteCommands = true // Default: auto-execute without confirmation
+let autoExecuteCommands = false // The console sets it from the agent config
 
 export function setTuiInstance(tui: TUI | null) {
   tuiInstance = tui
@@ -222,7 +240,8 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'run_command',
     description:
-      'Execute a shell command on the system. Use this to run slv commands, check system status, manage services, etc. The user will be asked to confirm before execution.',
+      'Execute a shell command on the system. Use this to run slv commands, check system status, manage services, etc. The user will be asked to confirm before execution. Only read-only commands can run without the user: a line of programs such as ls, cat, head, tail, grep, ps, df, free, journalctl, systemctl status, ss, ip addr and solana epoch-info, with no output redirection except to /dev/null, no assignment, no substitution, no parameter expansion with an operator such as ${X:-default}, no background job and no program named by a path. Every other command needs the user to confirm in a terminal, and is refused when none is attached; that includes sudo, shells and interpreters, curl, git, tar, awk, sed and find. Commands that change nodes or keys, touch credentials or run other commands are put to the user even in a line that looks read-only: ansible-playbook, ssh, scp, rsync, solana-keygen, op, rm -r/-f, the slv deploy, start, stop, restart, switch, set:identity and init verbs, agave-validator, solana-validator and fdctl (but for their version and monitor forms), systemctl and service verbs that change a unit, solana subcommands that sign, interpreters such as python, perl or node, programs that run their arguments, a command substitution, any path to a key, a wallet or a credential, and a recursive grep, rg or diff of a directory that may hold them: a home directory or one above it, anything under .slv or .ssh, /proc, a directory above or inside a key or wallet location (such as /etc, /etc/ssl, /dev, ~/.config and ~/slv), a relative path, a path with a glob or an expansion, or no path at all (rg searches its input instead when it follows a pipe or reads a file), and a ps that prints the environment of processes: the e option, in BSD syntax or in a word that ps reads again as BSD options, or an output format named environ. ' +
+      AUTO_EXECUTE_NOTE,
     parameters: {
       type: 'object',
       properties: {
@@ -237,7 +256,9 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'read_file',
     description:
-      'Read the contents of a file. Use this to inspect configuration files, logs, keys, etc. Prefer focused reads for large files by using offset/limit.',
+      'Read the contents of a file. Use this to inspect configuration files, logs, etc. Keys, wallets and credentials are not readable. ' +
+      AUTO_EXECUTE_NOTE +
+      ' Prefer focused reads for large files by using offset/limit.',
     parameters: {
       type: 'object',
       properties: {
@@ -281,7 +302,7 @@ export const EXTENDED_TOOLS: ToolDefinition[] = [
   {
     name: 'write_file',
     description:
-      'Write content to a file. Use this to update MEMORY.md or create configuration files. Only writes to ~/.slv/ are allowed.',
+      'Write content to a file under ~/.slv/. ~/.slv/agent/MEMORY.md is written without asking. Any other file needs the user to confirm the write in a terminal (the user sees the path, the size and the first 20 lines), and is not written in a session without a terminal: give the user the content and the path, and ask them to write the file themselves. Not written at all: keys, credentials, ~/.slv/api.yml, the agent config ~/.slv/agent/config.yml, ~/.slv/template, ~/.slv/bin and ~/.slv/known_hosts.',
     parameters: {
       type: 'object',
       properties: {
@@ -435,13 +456,19 @@ export async function executeTool(
 ): Promise<string> {
   switch (name) {
     case 'run_command':
-      return await executeRunCommand(String(args.command || ''))
+      return await redactSecretKeys(
+        await executeRunCommand(String(args.command || '')),
+      )
     case 'read_file':
-      return await executeReadFile(
-        String(args.path || ''),
-        Number.isFinite(Number(args.offset)) ? Number(args.offset) : undefined,
-        Number.isFinite(Number(args.limit)) ? Number(args.limit) : undefined,
-        args.refresh === true,
+      return await redactSecretKeys(
+        await executeReadFile(
+          String(args.path || ''),
+          Number.isFinite(Number(args.offset))
+            ? Number(args.offset)
+            : undefined,
+          Number.isFinite(Number(args.limit)) ? Number(args.limit) : undefined,
+          args.refresh === true,
+        ),
       )
     case 'enable_tools': {
       const requested = (args.tools as string[]) || []
@@ -555,52 +582,79 @@ async function executeRunCommand(command: string): Promise<string> {
     return msg
   }
 
-  let confirmed = true
+  const tui = tuiInstance
+  const classification = classifyCommand(command)
+  const readOnly = isReadOnlyLine(command)
+  const decision = decideCommandGate({
+    gated: classification.gated,
+    autoExecute: autoExecuteCommands,
+    hasTerminal: tui !== null,
+    readOnly: readOnly.readOnly,
+  })
 
-  if (autoExecuteCommands) {
-    // Auto-execute: just show what's running
-    if (tuiInstance) {
-      // TUI mode — show via callback (handled by caller)
-    } else {
-      console.log(`  ▸ ${command}`)
-    }
-  } else {
-    // Manual confirm mode
-    if (tuiInstance) {
-      tuiInstance.stop()
-      console.log(`\n  Tool: run_command`)
-      console.log(`  $ ${command}`)
-      confirmed = await Confirm.prompt({
-        message: 'Execute this command?',
-        default: true,
-      })
-      tuiInstance.start()
-      tuiInstance.requestRender(true)
-    }
+  if (decision === 'refuse') {
+    const msg = describeRefusal(command, classification, {
+      autoExecute: autoExecuteCommands,
+      notReadOnly: readOnly.reasons,
+    })
+    console.log(`  ✗ ${msg.split('\n')[0]}`)
+    return msg
   }
 
-  if (!confirmed) {
-    return 'User declined to execute the command.'
+  let humanConfirmed = false
+  if (decision === 'confirm' && tui !== null) {
+    tui.stop()
+    console.log(`\n  Tool: run_command`)
+    console.log(`  $ ${command}`)
+    if (classification.gated) {
+      console.log(
+        `  ! This command may change nodes or keys, touch credentials or run another command (${
+          classification.reasons.join(', ')
+        }).`,
+      )
+    } else if (autoExecuteCommands && !readOnly.readOnly) {
+      console.log(
+        `  ! Auto-execute runs read-only commands only, and this one is not read-only (${
+          readOnly.reasons.join(', ')
+        }).`,
+      )
+    }
+    const confirmed = await Confirm.prompt({
+      message: 'Execute this command?',
+      default: !classification.gated,
+    })
+    tui.start()
+    tui.requestRender(true)
+    if (!confirmed) {
+      return 'User declined to execute the command.'
+    }
+    humanConfirmed = true
+  } else if (tui === null) {
+    // No terminal: just show what's running
+    console.log(`  ▸ ${command}`)
   }
 
+  // Both timers are cleared when the command ends, on every exit path.
+  let hardTimer: ReturnType<typeof setTimeout> | undefined
+  let inactivityTimer: ReturnType<typeof setTimeout> | undefined
+  let timersStopped = false
   try {
-    // Inject SSH options to prevent host key prompts that hang
-    const env: Record<string, string> = {
-      ...Object.fromEntries(Object.entries(Deno.env.toObject())),
-      ANSIBLE_HOST_KEY_CHECKING: 'False',
-      ANSIBLE_SSH_ARGS:
-        '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no',
-      ANSIBLE_STDOUT_CALLBACK: 'default',
-      ANSIBLE_DISPLAY_ARGS_TO_STDOUT: 'False',
-      PYTHONUNBUFFERED: '1',
-      TRADE_APP_LANG: await readLang(),
-    }
-    const proc = new Deno.Command('bash', {
-      args: ['-c', command],
+    // The shell gets an allow-listed environment, in a session of its own.
+    // Host key checking stays on: new hosts are added, changed keys fail.
+    const env = buildCommandEnv(Deno.env.toObject(), await readLang(), {
+      humanConfirmed,
+    })
+    const invocation = buildShellInvocation(
+      command,
+      findExecutable('setsid', Deno.env.get('PATH')),
+    )
+    const proc = new Deno.Command(invocation.command, {
+      args: invocation.args,
       stdin: 'null',
       stdout: 'piped',
       stderr: 'piped',
       env,
+      clearEnv: true,
     })
     const child = proc.spawn()
     // Store child process so it can be killed on Ctrl+C
@@ -686,18 +740,19 @@ async function executeRunCommand(command: string): Promise<string> {
     //     usually emit something every 30–60 s; 2 min leaves headroom.
     const COMMAND_TIMEOUT_MS = 3_600_000
     const INACTIVITY_TIMEOUT_MS = 120_000
-    const timeoutPromise = new Promise<'timeout'>((resolve) =>
-      setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS)
-    )
+    const timeoutPromise = new Promise<'timeout'>((resolve) => {
+      hardTimer = setTimeout(() => resolve('timeout'), COMMAND_TIMEOUT_MS)
+    })
     const inactivityPromise = new Promise<'inactivity'>((resolve) => {
       const tick = () => {
+        if (timersStopped) return
         if (Date.now() - lastOutputMs >= INACTIVITY_TIMEOUT_MS) {
           resolve('inactivity')
           return
         }
-        setTimeout(tick, 1_000)
+        inactivityTimer = setTimeout(tick, 1_000)
       }
-      setTimeout(tick, 1_000)
+      inactivityTimer = setTimeout(tick, 1_000)
     })
 
     const commandPromise = (async () => {
@@ -724,7 +779,7 @@ async function executeRunCommand(command: string): Promise<string> {
       await commandPromise.catch(() => {})
       activeChildProcess = null
       if (onCommandComplete) onCommandComplete()
-      const stdout = stdoutChunks.join('')
+      const stdout = await redactSecretKeys(stdoutChunks.join(''))
       const tail = stdout.slice(-2000)
       if (result === 'inactivity') {
         return `Command stopped — no output for ${
@@ -735,8 +790,8 @@ async function executeRunCommand(command: string): Promise<string> {
     }
 
     const status = result
-    const stdout = stdoutChunks.join('')
-    const stderr = stderrChunks.join('')
+    const stdout = await redactSecretKeys(stdoutChunks.join(''))
+    const stderr = await redactSecretKeys(stderrChunks.join(''))
 
     // Aborted by user (Ctrl+C). Return a clear marker so the LLM knows the
     // command didn't complete — and the provider loop sees isAborted() and
@@ -836,30 +891,11 @@ async function executeRunCommand(command: string): Promise<string> {
     activeChildProcess = null
     if (onCommandComplete) onCommandComplete()
     return `Error executing command: ${(error as Error).message}`
+  } finally {
+    timersStopped = true
+    clearTimeout(hardTimer)
+    clearTimeout(inactivityTimer)
   }
-}
-
-/**
- * True for ~/.slv/api.yml, its lock and its temporary files. The AI console
- * file tools do not handle ~/.slv/api.yml. The path is made absolute and
- * normalized, and followed through symlinks when it exists.
- */
-async function isApiYmlPath(path: string): Promise<boolean> {
-  const real = async (p: string) => {
-    try {
-      return await Deno.realPath(p)
-    } catch {
-      return normalize(resolve(p))
-    }
-  }
-  const target = await real(path)
-  const name = basename(target)
-  if (!name.startsWith('api.yml') && !name.startsWith('.api.yml.')) {
-    return false
-  }
-  const slvDir = `${resolveHome()}/.slv`
-  return dirname(target) === normalize(slvDir) ||
-    dirname(target) === await real(slvDir)
 }
 
 async function executeReadFile(
@@ -868,9 +904,8 @@ async function executeReadFile(
   limit?: number,
   refresh = false,
 ): Promise<string> {
-  if (await isApiYmlPath(path)) {
-    return 'Error: read_file does not read ~/.slv/api.yml. The AI console file tools do not handle ~/.slv/api.yml.'
-  }
+  const refusal = await fileToolRefusal('read_file', path)
+  if (refusal !== null) return refusal
   const cacheKey = buildReadFileCacheKey(path, offset, limit)
   if (!refresh) {
     const cached = readFileCache.get(cacheKey)
@@ -878,7 +913,11 @@ async function executeReadFile(
   }
 
   try {
-    const content = await Deno.readTextFile(path)
+    const raw = await Deno.readTextFile(path)
+    if (/^\s*-----BEGIN/.test(raw) && raw.includes('PRIVATE KEY')) {
+      return 'Error: read_file does not read a private key. Ask the user to handle it outside the AI console.'
+    }
+    const content = await redactSecretKeys(raw)
     const lines = content.split('\n')
     const totalLines = lines.length
     const startLine = Number.isFinite(offset) && offset && offset > 0
@@ -907,6 +946,8 @@ async function executeReadFile(
 }
 
 async function executeListFiles(path: string): Promise<string> {
+  const refusal = await fileToolRefusal('list_files', path)
+  if (refusal !== null) return refusal
   try {
     const entries: string[] = []
     for await (const entry of Deno.readDir(path)) {
@@ -924,26 +965,53 @@ async function executeWriteFile(
   path: string,
   content: string,
 ): Promise<string> {
-  const home = resolveHome()
-  const slvDir = `${home}/.slv/`
+  const refusal = await fileToolRefusal('write_file', path)
+  if (refusal !== null) return refusal
+
+  // The file written is the path that was checked and shown.
   const target = normalize(path)
-  if (!target.startsWith(slvDir)) {
-    return `Error: write_file only allows writing to ~/.slv/ directory. Requested path: ${path}`
+  const tui = tuiInstance
+  const decision = decideWriteFile({
+    memoryFile: await isAgentMemoryFile(target),
+    hasTerminal: tui !== null,
+  })
+
+  if (decision === 'refuse') {
+    const msg = describeWriteRefusal(target)
+    console.log(`  ✗ ${msg.split('\n')[0]}`)
+    return msg
   }
-  // The AI console file tools do not handle ~/.slv/api.yml.
-  if (await isApiYmlPath(target)) {
-    return `Error: write_file does not write ~/.slv/api.yml. Use the slv commands (slv login, slv onboard, slv auth) to change it.`
+
+  if (decision === 'confirm' && tui !== null) {
+    let existingBytes: number | null = null
+    try {
+      existingBytes = (await Deno.stat(target)).size
+    } catch { /* there is no file yet */ }
+    tui.stop()
+    console.log(`\n  Tool: write_file`)
+    for (const line of describeWrite(target, content, existingBytes)) {
+      console.log(line)
+    }
+    const confirmed = await Confirm.prompt({
+      message: 'Write this file?',
+      default: false,
+    })
+    tui.start()
+    tui.requestRender(true)
+    if (!confirmed) {
+      return `User declined to write ${target}. The file is unchanged.`
+    }
   }
 
   try {
     // Ensure parent directory exists
-    const parentDir = path.substring(0, path.lastIndexOf('/'))
+    const parentDir = target.substring(0, target.lastIndexOf('/'))
     if (parentDir) {
       await Deno.mkdir(parentDir, { recursive: true })
     }
-    await Deno.writeTextFile(path, content)
+    await Deno.writeTextFile(target, content)
     invalidateReadFileCache()
-    return `Successfully wrote to ${path}`
+    return `Successfully wrote to ${target}`
   } catch (error) {
     return `Error writing file: ${(error as Error).message}`
   }
@@ -1164,12 +1232,6 @@ ${specialistGuidance}
    - For jito on testnet: use \`testnet_validators.version_jito\` (e.g. "4.0.0-beta.2-jito")
    - For agave on mainnet: use \`mainnet_validators.version_agave\`
    - etc.
-2. Check if \`solana-keygen\` (or \`agave-keygen\`) exists. If not, install:
-   \`\`\`
-   sh -c "$(curl -sSfL https://release.anza.xyz/v<agave_version>/install)"
-   export PATH="${home}/.local/share/solana/install/active_release/bin:$PATH"
-   \`\`\`
-   Use the agave version from versions.yml.
 
 ### Asking the user — minimum questions only (in this order)
 For validator deploy, ask the main agent to collect ONLY:
@@ -1178,25 +1240,18 @@ For validator deploy, ask the main agent to collect ONLY:
 3. Network: mainnet / testnet
 4. Region: amsterdam / frankfurt / tokyo / ny
 5. Validator type: jito / agave / allnodes-jito / firedancer-agave / firedancer-jito
-6. Identity: existing pubkey or "generate"
-7. Vote account: existing pubkey or "generate"
+6. Identity: the existing pubkey
+7. Vote account: the existing pubkey
 
 Do NOT ask for version — read from versions.yml and show as default.
 Do NOT ask for snapshot URL, commission, port range — use defaults.
 
-### Step 1: Generate keys (if "generate")
-\`\`\`
-mkdir -p ${home}/.slv/keys
-solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-identity.json
-solana-keygen pubkey ${home}/.slv/keys/<name>-identity.json
-solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-vote.json
-solana-keygen pubkey ${home}/.slv/keys/<name>-vote.json
-solana-keygen new --no-passphrase -o ${home}/.slv/keys/<name>-authority.json
-solana-keygen pubkey ${home}/.slv/keys/<name>-authority.json
-\`\`\`
+### Step 1: Keys
+Keys are not generated here. The operator generates them with \`slv v init\` in their own terminal, outside the console; they end up in \`${home}/.slv/keys/\`. Do not read, copy or create files in that directory.
+If the user has no keys yet, ask the main agent to tell the user to run \`slv v init\` themselves first and to come back with the identity, vote and authority public keys.
 
 ### Step 2: Write inventory YAML
-Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`:
+Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`. In the terminal console the user confirms the write: they see the path, the size and the first 20 lines. A gateway session has no terminal, and write_file refuses there: report the YAML and the path to the main agent, which gives both to the user to save themselves, and go on when the user says the file is in place. Writing the file again later, for the snapshot URL, needs the user's confirmation again. The content:
 
 \`\`\`yaml
 <network>_validators:
@@ -1247,7 +1302,7 @@ If ALL regions are unreachable (ping blocked), the server is not on the ERPC net
 
 ## Pre-deploy note
 The main agent has ALREADY verified SSH connectivity and created the solv user.
-The inventory uses \`ansible_user: solv\`. You can proceed directly with key generation, inventory, and deploy.
+The inventory uses \`ansible_user: solv\`. You can proceed directly with the inventory and deploy.
 If any ansible command fails with SSH errors, report it to the main agent immediately.
 
 ### Step 3: Deploy
@@ -1269,20 +1324,20 @@ The deploy playbook creates this key layout on the target node:
 - \`/home/solv/testnet-validator-keypair.json\` — the validator's staked identity key (copied from ~/.slv/keys/)
 - \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
 - \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\` to prevent double-voting
-- To activate staked identity: \`ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json\`
+- To activate the staked identity: \`slv v set:identity -p <host>\` (a staked/unstaked pair switches with \`slv v switch\`)
 
 **Mainnet:**
-- \`/home/solv/<identity-pubkey>.json\` — the validator's staked identity key
+- \`/home/solv/mainnet-validator-keypair.json\` — the validator's staked identity key (copied from ~/.slv/keys/)
 - \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
 - \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`
-- To activate: \`ln -sf /home/solv/<identity-pubkey>.json /home/solv/identity.json\` or use \`slv v set:identity\`
+- To activate the staked identity: \`slv v set:identity -p <host>\` (a staked/unstaked pair switches with \`slv v switch\`)
 
 **Why unstaked by default:** Prevents double-voting if the same identity runs on two nodes simultaneously (e.g. during migration). The validator starts with the unstaked key and catches up with the cluster safely. The user switches to staked identity only when ready.
 
 In your completion message, say:
 - "The validator is running with the unstaked identity by default (to prevent double-voting)."
-- For testnet: "Your staked identity is at /home/solv/testnet-validator-keypair.json. Switch with: \`ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json && sudo systemctl restart solv\`"
-- For mainnet: "Your staked identity is ready. Switch with \`slv v set:identity\` when you're ready."
+- For testnet: "Your staked identity is at /home/solv/testnet-validator-keypair.json. Promote this node with \`slv v set:identity -p <host>\`, or switch a staked/unstaked pair with \`slv v switch\`."
+- For mainnet: "Your staked identity is ready. Promote this node with \`slv v set:identity -p <host>\` when you're ready, or switch a staked/unstaked pair with \`slv v switch\`."
 - Do NOT say "staked-identity.json" — that file does not exist.
 
 ### Validator types (for user selection)

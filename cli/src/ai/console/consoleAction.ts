@@ -60,11 +60,7 @@ import {
 import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
 import { listAgentsByOrder } from '@/ai/agentConfig/registry.ts'
-import {
-  applyVersionUpdates,
-  checkSolanaReleases,
-  type VersionUpdate,
-} from '@/ai/console/checkRelease.ts'
+import { VERSION_UPDATES_DISABLED_MESSAGE } from '@/ai/console/checkRelease.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
 export type ChatCallbacks = {
@@ -802,7 +798,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   // Read auto-execute setting from agent config
   {
     const ctx = await loadAgentContext()
-    if (!ctx.autoExecute) setAutoExecute(false)
+    setAutoExecute(ctx.autoExecute)
   }
 
   // Provider init with callbacks
@@ -1065,47 +1061,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       await new Promise((r) => setTimeout(r, 40))
     }
   }
-
-  // Background version check (non-blocking)
-  let pendingUpdates: VersionUpdate[] | null = null
-  const versionCheckLoader = new Loader(
-    tui,
-    white,
-    white,
-    t('Checking for new versions…'),
-  )
-  chatLog.addChild(versionCheckLoader)
-  tui.requestRender()
-  checkSolanaReleases().then((updates) => {
-    versionCheckLoader.stop()
-    chatLog.removeChild(versionCheckLoader)
-
-    if (updates.length === 0) {
-      tui.requestRender(true)
-      return
-    }
-
-    // Deduplicate for display only (all updates are applied)
-    const seen = new Set<string>()
-    let msg = `${t('🔄 New versions available:')}\n`
-    for (const u of updates) {
-      const displayKey = `${u.component}-${u.network}-${u.latest}`
-      if (seen.has(displayKey)) continue
-      seen.add(displayKey)
-      msg += `  • ${u.component} (${u.network}): ${u.current} → ${u.latest}\n`
-    }
-    msg += `\n${t('Type /update to apply, or ignore to keep current versions.')}`
-
-    chatLog.addSystem(msg)
-    tui.requestRender(true)
-
-    pendingUpdates = updates
-  }).catch(() => {
-    // silent fail — still clear the loader
-    versionCheckLoader.stop()
-    chatLog.removeChild(versionCheckLoader)
-    tui.requestRender(true)
-  })
 
   // Track user interactions for memory save decision
   let userMessageCount = 0
@@ -1465,13 +1420,7 @@ RULES:
     }
 
     if (input === '/update') {
-      if (pendingUpdates && pendingUpdates.length > 0) {
-        await applyVersionUpdates(pendingUpdates)
-        chatLog.addSystem(`  ${t('✅ versions.yml updated successfully!')}`)
-        pendingUpdates = null
-      } else {
-        chatLog.addSystem(`  ${t('No pending updates.')}`)
-      }
+      chatLog.addSystem(`  ${t(VERSION_UPDATES_DISABLED_MESSAGE)}`)
       tui.requestRender(true)
       return
     }
@@ -1479,7 +1428,9 @@ RULES:
     if (input === '/help') {
       chatLog.addSystem(`  ${t('/exit, /quit — Exit')}`)
       chatLog.addSystem(`  ${t('/clear — Clear conversation')}`)
-      chatLog.addSystem(`  ${t('/update — Apply pending version updates')}`)
+      chatLog.addSystem(
+        `  ${t('/update — Version updates (automatic updates are disabled)')}`,
+      )
       chatLog.addSystem(
         `  ${
           t(

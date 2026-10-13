@@ -14,7 +14,11 @@ import { genVoteKey } from '/src/validator/init/genVoteKey.ts'
 import { optimizeNode } from '/lib/optimizeNode.ts'
 import type { ValidatorMainnetConfig } from '@cmn/types/config.ts'
 import { DEFAULT_RPC_ADDRESS, SolanaNodeTypes } from '@cmn/constants/config.ts'
-import { addMainnetInventory } from '/lib/addMainnetInventory.ts'
+import {
+  addMainnetInventory,
+  DEFAULT_MAINNET_VALIDATOR_TYPE,
+  frankendancerWarning,
+} from '/lib/addMainnetInventory.ts'
 import { updateMainnetInventory } from '/lib/updateMainnetInventory.ts'
 import {
   findNearestJitoRegion,
@@ -37,11 +41,15 @@ const initMainnetConfig = async (
       message: 'Select Validator Type',
       type: Select,
       options: [...SolanaNodeTypes],
-      default: 'firedancer-jito',
+      default: DEFAULT_MAINNET_VALIDATOR_TYPE,
     },
   ])
   if (!validatorType) {
     return
+  }
+  const frankendancer = frankendancerWarning(validatorType)
+  if (frankendancer) {
+    console.log(colors.yellow(`⚠️ ${frankendancer}`))
   }
   let commissionBps = '1000'
   if (validatorType.includes('jito')) {

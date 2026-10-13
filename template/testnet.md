@@ -48,10 +48,10 @@ slv v start
 
 ### 4) After the ledger finishes loading
 
-Set your validator identity:
+Set your validator identity on the node that should run it (`<host>` is its name in the inventory; a staked/unstaked pair switches with `slv v switch`):
 
 ```
-slv v set:identity
+slv v set:identity -p <host>
 ```
 
 ---
