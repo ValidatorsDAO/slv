@@ -1,6 +1,10 @@
 import { colors } from '@cliffy/colors'
 import { resolveHome, type StorageAccessKey } from '/lib/getApiKeyFromYml.ts'
-import { buildExcludeList } from '@/backup/excludes.ts'
+import {
+  buildExcludeList,
+  KEY_MATERIAL_EXCLUDES,
+  SYSTEM_IDENTITY_EXCLUDES,
+} from '@/backup/excludes.ts'
 
 const RESTIC_PASSWORD_FILE_NAME = '.slv/restic-password'
 const RESTIC_REPO_HOST = 'user-api.erpc.global'
@@ -45,6 +49,29 @@ export async function hasRestic(): Promise<boolean> {
     return (await cmd.output()).success
   } catch {
     return false
+  }
+}
+
+/**
+ * This host's name as `slv backup create` puts it in its tags and archive names:
+ * the `hostname` command's.
+ */
+export async function currentHostname(): Promise<string> {
+  try {
+    const command = new Deno.Command('hostname', {
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+    const result = await command.output()
+    const name = new TextDecoder().decode(result.stdout).trim()
+    if (name) return name
+  } catch {
+    // no hostname command: ask the OS
+  }
+  try {
+    return Deno.hostname()
+  } catch {
+    return 'unknown'
   }
 }
 
@@ -133,6 +160,8 @@ export interface ResticBackupOptions {
   exclude?: string[]
   include?: string[]
   retention?: number
+  /** Stands in for RESTIC_INCLUDES_WALLETS. */
+  resticIncludesWallets?: boolean
 }
 
 /**
@@ -162,6 +191,8 @@ export async function resticBackup(
     extraExcludes: options.exclude,
     extraIncludes: options.include,
     includeSSH: true,
+    tool: 'restic',
+    resticIncludesWallets: options.resticIncludesWallets,
   })
   const excludeArgs = excludes.flatMap((e) => ['--exclude', e])
   // Exclude sensitive credential files from backup
@@ -170,9 +201,7 @@ export async function resticBackup(
   excludeArgs.push('--exclude', `${resolveHome()}/.slv/backup.env`)
 
   // Get hostname for tagging
-  const hostnameCmd = new Deno.Command('hostname', { stdout: 'piped', stderr: 'piped' })
-  const hostnameResult = await hostnameCmd.output()
-  const hostname = new TextDecoder().decode(hostnameResult.stdout).trim() || 'unknown'
+  const hostname = await currentHostname()
 
   // restic init (first time only — ignore "already initialized" error)
   console.log(colors.cyan('\n🔧 Initializing restic repository (if needed)...'))
@@ -234,13 +263,85 @@ export async function resticBackup(
   }
 }
 
+/** What a restic restore leaves alone: the system identity files unless asked for, and key material. */
+export function resticRestoreExcludes(includeSystem = false): string[] {
+  return [
+    ...(includeSystem ? [] : SYSTEM_IDENTITY_EXCLUDES),
+    ...KEY_MATERIAL_EXCLUDES,
+  ]
+}
+
 /**
- * Restore from a restic snapshot.
+ * The `restic restore` arguments. `host` limits "latest" to that host's
+ * snapshots; without it any host's will do. Wallets are not excluded: a restic
+ * backup keeps them.
+ */
+export function buildResticRestoreArgs(options: {
+  snapshotId?: string
+  host?: string
+  includeSystem?: boolean
+}): string[] {
+  const args = ['restore', options.snapshotId || 'latest', '--target', '/']
+  if (options.host) args.push('--host', options.host)
+  for (const pattern of resticRestoreExcludes(options.includeSystem)) {
+    args.push('--exclude', pattern)
+  }
+  return args
+}
+
+/** The hosts a named snapshot was taken on, or why restic could not tell. */
+async function snapshotHosts(
+  env: Record<string, string>,
+  snapshotId: string,
+): Promise<{ hosts: string[] } | { error: string }> {
+  const command = new Deno.Command('restic', {
+    args: ['snapshots', '--json', snapshotId],
+    env: { ...Deno.env.toObject(), ...env },
+    stdout: 'piped',
+    stderr: 'piped',
+  })
+  const result = await command.output()
+  if (!result.success) {
+    return { error: new TextDecoder().decode(result.stderr).trim() }
+  }
+  const hosts: string[] = []
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(result.stdout))
+    const items = Array.isArray(parsed) ? parsed : []
+    for (const item of items) {
+      // a flat list of snapshots, or groups that hold a list each
+      const group = (item as { snapshots?: unknown })?.snapshots
+      const snapshots = Array.isArray(group) ? group : [item]
+      for (const snapshot of snapshots) {
+        const hostname = (snapshot as { hostname?: unknown })?.hostname
+        if (typeof hostname === 'string' && hostname) hosts.push(hostname)
+      }
+    }
+  } catch {
+    // not JSON: no host to compare
+  }
+  return { hosts }
+}
+
+/** Options of a restic restore. */
+export interface ResticRestoreOptions {
+  /** Restore a snapshot of another host (--other-host). */
+  otherHost?: boolean
+  /** Restore the system identity files too (--include-system). */
+  includeSystem?: boolean
+}
+
+/**
+ * Restore from a restic snapshot. Only snapshots of this host unless
+ * `otherHost`: "latest" is this host's latest, and a named snapshot has to have
+ * been taken here. The system identity files are left alone unless
+ * `includeSystem`; key material is never restored.
  */
 export async function resticRestore(
   key: StorageAccessKey,
   snapshotId?: string,
   region?: string,
+  options: ResticRestoreOptions = {},
 ): Promise<void> {
   if (!(await hasRestic())) {
     printResticInstallGuide()
@@ -255,14 +356,44 @@ export async function resticRestore(
     RESTIC_PASSWORD_FILE: resticPasswordPath(),
   }
 
+  const host = options.otherHost ? undefined : await currentHostname()
+  if (host && snapshotId && snapshotId !== 'latest') {
+    // --host picks "latest" only, so a named snapshot is checked here
+    const taken = await snapshotHosts(env, snapshotId)
+    if ('error' in taken) {
+      console.log(
+        colors.red(`\n❌ Could not read restic snapshot ${snapshotId}`),
+      )
+      if (taken.error) console.log(colors.red(taken.error))
+      Deno.exit(1)
+    }
+    const elsewhere = taken.hosts.length === 0 ||
+      taken.hosts.some((name) => name.toLowerCase() !== host.toLowerCase())
+    if (elsewhere) {
+      const where = taken.hosts.length > 0
+        ? `taken on ${taken.hosts.join(', ')}`
+        : 'taken on a host restic does not name'
+      console.log(
+        colors.red(
+          `\n❌ Snapshot ${snapshotId} was ${where}, not on this host (${host}).`,
+        ),
+      )
+      console.log(
+        colors.yellow(
+          '   If that is what you want, run the restore again with --other-host.\n',
+        ),
+      )
+      Deno.exit(1)
+    }
+  }
+
   console.log(colors.cyan('\n📥 Restoring from restic snapshot...'))
   const result = await runRestic(
-    [
-      'restore',
-      snapshotId || 'latest',
-      '--target',
-      '/',
-    ],
+    buildResticRestoreArgs({
+      snapshotId,
+      host,
+      includeSystem: options.includeSystem,
+    }),
     env,
   )
 
@@ -276,12 +407,13 @@ export async function resticRestore(
 }
 
 /**
- * List restic snapshots.
+ * List restic snapshots, those of every host unless `options.host` names one.
  * Returns raw JSON output from restic.
  */
 export async function resticSnapshots(
   key: StorageAccessKey,
   region?: string,
+  options: { host?: string } = {},
 ): Promise<string> {
   if (!(await hasRestic())) {
     printResticInstallGuide()
@@ -298,7 +430,11 @@ export async function resticSnapshots(
   }
 
   const command = new Deno.Command('restic', {
-    args: ['snapshots', '--json'],
+    args: [
+      'snapshots',
+      '--json',
+      ...(options.host ? ['--host', options.host] : []),
+    ],
     env,
     stdout: 'piped',
     stderr: 'piped',

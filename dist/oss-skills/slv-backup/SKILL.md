@@ -31,22 +31,43 @@ stop and ask the user a clarifying question in chat instead.
 
 ### Create a backup
 ```bash
-slv backup create --upload -y -r eu --retention 7
+slv backup create --restic -y -r eu --retention 7
 ```
-- `--upload` — upload to SLV cloud storage (omit to keep the tarball local only).
+- `--restic` — the cloud backup. Client-side encrypted (password-protected
+  repository), deduplicated, incremental, uploaded to SLV cloud storage.
+  Requires restic installed and the user signed in (`slv login`). Pair with
+  `-y`. **This is the only way a backup reaches cloud storage.**
 - `-y` — skips sudo confirmation and the "create backup?" confirmation.
 - `-r <region>` — `eu | asia | us-east | us-west | oc`. Ask the user only if they have not chosen one.
 - `--retention <days>` — delete cloud backups older than N days (default 7).
-- `-o <path>` — override the output path (default: auto-generated from hostname + timestamp).
 - `--exclude <path>` — add extra excludes on top of the built-in list. Repeatable.
 - `--include <path>` — remove a path from the default exclude list. Repeatable.
+  It cannot remove key material (see below).
 - `--webhook <url>` — Discord webhook for notifications. Omit to reuse `SLV_BACKUP_WEBHOOK` env.
-- `--restic` — use restic instead of tar+zstd. Client-side encrypted
-  (password-protected repository), deduplicated, incremental. Requires
-  restic installed. Pair with `-y`. **Strongly preferred any time the
-  backup contains private material** (wallet.json, validator keypairs,
-  `.env` with API keys). The tar+zstd default is UNENCRYPTED — fine
-  for public config, unsafe for anything that owns funds.
+
+**A plain tar archive stays local.** `slv backup create -y` without `--restic`
+writes a tar+zstd archive on this host (mode 0600, readable only by its
+owner; `-o <path>` overrides the path, default: hostname + timestamp, and a
+file not named `backup-<hostname>-<timestamp>.tar.zst` needs `--other-host` to
+restore). It is unencrypted, so the CLI never uploads it and never schedules
+it: asking for an upload of a plain archive is refused. Use it for a copy that
+stays on this host; for anything that must leave the host, use `--restic`.
+
+**Wallets are backed up only with `--restic`.** A wallet is a `wallet*.json`
+anywhere under `~/slv/` or `~/.slv/wallet-rescue/`, or `~/.config/solana/id.json`.
+The restic backup is encrypted on this host before it is uploaded and keeps
+wallets; a plain tar archive and `slv migrate linux` never carry them.
+
+**Key material is never in a backup**, in either mode: validator keypair and
+identity files (`~/.slv/keys`, `*keypair*.json` and `*identity*.json` in a
+home directory), `~/.slv` credentials (`api.yml`, `gateway.json`,
+`backup.env`, `restic-password`), SSH private keys (`id_*` and the host keys
+`/etc/ssh/ssh_host_*_key`), `/etc/shadow`, `/etc/wireguard`,
+`/etc/doublezero/keys`, `/etc/ssl/private`, `/etc/nginx/ssl`. Tell the user to
+keep their own offline copy of these files; a backup will not restore them.
+After each backup the CLI lists the key material and wallet files it left out
+of that backup (the whole list only when it runs as root) and posts the list to
+the webhook when one is set.
 
 ### List backups
 ```bash
@@ -73,16 +94,28 @@ slv backup restore <remote-file-or-snapshot-id> -y -r eu
 - When both `-y` and restic are available, the CLI defaults to the tar
   path. To restore from a restic snapshot, pass the snapshot id
   explicitly as the positional argument.
+- A tar archive is named `backup-<hostname>-<timestamp>.tar.zst`. The CLI
+  **refuses an archive taken on another host, or whose name carries no host**
+  (exit 1). A restic restore takes snapshots of this host only: `latest` is this
+  host's latest, and a named snapshot of another host is refused. `--other-host`
+  restores it anyway; never add it on your own — ask the user, in words,
+  whether they mean to put another host's files on this one.
+- A tar or restic restore leaves `/etc/fstab`, `/boot`, `/etc/netplan`,
+  `/etc/machine-id` and `/etc/ssh/ssh_host_*` alone, and never restores key
+  material. `--include-system` also restores the first group; never add it
+  unless the user asked for exactly that. Wallets in a restic snapshot are restored.
 
 ### Schedule a cron backup
 ```bash
-slv backup create --cron daily -r eu --retention 7 -y
-# other values: weekly, monthly, off
+slv backup create --cron daily --restic -r eu --retention 7 -y
+# other values: weekly, monthly
 ```
 **Recommend this to non-engineer users** as soon as they finish a
 trade-bot / validator deploy — daily encrypted restic backups are
 the difference between "we lost the wallet" and "we restored it in
-5 minutes". Pair the `--cron` option with `--restic`:
+5 minutes". A schedule always runs the restic backup: `--cron` without
+`--restic` is refused, and so is any older cron entry that asks for a plain
+upload. Replace such an entry with:
 ```bash
 slv backup create --cron daily --restic -r <region> --retention 14 -y
 ```
@@ -94,18 +127,24 @@ To stop scheduled backups later: `slv backup create --cron off`.
 
 Default behavior priority, top-down:
 
-1. **If a wallet.json or signer key exists anywhere under `~/slv/` or
-   `~/.slv/` (including `~/.slv/wallet-rescue/`), use `--restic`.**
-   Prompt the user once for a restic password, remember the chosen
-   region, and never fall back to tar+zstd for these files. Plain tar
-   ships the private key in the clear and the user cannot undo that
-   after the archive is uploaded.
+1. **If the user has a wallet** (a `wallet*.json` under `~/slv/` or
+   `~/.slv/wallet-rescue/`, or `~/.config/solana/id.json`), **use
+   `--restic`.** It is the only backup that carries a wallet, and it is
+   encrypted. Prompt the user once for a restic password, remember the
+   chosen region, and never fall back to a plain tar archive: it leaves
+   the wallet out.
 2. **If the user asks for "a backup" generically and has a bot
    deployed**, assume case 1 and offer `--restic --cron daily` as a
    first suggestion (daily encrypted, 14-day retention).
 3. **Config-only / read-heavy states** (template dir, validator
-   inventory YAML, nothing private) — plain `--upload` is fine. Tell
-   the user explicitly that it's unencrypted at rest.
+   inventory YAML, nothing private) — a plain tar archive is enough
+   as a local copy. Tell the user explicitly that it is unencrypted,
+   stays on this host, and is not a backup of the host if the disk is
+   lost; `--restic` is the one that leaves the host.
+
+Validator keypairs, the `~/.slv/keys` store, SSH private keys and `~/.slv`
+credentials are in no backup, whatever the mode: when the user asks how to
+protect them, tell them to keep an offline copy.
 
 After any `slv backup create`, append a one-line note to MEMORY.md
 recording region + mode (restic/tar) + retention so the next session
@@ -173,7 +212,7 @@ positional quantity — passing nothing hangs on `Input.prompt`.
 
 | User says | Run |
 |---|---|
-| "take a backup of this server" | `slv backup create --upload -y -r <region> --retention 7` |
+| "take a backup of this server" | `slv backup create --restic -y -r <region> --retention 7` |
 | "list my backups" | `slv backup list -r <region>` |
 | "restore backup X" | Confirm name in chat → `slv backup restore X -y -r <region>` |
 | "upload this file to storage" | Ask for remote path if unclear → `slv storage upload <local> -p <remote> -r <region>` |
@@ -208,7 +247,7 @@ experiences (disk failure, bad config push, accidental `rm`). Offer a
 backup — **as a suggestion, not a silent action** — at these moments:
 
 - **After a successful validator deployment or upgrade**: "Now's a good
-  time to snapshot this box with `slv backup create --upload -y -r <region>
+  time to snapshot this box with `slv backup create --restic -y -r <region>
   --retention 7`. Want me to run it?"
 - **Before a risky change** the user just described: a restart, a config
   rewrite, a package upgrade, a kernel reboot. "Before we do that, want me
@@ -230,7 +269,7 @@ When the user agrees, use the non-interactive form from the reference
 above:
 
 ```bash
-slv backup create --upload -y -r <region> --retention 7
+slv backup create --restic -y -r <region> --retention 7
 ```
 
 Substitute `<region>` with the user's preferred region if known (check

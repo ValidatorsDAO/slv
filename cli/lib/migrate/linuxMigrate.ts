@@ -560,6 +560,7 @@ export async function migrateLinux(options: MigrateOptions): Promise<boolean> {
     extraExcludes,
     extraIncludes,
     includeSSH: false, // SSH is always excluded for migrate
+    tool: 'rsync',
   })
   // SSH_EXCLUDES are already included via buildExcludeList when includeSSH=false
   const allExcludes = excludes

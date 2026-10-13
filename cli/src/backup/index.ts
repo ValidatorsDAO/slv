@@ -10,8 +10,14 @@ export const backupCmd = new Command()
     this.showHelp()
   })
   .command('create', 'Create a backup of the current node')
-  .option('-o, --output <path:string>', 'Output file path')
-  .option('--upload', 'Upload backup to cloud storage after creation')
+  .option(
+    '-o, --output <path:string>',
+    'Output file path (restoring a file not named backup-<hostname>-<timestamp>.tar.zst needs --other-host)',
+  )
+  .option(
+    '--upload',
+    'Refused unless --restic is given: a plain tar archive is never uploaded',
+  )
   .option(
     '-r, --region <region:string>',
     'Storage region for upload (default: eu)',
@@ -23,7 +29,7 @@ export const backupCmd = new Command()
   )
   .option(
     '--include <path:string>',
-    'Remove path from default excludes (repeatable)',
+    'Remove path from default excludes (repeatable; key material, and wallets in tar archives, cannot be removed)',
     { collect: true },
   )
   .option('--list-excludes', 'Show current exclude list and exit')
@@ -34,19 +40,30 @@ export const backupCmd = new Command()
   )
   .option(
     '--cron <interval:string>',
-    'Set up cron job (daily|weekly|monthly|off)',
+    'Set up cron job (daily|weekly|monthly|off); a schedule needs --restic',
   )
   .option(
     '--webhook <url:string>',
     'Discord webhook URL for notifications (overrides SLV_BACKUP_WEBHOOK)',
   )
-  .option('--restic', 'Use restic for incremental backup (requires restic installed)')
+  .option(
+    '--restic',
+    'Use restic for incremental, client-side encrypted backup to cloud storage (requires restic installed)',
+  )
   .option('-y, --yes', 'Skip confirmation prompts')
   .action(backupAction)
   .command('restore', 'Restore from a backup file or restic snapshot')
   .alias('import')
   .arguments('[file:string]')
   .option('-r, --region <region:string>', 'Storage region for download')
+  .option(
+    '--other-host',
+    'Restore a backup taken on another host: a tar archive named for another host or without a host in its name (backup-<hostname>-<timestamp>), or a restic snapshot of another host',
+  )
+  .option(
+    '--include-system',
+    'Also restore /etc/fstab, /boot, /etc/netplan, /etc/machine-id and the SSH host public keys (key material is never restored)',
+  )
   .option('-y, --yes', 'Skip confirmation prompts')
   .action(importAction)
   .command('list', 'List available backups (cloud storage + restic snapshots)')

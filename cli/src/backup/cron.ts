@@ -41,6 +41,22 @@ async function writeCrontab(content: string): Promise<boolean> {
   return result.success
 }
 
+/**
+ * The crontab line for a scheduled backup. A schedule only ever runs the
+ * encrypted restic backup: a plain tar archive is never scheduled for upload.
+ */
+export function buildCronEntry(parts: {
+  schedule: string
+  homeDir: string
+  backupEnvFile: string
+  slvPath: string
+  retention: number
+}): string {
+  const homePrefix = `HOME="${parts.homeDir}" `
+  const sourceEnv = `. ${parts.backupEnvFile} 2>/dev/null; `
+  return `${parts.schedule} ${homePrefix}${sourceEnv}${parts.slvPath} backup create --restic --yes --retention ${parts.retention} >> /var/log/slv-backup.log 2>&1`
+}
+
 export async function setupCron(
   interval: string,
   retention: number,
@@ -49,6 +65,18 @@ export async function setupCron(
   if (interval === 'off') {
     await removeCron()
     return
+  }
+
+  if (!useRestic) {
+    console.log(
+      colors.red('\n❌ A plain tar archive is never scheduled for upload.'),
+    )
+    console.log(
+      colors.white(
+        '   Schedule the encrypted backup: slv backup create --cron daily --restic -y\n',
+      ),
+    )
+    Deno.exit(1)
   }
 
   const schedule = CRON_SCHEDULES[interval]
@@ -108,11 +136,13 @@ export async function setupCron(
 
   // Build cron entry — source backup.env for webhook, keep secrets out of crontab
   const homeDir = Deno.env.get('HOME') || '/root'
-  const homePrefix = `HOME="${homeDir}" `
-  const sourceEnv = `. ${backupEnvFile} 2>/dev/null; `
-  const backupMode = useRestic ? '--restic' : '--upload'
-  const entry =
-    `${schedule} ${homePrefix}${sourceEnv}${slvPath} backup create ${backupMode} --yes --retention ${retention} >> /var/log/slv-backup.log 2>&1`
+  const entry = buildCronEntry({
+    schedule,
+    homeDir,
+    backupEnvFile,
+    slvPath,
+    retention,
+  })
   filtered.push(entry)
 
   // Write back
