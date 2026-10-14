@@ -368,7 +368,23 @@ Deno.test('workflow keeps CI-only pull-request builds and permissions narrow', a
       "if: needs.resolve.outputs.release_required == 'true'\n    runs-on: ubuntu-26.04\n    permissions:\n      attestations: write\n      artifact-metadata: write\n      id-token: write",
     ),
   )
-  assert(!workflow.includes('secrets.'))
+  const legacyBootstrap = jobSection(workflow, 'legacy-bootstrap')
+  const normalWorkflow = workflow.replace(legacyBootstrap, '')
+  assert(!normalWorkflow.includes('secrets.'))
+  assertEquals(count(workflow, 'secrets.CLOUDFLARE_ACCOUNT_ID'), 1)
+  assertEquals(count(workflow, 'secrets.CLOUDFLARE_API_TOKEN'), 1)
+  assert(legacyBootstrap.includes('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}'))
+  assert(legacyBootstrap.includes('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}'))
+  assert(legacyBootstrap.includes("github.event_name == 'workflow_dispatch'"))
+  assert(legacyBootstrap.includes("inputs.operation == 'legacy-bootstrap-preflight'"))
+  assert(legacyBootstrap.includes("inputs.operation == 'legacy-bootstrap-apply'"))
+  assert(legacyBootstrap.includes('test "$REF" = refs/heads/main'))
+  assert(legacyBootstrap.includes('environment: release'))
+  assert(legacyBootstrap.includes('contents: read'))
+  assert(!legacyBootstrap.includes('contents: write'))
+  assert(legacyBootstrap.includes('group: slv-legacy-bootstrap-object-${{ github.repository }}-slv-install'))
+  assert(legacyBootstrap.includes('cancel-in-progress: false'))
+  assert(workflow.includes("format('slv-legacy-bootstrap-dispatch-{0}', github.repository)"))
 })
 
 Deno.test('workflow freezes source materials and uses exact identities for four native source proofs', async () => {

@@ -12,15 +12,85 @@ on:
         description: Existing CalVer tag to verify or publish when no draft exists; it cannot overwrite a draft
         required: true
         type: string
+      operation:
+        description: Normal release flow, or the explicitly reviewed legacy-bootstrap transition mode
+        required: false
+        default: release
+        type: choice
+        options: [release, legacy-bootstrap-preflight, legacy-bootstrap-apply]
+      source_sha:
+        description: Reviewed immutable release source commit for a legacy-bootstrap operation
+        required: false
+        type: string
+      expected_preimage_sha256:
+        description: Reviewed current legacy object SHA-256 for a legacy-bootstrap apply
+        required: false
+        type: string
+      expected_payload_sha256:
+        description: Independently reviewed STOP payload SHA-256 for a legacy-bootstrap apply
+        required: false
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: slv-release-${{ github.repository }}-${{ github.ref }}
+  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply') && format('slv-legacy-bootstrap-dispatch-{0}', github.repository) || format('slv-release-{0}-{1}', github.repository, github.ref) }}
   cancel-in-progress: false
 
 jobs:
+  legacy-bootstrap:
+    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    environment: release
+    concurrency:
+      group: slv-legacy-bootstrap-object-${{ github.repository }}-slv-install
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse any ref other than main before credentials are exposed
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test "$REF" = refs/heads/main
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Replace the legacy bootstrap only after immutable release verification
+        env:
+          OPERATION: ${{ inputs.operation }}
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_PREIMAGE_SHA256: ${{ inputs.expected_preimage_sha256 }}
+          EXPECTED_PAYLOAD_SHA256: ${{ inputs.expected_payload_sha256 }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          operation="${OPERATION#legacy-bootstrap-}"
+          args=("$operation" --version "$VERSION" --output-dir legacy-bootstrap-evidence)
+          if [ -n "$SOURCE_SHA" ]; then args+=(--source-sha "$SOURCE_SHA"); fi
+          if [ -n "$EXPECTED_PREIMAGE_SHA256" ]; then args+=(--expected-preimage-sha256 "$EXPECTED_PREIMAGE_SHA256"); fi
+          if [ -n "$EXPECTED_PAYLOAD_SHA256" ]; then args+=(--expected-payload-sha256 "$EXPECTED_PAYLOAD_SHA256"); fi
+          deno run --frozen --allow-read --allow-write --allow-env=CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_API_TOKEN --allow-net=api.cloudflare.com,api.github.com,storage.slv.dev scripts/release/legacy-bootstrap.ts "${args[@]}"
+      - name: Preserve legacy-bootstrap evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-legacy-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: legacy-bootstrap-evidence
+          if-no-files-found: warn
+          retention-days: 7
+
   resolve:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply')) }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
