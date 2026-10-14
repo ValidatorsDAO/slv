@@ -56,6 +56,68 @@ function jobSection(workflow: string, name: string): string {
   return workflow.slice(start, next === -1 ? undefined : start + 1 + next)
 }
 
+function legacyOperationShell(workflow: string): string {
+  const legacy = jobSection(workflow, 'legacy-bootstrap')
+  const start = legacy.indexOf(
+    '      - name: Replace the legacy bootstrap only after immutable release verification',
+  )
+  const end = legacy.indexOf(
+    '      - name: Preserve legacy-bootstrap evidence on success or failure',
+  )
+  assert(start >= 0 && end > start, 'missing legacy operation step')
+  const operation = legacy.slice(start, end)
+  const match = operation.match(/        run: \|\n((?:          .*\n?)*)/)
+  assert(match, 'missing legacy operation shell')
+  return match[1].replace(/^          /gm, '')
+}
+
+async function executeLegacyOperation(
+  shell: string,
+  endpointHost: string,
+  metadataFails = false,
+) {
+  const directory = await Deno.makeTempDir({ prefix: 'slv-workflow-test-' })
+  const denoPath = `${directory}/deno`
+  const argsPath = `${directory}/deno-args`
+  const canary = 'bundle-canary-should-never-reach-process-output'
+  await Deno.writeTextFile(
+    denoPath,
+    `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\0' "$@" >> "$FAKE_DENO_ARGS"
+if [[ "$*" == *'r2-fixed-object.ts endpoint-host'* ]]; then
+if [[ "\${FAKE_METADATA_FAIL:-}" = 1 ]]; then exit 1; fi
+  printf '%s\\n' "$FAKE_ENDPOINT_HOST"
+  exit 0
+fi
+if [[ "$*" == *'legacy-bootstrap.ts'* ]]; then exit 0; fi
+exit 2
+`,
+  )
+  await Deno.chmod(denoPath, 0o755)
+  const result = await new Deno.Command('bash', {
+    args: ['-ceu', shell],
+    clearEnv: true,
+    env: {
+      PATH: `${directory}:${Deno.env.get('PATH') ?? ''}`,
+      FAKE_DENO_ARGS: argsPath,
+      FAKE_ENDPOINT_HOST: endpointHost,
+      FAKE_METADATA_FAIL: metadataFails ? '1' : '0',
+      OPERATION: 'legacy-bootstrap-preflight',
+      VERSION: '2026.10.14',
+      SOURCE_SHA: '',
+      EXPECTED_PREIMAGE_SHA256: '',
+      EXPECTED_PAYLOAD_SHA256: '',
+      SLV_R2_CREDENTIALS_JSON: canary,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  const args = await Deno.readTextFile(argsPath).catch(() => '')
+  await Deno.remove(directory, { recursive: true })
+  return { result, args, canary }
+}
+
 Deno.test('workflow persists one test-produced notice binding and makes every consumer verify it', async () => {
   const workflow = await releaseWorkflow()
   const graph =
@@ -371,20 +433,112 @@ Deno.test('workflow keeps CI-only pull-request builds and permissions narrow', a
   const legacyBootstrap = jobSection(workflow, 'legacy-bootstrap')
   const normalWorkflow = workflow.replace(legacyBootstrap, '')
   assert(!normalWorkflow.includes('secrets.'))
-  assertEquals(count(workflow, 'secrets.CLOUDFLARE_ACCOUNT_ID'), 1)
-  assertEquals(count(workflow, 'secrets.CLOUDFLARE_API_TOKEN'), 1)
-  assert(legacyBootstrap.includes('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}'))
-  assert(legacyBootstrap.includes('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}'))
+  assertEquals(count(workflow, 'secrets.SLV_R2_CREDENTIALS_JSON'), 1)
+  assert(!workflow.includes('CLOUDFLARE_ACCOUNT_ID'))
+  assert(!workflow.includes('CLOUDFLARE_API_TOKEN'))
   assert(legacyBootstrap.includes("github.event_name == 'workflow_dispatch'"))
-  assert(legacyBootstrap.includes("inputs.operation == 'legacy-bootstrap-preflight'"))
-  assert(legacyBootstrap.includes("inputs.operation == 'legacy-bootstrap-apply'"))
+  assert(
+    legacyBootstrap.includes(
+      "inputs.operation == 'legacy-bootstrap-preflight'",
+    ),
+  )
+  assert(
+    legacyBootstrap.includes("inputs.operation == 'legacy-bootstrap-apply'"),
+  )
   assert(legacyBootstrap.includes('test "$REF" = refs/heads/main'))
   assert(legacyBootstrap.includes('environment: release'))
   assert(legacyBootstrap.includes('contents: read'))
   assert(!legacyBootstrap.includes('contents: write'))
-  assert(legacyBootstrap.includes('group: slv-legacy-bootstrap-object-${{ github.repository }}-slv-install'))
+  assert(
+    legacyBootstrap.includes(
+      'group: slv-legacy-bootstrap-object-${{ github.repository }}-slv-install',
+    ),
+  )
   assert(legacyBootstrap.includes('cancel-in-progress: false'))
-  assert(workflow.includes("format('slv-legacy-bootstrap-dispatch-{0}', github.repository)"))
+  assert(
+    workflow.includes(
+      "format('slv-legacy-bootstrap-dispatch-{0}', github.repository)",
+    ),
+  )
+})
+
+Deno.test('legacy bootstrap uses one step-local S3 bundle and exact network grants', async () => {
+  const workflow = await releaseWorkflow()
+  const legacy = jobSection(workflow, 'legacy-bootstrap')
+  const normal = workflow.replace(legacy, '')
+  const shell = legacyOperationShell(workflow)
+
+  assertEquals(count(legacy, 'secrets.SLV_R2_CREDENTIALS_JSON'), 1)
+  assert(
+    legacy.includes(
+      'SLV_R2_CREDENTIALS_JSON: ${{ secrets.SLV_R2_CREDENTIALS_JSON }}',
+    ),
+  )
+  assert(!normal.includes('SLV_R2_CREDENTIALS_JSON'))
+  assert(!legacy.includes('api.cloudflare.com'))
+  assert(!legacy.includes('onepassword'))
+  assert(!legacy.includes('GITHUB_ENV'))
+  assert(!legacy.includes('GITHUB_OUTPUT'))
+  assert(!shell.includes('set -x'))
+  assert(
+    shell.includes(
+      'deno run --frozen --no-prompt --allow-env=SLV_R2_CREDENTIALS_JSON scripts/release/r2-fixed-object.ts endpoint-host',
+    ),
+  )
+  assert(
+    shell.includes(
+      'deno run --frozen --no-prompt --allow-read --allow-write --allow-env=SLV_R2_CREDENTIALS_JSON --allow-net="$endpoint_host,api.github.com,storage.slv.dev" scripts/release/legacy-bootstrap.ts "${args[@]}"',
+    ),
+  )
+  assert(
+    shell.indexOf('r2-fixed-object.ts endpoint-host') <
+      shell.indexOf('legacy-bootstrap.ts'),
+  )
+})
+
+Deno.test('legacy bootstrap rejects invalid endpoint metadata before consumer invocation', async () => {
+  const shell = legacyOperationShell(await releaseWorkflow())
+  const hosts = [
+    'a'.repeat(32) + '.r2.cloudflarestorage.com',
+    'a'.repeat(32) + '.eu.r2.cloudflarestorage.com',
+    'a'.repeat(32) + '.us.r2.cloudflarestorage.com',
+    'a'.repeat(32) + '.fedramp.r2.cloudflarestorage.com',
+  ]
+
+  for (const host of hosts) {
+    const { result, args, canary } = await executeLegacyOperation(shell, host)
+    assertEquals(result.code, 0)
+    const captured = new TextDecoder().decode(result.stdout) +
+      new TextDecoder().decode(result.stderr) + args
+    assert(!captured.includes(canary))
+    assert(args.includes('--allow-env=SLV_R2_CREDENTIALS_JSON'))
+    assert(args.includes(`--allow-net=${host},api.github.com,storage.slv.dev`))
+  }
+
+  for (
+    const host of [
+      'invalid.example.com',
+      'a'.repeat(32) + '.r2.cloudflarestorage.com,attacker.example.com',
+    ]
+  ) {
+    const { result, args, canary } = await executeLegacyOperation(shell, host)
+    assertEquals(result.code, 65)
+    assert(!args.includes('legacy-bootstrap.ts'))
+    const captured = new TextDecoder().decode(result.stdout) +
+      new TextDecoder().decode(result.stderr) + args
+    assert(!captured.includes(canary))
+  }
+
+  const failedMetadata = await executeLegacyOperation(
+    shell,
+    hosts[0],
+    true,
+  )
+  assertEquals(failedMetadata.result.code, 1)
+  assert(!failedMetadata.args.includes('legacy-bootstrap.ts'))
+  const captured = new TextDecoder().decode(failedMetadata.result.stdout) +
+    new TextDecoder().decode(failedMetadata.result.stderr) + failedMetadata.args
+  assert(!captured.includes(failedMetadata.canary))
 })
 
 Deno.test('workflow freezes source materials and uses exact identities for four native source proofs', async () => {
