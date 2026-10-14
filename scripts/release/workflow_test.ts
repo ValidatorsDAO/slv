@@ -56,6 +56,29 @@ function jobSection(workflow: string, name: string): string {
   return workflow.slice(start, next === -1 ? undefined : start + 1 + next)
 }
 
+function stepShell(section: string, name: string): string {
+  const start = section.indexOf(`      - name: ${name}\n`)
+  assert(start >= 0, `missing workflow step ${name}`)
+  const end = section.indexOf('\n      - ', start + 1)
+  const step = section.slice(start, end === -1 ? undefined : end)
+  const match = step.match(/        run: \|\n((?:          .*\n?)*)/)
+  assert(match, `missing shell for ${name}`)
+  return match[1].replace(/^          /gm, '')
+}
+
+async function runPrerequisiteShell(shell: string, needsJson: string) {
+  return await new Deno.Command('bash', {
+    args: ['-ceu', shell],
+    clearEnv: true,
+    env: {
+      PATH: Deno.env.get('PATH') ?? '',
+      NEEDS_JSON: needsJson,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+}
+
 function legacyOperationShell(workflow: string): string {
   const legacy = jobSection(workflow, 'legacy-bootstrap')
   const start = legacy.indexOf(
@@ -158,7 +181,7 @@ Deno.test('workflow persists one test-produced notice binding and makes every co
       workflow,
       'artifact-ids: ${{ needs.test.outputs.license_artifact_id }}',
     ),
-    9,
+    13,
   )
   assertEquals(
     count(
@@ -171,21 +194,29 @@ Deno.test('workflow persists one test-produced notice binding and makes every co
   const verifyLines = workflow.split('\n').filter((line) =>
     line.includes('release.ts verify-licenses')
   )
-  assertEquals(verifyLines.length, 9)
+  assertEquals(verifyLines.length, 13)
   for (const line of verifyLines) {
     assert(line.includes('${{ needs.test.outputs.license_producer_attempt }}'))
     assert(line.includes('${{ needs.test.outputs.license_notice_sha256 }}'))
     assert(!line.includes('github.run_attempt'))
   }
-  const packageSection = workflow.slice(workflow.indexOf('  package:'))
+  const packageSection = jobSection(workflow, 'package')
   assert(!packageSection.includes('release.ts prepare-licenses'))
   assert(packageSection.includes('release.ts materialize-licenses'))
   assert(packageSection.includes(graph))
-  assert(
-    packageSection.includes(
-      'needs: [resolve, test, build, source-materials, source-native-linux-x64, source-native-macos-x64, source-native-macos-arm64, source-arm-build, source-arm-merge]',
-    ),
-  )
+  for (
+    const need of [
+      'resolve',
+      'test',
+      'build',
+      'source-materials',
+      'source-native-linux-x64',
+      'source-native-macos-x64',
+      'source-native-macos-arm64',
+      'source-arm-build',
+      'source-arm-merge',
+    ]
+  ) assert(packageSection.includes(need))
 })
 
 Deno.test('workflow binds notices into each native executable without runner credentials or global settings', async () => {
@@ -220,11 +251,18 @@ Deno.test('workflow compiles each official target only from its exact source-bui
   const build = jobSection(workflow, 'build')
   const packageSection = jobSection(workflow, 'package')
 
-  assert(
-    build.includes(
-      'needs: [resolve, test, source-materials, source-native-linux-x64, source-native-macos-x64, source-native-macos-arm64, source-arm-build, source-arm-merge]',
-    ),
-  )
+  for (
+    const need of [
+      'resolve',
+      'test',
+      'source-materials',
+      'source-native-linux-x64',
+      'source-native-macos-x64',
+      'source-native-macos-arm64',
+      'source-arm-build',
+      'source-arm-merge',
+    ]
+  ) assert(build.includes(need))
   assert(build.includes('runner: macos-15'))
   assert(!build.includes('runner: macos-14'))
   assert(build.includes('if: matrix.apple'))
@@ -423,7 +461,7 @@ Deno.test('workflow keeps CI-only pull-request builds and permissions narrow', a
     "if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'"
 
   assert(workflow.includes('permissions: {}'))
-  assertEquals(count(workflow, ciCondition), 9)
+  assertEquals(count(workflow, ciCondition), 11)
   assertEquals(count(workflow, 'id-token: write'), 1)
   assert(
     workflow.includes(
@@ -589,7 +627,6 @@ Deno.test('workflow freezes source materials and uses exact identities for four 
 
   const nativeJobs = [
     ['source-native-linux-x64', 'ubuntu-26.04', 'x86_64-unknown-linux-gnu'],
-    ['source-native-macos-x64', 'macos-15-intel', 'x86_64-apple-darwin'],
     ['source-native-macos-arm64', 'macos-15', 'aarch64-apple-darwin'],
   ] as const
   for (const [job, runner, target] of nativeJobs) {
@@ -641,12 +678,9 @@ Deno.test('workflow freezes source materials and uses exact identities for four 
   )
   assert(armBuild.includes('runs-on: ubuntu-26.04'))
   assert(armBuild.includes('timeout-minutes: 350'))
-  assert(armBuild.includes('--build-host "$BUILD_HOST" --purpose build'))
-  assert(
-    armBuild.includes(
-      '--descriptor "dist/release-inputs/tool-pins/$TARGET.json"',
-    ),
-  )
+  assert(armBuild.includes('--phase join-build'))
+  assert(!armBuild.includes('--purpose build'))
+  assert(armBuild.includes('tool-pin.json'))
   assert(armExecute.includes('runs-on: ubuntu-26.04-arm'))
   assert(armExecute.includes('timeout-minutes: 30'))
   assert(armExecute.includes('--build-host "$BUILD_HOST" --purpose execution'))
@@ -677,6 +711,8 @@ Deno.test('workflow freezes source materials and uses exact identities for four 
   assert(macX64.includes("= 'Xcode 16.2'"))
   assert(macX64.includes('show-sdk-version)" = 15.2'))
   assert(macX64.includes('SLV_APPLE_SDK_PATH'))
+  assert(macX64.includes('--phase join-build'))
+  assert(!macX64.includes('--purpose build'))
 
   assert(
     packageSection.includes(
@@ -704,6 +740,193 @@ Deno.test('workflow freezes source materials and uses exact identities for four 
   }
   assert(!packageSection.includes('path: downloaded'))
   assert(!packageSection.includes('find downloaded'))
+})
+
+Deno.test('split native producers preserve the required facades and fail them closed', async () => {
+  const workflow = await releaseWorkflow()
+  const producerSpecs = [
+    [
+      'source-arm-baseline',
+      'ubuntu-26.04',
+      'aarch64-unknown-linux-gnu',
+      'x86_64-unknown-linux-gnu',
+      'baseline',
+    ],
+    [
+      'source-arm-modified',
+      'ubuntu-26.04',
+      'aarch64-unknown-linux-gnu',
+      'x86_64-unknown-linux-gnu',
+      'modified',
+    ],
+    [
+      'source-macos-x64-baseline',
+      'macos-15-intel',
+      'x86_64-apple-darwin',
+      'x86_64-apple-darwin',
+      'baseline',
+    ],
+    [
+      'source-macos-x64-modified',
+      'macos-15-intel',
+      'x86_64-apple-darwin',
+      'x86_64-apple-darwin',
+      'modified',
+    ],
+  ] as const
+  for (const [job, runner, target, buildHost, variant] of producerSpecs) {
+    const section = jobSection(workflow, job)
+    assert(section.includes('needs: [resolve, test, source-materials]'))
+    assert(section.includes(`runs-on: ${runner}`))
+    assert(section.includes('timeout-minutes: 350'))
+    assert(section.includes('contents: read'))
+    assert(section.includes(`TARGET: ${target}`))
+    assert(section.includes(`BUILD_HOST: ${buildHost}`))
+    assert(section.includes(`VARIANT: ${variant}`))
+    assert(section.includes('id: variant\n        timeout-minutes: 320'))
+    assert(section.includes('--phase build-variant'))
+    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(section.includes('--purpose build'))
+    assert(section.includes('producer-context.json'))
+    assert(section.includes('variant_receipt_sha256'))
+    assert(section.includes('id: upload-variant'))
+    assert(section.includes('compression-level: 0'))
+    assert(section.includes('if-no-files-found: error'))
+    assert(section.includes('variant-receipt.json'))
+    assert(section.includes('build-tools-receipt.json'))
+    assert(section.includes('tool-pin.json'))
+    assert(section.includes('/transport'))
+    const upload = section.slice(
+      section.indexOf('id: upload-variant'),
+      section.indexOf('Preserve ', section.indexOf('id: upload-variant')),
+    )
+    assert(!upload.includes('if:'))
+    assert(section.includes('if: ${{ always() && !cancelled() }}'))
+    assert(section.includes('timeout-minutes: 5'))
+    assert(!section.includes('--allow-net source-rebuild/verify-native.ts'))
+  }
+
+  const facades = [
+    [
+      'source-arm-build',
+      [
+        'resolve',
+        'test',
+        'source-materials',
+        'source-arm-baseline',
+        'source-arm-modified',
+      ],
+      'source-arm-baseline',
+      'source-arm-modified',
+      30,
+    ],
+    [
+      'source-native-macos-x64',
+      [
+        'resolve',
+        'test',
+        'source-materials',
+        'source-macos-x64-baseline',
+        'source-macos-x64-modified',
+      ],
+      'source-macos-x64-baseline',
+      'source-macos-x64-modified',
+      60,
+    ],
+  ] as const
+  for (const [job, needs, baseline, modified, joinTimeout] of facades) {
+    const section = jobSection(workflow, job)
+    assert(
+      section.includes(
+        "if: ${{ !cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}",
+      ),
+    )
+    assert(section.includes(`timeout-minutes: ${joinTimeout}`))
+    const firstStep = section.indexOf('      - name:')
+    assert(
+      section.slice(firstStep).startsWith(
+        '      - name: Require every source prerequisite to succeed\n',
+      ),
+    )
+    const prerequisite = stepShell(
+      section,
+      'Require every source prerequisite to succeed',
+    )
+    assert(prerequisite.includes('set -euo pipefail'))
+    assert(
+      prerequisite.includes(`--argjson expected '${JSON.stringify(needs)}'`),
+    )
+    assert(!prerequisite.includes('continue-on-error'))
+    assert(section.indexOf('actions/checkout') > section.indexOf(prerequisite))
+    assert(
+      section.includes(
+        'artifact-ids: ${{ needs.' + baseline + '.outputs.artifact_id }}',
+      ),
+    )
+    assert(
+      section.includes(
+        'artifact-ids: ${{ needs.' + modified + '.outputs.artifact_id }}',
+      ),
+    )
+    assert(section.includes('merge-multiple: true'))
+    assert(section.includes('--phase join-build'))
+    assert(!section.includes('--phase build "${common[@]}"'))
+    assert(section.includes('materials: $baseline_materials'))
+    assert(section.includes('materials: $modified_materials'))
+    assert(!section.includes('baseline_materials "$baseline_root/transport"'))
+    assert(section.includes('artifact_digest: $baseline_artifact_digest'))
+    assert(section.includes('artifact_digest: $modified_artifact_digest'))
+
+    const valid = Object.fromEntries(
+      needs.map((need) => [need, { result: 'success', outputs: { x: '1' } }]),
+    )
+    assert(
+      (await runPrerequisiteShell(prerequisite, JSON.stringify(valid))).success,
+    )
+    const negative = [
+      '',
+      'null',
+      '[]',
+      '{}',
+      `${JSON.stringify(valid)}\n${JSON.stringify(valid)}`,
+      JSON.stringify({ ...valid, extra: { result: 'success' } }),
+      ...needs.map((missing) =>
+        JSON.stringify(Object.fromEntries(
+          Object.entries(valid).filter(([key]) => key !== missing),
+        ))
+      ),
+      ...['failure', 'skipped', 'cancelled', 'neutral', '', null, false].map(
+        (result) =>
+          JSON.stringify({
+            ...valid,
+            [needs[0]]: { result },
+          }),
+      ),
+      JSON.stringify({ ...valid, [needs[0]]: null }),
+      JSON.stringify({ ...valid, [needs[0]]: [] }),
+    ]
+    for (const control of negative) {
+      assert(!(await runPrerequisiteShell(prerequisite, control)).success)
+    }
+  }
+
+  const arm = jobSection(workflow, 'source-arm-build')
+  const mac = jobSection(workflow, 'source-native-macos-x64')
+  assert(
+    arm.includes(
+      'runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}',
+    ),
+  )
+  assert(
+    mac.includes(
+      'runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}',
+    ),
+  )
+  assert(mac.includes('--purpose execution'))
+  assert(mac.includes('--phase execute'))
+  assert(mac.includes('--phase merge'))
+  assert(arm.includes('if: ${{ always() && !cancelled() }}'))
+  assert(mac.includes('if: ${{ always() && !cancelled() }}'))
 })
 
 async function sha256(text: string): Promise<string> {
