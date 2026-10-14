@@ -277,25 +277,39 @@ async function runMacosBindgenPreflight(
   bindgenArgs: string,
   mode?: 'parse' | 'fatal',
 ): Promise<
-  { code: number; receipt: Record<string, unknown>; parsed: string[] }
+  {
+    code: number
+    receipt: Record<string, unknown>
+    parsed: string[]
+    retainedLog: string
+    envelope: Record<string, unknown>
+  }
 > {
   const fragment = await recipeFragment(
     '# MACOS_BINDGEN_PREFLIGHT_BEGIN',
     '# MACOS_BINDGEN_PREFLIGHT_END',
   )
   const argumentsLog = `${directory}/libclang-arguments.log`
+  const retainedLog = `${directory}/build.log`
+  await Deno.mkdir(directory, { recursive: true })
   const result = await new Deno.Command('/usr/bin/bash', {
     args: [
       '-euo',
       'pipefail',
       '-c',
-      `${fragment}\nwrite_macos_bindgen_preflight "$preflight_dir"`,
+      `${fragment}
+set +e
+write_macos_bindgen_preflight "$preflight_dir" 2>&1 | tee "$retained_log"
+preflight_status="\${PIPESTATUS[0]}"
+set -e
+exit "$preflight_status"`,
     ],
     clearEnv: true,
     env: {
       PATH: '/usr/bin:/bin',
       PYTHON: '/usr/bin/python3',
       preflight_dir: directory,
+      retained_log: retainedLog,
       libclang: library,
       apple_sdk_path: sdk,
       apple_sdk_version: '15.2',
@@ -310,6 +324,19 @@ async function runMacosBindgenPreflight(
   const receipt = JSON.parse(
     await Deno.readTextFile(`${directory}/preflight.json`),
   ) as Record<string, unknown>
+  const retainedText = await Deno.readTextFile(retainedLog)
+  const marker = 'SLV_MACOS_BINDGEN_PREFLIGHT_EVIDENCE='
+  const emitted = retainedText.split('\n').filter((line) =>
+    line.startsWith(marker)
+  )
+  requireFixture(
+    emitted.length === 1,
+    'macOS preflight did not emit one evidence envelope through tee',
+  )
+  const envelope = JSON.parse(emitted[0].slice(marker.length)) as Record<
+    string,
+    unknown
+  >
   let parsed: string[] = []
   try {
     const text = await Deno.readTextFile(argumentsLog)
@@ -317,7 +344,7 @@ async function runMacosBindgenPreflight(
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) throw error
   }
-  return { code: result.code, receipt, parsed }
+  return { code: result.code, receipt, parsed, retainedLog, envelope }
 }
 
 async function runCargoGuard(
@@ -365,6 +392,42 @@ async function runCargoGuard(
     cargoRan = false
   }
   return { code: result.code, cargoRan }
+}
+
+async function assertRetainedMacosPreflightEvidence(
+  probe: {
+    receipt: Record<string, unknown>
+    retainedLog: string
+    envelope: Record<string, unknown>
+  },
+): Promise<void> {
+  const files = probe.envelope.files as Record<string, Record<string, unknown>>
+  requireFixture(
+    probe.envelope.schema_version === 1 &&
+      probe.envelope.kind === 'slv-macos-bindgen-preflight-evidence' &&
+      JSON.stringify(probe.envelope.preflight) ===
+        JSON.stringify(probe.receipt),
+    'retained preflight evidence did not carry the complete written receipt',
+  )
+  for (const name of ['receipt', 'diagnostics']) {
+    const binding = files[name]
+    const path = binding?.path
+    requireFixture(
+      typeof path === 'string',
+      `retained ${name} binding lacks path`,
+    )
+    const bytes = await Deno.readFile(path)
+    requireFixture(
+      binding.size === bytes.length &&
+        binding.sha256 === createHash('sha256').update(bytes).digest('hex'),
+      `retained ${name} binding does not match its written file`,
+    )
+  }
+  const retained = await Deno.readTextFile(probe.retainedLog)
+  requireFixture(
+    retained.includes('SLV_MACOS_BINDGEN_PREFLIGHT_EVIDENCE='),
+    'preflight evidence was not retained by the tee log',
+  )
 }
 
 Deno.test('native recipe guarded arrays preserve zero and spaced values on the observed Bash', async () => {
@@ -520,6 +583,7 @@ Deno.test('macOS bindgen preflight passes exact SDK tokens to paired libclang be
         target,
         serialized,
       )
+      await assertRetainedMacosPreflightEvidence(probe)
       const libclang = probe.receipt.libclang as Record<string, unknown>
       const selectedSdk = probe.receipt.sdk as Record<string, unknown>
       const logs = probe.receipt.logs as Record<string, Record<string, unknown>>
@@ -556,6 +620,8 @@ Deno.test('macOS bindgen preflight passes exact SDK tokens to paired libclang be
         'macos_bindgen_preflight_receipt_sha256=%s',
         'macos_bindgen_preflight_diagnostics_log_sha256=%s',
         'macos_bindgen_preflight_status=%s',
+        'SLV_MACOS_BINDGEN_PREFLIGHT_EVIDENCE=',
+        'sys.stdout.flush()',
       ]
     ) {
       requireFixture(
@@ -600,6 +666,8 @@ Deno.test('macOS bindgen preflight records invalid SDK and libclang failures bef
     }
     await Deno.mkdir(`${resource}/include`, { recursive: true })
     const library = await writeFixtureLibclang(root)
+    const invalidLibrary = `${root}/invalid-libclang.dylib`
+    await Deno.writeTextFile(invalidLibrary, 'not a shared library\n')
     const target = 'x86_64-apple-darwin'
     const validArgs = await macosBindgenArguments(target, sdk, resource)
 
@@ -613,11 +681,19 @@ Deno.test('macOS bindgen preflight records invalid SDK and libclang failures bef
     }
     const cases: Array<{
       name: string
+      library?: string
       sdk: string
       args: string
       mode?: 'parse' | 'fatal'
       requiredDiagnostic: string
     }> = [
+      {
+        name: 'invalid-libclang',
+        library: invalidLibrary,
+        sdk,
+        args: validArgs,
+        requiredDiagnostic: 'file too short',
+      },
       {
         name: 'invalid-sdk',
         sdk: `${root}/SDK absent`,
@@ -652,21 +728,26 @@ Deno.test('macOS bindgen preflight records invalid SDK and libclang failures bef
     for (const fixture of cases) {
       const probe = await runMacosBindgenPreflight(
         `${root}/${fixture.name}`,
-        library,
+        fixture.library ?? library,
         fixture.sdk,
         target,
         fixture.args,
         fixture.mode,
       )
+      await assertRetainedMacosPreflightEvidence(probe)
       const diagnostics = probe.receipt.diagnostics as Array<
         Record<string, unknown>
       >
+      const retainedRecord = probe.envelope.preflight as Record<string, unknown>
       const guard = await runCargoGuard(
         `${root}/${fixture.name}-cargo`,
         probe.code,
       )
       requireFixture(
         probe.code === 65 && probe.receipt.status === 'failed' &&
+          retainedRecord.status === 'failed' &&
+          retainedRecord.target === target &&
+          Array.isArray(retainedRecord.parsed_args) &&
           JSON.stringify(diagnostics).includes(fixture.requiredDiagnostic),
         `${fixture.name} did not retain its pre-Cargo failure receipt`,
       )

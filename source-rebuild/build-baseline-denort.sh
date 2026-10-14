@@ -80,6 +80,8 @@ target = sys.argv[6]
 serialized_args = sys.argv[7]
 diagnostics = []
 required_headers = ('stdlib.h', 'stdint.h', 'stddef.h', 'sys/types.h')
+max_diagnostic_text_bytes = 4096
+max_recorded_diagnostics = 32
 record = {
     'schema_version': 1,
     'kind': 'slv-macos-bindgen-preflight',
@@ -97,6 +99,10 @@ record = {
     'parsed_args': [],
     'headers': {},
     'diagnostics': diagnostics,
+    'diagnostic_limits': {
+        'text_bytes': max_diagnostic_text_bytes,
+        'recorded_count': max_recorded_diagnostics,
+    },
 }
 
 def digest(path):
@@ -105,6 +111,20 @@ def digest(path):
         for chunk in iter(lambda: source.read(1024 * 1024), b''):
             value.update(chunk)
     return value.hexdigest()
+
+def bounded_text(value):
+    raw = value.encode('utf-8', 'replace')
+    if len(raw) <= max_diagnostic_text_bytes:
+        return raw.decode('utf-8', 'replace')
+    suffix = b'...[truncated]'
+    return (raw[:max_diagnostic_text_bytes - len(suffix)] + suffix).decode('utf-8', 'replace')
+
+def file_binding(path):
+    return {
+        'path': str(path),
+        'size': path.stat().st_size,
+        'sha256': digest(path),
+    }
 
 def write(status):
     record['status'] = status
@@ -122,6 +142,20 @@ def write(status):
         json.dumps(record, sort_keys=True, indent=2) + '\n',
         encoding='utf-8',
     )
+    envelope = {
+        'schema_version': 1,
+        'kind': 'slv-macos-bindgen-preflight-evidence',
+        'preflight': record,
+        'files': {
+            'receipt': file_binding(receipt_path),
+            'diagnostics': file_binding(diagnostics_path),
+        },
+    }
+    sys.stdout.write(
+        'SLV_MACOS_BINDGEN_PREFLIGHT_EVIDENCE=' +
+        json.dumps(envelope, sort_keys=True, separators=(',', ':')) + '\n',
+    )
+    sys.stdout.flush()
 
 index = None
 translation_unit = None
@@ -221,25 +255,46 @@ try:
     translation_unit = parsed.value
     if parse_code != 0 or not translation_unit:
         raise RuntimeError('libclang could not parse macOS bindgen header probe')
-    for position in range(clang_getNumDiagnostics(translation_unit)):
+    diagnostic_count = clang_getNumDiagnostics(translation_unit)
+    record['diagnostic_count'] = diagnostic_count
+    record['diagnostics_truncated'] = diagnostic_count > max_recorded_diagnostics
+    has_error_diagnostic = False
+    error_diagnostic_count = 0
+    for position in range(diagnostic_count):
         diagnostic = clang_getDiagnostic(translation_unit, position)
         try:
             severity = clang_getDiagnosticSeverity(diagnostic)
-            spelling = clang_getDiagnosticSpelling(diagnostic)
-            try:
-                text = ctypes.cast(spelling.data, ctypes.c_char_p).value
-                diagnostics.append({
-                    'severity': severity,
-                    'spelling': '' if text is None else text.decode('utf-8', 'replace'),
-                })
-            finally:
-                clang_disposeString(spelling)
+            has_error_diagnostic = has_error_diagnostic or severity >= 3
+            if severity >= 3:
+                error_diagnostic_count += 1
+            if position < max_recorded_diagnostics or severity >= 3:
+                spelling = clang_getDiagnosticSpelling(diagnostic)
+                try:
+                    text = ctypes.cast(spelling.data, ctypes.c_char_p).value
+                    entry = {
+                        'severity': severity,
+                        'spelling': bounded_text(
+                            '' if text is None else text.decode('utf-8', 'replace'),
+                        ),
+                    }
+                    if position < max_recorded_diagnostics:
+                        diagnostics.append(entry)
+                    elif len(diagnostics) >= max_recorded_diagnostics:
+                        diagnostics[-1] = entry
+                    else:
+                        diagnostics.append(entry)
+                finally:
+                    clang_disposeString(spelling)
         finally:
             clang_disposeDiagnostic(diagnostic)
-    if any(item['severity'] >= 3 for item in diagnostics):
+    record['error_diagnostic_count'] = error_diagnostic_count
+    if has_error_diagnostic:
         raise RuntimeError('libclang reported an error or fatal diagnostic')
 except Exception as error:
-    diagnostics.append({'severity': 'probe-failure', 'spelling': str(error)})
+    diagnostics.append({
+        'severity': 'probe-failure',
+        'spelling': bounded_text(str(error)),
+    })
     write('failed')
     raise SystemExit(65)
 finally:
