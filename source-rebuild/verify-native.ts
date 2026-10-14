@@ -33,6 +33,7 @@ const ASSETS = [
 // The remaining allowance covers transport binaries, logs, metadata, and the
 // modified-tree transition without retaining the completed baseline scratch.
 const BUILD_MIN_FREE_KIB = 12 * 1024 * 1024
+const EXECUTION_FAILURE_TAIL_BYTES = 4096
 type AssetName = typeof ASSETS[number]
 type Phase = 'build' | 'execute' | 'merge'
 type Args = Record<string, string>
@@ -416,6 +417,87 @@ function succeeded(receipt: CommandReceipt, label: string): void {
       `${label} failed (exit ${receipt.exit_code}); inspect ${receipt.log}`,
     )
   }
+}
+
+function redactExecutionFailureLine(line: string): string | undefined {
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(line)) return undefined
+  return line.replace(
+    /((?:authorization\s*:\s*(?:bearer\s+)?|(?:api[_ -]?key|token|secret|password|credential|private[_ -]?key)\s*[=:]\s*))[^\s,;]+/gi,
+    '$1<redacted>',
+  )
+}
+
+async function readExecutionFailureTail(
+  path: string,
+): Promise<{ bytes: Uint8Array; size: number; truncated: boolean }> {
+  const info = await Deno.stat(path)
+  const size = info.size
+  const tailSize = Math.min(size, EXECUTION_FAILURE_TAIL_BYTES)
+  const file = await Deno.open(path, { read: true })
+  try {
+    await file.seek(-tailSize, Deno.SeekMode.End)
+    const bytes = new Uint8Array(tailSize)
+    let offset = 0
+    while (offset < bytes.length) {
+      const read = await file.read(bytes.subarray(offset))
+      if (read === null) break
+      offset += read
+    }
+    return {
+      bytes: bytes.subarray(0, offset),
+      size,
+      truncated: size > tailSize,
+    }
+  } finally {
+    file.close()
+  }
+}
+
+function redactExecutionFailureTail(
+  bytes: Uint8Array,
+  truncated: boolean,
+): string {
+  let text = decoder.decode(bytes)
+  if (truncated) {
+    const newline = text.indexOf('\n')
+    text = newline === -1 ? '' : text.slice(newline + 1)
+  }
+  return text.split(/\r?\n/).flatMap((line) => {
+    const redacted = redactExecutionFailureLine(line)
+    return redacted === undefined ? [] : [redacted]
+  }).join('\n')
+}
+
+async function emitExecutionFailureDiagnostics(
+  receipt: CommandReceipt,
+  label: string,
+): Promise<void> {
+  console.error(`execution failure diagnostics: ${label}`)
+  console.error(`exit_code: ${receipt.exit_code}`)
+  console.error(`log_path: ${receipt.log}`)
+  console.error(`recorded_log_sha256: ${receipt.log_sha256}`)
+  try {
+    const tail = await readExecutionFailureTail(receipt.log)
+    console.error(
+      `log_tail_bytes: ${tail.bytes.length}/${tail.size}${
+        tail.truncated ? ' (truncated)' : ''
+      }`,
+    )
+    console.error(
+      `log_tail:\n${redactExecutionFailureTail(tail.bytes, tail.truncated)}`,
+    )
+  } catch {
+    console.error('execution failure log unavailable')
+  }
+}
+
+export async function assertExecutionSucceeded(
+  receipt: CommandReceipt,
+  label: string,
+): Promise<void> {
+  if (receipt.exit_code === 0) return
+  await emitExecutionFailureDiagnostics(receipt, label)
+  succeeded(receipt, label)
 }
 
 async function copyTree(source: string, destination: string): Promise<void> {
@@ -2345,7 +2427,7 @@ async function runProbe(
   env: Record<string, string>,
 ): Promise<{ receipt: CommandReceipt; output: number }> {
   const receipt = await command(executable, [input], cwd, log, env)
-  succeeded(receipt, `runtime probe ${input}`)
+  await assertExecutionSucceeded(receipt, `runtime probe ${input}`)
   const parsed = JSON.parse(
     decoder.decode(await Deno.readFile(log)).trim(),
   ) as { output?: unknown }
@@ -2482,7 +2564,10 @@ async function executePhase(args: Args): Promise<void> {
       bridge,
     })
   ) {
-    succeeded(receipt, `compiled SLV ${label} acceptance`)
+    await assertExecutionSucceeded(
+      receipt,
+      `compiled SLV ${label} acceptance`,
+    )
   }
   if (licenses.log_sha256 !== inputs.noticeSha256) {
     throw new Error(

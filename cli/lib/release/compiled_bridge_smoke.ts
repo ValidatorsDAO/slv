@@ -9,6 +9,7 @@ const shellQuote = (value: string): string =>
   `'${value.replaceAll("'", "'\\\"'\\\"'")}'`
 const decoder = new TextDecoder()
 const root = await Deno.makeTempDir({ prefix: 'slv-compiled-release-bridge-' })
+const originalCwd = Deno.cwd()
 const originalPath = Deno.env.get('PATH')
 if (!originalPath) throw new Error('PATH is required for compiled bridge smoke')
 const realPython = await new Deno.Command('sh', {
@@ -30,7 +31,7 @@ try {
     '#!/bin/sh',
     'set -eu',
     `printf '%s\\n' \"$@\" > ${shellQuote(argsPath)}`,
-    `env > ${shellQuote(envPath)}`,
+    `/usr/bin/env > ${shellQuote(envPath)}`,
     `cat > ${shellQuote(stdinPath)}`,
     `exec ${shellQuote(decoder.decode(realPython.stdout).trim())} \"$@\" < ${
       shellQuote(stdinPath)
@@ -38,6 +39,8 @@ try {
   ].join('\n') + '\n'
   await Deno.writeTextFile(python, shim, { mode: 0o755 })
   await Deno.chmod(python, 0o755)
+  Deno.chdir(root)
+  const childCwd = Deno.cwd()
   Deno.env.set('PATH', `${bin}:${originalPath}`)
   Deno.env.set('SLV_RELEASE_BRIDGE_CALLER_SENTINEL', 'must-not-reach-python')
 
@@ -57,14 +60,49 @@ try {
       }`,
     )
   }
-  // POSIX sh supplies PWD itself; every other caller value must remain absent.
-  const allowedEnv = new Set(['HOME', 'PATH', 'PWD', 'TMPDIR'])
-  const inherited = decoder.decode(await Deno.readFile(envPath)).split('\n')
-    .filter(Boolean).map((entry) => entry.slice(0, entry.indexOf('=')))
-  if (inherited.some((name) => !allowedEnv.has(name))) {
-    throw new Error(
-      `release bridge leaked caller environment: ${inherited.join(', ')}`,
-    )
+  const captured = new Map(
+    decoder.decode(await Deno.readFile(envPath)).split('\n').filter(Boolean)
+      .map((entry) => {
+        const separator = entry.indexOf('=')
+        return [entry.slice(0, separator), entry.slice(separator + 1)]
+      }),
+  )
+  const declared = new Map<string, string | undefined>()
+  declared.set('HOME', Deno.env.get('HOME'))
+  declared.set('PATH', Deno.env.get('PATH'))
+  const temp = Deno.env.get('TMPDIR')
+  if (temp !== undefined) declared.set('TMPDIR', temp)
+  if (captured.has('SLV_RELEASE_BRIDGE_CALLER_SENTINEL')) {
+    throw new Error('release bridge leaked caller sentinel')
+  }
+  for (const [name, value] of captured) {
+    if (declared.has(name)) {
+      if (value !== declared.get(name)) {
+        throw new Error(`release bridge changed declared environment: ${name}`)
+      }
+      continue
+    }
+    if (name === 'PWD') {
+      if (value !== childCwd) {
+        throw new Error('release bridge changed shell-created environment: PWD')
+      }
+      continue
+    }
+    if (name === 'SHLVL') {
+      if (value !== '1') {
+        throw new Error(
+          'release bridge changed shell-created environment: SHLVL',
+        )
+      }
+      continue
+    }
+    if (name === '_') {
+      if (value !== '/usr/bin/env') {
+        throw new Error('release bridge changed shell-created environment: _')
+      }
+      continue
+    }
+    throw new Error(`release bridge leaked caller environment: ${name}`)
   }
   console.log(
     `release bridge smoke passed (${
@@ -72,6 +110,7 @@ try {
     })`,
   )
 } finally {
+  Deno.chdir(originalCwd)
   Deno.env.set('PATH', originalPath)
   Deno.env.delete('SLV_RELEASE_BRIDGE_CALLER_SENTINEL')
   await Deno.remove(root, { recursive: true })

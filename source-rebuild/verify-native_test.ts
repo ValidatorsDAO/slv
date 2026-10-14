@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  assertExecutionSucceeded,
   assertSafeTree,
   captureCargoFingerprintCollection,
   emitNativeTargetProof,
@@ -429,6 +430,151 @@ async function assertRetainedMacosPreflightEvidence(
     'preflight evidence was not retained by the tee log',
   )
 }
+
+async function runExecutionFailureFixture(
+  root: string,
+  log: string,
+  digest: string,
+  exitCode: number,
+  executeLog: string,
+): Promise<Deno.CommandOutput> {
+  const fixture = `${root}/execution-failure-fixture.ts`
+  const runner = `${root}/retain-execute-log.sh`
+  await Deno.writeTextFile(
+    fixture,
+    `import { assertExecutionSucceeded } from ${
+      JSON.stringify(
+        new URL('./verify-native.ts', import.meta.url).href,
+      )
+    }
+const [log, digest, code] = Deno.args
+await assertExecutionSucceeded({
+  command: ['fixture'],
+  cwd: '.',
+  started_at: '2026-10-14T00:00:00Z',
+  finished_at: '2026-10-14T00:00:01Z',
+  exit_code: Number(code),
+  log,
+  log_sha256: digest,
+  environment: {},
+}, 'synthetic bridge acceptance')
+`,
+  )
+  await Deno.writeTextFile(
+    runner,
+    `#!/usr/bin/bash
+set -uo pipefail
+"$1" run --quiet --allow-read "$2" "$3" "$4" "$5" 2>&1 | /usr/bin/tee "$6"
+status="\${PIPESTATUS[0]}"
+exit "$status"
+`,
+  )
+  await Deno.chmod(runner, 0o755)
+  return await new Deno.Command('/usr/bin/bash', {
+    args: [
+      runner,
+      Deno.execPath(),
+      fixture,
+      log,
+      digest,
+      String(exitCode),
+      executeLog,
+    ],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+}
+
+Deno.test('execution failures retain bounded redacted diagnostics in execute logs', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-native-execute-diagnostics-',
+  })
+  try {
+    const commandLog = `${root}/command.log`
+    const executeLog = `${root}/execute.log`
+    const leak = 'fixture-secret-value-must-not-appear'
+    await Deno.writeTextFile(
+      commandLog,
+      `${'é'.repeat(2600)}
+FIXTURE_ENVIRONMENT_DUMP=${leak}
+Authorization: Bearer ${leak}
+synthetic execution reason
+`,
+    )
+    const failed = await runExecutionFailureFixture(
+      root,
+      commandLog,
+      'a'.repeat(64),
+      23,
+      executeLog,
+    )
+    if (failed.success) {
+      throw new Error('nonzero execution receipt unexpectedly succeeded')
+    }
+    const retained = await Deno.readTextFile(executeLog)
+    for (
+      const expected of [
+        'execution failure diagnostics: synthetic bridge acceptance',
+        'exit_code: 23',
+        `recorded_log_sha256: ${'a'.repeat(64)}`,
+        `log_tail_bytes: 4096/${
+          (await Deno.stat(commandLog)).size
+        } (truncated)`,
+        'synthetic execution reason',
+        'synthetic bridge acceptance failed (exit 23); inspect',
+      ]
+    ) {
+      if (!retained.includes(expected)) {
+        throw new Error(`retained execute log is missing: ${expected}`)
+      }
+    }
+    if (retained.includes(leak)) {
+      throw new Error('retained execute log exposed a fixture secret')
+    }
+
+    const missingExecuteLog = `${root}/missing-execute.log`
+    const missing = await runExecutionFailureFixture(
+      root,
+      `${root}/missing-command.log`,
+      'b'.repeat(64),
+      23,
+      missingExecuteLog,
+    )
+    if (missing.success) {
+      throw new Error('missing-log execution receipt unexpectedly succeeded')
+    }
+    const missingRetained = await Deno.readTextFile(missingExecuteLog)
+    if (
+      !missingRetained.includes('execution failure log unavailable') ||
+      !missingRetained.includes(
+        'synthetic bridge acceptance failed (exit 23); inspect',
+      )
+    ) {
+      throw new Error('missing log did not preserve its failure diagnostics')
+    }
+
+    const success = await assertExecutionSucceeded(
+      {
+        command: ['fixture'],
+        cwd: '.',
+        started_at: '2026-10-14T00:00:00Z',
+        finished_at: '2026-10-14T00:00:01Z',
+        exit_code: 0,
+        log: `${root}/unread-success.log`,
+        log_sha256: 'c'.repeat(64),
+        environment: {},
+      },
+      'successful fixture',
+    )
+    if (success !== undefined) {
+      throw new Error('successful execution receipt changed its success result')
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
 
 Deno.test('native recipe guarded arrays preserve zero and spaced values on the observed Bash', async () => {
   // This is the local Bash boundary only; it makes no claim about an
