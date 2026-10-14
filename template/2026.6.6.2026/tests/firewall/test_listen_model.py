@@ -25,6 +25,7 @@ import subprocess
 import sys
 import types
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.normpath(
@@ -279,7 +280,7 @@ class ModelTestCase(unittest.TestCase):
 
 
 class ListenModelBehaviors(ModelTestCase):
-    """One test per behavior of the model (b01 to b39)."""
+    """One test per behavior of the model (b01 to b43)."""
 
     def test_b01_mainnet_agave_validator_with_cli_values(self):
         model = agave_validator()
@@ -754,9 +755,9 @@ class ListenModelBehaviors(ModelTestCase):
             "--rpc-port 7211",
             "--rpc-port 7300",
         )
-        # the sources that reach the ports only the old model has are the same in both models, so the union is
-        # allowed (b39 has the unions that would give such a port more sources); the deny entry and nginx
-        # are the new model's own
+        # the sources that reach the ports only the old model has are the same or narrower in the new model (its
+        # deny entry narrows udp.public), so the union is allowed (b39 has the unions that would give such a
+        # port more sources); nginx is the new model's own
         new = derive(
             [args_item(new_text, literal=True)],
             inp=inputs(deny_ips=["192.0.2.0/24"], components=["nginx"]),
@@ -1320,7 +1321,7 @@ class ListenModelBehaviors(ModelTestCase):
                 edit(model)
             return plugin()._seal(model)
 
-        # What is refused, on real renders (b25 has the union of two models with the same sources).
+        # What is refused, on real renders (b25 has the union of two models with the same or narrower sources).
         with self.subTest("(a) public_rpc is turned on, and a consumer port is only in the applied model"):
             applied = derive(index, index_node, inputs(lb_ips=["192.0.2.10"], components=["rpc-gateway"]))
             new = derive(index, index_node, inputs(lb_ips=["192.0.2.10"], public_rpc=True))
@@ -1428,10 +1429,10 @@ class ListenModelBehaviors(ModelTestCase):
             }
             for klass, make_public in both.items():
                 applied = edited(blank_model(), lambda m: setters[klass](m, P(5555)), make_public, deny("192.0.2.0/24"))
-                for nets in (["192.0.2.0/24"], ["192.0.2.0/24", "198.51.100.0/24"], ["192.0.2.0/23"]):
+                for nets in (["192.0.2.0/24"], ["192.0.2.0/24", "203.0.113.0/24"], ["192.0.2.0/23"]):
                     new = edited(blank_model(), make_public, deny(*nets))
                     self.assertEqual(union_of(applied, new)[klass.split(".")[0]][klass.split(".")[1]], P(5555), nets)
-                for nets in ([], ["192.0.2.0/25"], ["198.51.100.0/24"]):
+                for nets in ([], ["192.0.2.0/25"], ["203.0.113.0/24"]):
                     new = edited(blank_model(), make_public, deny(*nets))
                     refused(applied, new, klass, "5555", "sources.deny lost 192.0.2.0/24")
         with self.subTest("ssh.rate has to be the same where ssh is public in both"):
@@ -1537,6 +1538,12 @@ class ListenModelBehaviors(ModelTestCase):
             ("tcp.public", ("deny v4", "deny v6")),
         )
 
+        self.assertEqual(
+            sorted(klass for klass, used in judged_by),
+            sorted("%s.%s" % field for field in plugin()._UNION_FIELDS if field[0] != "local_only"),
+            "a row for every class of the union",
+        )
+
         def pair(klass, fields):
             applied, new = blank_model(), blank_model()
             setters[klass](applied, P(5555))
@@ -1557,6 +1564,111 @@ class ListenModelBehaviors(ModelTestCase):
             for field in used:
                 with self.subTest("%s: %s" % (klass, field)):
                     refused(*pair(klass, [field]), klass, "5555", says[field])
+
+    def test_b40_the_union_refuses_a_model_whose_deny_sources_overlap_what_it_allows(self):
+        union_of = plugin().slv_listen_model_union
+        rendered = [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]
+        cases = (
+            # (name, what the model allows, the family of the deny network, the deny network, where it overlaps)
+            ("mgmt", {"admin_ips": ["198.51.100.7"]}, "v4", "198.51.100.0/24", "mgmt"),
+            ("lb", {"lb_ips": ["192.0.2.10"]}, "v4", "192.0.2.0/25", "lb"),
+            ("scrape", {"metrics_ips": ["203.0.113.9"]}, "v4", "203.0.113.8/29", "scrape"),
+            ("mgmt over IPv6", {"admin_ips": [ADMIN, "2001:db8:10::/64"]}, "v6", "2001:db8:10::5/128", "mgmt"),
+        )
+        for name, allowed, family, deny, where in cases:
+            # a model whose deny sources were edited after it was derived, as a stored copy might be: deriving
+            # a model from the same inputs stops
+            self.assertStopsDerive("deny_overlaps_allow", rendered, inp=inputs(deny_ips=[deny], **allowed))
+            sound = derive(rendered, inp=inputs(**allowed))
+            broken = copy.deepcopy(sound)
+            broken["sources"]["deny"][family] = [deny]
+            broken = plugin()._seal(broken)
+            self.assertEqual(union_of(sound, sound)["sources"], sound["sources"])
+            for which, pair in (("applied", (broken, sound)), ("new", (sound, broken))):
+                with self.subTest("%s: %s" % (which, name)):
+                    exc = self.assertStops("deny_overlaps_allow", *pair, func=union_of)
+                    self.assertIn("the %s model itself has the deny source %s" % (which, deny), exc.detail)
+                    self.assertIn("in sources.%s" % where, exc.detail)
+
+    def test_b41_every_class_of_the_union_has_a_reach_rule_and_one_without_stops_the_union(self):
+        module = plugin()
+        model = agave_validator()
+        for group, key in module._UNION_FIELDS:
+            if group != "local_only":
+                with self.subTest("%s.%s has a rule" % (group, key)):
+                    self.assertEqual(module._reach_gaps(model, model, group, key), [])
+        with self.subTest("a class without a rule is not carried unchecked"):
+            with self.assertRaises(NotImplementedError) as caught:
+                module._reach_gaps(model, model, "tcp", "unheard")
+            self.assertIn("tcp.unheard", str(caught.exception))
+        with self.subTest("a class that was added to the union without a rule stops the union"):
+            applied, new = copy.deepcopy(model), copy.deepcopy(model)
+            applied["tcp"]["unheard"], new["tcp"]["unheard"] = P(5555), []
+            with mock.patch.object(module, "_UNION_FIELDS", module._UNION_FIELDS + (("tcp", "unheard"),)):
+                with self.assertRaises(NotImplementedError):
+                    module.slv_listen_model_union(module._seal(applied), module._seal(new))
+
+    def test_b42_one_error_names_every_class_that_the_union_refuses(self):
+        union_of = plugin().slv_listen_model_union
+        text = fixture("mainnet-validator.agave-4.3.0.start-validator.sh")
+        moved = [args_item(replaced(text, "--rpc-port 7211", "--rpc-port 7300"), literal=True)]
+        # the RPC port moves and sshd stops listening on 2222, while the admin list grows
+        applied = derive(
+            [args_item(text, literal=True)], facts=host_facts(sshd_ports=[22, 2222], sshd_listen_ports=[22, 2222])
+        )
+        new = derive(moved, inp=inputs(admin_ips=["198.51.100.0/24"]))
+        exc = self.assertStops("union_widens_reach", applied, new, func=union_of)
+        self.assertIn("tcp port 7211-7212 is only in tcp.mgmt of the applied model", exc.detail)
+        self.assertIn("tcp port 2222 is only in tcp.ssh of the applied model", exc.detail)
+        self.assertEqual(exc.detail.count("sources.mgmt gained 198.51.100.0/24"), 2)
+        self.assertLess(exc.detail.index("tcp.mgmt"), exc.detail.index("tcp.ssh"), "the order of the union")
+        self.assertEqual(exc.detail.count("Apply the change in two steps"), 1)
+        self.assertIn("without those ports (with the old sources)", exc.detail)
+        with self.subTest("the first of the two steps leaves out every port that was named"):
+            mid = derive(moved)  # the ports of the new model, the sources of the applied one
+            union_of(applied, mid)
+            union_of(mid, new)
+        with self.subTest("a class that keeps a port but not a wider reach is not named"):
+            public = derive(moved, inp=inputs(ssh_mode="public-rate-limited"))
+            exc = self.assertStops("union_widens_reach", applied, public, func=union_of)
+            self.assertIn("tcp port 2222 is only in tcp.ssh of the applied model", exc.detail)
+            self.assertNotIn("tcp.mgmt", exc.detail)
+            self.assertIn("without that port (with the old sources)", exc.detail)
+
+    def test_b43_a_port_that_the_new_model_holds_in_the_other_solana_udp_class_is_not_applied_only(self):
+        union_of = plugin().slv_listen_model_union
+        fd = profile("firedancer-jito", "0.1204.40300")
+        setters = {name: put for proto, name, put in port_setters()}
+
+        def edited(model, *edits):
+            model = copy.deepcopy(model)
+            for edit in edits:
+                edit(model)
+            return plugin()._seal(model)
+
+        deny = lambda m: m["sources"]["deny"].update(v4=["192.0.2.0/24"])  # noqa: E731
+        with self.subTest("a Frankendancer node stops using XDP, and the deny list loses an entry"):
+            toml = fixture("mainnet-validator.firedancer-config.toml")
+            applied = derive([toml_item(toml, literal=True)], fd, inputs(deny_ips=["192.0.2.0/24"]))
+            new = derive([toml_item(toml + '\n[net]\n    provider = "socket"\n', literal=True)], fd)
+            self.assertEqual((applied["udp"]["xdp"], new["udp"]["xdp"]), (P(8003, 9001, 9007), []))
+            self.assertEqual(applied["udp"]["public"], new["udp"]["public"])
+            union = union_of(applied, new)
+            self.assertEqual(union["udp"]["xdp"], P(8003, 9001, 9007))
+            self.assertEqual(union["sources"]["deny"], new["sources"]["deny"])
+        with self.subTest("the new model holds the port in udp.xdp only (made by hand)"):
+            applied = edited(blank_model(), lambda m: setters["udp.public"](m, P(5555)), deny)
+            new = edited(blank_model(), lambda m: setters["udp.xdp"](m, P(5555)))
+            union = union_of(applied, new)
+            self.assertEqual((union["udp"]["public"], union["udp"]["xdp"]), (P(5555), P(5555)))
+        with self.subTest("a port that the new model holds in neither class is applied-only in both"):
+            applied = edited(
+                blank_model(), lambda m: setters["udp.public"](m, P(5555)), lambda m: setters["udp.xdp"](m, P(5555)), deny
+            )
+            exc = self.assertStops("union_widens_reach", applied, edited(blank_model()), func=union_of)
+            self.assertIn("udp port 5555 is only in udp.public of the applied model", exc.detail)
+            self.assertIn("udp port 5555 is only in udp.xdp of the applied model", exc.detail)
+            self.assertEqual(exc.detail.count("sources.deny lost 192.0.2.0/24"), 2)
 
 
 class ListenModelSupport(ModelTestCase):
