@@ -39,9 +39,9 @@ table inet slv {
   counter c_metrics { }
   counter c_tail { }
 
-  # Only the Solana UDP packets to and from this host skip conntrack, so packets that this
-  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT. A UDP
-  # packet to a sol_udp or xdp_udp port that is addressed to this host gets no NAT at all:
+  # Only the Solana IPv4 UDP packets to and from this host skip conntrack, so packets that this
+  # host forwards (containers, VMs, tunnels) keep their conntrack entry and their NAT. An IPv4
+  # UDP packet to a sol_udp or xdp_udp port that is addressed to this host gets no NAT at all:
   # neither the return of a masqueraded flow nor a DNAT of such a port is translated. The skip
   # opens nothing; the input chain decides what comes in.
   chain pre_raw {
@@ -76,7 +76,7 @@ table inet slv {
     # before the conntrack rules, so that deny also cuts flows that are already open
     ip saddr @deny_v4 counter name "c_deny" drop
     ip6 saddr @deny_v6 counter name "c_deny" drop
-    # Solana UDP is accepted by port, not by conntrack state: packets that XDP sends skip
+    # IPv4 Solana UDP is accepted by port, not by conntrack state: packets that XDP sends skip
     # conntrack, so the replies to them arrive as new
     meta nfproto ipv4 udp dport @xdp_udp counter name "c_xdp_fallback" accept
     meta nfproto ipv4 udp dport @sol_udp counter name "c_sol_udp" accept

@@ -87,9 +87,10 @@ Output (schema "slv-listen-model/1")
     dynamic port range.  The same input gives the same canonical JSON and the same
     model_sha256, the sha256 of the canonical JSON without the model_sha256 key.
     A port is in one class only (a UDP and a TCP port of one number are two ports).  The
-    table opens a port to the sources of each class that holds it, and to everybody but the
-    deny sources (it drops them first), past the limit of the other class, when one of them
-    is public; the model does not say which class the node means.  So it stops with
+    table opens a port to the sources of each class that holds it, and to every source that
+    a public class lets in (all but the deny sources, which the table drops first; for
+    udp.public and udp.xdp only the IPv4 ones), past the limit of the other class, when one
+    of them is public; the model does not say which class the node means.  So it stops with
     class_overlap, naming the port and the two classes, when a port is in two of:
     udp.public, udp.xdp, udp.pub, udp.allowlist (each component), local_only.udp, the
     interface rules of a component (libvirt), the DHCP client ports of the host (udp 68
@@ -101,7 +102,9 @@ Output (schema "slv-listen-model/1")
     and on udp 546 only from source port 547 and a link-local address.  A listener on one
     of the two ports is refused all the same: the model says nothing about who may reach
     it, and the rule lets in whatever comes from the server port.
-    slv_listen_model_union applies the same rule to its result.
+    slv_listen_model_union applies the same rule to its result, and stops with
+    union_widens_reach when a port that only the applied model holds may get more sources
+    from the new model than the applied model gave it (see that function).
       udp.pub            public UDP ports of components (wireguard)
       udp.allowlist      [{"component", "ports", "sources": {"v4", "v6"}}]: UDP ports
                          that only the listed sources may reach (shred-relay)
@@ -128,7 +131,7 @@ Errors (ModelError.code)
     unknown_component, component_sources_required, gateway_never_public,
     admin_empty_refused, controller_unknown, controller_not_in_admin,
     agave_args_unreadable, rendered_missing, gossip_port_unpinned, class_overlap,
-    invalid_input, invalid_meta.
+    invalid_input, invalid_meta, union_widens_reach.
 
 Warnings (model["warnings"], each {"code", "detail", ...})
     lb_empty_fail_closed, public_rpc_unauthenticated, public_rpc_no_effect,
@@ -1903,14 +1906,204 @@ def _holders(proto, name, shared, models):
     return "the %s model" % labels[0] if labels else "neither model"
 
 
+# The classes of _UNION_FIELDS that the input chain of slv.nft.j2 has a rule for, and the
+# families of the sources that the rule of a public class lets in (see slv_listen_model_union
+# for what each class lets in).  local_only has no rule.
+_MGMT_LIKE = ("tcp.ssh", "tcp.mgmt", "tcp.consumer", "tcp.metrics")
+_PUBLIC_FAMILIES = {
+    "udp.public": ("v4",),
+    "udp.xdp": ("v4",),
+    "udp.pub": ("v4", "v6"),
+    "tcp.public": ("v4", "v6"),
+}
+
+
+def _port_difference(first, second):
+    """The ports of first that second does not hold (merged lists of closed intervals)."""
+    left = []
+    for lo, hi in first:
+        start = lo
+        for other_lo, other_hi in second:
+            if other_hi < start:
+                continue
+            if other_lo > hi:
+                break
+            if other_lo > start:
+                left.append([start, other_lo - 1])
+            start = other_hi + 1
+            if start > hi:
+                break
+        if start <= hi:
+            left.append([start, hi])
+    return left
+
+
+def _source_networks(model, key):
+    """sources.<key> of a model as a pair of lists of networks (v4, v6), each list collapsed."""
+
+    def networks(cls, texts):
+        if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
+            raise ValueError("not a list of strings")
+        return list(ipaddress.collapse_addresses(cls(text) for text in texts))
+
+    try:
+        entry = model["sources"][key]
+        return networks(ipaddress.IPv4Network, entry["v4"]), networks(ipaddress.IPv6Network, entry["v6"])
+    except (KeyError, TypeError, ValueError):
+        _invalid("model", "sources.%s is missing or is not a pair of lists of networks" % key)
+
+
+def _outside(first, second, families=("v4", "v6")):
+    """The networks of first that no network of second holds (pairs of collapsed lists)."""
+    outside = []
+    for family, nets, held in zip(("v4", "v6"), first, second):
+        if family in families:
+            outside += [net for net in nets if not any(net.subnet_of(other) for other in held)]
+    return outside
+
+
+def _networks_text(networks):
+    return ", ".join(str(net) for net in networks)
+
+
+def _gaps_sources(old, new, key):
+    """The networks that sources.<key> gained."""
+    gained = _outside(_source_networks(new, key), _source_networks(old, key))
+    return ["sources.%s gained %s" % (key, _networks_text(gained))] if gained else []
+
+
+def _gaps_deny(old, new, families):
+    """The deny sources (of these families) that the new model lost: a public class lets in a source
+    that it no longer denies."""
+    lost = _outside(_source_networks(old, "deny"), _source_networks(new, "deny"), families)
+    return ["sources.deny lost %s" % _networks_text(lost)] if lost else []
+
+
+def _gaps_trusted_ifaces(old, new):
+    try:
+        gained = sorted(set(new["trusted_ifaces"]) - set(old["trusted_ifaces"]))
+    except (KeyError, TypeError):
+        _invalid("model", "trusted_ifaces is missing or is not a list of names")
+    return ["trusted_ifaces gained %s" % ", ".join(gained)] if gained else []
+
+
+def _gaps_tunnel(old, new):
+    try:
+        was, now = old["wireguard"], new["wireguard"]
+        if not now["enabled"]:
+            return []
+        if not was["enabled"]:
+            return ["wireguard is enabled in the new model and not in the applied one"]
+        if now["iface"] != was["iface"]:
+            return [
+                "wireguard.iface is %s in the new model and %s in the applied one" % (now["iface"], was["iface"])
+            ]
+        now_net, was_net = ipaddress.ip_network(now["subnet"]), ipaddress.ip_network(was["subnet"])
+        if now_net.version != was_net.version or not now_net.subnet_of(was_net):
+            return ["wireguard.subnet %s is not within %s" % (now["subnet"], was["subnet"])]
+    except (KeyError, TypeError, ValueError):
+        _invalid("model", "wireguard is missing or is not {enabled, iface, subnet}")
+    return []
+
+
+def _gaps_wg_only(old, new):
+    """The tunnel and, where the new model has it, the IPv4 deny sources: the rule for the ports of
+    tcp.wg_only comes after the deny rules (the jump that M takes comes before them)."""
+    gaps = _gaps_tunnel(old, new)
+    if new["wireguard"]["enabled"]:  # _gaps_tunnel has read it
+        gaps += _gaps_deny(old, new, ("v4",))
+    return gaps
+
+
+def _gaps_ssh_public(old, new):
+    try:
+        if not new["ssh"]["public"]:
+            return []
+        if not old["ssh"]["public"]:
+            return ["ssh.public is true in the new model and false in the applied one"]
+        gaps = []
+        if new["ssh"]["rate"] != old["ssh"]["rate"]:
+            gaps.append(
+                "ssh.rate is %s in the new model and %s in the applied one"
+                % (canonical_json(new["ssh"]["rate"]), canonical_json(old["ssh"]["rate"]))
+            )
+    except (KeyError, TypeError):
+        _invalid("model", "ssh is missing or is not {public, rate}")
+    return gaps + _gaps_deny(old, new, ("v4", "v6"))
+
+
+def _gaps_consumer_public(old, new):
+    try:
+        if not new["consumer_public"]:
+            return []
+        if not old["consumer_public"]:
+            return ["consumer_public is true in the new model and false in the applied one"]
+    except (KeyError, TypeError):
+        _invalid("model", "consumer_public is missing")
+    return _gaps_deny(old, new, ("v4", "v6"))
+
+
+def _reach_gaps(old, new, proto, key):
+    """What the new model may let into a port of this class that the applied model does not, as texts
+    that name the field; empty when the new reach is within the applied one as far as these fields
+    show (see slv_listen_model_union)."""
+    name = "%s.%s" % (proto, key)
+    gaps = []
+    if name in _MGMT_LIKE:
+        gaps += _gaps_sources(old, new, "mgmt") + _gaps_trusted_ifaces(old, new) + _gaps_tunnel(old, new)
+    if name == "tcp.ssh":
+        gaps += _gaps_ssh_public(old, new)
+    elif name == "tcp.consumer":
+        gaps += _gaps_sources(old, new, "lb") + _gaps_consumer_public(old, new)
+    elif name == "tcp.metrics":
+        gaps += _gaps_sources(old, new, "scrape")
+    elif name == "tcp.wg_only":
+        gaps += _gaps_wg_only(old, new)
+    elif name in _PUBLIC_FAMILIES:
+        gaps += _gaps_deny(old, new, _PUBLIC_FAMILIES[name])
+    return gaps
+
+
 def slv_listen_model_union(old, new):
     """For each port set in _UNION_FIELDS, the ports of both models; everything else, the
     allowlist included, comes from the new one.
 
-    The union is checked like a model (class_overlap). A port that is in one class of the old
-    model and in another of the new one would be open to the sources of both classes in the
-    table that carries the ports of both, so the union stops: the change is applied in two
-    steps, first a configuration without that port, then the new configuration.
+    The table that carries the union must not let a source reach a port unless the table of the
+    old model or the table of the new one lets it, so the union stops when it would.
+
+    A port that is in one class of the old model and in another of the new one would be open
+    to the sources of both classes: the union is checked like a model and stops with
+    class_overlap.
+
+    A port that is in a class of the old model and not in the same class of the new one gets
+    the sources that the new model has for the class, because the sources come from the new
+    model.  If they let in more than the old model's did, the table would open the port to
+    sources that neither model opens it to, so the union stops with union_widens_reach unless
+    the comparison below shows the new reach of the class to be within the old reach.  A port
+    that both models hold in the class keeps the new reach, which the new table gives it
+    anyway, and so does a port that only the new model holds.  The reach of a class is what
+    the input chain of slv.nft.j2 accepts for a new connection:
+
+      tcp.ssh              M; with ssh.public, also every source but the deny sources, at the
+                           rate ssh.rate for each
+      tcp.mgmt             M
+      tcp.consumer         M and sources.lb; with consumer_public, also every source but the
+                           deny sources
+      tcp.metrics          M and sources.scrape
+      udp.public, udp.xdp  every IPv4 source but the deny sources
+      udp.pub, tcp.public  every source but the deny sources
+      tcp.wg_only          the WireGuard tunnel but the IPv4 deny sources: the rule for these ports
+                           comes after the deny rules
+
+    M is sources.mgmt, the trusted interfaces and the WireGuard tunnel (wireguard.iface with
+    wireguard.subnet), which the chain accepts before the deny rules.  local_only has no rule in
+    the table, so it has no check.  The comparison errs towards stopping: the lists of networks
+    are collapsed and each network of the new list has to be inside one network of the old list,
+    the trusted interfaces are compared as exact names, ssh.rate by equality and the tunnel by
+    interface and subnet, and where a class is public, or the class is tcp.wg_only and the new
+    model has the tunnel, the new deny sources have to hold every one of the old ones.  The
+    detail names the class, the ports and the fields; the way out is two steps, first a
+    configuration without that port (with the old sources), then the new configuration.
     """
     old_copy = _model_copy(old, "old model")
     new_copy = _model_copy(new, "new model")
@@ -1948,6 +2141,22 @@ def slv_listen_model_union(old, new):
                 _holders(proto, other_name, shared, models),
             ),
         )
+    for group, key in _UNION_FIELDS:
+        if group == "local_only":
+            continue  # the table has no rule for these ports
+        only_old = _port_difference(_merge(old_copy[group][key]), _merge(new_copy[group][key]))
+        gaps = _reach_gaps(old_copy, new_copy, group, key) if only_old else []
+        if gaps:
+            name = "%s.%s" % (group, key)
+            raise ModelError(
+                "union_widens_reach",
+                "%s port %s is only in %s of the applied model, and the new model may let more sources into %s "
+                "than the applied model does (%s). The table that carries the ports of both models would give "
+                "that port the sources of the new model, so it could be open to sources that neither model "
+                "opens it to. Apply the change in two steps: first a configuration without that port (with "
+                "the old sources), then the new configuration."
+                % (group, _port_text(only_old), name, name, "; ".join(gaps)),
+            )
     return _seal(result)
 
 
