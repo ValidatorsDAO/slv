@@ -112,6 +112,261 @@ async function runRecipeCommand(
   return text === '' ? [] : text.slice(0, -1).split('\n')
 }
 
+async function recipeFragment(begin: string, end: string): Promise<string> {
+  const recipe = await Deno.readTextFile(nativeRecipe)
+  const beginOffset = recipe.indexOf(begin)
+  const endOffset = recipe.indexOf(end)
+  requireFixture(
+    beginOffset >= 0 && endOffset > beginOffset,
+    `native recipe fragment ${begin} is missing or malformed`,
+  )
+  return recipe.slice(beginOffset + begin.length, endOffset)
+}
+
+async function macosBindgenArguments(
+  target: string,
+  sdk: string,
+  resource: string,
+): Promise<string> {
+  const fragment = await recipeFragment(
+    '# MACOS_BINDGEN_ARGS_BEGIN',
+    '# MACOS_BINDGEN_ARGS_END',
+  )
+  const result = await new Deno.Command('/usr/bin/bash', {
+    args: [
+      '-euo',
+      'pipefail',
+      '-c',
+      `${fragment}\nprintf '%s' "$BINDGEN_EXTRA_CLANG_ARGS"`,
+    ],
+    clearEnv: true,
+    env: {
+      PATH: '/usr/bin:/bin',
+      PYTHON: '/usr/bin/python3',
+      SLV_APPLE_SDK_PATH: sdk,
+      apple_link_target: target,
+      resource_dir: resource,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `macOS bindgen argument fragment failed: ${
+      new TextDecoder().decode(result.stderr)
+    }`,
+  )
+  return new TextDecoder().decode(result.stdout)
+}
+
+async function parseShellArguments(value: string): Promise<string[]> {
+  const result = await new Deno.Command('/usr/bin/python3', {
+    args: [
+      '-c',
+      'import json, shlex, sys; print(json.dumps(shlex.split(sys.argv[1])))',
+      value,
+    ],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `Python could not parse bindgen arguments: ${
+      new TextDecoder().decode(result.stderr)
+    }`,
+  )
+  return JSON.parse(new TextDecoder().decode(result.stdout)) as string[]
+}
+
+async function writeFixtureLibclang(root: string): Promise<string> {
+  const source = `${root}/fixture-libclang.c`
+  const library = `${root}/libclang.dylib`
+  await Deno.writeTextFile(
+    source,
+    String.raw`#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct { const void *data; unsigned private_flags; } CXString;
+static int mode = 0;
+
+void *clang_createIndex(int exclude_decls_from_pch, int display_diagnostics) {
+  (void)exclude_decls_from_pch;
+  (void)display_diagnostics;
+  return malloc(1);
+}
+
+unsigned clang_parseTranslationUnit2(
+  void *index,
+  const char *source_filename,
+  const char * const *command_line_args,
+  int num_command_line_args,
+  void *unsaved_files,
+  unsigned num_unsaved_files,
+  unsigned options,
+  void **out_translation_unit
+) {
+  (void)index;
+  (void)source_filename;
+  (void)unsaved_files;
+  (void)num_unsaved_files;
+  (void)options;
+  const char *mode_env = getenv("FAKE_LIBCLANG_MODE");
+  mode = mode_env && strcmp(mode_env, "fatal") == 0 ? 2 : 0;
+  FILE *record = fopen(getenv("FAKE_LIBCLANG_ARGS_LOG"), "w");
+  if (record) {
+    for (int i = 0; i < num_command_line_args; ++i) fprintf(record, "%s\n", command_line_args[i]);
+    fclose(record);
+  }
+  if (mode_env && strcmp(mode_env, "parse") == 0) return 1;
+  *out_translation_unit = malloc(1);
+  return 0;
+}
+
+unsigned clang_getNumDiagnostics(void *translation_unit) {
+  (void)translation_unit;
+  return mode == 2 ? 1 : 0;
+}
+
+void *clang_getDiagnostic(void *translation_unit, unsigned index) {
+  (void)translation_unit;
+  (void)index;
+  return malloc(1);
+}
+
+unsigned clang_getDiagnosticSeverity(void *diagnostic) {
+  (void)diagnostic;
+  return mode == 2 ? 4 : 0;
+}
+
+CXString clang_getDiagnosticSpelling(void *diagnostic) {
+  (void)diagnostic;
+  CXString value = { "fixture fatal diagnostic", 0 };
+  return value;
+}
+
+void clang_disposeString(CXString value) { (void)value; }
+void clang_disposeDiagnostic(void *diagnostic) { free(diagnostic); }
+void clang_disposeTranslationUnit(void *translation_unit) { free(translation_unit); }
+void clang_disposeIndex(void *index) { free(index); }
+`,
+  )
+  const result = await new Deno.Command('/usr/bin/cc', {
+    args: ['-shared', '-fPIC', source, '-o', library],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `fixture libclang compilation failed: ${
+      new TextDecoder().decode(result.stderr)
+    }`,
+  )
+  return library
+}
+
+async function runMacosBindgenPreflight(
+  directory: string,
+  library: string,
+  sdk: string,
+  target: string,
+  bindgenArgs: string,
+  mode?: 'parse' | 'fatal',
+): Promise<
+  { code: number; receipt: Record<string, unknown>; parsed: string[] }
+> {
+  const fragment = await recipeFragment(
+    '# MACOS_BINDGEN_PREFLIGHT_BEGIN',
+    '# MACOS_BINDGEN_PREFLIGHT_END',
+  )
+  const argumentsLog = `${directory}/libclang-arguments.log`
+  const result = await new Deno.Command('/usr/bin/bash', {
+    args: [
+      '-euo',
+      'pipefail',
+      '-c',
+      `${fragment}\nwrite_macos_bindgen_preflight "$preflight_dir"`,
+    ],
+    clearEnv: true,
+    env: {
+      PATH: '/usr/bin:/bin',
+      PYTHON: '/usr/bin/python3',
+      preflight_dir: directory,
+      libclang: library,
+      apple_sdk_path: sdk,
+      apple_sdk_version: '15.2',
+      apple_link_target: target,
+      BINDGEN_EXTRA_CLANG_ARGS: bindgenArgs,
+      FAKE_LIBCLANG_ARGS_LOG: argumentsLog,
+      ...(mode ? { FAKE_LIBCLANG_MODE: mode } : {}),
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  const receipt = JSON.parse(
+    await Deno.readTextFile(`${directory}/preflight.json`),
+  ) as Record<string, unknown>
+  let parsed: string[] = []
+  try {
+    const text = await Deno.readTextFile(argumentsLog)
+    parsed = text === '' ? [] : text.slice(0, -1).split('\n')
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error
+  }
+  return { code: result.code, receipt, parsed }
+}
+
+async function runCargoGuard(
+  root: string,
+  preflightStatus: number,
+): Promise<{ code: number; cargoRan: boolean }> {
+  const fragment = await recipeFragment(
+    '# CARGO_BUILD_GUARD_BEGIN',
+    '# CARGO_BUILD_GUARD_END',
+  )
+  const work = `${root}/work`
+  const sentinel = `${root}/cargo-ran`
+  const cargo = `${root}/cargo-sentinel.sh`
+  await Deno.mkdir(`${work}/deno`, { recursive: true })
+  await Deno.writeTextFile(cargo, `#!/usr/bin/bash\ntouch "${sentinel}"\n`)
+  await Deno.chmod(cargo, 0o755)
+  const result = await new Deno.Command('/usr/bin/bash', {
+    args: [
+      '-euo',
+      'pipefail',
+      '-c',
+      `${fragment}\ntest "$status" -eq "$expected_status"`,
+    ],
+    clearEnv: true,
+    env: {
+      PATH: '/usr/bin:/bin',
+      cargo,
+      expected_status: String(preflightStatus),
+      jobs: '2',
+      log: `${root}/baseline-denort.log`,
+      macos_bindgen_preflight_status: String(preflightStatus),
+      output: root,
+      resume: 'true',
+      target_args: '()',
+      work,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  let cargoRan = true
+  try {
+    await Deno.stat(sentinel)
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error
+    cargoRan = false
+  }
+  return { code: result.code, cargoRan }
+}
+
 Deno.test('native recipe guarded arrays preserve zero and spaced values on the observed Bash', async () => {
   // This is the local Bash boundary only; it makes no claim about an
   // unmeasured Bash 3 host.
@@ -200,6 +455,224 @@ Deno.test('native recipe guarded arrays preserve zero and spaced values on the o
         JSON.stringify(two.slice(4, 6)) ===
           JSON.stringify(['--target', 'aarch64 target with spaces']),
         'two-element Cargo array did not preserve ordered spaced values',
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('macOS bindgen preflight passes exact SDK tokens to paired libclang before Cargo', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-bindgen-preflight-',
+  })
+  try {
+    const sdk = `${root}/selected SDK with spaces`
+    const resource = `${root}/paired resource with spaces`
+    await Deno.mkdir(`${sdk}/usr/include`, { recursive: true })
+    for (
+      const header of [
+        'stdlib.h',
+        'stdint.h',
+        'stddef.h',
+        'sys/types.h',
+      ]
+    ) {
+      if (header.includes('/')) {
+        await Deno.mkdir(
+          `${sdk}/usr/include/${header.slice(0, header.lastIndexOf('/'))}`,
+          { recursive: true },
+        )
+      }
+      await Deno.writeTextFile(
+        `${sdk}/usr/include/${header}`,
+        '/* fixture */\n',
+      )
+    }
+    await Deno.mkdir(`${resource}/include`, { recursive: true })
+    await Deno.writeTextFile(`${resource}/include/stddef.h`, '/* fixture */\n')
+    const library = await writeFixtureLibclang(root)
+    const librarySha256 = createHash('sha256').update(
+      await Deno.readFile(library),
+    ).digest('hex')
+    const expectedSdk = await Deno.realPath(sdk)
+    const expectedLibrary = await Deno.realPath(library)
+    const expectedResource = await Deno.realPath(resource)
+
+    for (const target of ['x86_64-apple-darwin', 'aarch64-apple-darwin']) {
+      const serialized = await macosBindgenArguments(target, sdk, resource)
+      const expected = [
+        `--target=${target}`,
+        '-isysroot',
+        expectedSdk,
+        '-isystem',
+        `${expectedResource}/include`,
+      ]
+      requireFixture(
+        JSON.stringify(await parseShellArguments(serialized)) ===
+          JSON.stringify(expected),
+        `serialized ${target} bindgen arguments changed an SDK/resource path with spaces`,
+      )
+      const probe = await runMacosBindgenPreflight(
+        `${root}/${target}-probe`,
+        library,
+        sdk,
+        target,
+        serialized,
+      )
+      const libclang = probe.receipt.libclang as Record<string, unknown>
+      const selectedSdk = probe.receipt.sdk as Record<string, unknown>
+      const logs = probe.receipt.logs as Record<string, Record<string, unknown>>
+      requireFixture(
+        probe.code === 0 && probe.receipt.status === 'passed',
+        `${target} preflight did not pass`,
+      )
+      requireFixture(
+        probe.receipt.target === target &&
+          JSON.stringify(probe.receipt.parsed_args) ===
+            JSON.stringify(expected) &&
+          JSON.stringify(probe.parsed) === JSON.stringify(expected),
+        `${target} preflight did not give libclang the serialized bindgen tokens`,
+      )
+      requireFixture(
+        libclang.path === expectedLibrary &&
+          libclang.sha256 === librarySha256 &&
+          selectedSdk.path === expectedSdk && selectedSdk.version === '15.2',
+        `${target} preflight receipt did not bind the selected libclang and SDK`,
+      )
+      const diagnostics = await Deno.readFile(
+        `${root}/${target}-probe/diagnostics.log`,
+      )
+      requireFixture(
+        logs['diagnostics.log'].sha256 ===
+          createHash('sha256').update(diagnostics).digest('hex'),
+        `${target} preflight diagnostics log is not hash-bound`,
+      )
+    }
+
+    const recipe = await Deno.readTextFile(nativeRecipe)
+    for (
+      const field of [
+        'macos_bindgen_preflight_receipt_sha256=%s',
+        'macos_bindgen_preflight_diagnostics_log_sha256=%s',
+        'macos_bindgen_preflight_status=%s',
+      ]
+    ) {
+      requireFixture(
+        recipe.includes(field),
+        `baseline recipe receipt does not bind ${field}`,
+      )
+    }
+    const successfulCargo = await runCargoGuard(`${root}/successful-cargo`, 0)
+    requireFixture(
+      successfulCargo.code === 0 && successfulCargo.cargoRan,
+      'successful macOS preflight did not release Cargo',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('macOS bindgen preflight records invalid SDK and libclang failures before Cargo', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-macos-bindgen-negative-' })
+  try {
+    const sdk = `${root}/selected SDK`
+    const resource = `${root}/paired resource`
+    await Deno.mkdir(`${sdk}/usr/include`, { recursive: true })
+    for (
+      const header of [
+        'stdlib.h',
+        'stdint.h',
+        'stddef.h',
+        'sys/types.h',
+      ]
+    ) {
+      if (header.includes('/')) {
+        await Deno.mkdir(
+          `${sdk}/usr/include/${header.slice(0, header.lastIndexOf('/'))}`,
+          { recursive: true },
+        )
+      }
+      await Deno.writeTextFile(
+        `${sdk}/usr/include/${header}`,
+        '/* fixture */\n',
+      )
+    }
+    await Deno.mkdir(`${resource}/include`, { recursive: true })
+    const library = await writeFixtureLibclang(root)
+    const target = 'x86_64-apple-darwin'
+    const validArgs = await macosBindgenArguments(target, sdk, resource)
+
+    const missingHeaderSdk = `${root}/SDK missing sys types`
+    for (const header of ['stdlib.h', 'stdint.h', 'stddef.h']) {
+      await Deno.mkdir(`${missingHeaderSdk}/usr/include`, { recursive: true })
+      await Deno.writeTextFile(
+        `${missingHeaderSdk}/usr/include/${header}`,
+        '/* fixture */\n',
+      )
+    }
+    const cases: Array<{
+      name: string
+      sdk: string
+      args: string
+      mode?: 'parse' | 'fatal'
+      requiredDiagnostic: string
+    }> = [
+      {
+        name: 'invalid-sdk',
+        sdk: `${root}/SDK absent`,
+        args: await macosBindgenArguments(
+          target,
+          `${root}/SDK absent`,
+          resource,
+        ),
+        requiredDiagnostic: 'not a directory',
+      },
+      {
+        name: 'missing-header',
+        sdk: missingHeaderSdk,
+        args: await macosBindgenArguments(target, missingHeaderSdk, resource),
+        requiredDiagnostic: 'sys/types.h',
+      },
+      {
+        name: 'parse-failure',
+        sdk,
+        args: validArgs,
+        mode: 'parse',
+        requiredDiagnostic: 'could not parse',
+      },
+      {
+        name: 'fatal-diagnostic',
+        sdk,
+        args: validArgs,
+        mode: 'fatal',
+        requiredDiagnostic: 'error or fatal diagnostic',
+      },
+    ]
+    for (const fixture of cases) {
+      const probe = await runMacosBindgenPreflight(
+        `${root}/${fixture.name}`,
+        library,
+        fixture.sdk,
+        target,
+        fixture.args,
+        fixture.mode,
+      )
+      const diagnostics = probe.receipt.diagnostics as Array<
+        Record<string, unknown>
+      >
+      const guard = await runCargoGuard(
+        `${root}/${fixture.name}-cargo`,
+        probe.code,
+      )
+      requireFixture(
+        probe.code === 65 && probe.receipt.status === 'failed' &&
+          JSON.stringify(diagnostics).includes(fixture.requiredDiagnostic),
+        `${fixture.name} did not retain its pre-Cargo failure receipt`,
+      )
+      requireFixture(
+        guard.code === 0 && !guard.cargoRan,
+        `${fixture.name} reached Cargo after bindgen preflight failure`,
       )
     }
   } finally {

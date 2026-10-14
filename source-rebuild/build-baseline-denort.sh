@@ -53,6 +53,206 @@ print(json.dumps({
 PYEOF
 }
 
+# MACOS_BINDGEN_PREFLIGHT_BEGIN
+write_macos_bindgen_preflight() {
+  local preflight_dir="$1"
+  local receipt="$preflight_dir/preflight.json"
+  local diagnostics_log="$preflight_dir/diagnostics.log"
+  mkdir -p "$preflight_dir"
+  [[ ! -e "$receipt" && ! -e "$diagnostics_log" ]] || {
+    echo "macOS bindgen preflight output already exists: $preflight_dir" >&2
+    return 65
+  }
+  "$PYTHON" - "$receipt" "$diagnostics_log" "$libclang" "$apple_sdk_path" "$apple_sdk_version" "$apple_link_target" "$BINDGEN_EXTRA_CLANG_ARGS" <<'PYEOF'
+import ctypes
+import hashlib
+import json
+import pathlib
+import shlex
+import sys
+
+receipt_path = pathlib.Path(sys.argv[1])
+diagnostics_path = pathlib.Path(sys.argv[2])
+library_path = pathlib.Path(sys.argv[3]).resolve()
+sdk_path = pathlib.Path(sys.argv[4]).resolve()
+sdk_version = sys.argv[5]
+target = sys.argv[6]
+serialized_args = sys.argv[7]
+diagnostics = []
+required_headers = ('stdlib.h', 'stdint.h', 'stddef.h', 'sys/types.h')
+record = {
+    'schema_version': 1,
+    'kind': 'slv-macos-bindgen-preflight',
+    'status': 'failed',
+    'libclang': {
+        'path': str(library_path),
+        'sha256': None,
+    },
+    'sdk': {
+        'path': str(sdk_path),
+        'version': sdk_version,
+    },
+    'target': target,
+    'bindgen_extra_clang_args': serialized_args,
+    'parsed_args': [],
+    'headers': {},
+    'diagnostics': diagnostics,
+}
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            value.update(chunk)
+    return value.hexdigest()
+
+def write(status):
+    record['status'] = status
+    diagnostics_path.write_text(
+        json.dumps(diagnostics, sort_keys=True, indent=2) + '\n',
+        encoding='utf-8',
+    )
+    record['logs'] = {
+        'diagnostics.log': {
+            'sha256': digest(diagnostics_path),
+            'size': diagnostics_path.stat().st_size,
+        },
+    }
+    receipt_path.write_text(
+        json.dumps(record, sort_keys=True, indent=2) + '\n',
+        encoding='utf-8',
+    )
+
+index = None
+translation_unit = None
+try:
+    record['libclang']['sha256'] = digest(library_path)
+    record['parsed_args'] = shlex.split(serialized_args)
+    if not sdk_path.is_dir():
+        raise RuntimeError('selected macOS SDK is not a directory: ' + str(sdk_path))
+    for header in required_headers:
+        path = sdk_path / 'usr/include' / header
+        record['headers'][header] = path.is_file()
+    missing = [name for name, present in record['headers'].items() if not present]
+    if missing:
+        raise RuntimeError('selected macOS SDK lacks required headers: ' + ', '.join(missing))
+
+    source_path = receipt_path.with_name('headers.c')
+    source_path.write_text(
+        '#include <stdlib.h>\n'
+        '#include <stdint.h>\n'
+        '#include <stddef.h>\n'
+        '#include <sys/types.h>\n'
+        'int main(void) { size_t bytes = sizeof(uintptr_t); void *memory = malloc(bytes); free(memory); return 0; }\n',
+        encoding='utf-8',
+    )
+    record['source_sha256'] = digest(source_path)
+
+    class CXString(ctypes.Structure):
+        _fields_ = [('data', ctypes.c_void_p), ('private_flags', ctypes.c_uint)]
+
+    libclang = ctypes.CDLL(str(library_path))
+
+    def c_api(name, argtypes, restype):
+        function = getattr(libclang, name)
+        function.argtypes = argtypes
+        function.restype = restype
+        return function
+
+    clang_createIndex = c_api(
+        'clang_createIndex', [ctypes.c_int, ctypes.c_int], ctypes.c_void_p,
+    )
+    clang_parseTranslationUnit2 = c_api(
+        'clang_parseTranslationUnit2',
+        [
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.POINTER(ctypes.c_void_p),
+        ],
+        ctypes.c_uint,
+    )
+    clang_getNumDiagnostics = c_api(
+        'clang_getNumDiagnostics', [ctypes.c_void_p], ctypes.c_uint,
+    )
+    clang_getDiagnostic = c_api(
+        'clang_getDiagnostic', [ctypes.c_void_p, ctypes.c_uint], ctypes.c_void_p,
+    )
+    clang_getDiagnosticSeverity = c_api(
+        'clang_getDiagnosticSeverity', [ctypes.c_void_p], ctypes.c_uint,
+    )
+    clang_getDiagnosticSpelling = c_api(
+        'clang_getDiagnosticSpelling', [ctypes.c_void_p], CXString,
+    )
+    clang_disposeString = c_api(
+        'clang_disposeString', [CXString], None,
+    )
+    clang_disposeDiagnostic = c_api(
+        'clang_disposeDiagnostic', [ctypes.c_void_p], None,
+    )
+    clang_disposeTranslationUnit = c_api(
+        'clang_disposeTranslationUnit', [ctypes.c_void_p], None,
+    )
+    clang_disposeIndex = c_api(
+        'clang_disposeIndex', [ctypes.c_void_p], None,
+    )
+
+    index = clang_createIndex(0, 0)
+    if not index:
+        raise RuntimeError('libclang did not create an index')
+    encoded_args = [argument.encode('utf-8') for argument in record['parsed_args']]
+    argv = (ctypes.c_char_p * len(encoded_args))(*encoded_args)
+    parsed = ctypes.c_void_p()
+    parse_code = clang_parseTranslationUnit2(
+        index,
+        str(source_path).encode('utf-8'),
+        argv,
+        len(encoded_args),
+        None,
+        0,
+        0,
+        ctypes.byref(parsed),
+    )
+    record['parse_error_code'] = parse_code
+    translation_unit = parsed.value
+    if parse_code != 0 or not translation_unit:
+        raise RuntimeError('libclang could not parse macOS bindgen header probe')
+    for position in range(clang_getNumDiagnostics(translation_unit)):
+        diagnostic = clang_getDiagnostic(translation_unit, position)
+        try:
+            severity = clang_getDiagnosticSeverity(diagnostic)
+            spelling = clang_getDiagnosticSpelling(diagnostic)
+            try:
+                text = ctypes.cast(spelling.data, ctypes.c_char_p).value
+                diagnostics.append({
+                    'severity': severity,
+                    'spelling': '' if text is None else text.decode('utf-8', 'replace'),
+                })
+            finally:
+                clang_disposeString(spelling)
+        finally:
+            clang_disposeDiagnostic(diagnostic)
+    if any(item['severity'] >= 3 for item in diagnostics):
+        raise RuntimeError('libclang reported an error or fatal diagnostic')
+except Exception as error:
+    diagnostics.append({'severity': 'probe-failure', 'spelling': str(error)})
+    write('failed')
+    raise SystemExit(65)
+finally:
+    if translation_unit:
+        clang_disposeTranslationUnit(translation_unit)
+    if index:
+        clang_disposeIndex(index)
+
+write('passed')
+PYEOF
+}
+# MACOS_BINDGEN_PREFLIGHT_END
+
 # Stage 2: build the unmodified denort package from a clean assembly.  The
 # assembly remains read-only evidence: Cargo runs in a copied work directory,
 # its target/cache live under OUTPUT, and the local v8 path patch produces a
@@ -375,6 +575,9 @@ export EXTRA_GN_ARGS="use_lld=true"
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem$resource_dir/include"
 target_args=()
 linker_driver_probe_log="$output/linker-driver-probe.log"
+macos_bindgen_preflight_receipt=""
+macos_bindgen_preflight_log=""
+macos_bindgen_preflight_status=0
 if [[ "$linux_target" == true ]]; then
   target_key="${BUILD_TARGET^^}"
   target_key="${target_key//-/_}"
@@ -410,35 +613,74 @@ else
     arm64) apple_link_target=aarch64-apple-darwin; apple_link_flags=(-fuse-ld=lld) ;;
     *) echo "unsupported macOS architecture for linker receipt: $(uname -m)" >&2; exit 65 ;;
   esac
+  # Bindgen reads this variable through shlex. Serialize its token list with
+  # Python instead of relying on compiler-style concatenation, so the selected
+  # SDK and paired Clang resource directory survive paths containing spaces.
+  # MACOS_BINDGEN_ARGS_BEGIN
+  apple_bindgen_args=(
+    "--target=$apple_link_target"
+    -isysroot
+    "$SLV_APPLE_SDK_PATH"
+    -isystem
+    "$resource_dir/include"
+  )
+  BINDGEN_EXTRA_CLANG_ARGS="$("$PYTHON" - "${apple_bindgen_args[@]}" <<'PYEOF'
+import shlex
+import sys
+print(shlex.join(sys.argv[1:]))
+PYEOF
+  )"
+  export BINDGEN_EXTRA_CLANG_ARGS
+  # MACOS_BINDGEN_ARGS_END
   # Preserve upstream Cargo flags as the actual Rust configuration. This
   # lightweight Clang trace records the effective native C driver selection
   # without asserting that x86_64 macOS must use the task-local lld.
   "$clang" -target "$apple_link_target" -isysroot "$SLV_APPLE_SDK_PATH" \
     ${apple_link_flags[@]+"${apple_link_flags[@]}"} -### -x c /dev/null -o "$output/linker-driver-probe" \
     > /dev/null 2>"$linker_driver_probe_log"
+  macos_bindgen_preflight_dir="$output/macos-bindgen-preflight"
+  macos_bindgen_preflight_receipt="$macos_bindgen_preflight_dir/preflight.json"
+  macos_bindgen_preflight_log="$macos_bindgen_preflight_dir/diagnostics.log"
+  if write_macos_bindgen_preflight "$macos_bindgen_preflight_dir"; then
+    macos_bindgen_preflight_status=0
+  else
+    macos_bindgen_preflight_status=$?
+  fi
+  [[ -f "$macos_bindgen_preflight_receipt" && -f "$macos_bindgen_preflight_log" ]] || {
+    echo "macOS bindgen preflight did not emit its receipt and diagnostics" >&2
+    exit 65
+  }
 fi
 
 # `generate-lockfile` happens only in the disposable copy.  It turns the
 # upstream registry v8 entry into the local exact path entry; every subsequent
 # build is locked and offline.  The source archive's original lock is checked
 # again below and its hash is included in the receipt.
-set +e
-if [[ "$resume" == true ]]; then
-  (
-    cd "$work/deno"
-    "$cargo" build --locked --offline --release ${target_args[@]+"${target_args[@]}"} -j "$jobs" -p denort
-  ) > >(tee "$log") 2>&1
+# CARGO_BUILD_GUARD_BEGIN
+if [[ "$macos_bindgen_preflight_status" -ne 0 ]]; then
+  status="$macos_bindgen_preflight_status"
+  : > "$log"
+  printf 'macOS bindgen preflight failed before Cargo (exit %s)\n' "$status" >> "$log"
 else
-  (
-    cd "$work/deno"
-    "$cargo" generate-lockfile --offline
-    assert_only_local_v8_relink || exit $?
-    cp Cargo.lock "$output/derived-relink-Cargo.lock"
-    "$cargo" build --locked --offline --release ${target_args[@]+"${target_args[@]}"} -j "$jobs" -p denort
-  ) > >(tee "$log") 2>&1
+  set +e
+  if [[ "$resume" == true ]]; then
+    (
+      cd "$work/deno"
+      "$cargo" build --locked --offline --release ${target_args[@]+"${target_args[@]}"} -j "$jobs" -p denort
+    ) > >(tee "$log") 2>&1
+  else
+    (
+      cd "$work/deno"
+      "$cargo" generate-lockfile --offline
+      assert_only_local_v8_relink || exit $?
+      cp Cargo.lock "$output/derived-relink-Cargo.lock"
+      "$cargo" build --locked --offline --release ${target_args[@]+"${target_args[@]}"} -j "$jobs" -p denort
+    ) > >(tee "$log") 2>&1
+  fi
+  status=$?
+  set -e
 fi
-status=$?
-set -e
+# CARGO_BUILD_GUARD_END
 if [[ "$status" -eq 0 ]]; then
   assert_only_local_v8_relink
 fi
@@ -575,6 +817,13 @@ fi
   [[ -n "$apple_xcode" ]] && printf 'apple_xcode=%s\n' "$apple_xcode"
   [[ -n "$apple_sdk_path" ]] && printf 'apple_sdk_path=%s\n' "$apple_sdk_path"
   [[ -n "$apple_sdk_version" ]] && printf 'apple_sdk_version=%s\n' "$apple_sdk_version"
+  if [[ -n "$macos_bindgen_preflight_receipt" ]]; then
+    printf 'macos_bindgen_preflight_receipt=%s\n' "$macos_bindgen_preflight_receipt"
+    printf 'macos_bindgen_preflight_receipt_sha256=%s\n' "$(sha256_file "$macos_bindgen_preflight_receipt")"
+    printf 'macos_bindgen_preflight_diagnostics_log=%s\n' "$macos_bindgen_preflight_log"
+    printf 'macos_bindgen_preflight_diagnostics_log_sha256=%s\n' "$(sha256_file "$macos_bindgen_preflight_log")"
+    printf 'macos_bindgen_preflight_status=%s\n' "$macos_bindgen_preflight_status"
+  fi
   if [[ "$linux_target" == true ]]; then
     printf 'deno_sysroot=%s\n' "$(canonical_path "$DENO_SYSROOT")"
     printf 'deno_sysroot_sha256=%s\n' "$DENO_SYSROOT_SHA256"
