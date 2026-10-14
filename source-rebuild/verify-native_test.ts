@@ -5,13 +5,21 @@ import {
   captureCargoFingerprintCollection,
   emitNativeTargetProof,
   extractArchive,
+  parseNativeArgs,
   prepareBuildDirectories,
   resolveSourceArchivePaths,
   scanArchiveForUnsafeMembers,
   verifyCargoFingerprintCollection,
+  verifyNative,
+  verifySplitBuildEvidence,
 } from './verify-native.ts'
 import { verifyNativeSourceRebuildProof } from '../scripts/release/source-materials.ts'
-import { expandEnvironment, materializeLayoutCopies } from './prepare-tools.ts'
+import {
+  canonicalTargetDescriptorBytes,
+  expandEnvironment,
+  materializeLayoutCopies,
+  parseToolPins,
+} from './prepare-tools.ts'
 
 const nativeRecipe = new URL('./build-baseline-denort.sh', import.meta.url)
 
@@ -1741,6 +1749,1449 @@ Deno.test('relative source archives are resolved before scanners change extracti
     if (scan.exit_code !== 0) {
       throw new Error('scanner could not read normalized relative archive path')
     }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('split native CLI requires explicit role, jobs, context, and join dependencies', () => {
+  const common = [
+    '--target',
+    'x86_64-apple-darwin',
+    '--source-root',
+    'source',
+    '--work-dir',
+    'work',
+    '--out',
+    'out',
+    '--pins',
+    'pins.json',
+    '--source-receipt',
+    'source-receipt.json',
+    '--slv-source',
+    'slv.tar.gz',
+    '--deno-source',
+    'deno.tar.gz',
+    '--cargo-vendor',
+    'vendor.tar.gz',
+    '--notice-file',
+    'THIRD_PARTY_NOTICES',
+  ]
+  const producer = [
+    '--phase',
+    'build-variant',
+    ...common,
+    '--variant',
+    'baseline',
+    '--build-host',
+    'x86_64-apple-darwin',
+    '--jobs',
+    '4',
+    '--tools-receipt',
+    'tools.json',
+    '--producer-context',
+    'producer.json',
+  ]
+  const parsed = parseNativeArgs(producer)
+  if (parsed['--variant'] !== 'baseline' || parsed['--jobs'] !== '4') {
+    throw new Error('valid split producer arguments were not retained')
+  }
+  const rejected = (argv: string[], expected: string) => {
+    try {
+      parseNativeArgs(argv)
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(expected)) return
+    }
+    throw new Error(`expected split CLI rejection containing: ${expected}`)
+  }
+  rejected(
+    producer.map((value) => value === '4' ? '2' : value),
+    'requires --jobs 4',
+  )
+  rejected(
+    producer.filter((_, index) =>
+      index < producer.indexOf('--producer-context')
+    ),
+    'requires --producer-context',
+  )
+  rejected(
+    [
+      '--phase',
+      'join-build',
+      ...common,
+      '--producer-context',
+      'join.json',
+      '--variant-dependencies',
+      'dependencies.json',
+      '--jobs',
+      '4',
+    ],
+    '--jobs is permitted only',
+  )
+  rejected(
+    [...producer, '--variant-dependencies', 'dependencies.json'],
+    'does not accept --variant-dependencies',
+  )
+})
+
+Deno.test('split evidence preserves original producer receipt bytes and combined baseline-only product inputs', async () => {
+  const hash = (character: string) => character.repeat(64)
+  const command = {
+    command: ['fixture'],
+    cwd: '/producer/work',
+    started_at: '2026-10-14T00:00:00Z',
+    finished_at: '2026-10-14T00:00:01Z',
+    exit_code: 0,
+    log: '/producer/work/fixture.log',
+    log_sha256: hash('a'),
+  }
+  const sourceAssets = [
+    { name: 'slv-source.tar.gz', sha256: hash('1'), size: 1 },
+    { name: 'deno-source.tar.gz', sha256: hash('2'), size: 1 },
+    { name: 'deno-cargo-vendor.tar.gz', sha256: hash('3'), size: 1 },
+  ]
+  const names = [
+    'baseline-denort',
+    'baseline-v8-archive',
+    'baseline-ninja',
+    'baseline-probe',
+    'baseline-derived-relink-Cargo.lock',
+    'baseline-slv',
+    'baseline-bridge',
+    'tls-localhost.crt',
+    'tls-localhost.key',
+    'tls-root-ca.pem',
+    'modified-denort',
+    'modified-v8-archive',
+    'modified-ninja',
+    'modified-probe',
+  ]
+  const entries = Object.fromEntries(
+    names.map((name, index) => [
+      name,
+      { path: name, sha256: hash((index + 1).toString(16)), size: index + 1 },
+    ]),
+  ) as Record<string, { path: string; sha256: string; size: number }>
+  const artifacts = {
+    baseline: {
+      denort_sha256: entries['baseline-denort'].sha256,
+      v8_archive_sha256: entries['baseline-v8-archive'].sha256,
+      ninja_sha256: entries['baseline-ninja'].sha256,
+      probe_standalone_sha256: entries['baseline-probe'].sha256,
+      derived_relink_cargo_lock_sha256:
+        entries['baseline-derived-relink-Cargo.lock'].sha256,
+      slv_executable_sha256: entries['baseline-slv'].sha256,
+      bridge_standalone_sha256: entries['baseline-bridge'].sha256,
+    },
+    modified: {
+      denort_sha256: entries['modified-denort'].sha256,
+      v8_archive_sha256: entries['modified-v8-archive'].sha256,
+      ninja_sha256: entries['modified-ninja'].sha256,
+      probe_standalone_sha256: entries['modified-probe'].sha256,
+    },
+  }
+  const context = (job_id: string) => ({
+    schema_version: 1,
+    kind: 'slv-native-producer-context',
+    repository: 'ValidatorsDAO/slv',
+    workflow:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@fixture',
+    run_id: '42',
+    run_attempt: '3',
+    job_id,
+  })
+  const fingerprints = (
+    phase: 'baseline' | 'modified',
+    runtime_sha256: string,
+  ) => {
+    const content = `{"phase":"${phase}"}\n`
+    return {
+      schema_version: 1,
+      kind: 'slv-cargo-fingerprint-records',
+      phase,
+      target: 'x86_64-apple-darwin',
+      runtime_sha256,
+      derived_relink_cargo_lock_sha256:
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
+      records: [{
+        context: 'host-release',
+        path: `${phase}/fixture.json`,
+        sha256: createHash('sha256').update(content).digest('hex'),
+        content_base64: btoa(content),
+      }],
+    }
+  }
+  const identities = {
+    'fixture-tool': { path: '/producer/tools/fixture', sha256: hash('4') },
+  }
+  const archives = {
+    fixture: { sha256: hash('5'), size: 1, url: 'https://example.test/tool' },
+  }
+  const variantReceipt = (variant: 'baseline' | 'modified') => {
+    const runtime = variant === 'baseline'
+      ? artifacts.baseline.denort_sha256
+      : artifacts.modified.denort_sha256
+    const primary = {
+      passed: true,
+      command,
+      probe_compile: command,
+      derived_relink_cargo_lock_sha256:
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
+      runtime_abi: { denort_sha256: runtime, status: 'passed' },
+      runtime_abi_receipt_sha256: hash('a'),
+      cargo_fingerprints: fingerprints(variant, runtime),
+    }
+    return {
+      schema_version: 1,
+      kind: 'slv-source-build-variant-receipt',
+      variant,
+      producer: context(`source-macos-x64-${variant}`),
+      target: 'x86_64-apple-darwin',
+      build_mode: 'native',
+      build_host: { os: 'darwin', arch: 'x64' },
+      source_commit: 'c'.repeat(40),
+      source_receipt_sha256: hash('6'),
+      source_assets: sourceAssets,
+      source_pin_sha256: hash('7'),
+      notice_sha256: hash('8'),
+      source_selected_cargo_lock_sha256: hash('9'),
+      tool_pin_sha256: hash('b'),
+      toolchain: { pins_sha256: hash('c'), identities },
+      tool_archives: archives,
+      tools_receipt_sha256: hash('d'),
+      jobs: '4',
+      resources: { capacity_preflight: {} },
+      extraction: {
+        slv_scan: command,
+        deno_scan: command,
+        vendor_scan: command,
+        slv: command,
+        deno: command,
+        vendor: command,
+      },
+      recipe_sha256: hash('e'),
+      patch_sha256: hash('f'),
+      derived_relink_cargo_lock_sha256:
+        artifacts.baseline.derived_relink_cargo_lock_sha256,
+      transport: {
+        manifest: 'transport/manifest.json',
+        manifest_sha256: hash('a'),
+      },
+      entries: Object.fromEntries(
+        Object.entries(entries).filter(([name]) =>
+          name.startsWith(`${variant}-`) ||
+          (variant === 'baseline' && name.startsWith('tls-'))
+        ),
+      ),
+      checks: variant === 'baseline'
+        ? {
+          baseline_build: primary,
+          slv_compile: { passed: true, command, bridge_compile: command },
+        }
+        : {
+          patch: {
+            passed: true,
+            before_sha256: hash('1'),
+            after_sha256: hash('2'),
+            command,
+          },
+          modified_build: primary,
+        },
+      timing: {
+        started_at: '2026-10-14T00:00:00Z',
+        finished_at: '2026-10-14T00:00:01Z',
+      },
+    }
+  }
+  const baseline = variantReceipt('baseline')
+  const modified = variantReceipt('modified')
+  const encodedRole = (receipt: Record<string, unknown>, id: string) => {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify(receipt, null, 2) + '\n',
+    )
+    return {
+      receipt_sha256: createHash('sha256').update(bytes).digest('hex'),
+      artifact_id: id,
+      artifact_digest: hash(id === '100' ? 'c' : 'd'),
+      receipt,
+      receipt_bytes_base64: btoa(String.fromCharCode(...bytes)),
+    }
+  }
+  const split = {
+    schema_version: 1,
+    kind: 'slv-source-split-build-evidence',
+    join_producer: context('source-native-macos-x64'),
+    baseline: encodedRole(baseline, '100'),
+    modified: encodedRole(modified, '101'),
+  }
+  const build = {
+    build_mode: 'native',
+    build_host: { os: 'darwin', arch: 'x64' },
+    jobs: '4',
+    patch_sha256: hash('f'),
+    tool_pin_sha256: hash('b'),
+    toolchain: { pins_sha256: hash('c'), identities },
+    recipe_sha256: { baseline: hash('e'), modified: hash('e') },
+    checks: {
+      baseline_build: baseline.checks.baseline_build,
+      slv_compile: baseline.checks.slv_compile,
+      patch: modified.checks.patch,
+      modified_build: modified.checks.modified_build,
+    },
+  }
+  const inputs = {
+    assembly: {
+      source: { commit: 'c'.repeat(40) },
+      runtime_security: { selected: { cargo_lock: { sha256: hash('9') } } },
+    },
+    assemblyReceiptSha256: hash('6'),
+    pinsSha256: hash('7'),
+    noticeSha256: hash('8'),
+    sourceAssets,
+  }
+  await verifySplitBuildEvidence(
+    split,
+    build,
+    inputs as never,
+    'x86_64-apple-darwin',
+    artifacts,
+    entries,
+  )
+  const tampered = structuredClone(split)
+  tampered.baseline.receipt_bytes_base64 = btoa('{"tampered":true}\n')
+  await expectLayoutRejection(
+    () =>
+      verifySplitBuildEvidence(
+        tampered,
+        build,
+        inputs as never,
+        'x86_64-apple-darwin',
+        artifacts,
+        entries,
+      ),
+    'differs from original bytes',
+  )
+  const archiveMismatch = structuredClone(split)
+  const changedModified = structuredClone(modified) as Record<string, unknown>
+  const changedArchives = changedModified.tool_archives as Record<
+    string,
+    Record<string, unknown>
+  >
+  changedArchives.fixture = {
+    ...changedArchives.fixture,
+    included_members: ['fixture/member'],
+  }
+  archiveMismatch.modified = encodedRole(changedModified, '101')
+  await expectLayoutRejection(
+    () =>
+      verifySplitBuildEvidence(
+        archiveMismatch,
+        build,
+        inputs as never,
+        'x86_64-apple-darwin',
+        artifacts,
+        entries,
+      ),
+    'tool archives',
+  )
+})
+
+function fixtureSha256(bytes: Uint8Array | string): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+async function fixtureFileSha256(path: string): Promise<string> {
+  return fixtureSha256(await Deno.readFile(path))
+}
+
+async function writeFixtureJson(path: string, value: unknown): Promise<string> {
+  await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
+  await Deno.writeTextFile(path, JSON.stringify(value, null, 2) + '\n')
+  return await fixtureFileSha256(path)
+}
+
+async function writeFixtureFile(path: string, text: string): Promise<void> {
+  await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
+  await Deno.writeTextFile(path, text)
+}
+
+async function archiveFixtureRoot(
+  stage: string,
+  root: string,
+  archive: string,
+): Promise<void> {
+  const result = await new Deno.Command('/usr/bin/tar', {
+    args: ['-C', stage, '-czf', archive, root],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  if (!result.success) {
+    throw new Error(
+      `fixture archive failed: ${new TextDecoder().decode(result.stderr)}`,
+    )
+  }
+}
+
+type NativeJoinFixture = {
+  root: string
+  target: string
+  args: Record<string, string>
+  out: string
+  dependenciesPath: string
+  baselineMaterials: string
+  modifiedMaterials: string
+  baselineReceipt: string
+  modifiedReceipt: string
+  sourceReceipt: string
+  notice: string
+  pins: string
+  slvSource: string
+  denoSource: string
+  cargoVendor: string
+  producerContext: Record<string, unknown>
+}
+
+/**
+ * This is intentionally a file-backed join fixture.  It has miniature source
+ * archives, real producer directories, raw receipt sidecars, descriptors,
+ * manifests, and payload bytes so the production join phase owns every
+ * boundary that a downloaded workflow artifact crosses.
+ */
+async function createNativeJoinFixture(
+  root: string,
+): Promise<NativeJoinFixture> {
+  const target = 'x86_64-apple-darwin'
+  const stage = `${root}/source-stage`
+  const input = `${root}/input`
+  const notice = `${input}/THIRD_PARTY_NOTICES`
+  const pins = `${input}/source-pins.json`
+  const slvSource = `${input}/slv-source.tar.gz`
+  const denoSource = `${input}/deno-source.tar.gz`
+  const cargoVendor = `${input}/deno-cargo-vendor.tar.gz`
+  const closure = '{"fixture":"closure"}\n'
+  const inventory = '{"fixture":"inventory"}\n'
+  const noticeBytes = 'fixture notices\n'
+  await writeFixtureFile(notice, noticeBytes)
+  const sourcePins = {
+    schema_version: 1,
+    deno: {
+      commit: 'a'.repeat(40),
+      version: '1.2.3',
+      archive:
+        'https://github.com/denoland/deno/archive/refs/tags/v1.2.3.tar.gz',
+      sha256: fixtureSha256('deno'),
+    },
+    rusty_v8: {
+      commit: 'b'.repeat(40),
+      archive: `https://github.com/denoland/rusty_v8/archive/${
+        'b'.repeat(40)
+      }.tar.gz`,
+      sha256: fixtureSha256('rusty-v8'),
+    },
+    v8: {
+      commit: 'c'.repeat(40),
+      archive: `https://github.com/denoland/v8/archive/${
+        'c'.repeat(40)
+      }.tar.gz`,
+      sha256: fixtureSha256('v8'),
+    },
+    gitlink_closure: {
+      path: 'source-materials/rusty-v8-gitlinks.json',
+      sha256: fixtureSha256('gitlinks'),
+    },
+  }
+  const sourcePinsSha256 = await writeFixtureJson(pins, sourcePins)
+  const roots = ['slv-source', 'deno-source', 'deno-cargo-vendor']
+  for (const name of roots) {
+    await writeFixtureFile(
+      `${stage}/${name}/source-materials/pack-manifest.json`,
+      '{"fixture":true}\n',
+    )
+    await writeFixtureFile(
+      `${stage}/${name}/source-materials/closure.json`,
+      closure,
+    )
+    await writeFixtureFile(
+      `${stage}/${name}/source-materials/inventory.json`,
+      inventory,
+    )
+    await writeFixtureFile(`${stage}/${name}/THIRD_PARTY_NOTICES`, noticeBytes)
+  }
+  const toolPinsPath = `${Deno.cwd()}/source-rebuild/tool-prereqs.json`
+  await Deno.mkdir(`${stage}/slv-source/source-rebuild`, { recursive: true })
+  await Deno.copyFile(
+    toolPinsPath,
+    `${stage}/slv-source/source-rebuild/tool-prereqs.json`,
+  )
+  await writeFixtureFile(
+    `${stage}/slv-source/source-rebuild/build-baseline-denort.sh`,
+    '#!/usr/bin/env bash\necho fixture\n',
+  )
+  await writeFixtureFile(
+    `${stage}/slv-source/source-rebuild/glibc-sin-sentinel.patch`,
+    'fixture patch bytes\n',
+  )
+  await Deno.mkdir(`${stage}/slv-source/deno-cache`, { recursive: true })
+  const securityFiles = {
+    'source-materials/security/upstream-Cargo.lock': 'upstream lock\n',
+    'source-materials/security/upstream-Cargo.toml': 'upstream manifest\n',
+    'deno/Cargo.lock': 'selected lock\n',
+    'deno/Cargo.toml': 'selected manifest\n',
+    'source-materials/security/selection.json': '{}\n',
+    'source-materials/security/manifest-patch.json': '{}\n',
+    'source-materials/security/resolution-receipt.json': '{}\n',
+    'source-materials/security/added-identities-osv.json': '{}\n',
+  }
+  for (const [relative, content] of Object.entries(securityFiles)) {
+    await writeFixtureFile(`${stage}/deno-source/${relative}`, content)
+  }
+  await writeFixtureFile(
+    `${stage}/deno-source/rusty_v8/v8/BUILD.gn`,
+    'fixture gn\n',
+  )
+  await writeFixtureFile(
+    `${stage}/deno-cargo-vendor/Cargo.lock`,
+    securityFiles['deno/Cargo.lock'],
+  )
+  await Deno.mkdir(`${stage}/deno-cargo-vendor/vendor`, { recursive: true })
+  await archiveFixtureRoot(stage, 'slv-source', slvSource)
+  await archiveFixtureRoot(stage, 'deno-source', denoSource)
+  await archiveFixtureRoot(stage, 'deno-cargo-vendor', cargoVendor)
+  const archiveAssets = await Promise.all([
+    ['slv-source.tar.gz', slvSource],
+    ['deno-source.tar.gz', denoSource],
+    ['deno-cargo-vendor.tar.gz', cargoVendor],
+  ].map(async ([name, path]) => ({
+    name,
+    sha256: await fixtureFileSha256(path),
+    size: (await Deno.stat(path)).size,
+    embedded_manifest_path: 'source-materials/pack-manifest.json',
+  })))
+  const security = async (relative: string) => ({
+    path: relative,
+    sha256: await fixtureFileSha256(`${stage}/deno-source/${relative}`),
+  })
+  const selectedLock = await security('deno/Cargo.lock')
+  const sourceReceiptValue = {
+    schema_version: 1,
+    kind: 'slv-source-materials',
+    mode: 'reviewed',
+    source: {
+      commit: 'd'.repeat(40),
+      tree_sha256: fixtureSha256('tree'),
+      timestamp: '2026-10-14T00:00:00Z',
+      timestamp_epoch: 1,
+    },
+    canonical_notice: {
+      path: 'THIRD_PARTY_NOTICES',
+      sha256: fixtureSha256(noticeBytes),
+      size: noticeBytes.length,
+    },
+    pins: { ...sourcePins, sha256: sourcePinsSha256 },
+    closure: {
+      embedded_path: 'source-materials/closure.json',
+      sha256: fixtureSha256(closure),
+      entry_count: 1,
+    },
+    inventory: {
+      embedded_path: 'source-materials/inventory.json',
+      sha256: fixtureSha256(inventory),
+    },
+    vendor: {
+      policy: 'full-locked-vendor',
+      lock_path: 'Cargo.lock',
+      lock_sha256: selectedLock.sha256,
+      crate_count: 1,
+      omissions: [],
+    },
+    runtime_security: {
+      upstream: {
+        cargo_lock: {
+          ...(await security('source-materials/security/upstream-Cargo.lock')),
+          package_count: 1,
+        },
+        cargo_manifest: await security(
+          'source-materials/security/upstream-Cargo.toml',
+        ),
+      },
+      selected: {
+        cargo_lock: { ...selectedLock, package_count: 2 },
+        cargo_manifest: await security('deno/Cargo.toml'),
+      },
+      transform: {
+        selection: await security('source-materials/security/selection.json'),
+        manifest_patch: await security(
+          'source-materials/security/manifest-patch.json',
+        ),
+        resolution_receipt: await security(
+          'source-materials/security/resolution-receipt.json',
+        ),
+        added_identities_osv: await security(
+          'source-materials/security/added-identities-osv.json',
+        ),
+      },
+      allowed_delta: {
+        added: [
+          'aws-lc-rs@1.18.2',
+          'aws-lc-sys@0.46.0',
+          'h2@0.4.16',
+          'pkg-config@0.3.34',
+          'rustls@0.23.45',
+          'rustls-webpki@0.103.15',
+        ],
+        removed: [
+          'aws-lc-rs@1.16.3',
+          'h2@0.4.7',
+          'pkg-config@0.3.30',
+          'rustls@0.23.40',
+          'rustls-webpki@0.103.13',
+        ],
+        changed_same_identity: [
+          'deno_crypto_provider@0.49.0',
+          'deno_node_crypto@0.25.0',
+        ],
+      },
+    },
+    gitlink_closure: {
+      path: 'source-materials/rusty-v8-gitlinks.json',
+      sha256: sourcePins.gitlink_closure.sha256,
+      root_tree: 'e'.repeat(40),
+      gitlink_count: 1,
+    },
+    source_legal_evidence: {
+      index_path: 'source-materials/rusty-v8-source-license-index.json',
+      sha256: fixtureSha256('legal'),
+      source_distributed_extra_tree_count: 7,
+      supplement_count: 3,
+    },
+    assets: archiveAssets,
+    rebuild_proof: { required: true, status: 'separate' },
+  }
+  const sourceReceipt = `${input}/source-materials-receipt.json`
+  const sourceReceiptSha256 = await writeFixtureJson(
+    sourceReceipt,
+    sourceReceiptValue,
+  )
+  const sourceAssets = archiveAssets.map(({ name, sha256, size }) => ({
+    name,
+    sha256,
+    size,
+  }))
+  const recipeSha256 = await fixtureFileSha256(
+    `${stage}/slv-source/source-rebuild/build-baseline-denort.sh`,
+  )
+  const patchSha256 = await fixtureFileSha256(
+    `${stage}/slv-source/source-rebuild/glibc-sin-sentinel.patch`,
+  )
+  const toolPinsBytes = await Deno.readFile(
+    `${stage}/slv-source/source-rebuild/tool-prereqs.json`,
+  )
+  const toolPinsSha256 = fixtureSha256(toolPinsBytes)
+  const descriptor = canonicalTargetDescriptorBytes(
+    parseToolPins(JSON.parse(new TextDecoder().decode(toolPinsBytes))),
+    target,
+  )
+  const descriptorSha256 = fixtureSha256(descriptor)
+  const command = (variant: string, name: string) => ({
+    command: ['fixture', name],
+    cwd: `${root}/${variant}/work`,
+    started_at: '2026-10-14T00:00:00Z',
+    finished_at: '2026-10-14T00:00:01Z',
+    exit_code: 0,
+    log: `${root}/${variant}/logs/${name}.log`,
+    log_sha256: fixtureSha256(`${variant}-${name}`),
+  })
+  const producerContext = {
+    schema_version: 1,
+    kind: 'slv-native-producer-context',
+    repository: 'ValidatorsDAO/slv',
+    workflow:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@fixture',
+    run_id: '42',
+    run_attempt: '3',
+    job_id: 'source-native-macos-x64',
+  }
+  const makeRole = async (variant: 'baseline' | 'modified') => {
+    const materials = `${root}/${variant}`
+    const transport = `${materials}/transport`
+    await Deno.mkdir(transport, { recursive: true })
+    const names = variant === 'baseline'
+      ? [
+        'baseline-denort',
+        'baseline-v8-archive',
+        'baseline-ninja',
+        'baseline-probe',
+        'baseline-derived-relink-Cargo.lock',
+        'baseline-slv',
+        'baseline-bridge',
+        'tls-localhost.crt',
+        'tls-localhost.key',
+        'tls-root-ca.pem',
+      ]
+      : [
+        'modified-denort',
+        'modified-v8-archive',
+        'modified-ninja',
+        'modified-probe',
+      ]
+    const entries: Record<
+      string,
+      { path: string; sha256: string; size: number }
+    > = {}
+    for (const name of names) {
+      const bytes = `${variant} ${name} payload\n`
+      await writeFixtureFile(`${transport}/${name}`, bytes)
+      entries[name] = {
+        path: name,
+        sha256: fixtureSha256(bytes),
+        size: bytes.length,
+      }
+    }
+    const manifest = {
+      schema_version: 1,
+      kind: 'slv-source-native-variant-transport',
+      variant,
+      target,
+      source_receipt_sha256: sourceReceiptSha256,
+      entries,
+    }
+    const manifestSha256 = await writeFixtureJson(
+      `${transport}/manifest.json`,
+      manifest,
+    )
+    await Deno.writeFile(`${materials}/tool-pin.json`, descriptor)
+    const identities = {
+      'fixture-tool': {
+        path: `${root}/${variant}/tools/fixture-tool`,
+        sha256: fixtureSha256('fixture tool'),
+      },
+    }
+    const archives = {
+      fixture: {
+        sha256: fixtureSha256('fixture archive'),
+        size: 1,
+        url: 'https://example.test/fixture.tar.gz',
+        included_members: ['fixture/member'],
+      },
+    }
+    const toolReceipt = {
+      schema_version: 1,
+      kind: 'slv-native-toolchain',
+      target,
+      build_host: target,
+      purpose: 'build',
+      pins: { sha256: toolPinsSha256 },
+      target_descriptor: { sha256: descriptorSha256 },
+      identities,
+      archives,
+    }
+    const toolsReceiptSha256 = await writeFixtureJson(
+      `${materials}/build-tools-receipt.json`,
+      toolReceipt,
+    )
+    const runtime =
+      entries[variant === 'baseline' ? 'baseline-denort' : 'modified-denort']
+        .sha256
+    const derived = fixtureSha256(
+      'baseline baseline-derived-relink-Cargo.lock payload\n',
+    )
+    const fingerprintContent =
+      `{"phase":"${variant}","context":"host-release"}\n`
+    const primary = {
+      passed: true,
+      command: command(variant, 'build'),
+      probe_compile: command(variant, 'probe'),
+      derived_relink_cargo_lock_sha256: derived,
+      runtime_abi: {
+        schema_version: 1,
+        kind: 'slv-macos-denort-abi',
+        denort_sha256: runtime,
+        minimum_os: '12.0',
+        load_commands_sha256: fixtureSha256(`${variant} load commands`),
+        status: 'passed',
+      },
+      runtime_abi_receipt_sha256: fixtureSha256(`${variant} ABI`),
+      cargo_fingerprints: {
+        schema_version: 1,
+        kind: 'slv-cargo-fingerprint-records',
+        phase: variant,
+        target,
+        runtime_sha256: runtime,
+        derived_relink_cargo_lock_sha256: derived,
+        records: [{
+          context: 'host-release',
+          path: `${variant}/host-release.json`,
+          sha256: fixtureSha256(fingerprintContent),
+          content_base64: btoa(fingerprintContent),
+        }],
+      },
+    }
+    const receipt = {
+      schema_version: 1,
+      kind: 'slv-source-build-variant-receipt',
+      variant,
+      producer: {
+        ...producerContext,
+        job_id: `source-macos-x64-${variant}`,
+        run_attempt: variant === 'baseline' ? '2' : '3',
+      },
+      target,
+      build_mode: 'native',
+      build_host: { os: 'darwin', arch: 'x64' },
+      source_commit: sourceReceiptValue.source.commit,
+      source_receipt_sha256: sourceReceiptSha256,
+      source_assets: sourceAssets,
+      source_pin_sha256: sourcePinsSha256,
+      notice_sha256: fixtureSha256(noticeBytes),
+      source_selected_cargo_lock_sha256: selectedLock.sha256,
+      tool_pin_sha256: descriptorSha256,
+      toolchain: { pins_sha256: toolPinsSha256, identities },
+      tool_archives: archives,
+      tools_receipt_sha256: toolsReceiptSha256,
+      jobs: '4',
+      resources: { capacity_preflight: { available_bytes: 1 } },
+      extraction: {
+        slv_scan: command(variant, 'slv-scan'),
+        deno_scan: command(variant, 'deno-scan'),
+        vendor_scan: command(variant, 'vendor-scan'),
+        slv: command(variant, 'slv'),
+        deno: command(variant, 'deno'),
+        vendor: command(variant, 'vendor'),
+      },
+      recipe_sha256: recipeSha256,
+      patch_sha256: patchSha256,
+      derived_relink_cargo_lock_sha256: derived,
+      transport: {
+        manifest: 'transport/manifest.json',
+        manifest_sha256: manifestSha256,
+      },
+      entries,
+      checks: variant === 'baseline'
+        ? {
+          baseline_build: primary,
+          slv_compile: {
+            passed: true,
+            command: command(variant, 'slv-compile'),
+            bridge_compile: command(variant, 'bridge-compile'),
+          },
+        }
+        : {
+          patch: {
+            passed: true,
+            before_sha256: fixtureSha256('before'),
+            after_sha256: fixtureSha256('after'),
+            command: command(variant, 'patch'),
+          },
+          modified_build: primary,
+        },
+      timing: {
+        started_at: '2026-10-14T00:00:00Z',
+        finished_at: '2026-10-14T00:00:01Z',
+      },
+    }
+    const receiptPath = `${materials}/variant-receipt.json`
+    const receiptSha256 = await writeFixtureJson(receiptPath, receipt)
+    return {
+      materials,
+      receiptPath,
+      receiptSha256,
+      producer: receipt.producer,
+    }
+  }
+  const baseline = await makeRole('baseline')
+  const modified = await makeRole('modified')
+  const dependenciesPath = `${input}/variant-dependencies.json`
+  await writeFixtureJson(dependenciesPath, {
+    schema_version: 1,
+    kind: 'slv-native-variant-dependencies',
+    baseline: {
+      receipt: baseline.receiptPath,
+      materials: baseline.materials,
+      receipt_sha256: baseline.receiptSha256,
+      artifact_id: '100',
+      artifact_digest: fixtureSha256('baseline artifact'),
+      producer: baseline.producer,
+    },
+    modified: {
+      receipt: modified.receiptPath,
+      materials: modified.materials,
+      receipt_sha256: modified.receiptSha256,
+      artifact_id: '101',
+      artifact_digest: fixtureSha256('modified artifact'),
+      producer: modified.producer,
+    },
+  })
+  const producerContextPath = `${input}/join-producer-context.json`
+  await writeFixtureJson(producerContextPath, producerContext)
+  const out = `${root}/joined`
+  return {
+    root,
+    target,
+    out,
+    dependenciesPath,
+    baselineMaterials: baseline.materials,
+    modifiedMaterials: modified.materials,
+    baselineReceipt: baseline.receiptPath,
+    modifiedReceipt: modified.receiptPath,
+    sourceReceipt,
+    notice,
+    pins,
+    slvSource,
+    denoSource,
+    cargoVendor,
+    producerContext,
+    args: {
+      '--phase': 'join-build',
+      '--target': target,
+      '--out': out,
+      '--work-dir': `${root}/join-work`,
+      '--source-root': `${root}/join-source`,
+      '--pins': pins,
+      '--source-receipt': sourceReceipt,
+      '--slv-source': slvSource,
+      '--deno-source': denoSource,
+      '--cargo-vendor': cargoVendor,
+      '--notice-file': notice,
+      '--producer-context': producerContextPath,
+      '--variant-dependencies': dependenciesPath,
+      // The workflow supplies common args to all phases. Join intentionally
+      // ignores this caller value and validates both producer hosts instead.
+      '--build-host': target,
+    },
+  }
+}
+
+function joinFixtureInputs(fixture: NativeJoinFixture): Record<string, string> {
+  return {
+    '--target': fixture.target,
+    '--pins': fixture.pins,
+    '--source-receipt': fixture.sourceReceipt,
+    '--slv-source': fixture.slvSource,
+    '--deno-source': fixture.denoSource,
+    '--cargo-vendor': fixture.cargoVendor,
+    '--notice-file': fixture.notice,
+  }
+}
+
+Deno.test('join-build production entrypoint preserves raw variants and passes merge proof validation', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-native-join-real-' })
+  try {
+    const fixture = await createNativeJoinFixture(root)
+    await verifyNative(fixture.args)
+    const buildPath = `${fixture.out}/build-receipt.json`
+    const build = JSON.parse(await Deno.readTextFile(buildPath)) as Record<
+      string,
+      unknown
+    >
+    const transport = build.transport as Record<string, unknown>
+    const manifest = JSON.parse(
+      await Deno.readTextFile(`${fixture.out}/${transport.manifest}`),
+    ) as Record<string, unknown>
+    const entries = manifest.entries as Record<string, unknown>
+    requireFixture(
+      Object.keys(entries).length === 14,
+      'join did not emit the complete 14-entry transport',
+    )
+    const resources = build.resources as Record<string, unknown>
+    requireFixture(
+      JSON.stringify(resources) ===
+        JSON.stringify({ capacity_preflight: { available_bytes: 1 } }),
+      'join nested producer resources instead of preserving capacity_preflight',
+    )
+    const artifacts = build.artifacts as Record<string, Record<string, string>>
+    requireFixture(
+      ((build.checks as Record<string, Record<string, unknown>>).baseline_build
+        .runtime_abi as Record<string, string>).denort_sha256 ===
+        artifacts.baseline.denort_sha256,
+      'joined baseline ABI differs from joined baseline artifact',
+    )
+    requireFixture(
+      artifacts.baseline.denort_sha256 ===
+        ((entries['baseline-denort'] as Record<string, string>).sha256),
+      'combined product artifact did not retain the baseline denort',
+    )
+    requireFixture(
+      !Object.values(artifacts.baseline).includes(
+        (entries['modified-denort'] as Record<string, string>).sha256,
+      ),
+      'combined product artifact included a modified runtime',
+    )
+    const split = build.split_build as Record<string, Record<string, string>>
+    requireFixture(
+      atob(split.baseline.receipt_bytes_base64) ===
+          await Deno.readTextFile(fixture.baselineReceipt) &&
+        atob(split.modified.receipt_bytes_base64) ===
+          await Deno.readTextFile(fixture.modifiedReceipt),
+      'join did not retain exact producer receipt bytes',
+    )
+    const executionPath = `${root}/execution-receipt.json`
+    const command = {
+      command: ['fixture'],
+      cwd: `${root}/execution`,
+      started_at: '2026-10-14T00:00:00Z',
+      finished_at: '2026-10-14T00:00:01Z',
+      exit_code: 0,
+      log: `${root}/execution.log`,
+      log_sha256: fixtureSha256('execution'),
+    }
+    const execution = {
+      schema_version: 1,
+      kind: 'slv-source-execution-receipt',
+      target: fixture.target,
+      build_mode: build.build_mode,
+      build_receipt_sha256: await fixtureFileSha256(buildPath),
+      execution_host: { os: 'darwin', arch: 'x64' },
+      execution_toolchain: {
+        pins_sha256: (build.toolchain as Record<string, string>).pins_sha256,
+        identities: (build.toolchain as Record<string, unknown>).identities,
+      },
+      host_python: { path: '/usr/bin/python3', version: '3.11.0' },
+      artifacts,
+      checks: {
+        baseline_probe: {
+          passed: true,
+          sentinel: { input: 0.125, output: 0.124, command },
+          control: { input: 0.126, output: 0.125, command },
+        },
+        modified_probe: {
+          passed: true,
+          sentinel: { input: 0.125, output: 0.5, command },
+          control: { input: 0.126, output: 0.125, command },
+        },
+        slv_version: { passed: true, command },
+        licenses: {
+          passed: true,
+          command,
+          canonical_notice_sha256: await fixtureFileSha256(fixture.notice),
+        },
+        slv_help: { passed: true, command },
+        release_bridge: {
+          passed: true,
+          compile: (build.checks as Record<string, Record<string, unknown>>)
+            .slv_compile.bridge_compile,
+          command,
+        },
+      },
+    }
+    await writeFixtureJson(executionPath, execution)
+    const mergeOut = `${root}/merge-out`
+    await Deno.mkdir(mergeOut)
+    await verifyNative({
+      '--phase': 'merge',
+      ...joinFixtureInputs(fixture),
+      '--out': mergeOut,
+      '--work-dir': `${root}/merge-work`,
+      '--source-root': `${root}/merge-source`,
+      '--build-receipt': buildPath,
+      '--execution-receipt': executionPath,
+    })
+    verifyNativeSourceRebuildProof(
+      JSON.parse(await Deno.readTextFile(`${mergeOut}/native-proof.json`)),
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+async function rewriteFixtureRole(
+  fixture: NativeJoinFixture,
+  variant: 'baseline' | 'modified',
+  mutate: (receipt: Record<string, unknown>) => void,
+  syncDependency = true,
+): Promise<void> {
+  const receiptPath = variant === 'baseline'
+    ? fixture.baselineReceipt
+    : fixture.modifiedReceipt
+  const receipt = JSON.parse(await Deno.readTextFile(receiptPath)) as Record<
+    string,
+    unknown
+  >
+  mutate(receipt)
+  const digest = await writeFixtureJson(receiptPath, receipt)
+  if (!syncDependency) return
+  const dependencies = JSON.parse(
+    await Deno.readTextFile(fixture.dependenciesPath),
+  ) as Record<string, Record<string, unknown>>
+  dependencies[variant].receipt_sha256 = digest
+  await writeFixtureJson(fixture.dependenciesPath, dependencies)
+}
+
+async function expectJoinFixtureRejection(
+  fixture: NativeJoinFixture,
+): Promise<void> {
+  let rejected = false
+  try {
+    await verifyNative(fixture.args)
+  } catch {
+    rejected = true
+  }
+  requireFixture(rejected, 'tampered join fixture was accepted')
+  const receipt = await Deno.lstat(`${fixture.out}/build-receipt.json`).catch(
+    () => undefined,
+  )
+  requireFixture(
+    !receipt,
+    'rejected join fixture emitted a final build receipt',
+  )
+}
+
+Deno.test('join-build production entrypoint fails closed for split source, sidecar, and payload tampering', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-native-join-negative-' })
+  try {
+    const caseFixture = async (
+      name: string,
+      mutate: (fixture: NativeJoinFixture) => Promise<void>,
+    ) => {
+      const fixture = await createNativeJoinFixture(`${root}/${name}`)
+      await mutate(fixture)
+      await expectJoinFixtureRejection(fixture)
+    }
+    await caseFixture('swapped-role', async (fixture) => {
+      const dependencies = JSON.parse(
+        await Deno.readTextFile(fixture.dependenciesPath),
+      ) as Record<string, unknown>
+      const baseline = dependencies.baseline
+      dependencies.baseline = dependencies.modified
+      dependencies.modified = baseline
+      await writeFixtureJson(fixture.dependenciesPath, dependencies)
+    })
+    await caseFixture('two-baselines', async (fixture) => {
+      const dependencies = JSON.parse(
+        await Deno.readTextFile(fixture.dependenciesPath),
+      ) as Record<string, Record<string, unknown>>
+      dependencies.modified.producer = dependencies.baseline.producer
+      await writeFixtureJson(fixture.dependenciesPath, dependencies)
+    })
+    await caseFixture('missing-producer', async (fixture) => {
+      const dependencies = JSON.parse(
+        await Deno.readTextFile(fixture.dependenciesPath),
+      ) as Record<string, Record<string, unknown>>
+      delete dependencies.modified.producer
+      await writeFixtureJson(fixture.dependenciesPath, dependencies)
+    })
+    await caseFixture('duplicate-artifact', async (fixture) => {
+      const dependencies = JSON.parse(
+        await Deno.readTextFile(fixture.dependenciesPath),
+      ) as Record<string, Record<string, unknown>>
+      dependencies.modified.artifact_id = dependencies.baseline.artifact_id
+      await writeFixtureJson(fixture.dependenciesPath, dependencies)
+    })
+    for (const field of ['repository', 'workflow', 'run_id'] as const) {
+      await caseFixture(
+        `producer-${field}`,
+        (fixture) =>
+          rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+            const producer = receipt.producer as Record<string, string>
+            producer[field] = field === 'run_id' ? '43' : `wrong-${field}`
+          }),
+      )
+    }
+    await caseFixture('future-attempt', async (fixture) => {
+      await rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+        ;(receipt.producer as Record<string, string>).run_attempt = '4'
+      })
+      const dependencies = JSON.parse(
+        await Deno.readTextFile(fixture.dependenciesPath),
+      ) as Record<string, Record<string, unknown>>
+      const producer =
+        (JSON.parse(await Deno.readTextFile(fixture.baselineReceipt)) as Record<
+          string,
+          unknown
+        >).producer
+      dependencies.baseline.producer = producer
+      await writeFixtureJson(fixture.dependenciesPath, dependencies)
+    })
+    for (
+      const [name, mutate] of [
+        [
+          'source',
+          (receipt: Record<string, unknown>) =>
+            receipt.source_commit = 'f'.repeat(40),
+        ],
+        [
+          'target',
+          (receipt: Record<string, unknown>) =>
+            receipt.target = 'aarch64-unknown-linux-gnu',
+        ],
+        [
+          'mode',
+          (receipt: Record<string, unknown>) => receipt.build_mode = 'cross',
+        ],
+        ['jobs', (receipt: Record<string, unknown>) => receipt.jobs = '3'],
+        [
+          'notice',
+          (receipt: Record<string, unknown>) =>
+            receipt.notice_sha256 = fixtureSha256('wrong notice'),
+        ],
+        [
+          'global-pins',
+          (receipt: Record<string, unknown>) =>
+            (receipt.toolchain as Record<string, unknown>).pins_sha256 =
+              fixtureSha256('wrong global pins'),
+        ],
+        [
+          'source-pin',
+          (receipt: Record<string, unknown>) =>
+            receipt.source_pin_sha256 = fixtureSha256('wrong source pins'),
+        ],
+        [
+          'selected-lock',
+          (receipt: Record<string, unknown>) =>
+            receipt.source_selected_cargo_lock_sha256 = fixtureSha256(
+              'wrong selected lock',
+            ),
+        ],
+        [
+          'recipe',
+          (receipt: Record<string, unknown>) =>
+            receipt.recipe_sha256 = fixtureSha256('wrong recipe'),
+        ],
+        [
+          'patch',
+          (receipt: Record<string, unknown>) =>
+            receipt.patch_sha256 = fixtureSha256('wrong patch'),
+        ],
+        [
+          'derived-lock',
+          (receipt: Record<string, unknown>) =>
+            receipt.derived_relink_cargo_lock_sha256 = fixtureSha256(
+              'wrong derived lock',
+            ),
+        ],
+        [
+          'tool-pin',
+          (receipt: Record<string, unknown>) =>
+            receipt.tool_pin_sha256 = fixtureSha256('wrong descriptor'),
+        ],
+      ] as const
+    ) {
+      await caseFixture(
+        name,
+        (fixture) => rewriteFixtureRole(fixture, 'baseline', mutate),
+      )
+    }
+    await caseFixture(
+      'host',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          receipt.build_host = { os: 'linux', arch: 'x64' }
+        }),
+    )
+    await caseFixture(
+      'source-assets',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const assets = receipt.source_assets as Array<Record<string, unknown>>
+          assets[0].sha256 = fixtureSha256('wrong asset')
+        }),
+    )
+    await caseFixture(
+      'tool-identity',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const toolchain = receipt.toolchain as Record<
+            string,
+            Record<string, Record<string, string>>
+          >
+          toolchain.identities['fixture-tool'].sha256 = fixtureSha256(
+            'wrong tool identity',
+          )
+        }),
+    )
+    await caseFixture(
+      'tool-archive-members',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          const archives = receipt.tool_archives as Record<
+            string,
+            Record<string, unknown>
+          >
+          archives.fixture.included_members = ['wrong/member']
+        }),
+    )
+    await caseFixture(
+      'tool-identity-key',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const toolchain = receipt.toolchain as Record<
+            string,
+            Record<string, Record<string, string>>
+          >
+          toolchain.identities['unexpected-tool'] =
+            toolchain.identities['fixture-tool']
+          delete toolchain.identities['fixture-tool']
+        }),
+    )
+    await caseFixture(
+      'fingerprint',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const checks = receipt.checks as Record<
+            string,
+            Record<string, unknown>
+          >
+          const fingerprint = checks.baseline_build
+            .cargo_fingerprints as Record<string, Array<Record<string, string>>>
+          fingerprint.records[0].sha256 = fixtureSha256('wrong fingerprint')
+        }),
+    )
+    await caseFixture(
+      'baseline-build-missing',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          delete (receipt.checks as Record<string, unknown>).baseline_build
+        }),
+    )
+    await caseFixture(
+      'modified-build-missing',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          delete (receipt.checks as Record<string, unknown>).modified_build
+        }),
+    )
+    await caseFixture(
+      'slv-compile-missing',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          delete (receipt.checks as Record<string, unknown>).slv_compile
+        }),
+    )
+    await caseFixture(
+      'patch-missing',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          delete (receipt.checks as Record<string, unknown>).patch
+        }),
+    )
+    await caseFixture(
+      'baseline-build-failed',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const checks = receipt.checks as Record<
+            string,
+            Record<string, unknown>
+          >
+          checks.baseline_build.passed = false
+        }),
+    )
+    await caseFixture(
+      'modified-build-command-failed',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          const checks = receipt.checks as Record<
+            string,
+            Record<string, unknown>
+          >
+          const command = checks.modified_build.command as Record<
+            string,
+            unknown
+          >
+          command.exit_code = 1
+        }),
+    )
+    await caseFixture(
+      'slv-compile-failed',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const checks = receipt.checks as Record<
+            string,
+            Record<string, unknown>
+          >
+          checks.slv_compile.passed = false
+        }),
+    )
+    await caseFixture(
+      'patch-command-failed',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          const checks = receipt.checks as Record<
+            string,
+            Record<string, unknown>
+          >
+          const command = checks.patch.command as Record<string, unknown>
+          command.exit_code = 1
+        }),
+    )
+    await caseFixture('raw-receipt', (fixture) =>
+      rewriteFixtureRole(
+        fixture,
+        'baseline',
+        (receipt) =>
+          receipt.notice_sha256 = fixtureSha256('raw receipt mismatch'),
+        false,
+      ))
+    await caseFixture('descriptor-bytes', async (fixture) => {
+      await Deno.writeTextFile(
+        `${fixture.baselineMaterials}/tool-pin.json`,
+        '{}\n',
+      )
+    })
+    await caseFixture('global-pin-as-target-descriptor', async (fixture) => {
+      await Deno.copyFile(
+        fixture.pins,
+        `${fixture.baselineMaterials}/tool-pin.json`,
+      )
+    })
+    await caseFixture('tools-sidecar-bytes', async (fixture) => {
+      await Deno.writeTextFile(
+        `${fixture.baselineMaterials}/build-tools-receipt.json`,
+        '{}\n',
+      )
+    })
+    await caseFixture('extra-payload', async (fixture) => {
+      await writeFixtureFile(
+        `${fixture.baselineMaterials}/transport/unexpected`,
+        'unexpected\n',
+      )
+    })
+    await caseFixture('missing-payload', async (fixture) => {
+      await Deno.remove(
+        `${fixture.baselineMaterials}/transport/baseline-denort`,
+      )
+    })
+    await caseFixture('symlink-payload', async (fixture) => {
+      const payload = `${fixture.baselineMaterials}/transport/baseline-denort`
+      await Deno.remove(payload)
+      await Deno.symlink('../variant-receipt.json', payload)
+    })
+    await caseFixture(
+      'traversal-payload',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const entries = receipt.entries as Record<
+            string,
+            Record<string, string>
+          >
+          entries['baseline-denort'].path = '../escaped'
+        }),
+    )
+    await caseFixture('payload-bytes', async (fixture) => {
+      await Deno.writeTextFile(
+        `${fixture.baselineMaterials}/transport/baseline-denort`,
+        'changed bytes\n',
+      )
+    })
+    await caseFixture(
+      'payload-size',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const entries = receipt.entries as Record<
+            string,
+            Record<string, number>
+          >
+          entries['baseline-denort'].size += 1
+        }),
+    )
+    await caseFixture(
+      'manifest-digest',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          const transport = receipt.transport as Record<string, string>
+          transport.manifest_sha256 = fixtureSha256('wrong manifest')
+        }),
+    )
   } finally {
     await Deno.remove(root, { recursive: true })
   }

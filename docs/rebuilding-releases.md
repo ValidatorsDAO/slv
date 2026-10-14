@@ -5,8 +5,8 @@ inputs to a local rebuild, not an installer and not a replacement for the
 official signed-release trust path.
 
 - `slv-source.tar.gz` has the single root `slv-source/`: the reviewed SLV
-  source, its frozen Deno dependency cache, canonical `THIRD_PARTY_NOTICES`,
-  and `source-materials/{closure.json,inventory.json,pack-manifest.json}`.
+  source, its frozen Deno dependency cache, canonical `THIRD_PARTY_NOTICES`, and
+  `source-materials/{closure.json,inventory.json,pack-manifest.json}`.
 - `deno-source.tar.gz` has the single root `deno-source/`: Deno 2.9.3,
   `rusty_v8`, its pinned V8 source, the same canonical notice bytes, and the
   embedded source manifests.
@@ -27,8 +27,8 @@ do not self-reference the archive checksum.
 The signed `sbom.spdx.json` carries the source-material receipt in exactly one
 SPDX annotation. Its comment contains the raw receipt after
 `---BEGIN SLV SOURCE MATERIALS RECEIPT---` and includes the receipt's final
-newline. Preserve those bytes; parsing and reformatting JSON, or using
-`jq -r` (which appends a newline), changes the assembly receipt SHA-256.
+newline. Preserve those bytes; parsing and reformatting JSON, or using `jq -r`
+(which appends a newline), changes the assembly receipt SHA-256.
 
 ```bash
 python3 - ./sbom.spdx.json ./source-materials-receipt.json <<'PY'
@@ -67,8 +67,8 @@ deno run --frozen --allow-read \
   ./source-materials-receipt.json ./source-materials
 ```
 
-The source-material directory in the verification command contains precisely
-the three downloaded archives. It does not require a CI token, signature
+The source-material directory in the verification command contains precisely the
+three downloaded archives. It does not require a CI token, signature
 authorization, or publisher-only receipt.
 
 `source-materials/pins.json` binds the native source inputs to Deno
@@ -86,13 +86,13 @@ The rebuild has no CI identity, signing key, token, or publisher-only
 authorization requirement. It requires the public, checksum-pinned native tool
 prerequisites recorded in `source-rebuild/tool-prereqs.json`: Rust 1.95.0,
 Chromium Clang and paired libclang/resource headers, Chromium Rust required by
-V8's GN build, GN, Ninja, and a Deno 2.9.3 frontend. Compiler distributions
-are prerequisites; they are not source-release assets.
+V8's GN build, GN, Ninja, and a Deno 2.9.3 frontend. Compiler distributions are
+prerequisites; they are not source-release assets.
 
-Prepare each purpose into a new directory. The target descriptor is a
-canonical, target-specific subset of the reviewed `tool-prereqs.json`. Both
-phases for one target must bind the same descriptor bytes. `--offline` accepts
-only already checksum-verified cache bytes.
+Prepare each purpose into a new directory. The target descriptor is a canonical,
+target-specific subset of the reviewed `tool-prereqs.json`. Both phases for one
+target must bind the same descriptor bytes. `--offline` accepts only already
+checksum-verified cache bytes.
 
 ```bash
 TARGET=x86_64-unknown-linux-gnu
@@ -127,19 +127,19 @@ On macOS, use Xcode 16.2 with SDK 15.2 and set
 absolute Python 3.11-or-newer path; the driver resolves, validates, and records
 that path instead of inheriting a user PATH or Python configuration.
 
-Linux build preparation also installs the checksum-pinned Deno 2.27 ABI
-sysroot. ARM64 extracts only `.env`, `lib`, `usr/include`, and `usr/lib`; x86_64
-also needs the archive's `lib64`. This excludes unneeded device entries and
-tools. The Deno `memfd_create` and libm shims are compiled from pinned Deno
-source using that declared target sysroot. Chromium's separate 2.31 sysroots
-remain V8 build prerequisites.
+Linux build preparation also installs the checksum-pinned Deno 2.27 ABI sysroot.
+ARM64 extracts only `.env`, `lib`, `usr/include`, and `usr/lib`; x86_64 also
+needs the archive's `lib64`. This excludes unneeded device entries and tools.
+The Deno `memfd_create` and libm shims are compiled from pinned Deno source
+using that declared target sysroot. Chromium's separate 2.31 sysroots remain V8
+build prerequisites.
 
 After the source archives and build-purpose tools are staged, the build phase
-requires at least `12582912` KiB (12 GiB) free on every filesystem receiving
-the extraction, build work, or proof output. This bound comes from the measured
-10.3 GiB native peak plus transport/log slack. The driver records each POSIX
-`df -Pk` reading in the build receipt and fails before extraction if the bound
-is not met.
+requires at least `12582912` KiB (12 GiB) free on every filesystem receiving the
+extraction, build work, or proof output. This bound comes from the measured 10.3
+GiB native peak plus transport/log slack. The driver records each POSIX `df -Pk`
+reading in the build receipt and fails before extraction if the bound is not
+met.
 
 ## Native replay
 
@@ -181,9 +181,95 @@ deno run --frozen --allow-read --allow-write --allow-run --allow-env \
   --source-root ./fresh-merge-source --work-dir ./fresh-merge-work
 ```
 
-`build` verifies and safely scans every archive before extraction, constructs
-an unmodified source-built `denort` with `V8_FROM_SOURCE=true`, and transports
-only hash-allowlisted baseline artifacts, probes, and the compiled SLV/bridge
+### Split cold producers for ARM Linux and macOS Intel
+
+The hosted release path for `aarch64-unknown-linux-gnu` and
+`x86_64-apple-darwin` runs two independent cold producers, then a short join.
+This isolates the baseline product build from the modified sentinel build; it
+does not replace the target-host `execute` and `merge` phases. The existing
+`build` invocation above remains the local full-rebuild interface.
+
+Each producer receives its explicit GitHub producer context as JSON with this
+exact shape:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "slv-native-producer-context",
+  "repository": "ValidatorsDAO/slv",
+  "workflow": "ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@<ref>",
+  "run_id": "<positive-run-id>",
+  "run_attempt": "<positive-attempt>",
+  "job_id": "source-arm-baseline"
+}
+```
+
+The ARM producer job IDs are `source-arm-baseline` and `source-arm-modified`;
+the macOS Intel IDs are `source-macos-x64-baseline` and
+`source-macos-x64-modified`. Each producer uses a fresh source root and work
+directory, its own prepared build tools, `--jobs 4`, and writes exactly
+`variant-receipt.json`, `build-tools-receipt.json`, `tool-pin.json`, and its
+allowlisted `transport/` payload into its output directory.
+
+```bash
+SPLIT_COMMON=(
+  --target "$TARGET"
+  --pins "$INPUT/source-materials/pins.json"
+  --source-receipt "$INPUT/source-materials-receipt.json"
+  --slv-source "$INPUT/source-materials/slv-source.tar.gz"
+  --deno-source "$INPUT/source-materials/deno-source.tar.gz"
+  --cargo-vendor "$INPUT/source-materials/deno-cargo-vendor.tar.gz"
+  --notice-file "$INPUT/THIRD_PARTY_NOTICES"
+)
+
+deno run --frozen --allow-read --allow-write --allow-run --allow-env \
+  source-rebuild/verify-native.ts --phase build-variant "${SPLIT_COMMON[@]}" \
+  --variant baseline --build-host "$BUILD_HOST" --jobs 4 \
+  --tools-receipt ./baseline-tools-receipt.json \
+  --producer-context ./baseline-producer-context.json \
+  --source-root ./fresh-baseline-source --work-dir ./fresh-baseline-work \
+  --out ./baseline-variant
+
+deno run --frozen --allow-read --allow-write --allow-run --allow-env \
+  source-rebuild/verify-native.ts --phase build-variant "${SPLIT_COMMON[@]}" \
+  --variant modified --build-host "$BUILD_HOST" --jobs 4 \
+  --tools-receipt ./modified-tools-receipt.json \
+  --producer-context ./modified-producer-context.json \
+  --source-root ./fresh-modified-source --work-dir ./fresh-modified-work \
+  --out ./modified-variant
+```
+
+The join takes a separate facade context and an exact dependency descriptor. The
+descriptor has `schema_version: 1`, `kind: "slv-native-variant-dependencies"`,
+and `baseline` and `modified` objects. Each role names the downloaded `receipt`
+and `materials` paths, raw `receipt_sha256`, provider `artifact_id` and
+`artifact_digest`, and the full producer context. `artifact_digest` remains
+provider metadata. The join fail-closes on the actual raw receipt, build-tool
+sidecar, canonical target descriptor, manifest, and every payload file's hash
+and size; it does not claim to recompute a ZIP digest.
+
+```bash
+deno run --frozen --allow-read --allow-write --allow-run --allow-env \
+  source-rebuild/verify-native.ts --phase join-build "${SPLIT_COMMON[@]}" \
+  --producer-context ./join-producer-context.json \
+  --variant-dependencies ./variant-dependencies.json \
+  --source-root ./fresh-join-source --work-dir ./fresh-join-work \
+  --out "$PROOF"
+```
+
+`join-build` has no compiler or tool preparation input. It independently
+re-extracts and verifies immutable source materials, preserves the exact
+original producer receipt bytes in `build-receipt.json` under `split_build`, and
+emits the unchanged combined build receipt and transport contract consumed by
+`execute`, `merge`, and the public proof parser. Producers from an earlier
+attempt are accepted only when the explicit exact dependency ID, provider
+metadata, raw receipt hash, and producer context still bind the same workflow
+run. The split changes deadline isolation only; actual per-producer duration is
+measured by the hosted run rather than inferred from local fixtures.
+
+`build` verifies and safely scans every archive before extraction, constructs an
+unmodified source-built `denort` with `V8_FROM_SOURCE=true`, and transports only
+hash-allowlisted baseline artifacts, probes, and the compiled SLV/bridge
 acceptances. Its Cargo home, target directory, HOME, compiler flags, wrappers,
 and cache are isolated. The recipe records its fixed environment allowlist,
 Python/tool identities, source-lock-to-derived-lock transformation, logs,
@@ -199,8 +285,8 @@ notice file. `merge` rehashes the exact source assets and binds the independent
 build and execution receipts into `native-proof.json`; it does not modify the
 source-material receipt.
 
-The contextual `glibc_sin` sentinel patch is a separate diagnostic: it builds
-in a different cache and proves that `Math.sin(0.125)` reaches `glibc_sin` by
+The contextual `glibc_sin` sentinel patch is a separate diagnostic: it builds in
+a different cache and proves that `Math.sin(0.125)` reaches `glibc_sin` by
 returning `0.5` while the nearby control stays normal. It is not the runtime
 used to produce the release executable.
 
@@ -216,18 +302,19 @@ x86_64 cross-build alone is never a passing ARM proof.
 The release pack requires one verified passing proof for each native target:
 x86_64 Linux, ARM64 Linux, x86_64 macOS, and ARM64 macOS. It rejects absent,
 duplicate, stale, source-mismatched, tool-descriptor-mismatched, or
-build/execute artifact-mismatched proof records. A local diagnostic or a
-failed command remains evidence of its own result and is not a release proof.
+build/execute artifact-mismatched proof records. A local diagnostic or a failed
+command remains evidence of its own result and is not a release proof.
 
-The default build parallelism is two. A local reviewer with capacity for the
-same isolated build may choose `--jobs 1` through `--jobs 16`; it is recorded
-in the build receipt. Official CI continues to use two jobs.
+The local full-build default parallelism is two. A local reviewer with capacity
+for the same isolated full build may choose `--jobs 1` through `--jobs 16`; it
+is recorded in the build receipt. The bounded split producer interface requires
+exactly `--jobs 4`.
 
 ## Linux product compatibility gate
 
 After the product executable and compiled bridge have been built from the
-transported baseline runtime, Linux release jobs run this additional gate on
-the matching target architecture:
+transported baseline runtime, Linux release jobs run this additional gate on the
+matching target architecture:
 
 ```bash
 deno run --frozen --allow-read --allow-write --allow-run --allow-env \
@@ -243,33 +330,33 @@ deno run --frozen --allow-read --allow-write --allow-run --allow-env \
 ```
 
 The runtime transport manifest binds the baseline `denort`, derived local-V8
-lock, and the Deno TLS fixture bytes `tls-localhost.crt`,
-`tls-localhost.key`, and `tls-root-ca.pem`. The gate rejects ELF imports above
-GLIBC 2.27, `GLIBC_PRIVATE`, and RPATH/RUNPATH. It runs the executable,
-licenses command, bridge, and source-built runtime crypto/subprocess/TLS smoke
-under the pinned target 2.27 loader with only its verified sysroot library
-paths. Loader `--list` output is recorded but does not itself pass the gate;
-each program must execute. The resulting sibling
-`linux-compatibility-receipt.json` uses portable `cwd: "."` and basename-only
-log paths so it can be verified after artifact transfer.
+lock, and the Deno TLS fixture bytes `tls-localhost.crt`, `tls-localhost.key`,
+and `tls-root-ca.pem`. The gate rejects ELF imports above GLIBC 2.27,
+`GLIBC_PRIVATE`, and RPATH/RUNPATH. It runs the executable, licenses command,
+bridge, and source-built runtime crypto/subprocess/TLS smoke under the pinned
+target 2.27 loader with only its verified sysroot library paths. Loader `--list`
+output is recorded but does not itself pass the gate; each program must execute.
+The resulting sibling `linux-compatibility-receipt.json` uses portable
+`cwd: "."` and basename-only log paths so it can be verified after artifact
+transfer.
 
-The native build recipe also emits a per-runtime ABI receipt. Linux baseline
-and sentinel `denort` outputs must have no GLIBC requirement above 2.27,
-`GLIBC_PRIVATE`, or RPATH/RUNPATH. macOS builds preserve Deno's upstream
-target configuration and record a Mach-O `LC_BUILD_VERSION` minimum OS of
-12.0; macOS target execution remains an independent target-host proof.
+The native build recipe also emits a per-runtime ABI receipt. Linux baseline and
+sentinel `denort` outputs must have no GLIBC requirement above 2.27,
+`GLIBC_PRIVATE`, or RPATH/RUNPATH. macOS builds preserve Deno's upstream target
+configuration and record a Mach-O `LC_BUILD_VERSION` minimum OS of 12.0; macOS
+target execution remains an independent target-host proof.
 
 ## Making a local modified rebuild
 
 Anyone may modify the extracted source and rebuild it locally. This route does
-not need CI, a signing key, token, release authorization, or a
-publisher-only license task. It produces an unofficial modified artifact and
-must not be represented as a verified official release.
+not need CI, a signing key, token, release authorization, or a publisher-only
+license task. It produces an unofficial modified artifact and must not be
+represented as a verified official release.
 
 First verify and safely extract the three source archives as above. Copy the
-Deno and `rusty_v8` source trees to a private work directory, keep the
-published selected vendor tree read-only, and run the frozen recipe with the
-same public prepared-tool environment used for the target:
+Deno and `rusty_v8` source trees to a private work directory, keep the published
+selected vendor tree read-only, and run the frozen recipe with the same public
+prepared-tool environment used for the target:
 
 ```bash
 set -eu
@@ -351,8 +438,8 @@ cp "$EXTRACTED/slv-source/THIRD_PARTY_NOTICES" \
 This is the local Linux rebuild path. `DENO_SYSROOT_SHA256` is mandatory and
 target-specific; the ARM case also requires the matching prepared
 `CROSS_LINKER`. The copied app uses its shipped frozen dependency cache as
-`DENO_DIR`, and the command copies the shipped notice to its compiled asset
-path before invoking the source-built runtime. The canonical notices describe
-the published selected closure. If a local modification changes dependency
-closure or notices, its distributor must produce accurate local licensing
-material before redistributing those changed bytes.
+`DENO_DIR`, and the command copies the shipped notice to its compiled asset path
+before invoking the source-built runtime. The canonical notices describe the
+published selected closure. If a local modification changes dependency closure
+or notices, its distributor must produce accurate local licensing material
+before redistributing those changed bytes.

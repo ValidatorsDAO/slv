@@ -7,6 +7,7 @@
  * phase receipts to the immutable assembly receipt and produces the target
  * proof consumed by the release aggregator.
  */
+import { createHash } from 'node:crypto'
 import {
   sha256,
   type SourceAsset,
@@ -14,6 +15,10 @@ import {
   verifyNativeSourceRebuildProof,
   verifySourceMaterialsReceipt,
 } from '../scripts/release/source-materials.ts'
+import {
+  canonicalTargetDescriptorBytes,
+  parseToolPins,
+} from './prepare-tools.ts'
 
 const decoder = new TextDecoder()
 const SHA256 = /^[a-f0-9]{64}$/
@@ -35,9 +40,19 @@ const ASSETS = [
 const BUILD_MIN_FREE_KIB = 12 * 1024 * 1024
 const EXECUTION_FAILURE_TAIL_BYTES = 4096
 type AssetName = typeof ASSETS[number]
-type Phase = 'build' | 'execute' | 'merge'
+type Phase = 'build' | 'build-variant' | 'join-build' | 'execute' | 'merge'
 type Args = Record<string, string>
 type Host = { os: 'linux' | 'darwin'; arch: 'x64' | 'arm64' }
+type Variant = 'baseline' | 'modified'
+type ProducerContext = {
+  schema_version: 1
+  kind: 'slv-native-producer-context'
+  repository: 'ValidatorsDAO/slv'
+  workflow: string
+  run_id: string
+  run_attempt: string
+  job_id: string
+}
 type CommandReceipt = {
   command: string[]
   cwd: string
@@ -137,15 +152,83 @@ function equalJson(left: unknown, right: unknown): boolean {
   return stableJson(left) === stableJson(right)
 }
 
+function exactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  label: string,
+): void {
+  if (
+    Object.keys(value).length !== keys.length ||
+    keys.some((key) => !(key in value))
+  ) {
+    throw new Error(`${label} has an unexpected key set`)
+  }
+}
+
+function positiveDecimal(value: unknown, label: string): string {
+  const parsed = text(value, label)
+  if (!/^[1-9][0-9]*$/.test(parsed)) {
+    throw new Error(`${label} must be a positive decimal string`)
+  }
+  return parsed
+}
+
+function artifactDigest(value: unknown, label: string): string {
+  const raw = text(value, label)
+  const digest = raw.startsWith('sha256:') ? raw.slice('sha256:'.length) : raw
+  if (!SHA256.test(digest)) {
+    throw new Error(`${label} must be a SHA-256 or sha256:SHA-256`)
+  }
+  return digest
+}
+
+function parseProducerContext(value: unknown, label: string): ProducerContext {
+  const record = object(value, label)
+  exactKeys(record, [
+    'schema_version',
+    'kind',
+    'repository',
+    'workflow',
+    'run_id',
+    'run_attempt',
+    'job_id',
+  ], label)
+  if (
+    record.schema_version !== 1 ||
+    record.kind !== 'slv-native-producer-context' ||
+    record.repository !== 'ValidatorsDAO/slv'
+  ) {
+    throw new Error(`${label} has an unsupported producer identity`)
+  }
+  const workflow = text(record.workflow, `${label} workflow`)
+  if (!workflow.startsWith('ValidatorsDAO/slv/')) {
+    throw new Error(`${label} workflow does not belong to ValidatorsDAO/slv`)
+  }
+  return {
+    schema_version: 1,
+    kind: 'slv-native-producer-context',
+    repository: 'ValidatorsDAO/slv',
+    workflow,
+    run_id: positiveDecimal(record.run_id, `${label} run_id`),
+    run_attempt: positiveDecimal(record.run_attempt, `${label} run_attempt`),
+    job_id: text(record.job_id, `${label} job_id`),
+  }
+}
+
 function phaseOf(args: Args): Phase {
   const phase = args['--phase']
-  if (phase !== 'build' && phase !== 'execute' && phase !== 'merge') {
-    throw new Error('--phase must be build, execute, or merge')
+  if (
+    phase !== 'build' && phase !== 'build-variant' &&
+    phase !== 'join-build' && phase !== 'execute' && phase !== 'merge'
+  ) {
+    throw new Error(
+      '--phase must be build, build-variant, join-build, execute, or merge',
+    )
   }
   return phase
 }
 
-function parseArgs(argv: string[]): Args {
+export function parseNativeArgs(argv: string[]): Args {
   const values: Args = {}
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index]
@@ -159,9 +242,12 @@ function parseArgs(argv: string[]): Args {
     values[flag] = value
   }
   const phase = values['--phase']
-  if (phase !== 'build' && phase !== 'execute' && phase !== 'merge') {
+  if (
+    phase !== 'build' && phase !== 'build-variant' &&
+    phase !== 'join-build' && phase !== 'execute' && phase !== 'merge'
+  ) {
     throw new Error(
-      'usage: verify-native.ts --phase build|execute|merge --target TARGET --source-root EMPTY_DIR --work-dir EMPTY_DIR --out PROOF_DIR --pins PINS_JSON --source-receipt RECEIPT_JSON --slv-source ARCHIVE --deno-source ARCHIVE --cargo-vendor ARCHIVE --notice-file THIRD_PARTY_NOTICES [phase inputs]',
+      'usage: verify-native.ts --phase build|build-variant|join-build|execute|merge --target TARGET --source-root EMPTY_DIR --work-dir EMPTY_DIR --out PROOF_DIR --pins PINS_JSON --source-receipt RECEIPT_JSON --slv-source ARCHIVE --deno-source ARCHIVE --cargo-vendor ARCHIVE --notice-file THIRD_PARTY_NOTICES [phase inputs]',
     )
   }
   const common = [
@@ -179,14 +265,63 @@ function parseArgs(argv: string[]): Args {
   for (const required of common) {
     if (!values[required]) throw new Error(`missing ${required}`)
   }
-  if (phase === 'build' && !values['--tools-receipt']) {
-    throw new Error('build requires --tools-receipt')
+  if (
+    (phase === 'build' || phase === 'build-variant') &&
+    !values['--tools-receipt']
+  ) {
+    throw new Error(`${phase} requires --tools-receipt`)
   }
   if (values['--jobs'] !== undefined) {
-    if (phase !== 'build' || !/^(?:[1-9]|1[0-6])$/.test(values['--jobs'])) {
+    if (
+      (phase !== 'build' && phase !== 'build-variant') ||
+      !/^(?:[1-9]|1[0-6])$/.test(values['--jobs'])
+    ) {
       throw new Error(
-        '--jobs is permitted only for build and must be 1 through 16',
+        '--jobs is permitted only for build or build-variant and must be 1 through 16',
       )
+    }
+  }
+  if (phase === 'build-variant') {
+    if (
+      values['--variant'] !== 'baseline' && values['--variant'] !== 'modified'
+    ) {
+      throw new Error('build-variant requires --variant baseline or modified')
+    }
+    for (const required of ['--build-host', '--jobs', '--producer-context']) {
+      if (!values[required]) {
+        throw new Error(`build-variant requires ${required}`)
+      }
+    }
+    if (values['--jobs'] !== '4') {
+      throw new Error('build-variant requires --jobs 4')
+    }
+    if (values['--variant-dependencies'] !== undefined) {
+      throw new Error('build-variant does not accept --variant-dependencies')
+    }
+  }
+  if (phase === 'join-build') {
+    for (const required of ['--producer-context', '--variant-dependencies']) {
+      if (!values[required]) throw new Error(`join-build requires ${required}`)
+    }
+    for (
+      const forbidden of ['--variant', '--jobs', '--tools-receipt']
+    ) {
+      if (values[forbidden] !== undefined) {
+        throw new Error(`join-build does not accept ${forbidden}`)
+      }
+    }
+  }
+  if (phase !== 'build-variant' && phase !== 'join-build') {
+    for (
+      const unexpected of [
+        '--variant',
+        '--producer-context',
+        '--variant-dependencies',
+      ]
+    ) {
+      if (values[unexpected] !== undefined) {
+        throw new Error(`${phase} does not accept ${unexpected}`)
+      }
     }
   }
   if (phase === 'execute') {
@@ -1897,6 +2032,364 @@ async function discardBuildScratch(output: string): Promise<void> {
   }
 }
 
+const BASELINE_TRANSPORT_NAMES = [
+  'baseline-denort',
+  'baseline-v8-archive',
+  'baseline-ninja',
+  'baseline-probe',
+  'baseline-derived-relink-Cargo.lock',
+  'baseline-slv',
+  'baseline-bridge',
+  'tls-localhost.crt',
+  'tls-localhost.key',
+  'tls-root-ca.pem',
+] as const
+const MODIFIED_TRANSPORT_NAMES = [
+  'modified-denort',
+  'modified-v8-archive',
+  'modified-ninja',
+  'modified-probe',
+] as const
+
+function roleTransportNames(variant: Variant): readonly string[] {
+  return variant === 'baseline'
+    ? BASELINE_TRANSPORT_NAMES
+    : MODIFIED_TRANSPORT_NAMES
+}
+
+function parseHost(value: unknown, label: string): Host {
+  const host = object(value, label)
+  exactKeys(host, ['os', 'arch'], label)
+  if (
+    (host.os !== 'linux' && host.os !== 'darwin') ||
+    (host.arch !== 'x64' && host.arch !== 'arm64')
+  ) {
+    throw new Error(`${label} is not a supported host`)
+  }
+  return { os: host.os, arch: host.arch }
+}
+
+function parseVariantEntries(
+  value: unknown,
+  variant: Variant,
+  label: string,
+): Record<string, TransportEntry> {
+  const entries = object(value, label)
+  const expected = roleTransportNames(variant)
+  exactKeys(entries, expected, label)
+  const parsed: Record<string, TransportEntry> = {}
+  for (const name of expected) {
+    const entry = object(entries[name], `${label}.${name}`)
+    exactKeys(entry, ['path', 'sha256', 'size'], `${label}.${name}`)
+    const path = text(entry.path, `${label}.${name} path`)
+    if (path !== name) {
+      throw new Error(`${label}.${name} must use its exact payload path`)
+    }
+    const size = entry.size
+    if (!Number.isSafeInteger(size) || (size as number) <= 0) {
+      throw new Error(`${label}.${name} has an invalid size`)
+    }
+    parsed[name] = {
+      path,
+      sha256: sha(entry.sha256, `${label}.${name} SHA-256`),
+      size: size as number,
+    }
+  }
+  return parsed
+}
+
+function commandSucceeded(value: unknown, label: string): void {
+  const receipt = object(value, label)
+  if (
+    !Array.isArray(receipt.command) || !receipt.command.length ||
+    receipt.command.some((part) => typeof part !== 'string') ||
+    receipt.exit_code !== 0
+  ) {
+    throw new Error(`${label} is not a successful command receipt`)
+  }
+  for (const key of ['cwd', 'started_at', 'finished_at', 'log']) {
+    text(receipt[key], `${label} ${key}`)
+  }
+  sha(receipt.log_sha256, `${label} log SHA-256`)
+}
+
+function successfulCheck(
+  value: unknown,
+  label: string,
+): Record<string, unknown> {
+  const check = object(value, label)
+  if (check.passed !== true) throw new Error(`${label} did not pass`)
+  commandSucceeded(check.command, `${label} command`)
+  return check
+}
+
+function identityDigests(
+  value: unknown,
+  label: string,
+): Record<string, string> {
+  const identities = object(value, label)
+  const parsed: Record<string, string> = {}
+  for (const [name, raw] of Object.entries(identities)) {
+    if (!name) throw new Error(`${label} has an empty identity name`)
+    const identity = object(raw, `${label}.${name}`)
+    text(identity.path, `${label}.${name} path`)
+    parsed[name] = sha(identity.sha256, `${label}.${name} SHA-256`)
+  }
+  if (!Object.keys(parsed).length) throw new Error(`${label} is empty`)
+  return parsed
+}
+
+function parseToolArchives(
+  value: unknown,
+  label: string,
+): Record<
+  string,
+  { sha256: string; size: number; url: string; included_members?: string[] }
+> {
+  const archives = object(value, label)
+  const parsed: Record<
+    string,
+    { sha256: string; size: number; url: string; included_members?: string[] }
+  > = {}
+  for (const [name, raw] of Object.entries(archives)) {
+    const archive = object(raw, `${label}.${name}`)
+    const allowed = archive.included_members === undefined
+      ? ['sha256', 'size', 'url']
+      : ['sha256', 'size', 'url', 'included_members']
+    exactKeys(archive, allowed, `${label}.${name}`)
+    const size = archive.size
+    if (!Number.isSafeInteger(size) || (size as number) <= 0) {
+      throw new Error(`${label}.${name} has an invalid size`)
+    }
+    const url = text(archive.url, `${label}.${name} URL`)
+    if (new URL(url).protocol !== 'https:') {
+      throw new Error(`${label}.${name} URL must use HTTPS`)
+    }
+    let includedMembers: string[] | undefined
+    if (archive.included_members !== undefined) {
+      if (
+        !Array.isArray(archive.included_members) ||
+        archive.included_members.some((member) => typeof member !== 'string')
+      ) {
+        throw new Error(`${label}.${name} has invalid included members`)
+      }
+      includedMembers = [...archive.included_members]
+    }
+    parsed[name] = {
+      sha256: sha(archive.sha256, `${label}.${name} SHA-256`),
+      size: size as number,
+      url,
+      ...(includedMembers ? { included_members: includedMembers } : {}),
+    }
+  }
+  if (!Object.keys(parsed).length) throw new Error(`${label} is empty`)
+  return parsed
+}
+
+type VariantReceipt = {
+  value: Record<string, unknown>
+  variant: Variant
+  producer: ProducerContext
+  target: string
+  buildMode: 'native' | 'cross'
+  buildHost: Host
+  entries: Record<string, TransportEntry>
+  checks: Record<string, unknown>
+  toolchain: { pinsSha256: string; identities: Record<string, string> }
+  toolArchives: Record<
+    string,
+    { sha256: string; size: number; url: string; included_members?: string[] }
+  >
+}
+
+function parseVariantReceipt(value: unknown, label: string): VariantReceipt {
+  const receipt = object(value, label)
+  exactKeys(receipt, [
+    'schema_version',
+    'kind',
+    'variant',
+    'producer',
+    'target',
+    'build_mode',
+    'build_host',
+    'source_commit',
+    'source_receipt_sha256',
+    'source_assets',
+    'source_pin_sha256',
+    'notice_sha256',
+    'source_selected_cargo_lock_sha256',
+    'tool_pin_sha256',
+    'toolchain',
+    'tool_archives',
+    'tools_receipt_sha256',
+    'jobs',
+    'resources',
+    'extraction',
+    'recipe_sha256',
+    'patch_sha256',
+    'derived_relink_cargo_lock_sha256',
+    'transport',
+    'entries',
+    'checks',
+    'timing',
+  ], label)
+  if (
+    receipt.schema_version !== 1 ||
+    receipt.kind !== 'slv-source-build-variant-receipt' ||
+    (receipt.variant !== 'baseline' && receipt.variant !== 'modified') ||
+    (receipt.build_mode !== 'native' && receipt.build_mode !== 'cross') ||
+    !TARGETS.has(text(receipt.target, `${label} target`)) ||
+    receipt.jobs !== '4'
+  ) {
+    throw new Error(`${label} has invalid schema, role, mode, or jobs`)
+  }
+  const variant = receipt.variant
+  const sourceAssetsValue = receipt.source_assets
+  if (
+    !Array.isArray(sourceAssetsValue) ||
+    sourceAssetsValue.length !== ASSETS.length
+  ) {
+    throw new Error(`${label} has invalid source assets`)
+  }
+  const sourceAssets = sourceAssetsValue.map((asset, index) => {
+    const parsed = object(asset, `${label} source asset ${index}`)
+    exactKeys(
+      parsed,
+      ['name', 'sha256', 'size'],
+      `${label} source asset ${index}`,
+    )
+    const size = parsed.size
+    if (!Number.isSafeInteger(size) || (size as number) <= 0) {
+      throw new Error(`${label} source asset ${index} has invalid size`)
+    }
+    const name = text(parsed.name, `${label} source asset ${index} name`)
+    if (name !== ASSETS[index]) {
+      throw new Error(`${label} source asset ${index} has an unexpected name`)
+    }
+    return {
+      name,
+      sha256: sha(parsed.sha256, `${label} source asset ${index} SHA-256`),
+      size: size as number,
+    }
+  })
+  if (!equalJson(sourceAssets, receipt.source_assets)) {
+    throw new Error(`${label} source assets are not canonical`)
+  }
+  const toolchain = object(receipt.toolchain, `${label} toolchain`)
+  exactKeys(toolchain, ['pins_sha256', 'identities'], `${label} toolchain`)
+  const transport = object(receipt.transport, `${label} transport`)
+  exactKeys(transport, ['manifest', 'manifest_sha256'], `${label} transport`)
+  if (transport.manifest !== 'transport/manifest.json') {
+    throw new Error(`${label} has an unexpected transport manifest path`)
+  }
+  const timing = object(receipt.timing, `${label} timing`)
+  exactKeys(timing, ['started_at', 'finished_at'], `${label} timing`)
+  text(timing.started_at, `${label} timing started_at`)
+  text(timing.finished_at, `${label} timing finished_at`)
+  const resources = object(receipt.resources, `${label} resources`)
+  exactKeys(resources, ['capacity_preflight'], `${label} resources`)
+  object(resources.capacity_preflight, `${label} capacity preflight`)
+  const extraction = object(receipt.extraction, `${label} extraction`)
+  exactKeys(
+    extraction,
+    ['slv_scan', 'deno_scan', 'vendor_scan', 'slv', 'deno', 'vendor'],
+    `${label} extraction`,
+  )
+  for (const [name, command] of Object.entries(extraction)) {
+    commandSucceeded(command, `${label} extraction ${name}`)
+  }
+  const checks = object(receipt.checks, `${label} checks`)
+  const expectedChecks = variant === 'baseline'
+    ? ['baseline_build', 'slv_compile']
+    : ['patch', 'modified_build']
+  exactKeys(checks, expectedChecks, `${label} checks`)
+  const primary = successfulCheck(
+    checks[variant === 'baseline' ? 'baseline_build' : 'modified_build'],
+    `${label} ${variant} build check`,
+  )
+  const fingerprints = primary.cargo_fingerprints
+  commandSucceeded(primary.probe_compile, `${label} ${variant} probe compile`)
+  sha(
+    primary.runtime_abi_receipt_sha256,
+    `${label} ${variant} runtime ABI receipt SHA-256`,
+  )
+  const runtimeAbi = object(
+    primary.runtime_abi,
+    `${label} ${variant} runtime ABI`,
+  )
+  if (runtimeAbi.status !== 'passed') {
+    throw new Error(`${label} ${variant} runtime ABI did not pass`)
+  }
+  const derived = sha(
+    receipt.derived_relink_cargo_lock_sha256,
+    `${label} derived Cargo.lock SHA-256`,
+  )
+  const runtime = variant === 'baseline'
+    ? sha(
+      object(primary.runtime_abi, `${label} baseline runtime ABI`)
+        .denort_sha256,
+      `${label} baseline runtime SHA-256`,
+    )
+    : sha(
+      object(primary.runtime_abi, `${label} modified runtime ABI`)
+        .denort_sha256,
+      `${label} modified runtime SHA-256`,
+    )
+  void runtime
+  if (primary.derived_relink_cargo_lock_sha256 !== derived) {
+    throw new Error(`${label} build check does not bind its derived Cargo.lock`)
+  }
+  if (variant === 'baseline') {
+    const slvCompile = successfulCheck(
+      checks.slv_compile,
+      `${label} SLV compile check`,
+    )
+    commandSucceeded(slvCompile.bridge_compile, `${label} bridge compile`)
+  } else {
+    const patch = successfulCheck(checks.patch, `${label} patch check`)
+    sha(patch.before_sha256, `${label} patch before SHA-256`)
+    sha(patch.after_sha256, `${label} patch after SHA-256`)
+    if (patch.before_sha256 === patch.after_sha256) {
+      throw new Error(`${label} patch did not change its sentinel source`)
+    }
+  }
+  const entries = parseVariantEntries(
+    receipt.entries,
+    variant,
+    `${label} entries`,
+  )
+  const runtimeEntry = entries[
+    variant === 'baseline' ? 'baseline-denort' : 'modified-denort'
+  ]
+  if (runtime !== runtimeEntry.sha256) {
+    throw new Error(`${label} runtime ABI does not bind its transported denort`)
+  }
+  return {
+    value: receipt,
+    variant,
+    producer: parseProducerContext(receipt.producer, `${label} producer`),
+    target: text(receipt.target, `${label} target`),
+    buildMode: receipt.build_mode,
+    buildHost: parseHost(receipt.build_host, `${label} build host`),
+    entries,
+    checks,
+    toolchain: {
+      pinsSha256: sha(
+        toolchain.pins_sha256,
+        `${label} tool pin manifest SHA-256`,
+      ),
+      identities: identityDigests(
+        toolchain.identities,
+        `${label} tool identities`,
+      ),
+    },
+    toolArchives: parseToolArchives(
+      receipt.tool_archives,
+      `${label} tool archives`,
+    ),
+  }
+}
+
 async function buildPhase(args: Args): Promise<void> {
   const target = args['--target']
   if (!TARGETS.has(target)) throw new Error(`unsupported target: ${target}`)
@@ -2188,6 +2681,880 @@ async function buildPhase(args: Args): Promise<void> {
   })
 }
 
+async function checkedSourceLocks(inputs: ImmutableInputs): Promise<string> {
+  const extracted = inputs.sourceRoot
+  if (!extracted) {
+    throw new Error('source extraction is required for this phase')
+  }
+  const selected = await sha256(`${extracted}/deno-source/deno/Cargo.lock`)
+  if (
+    selected !== inputs.assembly.runtime_security.selected.cargo_lock.sha256
+  ) {
+    throw new Error(
+      'extracted Deno Cargo.lock differs from the security-selected assembly lock',
+    )
+  }
+  const vendor = await sha256(`${extracted}/deno-cargo-vendor/Cargo.lock`)
+  if (vendor !== inputs.assembly.vendor.lock_sha256 || vendor !== selected) {
+    throw new Error(
+      'extracted Cargo vendor lock differs from the selected Deno build lock',
+    )
+  }
+  return selected
+}
+
+async function producerContext(
+  path: string,
+  label: string,
+): Promise<ProducerContext> {
+  await regularFile(path, label)
+  return parseProducerContext(
+    JSON.parse(await Deno.readTextFile(path)),
+    label,
+  )
+}
+
+function buildModeFor(target: string, buildHost: string): 'native' | 'cross' {
+  return target === buildHost ? 'native' : 'cross'
+}
+
+async function buildVariantPhase(args: Args): Promise<void> {
+  const target = args['--target']
+  if (
+    target !== 'aarch64-unknown-linux-gnu' &&
+    target !== 'x86_64-apple-darwin'
+  ) {
+    throw new Error('build-variant is limited to Linux ARM64 and macOS x86_64')
+  }
+  const variant = args['--variant'] as Variant
+  const buildHostTarget = approvedBuildHostTarget(target, args['--build-host'])
+  if (!equalHost(currentHost(), targetHost(buildHostTarget))) {
+    throw new Error(`build host must execute on ${buildHostTarget}`)
+  }
+  const startedAt = new Date().toISOString()
+  const { out, work, capacity } = await prepareBuildDirectories(
+    args['--out'],
+    args['--work-dir'],
+    args['--source-root'],
+  )
+  const context = await producerContext(
+    args['--producer-context'],
+    'build variant producer context',
+  )
+  const tools = await readTools(
+    args['--tools-receipt'],
+    target,
+    'build',
+    buildHostTarget,
+  )
+  const diagnostics = `${work}/immutable-inputs`
+  await Deno.mkdir(diagnostics)
+  const inputs = await immutableInputs({ ...args, '--out': diagnostics }, true)
+  const extracted = inputs.sourceRoot!
+  const sourceSelectedCargoLockSha256 = await checkedSourceLocks(inputs)
+  const recipe =
+    `${extracted}/slv-source/source-rebuild/build-baseline-denort.sh`
+  const patch =
+    `${extracted}/slv-source/source-rebuild/glibc-sin-sentinel.patch`
+  const transport = `${out}/transport`
+  await Deno.mkdir(transport)
+  const pristine: NativeSources = {
+    deno: `${extracted}/deno-source/deno`,
+    rustyV8: `${extracted}/deno-source/rusty_v8`,
+    cargoVendor: `${extracted}/deno-cargo-vendor/vendor`,
+  }
+  let entries: Record<string, TransportEntry>
+  let checks: Record<string, unknown>
+  let derivedRelinkCargoLockSha256: string
+  if (variant === 'baseline') {
+    const baseline = await stageBuild(
+      recipe,
+      pristine,
+      `${work}/baseline`,
+      tools,
+      target,
+      buildHostTarget,
+      'baseline',
+      '4',
+    )
+    const probeCompile = await compileProbe(
+      tools.environment.DENO_FRONTEND,
+      baseline.denort,
+      target,
+      `${work}/baseline/probe`,
+      `${transport}/baseline-probe`,
+      'baseline',
+    )
+    const slv = await compileSlv(
+      extracted,
+      `${work}/baseline-slv`,
+      target,
+      tools.environment.DENO_FRONTEND,
+      baseline.denort,
+      `${transport}/baseline-slv`,
+      `${transport}/baseline-bridge`,
+    )
+    await Deno.remove(`${work}/baseline-slv`, { recursive: true })
+    entries = {
+      'baseline-denort': await copyTransport(
+        baseline.denort,
+        `${transport}/baseline-denort`,
+      ),
+      'baseline-v8-archive': await copyTransport(
+        baseline.v8,
+        `${transport}/baseline-v8-archive`,
+      ),
+      'baseline-ninja': await copyTransport(
+        baseline.ninja,
+        `${transport}/baseline-ninja`,
+      ),
+      'baseline-probe': {
+        path: 'baseline-probe',
+        sha256: await sha256(`${transport}/baseline-probe`),
+        size: (await Deno.stat(`${transport}/baseline-probe`)).size,
+      },
+      'baseline-derived-relink-Cargo.lock': await copyTransport(
+        baseline.derived_relink_cargo_lock,
+        `${transport}/baseline-derived-relink-Cargo.lock`,
+        false,
+      ),
+      'baseline-slv': {
+        path: 'baseline-slv',
+        sha256: await sha256(`${transport}/baseline-slv`),
+        size: (await Deno.stat(`${transport}/baseline-slv`)).size,
+      },
+      'baseline-bridge': {
+        path: 'baseline-bridge',
+        sha256: await sha256(`${transport}/baseline-bridge`),
+        size: (await Deno.stat(`${transport}/baseline-bridge`)).size,
+      },
+      'tls-localhost.crt': await copyTransport(
+        `${extracted}/deno-source/deno/tests/testdata/tls/localhost.crt`,
+        `${transport}/tls-localhost.crt`,
+        false,
+      ),
+      'tls-localhost.key': await copyTransport(
+        `${extracted}/deno-source/deno/tests/testdata/tls/localhost.key`,
+        `${transport}/tls-localhost.key`,
+        false,
+      ),
+      'tls-root-ca.pem': await copyTransport(
+        `${extracted}/deno-source/deno/tests/testdata/tls/RootCA.pem`,
+        `${transport}/tls-root-ca.pem`,
+        false,
+      ),
+    }
+    derivedRelinkCargoLockSha256 = baseline.derived_relink_cargo_lock_sha256
+    checks = {
+      baseline_build: {
+        passed: true,
+        command: baseline.build,
+        recipe_receipt_sha256: baseline.recipe_receipt_sha256,
+        probe_compile: probeCompile,
+        derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
+        runtime_abi: baseline.runtime_abi,
+        runtime_abi_receipt_sha256: baseline.runtime_abi_receipt_sha256,
+        cargo_fingerprints: baseline.cargo_fingerprints,
+      },
+      slv_compile: {
+        passed: true,
+        command: slv.compile,
+        bridge_compile: slv.bridge_compile,
+      },
+    }
+    await discardBuildScratch(`${work}/baseline`)
+  } else {
+    const modifiedRustyV8 = `${work}/modified-rusty_v8`
+    await copyTree(pristine.rustyV8, modifiedRustyV8)
+    const sin =
+      `${modifiedRustyV8}/v8/third_party/glibc/src/sysdeps/ieee754/dbl-64/s_sin.c`
+    const beforeSha256 = await sha256(sin)
+    const patchReceipt = await command(
+      'patch',
+      ['-p1', '-d', `${modifiedRustyV8}/v8`, '-i', patch],
+      work,
+      `${work}/modified-patch.log`,
+    )
+    succeeded(patchReceipt, 'contextual glibc sentinel patch')
+    const afterSha256 = await sha256(sin)
+    if (beforeSha256 === afterSha256) {
+      throw new Error('sentinel patch did not change glibc s_sin.c')
+    }
+    const modified = await stageBuild(
+      recipe,
+      { ...pristine, rustyV8: modifiedRustyV8 },
+      `${work}/modified`,
+      tools,
+      target,
+      buildHostTarget,
+      'modified',
+      '4',
+    )
+    await Deno.remove(modifiedRustyV8, { recursive: true })
+    const probeCompile = await compileProbe(
+      tools.environment.DENO_FRONTEND,
+      modified.denort,
+      target,
+      `${work}/modified/probe`,
+      `${transport}/modified-probe`,
+      'modified',
+    )
+    entries = {
+      'modified-denort': await copyTransport(
+        modified.denort,
+        `${transport}/modified-denort`,
+      ),
+      'modified-v8-archive': await copyTransport(
+        modified.v8,
+        `${transport}/modified-v8-archive`,
+      ),
+      'modified-ninja': await copyTransport(
+        modified.ninja,
+        `${transport}/modified-ninja`,
+      ),
+      'modified-probe': {
+        path: 'modified-probe',
+        sha256: await sha256(`${transport}/modified-probe`),
+        size: (await Deno.stat(`${transport}/modified-probe`)).size,
+      },
+    }
+    derivedRelinkCargoLockSha256 = modified.derived_relink_cargo_lock_sha256
+    checks = {
+      patch: {
+        passed: true,
+        before_sha256: beforeSha256,
+        after_sha256: afterSha256,
+        command: patchReceipt,
+      },
+      modified_build: {
+        passed: true,
+        command: modified.build,
+        recipe_receipt_sha256: modified.recipe_receipt_sha256,
+        probe_compile: probeCompile,
+        derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
+        runtime_abi: modified.runtime_abi,
+        runtime_abi_receipt_sha256: modified.runtime_abi_receipt_sha256,
+        cargo_fingerprints: modified.cargo_fingerprints,
+      },
+    }
+    await discardBuildScratch(`${work}/modified`)
+  }
+  const manifest = {
+    schema_version: 1,
+    kind: 'slv-source-native-variant-transport',
+    variant,
+    target,
+    source_receipt_sha256: inputs.assemblyReceiptSha256,
+    entries,
+  }
+  const manifestSha256 = await writeJson(`${transport}/manifest.json`, manifest)
+  const toolsReceiptCopy = `${out}/build-tools-receipt.json`
+  const descriptorSource = object(
+    JSON.parse(await Deno.readTextFile(args['--tools-receipt'])),
+    'build tools receipt',
+  )
+  const descriptor = object(
+    descriptorSource.target_descriptor,
+    'build tools receipt descriptor',
+  )
+  const descriptorPath = text(
+    descriptor.path,
+    'build tools receipt descriptor path',
+  )
+  await regularFile(descriptorPath, 'build tools target descriptor')
+  await Deno.copyFile(args['--tools-receipt'], toolsReceiptCopy)
+  await Deno.copyFile(descriptorPath, `${out}/tool-pin.json`)
+  const patchSha256 = await sha256(patch)
+  const receipt = {
+    schema_version: 1,
+    kind: 'slv-source-build-variant-receipt',
+    variant,
+    producer: context,
+    target,
+    build_mode: buildModeFor(target, buildHostTarget),
+    build_host: targetHost(buildHostTarget),
+    source_commit: inputs.assembly.source.commit,
+    source_receipt_sha256: inputs.assemblyReceiptSha256,
+    source_assets: inputs.sourceAssets,
+    source_pin_sha256: inputs.pinsSha256,
+    notice_sha256: inputs.noticeSha256,
+    source_selected_cargo_lock_sha256: sourceSelectedCargoLockSha256,
+    tool_pin_sha256: tools.target_pin_sha256,
+    toolchain: { pins_sha256: tools.pins_sha256, identities: tools.identities },
+    tool_archives: tools.archives,
+    tools_receipt_sha256: await sha256(toolsReceiptCopy),
+    jobs: '4',
+    resources: { capacity_preflight: capacity },
+    extraction: inputs.extraction,
+    recipe_sha256: await sha256(recipe),
+    patch_sha256: patchSha256,
+    derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
+    transport: {
+      manifest: 'transport/manifest.json',
+      manifest_sha256: manifestSha256,
+    },
+    entries,
+    checks,
+    timing: { started_at: startedAt, finished_at: new Date().toISOString() },
+  }
+  await writeJson(`${out}/variant-receipt.json`, receipt)
+  // The producer artifact contains only receipt-bound metadata and transport
+  // bytes. Scratch, source extraction, and diagnostics stay under work.
+  await Deno.remove(extracted, { recursive: true })
+}
+
+type VariantDependency = {
+  receipt: string
+  materials: string
+  receiptSha256: string
+  artifactId: string
+  artifactDigest: string
+  artifactDigestNormalized: string
+  producer: ProducerContext
+}
+
+function parseVariantDependency(
+  value: unknown,
+  label: string,
+): VariantDependency {
+  const dependency = object(value, label)
+  exactKeys(dependency, [
+    'receipt',
+    'materials',
+    'receipt_sha256',
+    'artifact_id',
+    'artifact_digest',
+    'producer',
+  ], label)
+  return {
+    receipt: text(dependency.receipt, `${label} receipt`),
+    materials: text(dependency.materials, `${label} materials`),
+    receiptSha256: sha(dependency.receipt_sha256, `${label} receipt SHA-256`),
+    artifactId: positiveDecimal(dependency.artifact_id, `${label} artifact ID`),
+    artifactDigest: text(
+      dependency.artifact_digest,
+      `${label} artifact digest`,
+    ),
+    artifactDigestNormalized: artifactDigest(
+      dependency.artifact_digest,
+      `${label} artifact digest`,
+    ),
+    producer: parseProducerContext(dependency.producer, `${label} producer`),
+  }
+}
+
+function parseVariantDependencies(value: unknown): {
+  baseline: VariantDependency
+  modified: VariantDependency
+} {
+  const dependencies = object(value, 'variant dependencies')
+  exactKeys(
+    dependencies,
+    ['schema_version', 'kind', 'baseline', 'modified'],
+    'variant dependencies',
+  )
+  if (
+    dependencies.schema_version !== 1 ||
+    dependencies.kind !== 'slv-native-variant-dependencies'
+  ) {
+    throw new Error('unsupported variant dependencies schema')
+  }
+  return {
+    baseline: parseVariantDependency(
+      dependencies.baseline,
+      'baseline dependency',
+    ),
+    modified: parseVariantDependency(
+      dependencies.modified,
+      'modified dependency',
+    ),
+  }
+}
+
+async function assertExactDirectory(
+  path: string,
+  expected: readonly string[],
+  label: string,
+): Promise<string> {
+  const root = await ensureDirectory(path, label)
+  const entries: Record<string, Deno.DirEntry> = {}
+  for await (const entry of Deno.readDir(root)) entries[entry.name] = entry
+  exactKeys(entries as Record<string, unknown>, expected, label)
+  for (const name of expected) {
+    const entry = entries[name]
+    if (!entry || entry.isSymlink) {
+      throw new Error(`${label} has a missing or symlinked ${name}`)
+    }
+  }
+  return root
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length &&
+    left.every((value, index) => value === right[index])
+}
+
+type ToolReceiptMetadata = {
+  pinsSha256: string
+  descriptorSha256: string
+  identities: Record<string, string>
+  archives: Record<
+    string,
+    { sha256: string; size: number; url: string; included_members?: string[] }
+  >
+}
+
+function parseBuildToolReceiptMetadata(
+  value: unknown,
+  target: string,
+  buildHost: string,
+  label: string,
+): ToolReceiptMetadata {
+  const receipt = object(value, label)
+  if (
+    receipt.schema_version !== 1 || receipt.kind !== 'slv-native-toolchain' ||
+    receipt.target !== target || receipt.build_host !== buildHost ||
+    receipt.purpose !== 'build'
+  ) {
+    throw new Error(`${label} does not bind this build target and host`)
+  }
+  const pins = object(receipt.pins, `${label} pins`)
+  const descriptor = object(
+    receipt.target_descriptor,
+    `${label} target descriptor`,
+  )
+  return {
+    pinsSha256: sha(pins.sha256, `${label} pins SHA-256`),
+    descriptorSha256: sha(
+      descriptor.sha256,
+      `${label} target descriptor SHA-256`,
+    ),
+    identities: identityDigests(receipt.identities, `${label} identities`),
+    archives: parseToolArchives(receipt.archives, `${label} archives`),
+  }
+}
+
+function expectedProducerJob(target: string, variant: Variant): string {
+  if (target === 'aarch64-unknown-linux-gnu') {
+    return `source-arm-${variant}`
+  }
+  if (target === 'x86_64-apple-darwin') {
+    return `source-macos-x64-${variant}`
+  }
+  throw new Error(
+    'split source join is limited to Linux ARM64 and macOS x86_64',
+  )
+}
+
+function assertVariantContext(
+  join: ProducerContext,
+  dependency: VariantDependency,
+  variant: Variant,
+  target: string,
+): void {
+  const producer = dependency.producer
+  if (
+    producer.repository !== join.repository ||
+    producer.workflow !== join.workflow ||
+    producer.run_id !== join.run_id ||
+    producer.job_id !== expectedProducerJob(target, variant) ||
+    BigInt(producer.run_attempt) > BigInt(join.run_attempt)
+  ) {
+    throw new Error(
+      `${variant} dependency does not belong to this exact join run`,
+    )
+  }
+}
+
+async function validateVariantTransport(
+  root: string,
+  receipt: VariantReceipt,
+  sourceReceiptSha256: string,
+): Promise<void> {
+  const transport = await assertExactDirectory(
+    `${root}/transport`,
+    ['manifest.json', ...roleTransportNames(receipt.variant)],
+    `${receipt.variant} dependency transport`,
+  )
+  await regularFile(`${transport}/manifest.json`, `${receipt.variant} manifest`)
+  const manifestBytes = await Deno.readFile(`${transport}/manifest.json`)
+  const transportField = object(
+    receipt.value.transport,
+    `${receipt.variant} receipt transport`,
+  )
+  if (
+    await sha256(`${transport}/manifest.json`) !==
+      sha(transportField.manifest_sha256, `${receipt.variant} manifest SHA-256`)
+  ) {
+    throw new Error(`${receipt.variant} manifest bytes differ from the receipt`)
+  }
+  const manifest = object(
+    JSON.parse(decoder.decode(manifestBytes)),
+    `${receipt.variant} transport manifest`,
+  )
+  exactKeys(
+    manifest,
+    [
+      'schema_version',
+      'kind',
+      'variant',
+      'target',
+      'source_receipt_sha256',
+      'entries',
+    ],
+    `${receipt.variant} transport manifest`,
+  )
+  if (
+    manifest.schema_version !== 1 ||
+    manifest.kind !== 'slv-source-native-variant-transport' ||
+    manifest.variant !== receipt.variant ||
+    manifest.target !== receipt.target ||
+    manifest.source_receipt_sha256 !== sourceReceiptSha256 ||
+    !equalJson(
+      parseVariantEntries(
+        manifest.entries,
+        receipt.variant,
+        `${receipt.variant} manifest entries`,
+      ),
+      receipt.entries,
+    )
+  ) {
+    throw new Error(
+      `${receipt.variant} transport manifest does not bind its receipt`,
+    )
+  }
+  for (const [name, entry] of Object.entries(receipt.entries)) {
+    const path = `${transport}/${entry.path}`
+    await regularFile(path, `${receipt.variant} transported ${name}`)
+    const info = await Deno.stat(path)
+    if (info.size !== entry.size || await sha256(path) !== entry.sha256) {
+      throw new Error(
+        `${receipt.variant} transported ${name} differs from receipt`,
+      )
+    }
+  }
+}
+
+type ValidatedVariant = {
+  dependency: VariantDependency
+  receipt: VariantReceipt
+  receiptBytes: Uint8Array
+  materials: string
+}
+
+async function readValidatedVariant(
+  dependency: VariantDependency,
+  variant: Variant,
+  target: string,
+  join: ProducerContext,
+  inputs: ImmutableInputs,
+  sourceSelectedCargoLockSha256: string,
+  expectedToolPins: Uint8Array,
+  expectedToolPinsSha256: string,
+  expectedToolDescriptorSha256: string,
+  recipeSha256: string,
+  patchSha256: string,
+): Promise<ValidatedVariant> {
+  assertVariantContext(join, dependency, variant, target)
+  await regularFile(dependency.receipt, `${variant} dependency receipt`)
+  const materials = await assertExactDirectory(
+    dependency.materials,
+    [
+      'variant-receipt.json',
+      'build-tools-receipt.json',
+      'tool-pin.json',
+      'transport',
+    ],
+    `${variant} dependency materials`,
+  )
+  if (
+    await real(dependency.receipt) !==
+      await real(`${materials}/variant-receipt.json`)
+  ) {
+    throw new Error(
+      `${variant} dependency receipt is not its downloaded sidecar`,
+    )
+  }
+  const receiptBytes = await Deno.readFile(dependency.receipt)
+  if (await sha256(dependency.receipt) !== dependency.receiptSha256) {
+    throw new Error(`${variant} dependency raw receipt SHA-256 differs`)
+  }
+  const receipt = parseVariantReceipt(
+    JSON.parse(decoder.decode(receiptBytes)),
+    `${variant} variant receipt`,
+  )
+  if (
+    receipt.variant !== variant || receipt.target !== target ||
+    !equalJson(receipt.producer, dependency.producer) ||
+    receipt.buildMode !==
+      buildModeFor(
+        target,
+        receipt.producer.job_id.startsWith('source-arm-')
+          ? 'x86_64-unknown-linux-gnu'
+          : 'x86_64-apple-darwin',
+      ) ||
+    !equalJson(
+      receipt.buildHost,
+      targetHost(
+        receipt.producer.job_id.startsWith('source-arm-')
+          ? 'x86_64-unknown-linux-gnu'
+          : 'x86_64-apple-darwin',
+      ),
+    ) ||
+    receipt.value.source_commit !== inputs.assembly.source.commit ||
+    receipt.value.source_receipt_sha256 !== inputs.assemblyReceiptSha256 ||
+    receipt.value.source_pin_sha256 !== inputs.pinsSha256 ||
+    receipt.value.notice_sha256 !== inputs.noticeSha256 ||
+    receipt.value.source_selected_cargo_lock_sha256 !==
+      sourceSelectedCargoLockSha256 ||
+    !equalJson(receipt.value.source_assets, inputs.sourceAssets) ||
+    receipt.toolchain.pinsSha256 !== expectedToolPinsSha256 ||
+    receipt.value.tool_pin_sha256 !== expectedToolDescriptorSha256 ||
+    receipt.value.recipe_sha256 !== recipeSha256 ||
+    receipt.value.patch_sha256 !== patchSha256
+  ) {
+    throw new Error(`${variant} variant receipt does not bind immutable inputs`)
+  }
+  const toolReceiptPath = `${materials}/build-tools-receipt.json`
+  const toolPinPath = `${materials}/tool-pin.json`
+  await regularFile(toolReceiptPath, `${variant} build tools sidecar`)
+  await regularFile(toolPinPath, `${variant} target descriptor sidecar`)
+  if (await sha256(toolReceiptPath) !== receipt.value.tools_receipt_sha256) {
+    throw new Error(
+      `${variant} build tools sidecar SHA-256 differs from receipt`,
+    )
+  }
+  const toolPins = await Deno.readFile(toolPinPath)
+  if (
+    await sha256(toolPinPath) !== expectedToolDescriptorSha256 ||
+    !bytesEqual(toolPins, expectedToolPins)
+  ) {
+    throw new Error(
+      `${variant} target descriptor sidecar differs from canonical pins`,
+    )
+  }
+  const expectedBuildHost = target === 'aarch64-unknown-linux-gnu'
+    ? 'x86_64-unknown-linux-gnu'
+    : 'x86_64-apple-darwin'
+  const tools = parseBuildToolReceiptMetadata(
+    JSON.parse(await Deno.readTextFile(toolReceiptPath)),
+    target,
+    expectedBuildHost,
+    `${variant} build tools sidecar`,
+  )
+  if (
+    tools.pinsSha256 !== expectedToolPinsSha256 ||
+    tools.descriptorSha256 !== expectedToolDescriptorSha256 ||
+    !equalJson(tools.identities, receipt.toolchain.identities) ||
+    !equalJson(tools.archives, receipt.toolArchives)
+  ) {
+    throw new Error(`${variant} tool sidecars do not match variant receipt`)
+  }
+  const primary = object(
+    receipt
+      .checks[variant === 'baseline' ? 'baseline_build' : 'modified_build'],
+    `${variant} primary check`,
+  )
+  const runtimeEntry = receipt.entries[
+    variant === 'baseline' ? 'baseline-denort' : 'modified-denort'
+  ]
+  await verifyCargoFingerprintCollection(primary.cargo_fingerprints, {
+    phase: variant,
+    target,
+    runtime_sha256: runtimeEntry.sha256,
+    derived_relink_cargo_lock_sha256: sha(
+      primary.derived_relink_cargo_lock_sha256,
+      `${variant} primary check derived Cargo.lock SHA-256`,
+    ),
+  })
+  await validateVariantTransport(
+    materials,
+    receipt,
+    inputs.assemblyReceiptSha256,
+  )
+  return { dependency, receipt, receiptBytes, materials }
+}
+
+async function joinBuildPhase(args: Args): Promise<void> {
+  const target = args['--target']
+  if (
+    target !== 'aarch64-unknown-linux-gnu' && target !== 'x86_64-apple-darwin'
+  ) {
+    throw new Error('join-build is limited to Linux ARM64 and macOS x86_64')
+  }
+  const out = await ensureEmptyDirectory(args['--out'], 'join proof output')
+  const work = await ensureEmptyDirectory(
+    args['--work-dir'],
+    'join work directory',
+  )
+  await ensureEmptyDirectory(args['--source-root'], 'join source root')
+  const join = await producerContext(
+    args['--producer-context'],
+    'join producer context',
+  )
+  const dependenciesPath = args['--variant-dependencies']
+  await regularFile(dependenciesPath, 'variant dependencies')
+  const dependencies = parseVariantDependencies(
+    JSON.parse(await Deno.readTextFile(dependenciesPath)),
+  )
+  if (
+    dependencies.baseline.artifactId === dependencies.modified.artifactId ||
+    dependencies.baseline.producer.job_id ===
+      dependencies.modified.producer.job_id
+  ) {
+    throw new Error(
+      'split dependencies must use distinct producer jobs and artifacts',
+    )
+  }
+  const diagnostics = `${work}/immutable-inputs`
+  await Deno.mkdir(diagnostics)
+  const inputs = await immutableInputs({ ...args, '--out': diagnostics }, true)
+  const sourceSelectedCargoLockSha256 = await checkedSourceLocks(inputs)
+  const extracted = inputs.sourceRoot!
+  const recipeSha256 = await sha256(
+    `${extracted}/slv-source/source-rebuild/build-baseline-denort.sh`,
+  )
+  const patchSha256 = await sha256(
+    `${extracted}/slv-source/source-rebuild/glibc-sin-sentinel.patch`,
+  )
+  const pinsPath = `${extracted}/slv-source/source-rebuild/tool-prereqs.json`
+  const pinsBytes = await Deno.readFile(pinsPath)
+  const pinsSha256 = await sha256(pinsPath)
+  const canonicalDescriptor = canonicalTargetDescriptorBytes(
+    parseToolPins(JSON.parse(decoder.decode(pinsBytes))),
+    target,
+  )
+  const descriptorSha256 = await sha256Bytes(canonicalDescriptor)
+  const baseline = await readValidatedVariant(
+    dependencies.baseline,
+    'baseline',
+    target,
+    join,
+    inputs,
+    sourceSelectedCargoLockSha256,
+    canonicalDescriptor,
+    pinsSha256,
+    descriptorSha256,
+    recipeSha256,
+    patchSha256,
+  )
+  const modified = await readValidatedVariant(
+    dependencies.modified,
+    'modified',
+    target,
+    join,
+    inputs,
+    sourceSelectedCargoLockSha256,
+    canonicalDescriptor,
+    pinsSha256,
+    descriptorSha256,
+    recipeSha256,
+    patchSha256,
+  )
+  if (
+    baseline.receipt.value.derived_relink_cargo_lock_sha256 !==
+      modified.receipt.value.derived_relink_cargo_lock_sha256 ||
+    !equalJson(baseline.receipt.toolchain, modified.receipt.toolchain) ||
+    !equalJson(baseline.receipt.toolArchives, modified.receipt.toolArchives)
+  ) {
+    throw new Error(
+      'split variants do not share their immutable derived and tool bindings',
+    )
+  }
+  const baselineDerived =
+    `${baseline.materials}/transport/baseline-derived-relink-Cargo.lock`
+  if (
+    await sha256(baselineDerived) !==
+      baseline.receipt.value.derived_relink_cargo_lock_sha256
+  ) {
+    throw new Error(
+      'baseline derived Cargo.lock bytes differ from split receipt',
+    )
+  }
+  const transport = `${out}/transport`
+  await Deno.mkdir(transport)
+  const entries: Record<string, TransportEntry> = {}
+  for (const variant of [baseline, modified]) {
+    for (const [name, entry] of Object.entries(variant.receipt.entries)) {
+      const source = `${variant.materials}/transport/${entry.path}`
+      const destination = `${transport}/${entry.path}`
+      await Deno.copyFile(source, destination)
+      entries[name] = {
+        path: entry.path,
+        sha256: await sha256(destination),
+        size: (await Deno.stat(destination)).size,
+      }
+      if (!equalJson(entries[name], entry)) {
+        throw new Error(`joined ${name} differs from verified producer payload`)
+      }
+    }
+  }
+  const artifacts = artifactsFromEntries(entries)
+  const manifest: TransportManifest = {
+    schema_version: 1,
+    kind: 'slv-source-native-transport',
+    target,
+    source_receipt_sha256: inputs.assemblyReceiptSha256,
+    artifacts,
+    entries,
+  }
+  const manifestSha256 = await writeJson(`${transport}/manifest.json`, manifest)
+  const splitRole = (variant: ValidatedVariant) => ({
+    receipt_sha256: variant.dependency.receiptSha256,
+    artifact_id: variant.dependency.artifactId,
+    artifact_digest: variant.dependency.artifactDigest,
+    receipt: variant.receipt.value,
+    receipt_bytes_base64: base64(variant.receiptBytes),
+  })
+  await writeJson(`${out}/build-receipt.json`, {
+    schema_version: 1,
+    kind: 'slv-source-build-receipt',
+    target,
+    build_mode: baseline.receipt.buildMode,
+    build_host: baseline.receipt.buildHost,
+    source_commit: inputs.assembly.source.commit,
+    source_receipt_sha256: inputs.assemblyReceiptSha256,
+    source_assets: inputs.sourceAssets,
+    source_pin_sha256: inputs.pinsSha256,
+    source_selected_cargo_lock_sha256: sourceSelectedCargoLockSha256,
+    tool_pin_sha256: descriptorSha256,
+    patch_sha256: patchSha256,
+    toolchain: {
+      pins_sha256: baseline.receipt.toolchain.pinsSha256,
+      identities: object(baseline.receipt.value.toolchain, 'baseline toolchain')
+        .identities,
+    },
+    jobs: '4',
+    resources: {
+      capacity_preflight: object(
+        baseline.receipt.value.resources,
+        'baseline resources',
+      ).capacity_preflight,
+    },
+    extraction: baseline.receipt.value.extraction,
+    recipe_sha256: { baseline: recipeSha256, modified: recipeSha256 },
+    transport: {
+      manifest: 'transport/manifest.json',
+      manifest_sha256: manifestSha256,
+    },
+    artifacts,
+    checks: {
+      baseline_build: baseline.receipt.checks.baseline_build,
+      patch: modified.receipt.checks.patch,
+      modified_build: modified.receipt.checks.modified_build,
+      slv_compile: baseline.receipt.checks.slv_compile,
+    },
+    split_build: {
+      schema_version: 1,
+      kind: 'slv-source-split-build-evidence',
+      join_producer: join,
+      baseline: splitRole(baseline),
+      modified: splitRole(modified),
+    },
+  })
+  await Deno.remove(extracted, { recursive: true })
+}
+
 function parseTransportEntries(value: unknown): Record<string, TransportEntry> {
   const record = object(value, 'transport entries')
   const expected = new Set([
@@ -2232,6 +3599,208 @@ function parseTransportEntries(value: unknown): Record<string, TransportEntry> {
     }
   }
   return parsed
+}
+
+type EmbeddedSplitRole = {
+  receiptSha256: string
+  artifactId: string
+  artifactDigest: string
+  receipt: VariantReceipt
+}
+
+function parseEmbeddedSplitRole(
+  value: unknown,
+  label: string,
+): EmbeddedSplitRole {
+  const role = object(value, label)
+  exactKeys(
+    role,
+    [
+      'receipt_sha256',
+      'artifact_id',
+      'artifact_digest',
+      'receipt',
+      'receipt_bytes_base64',
+    ],
+    label,
+  )
+  const encoded = text(role.receipt_bytes_base64, `${label} receipt bytes`)
+  const bytes = decodeBase64(encoded, `${label} receipt bytes`)
+  if (base64(bytes) !== encoded) {
+    throw new Error(`${label} receipt bytes are not canonical base64`)
+  }
+  const receiptSha256 = sha(role.receipt_sha256, `${label} receipt SHA-256`)
+  const digest = createHash('sha256').update(bytes).digest('hex')
+  if (digest !== receiptSha256) {
+    throw new Error(`${label} receipt SHA-256 differs from original bytes`)
+  }
+  let decoded: unknown
+  try {
+    decoded = JSON.parse(decoder.decode(bytes))
+  } catch {
+    throw new Error(`${label} receipt bytes are not JSON`)
+  }
+  if (!equalJson(decoded, role.receipt)) {
+    throw new Error(`${label} receipt bytes do not equal the embedded receipt`)
+  }
+  return {
+    receiptSha256,
+    artifactId: positiveDecimal(role.artifact_id, `${label} artifact ID`),
+    artifactDigest: artifactDigest(
+      role.artifact_digest,
+      `${label} artifact digest`,
+    ),
+    receipt: parseVariantReceipt(role.receipt, `${label} receipt`),
+  }
+}
+
+/**
+ * Revalidate the additive split evidence carried by a combined build receipt.
+ * This has no dependency on producer paths: all original bytes needed by the
+ * downstream execution and merge phases are retained in the combined receipt.
+ */
+export async function verifySplitBuildEvidence(
+  splitValue: unknown,
+  build: Record<string, unknown>,
+  inputs: ImmutableInputs,
+  target: string,
+  artifacts: Artifacts,
+  transportEntries: Record<string, TransportEntry>,
+): Promise<void> {
+  const split = object(splitValue, 'split build evidence')
+  exactKeys(
+    split,
+    ['schema_version', 'kind', 'join_producer', 'baseline', 'modified'],
+    'split build evidence',
+  )
+  if (
+    split.schema_version !== 1 ||
+    split.kind !== 'slv-source-split-build-evidence'
+  ) {
+    throw new Error('unsupported split build evidence schema')
+  }
+  const join = parseProducerContext(split.join_producer, 'split join producer')
+  const baseline = parseEmbeddedSplitRole(split.baseline, 'split baseline')
+  const modified = parseEmbeddedSplitRole(split.modified, 'split modified')
+  if (
+    !equalJson(baseline.receipt.toolArchives, modified.receipt.toolArchives)
+  ) {
+    throw new Error('split build variants have mismatched tool archives')
+  }
+  const recipe = object(build.recipe_sha256, 'build receipt recipe SHA-256')
+  exactKeys(recipe, ['baseline', 'modified'], 'build receipt recipe SHA-256')
+  if (
+    build.jobs !== '4' ||
+    build.patch_sha256 !== baseline.receipt.value.patch_sha256 ||
+    build.patch_sha256 !== modified.receipt.value.patch_sha256
+  ) {
+    throw new Error(
+      'combined split build does not preserve its fixed jobs and patch',
+    )
+  }
+  if (
+    baseline.receipt.variant !== 'baseline' ||
+    modified.receipt.variant !== 'modified' ||
+    baseline.artifactId === modified.artifactId ||
+    baseline.receipt.producer.job_id === modified.receipt.producer.job_id ||
+    build.build_mode !== baseline.receipt.buildMode ||
+    !equalJson(build.build_host, baseline.receipt.buildHost)
+  ) {
+    throw new Error(
+      'split build roles do not have distinct baseline and modified producers',
+    )
+  }
+  for (
+    const [variant, role] of [
+      ['baseline', baseline],
+      ['modified', modified],
+    ] as const
+  ) {
+    const receipt = role.receipt
+    const expectedHost = target === 'aarch64-unknown-linux-gnu'
+      ? 'x86_64-unknown-linux-gnu'
+      : 'x86_64-apple-darwin'
+    if (
+      receipt.target !== target ||
+      receipt.buildMode !== buildModeFor(target, expectedHost) ||
+      !equalJson(receipt.buildHost, targetHost(expectedHost)) ||
+      receipt.producer.repository !== join.repository ||
+      receipt.producer.workflow !== join.workflow ||
+      receipt.producer.run_id !== join.run_id ||
+      receipt.producer.job_id !== expectedProducerJob(target, variant) ||
+      BigInt(receipt.producer.run_attempt) > BigInt(join.run_attempt) ||
+      receipt.value.source_commit !== inputs.assembly.source.commit ||
+      receipt.value.source_receipt_sha256 !== inputs.assemblyReceiptSha256 ||
+      receipt.value.source_pin_sha256 !== inputs.pinsSha256 ||
+      receipt.value.notice_sha256 !== inputs.noticeSha256 ||
+      receipt.value.source_selected_cargo_lock_sha256 !==
+        inputs.assembly.runtime_security.selected.cargo_lock.sha256 ||
+      !equalJson(receipt.value.source_assets, inputs.sourceAssets) ||
+      receipt.value.tool_pin_sha256 !== build.tool_pin_sha256 ||
+      receipt.value.recipe_sha256 !== recipe[variant] ||
+      receipt.toolchain.pinsSha256 !==
+        object(build.toolchain, 'build receipt toolchain').pins_sha256 ||
+      !equalJson(
+        receipt.toolchain.identities,
+        identityDigests(
+          object(build.toolchain, 'build receipt toolchain').identities,
+          'build receipt tool identities',
+        ),
+      ) ||
+      receipt.value.derived_relink_cargo_lock_sha256 !==
+        baseline.receipt.value.derived_relink_cargo_lock_sha256
+    ) {
+      throw new Error(
+        `${variant} split receipt does not bind the combined build`,
+      )
+    }
+    const combinedCheck = object(build.checks, 'build receipt checks')[
+      variant === 'baseline' ? 'baseline_build' : 'modified_build'
+    ]
+    const roleCheck = receipt.checks[
+      variant === 'baseline' ? 'baseline_build' : 'modified_build'
+    ]
+    if (!equalJson(combinedCheck, roleCheck)) {
+      throw new Error(
+        `${variant} split check differs from combined build check`,
+      )
+    }
+    const runtimeEntry = receipt.entries[
+      variant === 'baseline' ? 'baseline-denort' : 'modified-denort'
+    ]
+    const primary = object(roleCheck, `${variant} split primary check`)
+    await verifyCargoFingerprintCollection(primary.cargo_fingerprints, {
+      phase: variant,
+      target,
+      runtime_sha256: runtimeEntry.sha256,
+      derived_relink_cargo_lock_sha256: sha(
+        primary.derived_relink_cargo_lock_sha256,
+        `${variant} split primary derived Cargo.lock SHA-256`,
+      ),
+    })
+    for (const [name, entry] of Object.entries(receipt.entries)) {
+      if (!equalJson(transportEntries[name], entry)) {
+        throw new Error(
+          `${variant} split entry ${name} differs from combined transport`,
+        )
+      }
+    }
+  }
+  if (
+    !equalJson(
+      object(build.checks, 'build receipt checks').patch,
+      modified.receipt.checks.patch,
+    ) ||
+    !equalJson(
+      object(build.checks, 'build receipt checks').slv_compile,
+      baseline.receipt.checks.slv_compile,
+    ) ||
+    !equalJson(artifacts, artifactsFromEntries(transportEntries))
+  ) {
+    throw new Error(
+      'combined split receipt does not preserve downstream checks or artifacts',
+    )
+  }
 }
 
 async function readBuildReceipt(
@@ -2321,6 +3890,16 @@ async function readBuildReceipt(
     throw new Error('transport manifest does not bind build receipt artifacts')
   }
   transport.entries = parseTransportEntries(transport.entries)
+  if (value.split_build !== undefined) {
+    await verifySplitBuildEvidence(
+      value.split_build,
+      value,
+      inputs,
+      target,
+      artifacts,
+      transport.entries,
+    )
+  }
   return { value, sha256: digest, artifacts, transport }
 }
 
@@ -2793,13 +4372,15 @@ async function mergePhase(args: Args): Promise<void> {
 export async function verifyNative(args: Args): Promise<void> {
   const phase = phaseOf(args)
   if (phase === 'build') return await buildPhase(args)
+  if (phase === 'build-variant') return await buildVariantPhase(args)
+  if (phase === 'join-build') return await joinBuildPhase(args)
   if (phase === 'execute') return await executePhase(args)
   await mergePhase(args)
 }
 
 if (import.meta.main) {
   try {
-    await verifyNative(parseArgs(Deno.args))
+    await verifyNative(parseNativeArgs(Deno.args))
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)
     Deno.exit(1)
