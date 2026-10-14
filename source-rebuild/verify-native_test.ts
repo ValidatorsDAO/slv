@@ -12,6 +12,342 @@ import {
 import { verifyNativeSourceRebuildProof } from '../scripts/release/source-materials.ts'
 import { expandEnvironment, materializeLayoutCopies } from './prepare-tools.ts'
 
+const nativeRecipe = new URL('./build-baseline-denort.sh', import.meta.url)
+
+function requireFixture(
+  condition: unknown,
+  message: string,
+): asserts condition {
+  if (!condition) throw new Error(message)
+}
+
+async function recipeNinjaLauncher(
+  output: string,
+  pinnedNinja: string,
+): Promise<string> {
+  const recipe = await Deno.readTextFile(nativeRecipe)
+  const begin = '# NINJA_LAUNCHER_GENERATOR_BEGIN'
+  const end = '# NINJA_LAUNCHER_GENERATOR_END'
+  const beginOffset = recipe.indexOf(begin)
+  const endOffset = recipe.indexOf(end)
+  requireFixture(
+    beginOffset >= 0 && endOffset > beginOffset,
+    'native recipe launcher generator markers are missing or malformed',
+  )
+  const generator = recipe.slice(beginOffset + begin.length, endOffset)
+  const result = await new Deno.Command('/usr/bin/bash', {
+    args: ['-euo', 'pipefail', '-c', `${generator}\nwrite_ninja_launcher`],
+    clearEnv: true,
+    env: {
+      PATH: '/usr/bin:/bin',
+      PYTHON: '/usr/bin/python3',
+      output,
+      pinned_ninja: pinnedNinja,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `native recipe launcher generator failed: ${
+      new TextDecoder().decode(result.stderr)
+    }`,
+  )
+  const launcher = new TextDecoder().decode(result.stdout).trim()
+  requireFixture(launcher.startsWith(`${output}/`), 'launcher escaped output')
+  requireFixture(
+    (await Deno.stat(launcher)).mode! & 0o111,
+    'launcher is not executable',
+  )
+  return launcher
+}
+
+async function waitForFixture(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await Deno.stat(path)
+      return
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+  throw new Error(`fixture did not create ${path}`)
+}
+
+async function runRecipeCommand(
+  command: string,
+  setup: string,
+  root: string,
+): Promise<string[]> {
+  const capture = `${root}/arguments-${crypto.randomUUID()}.log`
+  const fixture = `${root}/capture-arguments.sh`
+  await Deno.writeTextFile(
+    fixture,
+    '#!/usr/bin/bash\nprintf \'%s\\n\' "$@" > "$capture"\n',
+  )
+  await Deno.chmod(fixture, 0o755)
+  const result = await new Deno.Command('/usr/bin/bash', {
+    args: ['-euo', 'pipefail', '-c', `${setup}\n${command}`],
+    clearEnv: true,
+    env: {
+      PATH: '/usr/bin:/bin',
+      SLV_APPLE_SDK_PATH: 'fixture SDK with spaces',
+      apple_link_target: 'fixture-apple-target',
+      clang: fixture,
+      cargo: fixture,
+      jobs: '2',
+      output: root,
+      linker_driver_probe_log: `${root}/linker-driver-probe.log`,
+      capture,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `recipe command failed: ${new TextDecoder().decode(result.stderr)}`,
+  )
+  const text = await Deno.readTextFile(capture)
+  return text === '' ? [] : text.slice(0, -1).split('\n')
+}
+
+Deno.test('native recipe guarded arrays preserve zero and spaced values on the observed Bash', async () => {
+  // This is the local Bash boundary only; it makes no claim about an
+  // unmeasured Bash 3 host.
+  const version = await new Deno.Command('/usr/bin/bash', {
+    args: ['-c', 'printf %s "$BASH_VERSION"'],
+    clearEnv: true,
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  const bashVersion = new TextDecoder().decode(version.stdout)
+  requireFixture(
+    version.success && bashVersion.length > 0,
+    'Bash version was not recorded',
+  )
+
+  const root = await Deno.makeTempDir({ prefix: 'slv-native-guarded-arrays-' })
+  try {
+    const recipe = await Deno.readTextFile(nativeRecipe)
+    const apple = recipe.match(
+      / {2}"\$clang" -target "\$apple_link_target" -isysroot "\$SLV_APPLE_SDK_PATH" \\\n {4}\$\{apple_link_flags\[@\]\+"\$\{apple_link_flags\[@\]\}"\} -### -x c \/dev\/null -o "\$output\/linker-driver-probe" \\\n {4}> \/dev\/null 2>"\$linker_driver_probe_log"/,
+    )?.[0]
+    const cargo = [...recipe.matchAll(
+      / {4}"\$cargo" build --locked --offline --release \$\{target_args\[@\]\+"\$\{target_args\[@\]\}"\} -j "\$jobs" -p denort/g,
+    )].map((match) => match[0])
+    requireFixture(
+      apple,
+      `Apple guarded invocation missing under Bash ${bashVersion}`,
+    )
+    requireFixture(
+      cargo.length === 2,
+      `expected fresh and resume guarded Cargo calls under Bash ${bashVersion}`,
+    )
+
+    const appleEmpty = await runRecipeCommand(
+      apple,
+      'apple_link_flags=()',
+      root,
+    )
+    requireFixture(
+      JSON.stringify(appleEmpty) === JSON.stringify([
+        '-target',
+        'fixture-apple-target',
+        '-isysroot',
+        'fixture SDK with spaces',
+        '-###',
+        '-x',
+        'c',
+        '/dev/null',
+        '-o',
+        `${root}/linker-driver-probe`,
+      ]),
+      'empty Apple array added an empty argument or changed ordering',
+    )
+    const appleTwo = await runRecipeCommand(
+      apple,
+      "apple_link_flags=(-fuse-ld=lld 'flag with spaces')",
+      root,
+    )
+    requireFixture(
+      JSON.stringify(appleTwo.slice(4, 6)) ===
+        JSON.stringify(['-fuse-ld=lld', 'flag with spaces']),
+      'two-element Apple array did not preserve ordered spaced values',
+    )
+
+    for (const cargoCall of cargo) {
+      const empty = await runRecipeCommand(cargoCall, 'target_args=()', root)
+      requireFixture(
+        JSON.stringify(empty) === JSON.stringify([
+          'build',
+          '--locked',
+          '--offline',
+          '--release',
+          '-j',
+          '2',
+          '-p',
+          'denort',
+        ]),
+        'empty Cargo array added an empty argument or changed ordering',
+      )
+      const two = await runRecipeCommand(
+        cargoCall,
+        "target_args=(--target 'aarch64 target with spaces')",
+        root,
+      )
+      requireFixture(
+        JSON.stringify(two.slice(4, 6)) ===
+          JSON.stringify(['--target', 'aarch64 target with spaces']),
+        'two-element Cargo array did not preserve ordered spaced values',
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('frozen Ninja launcher isolates bindgen flags while preserving pinned Ninja identity', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-native-ninja-launcher-' })
+  try {
+    const pinnedNinja = `${root}/pinned's ninja.py`
+    await Deno.writeTextFile(
+      pinnedNinja,
+      String.raw`#!/usr/bin/python3
+import json
+import os
+import pathlib
+import signal
+import sys
+
+mode, record, *arguments = sys.argv[1:]
+payload = {
+    'argv': arguments,
+    'pid': os.getpid(),
+    'environment': {key: os.environ.get(key) for key in (
+        'BINDGEN_EXTRA_CLANG_ARGS',
+        'BINDGEN_EXTRA_CLANG_ARGS_AARCH64_UNKNOWN_LINUX_GNU',
+        'BINDGEN_EXTRA_CLANG_ARGS_SECOND_TARGET',
+        'BINDGEN_EXTRA_CLANG_ARGSX',
+        'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS',
+        'UNRELATED_ENV',
+    )},
+}
+pathlib.Path(record).write_text(json.dumps(payload, sort_keys=True))
+if mode == 'exit':
+    raise SystemExit(int(arguments[-1]))
+if mode == 'wait':
+    signal.signal(signal.SIGTERM, lambda _signal, _frame: sys.exit(75))
+    while True:
+        signal.pause()
+raise SystemExit(0)
+`,
+    )
+    await Deno.chmod(pinnedNinja, 0o755)
+    const launcher = await recipeNinjaLauncher(root, pinnedNinja)
+    const pinnedBytes = await Deno.readFile(pinnedNinja)
+    const launcherBytes = await Deno.readFile(launcher)
+    const pinnedHash = createHash('sha256').update(pinnedBytes).digest('hex')
+    const launcherHash = createHash('sha256').update(launcherBytes).digest(
+      'hex',
+    )
+    requireFixture(
+      pinnedHash !== launcherHash,
+      'underlying Ninja and launcher hashes unexpectedly match',
+    )
+
+    const environment = {
+      BINDGEN_EXTRA_CLANG_ARGS: '--target=aarch64-unknown-linux-gnu -msse3',
+      BINDGEN_EXTRA_CLANG_ARGS_AARCH64_UNKNOWN_LINUX_GNU: '-msse3',
+      BINDGEN_EXTRA_CLANG_ARGS_SECOND_TARGET: '-msse3',
+      BINDGEN_EXTRA_CLANG_ARGSX: 'near-match-must-survive',
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: '-C target-cpu=generic',
+      UNRELATED_ENV: 'preserved',
+    }
+    const record = `${root}/exit.json`
+    const exited = await new Deno.Command(launcher, {
+      args: ['exit', record, 'argument with spaces', '--status', '37'],
+      clearEnv: true,
+      env: environment,
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    requireFixture(
+      exited.code === 37,
+      'launcher did not preserve Ninja exit code',
+    )
+    const observed = JSON.parse(await Deno.readTextFile(record)) as {
+      argv: string[]
+      environment: Record<string, string | null>
+    }
+    requireFixture(
+      JSON.stringify(observed.argv) ===
+        JSON.stringify(['argument with spaces', '--status', '37']),
+      'launcher did not preserve Ninja argument order and spaces',
+    )
+    for (
+      const key of [
+        'BINDGEN_EXTRA_CLANG_ARGS',
+        'BINDGEN_EXTRA_CLANG_ARGS_AARCH64_UNKNOWN_LINUX_GNU',
+        'BINDGEN_EXTRA_CLANG_ARGS_SECOND_TARGET',
+      ]
+    ) {
+      requireFixture(observed.environment[key] === null, `${key} reached Ninja`)
+    }
+    requireFixture(
+      observed.environment.BINDGEN_EXTRA_CLANG_ARGSX ===
+          'near-match-must-survive' &&
+        observed.environment
+            .CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS ===
+          '-C target-cpu=generic' &&
+        observed.environment.UNRELATED_ENV === 'preserved',
+      'launcher changed a non-bindgen or parent Cargo ARM environment value',
+    )
+
+    const signalRecord = `${root}/signal.json`
+    const child = new Deno.Command(launcher, {
+      args: ['wait', signalRecord],
+      clearEnv: true,
+      env: environment,
+      stdout: 'piped',
+      stderr: 'piped',
+    }).spawn()
+    await waitForFixture(signalRecord)
+    const signalFixture = JSON.parse(await Deno.readTextFile(signalRecord)) as {
+      pid: number
+    }
+    requireFixture(
+      signalFixture.pid === child.pid,
+      'launcher did not exec the pinned Ninja process',
+    )
+    Deno.kill(child.pid, 'SIGTERM')
+    const terminated = await child.status
+    requireFixture(
+      terminated.code === 75 && terminated.signal === null,
+      'launcher did not propagate SIGTERM to the execed Ninja process',
+    )
+
+    const recipe = await Deno.readTextFile(nativeRecipe)
+    for (
+      const field of [
+        'ninja_sha256=%s',
+        'ninja_path=%s',
+        'ninja_launcher_path=%s',
+        'ninja_launcher_sha256=%s',
+        'ninja_environment_policy=remove-BINDGEN_EXTRA_CLANG_ARGS-and-BINDGEN_EXTRA_CLANG_ARGS_-prefix',
+      ]
+    ) {
+      requireFixture(recipe.includes(field), `recipe receipt omits ${field}`)
+    }
+    requireFixture(
+      recipe.includes('sha256_file "$pinned_ninja"'),
+      'recipe receipt hashes launcher in place of the pinned Ninja binary',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
 async function createArchive(
   archive: string,
   linkTarget: string,

@@ -107,8 +107,9 @@ rustc="${RUSTC:-$rust_bin/rustc}"
 : "${SLV_LINKER:?set SLV_LINKER to the checksum-pinned LLVM linker}"
 : "${LIBCLANG_PATH:?set LIBCLANG_PATH to the paired task-local libclang directory}"
 : "${CHROMIUM_RUST_TOOLCHAIN:?set CHROMIUM_RUST_TOOLCHAIN to the recorded Chromium Rust prerequisite}"
+pinned_ninja="$(canonical_path "$NINJA")"
 clang="$CLANG_BASE_PATH/bin/clang"
-[[ -x "$GN" && -x "$NINJA" && -x "$clang" && -x "$SLV_LINKER" && -x "$CHROMIUM_RUST_TOOLCHAIN/bin/rustc" ]] || {
+[[ -x "$GN" && -x "$pinned_ninja" && -x "$clang" && -x "$SLV_LINKER" && -x "$CHROMIUM_RUST_TOOLCHAIN/bin/rustc" ]] || {
   echo "GN, Ninja, Clang, pinned LLVM linker, and Chromium Rust prerequisite must be executable" >&2
   exit 65
 }
@@ -325,6 +326,40 @@ export CARGO_TARGET_DIR="$output/target"
 export CARGO_NET_OFFLINE=true
 export V8_FROM_SOURCE=true
 unset RUSTY_V8_ARCHIVE
+# NINJA_LAUNCHER_GENERATOR_BEGIN
+write_ninja_launcher() {
+  local launcher="$output/pinned-ninja-launcher.py"
+  "$PYTHON" - "$launcher" "$pinned_ninja" <<'PYEOF'
+import pathlib
+import sys
+
+launcher = pathlib.Path(sys.argv[1])
+pinned_ninja = sys.argv[2]
+launcher.write_text(
+    f'''#!{sys.executable}
+import os
+import sys
+
+pinned_ninja = {pinned_ninja!r}
+environment = os.environ.copy()
+for key in tuple(environment):
+    if key == 'BINDGEN_EXTRA_CLANG_ARGS' or key.startswith('BINDGEN_EXTRA_CLANG_ARGS_'):
+        del environment[key]
+os.execve(pinned_ninja, [pinned_ninja, *sys.argv[1:]], environment)
+''',
+    encoding='utf-8',
+)
+PYEOF
+  chmod 0755 "$launcher"
+  printf '%s\n' "$launcher"
+}
+# NINJA_LAUNCHER_GENERATOR_END
+ninja_launcher="$(write_ninja_launcher)"
+[[ -x "$ninja_launcher" ]] || {
+  echo "generated Ninja launcher is not executable: $ninja_launcher" >&2
+  exit 65
+}
+NINJA="$ninja_launcher"
 export GN NINJA CLANG_BASE_PATH LIBCLANG_PATH
 export PYTHON
 export PYTHONDONTWRITEBYTECODE=1
@@ -379,7 +414,7 @@ else
   # lightweight Clang trace records the effective native C driver selection
   # without asserting that x86_64 macOS must use the task-local lld.
   "$clang" -target "$apple_link_target" -isysroot "$SLV_APPLE_SDK_PATH" \
-    "${apple_link_flags[@]}" -### -x c /dev/null -o "$output/linker-driver-probe" \
+    ${apple_link_flags[@]+"${apple_link_flags[@]}"} -### -x c /dev/null -o "$output/linker-driver-probe" \
     > /dev/null 2>"$linker_driver_probe_log"
 fi
 
@@ -391,7 +426,7 @@ set +e
 if [[ "$resume" == true ]]; then
   (
     cd "$work/deno"
-    "$cargo" build --locked --offline --release "${target_args[@]}" -j "$jobs" -p denort
+    "$cargo" build --locked --offline --release ${target_args[@]+"${target_args[@]}"} -j "$jobs" -p denort
   ) > >(tee "$log") 2>&1
 else
   (
@@ -399,7 +434,7 @@ else
     "$cargo" generate-lockfile --offline
     assert_only_local_v8_relink || exit $?
     cp Cargo.lock "$output/derived-relink-Cargo.lock"
-    "$cargo" build --locked --offline --release "${target_args[@]}" -j "$jobs" -p denort
+    "$cargo" build --locked --offline --release ${target_args[@]+"${target_args[@]}"} -j "$jobs" -p denort
   ) > >(tee "$log") 2>&1
 fi
 status=$?
@@ -522,7 +557,11 @@ fi
   printf 'chromium_rust_toolchain=%s\n' "$CHROMIUM_RUST_TOOLCHAIN"
   printf 'chromium_rust_sentinel_sha256=%s\n' "$(sha256_file "$CHROMIUM_RUST_TOOLCHAIN/.rusty_v8_version")"
   printf 'gn_sha256=%s\n' "$(sha256_file "$GN")"
-  printf 'ninja_sha256=%s\n' "$(sha256_file "$NINJA")"
+  printf 'ninja_sha256=%s\n' "$(sha256_file "$pinned_ninja")"
+  printf 'ninja_path=%s\n' "$(canonical_path "$pinned_ninja")"
+  printf 'ninja_launcher_path=%s\n' "$(canonical_path "$ninja_launcher")"
+  printf 'ninja_launcher_sha256=%s\n' "$(sha256_file "$ninja_launcher")"
+  printf 'ninja_environment_policy=remove-BINDGEN_EXTRA_CLANG_ARGS-and-BINDGEN_EXTRA_CLANG_ARGS_-prefix\n'
   printf 'gn_args=%s\n' "$GN_ARGS"
   printf 'extra_gn_args=%s\n' "$EXTRA_GN_ARGS"
   printf 'pinned_linker=%s\n' "$(canonical_path "$SLV_LINKER")"
