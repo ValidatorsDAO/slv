@@ -217,7 +217,10 @@ async function beforeDeadline<T>(
   task: Promise<T>,
   signal: AbortSignal,
 ): Promise<T> {
-  if (signal.aborted) throw new DeadlineExceeded()
+  if (signal.aborted) {
+    void task.catch(() => undefined)
+    throw new DeadlineExceeded()
+  }
   let onAbort: (() => void) | undefined
   const aborted = new Promise<never>((_resolve, reject) => {
     onAbort = () => reject(new DeadlineExceeded())

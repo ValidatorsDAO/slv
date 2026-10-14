@@ -197,6 +197,43 @@ Deno.test('fixed GET carries its deadline through stream completion and cancels 
   assert(cancelled)
 })
 
+Deno.test('fixed GET observes a rejecting cleanup after its body deadline', async () => {
+  const originalSetTimeout = globalThis.setTimeout
+  let cancelled = false
+  globalThis.setTimeout =
+    ((callback: () => void) =>
+      originalSetTimeout(callback, 0)) as typeof setTimeout
+  try {
+    await withFetch(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull() {
+              return new Promise<void>(() => {})
+            },
+            cancel() {
+              cancelled = true
+              return Promise.reject(new Error('late cleanup failure'))
+            },
+          }),
+          { status: 200 },
+        ),
+      async () => {
+        let thrown: unknown
+        try {
+          await fixedObjectGet(bundle)
+        } catch (error) {
+          thrown = error
+        }
+        expectFixedObjectError(thrown, 'E_S3_GET_TIMEOUT', 200)
+      },
+    )
+  } finally {
+    globalThis.setTimeout = originalSetTimeout
+  }
+  assert(cancelled)
+})
+
 Deno.test('fixed GET bounds and cancels an oversized raw body', async () => {
   let cancelled = false
   await withFetch(
