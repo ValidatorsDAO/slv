@@ -233,13 +233,17 @@ payload = {
         'UNRELATED_ENV',
     )},
 }
-pathlib.Path(record).write_text(json.dumps(payload, sort_keys=True))
-if mode == 'exit':
-    raise SystemExit(int(arguments[-1]))
+record_path = pathlib.Path(record)
 if mode == 'wait':
     signal.signal(signal.SIGTERM, lambda _signal, _frame: sys.exit(75))
+    temporary = record_path.with_name(f'.{record_path.name}.{os.getpid()}.tmp')
+    temporary.write_text(json.dumps(payload, sort_keys=True))
+    os.replace(temporary, record_path)
     while True:
         signal.pause()
+record_path.write_text(json.dumps(payload, sort_keys=True))
+if mode == 'exit':
+    raise SystemExit(int(arguments[-1]))
 raise SystemExit(0)
 `,
     )
