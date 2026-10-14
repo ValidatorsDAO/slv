@@ -16,11 +16,27 @@ const OLD = new TextEncoder().encode('old reviewed installer')
 const DIFFERENT = new TextEncoder().encode('different reviewed installer')
 const digest = (bytes: Uint8Array) =>
   createHash('sha256').update(bytes).digest('hex')
+const ACCOUNT_ID = 'a'.repeat(32)
+const R2_ENDPOINT = `https://${ACCOUNT_ID}.eu.r2.cloudflarestorage.com`
+const R2_OBJECT = `${R2_ENDPOINT}/slv/slv/install`
+const CREDENTIALS = {
+  schemaVersion: 1,
+  operationId: '123e4567-e89b-42d3-a456-426614174000',
+  tokenId: 'fixture-token',
+  expiresOn: '2030-01-01T00:00:00.000Z',
+  accountId: ACCOUNT_ID,
+  jurisdiction: 'eu',
+  bucket: 'slv',
+  endpoint: R2_ENDPOINT,
+  accessKeyId: 'fixture-token',
+  secretAccessKey: 'b'.repeat(64),
+} as const
 
 type Call = {
   url: string
   method: string
   authorization: string | null
+  contentType: string | null
   redirect: RequestRedirect | undefined
   signal: AbortSignal | null
 }
@@ -29,7 +45,6 @@ type FetchHandler = (
   init: RequestInit | undefined,
 ) => Response | Promise<Response>
 type Fixture = {
-  domain?: Response
   release?: Response
   ref?: Response
   tag?: Response
@@ -46,17 +61,6 @@ function json(value: unknown, init?: ResponseInit): Response {
   return Response.json(value, init)
 }
 
-function cfDomain(): Response {
-  return json({
-    success: true,
-    result: {
-      domain: 'storage.slv.dev',
-      enabled: true,
-      status: { ownership: 'active', ssl: 'active' },
-    },
-  })
-}
-
 function fixtureHandler(fixture: Fixture = {}): FetchHandler {
   const payload = stopPayload(VERSION, SOURCE_SHA)
   const initial = fixture.initial ?? OLD
@@ -66,9 +70,6 @@ function fixtureHandler(fixture: Fixture = {}): FetchHandler {
   const publicReadback = fixture.publicReadback ?? payload
   let authenticatedObjectGets = 0
   return (call) => {
-    if (call.url.includes('/domains/custom/')) {
-      return fixture.domain ?? cfDomain()
-    }
     if (call.url.includes('/releases/tags/')) {
       return fixture.release ?? json({
         tag_name: `v${VERSION}`,
@@ -95,22 +96,19 @@ function fixtureHandler(fixture: Fixture = {}): FetchHandler {
       const current = authenticatedObjectGets >= 3
         ? publicReadback
         : publicPreimage
-      return new Response(current.buffer as ArrayBuffer)
+      return new Response(current.slice().buffer)
     }
-    if (call.url.includes('/objects/slv/install') && call.method === 'PUT') {
-      return fixture.put ?? json({
-        success: true,
-        result: { key: 'slv/install', size: String(payload.byteLength) },
-      })
+    if (call.url === R2_OBJECT && call.method === 'PUT') {
+      return fixture.put ?? new Response(null, { status: 200 })
     }
-    if (call.url.includes('/objects/slv/install')) {
+    if (call.url === R2_OBJECT && call.method === 'GET') {
       authenticatedObjectGets += 1
       const current = authenticatedObjectGets === 1
         ? initial
         : authenticatedObjectGets === 2
         ? fresh
         : authenticatedReadback
-      return new Response(current.buffer as ArrayBuffer, {
+      return new Response(current.slice().buffer, {
         headers: authenticatedObjectGets === 1
           ? {
             'content-type': 'application/x-sh',
@@ -134,16 +132,15 @@ async function withMock(
   const root = await Deno.makeTempDir({ prefix: 'slv-legacy-bootstrap-' })
   const calls: Call[] = []
   const originalFetch = globalThis.fetch
-  const oldAccount = Deno.env.get('CLOUDFLARE_ACCOUNT_ID')
-  const oldToken = Deno.env.get('CLOUDFLARE_API_TOKEN')
-  Deno.env.set('CLOUDFLARE_ACCOUNT_ID', 'account-fixture')
-  Deno.env.set('CLOUDFLARE_API_TOKEN', 'sentinel-secret')
+  const oldCredentials = Deno.env.get('SLV_R2_CREDENTIALS_JSON')
+  Deno.env.set('SLV_R2_CREDENTIALS_JSON', JSON.stringify(CREDENTIALS))
   globalThis.fetch = (async (input, init) => {
     const headers = new Headers(init?.headers)
     const call: Call = {
       url: String(input),
       method: init?.method ?? 'GET',
       authorization: headers.get('authorization'),
+      contentType: headers.get('content-type'),
       redirect: init?.redirect,
       signal: init?.signal ?? null,
     }
@@ -154,10 +151,9 @@ async function withMock(
     await task(root, calls)
   } finally {
     globalThis.fetch = originalFetch
-    if (oldAccount === undefined) Deno.env.delete('CLOUDFLARE_ACCOUNT_ID')
-    else Deno.env.set('CLOUDFLARE_ACCOUNT_ID', oldAccount)
-    if (oldToken === undefined) Deno.env.delete('CLOUDFLARE_API_TOKEN')
-    else Deno.env.set('CLOUDFLARE_API_TOKEN', oldToken)
+    if (oldCredentials === undefined) {
+      Deno.env.delete('SLV_R2_CREDENTIALS_JSON')
+    } else Deno.env.set('SLV_R2_CREDENTIALS_JSON', oldCredentials)
     await Deno.remove(root, { recursive: true })
   }
 }
@@ -303,6 +299,33 @@ Deno.test('legacy bootstrap rejects an existing or symlinked evidence directory'
   }
 })
 
+Deno.test('invalid S3 bundles reject before any network effect', async () => {
+  const invalidBundles = [
+    { ...CREDENTIALS, endpoint: 'https://r2.example.invalid' },
+    { ...CREDENTIALS, accessKeyId: 'different-token' },
+    { ...CREDENTIALS, expiresOn: '2020-01-01T00:00:00.000Z' },
+    { ...CREDENTIALS, extra: 'unexpected' },
+  ]
+  await withMock(fixtureHandler(), async (root, calls) => {
+    for (const [index, bundle] of invalidBundles.entries()) {
+      Deno.env.set('SLV_R2_CREDENTIALS_JSON', JSON.stringify(bundle))
+      await assertRejects(
+        () =>
+          run([
+            'preflight',
+            '--version',
+            VERSION,
+            '--output-dir',
+            `${root}/invalid-${index}`,
+          ]),
+        Error,
+        'R2 credentials',
+      )
+      assertEquals(calls.length, 0)
+    }
+  })
+})
+
 Deno.test('preflight backs up the authenticated object, verifies its public consumer, and never validates a release or PUTs', async () => {
   await withMock(fixtureHandler(), async (root, calls) => {
     const output = `${root}/evidence`
@@ -316,29 +339,25 @@ Deno.test('preflight backs up the authenticated object, verifies its public cons
       SOURCE_SHA,
     ])
     assertEquals(calls.map((call) => [call.method, call.url]), [
-      [
-        'GET',
-        'https://api.cloudflare.com/client/v4/accounts/account-fixture/r2/buckets/slv/domains/custom/storage.slv.dev',
-      ],
-      [
-        'GET',
-        'https://api.cloudflare.com/client/v4/accounts/account-fixture/r2/buckets/slv/objects/slv/install',
-      ],
+      ['GET', R2_OBJECT],
       ['GET', 'https://storage.slv.dev/slv/install'],
     ])
     assert(
       calls.every((call) => call.redirect === 'error' && call.signal !== null),
     )
     assert(
-      calls.slice(0, 2).every((call) =>
-        call.authorization === 'Bearer sentinel-secret'
+      calls.slice(0, 1).every((call) =>
+        call.authorization?.startsWith(
+          'AWS4-HMAC-SHA256 Credential=fixture-token/',
+        )
       ),
     )
-    assertEquals(calls[2].authorization, null)
+    assertEquals(calls[1].authorization, null)
     const evidence = await receipt(output)
     assertEquals(evidence.release_validated, false)
     assertEquals(evidence.put_attempted, false)
     assertEquals(evidence.readback_state, 'preflight-only')
+    assert(!calls.some((call) => call.url.startsWith('https://api.github.com')))
     assertEquals(
       (evidence.http_statuses as Record<string, unknown>).release,
       null,
@@ -365,7 +384,14 @@ Deno.test('preflight backs up the authenticated object, verifies its public cons
       ],
     )
     assert(!JSON.stringify(evidence).includes('x-not-allowed'))
-    assert(!JSON.stringify(evidence).includes('sentinel-secret'))
+    assert(!JSON.stringify(evidence).includes(CREDENTIALS.secretAccessKey))
+    assert(!JSON.stringify(evidence).includes('AWS4-HMAC-SHA256'))
+    assert(!JSON.stringify(evidence).includes('Signature='))
+    assertEquals(evidence.domain_configuration, 'not_checked')
+    assertEquals(evidence.public_binding, {
+      method: 'authenticated-object/public-byte-agreement',
+      matched: true,
+    })
   })
 })
 
@@ -381,13 +407,13 @@ Deno.test('apply validates plain GitHub documents and uses exactly one literal-k
       const put = putIndexes[0]
       assertEquals(
         calls[put - 1].url,
-        'https://api.cloudflare.com/client/v4/accounts/account-fixture/r2/buckets/slv/objects/slv/install',
+        R2_OBJECT,
       )
       assertEquals(
         calls[put].url,
-        'https://api.cloudflare.com/client/v4/accounts/account-fixture/r2/buckets/slv/objects/slv/install',
+        R2_OBJECT,
       )
-      assert(calls[put].url.endsWith('/objects/slv/install'))
+      assertEquals(calls[put].contentType, 'application/octet-stream')
       assert(
         calls.some((call) =>
           call.url === 'https://storage.slv.dev/slv/install'
@@ -403,9 +429,11 @@ Deno.test('apply validates plain GitHub documents and uses exactly one literal-k
         ).every((call) => call.authorization === null),
       )
       assert(
-        calls.filter((call) =>
-          call.url.startsWith('https://api.cloudflare.com')
-        ).every((call) => call.authorization === 'Bearer sentinel-secret'),
+        calls.filter((call) => call.url.startsWith(R2_ENDPOINT)).every((call) =>
+          call.authorization?.startsWith(
+            'AWS4-HMAC-SHA256 Credential=fixture-token/',
+          )
+        ),
       )
       const evidence = await receipt(output)
       assertEquals(evidence.release_validated, true)
@@ -448,27 +476,8 @@ Deno.test('preflight rejects a public mismatch and preserves its initial backup 
   )
 })
 
-Deno.test('rejects official domain and GitHub identity violations before a write', async () => {
+Deno.test('rejects GitHub release and tag identity violations before a write', async () => {
   const cases: Array<{ name: string; fixture: Fixture; message: string }> = [
-    {
-      name: 'Cloudflare envelope failure',
-      fixture: { domain: json({ success: false, result: {} }) },
-      message: 'Cloudflare envelope was unsuccessful',
-    },
-    {
-      name: 'domain status must be an ownership and ssl object',
-      fixture: {
-        domain: json({
-          success: true,
-          result: {
-            domain: 'storage.slv.dev',
-            enabled: true,
-            status: 'active',
-          },
-        }),
-      },
-      message: 'custom domain is not the exact active enabled mapping',
-    },
     {
       name: 'release tag identity',
       fixture: {
@@ -678,24 +687,6 @@ Deno.test('bounds streamed installer and JSON responses, fails malformed JSON, a
         Error,
         'initial authenticated preimage response body exceeds its size limit',
       )
-      assertEquals(calls.length, 2)
-    },
-  )
-  await withMock(
-    fixtureHandler({ domain: new Response('{broken') }),
-    async (root, calls) => {
-      await assertRejects(
-        () =>
-          run([
-            'preflight',
-            '--version',
-            VERSION,
-            '--output-dir',
-            `${root}/json`,
-          ]),
-        Error,
-        'custom domain response JSON is invalid',
-      )
       assertEquals(calls.length, 1)
     },
   )
@@ -731,28 +722,14 @@ Deno.test('records an ambiguous PUT HTTP failure and an acknowledged write with 
       const evidence = await receipt(output)
       assertEquals(evidence.put_attempted, true)
       assertEquals(evidence.put_write_outcome, 'unknown')
-      assertEquals(calls.filter((call) => call.method === 'PUT').length, 1)
-    },
-  )
-  await withMock(
-    fixtureHandler({
-      put: json({
-        success: true,
-        result: {
-          key: 'slv/install',
-          size: stopPayload(VERSION, SOURCE_SHA).byteLength,
-        },
-      }),
-    }),
-    async (root, calls) => {
-      const output = `${root}/put-shape`
-      await assertRejects(
-        () => run(applyArgs(output)),
-        Error,
-        'object upload response did not bind the expected key and size',
+      assertEquals(
+        (evidence.http_statuses as Record<string, unknown>).put,
+        500,
       )
-      const evidence = await receipt(output)
-      assertEquals(evidence.put_write_outcome, 'unknown')
+      assertEquals(
+        (evidence.error as Record<string, unknown>).code,
+        'E_PUT_HTTP',
+      )
       assertEquals(calls.filter((call) => call.method === 'PUT').length, 1)
     },
   )
@@ -769,6 +746,31 @@ Deno.test('records an ambiguous PUT HTTP failure and an acknowledged write with 
       assertEquals(evidence.put_attempted, true)
       assertEquals(evidence.put_write_outcome, 'succeeded')
       assertEquals(calls.filter((call) => call.method === 'PUT').length, 1)
+    },
+  )
+})
+
+Deno.test('records a failed authenticated S3 GET status at its receipt stage', async () => {
+  await withMock(
+    () => new Response('failed', { status: 503 }),
+    async (root, calls) => {
+      const output = `${root}/get-http`
+      await assertRejects(
+        () => run(['preflight', '--version', VERSION, '--output-dir', output]),
+        Error,
+        'initial authenticated preimage returned an unsuccessful HTTP response',
+      )
+      const evidence = await receipt(output)
+      assertEquals(
+        (evidence.http_statuses as Record<string, unknown>)
+          .initial_authenticated_preimage,
+        503,
+      )
+      assertEquals(
+        (evidence.error as Record<string, unknown>).code,
+        'E_INITIAL_AUTHENTICATED_PREIMAGE_HTTP',
+      )
+      assertEquals(calls.length, 1)
     },
   )
 })
@@ -794,7 +796,7 @@ Deno.test('treats aborts as bounded timeouts and configures every request to rej
           () =>
             run(['preflight', '--version', VERSION, '--output-dir', output]),
           Error,
-          'custom domain request timed out',
+          'initial authenticated preimage request timed out',
         )
         assertEquals(calls.length, 1)
         assertEquals(calls[0].redirect, 'error')
@@ -802,21 +804,16 @@ Deno.test('treats aborts as bounded timeouts and configures every request to rej
         const evidence = await receipt(output)
         assertEquals(
           (evidence.error as Record<string, unknown>).code,
-          'E_DOMAIN_TIMEOUT',
+          'E_INITIAL_AUTHENTICATED_PREIMAGE_TIMEOUT',
         )
       },
     )
     await withMock(
-      (_call, init) =>
+      () =>
         new Response(
           new ReadableStream({
-            start(controller) {
-              init?.signal?.addEventListener(
-                'abort',
-                () =>
-                  controller.error(new DOMException('aborted', 'AbortError')),
-                { once: true },
-              )
+            pull() {
+              return new Promise<void>(() => {})
             },
           }),
         ),
@@ -826,11 +823,12 @@ Deno.test('treats aborts as bounded timeouts and configures every request to rej
           () =>
             run(['preflight', '--version', VERSION, '--output-dir', output]),
           Error,
-          'custom domain request timed out',
+          'initial authenticated preimage request timed out',
         )
         const evidence = await receipt(output)
         assertEquals(
-          (evidence.http_statuses as Record<string, unknown>).domain,
+          (evidence.http_statuses as Record<string, unknown>)
+            .initial_authenticated_preimage,
           200,
         )
       },
@@ -849,11 +847,11 @@ Deno.test('sanitizes unknown request exceptions and CLI stderr without leaking a
     await assertRejects(
       () => run(['preflight', '--version', VERSION, '--output-dir', output]),
       Error,
-      'custom domain request failed',
+      'initial authenticated preimage request failed',
     )
     const evidence = await Deno.readTextFile(`${output}/receipt.json`)
     assert(!evidence.includes(sentinel))
-    assert(!evidence.includes('sentinel-secret'))
+    assert(!evidence.includes(CREDENTIALS.secretAccessKey))
   })
 
   const root = await Deno.makeTempDir({ prefix: 'slv-legacy-cli-' })

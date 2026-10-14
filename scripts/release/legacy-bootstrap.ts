@@ -5,11 +5,14 @@
  */
 import { createHash } from 'node:crypto'
 import { assertVersion } from './release.ts'
+import {
+  FixedObjectError,
+  fixedObjectGet,
+  fixedObjectPut,
+  parseCredentials,
+} from './r2-fixed-object.ts'
 
-const CF = 'https://api.cloudflare.com/client/v4'
 const GH = 'https://api.github.com'
-const ACCOUNT = 'CLOUDFLARE_ACCOUNT_ID'
-const TOKEN = 'CLOUDFLARE_API_TOKEN'
 const bucket = 'slv'
 const objectKey = 'slv/install'
 const domain = 'storage.slv.dev'
@@ -33,7 +36,6 @@ type Options = {
 }
 type Statuses = Record<string, number | null>
 type Stage =
-  | 'domain'
   | 'initial_authenticated_preimage'
   | 'public_preimage'
   | 'release'
@@ -68,7 +70,6 @@ class LegacyBootstrapError extends Error {
 }
 
 const stageName: Record<Stage, string> = {
-  domain: 'custom domain',
   initial_authenticated_preimage: 'initial authenticated preimage',
   public_preimage: 'public preimage',
   release: 'GitHub release',
@@ -116,7 +117,60 @@ function asSafeFailure(
   message: string,
 ): LegacyBootstrapError {
   if (error instanceof LegacyBootstrapError) return error
+  if (error instanceof FixedObjectError) {
+    return new LegacyBootstrapError(error.code, error.message)
+  }
   return new LegacyBootstrapError(code, message)
+}
+
+function fixedObjectFailure(
+  stage: Stage,
+  error: unknown,
+  statuses: Statuses,
+): never {
+  if (!(error instanceof FixedObjectError)) throw error
+  if (error.status !== null) statuses[stage] = error.status
+  if (!error.code.startsWith('E_S3_')) {
+    throw new LegacyBootstrapError(error.code, error.message)
+  }
+  if (error.code.endsWith('_TIMEOUT')) stageFailure(stage, 'timeout')
+  if (error.code.endsWith('_HTTP')) stageFailure(stage, 'http')
+  if (error.code.endsWith('_BODY_LIMIT')) stageFailure(stage, 'body_too_large')
+  if (error.code.endsWith('_BODY')) stageFailure(stage, 'body')
+  stageFailure(stage, 'request')
+}
+
+async function authenticatedObjectGet(
+  stage: Extract<
+    Stage,
+    | 'initial_authenticated_preimage'
+    | 'fresh_authenticated_preimage'
+    | 'authenticated_readback'
+  >,
+  credentials: ReturnType<typeof parseCredentials>,
+  statuses: Statuses,
+) {
+  try {
+    const result = await fixedObjectGet(credentials)
+    statuses[stage] = result.status
+    return result
+  } catch (error) {
+    fixedObjectFailure(stage, error, statuses)
+  }
+}
+
+async function authenticatedObjectPut(
+  credentials: ReturnType<typeof parseCredentials>,
+  payload: Uint8Array,
+  statuses: Statuses,
+): Promise<number> {
+  try {
+    const status = await fixedObjectPut(credentials, payload)
+    statuses.put = status
+    return status
+  } catch (error) {
+    fixedObjectFailure('put', error, statuses)
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -193,26 +247,6 @@ export function stopPayload(version: string, sourceSha: string): Uint8Array {
   const body =
     `#!/bin/sh\nprintf '%s\\n' 'STOP: Legacy SLV bootstrap has moved to verified immutable releases.' >&2\nprintf '%s\\n' 'Release: v${version}' >&2\nprintf '%s\\n' 'Reviewed source commit: ${sourceSha}' >&2\nprintf '%s\\n' "Download commit-pinned installer: curl --fail --show-error --silent --proto '=https' --tlsv1.2 --output ./slv-install-reviewed.sh 'https://raw.githubusercontent.com/ValidatorsDAO/slv/${sourceSha}/sh/install'" >&2\nprintf '%s\\n' 'Inspect before execution: less ./slv-install-reviewed.sh' >&2\nprintf '%s\\n' 'After review explicit legacy target: sh ./slv-install-reviewed.sh --install-path /usr/local/bin/slv' >&2\nexit 1\n`
   return new TextEncoder().encode(body)
-}
-
-function secret(name: string): string {
-  try {
-    const value = Deno.env.get(name)
-    if (!value) {
-      failure(
-        'E_CREDENTIALS_MISSING',
-        'required Cloudflare credentials are missing',
-      )
-    }
-    return value
-  } catch (error) {
-    if (error instanceof LegacyBootstrapError) throw error
-    failure('E_CREDENTIALS_READ', 'Cloudflare credentials could not be read')
-  }
-}
-
-function cfHeaders(token: string): HeadersInit {
-  return { authorization: `Bearer ${token}` }
 }
 
 async function ensureOutput(path: string): Promise<void> {
@@ -356,16 +390,6 @@ function parsePlainJson(
   }
 }
 
-function parseCfEnvelope(
-  bytes: Uint8Array,
-  stage: Stage,
-): Record<string, unknown> {
-  const envelope = parsePlainJson(bytes, stage)
-  if (envelope.success !== true) stageFailure(stage, 'unsuccessful')
-  if (!isRecord(envelope.result)) stageFailure(stage, 'shape')
-  return envelope.result
-}
-
 async function githubJson(
   stage: Stage,
   url: string,
@@ -378,25 +402,6 @@ async function githubJson(
     statuses,
     async (response, signal) =>
       parsePlainJson(
-        await boundedBytes(response, stage, signal, JSON_LIMIT_BYTES),
-        stage,
-      ),
-  )
-}
-
-async function cloudflareJson(
-  stage: Stage,
-  url: string,
-  init: RequestInit,
-  statuses: Statuses,
-): Promise<Record<string, unknown>> {
-  return await request(
-    stage,
-    url,
-    init,
-    statuses,
-    async (response, signal) =>
-      parseCfEnvelope(
         await boundedBytes(response, stage, signal, JSON_LIMIT_BYTES),
         stage,
       ),
@@ -520,7 +525,6 @@ async function verifiedRelease(
 
 function statusTemplate(): Statuses {
   return {
-    domain: null,
     initial_authenticated_preimage: null,
     public_preimage: null,
     release: null,
@@ -599,34 +603,29 @@ export async function run(args: string[]): Promise<void> {
   let operationError: LegacyBootstrapError | undefined
 
   try {
-    const account = secret(ACCOUNT)
-    const token = secret(TOKEN)
-    const base = `${CF}/accounts/${account}/r2/buckets/${bucket}`
-    const auth = cfHeaders(token)
-    const domainResult = await cloudflareJson(
-      'domain',
-      `${base}/domains/custom/${domain}`,
-      { headers: auth },
-      statuses,
-    )
-    const status = domainResult.status
-    if (
-      domainResult.domain !== domain || domainResult.enabled !== true ||
-      !isRecord(status) || status.ownership !== 'active' ||
-      status.ssl !== 'active'
-    ) {
-      failure(
-        'E_DOMAIN_MAPPING',
-        'custom domain is not the exact active enabled mapping',
-      )
+    const credentials = parseCredentials()
+    receipt.transport = {
+      kind: 's3-sigv4',
+      accountId: credentials.accountId,
+      jurisdiction: credentials.jurisdiction,
+      endpoint: credentials.endpoint,
+      region: 'auto',
     }
-
-    const initial = await objectBytes(
+    receipt.credential = {
+      operationId: credentials.operationId,
+      tokenId: credentials.tokenId,
+      expiresOn: credentials.expiresOn,
+      metadataOrigin: 'bundle-declaration',
+    }
+    receipt.domain_configuration = 'not_checked'
+    receipt.public_binding = {
+      method: 'authenticated-object/public-byte-agreement',
+      matched: false,
+    }
+    const initial = await authenticatedObjectGet(
       'initial_authenticated_preimage',
-      `${base}/objects/${objectKey}`,
-      { headers: auth },
+      credentials,
       statuses,
-      true,
     )
     const initialHash = sha256(initial.bytes)
     const initialEvidence = receipt.initial_authenticated_preimage as Record<
@@ -676,6 +675,7 @@ export async function run(args: string[]): Promise<void> {
         'public preimage does not match authenticated backup',
       )
     }
+    ;(receipt.public_binding as Record<string, unknown>).matched = true
 
     let payload: Uint8Array | undefined
     let payloadHash: string | undefined
@@ -713,10 +713,9 @@ export async function run(args: string[]): Promise<void> {
       await verifiedRelease(options.version, options.sourceSha!, statuses)
       receipt.release_validated = true
 
-      const fresh = await objectBytes(
+      const fresh = await authenticatedObjectGet(
         'fresh_authenticated_preimage',
-        `${base}/objects/${objectKey}`,
-        { headers: auth },
+        credentials,
         statuses,
       )
       const freshHash = sha256(fresh.bytes)
@@ -736,42 +735,13 @@ export async function run(args: string[]): Promise<void> {
 
       receipt.put_attempted = true
       receipt.put_write_outcome = 'unknown'
-      let putResult: Record<string, unknown>
-      try {
-        putResult = await cloudflareJson(
-          'put',
-          `${base}/objects/${objectKey}`,
-          {
-            method: 'PUT',
-            headers: { ...auth, 'content-type': 'application/octet-stream' },
-            body: payload!.buffer as ArrayBuffer,
-          },
-          statuses,
-        )
-      } catch (error) {
-        const safe = asSafeFailure(
-          error,
-          'E_PUT_OPERATION',
-          'object upload failed',
-        )
-        throw safe
-      }
-      if (
-        putResult.key !== objectKey ||
-        putResult.size !== String(payload!.byteLength)
-      ) {
-        failure(
-          'E_PUT_RESULT',
-          'object upload response did not bind the expected key and size',
-        )
-      }
+      await authenticatedObjectPut(credentials, payload!, statuses)
       receipt.put_succeeded = true
       receipt.put_write_outcome = 'succeeded'
 
-      const authenticatedReadback = await objectBytes(
+      const authenticatedReadback = await authenticatedObjectGet(
         'authenticated_readback',
-        `${base}/objects/${objectKey}`,
-        { headers: auth },
+        credentials,
         statuses,
       )
       const authenticatedReadbackHash = sha256(authenticatedReadback.bytes)
