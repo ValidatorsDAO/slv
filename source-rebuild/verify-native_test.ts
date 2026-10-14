@@ -520,36 +520,151 @@ Deno.test('Cargo fingerprint evidence accepts macOS host records only and reject
   }
 })
 
-Deno.test('build setup creates an intended fresh source root before measuring capacity', async () => {
-  const root = await Deno.makeTempDir({
-    prefix: 'slv-native-build-directories-',
-  })
-  try {
-    const prepared = await prepareBuildDirectories(
+Deno.test('build setup measures all initialized real directories and rejects insufficient capacity', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(Deno, 'Command')
+  if (!descriptor) throw new Error('Deno.Command descriptor is missing')
+  const OriginalCommand = Deno.Command
+  const calls: Array<{
+    executable: string
+    options: Deno.CommandOptions | undefined
+  }> = []
+  let expectedPaths: string[] = []
+  let availableKiB = 0
+  let outputCalls = 0
+  const encoder = new TextEncoder()
+
+  class CapacityFixtureCommand extends OriginalCommand {
+    #call: { executable: string; options: Deno.CommandOptions | undefined }
+
+    constructor(executable: string | URL, options?: Deno.CommandOptions) {
+      super(executable, options)
+      this.#call = { executable: String(executable), options }
+      calls.push(this.#call)
+    }
+
+    override async output(): Promise<Deno.CommandOutput> {
+      const expectedPath = expectedPaths[outputCalls]
+      const args = this.#call.options?.args
+      if (
+        !expectedPath || this.#call.executable !== 'df' ||
+        args?.length !== 2 || args[0] !== '-Pk' || args[1] !== expectedPath
+      ) {
+        throw new Error(
+          `unexpected capacity command: ${this.#call.executable} ${
+            args?.join(' ') ?? ''
+          }`,
+        )
+      }
+      for (const path of expectedPaths) {
+        const info = await Deno.lstat(path)
+        if (!info.isDirectory || info.isSymlink) {
+          throw new Error(
+            `capacity measurement saw a non-real directory: ${path}`,
+          )
+        }
+      }
+      outputCalls += 1
+      return {
+        success: true,
+        code: 0,
+        signal: null,
+        stdout: encoder.encode(
+          `Filesystem 1024-blocks Used Available Capacity Mounted on\nfixture 25165824 12582912 ${availableKiB} 50% /\n`,
+        ),
+        stderr: new Uint8Array(),
+      }
+    }
+  }
+
+  const runCase = async (
+    name: string,
+    freeKiB: number,
+    expectFailure: boolean,
+  ): Promise<void> => {
+    const root = await Deno.makeTempDir({
+      prefix: `slv-native-build-directories-${name}-`,
+    })
+    const paths: [string, string, string] = [
       `${root}/out`,
       `${root}/work`,
       `${root}/fresh-source-root`,
-    )
-    const sourceRoot = await Deno.lstat(prepared.sourceRoot)
-    if (!sourceRoot.isDirectory || sourceRoot.isSymlink) {
-      throw new Error(
-        'fresh source root was not initialized as a real directory',
-      )
+    ]
+    expectedPaths = paths
+    availableKiB = freeKiB
+    outputCalls = 0
+    calls.length = 0
+    try {
+      if (expectFailure) {
+        let rejected = false
+        try {
+          await prepareBuildDirectories(...paths)
+        } catch (error) {
+          rejected = error instanceof Error &&
+            error.message.includes(`: ${freeKiB} KiB, need 12582912 KiB`)
+        }
+        if (!rejected) {
+          throw new Error(
+            'insufficient capacity did not preserve the measured threshold error',
+          )
+        }
+        if (calls.length !== 1 || outputCalls !== 1) {
+          throw new Error(
+            'insufficient capacity did not fail after its first measurement',
+          )
+        }
+        return
+      }
+
+      const prepared = await prepareBuildDirectories(...paths)
+      if (outputCalls !== 3 || calls.length !== 3) {
+        throw new Error(
+          'capacity receipt did not cover output, work, and source root',
+        )
+      }
+      for (const [index, path] of paths.entries()) {
+        const call = calls[index]
+        if (
+          call.executable !== 'df' || call.options?.args?.length !== 2 ||
+          call.options.args[0] !== '-Pk' || call.options.args[1] !== path
+        ) {
+          throw new Error(
+            `capacity command ${index} did not measure its exact path`,
+          )
+        }
+      }
+      if (
+        prepared.capacity.minimum_free_kib !== 12582912 ||
+        prepared.capacity.measurements.length !== 3
+      ) {
+        throw new Error('capacity receipt did not retain its exact threshold')
+      }
+      for (
+        const [index, measurement] of prepared.capacity.measurements.entries()
+      ) {
+        if (
+          measurement.path !== paths[index] || measurement.free_kib !== freeKiB
+        ) {
+          throw new Error(
+            'capacity receipt did not retain each exact measurement',
+          )
+        }
+      }
+    } finally {
+      await Deno.remove(root, { recursive: true })
     }
-    if (prepared.capacity.measurements.length !== 3) {
-      throw new Error(
-        'capacity receipt did not cover output, work, and source root',
-      )
-    }
-    if (
-      !prepared.capacity.measurements.some((entry) =>
-        entry.path === prepared.sourceRoot
-      )
-    ) {
-      throw new Error('capacity receipt omitted the initialized source root')
-    }
+  }
+
+  Object.defineProperty(Deno, 'Command', {
+    configurable: true,
+    enumerable: descriptor.enumerable,
+    writable: true,
+    value: CapacityFixtureCommand,
+  })
+  try {
+    await runCase('sufficient', 12582912, false)
+    await runCase('insufficient', 12582911, true)
   } finally {
-    await Deno.remove(root, { recursive: true })
+    Object.defineProperty(Deno, 'Command', descriptor)
   }
 })
 
