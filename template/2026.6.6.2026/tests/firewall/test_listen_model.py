@@ -279,7 +279,7 @@ class ModelTestCase(unittest.TestCase):
 
 
 class ListenModelBehaviors(ModelTestCase):
-    """One test per behavior of the model (b01 to b34)."""
+    """One test per behavior of the model (b01 to b39)."""
 
     def test_b01_mainnet_agave_validator_with_cli_values(self):
         model = agave_validator()
@@ -689,7 +689,7 @@ class ListenModelBehaviors(ModelTestCase):
             rendered, facts=host_facts(ifaces=ifaces, dhcp4_ifaces=None, dhcp6_ifaces=None, ra_ifaces=None)
         )
         host = unknown["host"]
-        everywhere = ["docker0", "eno1", "eno2"]
+        everywhere = ["eno1", "eno2"]  # docker0 is a bridge without a default route (see b37)
         self.assertEqual((host["dhcp4_ifaces"], host["dhcp6_ifaces"], host["ra_ifaces"]), (everywhere,) * 3)
         self.assertTrue(host["dhcp_undetermined"] and host["ra_undetermined"])
         mixed = derive(rendered, facts=host_facts(ifaces=ifaces, dhcp4_ifaces=None, ra_ifaces=["eno2"]))
@@ -754,9 +754,12 @@ class ListenModelBehaviors(ModelTestCase):
             "--rpc-port 7211",
             "--rpc-port 7300",
         )
+        # the sources that reach the ports only the old model has are the same in both models, so the union is
+        # allowed (b39 has the unions that would give such a port more sources); the deny entry and nginx
+        # are the new model's own
         new = derive(
             [args_item(new_text, literal=True)],
-            inp=inputs(admin_ips=["203.0.113.0/28"], controller_ip="203.0.113.9", components=["nginx"]),
+            inp=inputs(deny_ips=["192.0.2.0/24"], components=["nginx"]),
         )
         union = plugin().slv_listen_model_union(old, new)
         self.assertEqual(union["udp"]["public"], P((8000, 8029), (8900, 8929)))
@@ -766,6 +769,8 @@ class ListenModelBehaviors(ModelTestCase):
         self.assertEqual(union["tcp"]["consumer"], [])
         for key in ("sources", "ssh", "components", "warnings", "profile", "host", "trusted_ifaces", "wireguard"):
             self.assertEqual(union[key], new[key], key)
+        self.assertNotEqual(union["sources"], old["sources"], "the deny entry is the new model's")
+        self.assertNotEqual(union["components"], old["components"], "nginx is the new model's")
         body = dict(union)
         digest = body.pop("model_sha256")
         self.assertEqual(digest, hashlib.sha256(plugin().canonical_json(body).encode("utf-8")).hexdigest())
@@ -852,9 +857,10 @@ class ListenModelBehaviors(ModelTestCase):
 
     # A port is in one class only: the table opens a port to the sources of each class that
     # holds it, and the model does not say which class the node means, so the model stops
-    # with class_overlap (b28 to b34).  b28 to b30 are ranges and components that grow over a
+    # with class_overlap (b28 to b35).  b28 to b30 are ranges and components that grow over a
     # public port; b31 and b32 are the SSH ports and the consumer ports; b33 is every pair of
-    # the port sets of the model and b34 is the DHCP client ports of the host.
+    # the port sets of the model, b34 the DHCP client ports of the host and b35 the union of the
+    # applied model and the new one.
 
     def test_b28_a_range_over_an_allowlist_port_stops(self):
         relay = inputs(components=[{"id": "shred-relay", "sources": ["203.0.113.0/24"]}])
@@ -1050,8 +1056,9 @@ class ListenModelBehaviors(ModelTestCase):
             self.assertIn("tcp port 53 is in libvirt rule for virbr* and in tcp.mgmt (53-54)", exc.detail)
 
     def test_b34_the_dhcp_client_ports_of_the_host_are_classes_where_the_table_has_the_rules(self):
-        # The table accepts a DHCP reply on udp 68 (DHCPv4) and udp 546 (DHCPv6) on the interfaces
-        # that the host names, so each of the two ports is a class of the model for as long as
+        # On the interfaces that the host names, the table accepts a packet on udp 68 (DHCPv4, from
+        # source port 67) and on udp 546 (DHCPv6, from source port 547 and a link-local address).
+        # The rules are stricter than the ports, but each port is a class of the model for as long as
         # dhcp4_ifaces or dhcp6_ifaces names an interface (null stands for every interface but lo).
         geyser = rpc_profile("Geyser gRPC")
         check = plugin()._refuse_class_overlap
@@ -1101,6 +1108,455 @@ class ListenModelBehaviors(ModelTestCase):
                     model = blank_model()
                     put(model, [[port - 8, port + 8]])
                     self.assertIsNone(check(model))
+
+
+    def test_b35_the_union_stops_when_a_port_changes_class_between_the_two_models(self):
+        two_steps = "Apply the change in two steps: first a configuration without that port, then the new configuration."
+        relay = inputs(components=[{"id": "shred-relay", "sources": ["203.0.113.0/24"]}])
+        start = fixture("mainnet-validator.agave-4.3.0.start-validator.sh")
+
+        def gossip(port):
+            return [args_item(replaced(start, "--no-port-check \\\n", "--no-port-check \\\n--gossip-port %d \\\n" % port), literal=True)]
+
+        def rpc(port):
+            return [args_item(replaced(start, "--rpc-port 7211", "--rpc-port %d" % port), literal=True)]
+
+        cases = (
+            # (what changes, applied model, new model, what the detail says)
+            (
+                "UDP 20001 leaves the dynamic range and becomes shred-relay's allowlist",
+                derive(validator_with_range("8000-30000")),
+                derive(validator_with_range("8900-8930"), inp=relay),
+                "udp port 20001 is in udp.allowlist (shred-relay) of the new model and in udp.public of the applied model",
+            ),
+            (
+                "UDP 20000 leaves the dynamic range and becomes rpc-gateway's local port",
+                derive(validator_with_range("8000-30000")),
+                derive(validator_with_range("8900-8930"), inp=inputs(components=["rpc-gateway"])),
+                "udp port 20000 is in local_only.udp of the new model and in udp.public of the applied model",
+            ),
+            (
+                "TCP 8001 stops being the public ip-echo port and becomes the RPC port",
+                derive(gossip(8001), inp=inputs(ip_echo_public=True)),
+                derive(rpc(8001)),
+                "tcp port 8001 is in tcp.mgmt of the new model and in tcp.public of the applied model",
+            ),
+            (
+                "TCP 8001 stops being the RPC port and becomes the public ip-echo port",
+                derive(rpc(8001)),
+                derive(gossip(8001), inp=inputs(ip_echo_public=True)),
+                "tcp port 8001 is in tcp.mgmt of the applied model and in tcp.public of the new model",
+            ),
+        )
+        for what, applied, new, says in cases:
+            with self.subTest(what):
+                # each model is a table of its own
+                self.assertEqual(plugin().slv_listen_model_union(applied, applied)["udp"], applied["udp"])
+                exc = self.assertStops("class_overlap", applied, new, func=plugin().slv_listen_model_union)
+                self.assertIn(says, exc.detail)
+                self.assertIn(two_steps, exc.detail)
+        with self.subTest("a port that stays in its class is a union (b25)"):
+            moved = derive(validator_with_range("8930-8960"))
+            self.assertEqual(
+                plugin().slv_listen_model_union(derive(validator_with_range("8900-8930")), moved)["udp"]["public"],
+                [[8900, 8959]],
+            )
+        with self.subTest("an applied model that holds a port in two classes itself says so"):
+            applied = copy.deepcopy(agave_validator())
+            applied["tcp"]["public"] = P(22)  # 22 is an SSH port
+            applied = plugin()._seal(applied)
+            exc = self.assertStops("class_overlap", applied, agave_validator(), func=plugin().slv_listen_model_union)
+            self.assertIn("the applied model itself holds tcp port 22 in tcp.ssh and in tcp.public", exc.detail)
+
+    def test_b36_an_address_list_that_covers_every_address_stops_like_a_single_slash_0(self):
+        # the pieces collapse to the whole address space (admin_ips, lb_ips, metrics_ips, deny_ips and the
+        # sources of a component are parsed by the same function)
+        covering = (
+            ("two IPv4 halves", ["0.0.0.0/1", "128.0.0.0/1"], "0.0.0.0/0"),
+            ("two IPv6 halves", ["::/1", "8000::/1"], "::/0"),
+            ("four IPv4 quarters", ["0.0.0.0/2", "64.0.0.0/2", "128.0.0.0/2", "192.0.0.0/2"], "0.0.0.0/0"),
+            ("a half and two quarters", ["0.0.0.0/1", "128.0.0.0/2", "192.0.0.0/2"], "0.0.0.0/0"),
+        )
+        rendered = [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]
+        lists = (
+            ("admin_ips", lambda nets: inputs(admin_ips=nets)),
+            ("lb_ips", lambda nets: inputs(lb_ips=nets)),
+            ("metrics_ips", lambda nets: inputs(metrics_ips=nets)),
+            ("deny_ips", lambda nets: inputs(deny_ips=nets)),
+            (
+                "components[shred-relay].sources",
+                lambda nets: inputs(components=[{"id": "shred-relay", "sources": nets}]),
+            ),
+        )
+        for what, nets, whole in covering:
+            for name, make in lists:
+                with self.subTest("%s in %s" % (what, name)):
+                    exc = self.assertStopsDerive("allowlist_has_any", rendered, inp=make(nets))
+                    self.assertIn("%s together cover %s" % (name, whole), exc.detail)
+        with self.subTest("a single /0 still stops"):
+            self.assertStopsDerive("allowlist_has_any", rendered, inp=inputs(admin_ips=["0.0.0.0/0"]))
+        with self.subTest("a list that does not cover every address is a list"):
+            for nets in (["0.0.0.0/1"], ["0.0.0.0/1", "128.0.0.0/2"], ["0.0.0.0/1", "::/1"], ["0.0.0.0/1", "0.0.0.0/2"]):
+                model = derive(rendered, inp=inputs(admin_ips=nets + [ADMIN], controller_ip=ADMIN))
+                self.assertTrue(model["sources"]["mgmt"]["v4"] or model["sources"]["mgmt"]["v6"])
+
+    def test_b37_undetermined_dhcp_and_ra_interfaces_leave_out_the_bridges_without_a_default_route(self):
+        rendered = [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]
+        ifaces = ["lo", "eno1", "eno2", "docker0", "virbr0", "virbr1", "br-1", "br-lan"]
+
+        def host(**over):
+            facts = dict(
+                ifaces=ifaces,
+                bridges=["br-1", "br-lan"],
+                default_route_ifaces=["eno1"],
+                dhcp4_ifaces=None,
+                dhcp6_ifaces=None,
+                ra_ifaces=None,
+            )
+            facts.update(over)
+            return derive(rendered, facts=host_facts(**facts))["host"]
+
+        with self.subTest("docker0 and virbr* by name, the other bridges by host_facts.bridges"):
+            section = host()
+            self.assertEqual((section["dhcp4_ifaces"], section["dhcp6_ifaces"], section["ra_ifaces"]), (["eno1", "eno2"],) * 3)
+            self.assertTrue(section["dhcp_undetermined"] and section["ra_undetermined"])
+        with self.subTest("a bridge that carries the default route stays"):
+            self.assertEqual(host(default_route_ifaces=["br-lan"])["dhcp4_ifaces"], ["br-lan", "eno1", "eno2"])
+            self.assertEqual(host(default_route_ifaces=["docker0"])["ra_ifaces"], ["docker0", "eno1", "eno2"])
+        with self.subTest("a list that the host determined is taken as it is"):
+            section = host(dhcp4_ifaces=["docker0"], dhcp6_ifaces=[], ra_ifaces=["virbr0", "eno1"])
+            self.assertEqual((section["dhcp4_ifaces"], section["dhcp6_ifaces"], section["ra_ifaces"]), (["docker0"], [], ["eno1", "virbr0"]))
+        with self.subTest("the DHCP class of the overlap rule follows the interfaces that are left"):
+            # richat's QUIC port on 68 meets the DHCPv4 rule that the table then has on eno1 and eno2
+            geyser = rpc_profile("Geyser gRPC")
+            facts = host_facts(ifaces=ifaces, bridges=["br-1", "br-lan"], dhcp4_ifaces=None)
+            self.assertStopsDerive("class_overlap", richat_node(quic="127.0.0.1:68"), geyser, facts=facts)
+            # and the same port is free on a host whose DHCP interfaces are all determined to be none
+            model = derive(richat_node(quic="127.0.0.1:68"), geyser, facts=host_facts(ifaces=ifaces, dhcp4_ifaces=[]))
+            self.assertEqual(model["local_only"]["udp"], P(68))
+        with self.subTest("nothing is left to cover"):
+            exc = self.assertStopsDerive(
+                "invalid_input", rendered, facts=host_facts(ifaces=["lo", "docker0", "virbr0"], dhcp4_ifaces=None)
+            )
+            self.assertIn("besides lo and the bridges without a default route", exc.detail)
+
+    def test_b38_the_header_of_an_nft_file_takes_a_timestamp_and_an_address_and_nothing_else(self):
+        meta = plugin().slv_listen_model_meta
+        with self.subTest("what the header takes"):
+            self.assertEqual(
+                meta({"generated_at": "2026-01-01T00:00:00Z", "controller_ip": "198.51.100.7"}),
+                {"generated_at": "2026-01-01T00:00:00Z", "controller_ip": "198.51.100.7"},
+            )
+            self.assertEqual(
+                meta({"generated_at": "2026-12-31T23:59:59.123456Z", "controller_ip": "2001:DB8::7"}),
+                {"generated_at": "2026-12-31T23:59:59.123456Z", "controller_ip": "2001:db8::7"},
+            )
+            self.assertEqual(meta({"generated_at": "2026-01-01T00:00:00+00:00"})["controller_ip"], "")
+            self.assertEqual(meta({"generated_at": "2026-01-01T00:00:00Z", "controller_ip": ""})["controller_ip"], "")
+            self.assertEqual(meta({"generated_at": "2026-01-01T00:00:00Z", "controller_ip": None})["controller_ip"], "")
+        stamp = "2026-01-01T00:00:00Z"
+        controls = (
+            ("a newline in the address ends the comment", {"generated_at": stamp, "controller_ip": "198.51.100.7\n# table inet evil"}),
+            ("a newline after the timestamp", {"generated_at": stamp + "\n"}),
+            ("a carriage return", {"generated_at": stamp, "controller_ip": "198.51.100.7\r"}),
+            ("a line separator", {"generated_at": stamp, "controller_ip": "198.51.100.7\u2028"}),
+            ("an escape", {"generated_at": "\x1b[2J" + stamp}),
+            ("a NUL", {"generated_at": stamp, "controller_ip": "198.51.100.7\x00"}),
+            ("a right-to-left override", {"generated_at": stamp, "controller_ip": "198.51.100.7\u202e"}),
+        )
+        for what, bad in controls:
+            with self.subTest(what):
+                exc = self.assertStops("invalid_meta", bad, func=meta)
+                self.assertIn("control character", exc.detail)
+                self.assertNotIn("\n", exc.detail)
+                self.assertNotIn("\x1b", exc.detail)
+        hostile = (
+            ("a date that does not exist", {"generated_at": "2026-02-30T00:00:00Z"}),
+            ("a time that does not exist", {"generated_at": "2026-01-01T24:00:00Z"}),
+            ("a space instead of the T", {"generated_at": "2026-01-01 00:00:00Z"}),
+            ("no zone", {"generated_at": "2026-01-01T00:00:00"}),
+            ("a zone that is not UTC", {"generated_at": "2026-01-01T09:00:00+09:00"}),
+            ("a word", {"generated_at": "yesterday"}),
+            ("no timestamp", {"controller_ip": "198.51.100.7"}),
+            ("a number", {"generated_at": 20260101}),
+            ("a name instead of an address", {"generated_at": stamp, "controller_ip": "controller.example"}),
+            ("an address with a space", {"generated_at": stamp, "controller_ip": " 198.51.100.7"}),
+            ("an address with a scope", {"generated_at": stamp, "controller_ip": "fe80::1%eno1"}),
+            ("a network", {"generated_at": stamp, "controller_ip": "198.51.100.0/24"}),
+            ("a key that is not written", {"generated_at": stamp, "host": "node"}),
+            ("a list", ["generated_at"]),
+        )
+        for what, bad in hostile:
+            with self.subTest(what):
+                exc = self.assertStops("invalid_meta", bad, func=meta)
+                self.assertNotIn("\n", exc.detail)
+                self.assertNotIn("\x1b", exc.detail)
+
+    def test_b39_the_union_does_not_give_a_port_that_only_the_applied_model_has_more_sources(self):
+        union_of = plugin().slv_listen_model_union
+        validator = [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]
+        index = [args_item("mainnet-rpc.index-rpc.start-validator.sh"), of1_item()]
+        index_node = rpc_profile("Index RPC")
+        two_steps = (
+            "Apply the change in two steps: first a configuration without that port (with the old sources), "
+            "then the new configuration."
+        )
+
+        def rpc_port(port):
+            text = replaced(
+                fixture("mainnet-validator.agave-4.3.0.start-validator.sh"), "--rpc-port 7211", "--rpc-port %d" % port
+            )
+            return [args_item(text, literal=True)]
+
+        def refused(applied, new, klass, ports, field):
+            exc = self.assertStops("union_widens_reach", applied, new, func=union_of)
+            self.assertIn("%s port %s is only in %s of the applied model" % (klass.split(".")[0], ports, klass), exc.detail)
+            self.assertIn(field, exc.detail)
+            self.assertIn(two_steps, exc.detail)
+
+        def edited(model, *edits):
+            model = copy.deepcopy(model)
+            for edit in edits:
+                edit(model)
+            return plugin()._seal(model)
+
+        # What is refused, on real renders (b25 has the union of two models with the same sources).
+        with self.subTest("(a) public_rpc is turned on, and a consumer port is only in the applied model"):
+            applied = derive(index, index_node, inputs(lb_ips=["192.0.2.10"], components=["rpc-gateway"]))
+            new = derive(index, index_node, inputs(lb_ips=["192.0.2.10"], public_rpc=True))
+            self.assertEqual((applied["consumer_public"], new["consumer_public"]), (False, True))
+            refused(applied, new, "tcp.consumer", "8889", "consumer_public is true in the new model and false in the applied one")
+        with self.subTest("(b) ssh_mode becomes public-rate-limited, and an SSH port is only in the applied model"):
+            applied = derive(validator, facts=host_facts(sshd_ports=[22, 2222], sshd_listen_ports=[22, 2222]))
+            new = derive(validator, inp=inputs(ssh_mode="public-rate-limited"))
+            refused(applied, new, "tcp.ssh", "2222", "ssh.public is true in the new model and false in the applied one")
+        with self.subTest("(c) admin_ips gains a network, and a mgmt port is only in the applied model"):
+            new = derive(rpc_port(7300), inp=inputs(admin_ips=["203.0.113.0/28"], controller_ip="203.0.113.9"))
+            refused(agave_validator(), new, "tcp.mgmt", "7211-7212", "sources.mgmt gained 203.0.113.0/28")
+        with self.subTest("(d) lb_ips gains an address, and a consumer port is only in the applied model"):
+            applied = derive(index, index_node, inputs(lb_ips=["192.0.2.10"], components=["rpc-gateway"]))
+            new = derive(index, index_node, inputs(lb_ips=["192.0.2.10", "192.0.2.20"]))
+            refused(applied, new, "tcp.consumer", "8889", "sources.lb gained 192.0.2.20/32")
+        with self.subTest("(e) metrics_ips gains an address, and a metrics port is only in the applied model"):
+            data = richat_data()
+            data["metrics"]["endpoint"] = "0.0.0.0:10125"
+            geyser = rpc_profile("Geyser gRPC")
+            applied = derive(geyser_rendered(), geyser, inputs(metrics_ips=["192.0.2.50"]))
+            moved = [args_item("mainnet-rpc.geyser-grpc.start-validator.sh"), richat_item(data)]
+            new = derive(moved, geyser, inputs(metrics_ips=["192.0.2.50", "192.0.2.60"]))
+            refused(applied, new, "tcp.metrics", "10124", "sources.scrape gained 192.0.2.60/32")
+        with self.subTest("(f) deny_ips loses an entry, and a udp.public port is only in the applied model"):
+            applied = derive(validator, inp=inputs(deny_ips=["192.0.2.0/24"]))
+            new = derive(validator_with_range("8000-8030"))
+            refused(applied, new, "udp.public", "8900-8929", "sources.deny lost 192.0.2.0/24")
+        with self.subTest("(g) trusted_ifaces gains an interface, and a mgmt port is only in the applied model"):
+            new = derive(rpc_port(7300), inp=inputs(trusted_ifaces=["br-int"]))
+            refused(agave_validator(), new, "tcp.mgmt", "7211-7212", "trusted_ifaces gained br-int")
+        with self.subTest("(h) the WireGuard tunnel is enabled, and a wg_only port is only in the applied model"):
+            applied = derive(validator, inp=inputs(components=["gateway"]))
+            new = derive(validator, inp=inputs(components=["wireguard"]))
+            refused(applied, new, "tcp.wg_only", "20026", "wireguard is enabled in the new model and not in the applied one")
+        with self.subTest("(h) the WireGuard tunnel is enabled, and a mgmt port is only in the applied model"):
+            new = derive(rpc_port(7300), inp=inputs(components=["wireguard"]))
+            refused(agave_validator(), new, "tcp.mgmt", "7211-7212", "wireguard is enabled in the new model and not in the applied one")
+        with self.subTest("(h) the subnet of the tunnel is widened, and a wg_only port is only in the applied model"):
+            applied = derive(validator, inp=inputs(components=["wireguard", "gateway"]))
+            new = edited(
+                derive(validator, inp=inputs(components=["wireguard"])),
+                lambda m: m["wireguard"].update(subnet="10.0.0.0/16"),
+            )
+            refused(applied, new, "tcp.wg_only", "20026", "wireguard.subnet 10.0.0.0/16 is not within 10.0.0.0/24")
+
+        # What is allowed.
+        with self.subTest("the same sources and a moved port (b25)"):
+            union = union_of(agave_validator(), derive(rpc_port(7300)))
+            self.assertEqual(union["tcp"]["mgmt"], P((7211, 7212), (7300, 7301)))
+        with self.subTest("admin_ips loses an entry, and a mgmt port is only in the applied model"):
+            applied = derive(validator, inp=inputs(admin_ips=["198.51.100.0/28"]))
+            new = derive(rpc_port(7300))
+            union = union_of(applied, new)
+            self.assertEqual(union["tcp"]["mgmt"], P((7211, 7212), (7300, 7301)))
+            self.assertEqual(union["sources"]["mgmt"], new["sources"]["mgmt"])
+        with self.subTest("deny_ips gains an entry, and a udp.public port is only in the applied model"):
+            new = derive(validator_with_range("8000-8030"), inp=inputs(deny_ips=["192.0.2.0/24"]))
+            union = union_of(derive(validator), new)
+            self.assertEqual(union["udp"]["public"], P((8000, 8029), (8900, 8929)))
+            self.assertEqual(union["sources"]["deny"], new["sources"]["deny"])
+        with self.subTest("the reach is wider and no port is only in the applied model"):
+            applied = derive(index, index_node, inputs(lb_ips=["192.0.2.10"], components=["rpc-gateway"]))
+            new = derive(
+                index,
+                index_node,
+                inputs(
+                    lb_ips=["192.0.2.10", "192.0.2.20"],
+                    components=["rpc-gateway"],
+                    public_rpc=True,
+                    admin_ips=["198.51.100.0/24"],
+                    ssh_mode="public-rate-limited",
+                    trusted_ifaces=["br-int"],
+                    metrics_ips=["192.0.2.50"],
+                ),
+            )
+            self.assertTrue(new["consumer_public"] and new["ssh"]["public"])
+            union = union_of(applied, new)
+            for group, key in plugin()._UNION_FIELDS:
+                self.assertEqual(union[group][key], new[group][key], "%s.%s" % (group, key))
+            self.assertEqual(union["tcp"]["consumer"], P((7211, 7212), (8888, 8889)))
+
+        # The comparison itself, on models that hold one port, 5555, in the class under test.
+        setters = {name: put for proto, name, put in port_setters()}
+        mgmt_put = setters["tcp.mgmt"]
+        with self.subTest("networks are compared as collapsed lists"):
+            halves, whole = ["10.0.0.0/24", "10.0.1.0/24"], ["10.0.0.0/23"]
+            for was, now in ((halves, whole), (whole, halves), (whole, ["10.0.0.0/25", "10.0.1.0/24"]), (halves, halves)):
+                applied = edited(blank_model(), lambda m: mgmt_put(m, P(5555)), lambda m: m["sources"]["mgmt"].update(v4=was))
+                new = edited(blank_model(), lambda m: m["sources"]["mgmt"].update(v4=now))
+                self.assertEqual(union_of(applied, new)["tcp"]["mgmt"], P(5555), "%s -> %s" % (was, now))
+            applied = edited(blank_model(), lambda m: mgmt_put(m, P(5555)), lambda m: m["sources"]["mgmt"].update(v4=halves))
+            new = edited(blank_model(), lambda m: m["sources"]["mgmt"].update(v4=["10.0.0.0/22"]))
+            refused(applied, new, "tcp.mgmt", "5555", "sources.mgmt gained 10.0.0.0/22")
+            new = edited(blank_model(), lambda m: m["sources"]["mgmt"].update(v4=["10.0.0.0/24"], v6=["2001:db8::/32"]))
+            refused(applied, new, "tcp.mgmt", "5555", "sources.mgmt gained 2001:db8::/32")
+        with self.subTest("a public part that both models have is compared by the deny sources"):
+
+            def deny(*nets):
+                return lambda m: m["sources"]["deny"].update(v4=list(nets))
+
+            both = {
+                "tcp.ssh": lambda m: m["ssh"].update(public=True, rate=dict(plugin().SSH_RATE)),
+                "tcp.consumer": lambda m: m.update(consumer_public=True),
+            }
+            for klass, make_public in both.items():
+                applied = edited(blank_model(), lambda m: setters[klass](m, P(5555)), make_public, deny("192.0.2.0/24"))
+                for nets in (["192.0.2.0/24"], ["192.0.2.0/24", "198.51.100.0/24"], ["192.0.2.0/23"]):
+                    new = edited(blank_model(), make_public, deny(*nets))
+                    self.assertEqual(union_of(applied, new)[klass.split(".")[0]][klass.split(".")[1]], P(5555), nets)
+                for nets in ([], ["192.0.2.0/25"], ["198.51.100.0/24"]):
+                    new = edited(blank_model(), make_public, deny(*nets))
+                    refused(applied, new, klass, "5555", "sources.deny lost 192.0.2.0/24")
+        with self.subTest("ssh.rate has to be the same where ssh is public in both"):
+            public = lambda rate: (lambda m: m["ssh"].update(public=True, rate=rate))  # noqa: E731
+            slower = dict(plugin().SSH_RATE, new_per_minute=5)
+            applied = edited(blank_model(), lambda m: setters["tcp.ssh"](m, P(5555)), public(dict(plugin().SSH_RATE)))
+            new = edited(blank_model(), public(slower))
+            refused(applied, new, "tcp.ssh", "5555", "ssh.rate is")
+        def tunnel(iface="wg0"):
+            return lambda m: m["wireguard"].update(enabled=True, iface=iface, subnet="10.0.0.0/24")
+
+        with self.subTest("the tunnel has to be the same interface"):
+            applied = edited(blank_model(), lambda m: setters["tcp.wg_only"](m, P(5555)), tunnel("wg0"))
+            refused(
+                applied,
+                edited(blank_model(), tunnel("wg1")),
+                "tcp.wg_only",
+                "5555",
+                "wireguard.iface is wg1 in the new model and wg0 in the applied one",
+            )
+        with self.subTest("the rule for wg_only comes after the deny rules, so the new deny sources have to hold the old"):
+            applied = derive(validator, inp=inputs(components=["wireguard", "gateway"], deny_ips=["10.0.0.0/28"]))
+            refused(
+                applied,
+                derive(validator, inp=inputs(components=["wireguard"])),
+                "tcp.wg_only",
+                "20026",
+                "sources.deny lost 10.0.0.0/28",
+            )
+            for nets in (["10.0.0.0/28"], ["10.0.0.0/24"]):
+                new = derive(validator, inp=inputs(components=["wireguard"], deny_ips=nets))
+                self.assertEqual(union_of(applied, new)["tcp"]["wg_only"], P(20026), nets)
+            # the new model has no tunnel: the table has no rule for the port, and the deny sources do not matter
+            applied = edited(
+                blank_model(),
+                lambda m: setters["tcp.wg_only"](m, P(5555)),
+                tunnel(),
+                lambda m: m["sources"]["deny"]["v4"].append("10.0.0.0/28"),
+            )
+            self.assertEqual(union_of(applied, edited(blank_model()))["tcp"]["wg_only"], P(5555))
+        with self.subTest("the detail names the ports that the new model does not hold, and no others"):
+            applied = edited(blank_model(), lambda m: mgmt_put(m, P((100, 200))))
+            new = edited(
+                blank_model(),
+                lambda m: mgmt_put(m, P((150, 160), (190, 300))),
+                lambda m: m["sources"]["mgmt"]["v4"].append("203.0.113.0/28"),
+            )
+            refused(applied, new, "tcp.mgmt", "100-149, 161-189", "sources.mgmt gained 203.0.113.0/28")
+        with self.subTest("a v6 deny entry does not matter to the IPv4 Solana UDP ports, and matters to the others"):
+            v6 = lambda m: m["sources"]["deny"].update(v6=["2001:db8:bad::/48"])  # noqa: E731
+            for klass in ("udp.public", "udp.xdp"):
+                applied = edited(blank_model(), lambda m: setters[klass](m, P(5555)), v6)
+                self.assertEqual(union_of(applied, edited(blank_model()))["udp"][klass.split(".")[1]], P(5555), klass)
+            for klass in ("udp.pub", "tcp.public"):
+                applied = edited(blank_model(), lambda m: setters[klass](m, P(5555)), v6)
+                refused(applied, edited(blank_model()), klass, "5555", "sources.deny lost 2001:db8:bad::/48")
+        with self.subTest("local_only has no rule in the table, so it is not compared"):
+            applied = edited(blank_model(), lambda m: setters["local_only.tcp"](m, P(5555)))
+            new = edited(blank_model(), lambda m: m["trusted_ifaces"].append("br-int"), lambda m: m.update(consumer_public=True))
+            self.assertEqual(union_of(applied, new)["local_only"]["tcp"], P(5555))
+        with self.subTest("a model without its sources is invalid input"):
+            applied = edited(blank_model(), lambda m: mgmt_put(m, P(5555)))
+            del applied["model_sha256"], applied["sources"]["mgmt"]
+            exc = self.assertStops("invalid_input", applied, edited(blank_model()), func=union_of)
+            self.assertIn("sources.mgmt", exc.detail)
+
+        # Each class is judged by the fields that its rule in the table uses, and by no others. (tcp.wg_only is
+        # also judged by the IPv4 deny sources where the new model has the tunnel: that is the wg_only subtest
+        # above, and this matrix turns the tunnel on in the new model only in its wireguard row.)
+        changes = {
+            # field: (what the applied model has, what the new model has)
+            "sources.mgmt": (None, lambda m: m["sources"]["mgmt"]["v4"].append("203.0.113.0/28")),
+            "trusted_ifaces": (None, lambda m: m["trusted_ifaces"].append("br-int")),
+            "wireguard": (None, lambda m: m["wireguard"].update(enabled=True, iface="wg0", subnet="10.0.0.0/24")),
+            "sources.lb": (None, lambda m: m["sources"]["lb"]["v4"].append("192.0.2.10/32")),
+            "sources.scrape": (None, lambda m: m["sources"]["scrape"]["v4"].append("192.0.2.50/32")),
+            "consumer_public": (None, lambda m: m.update(consumer_public=True)),
+            "ssh.public": (None, lambda m: m["ssh"].update(public=True, rate=dict(plugin().SSH_RATE))),
+            "deny v4": (lambda m: m["sources"]["deny"]["v4"].append("192.0.2.0/24"), None),
+            "deny v6": (lambda m: m["sources"]["deny"]["v6"].append("2001:db8:bad::/48"), None),
+        }
+        says = {
+            "sources.mgmt": "sources.mgmt gained 203.0.113.0/28",
+            "trusted_ifaces": "trusted_ifaces gained br-int",
+            "wireguard": "wireguard is enabled in the new model and not in the applied one",
+            "sources.lb": "sources.lb gained 192.0.2.10/32",
+            "sources.scrape": "sources.scrape gained 192.0.2.50/32",
+            "consumer_public": "consumer_public is true in the new model and false in the applied one",
+            "ssh.public": "ssh.public is true in the new model and false in the applied one",
+            "deny v4": "sources.deny lost 192.0.2.0/24",
+            "deny v6": "sources.deny lost 2001:db8:bad::/48",
+        }
+        mgmt_like = ("sources.mgmt", "trusted_ifaces", "wireguard")
+        judged_by = (
+            ("tcp.ssh", mgmt_like + ("ssh.public",)),
+            ("tcp.mgmt", mgmt_like),
+            ("tcp.consumer", mgmt_like + ("sources.lb", "consumer_public")),
+            ("tcp.metrics", mgmt_like + ("sources.scrape",)),
+            ("tcp.wg_only", ("wireguard",)),
+            ("udp.public", ("deny v4",)),
+            ("udp.xdp", ("deny v4",)),
+            ("udp.pub", ("deny v4", "deny v6")),
+            ("tcp.public", ("deny v4", "deny v6")),
+        )
+
+        def pair(klass, fields):
+            applied, new = blank_model(), blank_model()
+            setters[klass](applied, P(5555))
+            for field in fields:
+                on_applied, on_new = changes[field]
+                for model, edit in ((applied, on_applied), (new, on_new)):
+                    if edit:
+                        edit(model)
+            return plugin()._seal(applied), plugin()._seal(new)
+
+        for klass, used in judged_by:
+            proto, key = klass.split(".")
+            with self.subTest("%s: nothing changes" % klass):
+                self.assertEqual(union_of(*pair(klass, ()))[proto][key], P(5555))
+            with self.subTest("%s: every field that it does not use changes" % klass):
+                union = union_of(*pair(klass, [field for field in changes if field not in used]))
+                self.assertEqual(union[proto][key], P(5555))
+            for field in used:
+                with self.subTest("%s: %s" % (klass, field)):
+                    refused(*pair(klass, [field]), klass, "5555", says[field])
 
 
 class ListenModelSupport(ModelTestCase):
@@ -1484,7 +1940,8 @@ class ListenModelSupport(ModelTestCase):
         module = plugin()
         filters = module.FilterModule().filters()
         self.assertEqual(
-            sorted(filters), ["slv_listen_model", "slv_listen_model_canonical_json", "slv_listen_model_union"]
+            sorted(filters),
+            ["slv_listen_model", "slv_listen_model_canonical_json", "slv_listen_model_meta", "slv_listen_model_union"],
         )
         arguments = (
             [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")],
@@ -1515,6 +1972,13 @@ class ListenModelSupport(ModelTestCase):
             self.assertEqual(filters["slv_listen_model_canonical_json"](good), module.canonical_json(good))
             with self.assertRaises(AnsibleFilterError):
                 filters["slv_listen_model_union"]({"schema": "x"}, good)
+            with self.assertRaises(AnsibleFilterError) as caught:
+                filters["slv_listen_model_meta"]({"generated_at": "yesterday"})
+            self.assertIn("invalid_meta", str(caught.exception))
+            self.assertEqual(
+                filters["slv_listen_model_meta"]({"generated_at": "2026-01-01T00:00:00Z"}),
+                {"generated_at": "2026-01-01T00:00:00Z", "controller_ip": ""},
+            )
         finally:
             for key, value in saved.items():
                 if value is None:

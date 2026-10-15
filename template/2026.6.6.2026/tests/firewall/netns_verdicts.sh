@@ -8,10 +8,10 @@
 #
 # Needs root, ip(8), nft(8), python3 with scapy, and optionally conntrack(8). The tables,
 # addresses, routes and sysctls it sets are in three network namespaces, which it removes on
-# exit. The only network objects it creates outside them are the names of the namespaces
-# and each veth pair of the topology below, until its two ends are moved in; it also makes
-# a temporary work directory, which it removes on exit. Still, run it on a CI runner or a
-# throwaway machine, never on a production host. The namespaces:
+# exit. The only things it creates outside them are the names of the namespaces and a
+# temporary work directory, both removed on exit; each veth pair is made inside the
+# namespaces. Still, run it on a CI runner or a throwaway machine, never on a production
+# host. The namespaces:
 #
 #   peer --p0 === h0-- host --h1 === f0-- far
 #
@@ -443,12 +443,10 @@ setup_topology() {
     ip netns del "$ns" 2>/dev/null
     ip netns add "$ns" || return 1
   done
-  ip link add "$IF_PEER" type veth peer name "$IF_HOST_PEER" || return 1
-  ip link set "$IF_PEER" netns "$NS_PEER" || return 1
-  ip link set "$IF_HOST_PEER" netns "$NS_HOST" || return 1
-  ip link add "$IF_HOST_FAR" type veth peer name "$IF_FAR" || return 1
-  ip link set "$IF_HOST_FAR" netns "$NS_HOST" || return 1
-  ip link set "$IF_FAR" netns "$NS_FAR" || return 1
+  # each pair is made in the namespace of one end, with the other end going straight to its
+  # namespace, so that a step that fails leaves nothing in the root namespace
+  ip -n "$NS_PEER" link add "$IF_PEER" type veth peer name "$IF_HOST_PEER" netns "$NS_HOST" || return 1
+  ip -n "$NS_HOST" link add "$IF_HOST_FAR" type veth peer name "$IF_FAR" netns "$NS_FAR" || return 1
 
   for ns in "$NS_PEER" "$NS_HOST" "$NS_FAR"; do
     nsx "$ns" ip link set lo up || return 1
@@ -513,7 +511,8 @@ setup_topology() {
   return 1
 }
 
-# with no table loaded every port answers: a case that expects silence is then about the table
+# with no table loaded the ports that the cases connect to answer (checked below): a case that
+# expects silence on one of them is then about the table
 check_untouched_host() {
   local port r
   for port in "$SSH_PORT" "$CONSUMER_PORT" "$METRICS_PORT"; do
@@ -984,11 +983,10 @@ case_b18() {
   # for it, and is checked with no table loaded so that a silence below is about the table.
   hx nft delete table inet slv 2>/dev/null
   hx ip link del "$IF_WG" 2>/dev/null
-  hx ip link add "$IF_WG" type veth peer name "$IF_WG_PEER" || {
+  hx ip link add "$IF_WG" type veth peer name "$IF_WG_PEER" netns "$NS_PEER" || {
     echo "  creating the link pair $IF_WG - $IF_WG_PEER failed"
     return 1
   }
-  hx ip link set "$IF_WG_PEER" netns "$NS_PEER" || return 1
   hx sysctl -qw "net.ipv6.conf.$IF_WG.disable_ipv6=1" || return 1
   nsx "$NS_PEER" sysctl -qw "net.ipv6.conf.$IF_WG_PEER.disable_ipv6=1" || return 1
   hx ip addr add "$WG_HOST_V4/24" dev "$IF_WG" || return 1

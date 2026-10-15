@@ -1,7 +1,8 @@
 ---
 # The templates the init playbooks draw to start a node, by network, role and
-# validator_type (and rpc_type for role rpc). Each entry is a template whose rendered
-# text the listen model reads to decide what the node listens on:
+# validator_type (and rpc_type for role rpc). Each entry names a template whose rendered
+# text the listen model reads to decide what the node listens on, or, for of1-listen, a
+# play variable that holds the listen address:
 #
 #   kind  how the listen model reads the rendered text: agave-args (start script),
 #         fd-toml (Frankendancer config), unit (systemd unit), richat (richat
@@ -22,8 +23,8 @@
 # to draw another template. When either changes, update this table and matrix.py by hand.
 #
 # Not listed because init draws nothing for them:
-#   - testnet validator with allnodes-jito: testnet-validator/init.yml starts
-#     agave and jito only
+#   - testnet validator with allnodes-jito: testnet-validator/init.yml sets up and
+#     starts agave, jito and the Firedancer clients, and does not set up allnodes-jito
 #   - the files that update_startup_config.yml draws later. For the testnet
 #     validator that is a different start script from the one init draws
 #     (start-validator-agave.sh.j2 and start-validator-jito.sh.j2 instead of

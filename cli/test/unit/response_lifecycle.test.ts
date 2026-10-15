@@ -32,6 +32,7 @@ const withShortTimeout = async <T>(action: () => Promise<T>): Promise<T> => {
 
 const continuingResponse = (
   status: number,
+  rejectCancel = false,
 ): { response: Response; wasCancelled: () => boolean } => {
   let cancelled = false
   const body = new ReadableStream<Uint8Array>({
@@ -40,6 +41,9 @@ const continuingResponse = (
     },
     cancel() {
       cancelled = true
+      if (rejectCancel) {
+        return Promise.reject(new Error('local cancel failure'))
+      }
     },
   })
   return {
@@ -126,7 +130,7 @@ Deno.test('Anthropic 403 keeps its deadline through JSON read and cleanup', asyn
   assert(deadlineObserved)
 })
 
-Deno.test('single upload cancels an unread PUT response and closes its file', async () => {
+Deno.test('single upload sends byte bodies and cancels unread PUT responses', async () => {
   const filePath = await Deno.makeTempFile({
     prefix: 'slv-response-lifecycle-',
   })
@@ -155,6 +159,67 @@ Deno.test('single upload cancels an unread PUT response and closes its file', as
     assertEquals(requests, 2)
     assert(upload.wasCancelled())
     await Deno.remove(filePath)
+  } finally {
+    await Deno.remove(filePath).catch(() => undefined)
+  }
+})
+
+Deno.test('single upload cancels error responses and preserves outcomes on cancel failure', async () => {
+  const filePath = await Deno.makeTempFile({
+    prefix: 'slv-response-lifecycle-',
+  })
+  await Deno.writeTextFile(filePath, 'x')
+  const auth: UserApiAuth = { kind: 'access-token', token: 'a.b.c' }
+
+  const uploadWith = async (upload: Response | Error) => {
+    let requests = 0
+    const result = await withFetch(
+      (input) => {
+        requests++
+        if (String(input).includes('/storage/presign/upload')) {
+          return Promise.resolve(Response.json({
+            url: 'https://local.test/upload',
+            method: 'PUT',
+            region: 'eu',
+            key: 'local',
+            expiresAt: '2099-01-01T00:00:00.000Z',
+          }))
+        }
+        return upload instanceof Error
+          ? Promise.reject(upload)
+          : Promise.resolve(upload)
+      },
+      () => singleUpload(auth, filePath, 'local', 1, 'text/plain', 'eu'),
+    )
+    return { result, requests }
+  }
+
+  try {
+    const forbidden = continuingResponse(403)
+    assertEquals(await uploadWith(forbidden.response), {
+      result: null,
+      requests: 2,
+    })
+    assert(forbidden.wasCancelled())
+
+    const successfulCancelFailure = continuingResponse(201, true)
+    assertEquals(await uploadWith(successfulCancelFailure.response), {
+      result: { region: 'eu' },
+      requests: 2,
+    })
+    assert(successfulCancelFailure.wasCancelled())
+
+    const failedCancelFailure = continuingResponse(403, true)
+    assertEquals(await uploadWith(failedCancelFailure.response), {
+      result: null,
+      requests: 2,
+    })
+    assert(failedCancelFailure.wasCancelled())
+
+    assertEquals(await uploadWith(new Error('local fetch failure')), {
+      result: null,
+      requests: 2,
+    })
   } finally {
     await Deno.remove(filePath).catch(() => undefined)
   }

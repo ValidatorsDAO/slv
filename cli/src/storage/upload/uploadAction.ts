@@ -38,7 +38,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   '.bin': 'application/octet-stream',
 }
 
-/** Threshold for switching to multipart upload (5 GB). */
+/** Threshold for switching to multipart upload (100 MB). */
 const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024 // 100 MB
 
 /** Chunk size for multipart upload (100 MB). */
@@ -73,7 +73,7 @@ const describeUploadError = (status: number): string => {
 }
 
 /**
- * Upload a file using a single presigned PUT (for files ≤ 5 GB).
+ * Upload a file using a single presigned PUT (for files ≤ 100 MB).
  */
 export async function singleUpload(
   auth: UserApiAuth,
@@ -88,7 +88,15 @@ export async function singleUpload(
 
   let presignDone = false
   try {
-    const presign = await presignUpload(auth, remotePath, region, contentType)
+    // Read the file once: the size sent for the URL and the PUT body are the same bytes, and a byte-array body is sent with Content-Length (a stream body is not).
+    const bytes = await Deno.readFile(filePath)
+    const presign = await presignUpload(
+      auth,
+      remotePath,
+      bytes.byteLength,
+      region,
+      contentType,
+    )
     spinner.succeed('Got presigned URL')
     presignDone = true
 
@@ -99,34 +107,25 @@ export async function singleUpload(
     )
     uploadSpinner.start()
 
-    const file = await Deno.open(filePath, { read: true })
+    const uploadRes = await fetch(presign.url, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: bytes,
+    })
+
     try {
-      const uploadRes = await fetch(presign.url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': contentType,
-          'Content-Length': String(fileSize),
-        },
-        body: file.readable,
-      })
-      try {
-        if (!uploadRes.ok) {
-          uploadSpinner.fail('Upload failed')
-          console.log(
-            colors.red(`\n❌ Upload failed (HTTP ${uploadRes.status})`),
-          )
-          console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
-          return null
-        }
-      } finally {
-        // A PUT response has no useful body for this command. Cancel it
-        // before returning so an upstream cannot retain an unread stream.
-        await uploadRes.body?.cancel().catch(() => undefined)
+      if (!uploadRes.ok) {
+        uploadSpinner.fail('Upload failed')
+        console.log(
+          colors.red(`\n❌ Upload failed (HTTP ${uploadRes.status})`),
+        )
+        console.log(colors.white(`  ${describeUploadError(uploadRes.status)}`))
+        return null
       }
     } finally {
-      try {
-        file.close()
-      } catch { /* already closed */ }
+      // A PUT response has no useful body for this command. Cancel it
+      // before returning so an upstream cannot retain an unread stream.
+      await uploadRes.body?.cancel().catch(() => undefined)
     }
 
     uploadSpinner.succeed('Upload complete')
@@ -145,7 +144,7 @@ export async function singleUpload(
 }
 
 /**
- * Upload a file using multipart upload (for files > 5 GB).
+ * Upload a file using multipart upload (for files > 100 MB).
  */
 async function multipartUpload(
   auth: UserApiAuth,
