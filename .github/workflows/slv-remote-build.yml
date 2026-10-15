@@ -342,6 +342,30 @@ jobs:
           FINAL_AUDIT_PHASES = frozenset({'postimage-audit', 'postimage-keyring'})
           INTERPRETER = '/lib/ld-linux-aarch64.so.1'
           KEYRING = '/usr/share/keyrings/ubuntu-archive-keyring.gpg'
+          FIXED_MIRROR_DESCRIPTOR_URI = 'mirror+file:/etc/apt/apt-mirrors.txt'
+          FIXED_MIRROR_DESCRIPTOR_PATH = '/etc/apt/apt-mirrors.txt'
+          FIXED_MIRROR_DESCRIPTOR_BYTES = (
+              b'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              b'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              b'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+          )
+          FIXED_MIRROR_DESCRIPTOR_SHA256 = 'e0d6b0af979e4662d16357a27ae456cc6f21e26da031540f4df8706ebed1d583'
+          FIXED_MIRROR_DESCRIPTOR_READ_LIMIT = 145
+          FIXED_MIRROR_URIS = (
+              'http://azure.archive.ubuntu.com/ubuntu/',
+              'https://archive.ubuntu.com/ubuntu/',
+              'https://security.ubuntu.com/ubuntu/',
+          )
+          FIXED_MIRROR_RESOLVED_URI = FIXED_MIRROR_URIS[0]
+          FIXED_MIRROR_REFUSAL_CODES = frozenset({
+              'descriptor-content-mismatch',
+              'descriptor-metadata-mismatch',
+              'descriptor-raced',
+              'descriptor-unavailable',
+              'descriptor-uri-policy',
+              'unsafe-descriptor-parent',
+              'unsafe-descriptor-file',
+          })
           DPKG_QUERY_FORMAT = '${binary:Package}\t${Architecture}\t${Version}\t${db:Status-Abbrev}\n'
           SAFE_ENV = {
               'PATH': '/usr/sbin:/usr/bin:/sbin:/bin',
@@ -432,6 +456,9 @@ jobs:
                   self.phase = 'initializing'
                   self.plan = []
                   self.source_records = []
+                  self.initial_fixed_mirror_binding = None
+                  self.fixed_mirror_binding_unsafe = False
+                  self.post_fixed_mirror_binding = None
                   self.keyring = None
                   self.post_sources = None
                   self.post_keyring = None
@@ -447,6 +474,7 @@ jobs:
               def sanitized_failure(self, error):
                   known = {
                       'no-supported-source': ('no-supported-source', 'no supported configured official Ubuntu binary source'),
+                      'fixed-mirror-descriptor-refused': ('fixed-mirror-descriptor-refused', 'fixed mirror descriptor was refused'),
                       'acquisition-budget-exhausted': ('acquisition-budget-exhausted', 'acquisition time budget was exhausted'),
                   }
                   if isinstance(error, AcquisitionError):
@@ -823,6 +851,134 @@ jobs:
                       pass
                   return 'redacted'
 
+              def fixed_mirror_refusal(self, code, error=None):
+                  if code not in FIXED_MIRROR_REFUSAL_CODES:
+                      code = 'descriptor-unavailable'
+                  refused = AcquisitionError('fixed mirror descriptor was refused', code='fixed-mirror-descriptor-refused')
+                  refused.descriptor_code = code
+                  errno = getattr(error, 'errno', None)
+                  if isinstance(errno, int):
+                      refused.errno = errno
+                  return refused
+
+              @staticmethod
+              def protected_identity(info):
+                  return {
+                      'device': info.st_dev,
+                      'inode': info.st_ino,
+                      'uid': info.st_uid,
+                      'gid': info.st_gid,
+                      'mode': stat.S_IMODE(info.st_mode),
+                      'size': info.st_size,
+                      'mtime_ns': info.st_mtime_ns,
+                      'ctime_ns': info.st_ctime_ns,
+                  }
+
+              def fixed_mirror_directory(self, path):
+                  info = os.lstat(path)
+                  if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                      raise self.fixed_mirror_refusal('unsafe-descriptor-parent')
+                  return self.protected_identity(info)
+
+              def fixed_mirror_file_identity(self, info):
+                  if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                      raise self.fixed_mirror_refusal('unsafe-descriptor-file')
+                  return self.protected_identity(info)
+
+              def fixed_mirror_descriptor(self):
+                  try:
+                      initial_parents = [self.fixed_mirror_directory('/etc'), self.fixed_mirror_directory('/etc/apt')]
+                      initial_path = self.fixed_mirror_file_identity(os.lstat(FIXED_MIRROR_DESCRIPTOR_PATH))
+                      flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+                      descriptor_fd = os.open(FIXED_MIRROR_DESCRIPTOR_PATH, flags)
+                      try:
+                          opened_identity = self.fixed_mirror_file_identity(os.fstat(descriptor_fd))
+                          if initial_path != opened_identity:
+                              raise self.fixed_mirror_refusal('descriptor-raced')
+                          data = bytearray()
+                          while len(data) < FIXED_MIRROR_DESCRIPTOR_READ_LIMIT:
+                              block = os.read(descriptor_fd, FIXED_MIRROR_DESCRIPTOR_READ_LIMIT - len(data))
+                              if not block:
+                                  break
+                              data.extend(block)
+                          final_opened_identity = self.fixed_mirror_file_identity(os.fstat(descriptor_fd))
+                          final_path = self.fixed_mirror_file_identity(os.lstat(FIXED_MIRROR_DESCRIPTOR_PATH))
+                          final_parents = [self.fixed_mirror_directory('/etc'), self.fixed_mirror_directory('/etc/apt')]
+                          if opened_identity != final_opened_identity or final_opened_identity != final_path or initial_parents != final_parents:
+                              raise self.fixed_mirror_refusal('descriptor-raced')
+                      finally:
+                          os.close(descriptor_fd)
+                  except AcquisitionError:
+                      raise
+                  except (OSError, ValueError, TypeError, AttributeError) as error:
+                      raise self.fixed_mirror_refusal('descriptor-unavailable', error) from None
+                  data = bytes(data)
+                  if len(data) != len(FIXED_MIRROR_DESCRIPTOR_BYTES) or hashlib.sha256(data).hexdigest() != FIXED_MIRROR_DESCRIPTOR_SHA256 or data != FIXED_MIRROR_DESCRIPTOR_BYTES:
+                      raise self.fixed_mirror_refusal('descriptor-content-mismatch')
+                  uri_results = []
+                  for uri in FIXED_MIRROR_URIS:
+                      try:
+                          uri_results.append(self.official_uri(uri))
+                      except Exception:
+                          uri_results.append(False)
+                  if not all(uri_results):
+                      raise self.fixed_mirror_refusal('descriptor-uri-policy')
+                  return {
+                      'path': FIXED_MIRROR_DESCRIPTOR_PATH,
+                      'sha256': FIXED_MIRROR_DESCRIPTOR_SHA256,
+                      'size': len(FIXED_MIRROR_DESCRIPTOR_BYTES),
+                      'identity': final_opened_identity,
+                      'validated_uri_count': len(FIXED_MIRROR_URIS),
+                      'resolved_uri': FIXED_MIRROR_RESOLVED_URI,
+                  }
+
+              def fixed_mirror_telemetry(self, descriptor=None, error=None):
+                  if descriptor is not None:
+                      return {
+                          'path': FIXED_MIRROR_DESCRIPTOR_PATH,
+                          'sha256': FIXED_MIRROR_DESCRIPTOR_SHA256,
+                          'size': len(FIXED_MIRROR_DESCRIPTOR_BYTES),
+                          'identity': descriptor['identity'],
+                          'validated_uri_count': len(FIXED_MIRROR_URIS),
+                          'resolved_uri': FIXED_MIRROR_RESOLVED_URI,
+                      }
+                  code = getattr(error, 'descriptor_code', 'descriptor-unavailable')
+                  if code not in FIXED_MIRROR_REFUSAL_CODES:
+                      code = 'descriptor-unavailable'
+                  return {'path': FIXED_MIRROR_DESCRIPTOR_PATH, 'refusal': code}
+
+              @staticmethod
+              def fixed_mirror_binding(descriptor):
+                  return {
+                      'uri': FIXED_MIRROR_DESCRIPTOR_URI,
+                      'descriptor': json.loads(canonical(descriptor)),
+                      'resolved_uri': descriptor['resolved_uri'].rstrip('/'),
+                  }
+
+              def retain_initial_fixed_mirror_binding(self, descriptor):
+                  binding = self.fixed_mirror_binding(descriptor)
+                  initial = getattr(self, 'initial_fixed_mirror_binding', None)
+                  if initial is None:
+                      self.initial_fixed_mirror_binding = binding
+                  elif canonical(initial) != canonical(binding):
+                      self.fixed_mirror_binding_unsafe = True
+                  return binding
+
+              def fixed_mirror_source(self, uri, suite, components, architectures, retain_initial=True):
+                  if uri != FIXED_MIRROR_DESCRIPTOR_URI:
+                      return {'uri': uri.rstrip('/'), 'suite': suite, 'components': components, 'architectures': architectures}, None
+                  descriptor = self.fixed_mirror_descriptor()
+                  if retain_initial:
+                      self.retain_initial_fixed_mirror_binding(descriptor)
+                  return {
+                      'uri': uri,
+                      'suite': suite,
+                      'components': components,
+                      'architectures': architectures,
+                      'descriptor': descriptor,
+                      'resolved_uri': descriptor['resolved_uri'].rstrip('/'),
+                  }, descriptor
+
               def source_telemetry(self, phase):
                   return {
                       'schema_version': 1,
@@ -831,9 +987,10 @@ jobs:
                       'details_truncated': False,
                       'details': [],
                       'terminal_failure': None,
+                      'fixed_mirror_descriptor': None,
                   }
 
-              def source_event(self, telemetry, location, format_name, entry, outcome, code, uri=None, suite=None, architectures=None, error=None):
+              def source_event(self, telemetry, location, format_name, entry, outcome, code, uri=None, suite=None, architectures=None, error=None, descriptor=None):
                   if outcome == 'selected':
                       telemetry['counts']['selected'] += 1
                   else:
@@ -849,6 +1006,8 @@ jobs:
                       errno = getattr(error, 'errno', None)
                       if isinstance(errno, int):
                           value['errno'] = errno
+                      if descriptor is not None:
+                          telemetry['fixed_mirror_descriptor'] = descriptor
                   except Exception:
                       value = {'location': location, 'format': format_name, 'entry': entry, 'outcome': outcome, 'code': 'telemetry-redacted'}
                   if len(telemetry['details']) < SOURCE_TELEMETRY_PHASE_NORMAL_RECORD_LIMIT:
@@ -868,6 +1027,7 @@ jobs:
                       'counts': telemetry['counts'],
                       'details_truncated': telemetry['details_truncated'],
                       'details': details,
+                      'fixed_mirror_descriptor': telemetry['fixed_mirror_descriptor'],
                   }
 
               def persist_source_telemetry(self, telemetry):
@@ -889,6 +1049,7 @@ jobs:
               def select_sources(self, root=Path('/etc/apt'), observation='initial'):
                   telemetry = self.source_telemetry(observation)
                   records = []
+                  descriptor_failure = None
                   list_directory = root / 'sources.list.d'
                   paths = [(root / 'sources.list', 'list'), *[(path, 'list') for path in sorted(list_directory.glob('*.list'))], *[(path, 'deb822') for path in sorted(list_directory.glob('*.sources'))]]
                   try:
@@ -925,17 +1086,29 @@ jobs:
                                   if 'trusted=yes' in option_text:
                                       self.source_event(telemetry, location, format_name, line_number, 'rejected', 'insecure-trust', uri, suite, architecture_value)
                                       continue
-                                  try:
-                                      official = self.official_uri(uri)
-                                  except Exception as error:
-                                      self.source_event(telemetry, location, format_name, line_number, 'rejected', 'uri-parse-failure', error=error)
-                                      raise
-                                  if not official:
-                                      self.source_event(telemetry, location, format_name, line_number, 'rejected', 'nonofficial-or-malformed-uri', uri, suite, architecture_value)
-                                      continue
                                   values = (components or '').split()
-                                  records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': values, 'architectures': architecture_value})
-                                  self.source_event(telemetry, location, format_name, line_number, 'selected' if suite and values else 'rejected', 'selected' if suite and values else 'empty-suite-or-components', uri, suite, architecture_value)
+                                  if uri == FIXED_MIRROR_DESCRIPTOR_URI and suite and values:
+                                      try:
+                                          record, descriptor = self.fixed_mirror_source(uri, suite, values, architecture_value, observation == 'initial')
+                                      except AcquisitionError as error:
+                                          descriptor_failure = descriptor_failure or error
+                                          self.source_event(telemetry, location, format_name, line_number, 'rejected', 'fixed-mirror-descriptor-refused', uri, suite, architecture_value, error=error, descriptor=self.fixed_mirror_telemetry(error=error))
+                                          continue
+                                  elif uri == FIXED_MIRROR_DESCRIPTOR_URI:
+                                      self.source_event(telemetry, location, format_name, line_number, 'rejected', 'empty-suite-or-components', uri, suite, architecture_value)
+                                      continue
+                                  else:
+                                      try:
+                                          official = self.official_uri(uri)
+                                      except Exception as error:
+                                          self.source_event(telemetry, location, format_name, line_number, 'rejected', 'uri-parse-failure', error=error)
+                                          raise
+                                      if not official:
+                                          self.source_event(telemetry, location, format_name, line_number, 'rejected', 'nonofficial-or-malformed-uri', uri, suite, architecture_value)
+                                          continue
+                                      record, descriptor = self.fixed_mirror_source(uri, suite, values, architecture_value, observation == 'initial')
+                                  records.append(record)
+                                  self.source_event(telemetry, location, format_name, line_number, 'selected' if suite and values else 'rejected', 'selected' if suite and values else 'empty-suite-or-components', uri, suite, architecture_value, descriptor=self.fixed_mirror_telemetry(descriptor=descriptor) if descriptor else None)
                           else:
                               for stanza_number, stanza in enumerate(re.split(r'\n\s*\n', content), 1):
                                   fields = {}
@@ -965,17 +1138,31 @@ jobs:
                                       self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'empty-suite-or-components')
                                   for uri in uris:
                                       for suite in suites:
-                                          try:
-                                              official = self.official_uri(uri)
-                                          except Exception as error:
-                                              self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'uri-parse-failure', error=error)
-                                              raise
-                                          if not official:
-                                              self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'nonofficial-or-malformed-uri', uri, suite, fields.get('architectures'))
+                                          if uri == FIXED_MIRROR_DESCRIPTOR_URI and suite and components:
+                                              try:
+                                                  record, descriptor = self.fixed_mirror_source(uri, suite, components, fields.get('architectures'), observation == 'initial')
+                                              except AcquisitionError as error:
+                                                  descriptor_failure = descriptor_failure or error
+                                                  self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'fixed-mirror-descriptor-refused', uri, suite, fields.get('architectures'), error=error, descriptor=self.fixed_mirror_telemetry(error=error))
+                                                  continue
+                                          elif uri == FIXED_MIRROR_DESCRIPTOR_URI:
+                                              self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'empty-suite-or-components', uri, suite, fields.get('architectures'))
                                               continue
-                                          records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': components, 'architectures': fields.get('architectures')})
-                                          self.source_event(telemetry, location, format_name, stanza_number, 'selected' if suite and components else 'rejected', 'selected' if suite and components else 'empty-suite-or-components', uri, suite, fields.get('architectures'))
+                                          else:
+                                              try:
+                                                  official = self.official_uri(uri)
+                                              except Exception as error:
+                                                  self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'uri-parse-failure', error=error)
+                                                  raise
+                                              if not official:
+                                                  self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'nonofficial-or-malformed-uri', uri, suite, fields.get('architectures'))
+                                                  continue
+                                              record, descriptor = self.fixed_mirror_source(uri, suite, components, fields.get('architectures'), observation == 'initial')
+                                          records.append(record)
+                                          self.source_event(telemetry, location, format_name, stanza_number, 'selected' if suite and components else 'rejected', 'selected' if suite and components else 'empty-suite-or-components', uri, suite, fields.get('architectures'), descriptor=self.fixed_mirror_telemetry(descriptor=descriptor) if descriptor else None)
                       records = [record for record in records if record['suite'] and record['components']]
+                      if descriptor_failure is not None:
+                          raise descriptor_failure
                       if not records:
                           raise AcquisitionError('no supported already-configured official Ubuntu binary source', code='no-supported-source')
                       return records
@@ -995,7 +1182,8 @@ jobs:
                   lines = []
                   for source in sources:
                       arch = f" arch={source['architectures'].replace(' ', ',')}" if source['architectures'] else ''
-                      lines.append(f"deb [signed-by={KEYRING}{arch}] {source['uri']} {source['suite']} {' '.join(source['components'])}")
+                      selected_uri = source.get('resolved_uri', source['uri'])
+                      lines.append(f"deb [signed-by={KEYRING}{arch}] {selected_uri} {source['suite']} {' '.join(source['components'])}")
                   destination.write_text('\n'.join(lines) + '\n')
                   destination.chmod(0o600)
                   self.source_records = sources
@@ -1083,7 +1271,7 @@ jobs:
               def uri_is_selected(self, uri):
                   parsed = urlparse(uri)
                   for source in self.source_records:
-                      selected = urlparse(source['uri'])
+                      selected = urlparse(source.get('resolved_uri', source['uri']))
                       if parsed.scheme == selected.scheme and parsed.netloc == selected.netloc and parsed.path.startswith(selected.path.rstrip('/') + '/'):
                           return True
                   return False
@@ -1222,14 +1410,23 @@ jobs:
               def finish(self):
                   comparison = False
                   audit_error = None
+                  self.post_fixed_mirror_binding = None
                   try:
                       if self.preimage is not None:
                           self.postimage = self.measure('postimage-audit')
                           self.evidence.write_json('postimage.json', self.postimage)
                           self.post_sources = self.select_sources(observation='post-audit') if self.source_records else None
+                          initial_fixed_mirror_binding = getattr(self, 'initial_fixed_mirror_binding', None)
+                          if initial_fixed_mirror_binding is not None:
+                              self.post_fixed_mirror_binding = self.fixed_mirror_binding(self.fixed_mirror_descriptor())
                           self.post_keyring = self.keyring_identity(self.postimage['packages'], 'postimage-keyring') if self.keyring else None
                           comparison = self.compare_postimage(self.preimage, self.postimage, self.plan) and (
                               self.post_sources is None or canonical(self.source_records) == canonical(self.post_sources)
+                          ) and (
+                              initial_fixed_mirror_binding is None or (
+                                  not getattr(self, 'fixed_mirror_binding_unsafe', False) and
+                                  canonical(initial_fixed_mirror_binding) == canonical(self.post_fixed_mirror_binding)
+                              )
                           ) and (
                               self.post_keyring is None or self.keyring == self.post_keyring
                           )
@@ -1262,6 +1459,9 @@ jobs:
                       'runtime_postimage_sha256': self.postimage['runtime_sha256'] if self.postimage else None,
                       'sources_sha256': sha_text(canonical(self.source_records)) if self.source_records else None,
                       'post_sources_sha256': sha_text(canonical(self.post_sources)) if self.post_sources is not None else None,
+                      'initial_fixed_mirror_binding': getattr(self, 'initial_fixed_mirror_binding', None),
+                      'post_fixed_mirror_binding': self.post_fixed_mirror_binding,
+                      'fixed_mirror_binding_unsafe': bool(getattr(self, 'fixed_mirror_binding_unsafe', False)),
                       'keyring': self.keyring,
                       'post_keyring': self.post_keyring,
                       'debugger': {'available': self.gdb is not None, 'path': self.gdb},

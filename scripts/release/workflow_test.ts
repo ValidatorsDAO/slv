@@ -1947,6 +1947,536 @@ print('extracted acquisition controls passed')
   )
 })
 
+Deno.test('fixed mirror descriptor compatibility binds only the protected exact image source', async () => {
+  const controller = acquisitionController(await releaseWorkflow())
+  assert(
+    controller.includes(
+      "FIXED_MIRROR_DESCRIPTOR_URI = 'mirror+file:/etc/apt/apt-mirrors.txt'",
+    ),
+  )
+  assert(controller.includes('FIXED_MIRROR_DESCRIPTOR_READ_LIMIT = 145'))
+  assert(controller.includes('os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK'))
+  assert(controller.includes("source.get('resolved_uri', source['uri'])"))
+  assert(controller.includes("self.select_sources(observation='post-audit')"))
+  assert(
+    controller.includes(
+      'def retain_initial_fixed_mirror_binding(self, descriptor):',
+    ),
+  )
+  assert(
+    controller.includes(
+      'self.post_fixed_mirror_binding = self.fixed_mirror_binding(self.fixed_mirror_descriptor())',
+    ),
+  )
+  assert(controller.includes("observation == 'initial'"))
+  const harness = String.raw`
+import copy
+import importlib.util
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+spec = importlib.util.spec_from_file_location('fixed_mirror_controller', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+root = Path(sys.argv[2])
+EXPECTED = module.FIXED_MIRROR_DESCRIPTOR_BYTES
+MIRROR = module.FIXED_MIRROR_DESCRIPTOR_URI
+PRIORITY1 = module.FIXED_MIRROR_RESOLVED_URI.rstrip('/')
+
+class DescriptorFixture:
+    def __init__(self, data=EXPECTED):
+        self.data = data
+        self.device = 91
+        self.inode = 101
+        self.uid = 0
+        self.gid = 0
+        self.file_uid = None
+        self.file_mode = stat.S_IFREG | 0o644
+        self.etc_mode = stat.S_IFDIR | 0o755
+        self.apt_mode = stat.S_IFDIR | 0o755
+        self.etc_inode = 11
+        self.apt_inode = 12
+        self.mtime = 501
+        self.ctime = 502
+        self.open_inode = None
+        self.replace_during_read = False
+        self.missing = False
+        self.open_calls = 0
+        self.open_flags = []
+        self.read_sizes = []
+        self._offset = 0
+        self._opened = None
+
+    def info(self, mode, inode, size=0, uid=None):
+        return SimpleNamespace(
+            st_dev=self.device,
+            st_ino=inode,
+            st_uid=self.uid if uid is None else uid,
+            st_gid=self.gid,
+            st_mode=mode,
+            st_size=size,
+            st_mtime_ns=self.mtime,
+            st_ctime_ns=self.ctime,
+        )
+
+    def lstat(self, path):
+        path = str(path)
+        if path == '/etc':
+            return self.info(self.etc_mode, self.etc_inode)
+        if path == '/etc/apt':
+            return self.info(self.apt_mode, self.apt_inode)
+        if path == module.FIXED_MIRROR_DESCRIPTOR_PATH:
+            if self.missing:
+                raise FileNotFoundError(2, 'missing descriptor')
+            return self.info(self.file_mode, self.inode, len(self.data), self.file_uid)
+        return original_lstat(path)
+
+    def open(self, path, flags):
+        assert str(path) == module.FIXED_MIRROR_DESCRIPTOR_PATH
+        self.open_calls += 1
+        self.open_flags.append(flags)
+        self._offset = 0
+        self._opened = (self.open_inode if self.open_inode is not None else self.inode, bytes(self.data), self.file_mode, self.uid if self.file_uid is None else self.file_uid, self.gid, self.mtime, self.ctime)
+        return 701
+
+    def fstat(self, descriptor_fd):
+        assert descriptor_fd == 701 and self._opened is not None
+        inode, data, mode, uid, gid, mtime, ctime = self._opened
+        return SimpleNamespace(
+            st_dev=self.device,
+            st_ino=inode,
+            st_uid=uid,
+            st_gid=gid,
+            st_mode=mode,
+            st_size=len(data),
+            st_mtime_ns=mtime,
+            st_ctime_ns=ctime,
+        )
+
+    def read(self, descriptor_fd, amount):
+        assert descriptor_fd == 701
+        self.read_sizes.append(amount)
+        data = self._opened[1]
+        block = data[self._offset:self._offset + amount]
+        self._offset += len(block)
+        if self.replace_during_read and block:
+            self.inode += 1
+            self.replace_during_read = False
+        return block
+
+    def close(self, descriptor_fd):
+        assert descriptor_fd == 701
+
+def bare(label):
+    item = object.__new__(module.Controller)
+    item.evidence = module.Retention(root / (label + '-evidence'))
+    item.image_codename = 'resolute'
+    return item
+
+def expect_reject(action):
+    try:
+        action()
+    except module.AcquisitionError as error:
+        return error
+    raise AssertionError('expected descriptor refusal')
+
+def source_tree(label, source, name='sources.list'):
+    apt = root / label / 'apt'
+    (apt / 'sources.list.d').mkdir(parents=True)
+    destination = apt / name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(source)
+    return apt
+
+original_lstat = module.os.lstat
+original_open = module.os.open
+original_fstat = module.os.fstat
+original_read = module.os.read
+original_close = module.os.close
+
+def install_fixture(fixture):
+    module.os.lstat = fixture.lstat
+    module.os.open = fixture.open
+    module.os.fstat = fixture.fstat
+    module.os.read = fixture.read
+    module.os.close = fixture.close
+
+def restore_fixture():
+    module.os.lstat = original_lstat
+    module.os.open = original_open
+    module.os.fstat = original_fstat
+    module.os.read = original_read
+    module.os.close = original_close
+
+try:
+    valid_fixture = DescriptorFixture()
+    install_fixture(valid_fixture)
+    valid_apt = source_tree('valid', 'deb [arch=arm64] ' + MIRROR + ' resolute main\n')
+    valid = bare('valid')
+    official_calls = []
+    original_official = module.Controller.official_uri
+    def counted_official(uri):
+        official_calls.append(uri)
+        return original_official(valid, uri)
+    valid.official_uri = counted_official
+    selected = module.Controller.select_sources(valid, valid_apt)
+    assert len(selected) == 1
+    record = selected[0]
+    assert record['uri'] == MIRROR
+    assert record['resolved_uri'] == PRIORITY1
+    assert record['suite'] == 'resolute' and record['components'] == ['main'] and record['architectures'] == 'arm64'
+    assert record['descriptor']['path'] == module.FIXED_MIRROR_DESCRIPTOR_PATH
+    assert record['descriptor']['sha256'] == module.FIXED_MIRROR_DESCRIPTOR_SHA256
+    assert record['descriptor']['size'] == 144
+    assert record['descriptor']['validated_uri_count'] == 3
+    assert record['descriptor']['identity']['inode'] == valid_fixture.inode
+    assert valid.initial_fixed_mirror_binding['uri'] == MIRROR
+    assert valid.initial_fixed_mirror_binding['descriptor'] == record['descriptor']
+    assert all(uri in official_calls for uri in module.FIXED_MIRROR_URIS)
+    assert valid_fixture.open_calls == 1
+    assert valid_fixture.open_flags[0] & module.os.O_NOFOLLOW
+    assert valid_fixture.open_flags[0] & module.os.O_CLOEXEC
+    assert valid_fixture.open_flags[0] & module.os.O_NONBLOCK
+    assert valid_fixture.read_sizes == [145, 1]
+    selection_evidence = json.loads((valid.evidence.directory / 'source-selection.json').read_text())
+    assert selection_evidence['fixed_mirror_descriptor']['sha256'] == module.FIXED_MIRROR_DESCRIPTOR_SHA256
+    assert selection_evidence['fixed_mirror_descriptor']['resolved_uri'] == module.FIXED_MIRROR_RESOLVED_URI
+
+    valid.work = root / 'valid-private'
+    valid.work.mkdir()
+    valid.keyring_identity = lambda *args: {'path': module.KEYRING, 'sha256': 'a' * 64, 'size': 1, 'owner': 'ubuntu-keyring:arm64', 'owner_tuple': {}}
+    private_source = module.Controller.write_private_sources(valid, selected, {'installed': {}})
+    private_text = private_source.read_text()
+    assert PRIORITY1 in private_text and MIRROR not in private_text
+    assert 'signed-by=' + module.KEYRING in private_text
+    assert module.Controller.uri_is_selected(valid, PRIORITY1 + '/pool/main/g/gdb/gdb.deb')
+
+    direct_apt = source_tree('direct', 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports resolute main\n')
+    direct = bare('direct')
+    assert module.Controller.select_sources(direct, direct_apt) == [{'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'resolute', 'components': ['main'], 'architectures': 'arm64'}]
+
+    for number, invalid_uri in enumerate([
+        'mirror+file:/etc/apt/apt-mirrors.txt/',
+        'mirror+file:/etc/apt/apt-mirrors.txt?x=1',
+        'mirror+file://etc/apt/apt-mirrors.txt',
+        'mirror+file:/etc/apt/%61pt-mirrors.txt',
+        'file:/etc/apt/apt-mirrors.txt',
+        'mirror+https://azure.archive.ubuntu.com/ubuntu/',
+    ]):
+        invalid_fixture = DescriptorFixture()
+        install_fixture(invalid_fixture)
+        invalid = bare('literal-' + str(number))
+        error = expect_reject(lambda: module.Controller.select_sources(invalid, source_tree('literal-' + str(number), 'deb ' + invalid_uri + ' resolute main\n')))
+        assert error.code == 'no-supported-source'
+        assert invalid_fixture.open_calls == 0
+
+    ordinary_fixture = DescriptorFixture()
+    install_fixture(ordinary_fixture)
+    ordinary = bare('ordinary-direct')
+    assert module.Controller.select_sources(ordinary, source_tree('ordinary-direct', 'deb https://azure.archive.ubuntu.com/ubuntu/ resolute main\n')) == [{'uri': 'https://azure.archive.ubuntu.com/ubuntu', 'suite': 'resolute', 'components': ['main'], 'architectures': None}]
+    assert ordinary_fixture.open_calls == 0
+
+    for label, configure, refusal in [
+        ('unsafe-parent', lambda item: setattr(item, 'apt_mode', stat.S_IFDIR | 0o775), 'unsafe-descriptor-parent'),
+        ('symlink-file', lambda item: setattr(item, 'file_mode', stat.S_IFLNK | 0o777), 'unsafe-descriptor-file'),
+        ('nonroot-file', lambda item: setattr(item, 'file_uid', 1000), 'unsafe-descriptor-file'),
+        ('group-writable-file', lambda item: setattr(item, 'file_mode', stat.S_IFREG | 0o664), 'unsafe-descriptor-file'),
+        ('oversized', lambda item: setattr(item, 'data', EXPECTED + b'x'), 'descriptor-content-mismatch'),
+        ('changed-priority', lambda item: setattr(item, 'data', EXPECTED.replace(b'priority:2', b'priority:9')), 'descriptor-content-mismatch'),
+        ('open-race', lambda item: setattr(item, 'open_inode', item.inode + 1), 'descriptor-raced'),
+        ('read-race', lambda item: setattr(item, 'replace_during_read', True), 'descriptor-raced'),
+    ]:
+        protected_fixture = DescriptorFixture()
+        configure(protected_fixture)
+        install_fixture(protected_fixture)
+        protected = bare(label)
+        error = expect_reject(lambda: module.Controller.select_sources(protected, source_tree(label, 'deb ' + MIRROR + ' resolute main\n')))
+        assert error.code == 'fixed-mirror-descriptor-refused'
+        payload = json.loads((protected.evidence.directory / 'source-selection.json').read_text())
+        assert payload['fixed_mirror_descriptor'] == {'path': module.FIXED_MIRROR_DESCRIPTOR_PATH, 'refusal': refusal}, (label, payload['fixed_mirror_descriptor'], refusal)
+        assert b'priority:9' not in (protected.evidence.directory / 'source-selection.json').read_bytes()
+
+    for label, contents in [
+        ('mixed-list-direct-first', 'deb http://ports.ubuntu.com/ubuntu-ports resolute main\n' + 'deb ' + MIRROR + ' resolute main\n'),
+        ('mixed-list-mirror-first', 'deb ' + MIRROR + ' resolute main\n' + 'deb http://ports.ubuntu.com/ubuntu-ports resolute main\n'),
+        ('mixed-deb822-direct-first', 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports ' + MIRROR + '\nSuites: resolute\nComponents: main\n'),
+        ('mixed-deb822-mirror-first', 'Types: deb\nURIs: ' + MIRROR + ' http://ports.ubuntu.com/ubuntu-ports\nSuites: resolute\nComponents: main\n'),
+    ]:
+        mixed_fixture = DescriptorFixture(b'not-the-fixed-descriptor')
+        install_fixture(mixed_fixture)
+        mixed = bare(label)
+        source_name = 'sources.list.d/mirror.sources' if 'deb822' in label else 'sources.list'
+        error = expect_reject(lambda: module.Controller.select_sources(mixed, source_tree(label, contents, source_name)))
+        assert error.code == 'fixed-mirror-descriptor-refused', (label, error.code, mixed_fixture.open_calls)
+        assert mixed_fixture.open_calls == 1
+
+    short_circuit_fixture = DescriptorFixture()
+    install_fixture(short_circuit_fixture)
+    for label, contents in [
+        ('trusted-short-circuit', 'deb [trusted=yes] ' + MIRROR + ' resolute main\n'),
+        ('no-binary-short-circuit', 'deb-src ' + MIRROR + ' resolute main\n'),
+        ('disabled-short-circuit', 'Types: deb\nEnabled: no\nURIs: ' + MIRROR + '\nSuites: resolute\nComponents: main\n'),
+        ('deb822-no-binary-short-circuit', 'Types: deb-src\nURIs: ' + MIRROR + '\nSuites: resolute\nComponents: main\n'),
+    ]:
+        short = bare(label)
+        expect_reject(lambda: module.Controller.select_sources(short, source_tree(label, contents)))
+    assert short_circuit_fixture.open_calls == 0
+
+    preimage = {
+        'packages': {'installed': {}, 'residual': {}, 'sha256': 'packages'},
+        'runtime': {'target': 'stable'},
+        'runtime_sha256': 'runtime',
+    }
+    solver = 'Inst gdb (15.0 Ubuntu:26.04/resolute [arm64])\nConf gdb (15.0 Ubuntu:26.04/resolute [arm64])\n0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\n'
+
+    def acquisition_item(label, apt):
+        item = object.__new__(module.Controller)
+        item.evidence = module.Retention(root / (label + '-evidence'))
+        item.work = root / (label + '-work')
+        item.work.mkdir()
+        (item.work / 'archives').mkdir()
+        deb = item.work / 'archives' / 'gdb.deb'
+        deb.write_bytes(b'abc')
+        item.github_output = root / (label + '-output')
+        item.failure_stage = None
+        item.acquisition_reason = None
+        item.audit_error = None
+        item.image_codename = None
+        item.commands = []
+        item.phase = 'initializing'
+        item.plan = []
+        item.source_records = []
+        item.keyring = None
+        item.post_sources = None
+        item.post_keyring = None
+        item.preimage = None
+        item.postimage = None
+        item.status = 'initializing'
+        item.gdb = None
+        item.image_identity = lambda: {'os_release': {'VERSION_CODENAME': 'resolute'}}
+        item.measure = lambda phase: copy.deepcopy(preimage)
+        item.trusted_gdb = lambda: None
+        item.keyring_identity = lambda *args: {'path': module.KEYRING, 'sha256': 'c' * 64, 'size': 1, 'owner': 'ubuntu-keyring:arm64', 'owner_tuple': {}}
+        select = module.Controller.select_sources
+        item.select_sources = lambda root_value=Path('/etc/apt'), observation='initial': select(item, apt, observation)
+        item.apt_options = lambda source: []
+        metadata = 'Package: gdb\nVersion: 15.0\nArchitecture: arm64\nFilename: pool/main/g/gdb/gdb.deb\nSize: 3\nSHA256: ' + module.sha_file(deb) + '\n'
+        required = []
+        def require(command, phase, *args, **kwargs):
+            required.append(phase)
+            if phase == 'print-uris':
+                source = item.source_records[0]
+                source_uri = source.get('resolved_uri', source['uri']).rstrip('/')
+                output = "'" + source_uri + "/pool/main/g/gdb/gdb.deb' gdb.deb 3 SHA256:ignored\n"
+            elif phase in {'solver-initial', 'solver-frozen'}:
+                output = solver
+            elif phase == 'authenticated-metadata':
+                output = metadata
+            elif phase == 'deb-identity':
+                output = 'Package: gdb\nVersion: 15.0\nArchitecture: arm64\n'
+            else:
+                output = ''
+            return module.Result(0, False, output.encode(), b'', len(output.encode()), 0, True, True, True)
+        item.require = require
+        item.run = lambda *args, **kwargs: module.Result(1, False, b'', b'', 0, 0, True, True, True)
+        return item, required
+
+    def early_failure_case(label, contents, source_name, configure, mutate=None, expected_exit=1):
+        fixture = DescriptorFixture()
+        install_fixture(fixture)
+        item, required = acquisition_item(label, source_tree(label, contents, source_name))
+        configure(item)
+        try:
+            module.Controller.execute(item)
+        except Exception as raised:
+            captured_error = raised
+        else:
+            raise AssertionError('expected early acquisition failure')
+        assert item.initial_fixed_mirror_binding['uri'] == MIRROR
+        assert item.source_records == [] and required == []
+        item.capture_acquisition_failure(captured_error)
+        item.status = 'acquisition-declined-or-incomplete'
+        if mutate is not None:
+            mutate(fixture)
+        assert module.Controller.finish(item) == expected_exit
+        summary = json.loads((item.evidence.directory / 'acquisition-summary.json').read_text())
+        assert summary['acquisition_reason'] is not None
+        assert summary['initial_fixed_mirror_binding'] == item.initial_fixed_mirror_binding
+        return item, fixture, summary
+
+    def fail_keyring(item):
+        item.keyring_identity = lambda *args: (_ for _ in ()).throw(module.AcquisitionError('inert keyring qualification failure'))
+
+    def fail_selector_telemetry(item):
+        write_exact = item.evidence.write_exact
+        def fail_initial_source_evidence(name, *args, **kwargs):
+            if name == 'source-selection.json':
+                raise module.AcquisitionError('inert source telemetry retention failure')
+            return write_exact(name, *args, **kwargs)
+        item.evidence.write_exact = fail_initial_source_evidence
+
+    early_mirror = 'deb ' + MIRROR + ' resolute main\n'
+    for label, mutation in [
+        ('early-keyring-missing', lambda fixture: setattr(fixture, 'missing', True)),
+        ('early-keyring-same-bytes-new-inode', lambda fixture: setattr(fixture, 'inode', fixture.inode + 1)),
+        ('early-keyring-priority1-preserved-content-change', lambda fixture: setattr(fixture, 'data', EXPECTED.replace(b'priority:3', b'priority:8'))),
+    ]:
+        item, fixture, summary = early_failure_case(label, early_mirror, 'sources.list', fail_keyring, mutation)
+        assert summary['runtime_unchanged'] is False
+        assert summary['controls_not_run'] == 'unsafe-or-unknown-postimage'
+        if fixture.missing or fixture.data != EXPECTED:
+            assert summary['audit_error']['code'] == 'fixed-mirror-descriptor-refused'
+        else:
+            assert summary['audit_error'] is None
+
+    unchanged_early, unchanged_fixture, unchanged_summary = early_failure_case(
+        'early-keyring-unchanged', early_mirror, 'sources.list', fail_keyring, expected_exit=0,
+    )
+    assert unchanged_summary['runtime_unchanged'] is True
+    assert unchanged_summary['audit_error'] is None
+    assert unchanged_summary['post_fixed_mirror_binding'] == unchanged_early.initial_fixed_mirror_binding
+    assert unchanged_fixture.open_calls >= 2
+
+    malformed_item, malformed_fixture, malformed_summary = early_failure_case(
+        'early-malformed-port',
+        early_mirror + 'deb http://ports.ubuntu.com:bad/ubuntu resolute main\n',
+        'sources.list',
+        lambda item: None,
+        lambda fixture: setattr(fixture, 'missing', True),
+    )
+    assert malformed_summary['failure_stage'] == 'select-sources'
+    assert malformed_summary['runtime_unchanged'] is False
+    assert malformed_summary['audit_error']['code'] == 'fixed-mirror-descriptor-refused'
+
+    telemetry_item, telemetry_fixture, telemetry_summary = early_failure_case(
+        'early-selector-telemetry', early_mirror, 'sources.list', fail_selector_telemetry,
+        lambda fixture: setattr(fixture, 'missing', True),
+    )
+    assert telemetry_summary['failure_stage'] == 'select-sources'
+    assert telemetry_summary['runtime_unchanged'] is False
+    assert telemetry_summary['audit_error']['code'] == 'fixed-mirror-descriptor-refused'
+
+    latch_fixture = DescriptorFixture()
+    install_fixture(latch_fixture)
+    latch_item, latch_required = acquisition_item('multiple-initial-bindings', source_tree('multiple-initial-bindings', 'deb http://ports.ubuntu.com/ubuntu-ports resolute main\n'))
+    module.Controller.fixed_mirror_source(latch_item, MIRROR, 'resolute', ['main'], None)
+    first_binding = copy.deepcopy(latch_item.initial_fixed_mirror_binding)
+    latch_fixture.inode += 1
+    module.Controller.fixed_mirror_source(latch_item, MIRROR, 'resolute', ['main'], None)
+    assert latch_item.initial_fixed_mirror_binding == first_binding
+    assert latch_item.fixed_mirror_binding_unsafe is True and latch_required == []
+    latch_item.preimage = copy.deepcopy(preimage)
+    latch_item.status = 'acquisition-declined-or-incomplete'
+    assert module.Controller.finish(latch_item) == 1
+    latch_summary = json.loads((latch_item.evidence.directory / 'acquisition-summary.json').read_text())
+    assert latch_summary['fixed_mirror_binding_unsafe'] is True
+    assert latch_summary['runtime_unchanged'] is False
+
+    for label, contents, source_name in [
+        ('mixed-controller-list-direct-first', 'deb http://ports.ubuntu.com/ubuntu-ports resolute main\n' + 'deb ' + MIRROR + ' resolute main\n', 'sources.list'),
+        ('mixed-controller-list-mirror-first', 'deb ' + MIRROR + ' resolute main\n' + 'deb http://ports.ubuntu.com/ubuntu-ports resolute main\n', 'sources.list'),
+        ('mixed-controller-deb822-direct-first', 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports ' + MIRROR + '\nSuites: resolute\nComponents: main\n', 'sources.list.d/mirror.sources'),
+        ('mixed-controller-deb822-mirror-first', 'Types: deb\nURIs: ' + MIRROR + ' http://ports.ubuntu.com/ubuntu-ports\nSuites: resolute\nComponents: main\n', 'sources.list.d/mirror.sources'),
+    ]:
+        mixed_controller_fixture = DescriptorFixture(b'not-the-fixed-descriptor')
+        install_fixture(mixed_controller_fixture)
+        mixed_controller, mixed_required = acquisition_item(label, source_tree(label, contents, source_name))
+        error = expect_reject(lambda: module.Controller.execute(mixed_controller))
+        mixed_controller.capture_acquisition_failure(error)
+        mixed_controller.status = 'acquisition-declined-or-incomplete'
+        assert mixed_required == []
+        assert module.Controller.finish(mixed_controller) == 0
+        mixed_summary = json.loads((mixed_controller.evidence.directory / 'acquisition-summary.json').read_text())
+        assert mixed_summary['failure_stage'] == 'select-sources'
+        assert mixed_summary['acquisition_reason']['code'] == 'fixed-mirror-descriptor-refused'
+        assert mixed_summary['runtime_unchanged'] is True and mixed_summary['controls_not_run'] is None
+
+    execute_fixture = DescriptorFixture()
+    install_fixture(execute_fixture)
+    execute_apt = source_tree('execute', 'deb [arch=arm64] ' + MIRROR + ' resolute main\n')
+    execute_item, required = acquisition_item('execute', execute_apt)
+    module.Controller.execute(execute_item)
+    assert execute_item.status == 'installation-incomplete'
+    assert execute_item.source_records[0]['uri'] == MIRROR
+    assert execute_item.source_records[0]['resolved_uri'] == PRIORITY1
+    assert {'apt-update', 'solver-initial', 'authenticated-metadata', 'print-uris', 'download-debs', 'solver-frozen', 'deb-identity'} <= set(required)
+    assert module.Controller.finish(execute_item) == 0
+    assert 'runtime_unchanged=true' in execute_item.github_output.read_text()
+    assert execute_fixture.open_calls >= 2
+
+    post_only_fixture = DescriptorFixture()
+    install_fixture(post_only_fixture)
+    post_only_apt = source_tree('post-only-binding', 'deb http://ports.ubuntu.com/ubuntu-ports resolute main\n')
+    post_only_item, post_only_required = acquisition_item('post-only-binding', post_only_apt)
+    module.Controller.execute(post_only_item)
+    assert not hasattr(post_only_item, 'initial_fixed_mirror_binding')
+    assert post_only_fixture.open_calls == 0
+    (post_only_apt / 'sources.list').write_text('deb ' + MIRROR + ' resolute main\n')
+    assert module.Controller.finish(post_only_item) == 1
+    post_only_summary = json.loads((post_only_item.evidence.directory / 'acquisition-summary.json').read_text())
+    assert post_only_required
+    assert post_only_summary['initial_fixed_mirror_binding'] is None
+    assert post_only_summary['post_fixed_mirror_binding'] is None
+    assert post_only_summary['runtime_unchanged'] is False
+    assert post_only_fixture.open_calls == 1
+
+    identity_mutation = DescriptorFixture()
+    install_fixture(identity_mutation)
+    identity_apt = source_tree('identity-mutation', 'deb ' + MIRROR + ' resolute main\n')
+    identity_item, _ = acquisition_item('identity-mutation', identity_apt)
+    module.Controller.execute(identity_item)
+    identity_mutation.inode += 1
+    assert module.Controller.finish(identity_item) == 1
+    identity_summary = json.loads((identity_item.evidence.directory / 'acquisition-summary.json').read_text())
+    assert identity_summary['runtime_unchanged'] is False and identity_summary['controls_not_run'] == 'unsafe-or-unknown-postimage'
+
+    content_mutation = DescriptorFixture()
+    install_fixture(content_mutation)
+    content_apt = source_tree('content-mutation', 'deb ' + MIRROR + ' resolute main\n')
+    content_item, _ = acquisition_item('content-mutation', content_apt)
+    module.Controller.execute(content_item)
+    content_mutation.data = EXPECTED.replace(b'priority:3', b'priority:8')
+    assert module.Controller.finish(content_item) == 1
+    content_summary = json.loads((content_item.evidence.directory / 'acquisition-summary.json').read_text())
+    assert content_summary['runtime_unchanged'] is False and content_summary['audit_error']['code'] == 'fixed-mirror-descriptor-refused'
+
+    missing_mutation = DescriptorFixture()
+    install_fixture(missing_mutation)
+    missing_apt = source_tree('missing-mutation', 'deb http://ports.ubuntu.com/ubuntu-ports resolute main\n' + 'deb ' + MIRROR + ' resolute main\n')
+    missing_item, _ = acquisition_item('missing-mutation', missing_apt)
+    module.Controller.execute(missing_item)
+    missing_mutation.missing = True
+    assert module.Controller.finish(missing_item) == 1
+
+    refusal_fixture = DescriptorFixture()
+    refusal_fixture.data = b'not-the-fixed-descriptor'
+    install_fixture(refusal_fixture)
+    refusal_item, refusal_required = acquisition_item('initial-refusal', source_tree('initial-refusal', 'deb ' + MIRROR + ' resolute main\n'))
+    error = expect_reject(lambda: module.Controller.execute(refusal_item))
+    refusal_item.capture_acquisition_failure(error)
+    refusal_item.status = 'acquisition-declined-or-incomplete'
+    assert refusal_required == []
+    assert module.Controller.finish(refusal_item) == 0
+    refusal_summary = json.loads((refusal_item.evidence.directory / 'acquisition-summary.json').read_text())
+    assert refusal_summary['runtime_unchanged'] is True
+    assert refusal_summary['acquisition_reason']['code'] == 'fixed-mirror-descriptor-refused'
+finally:
+    restore_fixture()
+print('fixed mirror descriptor extracted controls passed')
+`
+  const result = await runAcquisitionHarness(controller, harness)
+  assert(result.success, new TextDecoder().decode(result.stderr))
+  assertEquals(
+    new TextDecoder().decode(result.stdout).trim(),
+    'fixed mirror descriptor extracted controls passed',
+  )
+})
+
 Deno.test('source selection telemetry preserves parser semantics and one shared budget', async () => {
   const controller = acquisitionController(await releaseWorkflow())
   const harness = String.raw`
