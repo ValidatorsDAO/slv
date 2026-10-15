@@ -1,13 +1,19 @@
 import { createHash } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import {
   type ArtifactExpectation,
+  classifySidCandidates,
   DIAGNOSTIC_PROTOCOL,
   diagnosticControlSummary,
   parseDiagnosticArgs,
   parseDiagnosticContext,
+  parseProcStat,
   runBoundedChild,
+  runBoundedObservationUtility,
   runDiagnosticControlPhase,
   runMandatoryControls,
+  sameBirth,
+  selectDiagnosticTimeout,
   startDiagnosticDeadline,
   validateDiagnosticContext,
   validateStoredArtifact,
@@ -174,6 +180,330 @@ async function expectReject(
 function denoEval(source: string): { executable: string; args: string[] } {
   return { executable: Deno.execPath(), args: ['eval', source] }
 }
+
+type ProcessSnapshot = {
+  pid: number
+  pgrp: number
+  sid: number
+  state: string
+}
+
+async function processSnapshot(
+  pid: number,
+): Promise<ProcessSnapshot | undefined> {
+  const result = await runBoundedObservationUtility(
+    '/usr/bin/cat',
+    [`/proc/${pid}/stat`],
+    Date.now() + 100,
+    4096,
+  )
+  if (!result.complete || result.exitCode !== 0 || result.stderr.bytes !== 0) {
+    return undefined
+  }
+  const identity = parseProcStat(
+    pid,
+    new TextDecoder().decode(result.stdout.data),
+  )
+  return identity
+    ? {
+      pid: identity.pid,
+      pgrp: identity.pgrp,
+      sid: identity.sid,
+      state: identity.state,
+    }
+    : undefined
+}
+
+async function waitForJson(path: string): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const value = await Deno.readTextFile(path).catch(() => undefined)
+    if (value) return JSON.parse(value) as Record<string, unknown>
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`fixture did not write ${path}`)
+}
+
+function pipeHolderInvocation(
+  recordPath: string,
+  options: {
+    childChangesPgrp: boolean
+    leaderSleepMs?: number
+    wrapperTimeoutSeconds?: string
+  },
+): { executable: string; args: string[] } {
+  const child = [
+    'import json,os,time',
+    options.childChangesPgrp ? 'os.setpgrp()' : '',
+    'stat=open("/proc/self/stat").read().split() ',
+    `open(${
+      JSON.stringify(recordPath)
+    }, "w").write(json.dumps({"pid":os.getpid(),"pgrp":os.getpgrp(),"sid":os.getsid(0),"starttime":stat[21]}))`,
+    'print("pipe-holder-ready", flush=True)',
+    'time.sleep(1.5)',
+  ].filter(Boolean).join('; ')
+  const leader = [
+    'import subprocess,time',
+    `subprocess.Popen(["/usr/bin/python3","-c",${JSON.stringify(child)}])`,
+    options.leaderSleepMs ? `time.sleep(${options.leaderSleepMs / 1000})` : '',
+  ].filter(Boolean).join('; ')
+  return {
+    executable: '/usr/bin/prlimit',
+    args: [
+      '--core=0:0',
+      '--',
+      '/usr/bin/timeout',
+      '--kill-after=0.05s',
+      options.wrapperTimeoutSeconds ?? '0.15s',
+      '/usr/bin/python3',
+      '-c',
+      leader,
+    ],
+  }
+}
+
+async function terminateFixture(pid: number | undefined): Promise<void> {
+  if (!pid) return
+  if (await processSnapshot(pid)) {
+    try {
+      Deno.kill(pid, 'SIGKILL')
+    } catch {
+      // The fixture already exited after the supervisor assertion.
+    }
+  }
+}
+
+async function waitForSpawn(
+  child: ReturnType<typeof spawn>,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    child.once('spawn', resolve)
+    child.once('error', reject)
+  })
+}
+
+async function waitForExit(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  await new Promise<void>((resolve) => {
+    const settled = () => {
+      child.removeListener('exit', settled)
+      resolve()
+    }
+    child.once('exit', settled)
+    if (child.exitCode !== null || child.signalCode !== null) settled()
+  })
+}
+
+type UtilityFixtureOutput = {
+  bytes?: number
+  retained_bytes?: number
+  truncated?: boolean
+  data?: Uint8Array
+}
+type UtilityFixtureOptions = {
+  complete?: boolean
+  exitCode?: number | null
+  signal?: string | null
+  stdout?: UtilityFixtureOutput
+  stderr?: UtilityFixtureOutput
+  reason?: string
+}
+
+function sidUtilityResult(options: UtilityFixtureOptions = {}) {
+  const empty = {
+    bytes: 0,
+    retained_bytes: 0,
+    truncated: false,
+    data: new Uint8Array(),
+  }
+  return {
+    complete: options.complete ?? true,
+    exitCode: options.exitCode ?? 1,
+    signal: options.signal ?? null,
+    stdout: { ...empty, ...options.stdout },
+    stderr: { ...empty, ...options.stderr },
+    reason: options.reason,
+  }
+}
+
+Deno.test('SID-empty classifier distinguishes verified absence from failed empty utility acquisition', () => {
+  const sid = 123
+  for (
+    const [label, result] of [
+      [
+        'prior incomplete-empty stream failure',
+        sidUtilityResult({
+          complete: false,
+          reason: 'utility stdout stream failed',
+        }),
+      ],
+      [
+        'signalled exit-one utility',
+        sidUtilityResult({ signal: 'SIGKILL' }),
+      ],
+      [
+        'deadline-expired empty utility',
+        sidUtilityResult({
+          complete: false,
+          reason: 'utility acquisition deadline expired',
+        }),
+      ],
+      [
+        'truncated empty utility',
+        sidUtilityResult({ stdout: { truncated: true } }),
+      ],
+      [
+        'error-marked empty utility',
+        sidUtilityResult({ reason: 'utility stderr stream failed' }),
+      ],
+      [
+        'partial observed empty-retention utility',
+        sidUtilityResult({ stdout: { bytes: 1 } }),
+      ],
+    ] as const
+  ) {
+    const classified = classifySidCandidates(result, sid)
+    requireFixture(
+      !classified.complete && classified.candidates.length === 0,
+      `${label} was misclassified as a verified empty SID`,
+    )
+  }
+  const verifiedEmpty = classifySidCandidates(sidUtilityResult(), sid)
+  requireFixture(
+    verifiedEmpty.complete && verifiedEmpty.candidates.length === 0,
+    'completed GNU ps exit-one empty selection was not accepted as absence',
+  )
+  const row = new TextEncoder().encode('456 1 456 123 Ss\n')
+  const validRows = classifySidCandidates(
+    sidUtilityResult({
+      exitCode: 0,
+      stdout: {
+        bytes: row.byteLength,
+        retained_bytes: row.byteLength,
+        data: row,
+      },
+    }),
+    sid,
+  )
+  requireFixture(
+    validRows.complete && validRows.candidates.length === 1 &&
+      validRows.candidates[0].pid === 456 &&
+      validRows.candidates[0].pgrp === 456,
+    'valid SID-only ps rows no longer reach the exact-stat identity path',
+  )
+})
+
+Deno.test('unprivileged observation uses fixed cat ticks and SID-only ps rows', async () => {
+  const child = spawn('/usr/bin/python3', [
+    '-c',
+    'import time; time.sleep(2)',
+  ], {
+    detached: true,
+    shell: false,
+    stdio: 'ignore',
+  })
+  await waitForSpawn(child)
+  const pid = child.pid
+  requireFixture(pid !== undefined, 'detached observation fixture has no PID')
+  try {
+    let directProcDenied = false
+    try {
+      await Deno.readTextFile(`/proc/${pid}/stat`)
+    } catch (error) {
+      directProcDenied = error instanceof Deno.errors.NotCapable
+    }
+    requireFixture(
+      directProcDenied,
+      'test must use the same permission-compatible observation path as production',
+    )
+    const until = Date.now() + 500
+    const cat = await runBoundedObservationUtility(
+      '/usr/bin/cat',
+      [`/proc/${pid}/stat`],
+      until,
+      4096,
+    )
+    requireFixture(
+      cat.complete && cat.exitCode === 0 && cat.stderr.bytes === 0,
+      'fixed cat did not acquire the detached child stat within its bound',
+    )
+    const identity = parseProcStat(
+      pid,
+      new TextDecoder().decode(cat.stdout.data),
+    )
+    requireFixture(
+      identity?.pid === pid && identity.pgrp === pid && identity.sid === pid &&
+        /^[0-9]+$/.test(identity.starttime),
+      'fixed cat did not retain exact raw kernel start ticks and detached identity',
+    )
+    const selected = await runBoundedObservationUtility(
+      '/usr/bin/ps',
+      ['--sid', String(identity.sid), '-o', 'pid=,ppid=,pgid=,sid=,stat='],
+      until,
+      64 * 1024,
+    )
+    requireFixture(
+      selected.complete && selected.exitCode === 0 &&
+        selected.stderr.bytes === 0 &&
+        new TextDecoder().decode(selected.stdout.data).split('\n').some(
+          (line) => {
+            const fields = line.trim().split(/\s+/)
+            return fields.length === 5 && Number(fields[0]) === pid &&
+              Number(fields[2]) === identity.pgrp &&
+              Number(fields[3]) === identity.sid
+          },
+        ),
+      'SID-only ps did not select the exact detached identity',
+    )
+    requireFixture(
+      !sameBirth(identity, {
+        ...identity,
+        starttime: `${identity.starttime}1`,
+      }) &&
+        !sameBirth(identity, { ...identity, sid: identity.sid + 1 }) &&
+        !parseProcStat(
+          pid,
+          `${pid} (bad) S not-a-pid 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0`,
+        ),
+      'changed birth/SID or malformed metadata became eligible for ownership',
+    )
+  } finally {
+    try {
+      Deno.kill(-pid, 'SIGKILL')
+    } catch {
+      // The detached fixture may have exited before test cleanup.
+    }
+    await waitForExit(child)
+  }
+})
+
+Deno.test('bounded observation utility caps oversized output and reaps a hanging fixed fixture', async () => {
+  const hangingStarted = Date.now()
+  const hanging = await runBoundedObservationUtility(
+    '/usr/bin/python3',
+    ['-c', 'import time; time.sleep(2)'],
+    Date.now() + 40,
+    4096,
+  )
+  requireFixture(
+    !hanging.complete && Date.now() - hangingStarted < 250,
+    'hanging utility acquired a fresh timeout or remained unreaped',
+  )
+  const oversized = await runBoundedObservationUtility(
+    Deno.execPath(),
+    [
+      'eval',
+      'await Deno.stdout.write(new TextEncoder().encode("x".repeat(200000))); await Deno.stderr.write(new TextEncoder().encode("y".repeat(200000)))',
+    ],
+    Date.now() + 500,
+    1024,
+  )
+  requireFixture(
+    !oversized.complete &&
+      oversized.stdout.bytes + oversized.stderr.bytes >= 200000 &&
+      oversized.stdout.retained_bytes + oversized.stderr.retained_bytes <= 1024,
+    'oversized utility output exceeded its bounded retained capture',
+  )
+})
 
 Deno.test('diagnostic protocol pins the old artifact separately from the reviewed helper source', () => {
   requireFixture(
@@ -355,7 +685,10 @@ Deno.test('bounded children drain oversized output and reap a hung child before 
       'oversized output was not drained with a bounded retained prefix',
     )
     const controls = await runMandatoryControls(
-      denoEval('await new Promise(() => setInterval(() => {}, 1_000))'),
+      {
+        executable: '/usr/bin/python3',
+        args: ['-c', 'import time; time.sleep(10)'],
+      },
       denoEval('console.log("second control ran")'),
       { cwd: root, home: `${root}/home`, timeoutMs: 80, outputLimit: 4096 },
     )
@@ -371,6 +704,235 @@ Deno.test('bounded children drain oversized output and reap a hung child before 
       'second mandatory control did not run after timeout/reap',
     )
   } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('absolute timeout selection preserves a local cause before, during, and without global bootstrap budget', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-diagnostic-local-cause-' })
+  const sleeping = [
+    '--core=0:0',
+    '--',
+    '/usr/bin/python3',
+    '-c',
+    'import time; time.sleep(2)',
+  ]
+  const watchdog = startDiagnosticDeadline(2_000)
+  try {
+    const result = await runBoundedChild('/usr/bin/prlimit', sleeping, {
+      cwd: root,
+      home: `${root}/home`,
+      timeoutMs: 70,
+      outputLimit: 4096,
+      deadline: watchdog.deadline,
+    })
+    const globalRemaining = watchdog.deadline.cleanupAt - Date.now()
+    requireFixture(
+      result.timed_out && result.deadline_expired !== true &&
+        !watchdog.deadline.expired && globalRemaining > 1_000 &&
+        result.capture_complete === false &&
+        result.capture_incomplete_reason?.includes('local control timeout') &&
+        (result.signal === 'SIGKILL' || result.exit_code !== 0),
+      'local timeout was relabeled as a global deadline while global budget remained',
+    )
+
+    const bootstrapConsumed = await runBoundedChild(
+      '/usr/bin/prlimit',
+      sleeping,
+      {
+        cwd: root,
+        home: `${root}/home`,
+        timeoutMs: 1,
+        outputLimit: 4096,
+        deadline: watchdog.deadline,
+      },
+    )
+    requireFixture(
+      bootstrapConsumed.timed_out &&
+        bootstrapConsumed.deadline_expired !== true &&
+        bootstrapConsumed.capture_incomplete_reason?.includes(
+          'local control timeout',
+        ),
+      'a local boundary consumed by bootstrap was not retained in the zero-remaining path',
+    )
+
+    const withoutGlobal = await runBoundedChild(
+      '/usr/bin/prlimit',
+      sleeping,
+      {
+        cwd: root,
+        home: `${root}/home`,
+        timeoutMs: 70,
+        outputLimit: 4096,
+      },
+    )
+    requireFixture(
+      withoutGlobal.timed_out && withoutGlobal.deadline_expired !== true &&
+        withoutGlobal.capture_incomplete_reason?.includes(
+          'local control timeout',
+        ),
+      'a no-global local timeout was not classified as local',
+    )
+  } finally {
+    watchdog.stop()
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('absolute timeout selector keeps global precedence for ties and consumed boundaries', () => {
+  const withoutGlobal = selectDiagnosticTimeout(1_000, 70)
+  const tie = selectDiagnosticTimeout(1_000, 70, 1_070)
+  const consumedLocal = selectDiagnosticTimeout(1_000, 70, 2_000)
+  const consumedGlobal = selectDiagnosticTimeout(1_000, 500, 1_100)
+  requireFixture(
+    withoutGlobal.cause === 'local' &&
+      tie.cause === 'global' && tie.selectedSignalAt === 1_070 &&
+      consumedLocal.cause === 'local' &&
+      Math.max(0, consumedLocal.selectedSignalAt - 1_200) === 0 &&
+      consumedGlobal.cause === 'global' &&
+      Math.max(0, consumedGlobal.selectedSignalAt - 1_200) === 0,
+    'absolute deadline selection did not retain its earliest cause after bootstrap elapsed',
+  )
+})
+
+Deno.test('actual prlimit timeout leader cleanup preserves exit zero, terminates its changed-PGRP pipe holder, and persists partial evidence', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-diagnostic-owned-tree-' })
+  const out = `${root}/out`
+  const recordPath = `${root}/descendant.json`
+  const watchdog = startDiagnosticDeadline(1_200)
+  let descendantPid: number | undefined
+  let sentinel: ReturnType<typeof spawn> | undefined
+  let sentinelPid: number | undefined
+  try {
+    await Deno.mkdir(out)
+    sentinel = spawn('/usr/bin/python3', ['-c', 'import time; time.sleep(3)'], {
+      detached: false,
+      shell: false,
+      stdio: 'ignore',
+    })
+    await waitForSpawn(sentinel)
+    sentinelPid = sentinel.pid
+    requireFixture(sentinelPid !== undefined, 'outside sibling has no PID')
+    const invocation = pipeHolderInvocation(recordPath, {
+      childChangesPgrp: true,
+    })
+    const started = Date.now()
+    const phase = await runDiagnosticControlPhase(
+      {
+        bare: {
+          ...invocation,
+          targetArgv: [invocation.executable, ...invocation.args],
+        },
+        probe: {
+          executable: '/usr/bin/python3',
+          args: ['-c', 'print("second fixed control")'],
+          targetArgv: ['/usr/bin/python3', 'probe', '0.125'],
+        },
+        cwd: root,
+        home: `${root}/home`,
+        out,
+        deadline: watchdog.deadline,
+        timeoutMs: 250,
+        outputLimit: 4096,
+      },
+      async () => ({
+        status: 'unavailable',
+        reason: 'fixture debugger omitted',
+      }),
+    )
+    const elapsed = Date.now() - started
+    const descendant = await waitForJson(recordPath)
+    descendantPid = Number(descendant.pid)
+    await writeDiagnosticSummary(out, {
+      schema_version: 1,
+      kind: 'slv-native-diagnostic',
+      status: 'acquisition-failed',
+      ...diagnosticControlSummary(phase),
+    })
+    const persisted = JSON.parse(
+      await Deno.readTextFile(`${out}/diagnostic-summary.json`),
+    )
+    const bare = phase.controls.bare
+    requireFixture(
+      elapsed < 1_100 && bare.exit_code === 0 && bare.signal === null &&
+        bare.capture_complete === false &&
+        bare.cleanup_incomplete !== true &&
+        typeof bare.capture_incomplete_reason === 'string',
+      'early timeout leader did not retain exit zero with bounded partial capture',
+    )
+    requireFixture(
+      bare.owned_process?.pid === bare.owned_process?.pgrp &&
+        bare.owned_process?.pid === bare.owned_process?.sid &&
+        descendant.pgrp !== descendant.sid &&
+        descendant.sid === bare.owned_process?.sid,
+      'detached supervisor did not prove its session or changed-PGRP descendant',
+    )
+    requireFixture(
+      !(await processSnapshot(descendantPid)) &&
+        !!(await processSnapshot(sentinelPid)),
+      'owned cleanup leaked a descendant or signalled an outside sibling',
+    )
+    requireFixture(
+      persisted.controls.bare.exit_code === 0 &&
+        persisted.controls.bare.capture_complete === false &&
+        persisted.controls.probe.exit_code === 0,
+      'actual control orchestration did not persist partial bare evidence and its second control',
+    )
+  } finally {
+    watchdog.stop()
+    await terminateFixture(descendantPid)
+    if (sentinel) {
+      await terminateFixture(sentinel.pid)
+      await waitForExit(sentinel)
+    }
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('global deadline wins a local-timeout race without leaving an owned pipe-holder', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-diagnostic-global-tree-' })
+  const recordPath = `${root}/descendant.json`
+  const watchdog = startDiagnosticDeadline(350)
+  let descendantPid: number | undefined
+  try {
+    const invocation = pipeHolderInvocation(recordPath, {
+      childChangesPgrp: true,
+      leaderSleepMs: 1_000,
+      wrapperTimeoutSeconds: '5s',
+    })
+    const started = Date.now()
+    const result = await runBoundedChild(
+      invocation.executable,
+      invocation.args,
+      {
+        cwd: root,
+        home: `${root}/home`,
+        timeoutMs: 1_000,
+        outputLimit: 4096,
+        deadline: watchdog.deadline,
+      },
+    )
+    const elapsed = Date.now() - started
+    const descendant = await waitForJson(recordPath)
+    descendantPid = Number(descendant.pid)
+    requireFixture(
+      watchdog.deadline.expired && result.deadline_expired &&
+        result.timed_out &&
+        result.capture_complete === false &&
+        result.capture_incomplete_reason?.includes(
+          'global diagnostic deadline',
+        ) &&
+        result.cleanup_incomplete !== true && elapsed < 900,
+      'global/local timeout race did not return bounded incomplete acquisition evidence',
+    )
+    requireFixture(
+      !(await processSnapshot(descendantPid)) &&
+        result.owned_process?.living_member_pids.length === 0,
+      'global cleanup left a living process in its owned session',
+    )
+  } finally {
+    watchdog.stop()
+    await terminateFixture(descendantPid)
     await Deno.remove(root, { recursive: true })
   }
 })
@@ -482,7 +1044,7 @@ Deno.test('control phase persists unavailable debugger and global-deadline parti
   })
   const out = `${root}/out`
   await Deno.mkdir(out)
-  const watchdog = startDiagnosticDeadline(60)
+  const watchdog = startDiagnosticDeadline(900)
   try {
     const phase = await runDiagnosticControlPhase(
       {

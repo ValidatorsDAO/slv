@@ -5,7 +5,9 @@
  * release proof, receipt, or rebuilt artifact.
  */
 import { createHash } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import { relative, resolve } from 'node:path'
+import type { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
 const decoder = new TextDecoder()
@@ -20,6 +22,10 @@ const DEBUGGER_OUTPUT_BYTES = 256 * 1024
 const DIRECT_TIMEOUT_MS = 60_000
 const DEBUGGER_TIMEOUT_MS = 180_000
 const GLOBAL_TIMEOUT_MS = 12 * 60_000
+const CLEANUP_BUDGET_MS = 500
+const POST_EXIT_PIPE_GRACE_MS = 35
+const PROC_SWEEP_LIMIT = 3
+const PROC_ROW_LIMIT = 512
 const EXPECTED_TRANSPORT_NAMES = [
   'baseline-denort',
   'baseline-v8-archive',
@@ -106,6 +112,17 @@ export type ChildResult = {
   timed_out: boolean
   deadline_expired?: boolean
   acquisition_error?: string
+  capture_complete: boolean
+  capture_incomplete_reason?: string
+  cleanup_incomplete?: boolean
+  owned_process?: {
+    pid: number
+    pgrp: number
+    sid: number
+    starttime: string
+    living_member_pids: number[]
+    zombie_member_pids: number[]
+  }
   stdout: {
     bytes: number
     retained_bytes: number
@@ -125,10 +142,42 @@ type ControlRecord = ChildResult & {
   expected_bare_result?: boolean
 }
 type LogBudget = { retained: number; limit: number }
+type OwnedCleanup = { cleanup: (reason: string) => Promise<void> }
+type TimeoutCause = 'local' | 'global'
 export type DiagnosticDeadline = {
   expiresAt: number
+  cleanupAt: number
+  cleanupEndAt: number
   expired: boolean
-  activeChildren: Set<Deno.ChildProcess>
+  activeChildren: Set<OwnedCleanup>
+}
+
+/**
+ * Select the timeout cause before spawn or ownership observation consumes
+ * time.  The enclosing global boundary wins an exact tie.
+ */
+export function selectDiagnosticTimeout(
+  supervisionStarted: number,
+  timeoutMs: number,
+  globalSignalAt = Infinity,
+): {
+  requestedLocalSignalAt: number
+  globalSignalAt: number
+  selectedSignalAt: number
+  cause: TimeoutCause
+} {
+  const requestedLocalSignalAt = supervisionStarted + timeoutMs
+  const cause: TimeoutCause = globalSignalAt <= requestedLocalSignalAt
+    ? 'global'
+    : 'local'
+  return {
+    requestedLocalSignalAt,
+    globalSignalAt,
+    selectedSignalAt: cause === 'global'
+      ? globalSignalAt
+      : requestedLocalSignalAt,
+    cause,
+  }
 }
 
 class DeadlineExceeded extends Error {
@@ -139,32 +188,40 @@ class DeadlineExceeded extends Error {
 }
 
 function deadlineExpired(deadline: DiagnosticDeadline | undefined): boolean {
-  return !!deadline && (deadline.expired || Date.now() >= deadline.expiresAt)
+  return !!deadline && (deadline.expired || Date.now() >= deadline.cleanupAt)
 }
 
 function deadlineRemaining(deadline: DiagnosticDeadline | undefined): number {
-  return deadline ? Math.max(0, deadline.expiresAt - Date.now()) : Infinity
+  return deadline ? Math.max(0, deadline.cleanupAt - Date.now()) : Infinity
 }
 
 export function startDiagnosticDeadline(timeoutMs = GLOBAL_TIMEOUT_MS): {
   deadline: DiagnosticDeadline
   stop: () => void
 } {
+  const now = Date.now()
+  const expiresAt = now + timeoutMs
+  // The production deadline reserves the complete cleanup allowance.  Tiny
+  // fixture deadlines retain their requested acquisition window and then use
+  // the same bounded cleanup path, rather than firing before a child exists.
+  const cleanupAt = timeoutMs > CLEANUP_BUDGET_MS
+    ? expiresAt - CLEANUP_BUDGET_MS
+    : expiresAt
   const deadline: DiagnosticDeadline = {
-    expiresAt: Date.now() + timeoutMs,
+    expiresAt,
+    cleanupAt,
+    cleanupEndAt: cleanupAt + CLEANUP_BUDGET_MS,
     expired: false,
     activeChildren: new Set(),
   }
   const timer = setTimeout(() => {
     deadline.expired = true
     for (const child of deadline.activeChildren) {
-      try {
-        child.kill('SIGKILL')
-      } catch {
-        // The status promise below reaps children that exited concurrently.
-      }
+      void child.cleanup('global diagnostic deadline').catch(() => {
+        // Each invocation records cleanup failure in its own acquisition record.
+      })
     }
-  }, timeoutMs)
+  }, Math.max(0, cleanupAt - now))
   return {
     deadline,
     stop: () => clearTimeout(timer),
@@ -196,6 +253,8 @@ function acquisitionFailure(
     timed_out: expired,
     deadline_expired: expired || undefined,
     acquisition_error: error instanceof Error ? error.message : String(error),
+    capture_complete: false,
+    capture_incomplete_reason: 'child did not start',
     stdout: zeroOutput(),
     stderr: zeroOutput(),
   }
@@ -587,37 +646,36 @@ function cleanEnvironment(home: string): Record<string, string> {
   return { HOME: home, PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }
 }
 
-async function drain(
-  stream: ReadableStream<Uint8Array>,
-  budget: LogBudget,
-): Promise<
-  {
-    bytes: number
-    retained_bytes: number
-    truncated: boolean
-    data: Uint8Array
-  }
-> {
-  const chunks: Uint8Array[] = []
-  let bytes = 0
-  let retained = 0
-  const reader = stream.getReader()
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      bytes += value.length
-      const available = Math.max(0, budget.limit - budget.retained)
-      if (available > 0) {
-        const kept = value.subarray(0, available)
-        if (kept.length) chunks.push(kept.slice())
-        retained += kept.length
-        budget.retained += kept.length
-      }
-    }
-  } finally {
-    reader.releaseLock()
-  }
+type OutputCapture = {
+  bytes: number
+  retained_bytes: number
+  truncated: boolean
+  data: Uint8Array
+}
+type ProcIdentity = {
+  pid: number
+  ppid: number
+  pgrp: number
+  sid: number
+  starttime: string
+  state: string
+}
+type StreamCapture = {
+  promise: Promise<OutputCapture>
+  cancel: (reason: string) => void
+  complete: () => boolean
+  incompleteReason: () => string | undefined
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function capturedOutput(
+  chunks: Uint8Array[],
+  bytes: number,
+  retained: number,
+): OutputCapture {
   const data = new Uint8Array(retained)
   let offset = 0
   for (const chunk of chunks) {
@@ -632,7 +690,452 @@ async function drain(
   }
 }
 
-/** Run a local child while draining all output and retaining only a bounded prefix. */
+function drainNodeReadable(
+  stream: Readable,
+  budget: LogBudget,
+  onError: (reason: string) => void,
+): StreamCapture {
+  const chunks: Uint8Array[] = []
+  let bytes = 0
+  let retained = 0
+  let settled = false
+  let naturallyComplete = false
+  let incomplete: string | undefined
+  let resolveCapture!: (value: OutputCapture) => void
+  const promise = new Promise<OutputCapture>((resolve) => {
+    resolveCapture = resolve
+  })
+  const settle = (complete: boolean, reason?: string): void => {
+    if (settled) return
+    settled = true
+    naturallyComplete = complete
+    incomplete = reason
+    resolveCapture(capturedOutput(chunks, bytes, retained))
+  }
+  stream.on('data', (chunk: Uint8Array | string) => {
+    const value = typeof chunk === 'string' ? encoder.encode(chunk) : chunk
+    bytes += value.length
+    const available = Math.max(0, budget.limit - budget.retained)
+    if (available > 0) {
+      const kept = value.subarray(0, available)
+      if (kept.length) chunks.push(kept.slice())
+      retained += kept.length
+      budget.retained += kept.length
+    }
+  })
+  stream.once('end', () => settle(true))
+  stream.on('error', (error) => {
+    const reason = `stream error: ${
+      error instanceof Error ? error.message : String(error)
+    }`
+    settle(false, reason)
+    onError(reason)
+  })
+  stream.once('close', () => {
+    if (!settled) settle(false, 'stream closed before EOF')
+  })
+  return {
+    promise,
+    cancel: (reason) => {
+      settle(false, reason)
+      try {
+        stream.destroy()
+      } catch {
+        // A concurrently closed stream has already stopped delivering bytes.
+      }
+    },
+    complete: () => naturallyComplete,
+    incompleteReason: () => incomplete,
+  }
+}
+
+const UTILITY_TIMEOUT_MS = 100
+const CAT_OUTPUT_BYTES = 4 * 1024
+const PS_OUTPUT_BYTES = 64 * 1024
+const CANONICAL_PID = /^[1-9][0-9]*$/
+const CANONICAL_NONNEGATIVE = /^(0|[1-9][0-9]*)$/
+
+type UtilityResult = {
+  complete: boolean
+  exitCode: number | null
+  signal: string | null
+  stdout: OutputCapture
+  stderr: OutputCapture
+  reason?: string
+}
+type SessionCandidate = {
+  pid: number
+  ppid: number
+  pgrp: number
+  sid: number
+  state: string
+}
+
+function positiveDecimal(value: string | undefined): number | undefined {
+  if (!value || !CANONICAL_PID.test(value)) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) ? parsed : undefined
+}
+
+function nonnegativeDecimal(value: string | undefined): number | undefined {
+  if (!value || !CANONICAL_NONNEGATIVE.test(value)) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) ? parsed : undefined
+}
+
+export function parseProcStat(
+  pid: number,
+  stat: string,
+): ProcIdentity | undefined {
+  const firstOpen = stat.indexOf(' (')
+  const close = stat.lastIndexOf(')')
+  if (
+    firstOpen < 1 || close <= firstOpen ||
+    stat.slice(close + 1, close + 2) !== ' '
+  ) {
+    return undefined
+  }
+  const observedPid = positiveDecimal(stat.slice(0, firstOpen))
+  if (observedPid !== pid) return undefined
+  const fields = stat.slice(close + 2).trim().split(/\s+/)
+  if (fields.length < 20) return undefined
+  const [state, rawPpid, rawPgrp, rawSid] = fields
+  const ppid = nonnegativeDecimal(rawPpid)
+  const pgrp = positiveDecimal(rawPgrp)
+  const sid = positiveDecimal(rawSid)
+  const starttime = fields[19]
+  if (
+    !state || !/^[A-Za-z]$/.test(state) || ppid === undefined ||
+    pgrp === undefined || sid === undefined ||
+    !starttime || !CANONICAL_NONNEGATIVE.test(starttime)
+  ) {
+    return undefined
+  }
+  return { pid, ppid, pgrp, sid, starttime, state }
+}
+
+function parseSessionCandidate(
+  line: string,
+  expectedSid: number,
+): SessionCandidate | undefined {
+  const fields = line.trim().split(/\s+/)
+  if (fields.length !== 5) return undefined
+  const [rawPid, rawPpid, rawPgrp, rawSid, state] = fields
+  const pid = positiveDecimal(rawPid)
+  const ppid = nonnegativeDecimal(rawPpid)
+  const pgrp = positiveDecimal(rawPgrp)
+  const sid = positiveDecimal(rawSid)
+  if (
+    pid === undefined || ppid === undefined || pgrp === undefined ||
+    sid !== expectedSid || !state || !/^[A-Za-z][A-Za-z+<NLs]*$/.test(state)
+  ) {
+    return undefined
+  }
+  return { pid, ppid, pgrp, sid, state: state[0] }
+}
+
+/**
+ * Nonrecursive fixed-utility acquisition. Production callers use only the
+ * fixed cat/ps paths below; the export permits bounded low-level fixtures.
+ */
+export async function runBoundedObservationUtility(
+  executable: string,
+  args: string[],
+  until: number,
+  outputLimit: number,
+): Promise<UtilityResult> {
+  const utilityUntil = Math.min(until, Date.now() + UTILITY_TIMEOUT_MS)
+  const unavailable = (reason: string): UtilityResult => ({
+    complete: false,
+    exitCode: null,
+    signal: null,
+    stdout: zeroOutput(),
+    stderr: zeroOutput(),
+    reason,
+  })
+  if (Date.now() >= utilityUntil || outputLimit < 1) {
+    return unavailable('utility acquisition budget is exhausted')
+  }
+  let child
+  try {
+    child = spawn(executable, args, {
+      env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' },
+      detached: true,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch (error) {
+    return unavailable(error instanceof Error ? error.message : String(error))
+  }
+  if (!child.stdout || !child.stderr) {
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      // The utility may have already failed before providing streams.
+    }
+    return unavailable('utility did not provide piped output')
+  }
+  const budget = { retained: 0, limit: outputLimit }
+  let streamReason: string | undefined
+  const stdout = drainNodeReadable(child.stdout, budget, (reason) => {
+    streamReason ??= reason
+  })
+  const stderr = drainNodeReadable(child.stderr, budget, (reason) => {
+    streamReason ??= reason
+  })
+  let resolveExit!: (
+    value: { code: number | null; signal: string | null } | undefined,
+  ) => void
+  const exit = new Promise<
+    { code: number | null; signal: string | null } | undefined
+  >((resolve) => {
+    resolveExit = resolve
+  })
+  child.once(
+    'exit',
+    (code, signal) => resolveExit({ code, signal: signal ?? null }),
+  )
+  child.once('error', () => resolveExit(undefined))
+  const remaining = utilityUntil - Date.now()
+  if (remaining < 1) {
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      // Direct utility exit races are already bounded below.
+    }
+    stdout.cancel('utility acquisition budget is exhausted')
+    stderr.cancel('utility acquisition budget is exhausted')
+    await Promise.all([stdout.promise, stderr.promise])
+    return unavailable('utility acquisition budget is exhausted')
+  }
+  let timeout: number | undefined
+  const timed = new Promise<'timed'>((resolve) => {
+    timeout = setTimeout(() => resolve('timed'), remaining) as unknown as number
+  })
+  try {
+    const completed = Promise.all([exit, stdout.promise, stderr.promise])
+    const winner = await Promise.race([
+      completed.then(() => 'completed' as const),
+      timed,
+    ])
+    if (winner === 'timed') {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // The utility may have exited during the deadline race.
+      }
+      stdout.cancel('utility acquisition deadline expired')
+      stderr.cancel('utility acquisition deadline expired')
+      await Promise.all([stdout.promise, stderr.promise])
+      await Promise.race([exit, delay(Math.max(0, utilityUntil - Date.now()))])
+      return unavailable('utility acquisition deadline expired')
+    }
+    const status = await exit
+    const capturedStdout = await stdout.promise
+    const capturedStderr = await stderr.promise
+    const complete = !!status && stdout.complete() && stderr.complete() &&
+      !streamReason && !capturedStdout.truncated && !capturedStderr.truncated
+    return {
+      complete,
+      exitCode: status?.code ?? null,
+      signal: status?.signal ?? null,
+      stdout: capturedStdout,
+      stderr: capturedStderr,
+      reason: complete
+        ? undefined
+        : streamReason ?? 'utility acquisition was incomplete',
+    }
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
+  }
+}
+
+async function readExactProcIdentity(
+  pid: number,
+  until: number,
+): Promise<{ identity?: ProcIdentity; complete: boolean }> {
+  const result = await runBoundedObservationUtility(
+    '/usr/bin/cat',
+    [`/proc/${pid}/stat`],
+    until,
+    CAT_OUTPUT_BYTES,
+  )
+  if (
+    !result.complete || result.exitCode !== 0 || result.signal !== null ||
+    result.stderr.bytes !== 0
+  ) {
+    return { complete: false }
+  }
+  const identity = parseProcStat(pid, decoder.decode(result.stdout.data))
+  return identity ? { identity, complete: true } : { complete: false }
+}
+
+/**
+ * Classify a completed SID-only ps observation.  It is shared with the
+ * production query path so fixture results cannot diverge from cleanup.
+ */
+export function classifySidCandidates(
+  result: UtilityResult,
+  sid: number,
+): { candidates: SessionCandidate[]; complete: boolean } {
+  // GNU ps uses exit 1 with no output for an empty selection.  Every part of
+  // the acquisition must also be clean; a failed utility with empty retained
+  // buffers is unknown, not evidence that the owned session disappeared.
+  const noRows = result.complete === true && result.exitCode === 1 &&
+    result.signal === null && result.stdout.bytes === 0 &&
+    result.stderr.bytes === 0 && result.stdout.retained_bytes === 0 &&
+    result.stderr.retained_bytes === 0 && result.stdout.data.byteLength === 0 &&
+    result.stderr.data.byteLength === 0 && !result.stdout.truncated &&
+    !result.stderr.truncated && result.reason === undefined
+  if (noRows) return { candidates: [], complete: true }
+  if (
+    !result.complete || result.exitCode !== 0 || result.signal !== null ||
+    result.stderr.bytes !== 0 || result.reason !== undefined ||
+    result.stdout.truncated || result.stderr.truncated
+  ) {
+    return { candidates: [], complete: false }
+  }
+  const lines = decoder.decode(result.stdout.data).split('\n').filter((line) =>
+    line.trim()
+  )
+  // GNU ps reports an empty SID selection as exit 1.  Treating an exit-zero
+  // empty response as quiescence would turn an observation anomaly into a
+  // broad-cleanup authorization.
+  if (lines.length === 0) return { candidates: [], complete: false }
+  if (lines.length > PROC_ROW_LIMIT) return { candidates: [], complete: false }
+  const candidates: SessionCandidate[] = []
+  const seen = new Set<number>()
+  for (const line of lines) {
+    const candidate = parseSessionCandidate(line, sid)
+    if (!candidate || seen.has(candidate.pid)) {
+      return { candidates: [], complete: false }
+    }
+    seen.add(candidate.pid)
+    candidates.push(candidate)
+  }
+  return { candidates, complete: true }
+}
+
+async function sessionCandidates(
+  sid: number,
+  until: number,
+): Promise<{ candidates: SessionCandidate[]; complete: boolean }> {
+  const result = await runBoundedObservationUtility(
+    '/usr/bin/ps',
+    ['--sid', String(sid), '-o', 'pid=,ppid=,pgid=,sid=,stat='],
+    until,
+    PS_OUTPUT_BYTES,
+  )
+  return classifySidCandidates(result, sid)
+}
+
+async function establishOwnedIdentity(
+  pid: number,
+  until: number,
+): Promise<ProcIdentity | undefined> {
+  while (Date.now() < until) {
+    const observation = await readExactProcIdentity(pid, until)
+    const identity = observation.identity
+    if (identity && identity.pgrp === pid && identity.sid === pid) {
+      return identity
+    }
+    if (!observation.complete) return undefined
+    await delay(Math.min(5, Math.max(0, until - Date.now())))
+  }
+  return undefined
+}
+
+async function ownedSessionMembers(
+  sid: number,
+  until: number,
+): Promise<{ members: ProcIdentity[]; incomplete: boolean }> {
+  const selected = await sessionCandidates(sid, until)
+  if (!selected.complete) return { members: [], incomplete: true }
+  const members: ProcIdentity[] = []
+  for (const candidate of selected.candidates) {
+    if (Date.now() >= until) return { members, incomplete: true }
+    const observation = await readExactProcIdentity(candidate.pid, until)
+    const identity = observation.identity
+    if (
+      !observation.complete || !identity || identity.sid !== sid ||
+      identity.ppid !== candidate.ppid || identity.pgrp !== candidate.pgrp ||
+      identity.state !== candidate.state
+    ) {
+      return { members, incomplete: true }
+    }
+    members.push(identity)
+  }
+  return { members, incomplete: false }
+}
+
+export function sameBirth(
+  current: ProcIdentity | undefined,
+  original: ProcIdentity,
+): boolean {
+  return !!current && current.pid === original.pid &&
+    current.starttime === original.starttime && current.sid === original.sid
+}
+
+function signalOwnedGroup(pgrp: number): void {
+  if (pgrp < 1) return
+  try {
+    Deno.kill(-pgrp, 'SIGKILL')
+  } catch {
+    // A group disappearing between /proc observation and kill is quiescent.
+  }
+}
+
+async function terminateOwnedSession(
+  owned: ProcIdentity,
+  until: number,
+): Promise<{
+  living: number[]
+  zombies: number[]
+  incomplete: boolean
+}> {
+  let incomplete = false
+  const direct = await readExactProcIdentity(owned.pid, until)
+  if (
+    direct.identity && sameBirth(direct.identity, owned) &&
+    direct.identity.pgrp === owned.pgrp
+  ) {
+    signalOwnedGroup(owned.pgrp)
+  }
+  // A leader can disappear before this fresh stat read.  That is not proof
+  // that its session is empty; the bounded SID query below decides that.
+  let latest: ProcIdentity[] = []
+  for (let sweep = 0; sweep < PROC_SWEEP_LIMIT; sweep++) {
+    const scan = await ownedSessionMembers(owned.sid, until)
+    latest = scan.members
+    incomplete ||= scan.incomplete
+    const groups = new Set(
+      scan.members.filter((member) => member.state !== 'Z').map((member) =>
+        member.pgrp
+      ),
+    )
+    for (const pgrp of groups) signalOwnedGroup(pgrp)
+    if (!scan.members.some((member) => member.state !== 'Z')) break
+    if (Date.now() >= until) {
+      incomplete = true
+      break
+    }
+    await delay(15)
+  }
+  const final = await ownedSessionMembers(owned.sid, until)
+  incomplete ||= final.incomplete
+  latest = final.members
+  return {
+    living: latest.filter((member) => member.state !== 'Z').map((member) =>
+      member.pid
+    ),
+    zombies: latest.filter((member) => member.state === 'Z').map((member) =>
+      member.pid
+    ),
+    incomplete,
+  }
+}
+
+/** Run a local child while draining a bounded prefix from its owned session. */
 export async function runBoundedChild(
   executable: string,
   args: string[],
@@ -644,85 +1147,307 @@ export async function runBoundedChild(
     deadline?: DiagnosticDeadline
   },
 ): Promise<ChildResult> {
+  const supervisionStarted = Date.now()
+  const timeoutSelection = selectDiagnosticTimeout(
+    supervisionStarted,
+    options.timeoutMs,
+    options.deadline?.cleanupAt ?? Infinity,
+  )
   if (deadlineExpired(options.deadline)) throw new DeadlineExceeded()
   const started = new Date().toISOString()
-  const child = new Deno.Command(executable, {
-    args,
+  const child = spawn(executable, args, {
     cwd: options.cwd,
-    clearEnv: true,
     env: cleanEnvironment(options.home),
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-  }).spawn()
-  options.deadline?.activeChildren.add(child)
-  let timedOut = false
-  let timedOutByDeadline = false
-  const timeoutMs = Math.min(
-    options.timeoutMs,
-    deadlineRemaining(options.deadline),
-  )
-  if (timeoutMs < 1) {
-    options.deadline?.activeChildren.delete(child)
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // The status promise below reaps a child that exited concurrently.
-    }
-    await child.status.catch(() => undefined)
-    throw new DeadlineExceeded()
-  }
-  const timer = setTimeout(() => {
-    timedOut = true
-    timedOutByDeadline = deadlineExpired(options.deadline) ||
-      timeoutMs < options.timeoutMs
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // A naturally completed child is already reaped by status below.
-    }
-  }, timeoutMs)
+    detached: true,
+    shell: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
   const budget = { retained: 0, limit: options.outputLimit }
-  const statusPromise = child.status
-  const stdoutPromise = drain(child.stdout, budget)
-  const stderrPromise = drain(child.stderr, budget)
-  try {
-    const [status, stdout, stderr] = await Promise.all([
-      statusPromise,
-      stdoutPromise,
-      stderrPromise,
+  let requestCleanup: ((reason: string) => void) | undefined
+  const stdoutStream = child.stdout
+  const stderrStream = child.stderr
+  if (!stdoutStream || !stderrStream) {
+    throw new Error('diagnostic child did not provide piped stdout and stderr')
+  }
+  const stdout = drainNodeReadable(
+    stdoutStream,
+    budget,
+    (reason) => requestCleanup?.(`stdout ${reason}`),
+  )
+  const stderr = drainNodeReadable(
+    stderrStream,
+    budget,
+    (reason) => requestCleanup?.(`stderr ${reason}`),
+  )
+  let original: { code: number | null; signal: string | null } | undefined
+  let launchError: string | undefined
+  let resolveExit!: (value: typeof original) => void
+  const exitPromise = new Promise<typeof original>((resolve) => {
+    resolveExit = resolve
+  })
+  child.once('exit', (code, signal) => {
+    original = { code, signal: signal ?? null }
+    resolveExit(original)
+  })
+  child.once('error', (error) => {
+    launchError ??= error instanceof Error ? error.message : String(error)
+    resolveExit(undefined)
+  })
+  const spawned = await new Promise<boolean>((resolve) => {
+    child.once('spawn', () => resolve(true))
+    child.once('error', () => resolve(false))
+  })
+  if (!spawned) {
+    const reason = launchError ?? 'diagnostic child failed before spawn'
+    stdout.cancel(reason)
+    stderr.cancel(reason)
+    await Promise.all([stdout.promise, stderr.promise])
+    throw new Error(reason)
+  }
+  const pid = child.pid
+  const owned = pid
+    ? await establishOwnedIdentity(pid, timeoutSelection.selectedSignalAt)
+    : undefined
+  if (!owned) {
+    // The direct ChildProcess handle remains safe to stop, but an unverified
+    // session is never addressed by a numeric group signal.
+    const settled = await Promise.race([
+      exitPromise.then((value) => ({ settled: true as const, value })),
+      delay(Math.max(0, timeoutSelection.selectedSignalAt - Date.now())).then(
+        () => ({
+          settled: false as const,
+        }),
+      ),
     ])
+    const surviving = pid
+      ? await ownedSessionMembers(pid, timeoutSelection.selectedSignalAt)
+      : { members: [], incomplete: true }
+    if (
+      !settled.settled || !settled.value || surviving.members.length ||
+      surviving.incomplete
+    ) {
+      const selectedBoundaryReached = Date.now() >=
+        timeoutSelection.selectedSignalAt
+      const reason = launchError ??
+        (selectedBoundaryReached
+          ? timeoutSelection.cause === 'global'
+            ? 'global diagnostic deadline'
+            : 'local control timeout'
+          : 'cannot verify an isolated diagnostic process group')
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // The direct child may have exited while ownership was acquired.
+      }
+      stdout.cancel(reason)
+      stderr.cancel(reason)
+      await Promise.all([stdout.promise, stderr.promise])
+      await Promise.race([
+        exitPromise,
+        delay(Math.max(0, timeoutSelection.selectedSignalAt - Date.now())),
+      ])
+      const timedOut = selectedBoundaryReached
+      return {
+        argv: [executable, ...args],
+        started_at: started,
+        finished_at: new Date().toISOString(),
+        exit_code: original?.code ?? null,
+        signal: original?.signal ?? null,
+        timed_out: timedOut,
+        deadline_expired: timedOut && timeoutSelection.cause === 'global' ||
+          undefined,
+        acquisition_error: reason,
+        capture_complete: false,
+        capture_incomplete_reason: reason,
+        cleanup_incomplete: true,
+        stdout: await stdout.promise,
+        stderr: await stderr.promise,
+      }
+    }
+    const capturedStdout = await stdout.promise
+    const capturedStderr = await stderr.promise
     return {
       argv: [executable, ...args],
       started_at: started,
       finished_at: new Date().toISOString(),
-      exit_code: status.code,
-      signal: status.signal,
+      exit_code: settled.value.code,
+      signal: settled.value.signal,
+      timed_out: false,
+      capture_complete: stdout.complete() && stderr.complete(),
+      capture_incomplete_reason: [
+        stdout.incompleteReason(),
+        stderr.incompleteReason(),
+      ].filter((reason): reason is string => !!reason).join('; ') || undefined,
+      stdout: capturedStdout,
+      stderr: capturedStderr,
+    }
+  }
+
+  let timedOut = false
+  let timedOutByDeadline = false
+  let cleanupReason: string | undefined
+  let cleanupIncomplete = false
+  let terminal = { living: [] as number[], zombies: [] as number[] }
+  let cleanupPromise: Promise<void> | undefined
+  let resolveCleanupStarted!: () => void
+  const cleanupStarted = new Promise<void>((resolve) => {
+    resolveCleanupStarted = resolve
+  })
+  const cleanup = async (reason: string): Promise<void> => {
+    if (cleanupPromise) return await cleanupPromise
+    cleanupReason = reason
+    resolveCleanupStarted()
+    cleanupPromise = (async () => {
+      const until = Math.min(
+        Date.now() + CLEANUP_BUDGET_MS,
+        options.deadline?.cleanupEndAt ?? Infinity,
+      )
+      const outcome = await terminateOwnedSession(owned, until)
+      terminal = { living: outcome.living, zombies: outcome.zombies }
+      cleanupIncomplete ||= outcome.incomplete || outcome.living.length > 0
+      const remaining = Math.max(0, until - Date.now())
+      if (!original && remaining > 0) {
+        await Promise.race([exitPromise, delay(remaining)])
+      }
+      if (!original && !launchError) {
+        cleanupIncomplete = true
+        launchError = 'direct child status did not settle within cleanup bound'
+      }
+      stdout.cancel(reason)
+      stderr.cancel(reason)
+      await Promise.all([stdout.promise, stderr.promise])
+    })()
+    return await cleanupPromise
+  }
+  requestCleanup = (reason) => {
+    void cleanup(reason).catch(() => {
+      cleanupIncomplete = true
+    })
+  }
+  const requestTimeoutCleanup = (): Promise<void> => {
+    if (cleanupPromise) return cleanupPromise
+    timedOut = true
+    timedOutByDeadline = timeoutSelection.cause === 'global'
+    return cleanup(
+      timeoutSelection.cause === 'global'
+        ? 'global diagnostic deadline'
+        : 'local control timeout',
+    )
+  }
+  const deadlineCleanup: OwnedCleanup = {
+    cleanup: async () => await requestTimeoutCleanup(),
+  }
+  options.deadline?.activeChildren.add(deadlineCleanup)
+  const timeoutMs = Math.max(
+    0,
+    timeoutSelection.selectedSignalAt - Date.now(),
+  )
+  let localTimer: number | undefined
+  if (timeoutMs < 1) {
+    void requestTimeoutCleanup().catch(() => {
+      cleanupIncomplete = true
+    })
+  } else {
+    localTimer = setTimeout(() => {
+      void requestTimeoutCleanup().catch(() => {
+        cleanupIncomplete = true
+      })
+    }, timeoutMs) as unknown as number
+  }
+  child.once('exit', () => {
+    if (stdout.complete() && stderr.complete()) return
+    setTimeout(() => {
+      if (!stdout.complete() || !stderr.complete()) {
+        requestCleanup('leader exited while inherited output pipes remained')
+      }
+    }, POST_EXIT_PIPE_GRACE_MS)
+  })
+  if (stdout.incompleteReason() || stderr.incompleteReason()) {
+    requestCleanup('output stream acquisition failed')
+  }
+  try {
+    const normal = Promise.all([exitPromise, stdout.promise, stderr.promise])
+    const first = await Promise.race([
+      normal.then(() => 'normal' as const),
+      cleanupStarted.then(() => 'cleanup' as const),
+    ])
+    if (first === 'normal') {
+      const scan = await ownedSessionMembers(
+        owned.sid,
+        Math.min(
+          Date.now() + CLEANUP_BUDGET_MS,
+          options.deadline?.cleanupEndAt ?? Infinity,
+        ),
+      )
+      const living = scan.members.filter((member) => member.state !== 'Z')
+      if (living.length || scan.incomplete) {
+        await cleanup('owned session remained after leader completion')
+      } else {
+        terminal = {
+          living: [],
+          zombies: scan.members.filter((member) => member.state === 'Z').map((
+            member,
+          ) => member.pid),
+        }
+      }
+    } else {
+      await cleanupPromise
+    }
+    const capturedStdout = await stdout.promise
+    const capturedStderr = await stderr.promise
+    // EOF observed after forced tree termination is not a natural complete
+    // capture: a descendant may have been cut off before writing more bytes.
+    const captureComplete = stdout.complete() && stderr.complete() &&
+      !cleanupReason
+    const incompleteReasons = [
+      stdout.incompleteReason(),
+      stderr.incompleteReason(),
+    ]
+      .filter((reason): reason is string => !!reason)
+    if (cleanupReason && !captureComplete) incompleteReasons.push(cleanupReason)
+    return {
+      argv: [executable, ...args],
+      started_at: started,
+      finished_at: new Date().toISOString(),
+      exit_code: original?.code ?? null,
+      signal: original?.signal ?? null,
       timed_out: timedOut,
-      deadline_expired:
-        (timedOutByDeadline || deadlineExpired(options.deadline)) ||
-        undefined,
-      stdout,
-      stderr,
+      deadline_expired: timedOutByDeadline || undefined,
+      acquisition_error: launchError ??
+        (cleanupIncomplete
+          ? `owned cleanup incomplete${
+            terminal.living.length
+              ? `: living PIDs ${terminal.living.join(',')}`
+              : ''
+          }`
+          : undefined),
+      capture_complete: captureComplete,
+      capture_incomplete_reason: incompleteReasons.length
+        ? [...new Set(incompleteReasons)].join('; ')
+        : undefined,
+      cleanup_incomplete: cleanupIncomplete || undefined,
+      owned_process: {
+        pid: owned.pid,
+        pgrp: owned.pgrp,
+        sid: owned.sid,
+        starttime: owned.starttime,
+        living_member_pids: terminal.living,
+        zombie_member_pids: terminal.zombies,
+      },
+      stdout: capturedStdout,
+      stderr: capturedStderr,
     }
-  } catch (error) {
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      // The child already exited or the deadline watcher killed it.
-    }
-    await Promise.allSettled([statusPromise, stdoutPromise, stderrPromise])
-    throw error
   } finally {
-    clearTimeout(timer)
-    options.deadline?.activeChildren.delete(child)
+    if (localTimer !== undefined) clearTimeout(localTimer)
+    options.deadline?.activeChildren.delete(deadlineCleanup)
   }
 }
 
 function expectedBare(result: ChildResult): boolean {
   const output = decoder.decode(result.stdout.data) +
     decoder.decode(result.stderr.data)
-  return !result.timed_out && result.signal === null &&
+  return result.capture_complete && !result.cleanup_incomplete &&
+    !result.timed_out && result.signal === null &&
     result.exit_code === 1 &&
     output.includes('Could not find standalone binary section.')
 }
@@ -780,7 +1505,9 @@ export async function runMandatoryControls(
     probe: probeRecord,
     complete: bareRecord.expected_bare_result === true &&
       !bareRecord.acquisition_error && !bareRecord.deadline_expired &&
+      bareRecord.capture_complete && !bareRecord.cleanup_incomplete &&
       !probeRecord.acquisition_error && !probeRecord.deadline_expired &&
+      probeRecord.capture_complete && !probeRecord.cleanup_incomplete &&
       !probeRecord.timed_out &&
       probeRecord.signal === null && probeRecord.exit_code === 0,
   }
@@ -911,6 +1638,10 @@ function summaryRecord(result: ChildResult): Record<string, unknown> {
     timed_out: result.timed_out,
     deadline_expired: result.deadline_expired === true,
     acquisition_error: result.acquisition_error,
+    capture_complete: result.capture_complete,
+    capture_incomplete_reason: result.capture_incomplete_reason,
+    cleanup_incomplete: result.cleanup_incomplete === true,
+    owned_process: result.owned_process,
     stdout: {
       bytes: result.stdout.bytes,
       retained_bytes: result.stdout.retained_bytes,
@@ -1150,6 +1881,8 @@ export async function runDiagnosticControlPhase(
     home: string
     out: string
     deadline: DiagnosticDeadline
+    timeoutMs?: number
+    outputLimit?: number
   },
   debuggerForTarget: (
     target: string,
@@ -1159,8 +1892,8 @@ export async function runDiagnosticControlPhase(
   const controls = await runMandatoryControls(input.bare, input.probe, {
     cwd: input.cwd,
     home: input.home,
-    timeoutMs: DIRECT_TIMEOUT_MS,
-    outputLimit: DIRECT_OUTPUT_BYTES,
+    timeoutMs: input.timeoutMs ?? DIRECT_TIMEOUT_MS,
+    outputLimit: input.outputLimit ?? DIRECT_OUTPUT_BYTES,
     deadline: input.deadline,
   })
   const missingEvidence: string[] = []
