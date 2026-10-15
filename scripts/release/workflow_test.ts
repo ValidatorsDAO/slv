@@ -61,9 +61,10 @@ function stepShell(section: string, name: string): string {
   assert(start >= 0, `missing workflow step ${name}`)
   const end = section.indexOf('\n      - ', start + 1)
   const step = section.slice(start, end === -1 ? undefined : end)
-  const match = step.match(/        run: \|\n((?:          .*\n?)*)/)
-  assert(match, `missing shell for ${name}`)
-  return match[1].replace(/^          /gm, '')
+  const marker = '        run: |\n'
+  const run = step.indexOf(marker)
+  assert(run >= 0, `missing shell for ${name}`)
+  return step.slice(run + marker.length).replace(/^          /gm, '')
 }
 
 async function runPrerequisiteShell(shell: string, needsJson: string) {
@@ -77,6 +78,62 @@ async function runPrerequisiteShell(shell: string, needsJson: string) {
     stdout: 'piped',
     stderr: 'piped',
   }).output()
+}
+
+async function runDiagnosticGuard(
+  shell: string,
+  env: Record<string, string>,
+) {
+  return await new Deno.Command('bash', {
+    args: ['-ceu', shell],
+    clearEnv: true,
+    env: {
+      PATH: Deno.env.get('PATH') ?? '',
+      ...env,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+}
+
+function jobIf(section: string): string | undefined {
+  return section.match(/^    if: (.+)$/m)?.[1]
+}
+
+function acquisitionController(workflow: string): string {
+  const shell = stepShell(
+    jobSection(workflow, 'source-native-diagnostic'),
+    'Acquire existing or frozen official Ubuntu gdb',
+  )
+  const start = shell.indexOf('# BEGIN BOUNDED_GDB_ACQUISITION_CONTROLLER')
+  const end = shell.indexOf('# END BOUNDED_GDB_ACQUISITION_CONTROLLER')
+  assert(start >= 0 && end > start, 'missing bounded acquisition controller')
+  return shell.slice(
+    start,
+    end + '# END BOUNDED_GDB_ACQUISITION_CONTROLLER'.length,
+  )
+}
+
+async function runAcquisitionHarness(
+  controller: string,
+  harness: string,
+) {
+  const directory = await Deno.makeTempDir({ prefix: 'slv-acquisition-test-' })
+  try {
+    const controllerPath = `${directory}/controller.py`
+    const harnessPath = `${directory}/harness.py`
+    await Deno.writeTextFile(controllerPath, controller)
+    await Deno.writeTextFile(harnessPath, harness)
+    return await new Deno.Command('python3', {
+      args: [harnessPath, controllerPath, directory],
+      clearEnv: true,
+      env: { PATH: Deno.env.get('PATH') ?? '' },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
 }
 
 function legacyOperationShell(workflow: string): string {
@@ -458,16 +515,12 @@ Deno.test('ARM merge restores the flattened execution receipt only through its e
 Deno.test('workflow keeps CI-only pull-request builds and permissions narrow', async () => {
   const workflow = await releaseWorkflow()
   const ciCondition =
-    "if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'"
+    "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'"
 
   assert(workflow.includes('permissions: {}'))
-  assertEquals(count(workflow, ciCondition), 11)
+  assertEquals(count(workflow, ciCondition), 13)
   assertEquals(count(workflow, 'id-token: write'), 1)
-  assert(
-    workflow.includes(
-      "if: needs.resolve.outputs.release_required == 'true'\n    runs-on: ubuntu-26.04\n    permissions:\n      attestations: write\n      artifact-metadata: write\n      id-token: write",
-    ),
-  )
+  assert(jobSection(workflow, 'attest').includes('id-token: write'))
   const legacyBootstrap = jobSection(workflow, 'legacy-bootstrap')
   const normalWorkflow = workflow.replace(legacyBootstrap, '')
   assert(!normalWorkflow.includes('secrets.'))
@@ -838,7 +891,7 @@ Deno.test('split native producers preserve the required facades and fail them cl
     const section = jobSection(workflow, job)
     assert(
       section.includes(
-        "if: ${{ !cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}",
+        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}",
       ),
     )
     assert(section.includes(`timeout-minutes: ${joinTimeout}`))
@@ -927,6 +980,805 @@ Deno.test('split native producers preserve the required facades and fail them cl
   assert(mac.includes('--phase merge'))
   assert(arm.includes('if: ${{ always() && !cancelled() }}'))
   assert(mac.includes('if: ${{ always() && !cancelled() }}'))
+})
+
+Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operation', async () => {
+  const workflow = await releaseWorkflow()
+  const diagnosticExclusion =
+    "!(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic')"
+  assert(
+    workflow.includes(
+      'source-native-diagnostic,\n        ]\n      reviewed_sha:',
+    ),
+  )
+  const expectedOldJobs = [
+    'legacy-bootstrap',
+    'resolve',
+    'test',
+    'build',
+    'source-materials',
+    'source-native-linux-x64',
+    'source-arm-baseline',
+    'source-arm-modified',
+    'source-macos-x64-baseline',
+    'source-macos-x64-modified',
+    'source-native-macos-x64',
+    'source-native-macos-arm64',
+    'source-arm-build',
+    'source-arm-execute',
+    'source-arm-merge',
+    'package',
+    'attest',
+    'activation-required',
+    'verify-existing',
+    'publish',
+  ]
+  const expectedJobs = [
+    ...expectedOldJobs.slice(0, 3),
+    'source-native-diagnostic',
+    ...expectedOldJobs.slice(3),
+  ]
+  const jobs = workflow.slice(workflow.indexOf('\njobs:\n'))
+  assertEquals(
+    [...jobs.matchAll(/^  ([a-z][a-z0-9-]*):\n/gm)].map((match) => match[1]),
+    expectedJobs,
+  )
+
+  const oldConditions: Array<readonly [string, string | undefined]> = [
+    [
+      'legacy-bootstrap',
+      "github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply')",
+    ],
+    [
+      'resolve',
+      "!(github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply'))",
+    ],
+    ['test', undefined],
+    [
+      'build',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-materials',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-native-linux-x64',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-arm-baseline',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-arm-modified',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-macos-x64-baseline',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-macos-x64-modified',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-native-macos-x64',
+      "!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')",
+    ],
+    [
+      'source-native-macos-arm64',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-arm-build',
+      "!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')",
+    ],
+    [
+      'source-arm-execute',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-arm-merge',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'package',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    ['attest', "needs.resolve.outputs.release_required == 'true'"],
+    [
+      'activation-required',
+      "needs.resolve.outputs.release_required == 'true'",
+    ],
+    ['verify-existing', "needs.resolve.outputs.publication == 'verify'"],
+    ['publish', "needs.resolve.outputs.release_required == 'true'"],
+  ]
+  for (const [job, oldCondition] of oldConditions) {
+    const section = jobSection(workflow, job)
+    assert(section.includes(diagnosticExclusion))
+    assertEquals(
+      jobIf(section),
+      oldCondition === undefined
+        ? '${{ ' + diagnosticExclusion + ' }}'
+        : '${{ ' + diagnosticExclusion + ' && (' + oldCondition + ') }}',
+    )
+  }
+
+  const diagnostic = jobSection(workflow, 'source-native-diagnostic')
+  assertEquals(
+    jobIf(diagnostic),
+    "github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic'",
+  )
+  assert(!/^    needs:/m.test(diagnostic))
+  assert(diagnostic.includes('runs-on: ubuntu-26.04-arm'))
+  assert(diagnostic.includes('timeout-minutes: 25'))
+  const permissions = diagnostic.slice(
+    diagnostic.indexOf('    permissions:'),
+    diagnostic.indexOf('    steps:'),
+  )
+  assertEquals(
+    permissions.trim(),
+    'permissions:\n      contents: read\n      actions: read',
+  )
+  assertEquals(count(workflow, 'actions: read'), 1)
+  assert(!diagnostic.includes('environment:'))
+  assert(!diagnostic.includes('secrets.'))
+  assert(!diagnostic.includes('outputs:'))
+  assert(!diagnostic.includes('native-proof.json'))
+  assert(!diagnostic.includes('release.ts'))
+
+  const guardName =
+    'Require the reviewed diagnostic revision before any acquisition'
+  const firstStep = diagnostic.indexOf('      - ')
+  assert(
+    diagnostic.slice(firstStep).startsWith(`      - name: ${guardName}\n`),
+  )
+  const guard = stepShell(diagnostic, guardName)
+  assert(guard.includes('set -euo pipefail'))
+  for (
+    const name of [
+      'EXPECTED_REVIEWED_SHA',
+      'ACTUAL_SHA',
+      'WORKFLOW_SHA',
+      'REPOSITORY',
+      'EVENT_NAME',
+      'OPERATION',
+      'REF',
+      'WORKFLOW_REF',
+    ]
+  ) assert(diagnostic.includes(name + ': ${{'))
+  assert(guard.includes('[[ "$EXPECTED_REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]'))
+  assert(guard.includes('test "$ACTUAL_SHA" = "$EXPECTED_REVIEWED_SHA"'))
+  assert(guard.includes('test "$WORKFLOW_SHA" = "$EXPECTED_REVIEWED_SHA"'))
+  assert(guard.includes('test "$REPOSITORY" = ValidatorsDAO/slv'))
+  assert(guard.includes('test "$EVENT_NAME" = workflow_dispatch'))
+  assert(guard.includes('test "$OPERATION" = source-native-diagnostic'))
+  assert(
+    guard.includes('test "$REF" = refs/heads/codex/slv-eu-oss-delivery'),
+  )
+  assert(
+    guard.includes(
+      'test "$WORKFLOW_REF" = ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/codex/slv-eu-oss-delivery',
+    ),
+  )
+
+  const reviewedSha = 'a'.repeat(40)
+  const validGuardEnv = {
+    EXPECTED_REVIEWED_SHA: reviewedSha,
+    ACTUAL_SHA: reviewedSha,
+    WORKFLOW_SHA: reviewedSha,
+    REPOSITORY: 'ValidatorsDAO/slv',
+    EVENT_NAME: 'workflow_dispatch',
+    OPERATION: 'source-native-diagnostic',
+    REF: 'refs/heads/codex/slv-eu-oss-delivery',
+    WORKFLOW_REF:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/codex/slv-eu-oss-delivery',
+  }
+  assert((await runDiagnosticGuard(guard, validGuardEnv)).success)
+  const missingSha: Record<string, string> = { ...validGuardEnv }
+  delete missingSha.EXPECTED_REVIEWED_SHA
+  for (
+    const control of [
+      missingSha,
+      { ...validGuardEnv, EXPECTED_REVIEWED_SHA: '' },
+      { ...validGuardEnv, EXPECTED_REVIEWED_SHA: 'A'.repeat(40) },
+      { ...validGuardEnv, EXPECTED_REVIEWED_SHA: 'a'.repeat(39) },
+      { ...validGuardEnv, ACTUAL_SHA: 'b'.repeat(40) },
+      { ...validGuardEnv, WORKFLOW_SHA: 'c'.repeat(40) },
+      { ...validGuardEnv, REPOSITORY: 'ValidatorsDAO/not-slv' },
+      { ...validGuardEnv, EVENT_NAME: 'push' },
+      { ...validGuardEnv, OPERATION: 'release' },
+      { ...validGuardEnv, REF: 'refs/heads/main' },
+      { ...validGuardEnv, WORKFLOW_REF: 'ValidatorsDAO/slv/other' },
+    ]
+  ) assert(!(await runDiagnosticGuard(guard, control)).success)
+  const canaryDirectory = await Deno.makeTempDir({
+    prefix: 'slv-diagnostic-guard-',
+  })
+  const canary = `${canaryDirectory}/unexpected-shell-expansion`
+  assert(
+    !(await runDiagnosticGuard(guard, {
+      ...validGuardEnv,
+      EXPECTED_REVIEWED_SHA: `${reviewedSha}; touch ${canary}`,
+    })).success,
+  )
+  assertEquals(
+    await Deno.stat(canary).then(() => true).catch(() => false),
+    false,
+  )
+  await Deno.remove(canaryDirectory, { recursive: true })
+
+  const checkout = diagnostic.indexOf(
+    'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
+  )
+  const contextName = 'Bind the diagnostic context to the checked-out revision'
+  const context = stepShell(diagnostic, contextName)
+  const download = diagnostic.indexOf(
+    'Download the fixed ARM diagnostic artifact',
+  )
+  assert(checkout > diagnostic.indexOf(guardName))
+  assert(diagnostic.includes('ref: ${{ github.sha }}'))
+  assert(diagnostic.includes('fetch-depth: 1'))
+  assert(diagnostic.includes('persist-credentials: false'))
+  assert(
+    diagnostic.includes(
+      'denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443',
+    ),
+  )
+  assert(diagnostic.includes('deno-version: v2.9.3'))
+  assert(diagnostic.indexOf(contextName) > checkout)
+  assert(download > diagnostic.indexOf(contextName))
+  assert(context.includes('actual_head="$(git rev-parse HEAD)"'))
+  assert(context.includes('test "$actual_head" = "$REVIEWED_SHA"'))
+  assert(context.includes('test "$ACTUAL_SHA" = "$REVIEWED_SHA"'))
+  assert(context.includes('test "$WORKFLOW_SHA" = "$REVIEWED_SHA"'))
+  assert(context.includes('[[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]'))
+  assert(context.includes('[[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]'))
+  assert(
+    context.includes(
+      'mkdir "$RUNNER_TEMP/arm-diagnostic-input" "$RUNNER_TEMP/arm-diagnostic-output" "$RUNNER_TEMP/arm-diagnostic-acquisition" "$RUNNER_TEMP/arm-diagnostic-acquisition-work"',
+    ),
+  )
+  for (
+    const key of [
+      'schema_version: 1',
+      'kind: "slv-native-diagnostic-context"',
+      'repository: $repository',
+      'workflow_ref: $workflow_ref',
+      'workflow_sha: $workflow_sha',
+      'diagnostic_source_commit: $diagnostic_source_commit',
+      'run_id: $run_id',
+      'run_attempt: $run_attempt',
+    ]
+  ) assert(context.includes(key))
+  assert(diagnostic.includes('timeout-minutes: 5'))
+  assert(diagnostic.includes('repository: ValidatorsDAO/slv'))
+  assert(diagnostic.includes('run-id: 38628703267'))
+  assert(diagnostic.includes('artifact-ids: 11935008486'))
+  assert(diagnostic.includes('github-token: ${{ github.token }}'))
+  assert(diagnostic.includes('merge-multiple: true'))
+  assert(diagnostic.includes('path: ${{ runner.temp }}/arm-diagnostic-input'))
+  const downloadStep = diagnostic.slice(
+    download,
+    diagnostic.indexOf(
+      '      - name: Acquire existing or frozen official Ubuntu gdb',
+    ),
+  )
+  assert(!downloadStep.includes('name:'))
+  assert(!downloadStep.includes('pattern:'))
+  assert(!downloadStep.includes('latest:'))
+
+  const helper = stepShell(diagnostic, 'Run bounded ARM native diagnostic')
+  assert(diagnostic.includes('id: run_native_diagnostic'))
+  assert(
+    diagnostic.includes(
+      "if: steps.acquire-debugger.outputs.runtime_unchanged == 'true'",
+    ),
+  )
+  assert(diagnostic.includes('timeout-minutes: 13'))
+  assert(
+    helper.includes(
+      'deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/diagnose-native.ts --artifact-root "$RUNNER_TEMP/arm-diagnostic-input" --out "$RUNNER_TEMP/arm-diagnostic-output" --diagnostic-context "$RUNNER_TEMP/arm-diagnostic-context.json" --reviewed-sha "$REVIEWED_SHA"',
+    ),
+  )
+  assert(!helper.includes('--allow-net'))
+  assert(!helper.includes('continue-on-error'))
+  assert(!helper.includes('|| true'))
+  assert(!helper.includes('set +e'))
+  const fakeToolDirectory = await Deno.makeTempDir({
+    prefix: 'slv-diagnostic-helper-',
+  })
+  const fakeDeno = `${fakeToolDirectory}/deno`
+  await Deno.writeTextFile(fakeDeno, '#!/bin/sh\nexit 73\n')
+  await Deno.chmod(fakeDeno, 0o755)
+  const helperFailure = await new Deno.Command('bash', {
+    args: ['-ceu', helper],
+    clearEnv: true,
+    env: {
+      PATH: `${fakeToolDirectory}:${Deno.env.get('PATH') ?? ''}`,
+      RUNNER_TEMP: fakeToolDirectory,
+      REVIEWED_SHA: reviewedSha,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  assert(!helperFailure.success)
+  assertEquals(helperFailure.code, 73)
+  await Deno.remove(fakeToolDirectory, { recursive: true })
+
+  const upload = diagnostic.slice(
+    diagnostic.indexOf('Persist bounded ARM diagnostic evidence'),
+  )
+  assert(upload.includes('if: ${{ always() && !cancelled() }}'))
+  assert(upload.includes('timeout-minutes: 3'))
+  assert(
+    upload.includes(
+      'name: slv-arm-runtime-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}',
+    ),
+  )
+  assert(upload.includes('path: |'))
+  assert(upload.includes('${{ runner.temp }}/arm-diagnostic-output'))
+  assert(upload.includes('${{ runner.temp }}/arm-diagnostic-acquisition'))
+  assert(upload.includes('if-no-files-found: warn'))
+  assert(upload.includes('retention-days: 7'))
+  assert(!upload.includes('arm-diagnostic-input'))
+  assert(!upload.includes('arm-diagnostic-acquisition-work'))
+})
+
+Deno.test('bounded GDB acquisition uses the extracted frozen controller and fails closed', async () => {
+  const workflow = await releaseWorkflow()
+  const diagnostic = jobSection(workflow, 'source-native-diagnostic')
+  const acquisition = stepShell(
+    diagnostic,
+    'Acquire existing or frozen official Ubuntu gdb',
+  )
+  const controller = acquisitionController(workflow)
+  assert(diagnostic.includes('id: acquire-debugger'))
+  assert(diagnostic.includes('timeout-minutes: 3'))
+  assert(
+    acquisition.indexOf('validateStoredArtifact') <
+      acquisition.indexOf('python3 -'),
+  )
+  assert(acquisition.includes('deno run --frozen --allow-read'))
+  assert(acquisition.includes('source-rebuild/diagnose-native.ts'))
+  assert(!acquisition.includes('arm-diagnostic-output'))
+  assert(controller.includes("INTERPRETER = '/lib/ld-linux-aarch64.so.1'"))
+  assert(controller.includes("['/usr/bin/readelf', '-l'"))
+  assert(controller.includes("[interpreter, '--list', program['path']]"))
+  assert(!controller.includes('ldd'))
+  assert(controller.includes("['sudo', '-n', *wrapped]"))
+  assert(controller.includes("['/usr/bin/dpkg', '--install', '--', *debs]"))
+  assert(
+    controller.includes(
+      "'--simulate', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', 'gdb'",
+    ),
+  )
+  assert(
+    controller.includes(
+      "'--download-only', '--yes', '--no-install-recommends', '--no-upgrade', '--no-remove'",
+    ),
+  )
+  assert(!controller.includes('dist-upgrade'))
+  assert(!controller.includes('autoremove'))
+  assert(!controller.includes('apt-key'))
+  assert(!controller.includes('curl'))
+  assert(!controller.includes('sysctl'))
+  assert(controller.includes('AUDIT_RESERVE_SECONDS = 20'))
+  assert(controller.includes('AUTHORITATIVE_OUTPUT_LIMIT = 512 * 1024'))
+  assert(
+    controller.includes(
+      "FINAL_AUDIT_PHASES = frozenset({'postimage-audit', 'postimage-keyring'})",
+    ),
+  )
+  assert(controller.includes("destination = self.work / 'selected.list'"))
+  assert(!controller.includes('selected.sources'))
+  assert(controller.includes("'/usr/bin/timeout', '--kill-after=2s'"))
+  assert(controller.includes('selector = selectors.DefaultSelector()'))
+  assert(controller.includes('block = os.read(descriptor, 8192)'))
+  assert(!controller.includes('threading.Thread'))
+  assert(!controller.includes('stream.close()'))
+  assert(
+    controller.indexOf("second = self.require(['/usr/bin/apt-get'") <
+      controller.indexOf("installed = self.run(['/usr/bin/dpkg'"),
+  )
+  assert(
+    controller.indexOf("preinstall = self.measure('preinstall-audit')") <
+        controller.lastIndexOf('debs = self.inspect_debs(metadata)') &&
+      controller.lastIndexOf('debs = self.inspect_debs(metadata)') <
+        controller.indexOf("installed = self.run(['/usr/bin/dpkg'"),
+  )
+  assert(controller.includes('if not set(additions).issubset(planned)'))
+  assert(
+    controller.includes(
+      "additions[key].get('version') != planned[key]['version']",
+    ),
+  )
+  assert(
+    controller.includes(
+      "additions[key].get('architecture') != planned[key]['architecture']",
+    ),
+  )
+  assert(controller.includes('def plan_is_installed(self, postimage):'))
+  assert(
+    diagnostic.includes(
+      "if: steps.acquire-debugger.outputs.runtime_unchanged == 'true'",
+    ),
+  )
+  assert(
+    diagnostic.includes('Finalize bounded ARM acquisition evidence'),
+  )
+  const finalizer = stepShell(
+    diagnostic,
+    'Finalize bounded ARM acquisition evidence',
+  )
+  assert(
+    diagnostic.includes(
+      'Finalize bounded ARM acquisition evidence\n        if: ${{ always() && !cancelled() }}\n        timeout-minutes: 1',
+    ),
+  )
+  assert(finalizer.includes('ACQUISITION_OUTCOME'))
+  assert(finalizer.includes('HELPER_OUTCOME'))
+  assert(!finalizer.includes('arm-diagnostic-output'))
+
+  const harness = String.raw`
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+spec = importlib.util.spec_from_file_location('bounded_controller', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+root = Path(sys.argv[2])
+
+def controller():
+    return object.__new__(module.Controller)
+
+def expect_reject(action):
+    try:
+        action()
+    except module.AcquisitionError:
+        return
+    raise AssertionError('expected extracted controller rejection')
+
+inventory_text = (
+    'base:arm64\tarm64\t1\tii \n'
+    'held:arm64\tarm64\t2\thi \n'
+    'obsolete:arm64\tarm64\t3\trc \n'
+)
+packages = controller()
+packages.require = lambda *args, **kwargs: SimpleNamespace(stdout=inventory_text.encode())
+inventory = module.Controller.package_inventory(packages, 'fixture')
+assert set(inventory['installed']) == {'base:arm64', 'held:arm64'}
+assert set(inventory['residual']) == {'obsolete:arm64'}
+broken = controller()
+broken.require = lambda *args, **kwargs: SimpleNamespace(stdout=b'base:arm64\tarm64\t1\tiU \n')
+expect_reject(lambda: module.Controller.package_inventory(broken, 'fixture'))
+
+def runnable(label):
+    item = controller()
+    item.evidence = module.Retention(root / label)
+    item.deadline = time.monotonic() + 20
+    item.child_env = {**module.SAFE_ENV}
+    item.commands = []
+    return item
+
+large_runner = runnable('large-authority')
+large_result = module.Controller.run(
+    large_runner,
+    ['/usr/bin/python3', '-c', "import sys; [sys.stdout.write(f'pkg{n}:arm64\\tarm64\\t1\\tii \\n') for n in range(6000)]"],
+    'postimage-audit',
+    5,
+)
+assert large_result.stdout_bytes > module.COMMAND_LOG_LIMIT
+assert large_result.stdout_complete and large_result.capture_complete
+large_packages = controller()
+large_packages.require = lambda *args, **kwargs: large_result
+assert len(module.Controller.package_inventory(large_packages, 'fixture')['installed']) == 6000
+complete_line = large_result.stdout.rsplit(b'\n', 2)[0] + b'\n'
+truncated = module.Result(
+    0, False, complete_line, b'', large_result.stdout_bytes,
+    0, False, True, True,
+)
+truncated_packages = controller()
+truncated_packages.require = lambda *args, **kwargs: truncated
+expect_reject(lambda: module.Controller.package_inventory(truncated_packages, 'fixture'))
+
+solver = '\n'.join([
+    'Inst libextra (1.0 Ubuntu:24.04/noble [arm64])',
+    'Inst gdb (15.0 Ubuntu:24.04/noble [arm64])',
+    'Conf libextra (1.0 Ubuntu:24.04/noble [arm64])',
+    'Conf gdb (15.0 Ubuntu:24.04/noble [arm64])',
+    '0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.',
+])
+solver_controller = controller()
+plan = module.Controller.parse_solver(solver_controller, solver, inventory['installed'])
+assert [item['package'] for item in plan] == ['gdb:arm64', 'libextra:arm64']
+expect_reject(lambda: module.Controller.parse_solver(solver_controller, solver.replace('Inst libextra', 'Inst base:arm64 [1]'), inventory['installed']))
+expect_reject(lambda: module.Controller.parse_solver(solver_controller, solver + '\nRemv base:arm64', inventory['installed']))
+expect_reject(lambda: module.Controller.parse_solver(solver_controller, solver.replace('Conf gdb', 'Conf base:arm64'), inventory['installed']))
+expect_reject(lambda: module.Controller.parse_solver(solver_controller, solver.replace('0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.', '1 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.'), inventory['installed']))
+
+metadata = (
+    'Package: gdb\nVersion: 15.0\nArchitecture: arm64\n'
+    'Filename: pool/main/g/gdb/gdb.deb\nSize: 3\n'
+    'SHA256: ' + 'a' * 64 + '\n'
+)
+metadata_controller = controller()
+metadata_controller.require = lambda *args, **kwargs: SimpleNamespace(stdout=metadata.encode())
+gdb_plan = [item for item in plan if item['package'] == 'gdb:arm64']
+frozen = module.Controller.metadata_for_plan(metadata_controller, [], gdb_plan)
+assert frozen[0]['filename'] == 'pool/main/g/gdb/gdb.deb'
+metadata_controller.require = lambda *args, **kwargs: SimpleNamespace(stdout=(metadata + '\n' + metadata).encode())
+expect_reject(lambda: module.Controller.metadata_for_plan(metadata_controller, [], gdb_plan))
+
+uri_controller = controller()
+uri_controller.source_records = [{'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'noble', 'components': ['main'], 'architectures': 'arm64'}]
+uris = module.Controller.parse_print_uris(uri_controller, "'http://ports.ubuntu.com/ubuntu-ports/pool/main/g/gdb/gdb.deb' gdb.deb 3 SHA256:ignored", frozen)
+assert uris['gdb.deb']['size'] == 3
+expect_reject(lambda: module.Controller.parse_print_uris(uri_controller, "'https://example.invalid/gdb.deb' gdb.deb 3 SHA256:ignored", frozen))
+
+with tempfile.TemporaryDirectory(dir=root) as temporary:
+    source_writer = controller()
+    source_writer.work = Path(temporary)
+    source_writer.keyring_identity = lambda *args, **kwargs: {'path': module.KEYRING, 'sha256': 'a' * 64, 'size': 1, 'owner': 'ubuntu-keyring:arm64', 'owner_tuple': {}}
+    source_file = module.Controller.write_private_sources(source_writer, uri_controller.source_records, inventory)
+    assert source_file.name == 'selected.list'
+    assert source_file.read_text().startswith('deb [signed-by=')
+    parser = subprocess.run(
+        ['/usr/bin/apt-cache', '-o', f'Dir::Etc::sourcelist={source_file}', '-o', 'Dir::Etc::sourceparts=-', 'policy'],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=module.SAFE_ENV,
+        timeout=5,
+    )
+    assert parser.returncode == 0, parser.stderr.decode('utf-8', 'replace')
+
+with tempfile.TemporaryDirectory(dir=root) as temporary:
+    work = Path(temporary)
+    archives = work / 'archives'
+    archives.mkdir()
+    deb = archives / 'gdb.deb'
+    deb.write_bytes(b'abc')
+    deb_metadata = [{**frozen[0], 'filename': 'pool/main/g/gdb/gdb.deb', 'size': 3, 'sha256': module.sha_file(deb)}]
+    deb_controller = controller()
+    deb_controller.work = work
+    deb_controller.require = lambda *args, **kwargs: SimpleNamespace(stdout=b'Package: gdb\nVersion: 15.0\nArchitecture: arm64\n')
+    assert module.Controller.inspect_debs(deb_controller, deb_metadata) == [str(deb.resolve())]
+    (archives / 'unexpected.deb').write_bytes(b'x')
+    expect_reject(lambda: module.Controller.inspect_debs(deb_controller, deb_metadata))
+    (archives / 'unexpected.deb').unlink()
+    deb.write_bytes(b'changed')
+    expect_reject(lambda: module.Controller.inspect_debs(deb_controller, deb_metadata))
+
+preimage = {'packages': inventory, 'runtime': {'runtime': 'stable'}, 'runtime_sha256': 'runtime'}
+comparison = controller()
+assert module.Controller.compare_postimage(comparison, preimage, preimage, [])
+changed_residual = json.loads(json.dumps(preimage))
+changed_residual['packages']['residual']['obsolete:arm64']['version'] = '4'
+assert not module.Controller.compare_postimage(comparison, preimage, changed_residual, [])
+changed_package = json.loads(json.dumps(preimage))
+changed_package['packages']['installed']['base:arm64']['version'] = '2'
+assert not module.Controller.compare_postimage(comparison, preimage, changed_package, [])
+changed_runtime = json.loads(json.dumps(preimage))
+changed_runtime['runtime'] = {'runtime': 'drift'}
+assert not module.Controller.compare_postimage(comparison, preimage, changed_runtime, [])
+planned_gdb = {'package': 'gdb:arm64', 'version': '15.0', 'architecture': 'arm64'}
+planned_extra = {'package': 'libextra:arm64', 'version': '1.0', 'architecture': 'arm64'}
+assert module.Controller.compare_postimage(comparison, preimage, preimage, [planned_gdb, planned_extra])
+post_with_gdb = json.loads(json.dumps(preimage))
+post_with_gdb['packages']['installed']['gdb:arm64'] = {'package': 'gdb:arm64', 'architecture': 'arm64', 'version': '15.0', 'status': 'ii '}
+assert module.Controller.compare_postimage(comparison, preimage, post_with_gdb, [planned_gdb, planned_extra])
+wrong_version_post = json.loads(json.dumps(post_with_gdb))
+wrong_version_post['packages']['installed']['gdb:arm64']['version'] = '99.0'
+assert not module.Controller.compare_postimage(comparison, preimage, wrong_version_post, [planned_gdb, planned_extra])
+wrong_architecture_post = json.loads(json.dumps(post_with_gdb))
+wrong_architecture_post['packages']['installed']['gdb:arm64']['architecture'] = 'amd64'
+assert not module.Controller.compare_postimage(comparison, preimage, wrong_architecture_post, [planned_gdb, planned_extra])
+wrong_both_post = json.loads(json.dumps(wrong_version_post))
+wrong_both_post['packages']['installed']['gdb:arm64']['architecture'] = 'amd64'
+assert not module.Controller.compare_postimage(comparison, preimage, wrong_both_post, [planned_gdb, planned_extra])
+dirty_addition_post = json.loads(json.dumps(post_with_gdb))
+dirty_addition_post['packages']['installed']['gdb:arm64']['status'] = 'iU '
+assert not module.Controller.compare_postimage(comparison, preimage, dirty_addition_post, [planned_gdb, planned_extra])
+comparison.plan = [planned_gdb, planned_extra]
+assert not module.Controller.plan_is_installed(comparison, post_with_gdb)
+partial_post = json.loads(json.dumps(post_with_gdb))
+post_with_gdb['packages']['installed']['unplanned:arm64'] = {'package': 'unplanned:arm64', 'architecture': 'arm64', 'version': '1', 'status': 'ii '}
+assert not module.Controller.compare_postimage(comparison, preimage, post_with_gdb, [planned_gdb, planned_extra])
+
+with tempfile.TemporaryDirectory(dir=root) as temporary:
+    mutation_work = Path(temporary)
+    mutation_archives = mutation_work / 'archives'
+    mutation_archives.mkdir()
+    mutation_deb = mutation_archives / 'gdb.deb'
+    mutation_deb.write_bytes(b'abc')
+    mutation_metadata = [{
+        'package': 'gdb:arm64', 'version': '15.0', 'architecture': 'arm64',
+        'filename': 'pool/main/g/gdb/gdb.deb', 'size': 3,
+        'sha256': module.sha_file(mutation_deb),
+    }]
+    mutation = controller()
+    mutation.evidence = module.Retention(mutation_work / 'evidence')
+    mutation.work = mutation_work
+    mutation.preimage = None
+    mutation.plan = []
+    mutation.source_records = []
+    mutation.keyring = None
+    mutation.post_sources = None
+    mutation.post_keyring = None
+    mutation.status = 'initializing'
+    mutation.reason = None
+    mutation.gdb = None
+    mutation.image_identity = lambda: {'image': 'ubuntu'}
+    def mutation_measure(phase):
+        if phase == 'preinstall-audit':
+            mutation_deb.write_bytes(b'XYZ')
+        return preimage
+    mutation.measure = mutation_measure
+    mutation.trusted_gdb = lambda: None
+    mutation.select_sources = lambda: [{'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'noble', 'components': ['main'], 'architectures': 'arm64'}]
+    mutation.write_private_sources = lambda *args: mutation_work / 'selected.list'
+    mutation.apt_options = lambda *args: []
+    mutation.parse_solver = lambda *args: [planned_gdb]
+    mutation.metadata_for_plan = lambda *args: mutation_metadata
+    mutation.parse_print_uris = lambda *args: {}
+    def mutation_require(command, *args, **kwargs):
+        if command[0] == '/usr/bin/dpkg-deb':
+            return SimpleNamespace(stdout=b'Package: gdb\nVersion: 15.0\nArchitecture: arm64\n')
+        return SimpleNamespace(stdout=b'')
+    mutation.require = mutation_require
+    mutation.run = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('mutated frozen deb reached dpkg install'))
+    expect_reject(lambda: module.Controller.execute(mutation))
+
+declined = controller()
+declined.evidence = module.Retention(root / 'declined-evidence')
+declined.github_output = root / 'declined-output'
+declined.commands = []
+declined.phase = 'initializing'
+declined.plan = []
+declined.source_records = []
+declined.keyring = None
+declined.post_sources = None
+declined.post_keyring = None
+declined.preimage = None
+declined.postimage = None
+declined.status = 'initializing'
+declined.reason = None
+declined.gdb = None
+declined.image_identity = lambda: {'image': 'ubuntu'}
+declined.measure = lambda phase: preimage
+declined.trusted_gdb = lambda: None
+declined.select_sources = lambda: [{'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'noble', 'components': ['main'], 'architectures': 'arm64'}]
+def remember_sources(sources, packages):
+    declined.source_records = sources
+    return root / 'declined.list'
+declined.write_private_sources = remember_sources
+declined.apt_options = lambda *args: []
+declined.require = lambda *args, **kwargs: SimpleNamespace(stdout=b'')
+declined.parse_solver = lambda *args: [planned_gdb, planned_extra]
+declined.metadata_for_plan = lambda *args: (_ for _ in ()).throw(module.AcquisitionError('metadata unavailable'))
+try:
+    module.Controller.execute(declined)
+except module.AcquisitionError as error:
+    declined.reason = str(error)
+    declined.status = 'acquisition-declined-or-incomplete'
+assert module.Controller.finish(declined) == 0
+assert 'runtime_unchanged=true' in declined.github_output.read_text()
+
+tree = runnable('descendant-pipes')
+started = time.monotonic()
+descendant = module.Controller.run(tree, ['/bin/sh', '-c', '(sleep 30) & exit 0'], 'postimage-audit', 1)
+assert time.monotonic() - started < 4
+assert not descendant.capture_complete
+detached_pid_file = root / 'detached-pipe-holder.pid'
+detached_parent = "import subprocess,sys; child=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(6)'], start_new_session=True); open(sys.argv[1], 'w').write(str(child.pid))"
+detached_runner = runnable('detached-descendant-pipes')
+detached_pid = None
+try:
+    started = time.monotonic()
+    detached = module.Controller.run(detached_runner, ['/usr/bin/python3', '-c', detached_parent, str(detached_pid_file)], 'postimage-audit', 1)
+    elapsed = time.monotonic() - started
+    detached_pid = int(detached_pid_file.read_text())
+    os.kill(detached_pid, 0)
+    assert elapsed < 3
+    assert not detached.capture_complete
+    assert not detached.stdout_complete and not detached.stderr_complete
+    after_detached = module.Controller.run(detached_runner, ['/usr/bin/true'], 'postimage-keyring', 1)
+    assert after_detached.code == 0 and after_detached.capture_complete
+finally:
+    if detached_pid is not None:
+        try:
+            os.kill(detached_pid, module.signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+terminating = runnable('timeout-tree')
+started = time.monotonic()
+timeout_result = module.Controller.run(terminating, ['/bin/sh', '-c', 'trap "" TERM; while :; do sleep 1; done'], 'postimage-audit', 1)
+assert time.monotonic() - started < 6
+assert timeout_result.timed_out
+final_budget = runnable('final-audit-budget')
+final_budget.deadline = time.monotonic() + 0.5
+final_result = module.Controller.run(final_budget, ['/usr/bin/true'], 'postimage-keyring', 1)
+assert final_result.code == 0 and final_result.capture_complete
+
+class Evidence:
+    def write_json(self, *args, **kwargs):
+        pass
+
+present = controller()
+present.evidence = Evidence()
+present.image_identity = lambda: {'image': 'ubuntu'}
+present.measure = lambda phase: preimage
+present.trusted_gdb = lambda: '/usr/bin/gdb'
+present.select_sources = lambda: (_ for _ in ()).throw(AssertionError('existing gdb must not invoke apt source selection'))
+present.status = 'initializing'
+present.preimage = None
+present.gdb = None
+module.Controller.execute(present)
+assert present.status == 'gdb-already-present'
+assert present.gdb == '/usr/bin/gdb'
+
+def finished(post, fail=False):
+    item = controller()
+    item.evidence = module.Retention(root / ('evidence-fail' if fail else 'evidence-ok'))
+    item.github_output = root / ('output-fail' if fail else 'output-ok')
+    item.preimage = preimage
+    item.postimage = None
+    item.plan = []
+    item.status = 'acquisition-unavailable'
+    item.reason = None
+    item.commands = []
+    item.phase = 'postimage-audit'
+    item.source_records = []
+    item.keyring = None
+    item.post_sources = None
+    item.post_keyring = None
+    item.trusted_gdb = lambda: None
+    if fail:
+        def unavailable(phase):
+            raise module.AcquisitionError('postimage timeout')
+        item.measure = unavailable
+    else:
+        item.measure = lambda phase: post
+    return item
+
+safe = finished(preimage)
+assert module.Controller.finish(safe) == 0
+assert 'runtime_unchanged=true' in safe.github_output.read_text()
+for label, postimage in [('wrong-version', wrong_version_post), ('wrong-architecture', wrong_architecture_post)]:
+    rejected = finished(postimage)
+    rejected.github_output = root / f'{label}-output'
+    rejected.plan = [planned_gdb, planned_extra]
+    assert module.Controller.finish(rejected) == 1
+    assert 'runtime_unchanged=false' in rejected.github_output.read_text()
+partial_install = finished(partial_post)
+partial_install.plan = [planned_gdb, planned_extra]
+partial_install.status = 'gdb-installed'
+partial_install.trusted_gdb = lambda: '/usr/bin/gdb'
+assert module.Controller.finish(partial_install) == 0
+assert partial_install.status == 'installation-incomplete'
+assert 'runtime_unchanged=true' in partial_install.github_output.read_text()
+unknown = finished(preimage, fail=True)
+assert module.Controller.finish(unknown) == 1
+assert 'runtime_unchanged=false' in unknown.github_output.read_text()
+assert 'controls_not_run' in (root / 'evidence-fail' / 'acquisition-summary.json').read_text()
+print('extracted acquisition controls passed')
+`
+  const result = await runAcquisitionHarness(controller, harness)
+  assert(result.success, new TextDecoder().decode(result.stderr))
+  assertEquals(
+    new TextDecoder().decode(result.stdout).trim(),
+    'extracted acquisition controls passed',
+  )
 })
 
 async function sha256(text: string): Promise<string> {

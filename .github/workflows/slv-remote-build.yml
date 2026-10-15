@@ -13,11 +13,20 @@ on:
         required: true
         type: string
       operation:
-        description: Normal release flow, or the explicitly reviewed legacy-bootstrap transition mode
+        description: Normal release flow, the explicitly reviewed legacy-bootstrap transition mode, or the bounded native diagnostic
         required: false
         default: release
         type: choice
-        options: [release, legacy-bootstrap-preflight, legacy-bootstrap-apply]
+        options: [
+          release,
+          legacy-bootstrap-preflight,
+          legacy-bootstrap-apply,
+          source-native-diagnostic,
+        ]
+      reviewed_sha:
+        description: Exact reviewed commit for the bounded native diagnostic
+        required: false
+        type: string
       source_sha:
         description: Reviewed immutable release source commit for a legacy-bootstrap operation
         required: false
@@ -39,7 +48,7 @@ concurrency:
 
 jobs:
   legacy-bootstrap:
-    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply')
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     environment: release
@@ -91,7 +100,7 @@ jobs:
           retention-days: 7
 
   resolve:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply')) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!(github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply'))) }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -128,6 +137,7 @@ jobs:
 
   test:
     needs: resolve
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -191,6 +201,916 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  source-native-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic'
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require the reviewed diagnostic revision before any acquisition
+        env:
+          EXPECTED_REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          OPERATION: ${{ inputs.operation }}
+          REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$ACTUAL_SHA" = "$EXPECTED_REVIEWED_SHA"
+          test "$WORKFLOW_SHA" = "$EXPECTED_REVIEWED_SHA"
+          test "$REPOSITORY" = ValidatorsDAO/slv
+          test "$EVENT_NAME" = workflow_dispatch
+          test "$OPERATION" = source-native-diagnostic
+          test "$REF" = refs/heads/codex/slv-eu-oss-delivery
+          test "$WORKFLOW_REF" = ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/codex/slv-eu-oss-delivery
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Bind the diagnostic context to the checked-out revision
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$REVIEWED_SHA"
+          test "$ACTUAL_SHA" = "$REVIEWED_SHA"
+          test "$WORKFLOW_SHA" = "$REVIEWED_SHA"
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          mkdir "$RUNNER_TEMP/arm-diagnostic-input" "$RUNNER_TEMP/arm-diagnostic-output" "$RUNNER_TEMP/arm-diagnostic-acquisition" "$RUNNER_TEMP/arm-diagnostic-acquisition-work"
+          jq -n \
+            --arg repository "$REPOSITORY" \
+            --arg workflow_ref "$WORKFLOW_REF" \
+            --arg workflow_sha "$WORKFLOW_SHA" \
+            --arg diagnostic_source_commit "$actual_head" \
+            --arg run_id "$RUN_ID" \
+            --arg run_attempt "$RUN_ATTEMPT" \
+            '{schema_version: 1, kind: "slv-native-diagnostic-context", repository: $repository, workflow_ref: $workflow_ref, workflow_sha: $workflow_sha, diagnostic_source_commit: $diagnostic_source_commit, run_id: $run_id, run_attempt: $run_attempt}' \
+            > "$RUNNER_TEMP/arm-diagnostic-context.json"
+      - name: Download the fixed ARM diagnostic artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        timeout-minutes: 5
+        with:
+          repository: ValidatorsDAO/slv
+          run-id: 38628703267
+          artifact-ids: 11935008486
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/arm-diagnostic-input
+      - name: Acquire existing or frozen official Ubuntu gdb
+        id: acquire-debugger
+        timeout-minutes: 3
+        env:
+          CHECKOUT_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          case "$CHECKOUT_ROOT" in /*) ;; *) exit 64 ;; esac
+          acquisition_deadline_epoch="$(( $(/bin/date +%s) + 180 ))"
+          validator_module="$RUNNER_TEMP/arm-diagnostic-acquisition-work/validate-stored-artifact.ts"
+          cat > "$validator_module" <<'DENO'
+          import { pathToFileURL } from 'node:url'
+
+          const [modulePath, artifactRoot] = Deno.args
+          if (!modulePath.startsWith('/')) throw new Error('validator must be an absolute reviewed checkout path')
+          const { validateStoredArtifact } = await import(pathToFileURL(modulePath).href)
+          const artifact = await validateStoredArtifact(artifactRoot)
+          console.log(JSON.stringify({
+            denort: artifact.denort,
+            probe: artifact.probe,
+            denort_sha256: artifact.programMeasurements['baseline-denort'].sha256,
+            denort_size: artifact.programMeasurements['baseline-denort'].size,
+            probe_sha256: artifact.programMeasurements['baseline-probe'].sha256,
+            probe_size: artifact.programMeasurements['baseline-probe'].size,
+          }))
+          DENO
+          if /usr/bin/timeout --kill-after=2s 20s deno run --frozen --allow-read "$validator_module" "$CHECKOUT_ROOT/source-rebuild/diagnose-native.ts" "$RUNNER_TEMP/arm-diagnostic-input" > "$RUNNER_TEMP/arm-diagnostic-acquisition/validated-programs.json"; then
+            :
+          else
+            validator_status=$?
+            printf '%s\n' '{"schema_version":1,"kind":"slv-native-diagnostic-acquisition","stage":"stored-artifact-validation","status":"failed","runtime_unchanged":false,"controls_not_run":"stored-artifact-validation"}' > "$RUNNER_TEMP/arm-diagnostic-acquisition/acquisition-summary.json"
+            printf '%s\n' 'runtime_unchanged=false' >> "$GITHUB_OUTPUT"
+            exit "$validator_status"
+          fi
+          controller_seconds_remaining="$(( acquisition_deadline_epoch - $(/bin/date +%s) ))"
+          python3 - "$RUNNER_TEMP/arm-diagnostic-acquisition" "$RUNNER_TEMP/arm-diagnostic-acquisition-work" "$RUNNER_TEMP/arm-diagnostic-acquisition/validated-programs.json" "$GITHUB_OUTPUT" "$controller_seconds_remaining" <<'PY'
+          # BEGIN BOUNDED_GDB_ACQUISITION_CONTROLLER
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          import selectors
+          import signal
+          import stat
+          import subprocess
+          import sys
+          import time
+          from dataclasses import dataclass
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          RETAINED_LIMIT = 2 * 1024 * 1024
+          SUMMARY_RESERVE = 96 * 1024
+          COMMAND_LOG_LIMIT = 64 * 1024
+          AUTHORITATIVE_OUTPUT_LIMIT = 512 * 1024
+          DEADLINE_SECONDS = 180
+          AUDIT_RESERVE_SECONDS = 20
+          FINAL_AUDIT_PHASES = frozenset({'postimage-audit', 'postimage-keyring'})
+          INTERPRETER = '/lib/ld-linux-aarch64.so.1'
+          KEYRING = '/usr/share/keyrings/ubuntu-archive-keyring.gpg'
+          DPKG_QUERY_FORMAT = '${binary:Package}\t${Architecture}\t${Version}\t${db:Status-Abbrev}\n'
+          SAFE_ENV = {
+              'PATH': '/usr/sbin:/usr/bin:/sbin:/bin',
+              'LC_ALL': 'C',
+              'LANG': 'C.UTF-8',
+          }
+
+          class AcquisitionError(RuntimeError):
+              pass
+
+          class UnsafePostimage(AcquisitionError):
+              pass
+
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, separators=(',', ':'))
+
+          def sha_text(value):
+              return hashlib.sha256(value.encode()).hexdigest()
+
+          def sha_file(path):
+              digest = hashlib.sha256()
+              with open(path, 'rb') as source:
+                  for block in iter(lambda: source.read(1024 * 1024), b''):
+                      digest.update(block)
+              return digest.hexdigest()
+
+          def regular(path, label):
+              info = os.lstat(path)
+              if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+                  raise AcquisitionError(f'{label} is not a regular non-symlink file')
+              return info
+
+          class Retention:
+              def __init__(self, directory):
+                  self.directory = Path(directory)
+                  self.total = 0
+                  self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+              def _reserve(self, amount, terminal=False):
+                  limit = RETAINED_LIMIT if terminal else RETAINED_LIMIT - SUMMARY_RESERVE
+                  if amount < 0 or self.total + amount > limit:
+                      raise AcquisitionError('bounded acquisition evidence would exceed its retention limit')
+                  self.total += amount
+
+              def import_existing(self, name):
+                  path = self.directory / name
+                  self._reserve(path.stat().st_size)
+
+              def write_exact(self, name, data, terminal=False):
+                  if '/' in name or name.startswith('.'):
+                      raise AcquisitionError('unsafe acquisition evidence name')
+                  encoded = data if isinstance(data, bytes) else data.encode()
+                  self._reserve(len(encoded), terminal)
+                  (self.directory / name).write_bytes(encoded)
+
+              def write_json(self, name, value, terminal=False):
+                  self.write_exact(name, canonical(value) + '\n', terminal)
+
+          @dataclass
+          class Result:
+              code: int
+              timed_out: bool
+              stdout: bytes
+              stderr: bytes
+              stdout_bytes: int
+              stderr_bytes: int
+              stdout_complete: bool
+              stderr_complete: bool
+              capture_complete: bool
+
+          class Controller:
+              def __init__(self, evidence, work, validated, github_output, seconds_remaining=DEADLINE_SECONDS):
+                  self.evidence = Retention(evidence)
+                  self.work = Path(work)
+                  self.work.mkdir(mode=0o700, parents=True, exist_ok=True)
+                  self.work.chmod(0o700)
+                  self.home = self.work / 'home'
+                  self.home.mkdir(mode=0o700, exist_ok=True)
+                  self.child_env = {**SAFE_ENV, 'HOME': str(self.home)}
+                  self.validated = self.load_validated(validated)
+                  self.github_output = Path(github_output)
+                  if not isinstance(seconds_remaining, int) or seconds_remaining <= 0:
+                      raise AcquisitionError('acquisition budget exhausted during stored artifact validation')
+                  self.deadline = time.monotonic() + min(DEADLINE_SECONDS, seconds_remaining)
+                  self.commands = []
+                  self.phase = 'initializing'
+                  self.plan = []
+                  self.source_records = []
+                  self.keyring = None
+                  self.post_sources = None
+                  self.post_keyring = None
+                  self.preimage = None
+                  self.postimage = None
+                  self.status = 'acquisition-unavailable'
+                  self.reason = None
+                  self.gdb = None
+
+              def load_validated(self, path):
+                  self.evidence.import_existing('validated-programs.json')
+                  value = json.loads(Path(path).read_text())
+                  expected = {'denort', 'probe', 'denort_sha256', 'denort_size', 'probe_sha256', 'probe_size'}
+                  if set(value) != expected:
+                      raise AcquisitionError('stored artifact validator returned an unexpected program set')
+                  programs = []
+                  for name, prefix in [('baseline-denort', 'denort'), ('baseline-probe', 'probe')]:
+                      path_value = value[prefix]
+                      digest = value[f'{prefix}_sha256']
+                      size = value[f'{prefix}_size']
+                      if not isinstance(path_value, str) or not path_value.startswith('/'):
+                          raise AcquisitionError('validator returned a non-absolute program path')
+                      if not re.fullmatch(r'[a-f0-9]{64}', str(digest)) or not isinstance(size, int) or size <= 0:
+                          raise AcquisitionError('validator returned an invalid program identity')
+                      info = regular(path_value, name)
+                      if info.st_size != size or sha_file(path_value) != digest:
+                          raise AcquisitionError('validated program changed before loader inspection')
+                      programs.append({'name': name, 'path': path_value, 'sha256': digest, 'size': size})
+                  return programs
+
+              def remaining(self, reserve=0):
+                  return self.deadline - time.monotonic() - reserve
+
+              def run(self, command, phase, cap, privileged=False):
+                  remaining = self.remaining(0 if phase in FINAL_AUDIT_PHASES else AUDIT_RESERVE_SECONDS)
+                  if remaining <= 0:
+                      raise AcquisitionError('acquisition budget exhausted before final audit reserve')
+                  seconds = max(1, min(int(remaining), cap))
+                  wrapped = ['/usr/bin/timeout', '--kill-after=2s', f'{seconds}s', *command]
+                  if privileged:
+                      wrapped = ['sudo', '-n', *wrapped]
+                  process = subprocess.Popen(
+                      wrapped,
+                      stdin=subprocess.DEVNULL,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.PIPE,
+                      env=self.child_env,
+                      start_new_session=True,
+                      bufsize=0,
+                  )
+                  preview = {'stdout': bytearray(), 'stderr': bytearray()}
+                  authoritative = {'stdout': bytearray(), 'stderr': bytearray()}
+                  counted = {'stdout': 0, 'stderr': 0}
+                  stream_complete = {'stdout': False, 'stderr': False}
+                  stream_errors = {'stdout': None, 'stderr': None}
+                  selector = selectors.DefaultSelector()
+                  streams = {}
+                  for key, stream in [('stdout', process.stdout), ('stderr', process.stderr)]:
+                      descriptor = stream.fileno()
+                      os.set_blocking(descriptor, False)
+                      selector.register(descriptor, selectors.EVENT_READ, key)
+                      streams[descriptor] = key
+                  def drain(descriptor, key):
+                      try:
+                          block = os.read(descriptor, 8192)
+                          if not block:
+                              selector.unregister(descriptor)
+                              streams.pop(descriptor, None)
+                              stream_complete[key] = True
+                              return
+                          counted[key] += len(block)
+                          if len(preview[key]) < COMMAND_LOG_LIMIT:
+                              preview[key].extend(block[:COMMAND_LOG_LIMIT - len(preview[key])])
+                          if len(authoritative[key]) < AUTHORITATIVE_OUTPUT_LIMIT:
+                              authoritative[key].extend(block[:AUTHORITATIVE_OUTPUT_LIMIT - len(authoritative[key])])
+                      except BlockingIOError:
+                          return
+                      except Exception as error:
+                          stream_errors[key] = str(error)
+                          try:
+                              selector.unregister(descriptor)
+                          except Exception:
+                              pass
+                          streams.pop(descriptor, None)
+                  timed_out = False
+                  capture_complete = True
+                  def terminate_group():
+                      nonlocal capture_complete
+                      try:
+                          os.killpg(process.pid, signal.SIGKILL)
+                      except ProcessLookupError:
+                          pass
+                      except Exception:
+                          capture_complete = False
+                      try:
+                          process.wait(timeout=1)
+                      except subprocess.TimeoutExpired:
+                          capture_complete = False
+                  command_deadline = time.monotonic() + seconds + 3
+                  pipe_deadline = None
+                  try:
+                      while process.poll() is None or streams:
+                          now = time.monotonic()
+                          exited = process.poll() is not None
+                          if not exited and now >= command_deadline:
+                              timed_out = True
+                              terminate_group()
+                              exited = process.poll() is not None
+                              if not exited:
+                                  capture_complete = False
+                                  break
+                          if exited and streams and pipe_deadline is None:
+                              pipe_deadline = min(command_deadline, now + 1)
+                          if streams and pipe_deadline is not None and now >= pipe_deadline:
+                              capture_complete = False
+                              terminate_group()
+                              break
+                          if exited and not streams:
+                              break
+                          wait_until = pipe_deadline if pipe_deadline is not None else command_deadline
+                          timeout = max(0, min(0.1, wait_until - now))
+                          for selected, _ in selector.select(timeout):
+                              drain(selected.fd, selected.data)
+                  finally:
+                      selector.close()
+                  if process.poll() is None:
+                      capture_complete = False
+                      terminate_group()
+                  if streams:
+                      capture_complete = False
+                  capture_complete = capture_complete and all(stream_complete.values()) and not any(stream_errors.values())
+                  result = Result(
+                      process.returncode if process.returncode is not None else 124,
+                      timed_out or process.returncode in {124, 137, -signal.SIGKILL},
+                      bytes(authoritative['stdout']),
+                      bytes(authoritative['stderr']),
+                      counted['stdout'],
+                      counted['stderr'],
+                      stream_complete['stdout'] and counted['stdout'] <= AUTHORITATIVE_OUTPUT_LIMIT,
+                      stream_complete['stderr'] and counted['stderr'] <= AUTHORITATIVE_OUTPUT_LIMIT,
+                      capture_complete,
+                  )
+                  number = len(self.commands)
+                  log_name = f'command-{number:02d}.json'
+                  self.evidence.write_json(log_name, {
+                      'phase': phase,
+                      'argv': command,
+                      'privileged': privileged,
+                      'timeout_seconds': seconds,
+                      'exit_code': result.code,
+                      'timed_out': result.timed_out,
+                      'stdout_bytes': result.stdout_bytes,
+                      'stderr_bytes': result.stderr_bytes,
+                      'stdout_authoritative_bytes': len(result.stdout),
+                      'stderr_authoritative_bytes': len(result.stderr),
+                      'stdout_complete': result.stdout_complete,
+                      'stderr_complete': result.stderr_complete,
+                      'capture_complete': result.capture_complete,
+                      'stdout_preview_bytes': len(preview['stdout']),
+                      'stderr_preview_bytes': len(preview['stderr']),
+                      'stdout_truncated': result.stdout_bytes > len(preview['stdout']),
+                      'stderr_truncated': result.stderr_bytes > len(preview['stderr']),
+                      'stdout': preview['stdout'].decode('utf-8', 'replace'),
+                      'stderr': preview['stderr'].decode('utf-8', 'replace'),
+                  })
+                  self.commands.append({'phase': phase, 'log': log_name, 'exit_code': result.code, 'timed_out': result.timed_out})
+                  return result
+
+              def require(self, command, phase, cap, privileged=False):
+                  result = self.run(command, phase, cap, privileged)
+                  if result.code != 0 or result.timed_out or not result.capture_complete or not result.stdout_complete or not result.stderr_complete:
+                      raise AcquisitionError(f'{phase} failed or produced incomplete output')
+                  return result
+
+              def package_inventory(self, phase):
+                  result = self.require(['/usr/bin/dpkg-query', '-W', '-f=' + DPKG_QUERY_FORMAT], phase, 8)
+                  if not getattr(result, 'capture_complete', True) or not getattr(result, 'stdout_complete', True):
+                      raise AcquisitionError('package inventory output was incomplete')
+                  installed, residual, malformed = {}, {}, []
+                  for line in result.stdout.decode('utf-8', 'replace').splitlines():
+                      fields = line.split('\t')
+                      if len(fields) != 4 or not all(fields[:3]):
+                          malformed.append(line)
+                          continue
+                      package, arch, version, status_text = fields
+                      normalized_package = package if ':' in package else f'{package}:{arch}'
+                      item = {'package': package, 'normalized_package': normalized_package, 'architecture': arch, 'version': version, 'status': status_text}
+                      if re.fullmatch(r'[hi]i\s*', status_text):
+                          if normalized_package in installed:
+                              malformed.append(line)
+                          installed[normalized_package] = item
+                      elif re.fullmatch(r'rc\s*', status_text):
+                          residual[normalized_package] = item
+                      else:
+                          malformed.append(line)
+                  if malformed:
+                      raise AcquisitionError('package database contains pending, broken, or malformed installed states')
+                  return {'installed': installed, 'residual': residual, 'sha256': sha_text(canonical({'installed': installed, 'residual': residual}))}
+
+              def symlink_chain(self, requested):
+                  current = Path(requested)
+                  chain = []
+                  seen = set()
+                  for _ in range(32):
+                      current_text = str(current)
+                      if current_text in seen:
+                          raise AcquisitionError('library symlink loop')
+                      seen.add(current_text)
+                      info = os.lstat(current)
+                      chain.append(current_text)
+                      if stat.S_ISLNK(info.st_mode):
+                          target = os.readlink(current)
+                          current = Path(target) if os.path.isabs(target) else current.parent / target
+                          continue
+                      if not stat.S_ISREG(info.st_mode):
+                          raise AcquisitionError('resolved runtime object is not a regular file')
+                      resolved = str(current.resolve())
+                      if resolved != current_text:
+                          chain.append(resolved)
+                      return chain, resolved
+                  raise AcquisitionError('library symlink chain is too deep')
+
+              def installed_owner(self, requested, resolved, installed, phase):
+                  owners = []
+                  for candidate in dict.fromkeys([requested, resolved]):
+                      result = self.run(['/usr/bin/dpkg-query', '-S', candidate], phase, 5)
+                      if not result.capture_complete or not result.stdout_complete:
+                          raise AcquisitionError('runtime owner query output was incomplete')
+                      if result.code != 0 or result.timed_out:
+                          continue
+                      for line in result.stdout.decode('utf-8', 'replace').splitlines():
+                          if ': ' not in line:
+                              continue
+                          owner, owned_path = line.split(': ', 1)
+                          if owned_path == candidate:
+                              owners.append(owner)
+                  owners = list(dict.fromkeys(owners))
+                  matching = []
+                  for owner in owners:
+                      if owner in installed:
+                          matching.append(owner)
+                      else:
+                          matching.extend(key for key in installed if key.split(':', 1)[0] == owner)
+                  matching = list(dict.fromkeys(matching))
+                  if len(matching) != 1:
+                      raise AcquisitionError('runtime object has ambiguous or unowned package identity')
+                  return matching[0], installed[matching[0]]
+
+              def parse_loader(self, text):
+                  values = []
+                  for raw in text.splitlines():
+                      line = raw.strip()
+                      if not line:
+                          continue
+                      if line.startswith('linux-vdso.so.1'):
+                          continue
+                      if '=>' in line:
+                          label, value = line.split('=>', 1)
+                          path = value.strip().split(' ', 1)[0]
+                      else:
+                          label = 'interpreter'
+                          path = line.split(' ', 1)[0]
+                      if not path.startswith('/'):
+                          raise AcquisitionError('loader output contained an unresolved or unsafe path')
+                      values.append((label.strip(), path))
+                  if not values:
+                      raise AcquisitionError('loader output contained no resolved runtime objects')
+                  return values
+
+              def runtime_snapshot(self, packages, phase):
+                  records = {}
+                  for program in self.validated:
+                      header = self.require(['/usr/bin/readelf', '-l', program['path']], phase, 8).stdout.decode('utf-8', 'replace')
+                      match = re.search(r'Requesting program interpreter:\s*([^\]]+)', header)
+                      if not match or match.group(1).strip() != INTERPRETER:
+                          raise AcquisitionError('target program has an unexpected ELF interpreter')
+                      dynamic = self.require(['/usr/bin/readelf', '-d', program['path']], phase, 8).stdout.decode('utf-8', 'replace')
+                      if '(RPATH)' in dynamic or '(RUNPATH)' in dynamic:
+                          raise AcquisitionError('target program has an unexpected RPATH or RUNPATH')
+                      chain, interpreter = self.symlink_chain(INTERPRETER)
+                      regular(interpreter, 'ELF interpreter')
+                      listed = self.require([interpreter, '--list', program['path']], phase, 10).stdout.decode('utf-8', 'replace')
+                      objects = [('interpreter', INTERPRETER)] + self.parse_loader(listed)
+                      for label, requested in objects:
+                          object_chain, resolved = self.symlink_chain(requested)
+                          info = regular(resolved, 'resolved runtime object')
+                          owner, owner_tuple = self.installed_owner(requested, resolved, packages['installed'], phase)
+                          key = f"{program['name']}:{label}:{requested}"
+                          records[key] = {
+                              'label': label,
+                              'requested_path': requested,
+                              'symlink_chain': object_chain,
+                              'realpath': resolved,
+                              'sha256': sha_file(resolved),
+                              'size': info.st_size,
+                              'owner': owner,
+                              'owner_tuple': owner_tuple,
+                          }
+                  return records
+
+              def image_identity(self):
+                  values = {}
+                  for raw in Path('/etc/os-release').read_text().splitlines():
+                      if '=' in raw and not raw.startswith('#'):
+                          key, value = raw.split('=', 1)
+                          values[key] = value.strip().strip('"')
+                  if values.get('ID') != 'ubuntu':
+                      raise AcquisitionError('diagnostic runner is not an allowlisted Ubuntu image')
+                  uname = self.require(['/usr/bin/uname', '-a'], 'image-identity', 5).stdout.decode('utf-8', 'replace').strip()
+                  return {'os_release': {key: values.get(key) for key in ['ID', 'VERSION_ID', 'VERSION_CODENAME']}, 'uname': uname, 'image_os': os.environ.get('ImageOS'), 'image_version': os.environ.get('ImageVersion')}
+
+              def trusted_gdb(self):
+                  for candidate in ['/usr/bin/gdb', '/bin/gdb']:
+                      try:
+                          info = regular(candidate, 'gdb')
+                      except (FileNotFoundError, AcquisitionError):
+                          continue
+                      if info.st_mode & stat.S_IXUSR:
+                          return candidate
+                  return None
+
+              def official_uri(self, uri):
+                  parsed = urlparse(uri)
+                  host = (parsed.hostname or '').lower()
+                  allowed = host in {'ports.ubuntu.com', 'archive.ubuntu.com', 'security.ubuntu.com'} or re.fullmatch(r'[a-z]{2}\.archive\.ubuntu\.com', host) or host == 'azure.archive.ubuntu.com'
+                  if not allowed or parsed.scheme not in {'http', 'https'} or parsed.username or parsed.password or parsed.port or parsed.query or parsed.fragment:
+                      return False
+                  return parsed.path.startswith('/ubuntu')
+
+              def select_sources(self, root=Path('/etc/apt')):
+                  records = []
+                  for path in [root / 'sources.list', *sorted((root / 'sources.list.d').glob('*.list'))]:
+                      if not path.exists():
+                          continue
+                      for raw in path.read_text().splitlines():
+                          line = raw.strip()
+                          if not line or line.startswith('#') or not line.startswith('deb '):
+                              continue
+                          match = re.fullmatch(r'deb\s+(?:\[([^]]+)\]\s+)?(\S+)\s+(\S+)(?:\s+(.+))?', line)
+                          if not match:
+                              continue
+                          options, uri, suite, components = match.groups()
+                          option_text = (options or '').lower()
+                          if 'trusted=yes' in option_text or not self.official_uri(uri):
+                              continue
+                          records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': (components or '').split(), 'architectures': re.search(r'(?:^|\s)arch=([^\s]+)', options or '', re.I).group(1) if re.search(r'(?:^|\s)arch=([^\s]+)', options or '', re.I) else None})
+                  for path in sorted((root / 'sources.list.d').glob('*.sources')):
+                      content = path.read_text()
+                      for stanza in re.split(r'\n\s*\n', content):
+                          fields = {}
+                          for raw in stanza.splitlines():
+                              if ':' in raw:
+                                  key, value = raw.split(':', 1)
+                                  fields[key.lower()] = value.strip()
+                          if 'deb' not in fields.get('types', '').split() or fields.get('enabled', 'yes').lower() in {'no', 'false'}:
+                              continue
+                          if fields.get('trusted', '').lower() == 'yes':
+                              continue
+                          for uri in fields.get('uris', '').split():
+                              for suite in fields.get('suites', '').split():
+                                  if self.official_uri(uri):
+                                      records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': fields.get('components', '').split(), 'architectures': fields.get('architectures')})
+                  records = [record for record in records if record['suite'] and record['components']]
+                  if not records:
+                      raise AcquisitionError('no supported already-configured official Ubuntu binary source')
+                  return records
+
+              def keyring_identity(self, packages, phase):
+                  key_info = regular(KEYRING, 'Ubuntu archive keyring')
+                  owner, owner_tuple = self.installed_owner(KEYRING, str(Path(KEYRING).resolve()), packages['installed'], phase)
+                  return {'path': KEYRING, 'sha256': sha_file(KEYRING), 'size': key_info.st_size, 'owner': owner, 'owner_tuple': owner_tuple}
+
+              def write_private_sources(self, sources, packages):
+                  self.keyring = self.keyring_identity(packages, 'keyring-owner')
+                  destination = self.work / 'selected.list'
+                  lines = []
+                  for source in sources:
+                      arch = f" arch={source['architectures'].replace(' ', ',')}" if source['architectures'] else ''
+                      lines.append(f"deb [signed-by={KEYRING}{arch}] {source['uri']} {source['suite']} {' '.join(source['components'])}")
+                  destination.write_text('\n'.join(lines) + '\n')
+                  destination.chmod(0o600)
+                  self.source_records = sources
+                  return destination
+
+              def apt_options(self, source_file):
+                  lists = self.work / 'lists'
+                  archives = self.work / 'archives'
+                  lists.mkdir(mode=0o700, exist_ok=True)
+                  archives.mkdir(mode=0o700, exist_ok=True)
+                  (lists / 'partial').mkdir(mode=0o700, exist_ok=True)
+                  (archives / 'partial').mkdir(mode=0o700, exist_ok=True)
+                  return [
+                      '-o', f'Dir::Etc::sourcelist={source_file}', '-o', 'Dir::Etc::sourceparts=-',
+                      '-o', f'Dir::State::lists={lists}', '-o', f'Dir::Cache::archives={archives}',
+                      '-o', f'Dir::Cache::pkgcache={self.work / "pkgcache.bin"}', '-o', f'Dir::Cache::srcpkgcache={self.work / "srcpkgcache.bin"}',
+                      '-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=10', '-o', 'Acquire::https::Timeout=10',
+                      '-o', 'Acquire::AllowInsecureRepositories=false', '-o', 'Acquire::AllowDowngradeToInsecureRepositories=false',
+                      '-o', 'APT::Get::AllowUnauthenticated=false', '-o', 'APT::Update::Error-Mode=any', '-o', 'DPkg::Lock::Timeout=5',
+                  ]
+
+              @staticmethod
+              def package_key(name, arch):
+                  return name if ':' in name else f'{name}:{arch}'
+
+              def parse_solver(self, output, installed, native_arch='arm64'):
+                  plan, configured = {}, set()
+                  summary = None
+                  for raw in output.splitlines():
+                      line = raw.strip()
+                      if re.match(r'^(Remv|Purg)\s+', line):
+                          raise AcquisitionError('solver proposed removal or purge')
+                      if line.startswith('Inst '):
+                          if re.match(r'^Inst\s+\S+\s+\[', line):
+                              raise AcquisitionError('solver proposed an existing-package transition')
+                          match = re.match(r'^Inst\s+(\S+)\s+\(([^ )]+)(?:[^)]*)\)', line)
+                          if not match:
+                              raise AcquisitionError('solver installation line is malformed')
+                          name, version = match.groups()
+                          brackets = re.findall(r'\[([A-Za-z0-9_-]+)\]', line)
+                          arch = brackets[-1] if brackets else native_arch
+                          key = self.package_key(name, arch)
+                          if key in installed or key in plan:
+                              raise AcquisitionError('solver proposed an installed or duplicate package')
+                          plan[key] = {'package': key, 'version': version, 'architecture': arch}
+                      elif line.startswith('Conf '):
+                          name = line.split()[1]
+                          matches = [key for key in plan if key == name or key.split(':', 1)[0] == name]
+                          if len(matches) != 1:
+                              raise AcquisitionError('solver configured an unplanned package')
+                          configured.add(matches[0])
+                      elif re.fullmatch(r'\d+ upgraded, \d+ newly installed, \d+ to remove and \d+ not upgraded\.', line):
+                          summary = tuple(int(value) for value in re.findall(r'\d+', line))
+                  if not plan or not any(item['package'].split(':', 1)[0] == 'gdb' for item in plan.values()):
+                      raise AcquisitionError('solver plan does not install gdb')
+                  if configured != set(plan) or summary is None or summary[0] != 0 or summary[2] != 0 or summary[1] != len(plan):
+                      raise AcquisitionError('solver summary or configuration set does not match the new-only plan')
+                  return [plan[key] for key in sorted(plan)]
+
+              def control_stanzas(self, text):
+                  stanzas = []
+                  for block in re.split(r'\n\s*\n', text):
+                      fields = {}
+                      for line in block.splitlines():
+                          if ':' in line:
+                              key, value = line.split(':', 1)
+                              fields[key] = value.strip()
+                      if fields:
+                          stanzas.append(fields)
+                  return stanzas
+
+              def metadata_for_plan(self, options, plan):
+                  metadata = []
+                  for item in plan:
+                      result = self.require(['/usr/bin/apt-cache', *options, 'show', f"{item['package']}={item['version']}"], 'authenticated-metadata', 12)
+                      matching = [fields for fields in self.control_stanzas(result.stdout.decode('utf-8', 'replace')) if fields.get('Package') == item['package'].split(':', 1)[0] and fields.get('Version') == item['version'] and fields.get('Architecture') == item['architecture']]
+                      if len(matching) != 1:
+                          raise AcquisitionError('authenticated package metadata is ambiguous')
+                      fields = matching[0]
+                      if not re.fullmatch(r'[a-f0-9]{64}', fields.get('SHA256', '')) or not fields.get('Filename') or not fields.get('Size', '').isdigit() or int(fields['Size']) <= 0 or fields['Filename'].startswith('/') or '..' in Path(fields['Filename']).parts:
+                          raise AcquisitionError('authenticated package metadata is incomplete')
+                      metadata.append({**item, 'filename': fields['Filename'], 'size': int(fields['Size']), 'sha256': fields['SHA256']})
+                  return metadata
+
+              def uri_is_selected(self, uri):
+                  parsed = urlparse(uri)
+                  for source in self.source_records:
+                      selected = urlparse(source['uri'])
+                      if parsed.scheme == selected.scheme and parsed.netloc == selected.netloc and parsed.path.startswith(selected.path.rstrip('/') + '/'):
+                          return True
+                  return False
+
+              def parse_print_uris(self, output, metadata):
+                  seen = {}
+                  for line in output.splitlines():
+                      match = re.match(r"^'([^']+)'\s+(\S+)\s+(\d+)\s+", line.strip())
+                      if not match:
+                          continue
+                      uri, filename, size = match.groups()
+                      if not self.official_uri(uri) or not self.uri_is_selected(uri):
+                          raise AcquisitionError('print-uris selected an untrusted repository')
+                      seen[filename] = {'uri': uri, 'size': int(size)}
+                  expected = {Path(item['filename']).name: item for item in metadata}
+                  if set(seen) != set(expected):
+                      raise AcquisitionError('print-uris download set differs from frozen plan')
+                  for filename, item in expected.items():
+                      if seen[filename]['size'] != item['size']:
+                          raise AcquisitionError('print-uris size differs from authenticated metadata')
+                  return seen
+
+              def inspect_debs(self, metadata):
+                  archives = self.work / 'archives'
+                  expected = {Path(item['filename']).name: item for item in metadata}
+                  debs = sorted(path for path in archives.iterdir() if path.suffix == '.deb')
+                  if {path.name for path in debs} != set(expected):
+                      raise AcquisitionError('downloaded deb set differs from frozen plan')
+                  selected = []
+                  for deb in debs:
+                      info = regular(deb, 'downloaded deb')
+                      item = expected[deb.name]
+                      if info.st_size != item['size'] or sha_file(deb) != item['sha256']:
+                          raise AcquisitionError('downloaded deb identity differs from authenticated metadata')
+                      fields = self.require(['/usr/bin/dpkg-deb', '--field', str(deb), 'Package', 'Version', 'Architecture'], 'deb-identity', 8).stdout.decode('utf-8', 'replace')
+                      parsed = {key: value.strip() for key, value in (line.split(':', 1) for line in fields.splitlines() if ': ' in line)}
+                      if parsed.get('Package') != item['package'].split(':', 1)[0] or parsed.get('Version') != item['version'] or parsed.get('Architecture') != item['architecture']:
+                          raise AcquisitionError('downloaded deb control identity differs from frozen plan')
+                      selected.append(str(deb.resolve()))
+                  return selected
+
+              def measure(self, phase):
+                  packages = self.package_inventory(phase)
+                  runtime = self.runtime_snapshot(packages, phase)
+                  return {'packages': packages, 'runtime': runtime, 'runtime_sha256': sha_text(canonical(runtime))}
+
+              def compare_postimage(self, preimage, postimage, plan):
+                  if preimage['packages']['installed']:
+                      if any(postimage['packages']['installed'].get(key) != value for key, value in preimage['packages']['installed'].items()):
+                          return False
+                  planned = {item['package']: item for item in plan}
+                  additions = {key: value for key, value in postimage['packages']['installed'].items() if key not in preimage['packages']['installed']}
+                  if not set(additions).issubset(planned) or any(
+                      additions[key].get('version') != planned[key]['version'] or
+                      additions[key].get('architecture') != planned[key]['architecture'] or
+                      not re.fullmatch(r'[hi]i\s*', additions[key].get('status', ''))
+                      for key in additions
+                  ):
+                      return False
+                  for key, value in preimage['packages']['residual'].items():
+                      if key in planned:
+                          continue
+                      if postimage['packages']['residual'].get(key) != value:
+                          return False
+                  if {key: value for key, value in postimage['packages']['residual'].items() if key not in planned} != {key: value for key, value in preimage['packages']['residual'].items() if key not in planned}:
+                      return False
+                  return preimage['runtime'] == postimage['runtime']
+
+              def plan_is_installed(self, postimage):
+                  if postimage is None or not self.plan:
+                      return False
+                  installed = postimage['packages']['installed']
+                  return all(
+                      item['package'] in installed and
+                      installed[item['package']].get('version') == item['version'] and
+                      installed[item['package']].get('architecture') == item['architecture'] and
+                      re.fullmatch(r'[hi]i\s*', installed[item['package']].get('status', ''))
+                      for item in self.plan
+                  )
+
+              def execute(self):
+                  self.phase = 'preimage'
+                  image = self.image_identity()
+                  self.preimage = self.measure('preimage')
+                  self.evidence.write_json('preimage.json', {'image': image, **self.preimage})
+                  self.gdb = self.trusted_gdb()
+                  if self.gdb:
+                      self.status = 'gdb-already-present'
+                      return
+                  self.phase = 'select-sources'
+                  sources = self.select_sources()
+                  source_file = self.write_private_sources(sources, self.preimage['packages'])
+                  options = self.apt_options(source_file)
+                  self.require(['/usr/bin/apt-get', *options, 'update'], 'apt-update', 30, privileged=True)
+                  simulation = self.require(['/usr/bin/apt-get', *options, '--simulate', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', 'gdb'], 'solver-initial', 10, privileged=True)
+                  self.plan = self.parse_solver(simulation.stdout.decode('utf-8', 'replace'), self.preimage['packages']['installed'])
+                  metadata = self.metadata_for_plan(options, self.plan)
+                  specs = [f"{item['package']}={item['version']}" for item in metadata]
+                  printed = self.require(['/usr/bin/apt-get', *options, '--print-uris', '--download-only', '--yes', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', *specs], 'print-uris', 20, privileged=True)
+                  uris = self.parse_print_uris(printed.stdout.decode('utf-8', 'replace'), metadata)
+                  self.evidence.write_json('frozen-plan.json', {'plan': metadata, 'plan_sha256': sha_text(canonical(metadata)), 'uris': uris, 'sources': self.source_records, 'keyring': self.keyring})
+                  self.require(['/usr/bin/apt-get', *options, '--download-only', '--yes', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', *specs], 'download-debs', 55, privileged=True)
+                  debs = self.inspect_debs(metadata)
+                  second = self.require(['/usr/bin/apt-get', *options, '--simulate', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', *specs], 'solver-frozen', 10, privileged=True)
+                  if self.parse_solver(second.stdout.decode('utf-8', 'replace'), self.preimage['packages']['installed']) != self.plan:
+                      raise AcquisitionError('second solver plan differs from the frozen new-only plan')
+                  preinstall = self.measure('preinstall-audit')
+                  if not self.compare_postimage(self.preimage, preinstall, []):
+                      raise UnsafePostimage('pre-install package or target runtime drift')
+                  debs = self.inspect_debs(metadata)
+                  installed = self.run(['/usr/bin/dpkg', '--install', '--', *debs], 'offline-dpkg-install', 25, privileged=True)
+                  if installed.code != 0 or installed.timed_out or not installed.capture_complete or not installed.stdout_complete or not installed.stderr_complete:
+                      self.status = 'installation-incomplete'
+                  else:
+                      self.status = 'gdb-installed'
+
+              def finish(self):
+                  comparison = False
+                  audit_error = None
+                  try:
+                      if self.preimage is not None:
+                          self.postimage = self.measure('postimage-audit')
+                          self.evidence.write_json('postimage.json', self.postimage)
+                          self.post_sources = self.select_sources() if self.source_records else None
+                          self.post_keyring = self.keyring_identity(self.postimage['packages'], 'postimage-keyring') if self.keyring else None
+                          comparison = self.compare_postimage(self.preimage, self.postimage, self.plan) and (
+                              self.post_sources is None or canonical(self.source_records) == canonical(self.post_sources)
+                          ) and (
+                              self.post_keyring is None or self.keyring == self.post_keyring
+                          )
+                  except Exception as error:
+                      audit_error = str(error)
+                  self.gdb = self.trusted_gdb()
+                  if self.status == 'gdb-installed' and (not self.gdb or not self.plan_is_installed(self.postimage)):
+                      self.status = 'installation-incomplete'
+                      self.reason = self.reason or 'frozen debugger plan was incomplete after a successful dpkg exit'
+                  unchanged = comparison and audit_error is None
+                  if not unchanged:
+                      self.status = 'unsafe-or-unknown-postimage'
+                      self.reason = self.reason or audit_error or 'postimage comparison failed'
+                  summary = {
+                      'schema_version': 1,
+                      'kind': 'slv-native-diagnostic-acquisition',
+                      'stage': self.phase,
+                      'status': self.status,
+                      'runtime_unchanged': unchanged,
+                      'plan_sha256': sha_text(canonical(self.plan)),
+                      'plan': self.plan,
+                      'commands': self.commands,
+                      'preimage_sha256': self.preimage['packages']['sha256'] if self.preimage else None,
+                      'postimage_sha256': self.postimage['packages']['sha256'] if self.postimage else None,
+                      'runtime_preimage_sha256': self.preimage['runtime_sha256'] if self.preimage else None,
+                      'runtime_postimage_sha256': self.postimage['runtime_sha256'] if self.postimage else None,
+                      'sources_sha256': sha_text(canonical(self.source_records)) if self.source_records else None,
+                      'post_sources_sha256': sha_text(canonical(self.post_sources)) if self.post_sources is not None else None,
+                      'keyring': self.keyring,
+                      'post_keyring': self.post_keyring,
+                      'debugger': {'available': self.gdb is not None, 'path': self.gdb},
+                      'controls_not_run': None if unchanged else self.reason or 'unsafe-or-unknown-postimage',
+                      'audit_error': audit_error,
+                      'retained_bytes_before_summary': self.evidence.total,
+                  }
+                  self.evidence.write_json('acquisition-summary.json', summary, terminal=True)
+                  if unchanged:
+                      self.github_output.parent.mkdir(parents=True, exist_ok=True)
+                      with self.github_output.open('a') as output:
+                          output.write('runtime_unchanged=true\n')
+                      return 0
+                  with self.github_output.open('a') as output:
+                      output.write('runtime_unchanged=false\n')
+                  return 1
+
+          def main():
+              evidence, work, validated, github_output, seconds_remaining = sys.argv[1:]
+              controller = Controller(evidence, work, validated, github_output, int(seconds_remaining))
+              try:
+                  controller.execute()
+              except Exception as error:
+                  controller.reason = str(error)
+                  if not isinstance(error, UnsafePostimage):
+                      controller.status = 'acquisition-declined-or-incomplete'
+              raise SystemExit(controller.finish())
+
+          if __name__ == '__main__':
+              main()
+          # END BOUNDED_GDB_ACQUISITION_CONTROLLER
+          PY
+      - name: Run bounded ARM native diagnostic
+        id: run_native_diagnostic
+        if: steps.acquire-debugger.outputs.runtime_unchanged == 'true'
+        timeout-minutes: 13
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/diagnose-native.ts --artifact-root "$RUNNER_TEMP/arm-diagnostic-input" --out "$RUNNER_TEMP/arm-diagnostic-output" --diagnostic-context "$RUNNER_TEMP/arm-diagnostic-context.json" --reviewed-sha "$REVIEWED_SHA"
+      - name: Finalize bounded ARM acquisition evidence
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 1
+        env:
+          ACQUISITION_OUTCOME: ${{ steps.acquire-debugger.outcome }}
+          HELPER_OUTCOME: ${{ steps.run_native_diagnostic.outcome }}
+        run: |
+          set -euo pipefail
+          acquisition="$RUNNER_TEMP/arm-diagnostic-acquisition"
+          if [ ! -f "$acquisition/acquisition-summary.json" ]; then
+            jq -n --arg acquisition_outcome "$ACQUISITION_OUTCOME" --arg helper_outcome "$HELPER_OUTCOME" '{schema_version: 1, kind: "slv-native-diagnostic-acquisition", stage: "finalization", status: "acquisition-incomplete", runtime_unchanged: false, controls_not_run: "unsafe-or-unknown-acquisition", acquisition_outcome: $acquisition_outcome, helper_outcome: $helper_outcome}' > "$acquisition/finalization-summary.json"
+          fi
+      - name: Persist bounded ARM diagnostic evidence
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        timeout-minutes: 3
+        with:
+          name: slv-arm-runtime-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/arm-diagnostic-output
+            ${{ runner.temp }}/arm-diagnostic-acquisition
+          if-no-files-found: warn
+          retention-days: 7
+
   build:
     needs: [
       resolve,
@@ -202,7 +1122,7 @@ jobs:
       source-arm-build,
       source-arm-merge,
     ]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     name: build-${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -358,7 +1278,7 @@ jobs:
 
   source-materials:
     needs: [resolve, test]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     permissions:
@@ -436,7 +1356,7 @@ jobs:
   # artifact ID, archive digest, producer identity, and proof checksum.
   source-native-linux-x64:
     needs: [resolve, test, source-materials]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -565,7 +1485,7 @@ jobs:
   # below remain the required checks consumed by the release graph.
   source-arm-baseline:
     needs: [resolve, test, source-materials]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -685,7 +1605,7 @@ jobs:
 
   source-arm-modified:
     needs: [resolve, test, source-materials]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -805,7 +1725,7 @@ jobs:
 
   source-macos-x64-baseline:
     needs: [resolve, test, source-materials]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: macos-15-intel
     timeout-minutes: 350
     permissions:
@@ -939,7 +1859,7 @@ jobs:
 
   source-macos-x64-modified:
     needs: [resolve, test, source-materials]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: macos-15-intel
     timeout-minutes: 350
     permissions:
@@ -1079,7 +1999,7 @@ jobs:
       source-macos-x64-baseline,
       source-macos-x64-modified,
     ]
-    if: ${{ !cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}
     runs-on: macos-15-intel
     timeout-minutes: 350
     permissions:
@@ -1335,7 +2255,7 @@ jobs:
 
   source-native-macos-arm64:
     needs: [resolve, test, source-materials]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: macos-15
     timeout-minutes: 350
     permissions:
@@ -1489,7 +2409,7 @@ jobs:
       source-arm-baseline,
       source-arm-modified,
     ]
-    if: ${{ !cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -1701,7 +2621,7 @@ jobs:
 
   source-arm-execute:
     needs: [resolve, test, source-materials, source-arm-build]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 30
     permissions:
@@ -1799,7 +2719,7 @@ jobs:
       source-arm-build,
       source-arm-execute,
     ]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -1892,7 +2812,7 @@ jobs:
       source-arm-build,
       source-arm-merge,
     ]
-    if: needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -1988,7 +2908,7 @@ jobs:
 
   attest:
     needs: [resolve, package]
-    if: needs.resolve.outputs.release_required == 'true'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true') }}
     runs-on: ubuntu-26.04
     permissions:
       attestations: write
@@ -2023,7 +2943,7 @@ jobs:
 
   activation-required:
     needs: [resolve, package]
-    if: needs.resolve.outputs.release_required == 'true'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true') }}
     runs-on: ubuntu-26.04
     permissions: {}
     env:
@@ -2036,7 +2956,7 @@ jobs:
 
   verify-existing:
     needs: [resolve, test]
-    if: needs.resolve.outputs.publication == 'verify'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.publication == 'verify') }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -2082,7 +3002,7 @@ jobs:
 
   publish:
     needs: [resolve, package, attest, activation-required]
-    if: needs.resolve.outputs.release_required == 'true'
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true') }}
     runs-on: ubuntu-26.04
     environment: release
     concurrency:
