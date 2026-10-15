@@ -17,6 +17,10 @@ const SHA40 = /^[a-f0-9]{40}$/
 const POSITIVE_DECIMAL = /^[1-9][0-9]*$/
 const MAX_SUMMARY_BYTES = 64 * 1024
 const MAX_TOTAL_LOG_BYTES = 2 * 1024 * 1024
+const MAX_UTILITY_LEDGER_BYTES = 24 * 1024
+const MAX_UTILITY_PATH_BYTES = 256
+const MAX_UTILITY_LINKS = 8
+const MAX_UTILITY_COMPONENTS = 64
 const DIRECT_OUTPUT_BYTES = 128 * 1024
 const DEBUGGER_OUTPUT_BYTES = 256 * 1024
 const DIRECT_TIMEOUT_MS = 60_000
@@ -41,6 +45,45 @@ const EXPECTED_TRANSPORT_NAMES = [
   'modified-v8-archive',
   'modified-ninja',
   'modified-probe',
+] as const
+
+const FIXED_UTILITY_PATHS = new Set([
+  '/usr/bin/git',
+  '/bin/git',
+  '/usr/bin/uname',
+  '/usr/bin/lscpu',
+  '/usr/bin/getconf',
+  '/usr/bin/prlimit',
+  '/bin/prlimit',
+  '/usr/bin/gdb',
+  '/bin/gdb',
+  '/usr/bin/timeout',
+  '/bin/timeout',
+  '/usr/bin/cat',
+  '/usr/bin/ps',
+])
+const SYSTEM_TRAVERSAL_ROOTS = [
+  '/usr/bin',
+  '/usr/sbin',
+  '/usr/lib',
+  '/usr/libexec',
+  '/usr/lib64',
+  '/etc/alternatives',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib64',
+] as const
+const SYSTEM_EXECUTABLE_ROOTS = [
+  '/usr/bin',
+  '/usr/sbin',
+  '/usr/lib',
+  '/usr/libexec',
+  '/usr/lib64',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib64',
 ] as const
 
 export const DIAGNOSTIC_PROTOCOL = {
@@ -770,6 +813,10 @@ type SessionCandidate = {
   sid: number
   state: string
 }
+type ObservationUtilities = {
+  cat: QualifiedUtility
+  ps: QualifiedUtility
+}
 
 function positiveDecimal(value: string | undefined): number | undefined {
   if (!value || !CANONICAL_PID.test(value)) return undefined
@@ -953,9 +1000,16 @@ export async function runBoundedObservationUtility(
 async function readExactProcIdentity(
   pid: number,
   until: number,
+  utilities?: ObservationUtilities,
 ): Promise<{ identity?: ProcIdentity; complete: boolean }> {
+  if (
+    utilities &&
+    !await revalidateQualifiedUtility(utilities.cat, undefined, until)
+  ) {
+    return { complete: false }
+  }
   const result = await runBoundedObservationUtility(
-    '/usr/bin/cat',
+    utilities?.cat.invocation_path ?? '/usr/bin/cat',
     [`/proc/${pid}/stat`],
     until,
     CAT_OUTPUT_BYTES,
@@ -1019,9 +1073,16 @@ export function classifySidCandidates(
 async function sessionCandidates(
   sid: number,
   until: number,
+  utilities?: ObservationUtilities,
 ): Promise<{ candidates: SessionCandidate[]; complete: boolean }> {
+  if (
+    utilities &&
+    !await revalidateQualifiedUtility(utilities.ps, undefined, until)
+  ) {
+    return { candidates: [], complete: false }
+  }
   const result = await runBoundedObservationUtility(
-    '/usr/bin/ps',
+    utilities?.ps.invocation_path ?? '/usr/bin/ps',
     ['--sid', String(sid), '-o', 'pid=,ppid=,pgid=,sid=,stat='],
     until,
     PS_OUTPUT_BYTES,
@@ -1032,9 +1093,10 @@ async function sessionCandidates(
 async function establishOwnedIdentity(
   pid: number,
   until: number,
+  utilities?: ObservationUtilities,
 ): Promise<ProcIdentity | undefined> {
   while (Date.now() < until) {
-    const observation = await readExactProcIdentity(pid, until)
+    const observation = await readExactProcIdentity(pid, until, utilities)
     const identity = observation.identity
     if (identity && identity.pgrp === pid && identity.sid === pid) {
       return identity
@@ -1048,13 +1110,18 @@ async function establishOwnedIdentity(
 async function ownedSessionMembers(
   sid: number,
   until: number,
+  utilities?: ObservationUtilities,
 ): Promise<{ members: ProcIdentity[]; incomplete: boolean }> {
-  const selected = await sessionCandidates(sid, until)
+  const selected = await sessionCandidates(sid, until, utilities)
   if (!selected.complete) return { members: [], incomplete: true }
   const members: ProcIdentity[] = []
   for (const candidate of selected.candidates) {
     if (Date.now() >= until) return { members, incomplete: true }
-    const observation = await readExactProcIdentity(candidate.pid, until)
+    const observation = await readExactProcIdentity(
+      candidate.pid,
+      until,
+      utilities,
+    )
     const identity = observation.identity
     if (
       !observation.complete || !identity || identity.sid !== sid ||
@@ -1088,13 +1155,14 @@ function signalOwnedGroup(pgrp: number): void {
 async function terminateOwnedSession(
   owned: ProcIdentity,
   until: number,
+  utilities?: ObservationUtilities,
 ): Promise<{
   living: number[]
   zombies: number[]
   incomplete: boolean
 }> {
   let incomplete = false
-  const direct = await readExactProcIdentity(owned.pid, until)
+  const direct = await readExactProcIdentity(owned.pid, until, utilities)
   if (
     direct.identity && sameBirth(direct.identity, owned) &&
     direct.identity.pgrp === owned.pgrp
@@ -1105,7 +1173,7 @@ async function terminateOwnedSession(
   // that its session is empty; the bounded SID query below decides that.
   let latest: ProcIdentity[] = []
   for (let sweep = 0; sweep < PROC_SWEEP_LIMIT; sweep++) {
-    const scan = await ownedSessionMembers(owned.sid, until)
+    const scan = await ownedSessionMembers(owned.sid, until, utilities)
     latest = scan.members
     incomplete ||= scan.incomplete
     const groups = new Set(
@@ -1121,7 +1189,7 @@ async function terminateOwnedSession(
     }
     await delay(15)
   }
-  const final = await ownedSessionMembers(owned.sid, until)
+  const final = await ownedSessionMembers(owned.sid, until, utilities)
   incomplete ||= final.incomplete
   latest = final.members
   return {
@@ -1145,6 +1213,7 @@ export async function runBoundedChild(
     timeoutMs: number
     outputLimit: number
     deadline?: DiagnosticDeadline
+    observationUtilities?: ObservationUtilities
   },
 ): Promise<ChildResult> {
   const supervisionStarted = Date.now()
@@ -1206,7 +1275,11 @@ export async function runBoundedChild(
   }
   const pid = child.pid
   const owned = pid
-    ? await establishOwnedIdentity(pid, timeoutSelection.selectedSignalAt)
+    ? await establishOwnedIdentity(
+      pid,
+      timeoutSelection.selectedSignalAt,
+      options.observationUtilities,
+    )
     : undefined
   if (!owned) {
     // The direct ChildProcess handle remains safe to stop, but an unverified
@@ -1220,7 +1293,11 @@ export async function runBoundedChild(
       ),
     ])
     const surviving = pid
-      ? await ownedSessionMembers(pid, timeoutSelection.selectedSignalAt)
+      ? await ownedSessionMembers(
+        pid,
+        timeoutSelection.selectedSignalAt,
+        options.observationUtilities,
+      )
       : { members: [], incomplete: true }
     if (
       !settled.settled || !settled.value || surviving.members.length ||
@@ -1302,7 +1379,11 @@ export async function runBoundedChild(
         Date.now() + CLEANUP_BUDGET_MS,
         options.deadline?.cleanupEndAt ?? Infinity,
       )
-      const outcome = await terminateOwnedSession(owned, until)
+      const outcome = await terminateOwnedSession(
+        owned,
+        until,
+        options.observationUtilities,
+      )
       terminal = { living: outcome.living, zombies: outcome.zombies }
       cleanupIncomplete ||= outcome.incomplete || outcome.living.length > 0
       const remaining = Math.max(0, until - Date.now())
@@ -1378,6 +1459,7 @@ export async function runBoundedChild(
           Date.now() + CLEANUP_BUDGET_MS,
           options.deadline?.cleanupEndAt ?? Infinity,
         ),
+        options.observationUtilities,
       )
       const living = scan.members.filter((member) => member.state !== 'Z')
       if (living.length || scan.incomplete) {
@@ -1461,6 +1543,7 @@ export async function runMandatoryControls(
     timeoutMs?: number
     outputLimit?: number
     deadline?: DiagnosticDeadline
+    observationUtilities?: ObservationUtilities
   },
 ): Promise<{ bare: ControlRecord; probe: ControlRecord; complete: boolean }> {
   const timeoutMs = options.timeoutMs ?? DIRECT_TIMEOUT_MS
@@ -1475,6 +1558,7 @@ export async function runMandatoryControls(
         timeoutMs,
         outputLimit,
         deadline: options.deadline,
+        observationUtilities: options.observationUtilities,
       })
     } catch (error) {
       return acquisitionFailure(
@@ -1513,16 +1597,592 @@ export async function runMandatoryControls(
   }
 }
 
-async function findTrustedUtility(
-  paths: readonly string[],
-): Promise<string | undefined> {
-  for (const path of paths) {
-    const info = await Deno.lstat(path).catch(() => undefined)
-    if (info?.isFile && !info.isSymlink && ((info.mode ?? 0) & 0o111) !== 0) {
-      return path
+export type UtilityReason =
+  | 'missing'
+  | 'broken-link'
+  | 'permission-denied'
+  | 'nonregular'
+  | 'nonexecutable'
+  | 'wrong-owner'
+  | 'writable-parent-or-terminal'
+  | 'loop-or-limit'
+  | 'untrusted-target'
+  | 'deadline'
+  | 'ledger-limit'
+  | 'filesystem-error'
+
+type UtilityIdentity = {
+  dev: number | null
+  ino: number | null
+  uid: number | null
+  mode: number | null
+  size: number
+  mtime_ms: number | null
+  ctime_ms: number | null
+}
+export type UtilityQualification = {
+  invocation_path: string
+  outcome: 'qualified' | 'rejected'
+  reason_code?: UtilityReason
+  failing_path?: string
+  error_class?: string
+  error_code?: string
+  link_edges: string[]
+  terminal_path?: string
+  terminal_identity?: UtilityIdentity
+}
+type QualifiedUtility = UtilityQualification & {
+  outcome: 'qualified'
+  terminal_path: string
+  terminal_identity: UtilityIdentity
+}
+type QualificationPolicy = {
+  readonly kind: 'production' | 'fixture'
+  readonly uid: number
+  readonly boundary?: string
+  readonly fixture_system_tree?: boolean
+}
+
+const PRODUCTION_UTILITY_POLICY: QualificationPolicy = Object.freeze({
+  kind: 'production',
+  uid: 0,
+})
+
+type UtilityLedgerSummary = {
+  incomplete: boolean
+  limit: number
+  candidates: UtilityQualification[]
+}
+
+export class UtilityQualificationLedger {
+  #records = new Map<string, UtilityQualification>()
+  incomplete = false
+
+  get(path: string): UtilityQualification | undefined {
+    return this.#records.get(path)
+  }
+
+  #envelope(
+    candidates: UtilityQualification[],
+    incomplete = this.incomplete,
+  ): UtilityLedgerSummary {
+    return {
+      incomplete,
+      limit: MAX_UTILITY_LEDGER_BYTES,
+      candidates,
     }
   }
+
+  #fits(
+    candidates: UtilityQualification[],
+    incomplete = this.incomplete,
+  ): boolean {
+    return encoder.encode(
+      JSON.stringify(this.#envelope(candidates, incomplete)),
+    )
+      .byteLength <= MAX_UTILITY_LEDGER_BYTES
+  }
+
+  add(record: UtilityQualification): boolean {
+    if (this.#records.has(record.invocation_path)) return true
+    const next = [...this.#records.values(), record]
+    if (!this.#fits(next)) {
+      this.incomplete = true
+      return false
+    }
+    this.#records.set(record.invocation_path, record)
+    return true
+  }
+
+  summary(): UtilityLedgerSummary {
+    return this.#envelope([...this.#records.values()])
+  }
+}
+
+function boundedUtilityPath(value: string): string | undefined {
+  return encoder.encode(value).byteLength <= MAX_UTILITY_PATH_BYTES
+    ? value
+    : undefined
+}
+
+function boundedUtilityErrorValue(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined
+  const normalized = String(value)
+  return encoder.encode(normalized).byteLength <= 64 ? normalized : undefined
+}
+
+function pathInside(root: string, candidate: string): boolean {
+  const relation = relative(root, candidate)
+  return relation === '' ||
+    (!relation.startsWith('..') && !relation.startsWith('/'))
+}
+
+function productionTraversalPath(path: string): boolean {
+  if (path === '/' || path === '/usr' || path === '/etc') return true
+  return SYSTEM_TRAVERSAL_ROOTS.some((root) => pathInside(root, path))
+}
+
+function productionExecutablePath(path: string): boolean {
+  return SYSTEM_EXECUTABLE_ROOTS.some((root) => pathInside(root, path))
+}
+
+function utilityIdentity(info: Deno.FileInfo): UtilityIdentity {
+  return {
+    dev: typeof info.dev === 'number' ? info.dev : null,
+    ino: typeof info.ino === 'number' ? info.ino : null,
+    uid: typeof info.uid === 'number' ? info.uid : null,
+    mode: typeof info.mode === 'number' ? info.mode : null,
+    size: info.size,
+    mtime_ms: info.mtime?.getTime() ?? null,
+    ctime_ms: info.ctime?.getTime() ?? null,
+  }
+}
+
+function sameUtilityIdentity(
+  current: UtilityIdentity,
+  expected: UtilityIdentity,
+): boolean {
+  return current.dev === expected.dev && current.ino === expected.ino &&
+    current.uid === expected.uid && current.mode === expected.mode &&
+    current.size === expected.size && current.mtime_ms === expected.mtime_ms &&
+    current.ctime_ms === expected.ctime_ms
+}
+
+function utilityErrorDetails(error: unknown): {
+  reason: UtilityReason
+  error_class?: string
+  error_code?: string
+} {
+  const named = error && typeof error === 'object'
+    ? error as { name?: unknown; code?: unknown }
+    : undefined
+  const permissionDenied = error instanceof Deno.errors.PermissionDenied ||
+    error instanceof Deno.errors.NotCapable
+  return {
+    reason: error instanceof Deno.errors.NotFound
+      ? 'missing'
+      : permissionDenied
+      ? 'permission-denied'
+      : 'filesystem-error',
+    error_class: boundedUtilityErrorValue(named?.name),
+    error_code: boundedUtilityErrorValue(named?.code),
+  }
+}
+
+function policyAllowsPath(path: string, policy: QualificationPolicy): boolean {
+  if (policy.kind === 'production') return productionTraversalPath(path)
+  if (!policy.boundary || !pathInside(policy.boundary, path)) return false
+  if (!policy.fixture_system_tree) return true
+  const relativePath = relative(policy.boundary, path)
+  const virtualPath = relativePath ? `/${relativePath}` : '/'
+  return productionTraversalPath(virtualPath)
+}
+
+function policyAllowsTerminal(
+  path: string,
+  policy: QualificationPolicy,
+): boolean {
+  if (policy.kind === 'production') return productionExecutablePath(path)
+  if (!policy.boundary || !pathInside(policy.boundary, path)) return false
+  if (!policy.fixture_system_tree) return true
+  return productionExecutablePath(`/${relative(policy.boundary, path)}`)
+}
+
+type UtilityPathToken = string | typeof DIRECTORY_REQUIREMENT
+
+/**
+ * A final slash is a kernel-enforced directory requirement, rather than an
+ * ignorable separator.  Keep it in the physical queue, including when it was
+ * supplied by a symlink target before the original path's remaining suffix.
+ */
+const DIRECTORY_REQUIREMENT = Object.freeze({
+  kind: 'directory-requirement' as const,
+})
+
+/** Raw queue components retain dot, dotdot, and final directory requirements. */
+function rawPathTokens(path: string): UtilityPathToken[] | undefined {
+  if (!path.startsWith('/')) return undefined
+  const components = path.split('/').slice(1)
+  const tokens: UtilityPathToken[] = components.filter((component) =>
+    component !== ''
+  )
+  if (path.endsWith('/')) tokens.push(DIRECTORY_REQUIREMENT)
+  return tokens
+}
+
+function rawAbsoluteComponents(path: string): string[] | undefined {
+  const tokens = rawPathTokens(path)
+  return tokens?.filter((token): token is string => typeof token === 'string')
+}
+
+function hasPrefix(
+  values: readonly string[],
+  prefix: readonly string[],
+): boolean {
+  return values.length >= prefix.length &&
+    prefix.every((value, index) => values[index] === value)
+}
+
+function physicalChild(parent: string, component: string): string {
+  return parent === '/' ? `/${component}` : `${parent}/${component}`
+}
+
+function protectedDirectory(
+  info: Deno.FileInfo,
+  policy: QualificationPolicy,
+): boolean {
+  return info.isDirectory && !info.isSymlink && info.uid === policy.uid &&
+    ((info.mode ?? 0) & 0o22) === 0
+}
+
+function protectedSymlink(
+  info: Deno.FileInfo,
+  policy: QualificationPolicy,
+): boolean {
+  return info.isSymlink && info.uid === policy.uid
+}
+
+function utilityRecord(
+  invocationPath: string,
+  outcome: 'qualified' | 'rejected',
+  linkEdges: string[],
+  details: Partial<
+    Omit<UtilityQualification, 'invocation_path' | 'outcome' | 'link_edges'>
+  > = {},
+): UtilityQualification {
+  return {
+    invocation_path: invocationPath,
+    outcome,
+    link_edges: linkEdges,
+    ...details,
+  }
+}
+
+/**
+ * Resolve a fixed host utility component by component.  The fixture policy is
+ * only constructible by the exported fixture helper below; production callers
+ * always use the frozen root-owned system policy.
+ */
+async function qualifyUtilityWithPolicy(
+  invocationPath: string,
+  deadline: DiagnosticDeadline | undefined,
+  ledger: UtilityQualificationLedger,
+  policy: QualificationPolicy,
+): Promise<UtilityQualification> {
+  const cached = ledger.get(invocationPath)
+  if (cached) return cached
+  const original = boundedUtilityPath(invocationPath)
+  const reject = (
+    reason: UtilityReason,
+    failingPath?: string,
+    linkEdges: string[] = [],
+    error?: unknown,
+  ): UtilityQualification => {
+    const details = error ? utilityErrorDetails(error) : undefined
+    const record = utilityRecord(invocationPath, 'rejected', linkEdges, {
+      reason_code: reason,
+      failing_path: failingPath && boundedUtilityPath(failingPath),
+      error_class: details?.error_class,
+      error_code: details?.error_code,
+    })
+    if (!ledger.add(record)) {
+      return utilityRecord(invocationPath, 'rejected', linkEdges, {
+        reason_code: 'ledger-limit',
+      })
+    }
+    return record
+  }
+  if (!original || !invocationPath.startsWith('/')) {
+    return reject('untrusted-target', invocationPath)
+  }
+  if (
+    policy.kind === 'production' && !FIXED_UTILITY_PATHS.has(invocationPath)
+  ) {
+    return reject('untrusted-target', invocationPath)
+  }
+  const root = policy.kind === 'fixture' ? policy.boundary! : '/'
+  const rootParts = rawAbsoluteComponents(root)
+  const invocationTokens = rawPathTokens(invocationPath)
+  const invocationParts = rawAbsoluteComponents(invocationPath)
+  if (!rootParts || !invocationTokens || !invocationParts) {
+    return reject('untrusted-target', invocationPath)
+  }
+  let unresolved: UtilityPathToken[] | undefined = policy.kind === 'fixture'
+    ? hasPrefix(invocationParts, rootParts)
+      ? invocationTokens.slice(rootParts.length)
+      : undefined
+    : invocationTokens
+  if (!unresolved) return reject('untrusted-target', invocationPath)
+  const edges: string[] = []
+  const seenLinks = new Set<string>()
+  let inspections = 0
+  let consumed = 0
+  let followedLink = false
+  const charge = (path: string): boolean => {
+    if (++inspections > MAX_UTILITY_COMPONENTS) {
+      return false
+    }
+    return !deadlineExpired(deadline)
+  }
+  if (!policyAllowsPath(root, policy)) {
+    return reject('untrusted-target', root, edges)
+  }
+  if (!charge(root)) {
+    return reject(
+      deadlineExpired(deadline) ? 'deadline' : 'loop-or-limit',
+      root,
+      edges,
+    )
+  }
+  let rootInfo: Deno.FileInfo
+  try {
+    rootInfo = await Deno.lstat(root)
+  } catch (error) {
+    const details = utilityErrorDetails(error)
+    return reject(details.reason, root, edges, error)
+  }
+  if (!protectedDirectory(rootInfo, policy)) {
+    return reject(
+      rootInfo.uid !== policy.uid
+        ? 'wrong-owner'
+        : 'writable-parent-or-terminal',
+      root,
+      edges,
+    )
+  }
+  const stack = [root]
+  while (unresolved.length > 0) {
+    if (++consumed > MAX_UTILITY_COMPONENTS) {
+      return reject('loop-or-limit', stack[stack.length - 1], edges)
+    }
+    if (deadlineExpired(deadline)) {
+      return reject('deadline', stack[stack.length - 1], edges)
+    }
+    const component = unresolved.shift()!
+    if (typeof component !== 'string') {
+      // The preceding physical component was admitted only as a protected
+      // directory.  A terminal directory requirement can never be executable.
+      if (unresolved.length === 0) {
+        return reject('nonregular', stack[stack.length - 1], edges)
+      }
+      continue
+    }
+    if (component === '.') continue
+    if (component === '..') {
+      if (stack.length === 1) {
+        if (policy.kind === 'fixture') {
+          return reject('untrusted-target', root, edges)
+        }
+        continue
+      }
+      stack.pop()
+      continue
+    }
+    const parent = stack[stack.length - 1]
+    const candidate = physicalChild(parent, component)
+    if (!boundedUtilityPath(candidate)) {
+      return reject('loop-or-limit', candidate, edges)
+    }
+    if (!policyAllowsPath(candidate, policy)) {
+      return reject('untrusted-target', candidate, edges)
+    }
+    if (!charge(candidate)) {
+      return reject(
+        deadlineExpired(deadline) ? 'deadline' : 'loop-or-limit',
+        candidate,
+        edges,
+      )
+    }
+    let info: Deno.FileInfo
+    try {
+      info = await Deno.lstat(candidate)
+    } catch (error) {
+      const details = utilityErrorDetails(error)
+      return reject(
+        followedLink && details.reason === 'missing'
+          ? 'broken-link'
+          : details.reason,
+        candidate,
+        edges,
+        error,
+      )
+    }
+    if (info.isSymlink) {
+      if (!protectedSymlink(info, policy)) {
+        return reject('wrong-owner', candidate, edges)
+      }
+      if (edges.length >= MAX_UTILITY_LINKS || !charge(candidate)) {
+        return reject(
+          deadlineExpired(deadline) ? 'deadline' : 'loop-or-limit',
+          candidate,
+          edges,
+        )
+      }
+      const linkKey = `${info.dev ?? ''}:${info.ino ?? ''}:${candidate}`
+      if (seenLinks.has(linkKey)) {
+        return reject('loop-or-limit', candidate, edges)
+      }
+      seenLinks.add(linkKey)
+      let target: string
+      try {
+        target = await Deno.readLink(candidate)
+      } catch (error) {
+        const details = utilityErrorDetails(error)
+        return reject(
+          details.reason === 'missing' ? 'broken-link' : details.reason,
+          candidate,
+          edges,
+          error,
+        )
+      }
+      if (!boundedUtilityPath(target)) {
+        return reject('loop-or-limit', candidate, edges)
+      }
+      const targetTokens = target.startsWith('/')
+        ? rawPathTokens(target)
+        : rawPathTokens(`/${target}`)
+      if (!targetTokens) return reject('untrusted-target', candidate, edges)
+      const edge = boundedUtilityPath(`${candidate}->${target}`)
+      if (!edge) return reject('loop-or-limit', candidate, edges)
+      if (target.startsWith('/')) {
+        if (policy.kind === 'fixture') {
+          const absoluteParts = rawAbsoluteComponents(target)
+          if (!absoluteParts || !hasPrefix(absoluteParts, rootParts)) {
+            return reject('untrusted-target', candidate, edges)
+          }
+          unresolved = targetTokens.slice(rootParts.length).concat(unresolved)
+        } else {
+          unresolved = targetTokens.concat(unresolved)
+        }
+        stack.splice(1)
+      } else {
+        unresolved = targetTokens.concat(unresolved)
+      }
+      edges.push(edge)
+      followedLink = true
+      continue
+    }
+    if (unresolved.length > 0) {
+      if (!protectedDirectory(info, policy)) {
+        return reject(
+          info.uid !== policy.uid
+            ? 'wrong-owner'
+            : info.isDirectory
+            ? 'writable-parent-or-terminal'
+            : 'nonregular',
+          candidate,
+          edges,
+        )
+      }
+      stack.push(candidate)
+      continue
+    }
+    if (!policyAllowsTerminal(candidate, policy)) {
+      return reject('untrusted-target', candidate, edges)
+    }
+    if (!info.isFile || info.isSymlink) {
+      return reject('nonregular', candidate, edges)
+    }
+    if (info.uid !== policy.uid) {
+      return reject('wrong-owner', candidate, edges)
+    }
+    if (((info.mode ?? 0) & 0o22) !== 0) {
+      return reject('writable-parent-or-terminal', candidate, edges)
+    }
+    if (((info.mode ?? 0) & 0o111) === 0) {
+      return reject('nonexecutable', candidate, edges)
+    }
+    const record = utilityRecord(invocationPath, 'qualified', edges, {
+      terminal_path: candidate,
+      terminal_identity: utilityIdentity(info),
+    })
+    if (!ledger.add(record)) {
+      return utilityRecord(invocationPath, 'rejected', edges, {
+        reason_code: 'ledger-limit',
+      })
+    }
+    return record
+  }
+  return reject('nonregular', root, edges)
+}
+
+export async function qualifyFixtureUtility(
+  invocationPath: string,
+  boundary: string,
+  uid: number,
+  deadline?: DiagnosticDeadline,
+): Promise<UtilityQualification> {
+  const resolvedBoundary = resolve(boundary)
+  const boundaryParts = rawAbsoluteComponents(resolvedBoundary)
+  const invocationParts = rawAbsoluteComponents(invocationPath)
+  const firstFixtureComponent = boundaryParts && invocationParts &&
+      hasPrefix(invocationParts, boundaryParts)
+    ? invocationParts[boundaryParts.length]
+    : undefined
+  const policy: QualificationPolicy = {
+    kind: 'fixture',
+    boundary: resolvedBoundary,
+    uid,
+    fixture_system_tree: [
+      'usr',
+      'etc',
+      'bin',
+      'sbin',
+      'lib',
+      'lib64',
+    ].includes(firstFixtureComponent ?? ''),
+  }
+  return await qualifyUtilityWithPolicy(
+    invocationPath,
+    deadline,
+    new UtilityQualificationLedger(),
+    policy,
+  )
+}
+
+async function qualifyFixedUtility(
+  paths: readonly string[],
+  deadline: DiagnosticDeadline | undefined,
+  ledger: UtilityQualificationLedger,
+): Promise<QualifiedUtility | undefined> {
+  for (const path of paths) {
+    const result = await qualifyUtilityWithPolicy(
+      path,
+      deadline,
+      ledger,
+      PRODUCTION_UTILITY_POLICY,
+    )
+    if (result.outcome === 'qualified') return result as QualifiedUtility
+  }
   return undefined
+}
+
+/** Test-only read-only view of the immutable production policy. */
+export async function qualifyProductionUtilityForTest(
+  path: string,
+  deadline?: DiagnosticDeadline,
+): Promise<UtilityQualification | undefined> {
+  const ledger = new UtilityQualificationLedger()
+  return await qualifyFixedUtility([path], deadline, ledger)
+}
+
+async function revalidateQualifiedUtility(
+  utility: QualifiedUtility,
+  deadline: DiagnosticDeadline | undefined,
+  until?: number,
+): Promise<boolean> {
+  if (
+    deadlineExpired(deadline) || (until !== undefined && Date.now() >= until)
+  ) {
+    return false
+  }
+  try {
+    const info = await Deno.lstat(utility.terminal_path)
+    return info.isFile && !info.isSymlink &&
+      sameUtilityIdentity(utilityIdentity(info), utility.terminal_identity)
+  } catch {
+    return false
+  }
 }
 
 async function writeLog(path: string, data: Uint8Array): Promise<void> {
@@ -1543,23 +2203,21 @@ async function metadataCommand(
   args: string[],
   cwd: string,
   home: string,
+  ledger: UtilityQualificationLedger,
+  observationUtilities?: ObservationUtilities,
   deadline?: DiagnosticDeadline,
 ): Promise<{ available: boolean; result?: ChildResult }> {
-  if (deadlineExpired(deadline)) return { available: false }
-  const info = await Deno.lstat(executable).catch(() => undefined)
-  if (
-    !info?.isFile || info.isSymlink || ((info.mode ?? 0) & 0o111) === 0
-  ) {
-    return { available: false }
-  }
+  const utility = await qualifyFixedUtility([executable], deadline, ledger)
+  if (!utility) return { available: false }
   return {
     available: true,
-    result: await runBoundedChild(executable, args, {
+    result: await runBoundedChild(utility.invocation_path, args, {
       cwd,
       home,
       timeoutMs: 10_000,
       outputLimit: 64 * 1024,
       deadline,
+      observationUtilities,
     }),
   }
 }
@@ -1568,6 +2226,8 @@ async function collectPlatformMetadata(
   out: string,
   cwd: string,
   home: string,
+  ledger: UtilityQualificationLedger,
+  observationUtilities?: ObservationUtilities,
   deadline?: DiagnosticDeadline,
 ): Promise<Record<string, unknown>> {
   const commands = [
@@ -1585,6 +2245,8 @@ async function collectPlatformMetadata(
       [...args],
       cwd,
       home,
+      ledger,
+      observationUtilities,
       deadline,
     )
     result[name] = record.available
@@ -1593,6 +2255,11 @@ async function collectPlatformMetadata(
         exit_code: record.result!.exit_code,
         signal: record.result!.signal,
         timed_out: record.result!.timed_out,
+        deadline_expired: record.result!.deadline_expired === true,
+        acquisition_error: record.result!.acquisition_error,
+        capture_complete: record.result!.capture_complete,
+        capture_incomplete_reason: record.result!.capture_incomplete_reason,
+        cleanup_incomplete: record.result!.cleanup_incomplete === true,
         stdout_bytes: record.result!.stdout.bytes,
         stdout_retained_bytes: record.result!.stdout.retained_bytes,
         stdout_truncated: record.result!.stdout.truncated,
@@ -1626,6 +2293,54 @@ async function collectPlatformMetadata(
     truncated: logsTruncated,
   }
   return result
+}
+
+export function evaluateNativeGate(
+  platform: Record<string, unknown>,
+  host: { os: string; arch: string } = Deno.build,
+): {
+  status:
+    | 'ready'
+    | 'utility-unavailable'
+    | 'acquisition-incomplete'
+    | 'measured-machine-mismatch'
+    | 'deno-host-mismatch'
+  reason: string
+} {
+  if (host.os !== 'linux' || host.arch !== 'aarch64') {
+    return {
+      status: 'deno-host-mismatch',
+      reason: 'Deno host is not Linux ARM64',
+    }
+  }
+  const uname = platform.uname as Record<string, unknown> | undefined
+  const machine = platform.uname_machine as Record<string, unknown> | undefined
+  if (!uname?.available || !machine?.available) {
+    return {
+      status: 'utility-unavailable',
+      reason: 'required uname utility is unavailable',
+    }
+  }
+  const complete = (record: Record<string, unknown>): boolean =>
+    record.exit_code === 0 && record.signal === null &&
+    record.timed_out !== true && record.deadline_expired !== true &&
+    record.acquisition_error === undefined &&
+    record.capture_complete === true &&
+    record.cleanup_incomplete !== true && record.stdout_truncated !== true &&
+    record.stderr_truncated !== true
+  if (!complete(uname) || !complete(machine)) {
+    return {
+      status: 'acquisition-incomplete',
+      reason: 'required uname measurement did not complete cleanly',
+    }
+  }
+  if (machine.value !== 'aarch64') {
+    return {
+      status: 'measured-machine-mismatch',
+      reason: 'uname -m did not measure aarch64',
+    }
+  }
+  return { status: 'ready', reason: 'native host measurements are complete' }
 }
 
 function summaryRecord(result: ChildResult): Record<string, unknown> {
@@ -1671,15 +2386,21 @@ function diagnosticRepositoryRoot(): string {
 async function checkedGitHead(
   repositoryRoot: string,
   home: string,
+  ledger: UtilityQualificationLedger,
+  observationUtilities?: ObservationUtilities,
   deadline?: DiagnosticDeadline,
 ): Promise<string> {
-  const git = await findTrustedUtility(['/usr/bin/git', '/bin/git'])
+  const git = await qualifyFixedUtility(
+    ['/usr/bin/git', '/bin/git'],
+    deadline,
+    ledger,
+  )
   if (!git) {
     throw new Error(
-      'trusted git is unavailable for diagnostic checkout validation',
+      'qualified git is unavailable for diagnostic checkout validation',
     )
   }
-  const result = await runBoundedChild(git, [
+  const result = await runBoundedChild(git.invocation_path, [
     '-C',
     repositoryRoot,
     'rev-parse',
@@ -1690,6 +2411,7 @@ async function checkedGitHead(
     timeoutMs: 10_000,
     outputLimit: 4096,
     deadline,
+    observationUtilities,
   })
   const value = decoder.decode(result.stdout.data).trim()
   if (
@@ -1743,15 +2465,25 @@ async function runDebugger(
   cwd: string,
   home: string,
   prlimit: string,
+  ledger: UtilityQualificationLedger,
+  observationUtilities: ObservationUtilities,
   deadline: DiagnosticDeadline,
 ): Promise<Record<string, unknown>> {
-  const gdb = await findTrustedUtility(['/usr/bin/gdb', '/bin/gdb'])
-  const timeout = await findTrustedUtility(['/usr/bin/timeout', '/bin/timeout'])
+  const gdb = await qualifyFixedUtility(
+    ['/usr/bin/gdb', '/bin/gdb'],
+    deadline,
+    ledger,
+  )
+  const timeout = await qualifyFixedUtility(
+    ['/usr/bin/timeout', '/bin/timeout'],
+    deadline,
+    ledger,
+  )
   if (!gdb) {
-    return { status: 'unavailable', reason: 'trusted gdb is not installed' }
+    return { status: 'unavailable', reason: 'qualified gdb is unavailable' }
   }
   if (!timeout) {
-    return { status: 'unavailable', reason: 'trusted timeout is not installed' }
+    return { status: 'unavailable', reason: 'qualified timeout is unavailable' }
   }
   if (deadlineRemaining(deadline) < DEBUGGER_TIMEOUT_MS + 10_000) {
     return {
@@ -1803,10 +2535,10 @@ async function runDebugger(
   const result = await runBoundedChild(prlimit, [
     '--core=0:0',
     '--',
-    timeout,
+    timeout.invocation_path,
     '--kill-after=5s',
     '180s',
-    gdb,
+    gdb.invocation_path,
     ...gdbArgs,
   ], {
     cwd,
@@ -1814,6 +2546,7 @@ async function runDebugger(
     timeoutMs: DEBUGGER_TIMEOUT_MS + 10_000,
     outputLimit: DEBUGGER_OUTPUT_BYTES,
     deadline,
+    observationUtilities,
   })
   await writeControlLogs(
     out,
@@ -1822,7 +2555,7 @@ async function runDebugger(
   )
   return {
     status: 'attempted',
-    gdb_argv: [gdb, ...gdbArgs],
+    gdb_argv: [gdb.invocation_path, ...gdbArgs],
     result: summaryRecord(result),
     retained_log_bytes: result.stdout.retained_bytes +
       result.stderr.retained_bytes,
@@ -1883,6 +2616,7 @@ export async function runDiagnosticControlPhase(
     deadline: DiagnosticDeadline
     timeoutMs?: number
     outputLimit?: number
+    observationUtilities?: ObservationUtilities
   },
   debuggerForTarget: (
     target: string,
@@ -1895,6 +2629,7 @@ export async function runDiagnosticControlPhase(
     timeoutMs: input.timeoutMs ?? DIRECT_TIMEOUT_MS,
     outputLimit: input.outputLimit ?? DIRECT_OUTPUT_BYTES,
     deadline: input.deadline,
+    observationUtilities: input.observationUtilities,
   })
   const missingEvidence: string[] = []
   for (
@@ -1984,9 +2719,11 @@ export async function diagnoseNative(args: Args): Promise<number> {
   const watchdog = startDiagnosticDeadline()
   const { deadline } = watchdog
   const missingEvidence: string[] = []
+  const utilityLedger = new UtilityQualificationLedger()
   let context: DiagnosticContext | undefined
   let validation: ArtifactValidation | undefined
   let platform: Record<string, unknown> | undefined
+  let nativeGate: ReturnType<typeof evaluateNativeGate> | undefined
   let phase: DiagnosticControlPhase | undefined
   try {
     out = await prepareOutput(args['--out'], args['--artifact-root'])
@@ -1995,12 +2732,34 @@ export async function diagnoseNative(args: Args): Promise<number> {
     await Deno.mkdir(home)
     privateHome = home
     const repositoryRoot = diagnosticRepositoryRoot()
+    const cat = await qualifyFixedUtility(
+      ['/usr/bin/cat'],
+      deadline,
+      utilityLedger,
+    )
+    const ps = await qualifyFixedUtility(
+      ['/usr/bin/ps'],
+      deadline,
+      utilityLedger,
+    )
+    if (!cat || !ps) {
+      throw new Error(
+        'qualified cat and ps are required for bounded diagnostic ownership observation',
+      )
+    }
+    const observationUtilities: ObservationUtilities = { cat, ps }
     const contextPath = absolute(args['--diagnostic-context'])
     await regularFile(contextPath, 'diagnostic context')
     context = parseDiagnosticContext(
       JSON.parse(await Deno.readTextFile(contextPath)),
     )
-    const checkoutSha = await checkedGitHead(repositoryRoot, home, deadline)
+    const checkoutSha = await checkedGitHead(
+      repositoryRoot,
+      home,
+      utilityLedger,
+      observationUtilities,
+      deadline,
+    )
     validateDiagnosticContext(context, args['--reviewed-sha'], checkoutSha)
     validation = await validateStoredArtifact(
       args['--artifact-root'],
@@ -2011,26 +2770,25 @@ export async function diagnoseNative(args: Args): Promise<number> {
       out,
       repositoryRoot,
       home,
+      utilityLedger,
+      observationUtilities,
       deadline,
     )
-    const uname = platform.uname as Record<string, unknown>
-    const unameMachine = platform.uname_machine as Record<string, unknown>
-    if (
-      Deno.build.os !== 'linux' || Deno.build.arch !== 'aarch64' ||
-      uname.exit_code !== 0 || unameMachine.exit_code !== 0 ||
-      unameMachine.value !== 'aarch64'
-    ) {
-      throw new Error(
-        'native Linux ARM64 is required before diagnostic target execution',
-      )
+    nativeGate = evaluateNativeGate(platform)
+    if (nativeGate.status !== 'ready') {
+      throw new Error(`native gate ${nativeGate.status}: ${nativeGate.reason}`)
     }
-    const prlimit = await findTrustedUtility([
-      '/usr/bin/prlimit',
-      '/bin/prlimit',
-    ])
+    const prlimit = await qualifyFixedUtility(
+      [
+        '/usr/bin/prlimit',
+        '/bin/prlimit',
+      ],
+      deadline,
+      utilityLedger,
+    )
     if (!prlimit) {
       throw new Error(
-        'trusted prlimit is required to disable core files before target execution',
+        'qualified prlimit is required to disable core files before target execution',
       )
     }
     await Deno.chmod(validation.denort, 0o755)
@@ -2038,12 +2796,12 @@ export async function diagnoseNative(args: Args): Promise<number> {
     phase = await runDiagnosticControlPhase(
       {
         bare: {
-          executable: prlimit,
+          executable: prlimit.invocation_path,
           args: ['--core=0:0', '--', validation.denort],
           targetArgv: [validation.denort],
         },
         probe: {
-          executable: prlimit,
+          executable: prlimit.invocation_path,
           args: ['--core=0:0', '--', validation.probe, '0.125'],
           targetArgv: [validation.probe, '0.125'],
         },
@@ -2051,6 +2809,7 @@ export async function diagnoseNative(args: Args): Promise<number> {
         home,
         out: output,
         deadline,
+        observationUtilities,
       },
       (target, targetArgs) =>
         runDebugger(
@@ -2059,7 +2818,9 @@ export async function diagnoseNative(args: Args): Promise<number> {
           output,
           repositoryRoot,
           home,
-          prlimit,
+          prlimit.invocation_path,
+          utilityLedger,
+          observationUtilities,
           deadline,
         ),
     )
@@ -2126,6 +2887,8 @@ export async function diagnoseNative(args: Args): Promise<number> {
         },
       },
       platform,
+      native_gate: nativeGate,
+      utility_qualification: utilityLedger.summary(),
       ...controlEvidence,
       log_budget: {
         retained_bytes: retainedLogBytes,
@@ -2160,6 +2923,8 @@ export async function diagnoseNative(args: Args): Promise<number> {
           }
           : { passed: false },
         platform,
+        native_gate: nativeGate,
+        utility_qualification: utilityLedger.summary(),
         controls: phase
           ? {
             bare: controlSummary(phase.controls.bare),

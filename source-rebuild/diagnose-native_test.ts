@@ -1,13 +1,17 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
+import { dirname } from 'node:path'
 import {
   type ArtifactExpectation,
   classifySidCandidates,
   DIAGNOSTIC_PROTOCOL,
   diagnosticControlSummary,
+  evaluateNativeGate,
   parseDiagnosticArgs,
   parseDiagnosticContext,
   parseProcStat,
+  qualifyFixtureUtility,
+  qualifyProductionUtilityForTest,
   runBoundedChild,
   runBoundedObservationUtility,
   runDiagnosticControlPhase,
@@ -15,6 +19,7 @@ import {
   sameBirth,
   selectDiagnosticTimeout,
   startDiagnosticDeadline,
+  UtilityQualificationLedger,
   validateDiagnosticContext,
   validateStoredArtifact,
   writeDiagnosticSummary,
@@ -222,6 +227,550 @@ async function waitForJson(path: string): Promise<Record<string, unknown>> {
   }
   throw new Error(`fixture did not write ${path}`)
 }
+
+async function utilityFixture(): Promise<{
+  root: string
+  uid: number
+  terminal: string
+  aliasA: string
+  aliasB: string
+  alternative: string
+  dotted: string
+  eightHops: string
+}> {
+  const root = await Deno.makeTempDir({ prefix: 'slv-qualified-utility-' })
+  const terminal = `${root}/usr/bin/canonical`
+  const aliasA = `${root}/usr/bin/alias-a`
+  const aliasB = `${root}/bin/alias-b`
+  const alternative = `${root}/usr/bin/alternative`
+  const dotted = `${root}/usr/bin/dotted`
+  const eightHops = `${root}/usr/bin/eight-hop-0`
+  await Deno.mkdir(`${root}/usr/bin/sub`, { recursive: true })
+  await Deno.mkdir(`${root}/etc/alternatives`, { recursive: true })
+  await Deno.chmod(`${root}/usr`, 0o755)
+  await Deno.chmod(`${root}/usr/bin`, 0o755)
+  await Deno.chmod(`${root}/usr/bin/sub`, 0o755)
+  await Deno.chmod(`${root}/etc`, 0o755)
+  await Deno.chmod(`${root}/etc/alternatives`, 0o755)
+  await Deno.writeTextFile(
+    terminal,
+    '#!/bin/sh\ncase "$0" in\n  *alias-a) printf alias-a;;\n  *alias-b) printf alias-b;;\n  *canonical) printf canonical;;\n  *) printf unknown;;\nesac\n',
+  )
+  await Deno.chmod(terminal, 0o755)
+  await Deno.symlink('canonical', aliasA)
+  await Deno.symlink('usr/bin', `${root}/bin`)
+  await Deno.symlink('canonical', `${root}/usr/bin/alias-b`)
+  await Deno.symlink('../../etc/alternatives/alias-a', alternative)
+  await Deno.symlink(
+    '../../usr/bin/alias-a',
+    `${root}/etc/alternatives/alias-a`,
+  )
+  await Deno.symlink('sub/../canonical', dotted)
+  let hop = eightHops
+  for (let index = 0; index < 8; index += 1) {
+    const next = index === 7 ? 'canonical' : `eight-hop-${index + 1}`
+    await Deno.symlink(next, hop)
+    hop = `${root}/usr/bin/eight-hop-${index + 1}`
+  }
+  const uid = (await Deno.lstat(root)).uid
+  requireFixture(typeof uid === 'number', 'fixture root has no POSIX owner')
+  return {
+    root,
+    uid,
+    terminal,
+    aliasA,
+    aliasB,
+    alternative,
+    dotted,
+    eightHops,
+  }
+}
+
+Deno.test('protected utility aliases qualify while preserving original multicall invocation names', async () => {
+  const fixture = await utilityFixture()
+  try {
+    const aliasInfo = await Deno.lstat(fixture.aliasA)
+    requireFixture(
+      aliasInfo.isSymlink,
+      'fixture did not retain the prior symlink falsifier',
+    )
+    for (
+      const invocation of [
+        fixture.aliasA,
+        fixture.aliasB,
+        fixture.alternative,
+        fixture.dotted,
+        fixture.eightHops,
+      ]
+    ) {
+      const qualified = await qualifyFixtureUtility(
+        invocation,
+        fixture.root,
+        fixture.uid,
+      )
+      requireFixture(
+        qualified.outcome === 'qualified' &&
+          qualified.invocation_path === invocation &&
+          qualified.terminal_path === fixture.terminal &&
+          qualified.link_edges.length > 0,
+        'protected system-style alias was not qualified with its original invocation identity',
+      )
+    }
+    for (
+      const [path, expected] of [
+        [fixture.aliasA, 'alias-a'],
+        [fixture.aliasB, 'alias-b'],
+        [fixture.terminal, 'canonical'],
+      ] as const
+    ) {
+      const result = await runBoundedChild(path, [], {
+        cwd: fixture.root,
+        home: fixture.root,
+        timeoutMs: 2_000,
+        outputLimit: 4096,
+      })
+      requireFixture(
+        result.exit_code === 0 &&
+          new TextDecoder().decode(result.stdout.data) === expected,
+        'qualified alias was substituted with the canonical terminal before spawn',
+      )
+    }
+    requireFixture(
+      !await qualifyProductionUtilityForTest(fixture.aliasA),
+      'fixture policy escaped into the immutable production utility registry',
+    )
+  } finally {
+    await Deno.remove(fixture.root, { recursive: true })
+  }
+})
+
+Deno.test('immutable production utility registry qualifies its fixed uname path only', async () => {
+  const uname = await qualifyProductionUtilityForTest('/usr/bin/uname')
+  const arbitrary = await qualifyProductionUtilityForTest(
+    '/tmp/not-a-fixed-tool',
+  )
+  requireFixture(
+    uname?.outcome === 'qualified' &&
+      uname.invocation_path === '/usr/bin/uname' &&
+      uname.terminal_identity !== undefined &&
+      arbitrary === undefined,
+    'production utility policy did not retain its fixed-path boundary',
+  )
+})
+
+Deno.test('utility qualification rejects unsafe chains with bounded explicit reasons', async () => {
+  const fixture = await utilityFixture()
+  let outside: string | undefined
+  try {
+    const tools = `${fixture.root}/usr/bin`
+    const checks: Array<[string, string, string]> = []
+    checks.push(['missing', `${tools}/missing`, 'missing'])
+    await Deno.symlink('missing-target', `${tools}/broken`)
+    checks.push(['broken', `${tools}/broken`, 'broken-link'])
+    await Deno.symlink('loop-b', `${tools}/loop-a`)
+    await Deno.symlink('loop-a', `${tools}/loop-b`)
+    checks.push(['loop', `${tools}/loop-a`, 'loop-or-limit'])
+    let hop = `${tools}/hop-0`
+    for (let index = 0; index < 9; index += 1) {
+      const next = index === 8 ? 'canonical' : `hop-${index + 1}`
+      await Deno.symlink(next, hop)
+      hop = `${tools}/hop-${index + 1}`
+    }
+    checks.push(['hop-limit', `${tools}/hop-0`, 'loop-or-limit'])
+    outside = await Deno.makeTempDir({
+      dir: dirname(fixture.root),
+      prefix: 'slv-untrusted-return-',
+    })
+    await Deno.mkdir(outside, { recursive: true })
+    await Deno.symlink(fixture.terminal, `${outside}/back`)
+    await Deno.symlink(`${outside}/back`, `${tools}/escape-and-return`)
+    checks.push([
+      'escape-and-return',
+      `${tools}/escape-and-return`,
+      'untrusted-target',
+    ])
+    await Deno.symlink(
+      '../../untrusted/../usr/bin/canonical',
+      `${tools}/lexical-escape-and-return`,
+    )
+    checks.push([
+      'lexical-escape-and-return',
+      `${tools}/lexical-escape-and-return`,
+      'untrusted-target',
+    ])
+    await Deno.mkdir(`${tools}/writable`, { recursive: true })
+    await Deno.chmod(`${tools}/writable`, 0o777)
+    await Deno.writeTextFile(
+      `${tools}/writable/tool`,
+      '#!/bin/sh\nexit 0\n',
+    )
+    await Deno.chmod(`${tools}/writable/tool`, 0o755)
+    checks.push([
+      'writable-parent',
+      `${tools}/writable/tool`,
+      'writable-parent-or-terminal',
+    ])
+    await Deno.mkdir(`${tools}/directory-terminal`)
+    checks.push([
+      'nonregular',
+      `${tools}/directory-terminal`,
+      'nonregular',
+    ])
+    await Deno.writeTextFile(`${tools}/nonexecutable`, 'fixture\n')
+    await Deno.chmod(`${tools}/nonexecutable`, 0o644)
+    checks.push([
+      'nonexecutable',
+      `${tools}/nonexecutable`,
+      'nonexecutable',
+    ])
+    for (const [label, path, reason] of checks) {
+      const result = await qualifyFixtureUtility(
+        path,
+        fixture.root,
+        fixture.uid,
+      )
+      requireFixture(
+        result.outcome === 'rejected' && result.reason_code === reason &&
+          result.failing_path !== undefined,
+        `${label} did not retain its explicit bounded rejection reason`,
+      )
+    }
+    const wrongOwner = await qualifyFixtureUtility(
+      fixture.terminal,
+      fixture.root,
+      fixture.uid + 1,
+    )
+    const unknownError = await qualifyFixtureUtility(
+      `${tools}/\0`,
+      fixture.root,
+      fixture.uid,
+    )
+    requireFixture(
+      wrongOwner.outcome === 'rejected' &&
+        wrongOwner.reason_code === 'wrong-owner' &&
+        unknownError.outcome === 'rejected' &&
+        unknownError.reason_code === 'filesystem-error' &&
+        typeof unknownError.error_class === 'string',
+      'ownership or unknown filesystem errors lost their explicit classification',
+    )
+  } finally {
+    if (outside) await Deno.remove(outside, { recursive: true })
+    await Deno.remove(fixture.root, { recursive: true })
+  }
+})
+
+Deno.test('utility qualification preserves trailing directory requirements across links', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-qualified-slash-' })
+  try {
+    const directory = `${root}/directory`
+    const tool = `${directory}/tool`
+    const regular = `${root}/regular`
+    const directoryLink = `${root}/directory-link`
+    const slashAlias = `${root}/slash-alias`
+    const repeatedSlashAlias = `${root}/repeated-slash-alias`
+    const terminalDirectoryAlias = `${root}/terminal-directory-alias`
+    const regularAlias = `${root}/regular-alias`
+    await Deno.mkdir(directory)
+    await Deno.chmod(directory, 0o755)
+    await Deno.writeTextFile(tool, '#!/bin/sh\nprintf slash-ok\n')
+    await Deno.chmod(tool, 0o755)
+    await Deno.writeTextFile(regular, '#!/bin/sh\nprintf regular\n')
+    await Deno.chmod(regular, 0o755)
+    await Deno.symlink('directory', directoryLink)
+    await Deno.symlink('directory-link/', slashAlias)
+    await Deno.symlink('directory-link//', repeatedSlashAlias)
+    await Deno.symlink('directory/', terminalDirectoryAlias)
+    await Deno.symlink('regular/', regularAlias)
+    const uid = (await Deno.lstat(root)).uid
+    requireFixture(typeof uid === 'number', 'slash fixture has no POSIX owner')
+    const positivePaths = [
+      `${slashAlias}/tool`,
+      `${repeatedSlashAlias}/tool`,
+    ]
+    const positives = await Promise.all(
+      positivePaths.map((path) => qualifyFixtureUtility(path, root, uid)),
+    )
+    const executions = await Promise.all(
+      positivePaths.map((path) =>
+        runBoundedChild(path, [], {
+          cwd: root,
+          home: root,
+          timeoutMs: 2_000,
+          outputLimit: 4096,
+        })
+      ),
+    )
+    const negatives = await Promise.all([
+      qualifyFixtureUtility(`${regular}/`, root, uid),
+      qualifyFixtureUtility(`${regular}//`, root, uid),
+      qualifyFixtureUtility(regularAlias, root, uid),
+      qualifyFixtureUtility(terminalDirectoryAlias, root, uid),
+    ])
+    requireFixture(
+      positives.every((result) =>
+        result.outcome === 'qualified' && result.terminal_path === tool
+      ) && executions.every((result) =>
+        result.exit_code === 0 &&
+        new TextDecoder().decode(result.stdout.data) === 'slash-ok'
+      ) && negatives.every((result) =>
+        result.outcome === 'rejected' && result.reason_code === 'nonregular'
+      ),
+      'trailing directory requirements were erased, reordered after a suffix, or accepted as executables',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('physical component queue follows symlink expansion before dotdot', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-physical-components-' })
+  try {
+    for (
+      const directory of [
+        'usr',
+        'usr/bin',
+        'usr/lib',
+        'usr/lib/sub',
+        'usr/bin/protected',
+        'usr/bin/writable',
+      ]
+    ) {
+      await Deno.mkdir(`${root}/${directory}`, { recursive: true })
+      await Deno.chmod(`${root}/${directory}`, 0o755)
+    }
+    await Deno.chmod(`${root}/usr/bin/writable`, 0o777)
+    for (
+      const [path, output] of [
+        ['usr/bin/canonical', 'qualified-bin'],
+        ['usr/lib/canonical', 'actual-other'],
+      ]
+    ) {
+      await Deno.writeTextFile(
+        `${root}/${path}`,
+        `#!/bin/sh\nprintf ${output}\n`,
+      )
+      await Deno.chmod(`${root}/${path}`, 0o755)
+    }
+    await Deno.symlink('../lib/sub', `${root}/usr/bin/redirect`)
+    await Deno.symlink(
+      'redirect/../canonical',
+      `${root}/usr/bin/through-symlink-dotdot`,
+    )
+    await Deno.symlink(
+      'protected/../canonical',
+      `${root}/usr/bin/through-protected-dotdot`,
+    )
+    await Deno.symlink(
+      'writable/../canonical',
+      `${root}/usr/bin/through-writable-dotdot`,
+    )
+    await Deno.symlink(
+      'missing/../canonical',
+      `${root}/usr/bin/through-missing-dotdot`,
+    )
+    const uid = (await Deno.lstat(root)).uid
+    requireFixture(typeof uid === 'number', 'component fixture has no owner')
+    const expanded = await qualifyFixtureUtility(
+      `${root}/usr/bin/through-symlink-dotdot`,
+      root,
+      uid,
+    )
+    const ordinary = await qualifyFixtureUtility(
+      `${root}/usr/bin/through-protected-dotdot`,
+      root,
+      uid,
+    )
+    const writable = await qualifyFixtureUtility(
+      `${root}/usr/bin/through-writable-dotdot`,
+      root,
+      uid,
+    )
+    const missing = await qualifyFixtureUtility(
+      `${root}/usr/bin/through-missing-dotdot`,
+      root,
+      uid,
+    )
+    const actual = await runBoundedChild(
+      `${root}/usr/bin/through-symlink-dotdot`,
+      [],
+      {
+        cwd: root,
+        home: root,
+        timeoutMs: 2_000,
+        outputLimit: 4096,
+      },
+    )
+    requireFixture(
+      expanded.outcome === 'qualified' &&
+        expanded.terminal_path === `${root}/usr/lib/canonical` &&
+        new TextDecoder().decode(actual.stdout.data) === 'actual-other' &&
+        ordinary.outcome === 'qualified' &&
+        ordinary.terminal_path === `${root}/usr/bin/canonical` &&
+        writable.outcome === 'rejected' &&
+        writable.reason_code === 'writable-parent-or-terminal' &&
+        missing.outcome === 'rejected' &&
+        missing.reason_code === 'broken-link' &&
+        missing.failing_path === `${root}/usr/bin/missing` &&
+        missing.error_class === 'NotFound',
+      'component queue erased a symlink, writable directory, or missing component before dotdot',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('production utility failure summary retains restricted filesystem identity', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-qualified-summary-' })
+  const out = `${root}/out`
+  const source = new URL('./diagnose-native.ts', import.meta.url).pathname
+  try {
+    await Deno.mkdir(out)
+    const result = await runBoundedChild(Deno.execPath(), [
+      'run',
+      '--quiet',
+      `--allow-read=${source},${root}`,
+      `--allow-write=${root}`,
+      source,
+      '--artifact-root',
+      `${root}/artifact`,
+      '--out',
+      out,
+      '--diagnostic-context',
+      `${root}/context.json`,
+      '--reviewed-sha',
+      'a'.repeat(40),
+    ], {
+      cwd: root,
+      home: root,
+      timeoutMs: 10_000,
+      outputLimit: 4096,
+    })
+    const summary = JSON.parse(
+      await Deno.readTextFile(`${out}/diagnostic-summary.json`),
+    ) as {
+      status?: unknown
+      utility_qualification?: { candidates?: Array<Record<string, unknown>> }
+    }
+    const cat = summary.utility_qualification?.candidates?.find((candidate) =>
+      candidate.invocation_path === '/usr/bin/cat'
+    )
+    requireFixture(
+      result.exit_code === 1 && summary.status === 'acquisition-failed' &&
+        cat?.reason_code === 'permission-denied' &&
+        cat.error_class === 'NotCapable',
+      'early required utility failure lost its restricted filesystem class in the persisted summary',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('utility qualification ledger admits only its exact serialized envelope', () => {
+  const paths = [
+    '/usr/bin/git',
+    '/bin/git',
+    '/usr/bin/uname',
+    '/usr/bin/lscpu',
+    '/usr/bin/getconf',
+    '/usr/bin/prlimit',
+    '/bin/prlimit',
+    '/usr/bin/gdb',
+    '/bin/gdb',
+    '/usr/bin/timeout',
+    '/bin/timeout',
+  ]
+  const records = paths.map((invocation_path) => ({
+    invocation_path,
+    outcome: 'rejected' as const,
+    reason_code: 'permission-denied' as const,
+    failing_path: '/usr/lib/a',
+    error_class: 'NotCapable',
+    error_code: 'EACCES',
+    link_edges: Array.from({ length: 8 }, () => '/usr/bin/a->/usr/lib/a'),
+  }))
+  const bytes = (value: unknown): number =>
+    new TextEncoder().encode(JSON.stringify(value)).byteLength
+  const envelope = () => ({
+    incomplete: false,
+    limit: 24 * 1024,
+    candidates: records,
+  })
+  let remaining = 24 * 1024 - bytes(envelope())
+  for (const record of records) {
+    for (
+      let index = 0;
+      index < record.link_edges.length && remaining > 0;
+      index += 1
+    ) {
+      const available = 256 - record.link_edges[index].length
+      const added = Math.min(available, remaining)
+      record.link_edges[index] += 'a'.repeat(added)
+      remaining -= added
+    }
+    if (remaining > 0) {
+      const added = Math.min(256 - record.failing_path.length, remaining)
+      record.failing_path += 'a'.repeat(added)
+      remaining -= added
+    }
+  }
+  requireFixture(remaining === 0, 'ledger fixture did not reach exact bound')
+  const ledger = new UtilityQualificationLedger()
+  for (const record of records) {
+    requireFixture(ledger.add(record), 'exact-envelope candidate was rejected')
+  }
+  const beforeOverflow = ledger.summary()
+  const overflow = ledger.add({
+    invocation_path: '/usr/bin/cat',
+    outcome: 'rejected',
+    reason_code: 'filesystem-error',
+    failing_path: '/usr/bin/cat',
+    error_class: 'Error',
+    link_edges: [],
+  })
+  const afterOverflow = ledger.summary()
+  requireFixture(
+    bytes(beforeOverflow) === 24 * 1024 && !beforeOverflow.incomplete &&
+      !overflow && afterOverflow.incomplete &&
+      bytes(afterOverflow) <= 24 * 1024,
+    'ledger admission did not use the exact emitted summary envelope',
+  )
+})
+
+Deno.test('shared native gate distinguishes unavailable, incomplete, mismatch, and ready measurements', () => {
+  const clean = {
+    available: true,
+    exit_code: 0,
+    signal: null,
+    timed_out: false,
+    deadline_expired: false,
+    capture_complete: true,
+    cleanup_incomplete: false,
+    stdout_truncated: false,
+    stderr_truncated: false,
+  }
+  const platform = (machine: Record<string, unknown>) => ({
+    uname: { ...clean },
+    uname_machine: { ...clean, ...machine },
+  })
+  const host = { os: 'linux', arch: 'aarch64' }
+  requireFixture(
+    evaluateNativeGate(platform({ value: 'aarch64' }), host).status ===
+        'ready' &&
+      evaluateNativeGate(platform({ value: 'x86_64' }), host).status ===
+        'measured-machine-mismatch' &&
+      evaluateNativeGate(platform({ available: false }), host).status ===
+        'utility-unavailable' &&
+      evaluateNativeGate(
+          platform({ acquisition_error: 'stream failure' }),
+          host,
+        ).status === 'acquisition-incomplete' &&
+      evaluateNativeGate(platform({ value: 'aarch64' }), {
+          os: 'darwin',
+          arch: 'aarch64',
+        }).status === 'deno-host-mismatch',
+    'shared production native gate collapsed unavailable, incomplete, and mismatch measurements',
+  )
+})
 
 function pipeHolderInvocation(
   recordPath: string,
