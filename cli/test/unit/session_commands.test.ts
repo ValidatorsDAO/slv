@@ -558,6 +558,41 @@ Deno.test('s2: slv storage upload and download request their presigned URLs with
   })
 })
 
+Deno.test('s3: slv storage upload sends the file size for its presigned URL and PUTs exactly that many bytes (an empty file sends no size)', async () => {
+  for (const content of ['hello', '']) {
+    await withHome({ slv: loggedIn(FAR_FUTURE) }, async (home) => {
+      const file = `${home}/payload.txt`
+      await Deno.writeTextFile(file, content)
+      const put: { body?: BodyInit | null } = {}
+      await withFetch((url, init) => {
+        if (url === 'https://files.example.invalid/put') put.body = init?.body
+        return answer(url)
+      }, async (requests) => {
+        const uploaded = await runCaptured(() =>
+          uploadAction(file, { path: 'payload.txt', region: 'eu' })
+        )
+        assertEquals(uploaded.error, undefined, uploaded.output)
+        const presign = requests.find((r) =>
+          r.url === `${USER_API}/v3/storage/presign/upload`
+        )
+        assert(presign, `no presign upload request: ${uploaded.output}`)
+        assert(presign.body, 'the presign request has no body')
+        const sent = JSON.parse(presign.body)
+        if (content.length > 0) {
+          assertEquals(sent.fileSize, content.length)
+        } else {
+          assertFalse('fileSize' in sent, presign.body)
+        }
+        assert(
+          put.body instanceof Uint8Array,
+          'the PUT body is not a byte array',
+        )
+        assertEquals(put.body.byteLength, content.length)
+      })
+    })
+  }
+})
+
 Deno.test("o1: slv logout revokes this machine's storage access key, then removes every credential and keeps the other sections", async () => {
   for (const status of [200, 500]) {
     await withHome({
