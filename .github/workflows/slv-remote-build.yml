@@ -331,6 +331,12 @@ jobs:
           SUMMARY_RESERVE = 96 * 1024
           COMMAND_LOG_LIMIT = 64 * 1024
           AUTHORITATIVE_OUTPUT_LIMIT = 512 * 1024
+          ACQUISITION_REASON_LIMIT = 512
+          SOURCE_TELEMETRY_LIMIT = 16 * 1024
+          SOURCE_TELEMETRY_RECORD_LIMIT = 64
+          SOURCE_TELEMETRY_PHASE_LIMIT = SOURCE_TELEMETRY_LIMIT // 2
+          SOURCE_TELEMETRY_PHASE_RECORD_LIMIT = SOURCE_TELEMETRY_RECORD_LIMIT // 2
+          SOURCE_TELEMETRY_PHASE_NORMAL_RECORD_LIMIT = SOURCE_TELEMETRY_PHASE_RECORD_LIMIT - 1
           DEADLINE_SECONDS = 180
           AUDIT_RESERVE_SECONDS = 20
           FINAL_AUDIT_PHASES = frozenset({'postimage-audit', 'postimage-keyring'})
@@ -344,7 +350,9 @@ jobs:
           }
 
           class AcquisitionError(RuntimeError):
-              pass
+              def __init__(self, message='', *, code='acquisition-declined'):
+                  super().__init__(message)
+                  self.code = code
 
           class UnsafePostimage(AcquisitionError):
               pass
@@ -418,7 +426,7 @@ jobs:
                   self.validated = self.load_validated(validated)
                   self.github_output = Path(github_output)
                   if not isinstance(seconds_remaining, int) or seconds_remaining <= 0:
-                      raise AcquisitionError('acquisition budget exhausted during stored artifact validation')
+                      raise AcquisitionError('acquisition budget exhausted during stored artifact validation', code='acquisition-budget-exhausted')
                   self.deadline = time.monotonic() + min(DEADLINE_SECONDS, seconds_remaining)
                   self.commands = []
                   self.phase = 'initializing'
@@ -430,8 +438,37 @@ jobs:
                   self.preimage = None
                   self.postimage = None
                   self.status = 'acquisition-unavailable'
-                  self.reason = None
+                  self.failure_stage = None
+                  self.acquisition_reason = None
+                  self.audit_error = None
+                  self.image_codename = None
                   self.gdb = None
+
+              def sanitized_failure(self, error):
+                  known = {
+                      'no-supported-source': ('no-supported-source', 'no supported configured official Ubuntu binary source'),
+                      'acquisition-budget-exhausted': ('acquisition-budget-exhausted', 'acquisition time budget was exhausted'),
+                  }
+                  if isinstance(error, AcquisitionError):
+                      code, message = known.get(getattr(error, 'code', None), ('acquisition-declined', 'acquisition was declined'))
+                      error_type = 'UnsafePostimage' if isinstance(error, UnsafePostimage) else 'AcquisitionError'
+                  else:
+                      code, message = 'operation-failed', 'operation failed; details redacted'
+                      error_type = type(error).__name__ if type(error).__name__ in {'OSError', 'PermissionError', 'FileNotFoundError', 'UnicodeDecodeError', 'ValueError'} else 'Exception'
+                  value = {'code': code, 'message': message, 'error_type': error_type}
+                  errno = getattr(error, 'errno', None)
+                  if isinstance(errno, int):
+                      value['errno'] = errno
+                  encoded = canonical(value).encode('utf-8')
+                  if len(encoded) > ACQUISITION_REASON_LIMIT:
+                      raise AcquisitionError('sanitized acquisition reason exceeded its evidence bound')
+                  return value
+
+              def capture_acquisition_failure(self, error):
+                  if self.failure_stage is None:
+                      self.failure_stage = self.phase if self.phase else 'acquisition'
+                  if self.acquisition_reason is None:
+                      self.acquisition_reason = self.sanitized_failure(error)
 
               def load_validated(self, path):
                   self.evidence.import_existing('validated-programs.json')
@@ -460,7 +497,7 @@ jobs:
               def run(self, command, phase, cap, privileged=False):
                   remaining = self.remaining(0 if phase in FINAL_AUDIT_PHASES else AUDIT_RESERVE_SECONDS)
                   if remaining <= 0:
-                      raise AcquisitionError('acquisition budget exhausted before final audit reserve')
+                      raise AcquisitionError('acquisition budget exhausted before final audit reserve', code='acquisition-budget-exhausted')
                   seconds = max(1, min(int(remaining), cap))
                   wrapped = ['/usr/bin/timeout', '--kill-after=2s', f'{seconds}s', *command]
                   if privileged:
@@ -753,43 +790,197 @@ jobs:
                       return False
                   return parsed.path.startswith('/ubuntu')
 
-              def select_sources(self, root=Path('/etc/apt')):
-                  records = []
-                  for path in [root / 'sources.list', *sorted((root / 'sources.list.d').glob('*.list'))]:
-                      if not path.exists():
+              def source_location(self, root, path, ordinal):
+                  if path == root / 'sources.list':
+                      return 'sources.list'
+                  return 'sources.list.d/ubuntu.sources' if path.name == 'ubuntu.sources' else f'sources.list.d/{ordinal}'
+
+              def source_suite(self, suite):
+                  try:
+                      codename = self.image_codename
+                      allowed = {codename, *(f'{codename}{suffix}' for suffix in ['-updates', '-security', '-backports', '-proposed'])} if isinstance(codename, str) and codename else set()
+                      if isinstance(suite, str) and suite in allowed and re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,63}', suite):
+                          return suite
+                  except Exception:
+                      pass
+                  return 'redacted'
+
+              def source_architectures(self, value):
+                  try:
+                      tokens = re.split(r'[\s,]+', value or '')
+                      visible = [token for token in tokens if token in {'arm64', 'amd64', 'all'}]
+                      if any(token and token not in {'arm64', 'amd64', 'all'} for token in tokens):
+                          visible.append('other')
+                      return list(dict.fromkeys(visible)) or ['redacted']
+                  except Exception:
+                      return ['redacted']
+
+              def source_host(self, uri):
+                  try:
+                      if self.official_uri(uri):
+                          return (urlparse(uri).hostname or '').lower()
+                  except Exception:
+                      pass
+                  return 'redacted'
+
+              def source_telemetry(self, phase):
+                  return {
+                      'schema_version': 1,
+                      'phase': phase,
+                      'counts': {'discovered': 0, 'read': 0, 'selected': 0, 'rejected': 0},
+                      'details_truncated': False,
+                      'details': [],
+                      'terminal_failure': None,
+                  }
+
+              def source_event(self, telemetry, location, format_name, entry, outcome, code, uri=None, suite=None, architectures=None, error=None):
+                  if outcome == 'selected':
+                      telemetry['counts']['selected'] += 1
+                  else:
+                      telemetry['counts']['rejected'] += 1
+                  try:
+                      value = {'location': location, 'format': format_name, 'entry': entry, 'outcome': outcome, 'code': code}
+                      if uri is not None:
+                          value['host'] = self.source_host(uri)
+                      if suite is not None:
+                          value['suite'] = self.source_suite(suite)
+                      if architectures is not None:
+                          value['architectures'] = self.source_architectures(architectures)
+                      errno = getattr(error, 'errno', None)
+                      if isinstance(errno, int):
+                          value['errno'] = errno
+                  except Exception:
+                      value = {'location': location, 'format': format_name, 'entry': entry, 'outcome': outcome, 'code': 'telemetry-redacted'}
+                  if len(telemetry['details']) < SOURCE_TELEMETRY_PHASE_NORMAL_RECORD_LIMIT:
+                      telemetry['details'].append(value)
+                      return
+                  telemetry['details_truncated'] = True
+                  if outcome != 'selected':
+                      telemetry['terminal_failure'] = value
+
+              def source_telemetry_value(self, telemetry):
+                  details = list(telemetry['details'])
+                  if telemetry['terminal_failure'] is not None:
+                      details.append(telemetry['terminal_failure'])
+                  return {
+                      'schema_version': telemetry['schema_version'],
+                      'phase': telemetry['phase'],
+                      'counts': telemetry['counts'],
+                      'details_truncated': telemetry['details_truncated'],
+                      'details': details,
+                  }
+
+              def persist_source_telemetry(self, telemetry):
+                  name = 'source-selection.json' if telemetry['phase'] == 'initial' else 'source-selection-post-audit.json'
+                  while True:
+                      encoded = (canonical(self.source_telemetry_value(telemetry)) + '\n').encode('utf-8')
+                      if len(encoded) <= SOURCE_TELEMETRY_PHASE_LIMIT:
+                          self.evidence.write_exact(name, encoded)
+                          return
+                      if telemetry['details']:
+                          telemetry['details'].pop()
+                          telemetry['details_truncated'] = True
                           continue
-                      for raw in path.read_text().splitlines():
-                          line = raw.strip()
-                          if not line or line.startswith('#') or not line.startswith('deb '):
+                      if telemetry['terminal_failure'] is not None:
+                          raise AcquisitionError('source-selection failure telemetry exceeded its evidence bound')
+                      if not telemetry['details']:
+                          raise AcquisitionError('source-selection telemetry exceeded its evidence bound')
+
+              def select_sources(self, root=Path('/etc/apt'), observation='initial'):
+                  telemetry = self.source_telemetry(observation)
+                  records = []
+                  list_directory = root / 'sources.list.d'
+                  paths = [(root / 'sources.list', 'list'), *[(path, 'list') for path in sorted(list_directory.glob('*.list'))], *[(path, 'deb822') for path in sorted(list_directory.glob('*.sources'))]]
+                  try:
+                      for ordinal, (path, format_name) in enumerate(paths, 1):
+                          location = self.source_location(root, path, ordinal)
+                          if not path.exists():
+                              if path == root / 'sources.list':
+                                  self.source_event(telemetry, location, format_name, 0, 'rejected', 'missing')
                               continue
-                          match = re.fullmatch(r'deb\s+(?:\[([^]]+)\]\s+)?(\S+)\s+(\S+)(?:\s+(.+))?', line)
-                          if not match:
-                              continue
-                          options, uri, suite, components = match.groups()
-                          option_text = (options or '').lower()
-                          if 'trusted=yes' in option_text or not self.official_uri(uri):
-                              continue
-                          records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': (components or '').split(), 'architectures': re.search(r'(?:^|\s)arch=([^\s]+)', options or '', re.I).group(1) if re.search(r'(?:^|\s)arch=([^\s]+)', options or '', re.I) else None})
-                  for path in sorted((root / 'sources.list.d').glob('*.sources')):
-                      content = path.read_text()
-                      for stanza in re.split(r'\n\s*\n', content):
-                          fields = {}
-                          for raw in stanza.splitlines():
-                              if ':' in raw:
-                                  key, value = raw.split(':', 1)
-                                  fields[key.lower()] = value.strip()
-                          if 'deb' not in fields.get('types', '').split() or fields.get('enabled', 'yes').lower() in {'no', 'false'}:
-                              continue
-                          if fields.get('trusted', '').lower() == 'yes':
-                              continue
-                          for uri in fields.get('uris', '').split():
-                              for suite in fields.get('suites', '').split():
-                                  if self.official_uri(uri):
-                                      records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': fields.get('components', '').split(), 'architectures': fields.get('architectures')})
-                  records = [record for record in records if record['suite'] and record['components']]
-                  if not records:
-                      raise AcquisitionError('no supported already-configured official Ubuntu binary source')
-                  return records
+                          telemetry['counts']['discovered'] += 1
+                          try:
+                              content = path.read_text()
+                          except Exception as error:
+                              self.source_event(telemetry, location, format_name, 0, 'rejected', 'read-error', error=error)
+                              raise
+                          telemetry['counts']['read'] += 1
+                          if format_name == 'list':
+                              for line_number, raw in enumerate(content.splitlines(), 1):
+                                  line = raw.strip()
+                                  if not line or line.startswith('#'):
+                                      continue
+                                  if not line.startswith('deb '):
+                                      if line.startswith('deb-src'):
+                                          self.source_event(telemetry, location, format_name, line_number, 'rejected', 'no-binary-type')
+                                      continue
+                                  match = re.fullmatch(r'deb\s+(?:\[([^]]+)\]\s+)?(\S+)\s+(\S+)(?:\s+(.+))?', line)
+                                  if not match:
+                                      self.source_event(telemetry, location, format_name, line_number, 'rejected', 'malformed-format')
+                                      continue
+                                  options, uri, suite, components = match.groups()
+                                  option_text = (options or '').lower()
+                                  architectures = re.search(r'(?:^|\s)arch=([^\s]+)', options or '', re.I)
+                                  architecture_value = architectures.group(1) if architectures else None
+                                  if 'trusted=yes' in option_text:
+                                      self.source_event(telemetry, location, format_name, line_number, 'rejected', 'insecure-trust', uri, suite, architecture_value)
+                                      continue
+                                  try:
+                                      official = self.official_uri(uri)
+                                  except Exception as error:
+                                      self.source_event(telemetry, location, format_name, line_number, 'rejected', 'uri-parse-failure', error=error)
+                                      raise
+                                  if not official:
+                                      self.source_event(telemetry, location, format_name, line_number, 'rejected', 'nonofficial-or-malformed-uri', uri, suite, architecture_value)
+                                      continue
+                                  values = (components or '').split()
+                                  records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': values, 'architectures': architecture_value})
+                                  self.source_event(telemetry, location, format_name, line_number, 'selected' if suite and values else 'rejected', 'selected' if suite and values else 'empty-suite-or-components', uri, suite, architecture_value)
+                          else:
+                              for stanza_number, stanza in enumerate(re.split(r'\n\s*\n', content), 1):
+                                  fields = {}
+                                  for raw in stanza.splitlines():
+                                      if ':' in raw:
+                                          key, value = raw.split(':', 1)
+                                          fields[key.lower()] = value.strip()
+                                  if not fields:
+                                      if stanza.strip():
+                                          self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'malformed-format')
+                                      continue
+                                  if 'deb' not in fields.get('types', '').split():
+                                      self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'no-binary-type')
+                                      continue
+                                  if fields.get('enabled', 'yes').lower() in {'no', 'false'}:
+                                      self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'disabled')
+                                      continue
+                                  if fields.get('trusted', '').lower() == 'yes':
+                                      self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'insecure-trust')
+                                      continue
+                                  uris = fields.get('uris', '').split()
+                                  suites = fields.get('suites', '').split()
+                                  components = fields.get('components', '').split()
+                                  if not uris:
+                                      self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'missing-uri')
+                                  if not suites or not components:
+                                      self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'empty-suite-or-components')
+                                  for uri in uris:
+                                      for suite in suites:
+                                          try:
+                                              official = self.official_uri(uri)
+                                          except Exception as error:
+                                              self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'uri-parse-failure', error=error)
+                                              raise
+                                          if not official:
+                                              self.source_event(telemetry, location, format_name, stanza_number, 'rejected', 'nonofficial-or-malformed-uri', uri, suite, fields.get('architectures'))
+                                              continue
+                                          records.append({'uri': uri.rstrip('/'), 'suite': suite, 'components': components, 'architectures': fields.get('architectures')})
+                                          self.source_event(telemetry, location, format_name, stanza_number, 'selected' if suite and components else 'rejected', 'selected' if suite and components else 'empty-suite-or-components', uri, suite, fields.get('architectures'))
+                      records = [record for record in records if record['suite'] and record['components']]
+                      if not records:
+                          raise AcquisitionError('no supported already-configured official Ubuntu binary source', code='no-supported-source')
+                      return records
+                  finally:
+                      self.persist_source_telemetry(telemetry)
 
               def keyring_identity(self, packages, phase):
                   key_info = regular(KEYRING, 'Ubuntu archive keyring')
@@ -797,7 +988,9 @@ jobs:
                   return {'path': KEYRING, 'sha256': sha_file(KEYRING), 'size': key_info.st_size, 'owner': owner, 'owner_tuple': owner_tuple}
 
               def write_private_sources(self, sources, packages):
+                  self.phase = 'keyring-qualification'
                   self.keyring = self.keyring_identity(packages, 'keyring-owner')
+                  self.phase = 'private-source-write'
                   destination = self.work / 'selected.list'
                   lines = []
                   for source in sources:
@@ -974,6 +1167,7 @@ jobs:
               def execute(self):
                   self.phase = 'preimage'
                   image = self.image_identity()
+                  self.image_codename = image.get('os_release', {}).get('VERSION_CODENAME')
                   self.preimage = self.measure('preimage')
                   self.evidence.write_json('preimage.json', {'image': image, **self.preimage})
                   self.gdb = self.trusted_gdb()
@@ -982,28 +1176,46 @@ jobs:
                       return
                   self.phase = 'select-sources'
                   sources = self.select_sources()
+                  self.phase = 'private-source-write'
                   source_file = self.write_private_sources(sources, self.preimage['packages'])
                   options = self.apt_options(source_file)
+                  self.phase = 'metadata-refresh'
                   self.require(['/usr/bin/apt-get', *options, 'update'], 'apt-update', 30, privileged=True)
+                  self.phase = 'solver-initial'
                   simulation = self.require(['/usr/bin/apt-get', *options, '--simulate', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', 'gdb'], 'solver-initial', 10, privileged=True)
                   self.plan = self.parse_solver(simulation.stdout.decode('utf-8', 'replace'), self.preimage['packages']['installed'])
+                  self.phase = 'authenticated-metadata'
                   metadata = self.metadata_for_plan(options, self.plan)
                   specs = [f"{item['package']}={item['version']}" for item in metadata]
+                  self.phase = 'print-uris'
                   printed = self.require(['/usr/bin/apt-get', *options, '--print-uris', '--download-only', '--yes', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', *specs], 'print-uris', 20, privileged=True)
                   uris = self.parse_print_uris(printed.stdout.decode('utf-8', 'replace'), metadata)
                   self.evidence.write_json('frozen-plan.json', {'plan': metadata, 'plan_sha256': sha_text(canonical(metadata)), 'uris': uris, 'sources': self.source_records, 'keyring': self.keyring})
+                  self.phase = 'download-debs'
                   self.require(['/usr/bin/apt-get', *options, '--download-only', '--yes', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', *specs], 'download-debs', 55, privileged=True)
+                  self.phase = 'deb-identity'
                   debs = self.inspect_debs(metadata)
+                  self.phase = 'solver-frozen'
                   second = self.require(['/usr/bin/apt-get', *options, '--simulate', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', *specs], 'solver-frozen', 10, privileged=True)
                   if self.parse_solver(second.stdout.decode('utf-8', 'replace'), self.preimage['packages']['installed']) != self.plan:
                       raise AcquisitionError('second solver plan differs from the frozen new-only plan')
+                  self.phase = 'preinstall-audit'
                   preinstall = self.measure('preinstall-audit')
                   if not self.compare_postimage(self.preimage, preinstall, []):
                       raise UnsafePostimage('pre-install package or target runtime drift')
+                  self.phase = 'deb-identity'
                   debs = self.inspect_debs(metadata)
+                  self.phase = 'offline-dpkg-install'
                   installed = self.run(['/usr/bin/dpkg', '--install', '--', *debs], 'offline-dpkg-install', 25, privileged=True)
                   if installed.code != 0 or installed.timed_out or not installed.capture_complete or not installed.stdout_complete or not installed.stderr_complete:
                       self.status = 'installation-incomplete'
+                      if self.failure_stage is None:
+                          self.failure_stage = 'offline-dpkg-install'
+                          self.acquisition_reason = {
+                              'code': 'installation-incomplete',
+                              'message': 'offline debugger installation did not complete',
+                              'error_type': 'Result',
+                          }
                   else:
                       self.status = 'gdb-installed'
 
@@ -1014,7 +1226,7 @@ jobs:
                       if self.preimage is not None:
                           self.postimage = self.measure('postimage-audit')
                           self.evidence.write_json('postimage.json', self.postimage)
-                          self.post_sources = self.select_sources() if self.source_records else None
+                          self.post_sources = self.select_sources(observation='post-audit') if self.source_records else None
                           self.post_keyring = self.keyring_identity(self.postimage['packages'], 'postimage-keyring') if self.keyring else None
                           comparison = self.compare_postimage(self.preimage, self.postimage, self.plan) and (
                               self.post_sources is None or canonical(self.source_records) == canonical(self.post_sources)
@@ -1022,19 +1234,23 @@ jobs:
                               self.post_keyring is None or self.keyring == self.post_keyring
                           )
                   except Exception as error:
-                      audit_error = str(error)
+                      audit_error = self.sanitized_failure(error)
+                  self.audit_error = audit_error
                   self.gdb = self.trusted_gdb()
                   if self.status == 'gdb-installed' and (not self.gdb or not self.plan_is_installed(self.postimage)):
                       self.status = 'installation-incomplete'
-                      self.reason = self.reason or 'frozen debugger plan was incomplete after a successful dpkg exit'
+                      if self.failure_stage is None:
+                          self.failure_stage = 'offline-dpkg-install'
+                          self.acquisition_reason = {'code': 'installation-incomplete', 'message': 'frozen debugger plan was incomplete after a successful install exit', 'error_type': 'AcquisitionError'}
                   unchanged = comparison and audit_error is None
                   if not unchanged:
                       self.status = 'unsafe-or-unknown-postimage'
-                      self.reason = self.reason or audit_error or 'postimage comparison failed'
                   summary = {
                       'schema_version': 1,
                       'kind': 'slv-native-diagnostic-acquisition',
-                      'stage': self.phase,
+                      'stage': self.failure_stage or self.phase,
+                      'failure_stage': self.failure_stage,
+                      'acquisition_reason': self.acquisition_reason,
                       'status': self.status,
                       'runtime_unchanged': unchanged,
                       'plan_sha256': sha_text(canonical(self.plan)),
@@ -1049,7 +1265,7 @@ jobs:
                       'keyring': self.keyring,
                       'post_keyring': self.post_keyring,
                       'debugger': {'available': self.gdb is not None, 'path': self.gdb},
-                      'controls_not_run': None if unchanged else self.reason or 'unsafe-or-unknown-postimage',
+                      'controls_not_run': None if unchanged else 'unsafe-or-unknown-postimage',
                       'audit_error': audit_error,
                       'retained_bytes_before_summary': self.evidence.total,
                   }
@@ -1069,7 +1285,7 @@ jobs:
               try:
                   controller.execute()
               except Exception as error:
-                  controller.reason = str(error)
+                  controller.capture_acquisition_failure(error)
                   if not isinstance(error, UnsafePostimage):
                       controller.status = 'acquisition-declined-or-incomplete'
               raise SystemExit(controller.finish())

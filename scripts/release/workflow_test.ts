@@ -1439,7 +1439,12 @@ spec.loader.exec_module(module)
 root = Path(sys.argv[2])
 
 def controller():
-    return object.__new__(module.Controller)
+    item = object.__new__(module.Controller)
+    item.failure_stage = None
+    item.acquisition_reason = None
+    item.audit_error = None
+    item.image_codename = None
+    return item
 
 def expect_reject(action):
     try:
@@ -1639,40 +1644,201 @@ with tempfile.TemporaryDirectory(dir=root) as temporary:
     mutation.run = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('mutated frozen deb reached dpkg install'))
     expect_reject(lambda: module.Controller.execute(mutation))
 
-declined = controller()
-declined.evidence = module.Retention(root / 'declined-evidence')
-declined.github_output = root / 'declined-output'
-declined.commands = []
-declined.phase = 'initializing'
-declined.plan = []
-declined.source_records = []
-declined.keyring = None
-declined.post_sources = None
-declined.post_keyring = None
-declined.preimage = None
-declined.postimage = None
-declined.status = 'initializing'
-declined.reason = None
-declined.gdb = None
-declined.image_identity = lambda: {'image': 'ubuntu'}
-declined.measure = lambda phase: preimage
-declined.trusted_gdb = lambda: None
-declined.select_sources = lambda: [{'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'noble', 'components': ['main'], 'architectures': 'arm64'}]
-def remember_sources(sources, packages):
-    declined.source_records = sources
-    return root / 'declined.list'
-declined.write_private_sources = remember_sources
-declined.apt_options = lambda *args: []
-declined.require = lambda *args, **kwargs: SimpleNamespace(stdout=b'')
-declined.parse_solver = lambda *args: [planned_gdb, planned_extra]
-declined.metadata_for_plan = lambda *args: (_ for _ in ()).throw(module.AcquisitionError('metadata unavailable'))
-try:
-    module.Controller.execute(declined)
-except module.AcquisitionError as error:
-    declined.reason = str(error)
-    declined.status = 'acquisition-declined-or-incomplete'
-assert module.Controller.finish(declined) == 0
-assert 'runtime_unchanged=true' in declined.github_output.read_text()
+SENTINEL = 'SOURCE-CREDENTIAL-SENTINEL-DO-NOT-RETAIN'
+official_source = {'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'resolute', 'components': ['main'], 'architectures': 'arm64'}
+
+def acquisition_fixture(label, postimage=preimage):
+    item = controller()
+    item.evidence = module.Retention(root / (label + '-evidence'))
+    item.github_output = root / (label + '-output')
+    item.work = root / (label + '-work')
+    item.work.mkdir()
+    item.commands = []
+    item.phase = 'initializing'
+    item.plan = []
+    item.source_records = []
+    item.keyring = None
+    item.post_sources = None
+    item.post_keyring = None
+    item.preimage = None
+    item.postimage = None
+    item.status = 'initializing'
+    item.gdb = None
+    item.image_identity = lambda: {'os_release': {'VERSION_CODENAME': 'resolute'}}
+    item.measure = lambda phase: preimage if phase == 'preimage' else postimage
+    item.trusted_gdb = lambda: None
+    item.require = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('unexpected package operation'))
+    return item
+
+def decline_at(label, expected_stage, configure, postimage=preimage):
+    item = acquisition_fixture(label, postimage)
+    calls = []
+    configure(item, calls)
+    try:
+        module.Controller.execute(item)
+    except Exception as error:
+        item.capture_acquisition_failure(error)
+        if not isinstance(error, module.UnsafePostimage):
+            item.status = 'acquisition-declined-or-incomplete'
+    else:
+        raise AssertionError('controlled acquisition failure did not occur')
+    expected_exit = 0 if postimage == preimage else 1
+    assert module.Controller.finish(item) == expected_exit
+    summary = json.loads((item.evidence.directory / 'acquisition-summary.json').read_text())
+    assert summary['failure_stage'] == expected_stage
+    assert summary['stage'] == expected_stage
+    assert summary['acquisition_reason'] is not None
+    assert len(module.canonical(summary['acquisition_reason']).encode('utf-8')) <= module.ACQUISITION_REASON_LIMIT
+    assert SENTINEL not in module.canonical(summary)
+    assert summary['controls_not_run'] == (None if postimage == preimage else 'unsafe-or-unknown-postimage')
+    assert summary['runtime_unchanged'] is (postimage == preimage)
+    return item, summary, calls
+
+source_item, source_summary, source_calls = decline_at(
+    'declined-source',
+    'select-sources',
+    lambda item, calls: setattr(item, 'select_sources', lambda *args, **kwargs: (_ for _ in ()).throw(OSError(71, SENTINEL))),
+)
+assert source_calls == []
+assert source_summary['acquisition_reason'] == {
+    'code': 'operation-failed', 'message': 'operation failed; details redacted',
+    'error_type': 'OSError', 'errno': 71,
+}
+
+with tempfile.TemporaryDirectory(dir=root) as temporary:
+    apt = Path(temporary) / 'apt'
+    parts = apt / 'sources.list.d'
+    parts.mkdir(parents=True)
+    (apt / 'sources.list').write_text(f'deb https://{SENTINEL}.invalid/ubuntu resolute main\n')
+    (parts / 'disabled.sources').write_text('Types: deb\nEnabled: no\nURIs: http://ports.ubuntu.com/ubuntu-ports\nSuites: resolute\nComponents: main\n')
+    terminal_item, terminal_summary, terminal_calls = decline_at(
+        'declined-no-supported-source',
+        'select-sources',
+        lambda item, calls: setattr(item, 'select_sources', lambda *args, **kwargs: module.Controller.select_sources(item, apt)),
+    )
+    assert terminal_calls == []
+    assert terminal_summary['acquisition_reason']['code'] == 'no-supported-source'
+    terminal_payload = (terminal_item.evidence.directory / 'source-selection.json').read_bytes()
+    assert SENTINEL not in terminal_payload.decode('utf-8')
+    assert {detail['code'] for detail in json.loads(terminal_payload)['details']} == {'nonofficial-or-malformed-uri', 'disabled'}
+
+def keyring_failure(item, calls):
+    item.select_sources = lambda *args, **kwargs: [official_source]
+    item.keyring_identity = lambda *args, **kwargs: (_ for _ in ()).throw(module.AcquisitionError(SENTINEL))
+
+keyring_item, keyring_summary, keyring_calls = decline_at('declined-keyring', 'keyring-qualification', keyring_failure)
+assert keyring_calls == []
+assert keyring_summary['acquisition_reason']['code'] == 'acquisition-declined'
+assert keyring_summary['acquisition_reason']['error_type'] == 'AcquisitionError'
+
+def private_write_failure(item, calls):
+    item.select_sources = lambda *args, **kwargs: [official_source]
+    item.write_private_sources = lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError(13, SENTINEL))
+
+private_item, private_summary, private_calls = decline_at('declined-private-write', 'private-source-write', private_write_failure)
+assert private_calls == []
+assert private_summary['acquisition_reason']['code'] == 'operation-failed'
+assert private_summary['acquisition_reason']['error_type'] == 'PermissionError'
+assert private_summary['acquisition_reason']['errno'] == 13
+
+def metadata_failure(item, calls):
+    item.select_sources = lambda *args, **kwargs: [official_source]
+    item.write_private_sources = lambda *args, **kwargs: root / 'declined-metadata.list'
+    item.apt_options = lambda *args: []
+    def fail_update(command, *args, **kwargs):
+        calls.append(command)
+        raise module.AcquisitionError(SENTINEL)
+    item.require = fail_update
+
+metadata_item, metadata_summary, metadata_calls = decline_at('declined-metadata', 'metadata-refresh', metadata_failure)
+assert metadata_calls == [['/usr/bin/apt-get', 'update']]
+assert metadata_summary['acquisition_reason']['code'] == 'acquisition-declined'
+
+drift = json.loads(json.dumps(preimage))
+drift['runtime'] = {'runtime': 'drift'}
+drift['runtime_sha256'] = 'drift'
+drift_item, drift_summary, drift_calls = decline_at('declined-drift', 'metadata-refresh', metadata_failure, drift)
+assert drift_calls == [['/usr/bin/apt-get', 'update']]
+assert drift_summary['acquisition_reason'] is not None
+assert drift_summary['runtime_unchanged'] is False
+
+no_failure = acquisition_fixture('no-acquisition-failure')
+no_failure.preimage = preimage
+no_failure.phase = 'postimage-audit'
+assert module.Controller.finish(no_failure) == 0
+no_failure_summary = json.loads((no_failure.evidence.directory / 'acquisition-summary.json').read_text())
+assert no_failure_summary['acquisition_reason'] is None
+assert no_failure_summary['failure_stage'] is None
+
+audit_failure = acquisition_fixture('audit-failure')
+audit_failure.preimage = preimage
+audit_failure.phase = 'postimage-audit'
+audit_failure.measure = lambda phase: (_ for _ in ()).throw(OSError(5, SENTINEL))
+assert module.Controller.finish(audit_failure) == 1
+audit_summary = json.loads((audit_failure.evidence.directory / 'acquisition-summary.json').read_text())
+assert audit_summary['acquisition_reason'] is None
+assert audit_summary['audit_error'] == {
+    'code': 'operation-failed', 'message': 'operation failed; details redacted',
+    'error_type': 'OSError', 'errno': 5,
+}
+assert SENTINEL not in module.canonical(audit_summary)
+
+with tempfile.TemporaryDirectory(dir=root) as temporary:
+    apt = Path(temporary) / 'apt'
+    parts = apt / 'sources.list.d'
+    parts.mkdir(parents=True)
+    (apt / 'sources.list').write_text('deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports resolute main\n')
+    (parts / '01-odd.list').write_text('deb [arch=unicorn] http://ports.ubuntu.com/ubuntu-ports odd-suite main\n')
+    (parts / '02-many.list').write_text(''.join('deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports resolute main\n' for _ in range(90)))
+    (parts / '03-insecure.list').write_text(f'deb [trusted=yes] https://user:{SENTINEL}@ports.ubuntu.com/ubuntu?token={SENTINEL} resolute main\n')
+    (parts / '04-third-party.list').write_text(f'deb https://{SENTINEL}.invalid/ubuntu resolute main\n')
+    (parts / '05-malformed.list').write_text('deb [\n')
+    (parts / '06-empty.list').write_text('deb http://ports.ubuntu.com/ubuntu-ports resolute\n')
+    (parts / '10-disabled.sources').write_text('Types: deb\nEnabled: no\nURIs: http://ports.ubuntu.com/ubuntu-ports\nSuites: resolute\nComponents: main\n')
+    (parts / 'ubuntu.sources').write_text('Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports\nSuites: resolute\nComponents: main\nArchitectures: amd64\n')
+    selected_sources = controller()
+    selected_sources.evidence = module.Retention(root / 'source-telemetry-evidence')
+    selected_sources.image_codename = 'resolute'
+    selected = module.Controller.select_sources(selected_sources, apt)
+    assert len(selected) == 93
+    assert {'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'odd-suite', 'components': ['main'], 'architectures': 'unicorn'} in selected
+    source_payload = (selected_sources.evidence.directory / 'source-selection.json').read_bytes()
+    source_telemetry = json.loads(source_payload)
+    source_text = source_payload.decode('utf-8')
+    assert len(source_payload) <= module.SOURCE_TELEMETRY_LIMIT
+    assert len(source_telemetry['details']) <= module.SOURCE_TELEMETRY_RECORD_LIMIT
+    assert source_telemetry['details_truncated'] is True
+    assert source_telemetry['counts']['selected'] == 93
+    assert source_telemetry['counts']['rejected'] >= 5
+    assert source_telemetry['counts']['discovered'] == 9
+    assert source_telemetry['counts']['read'] == 9
+    assert SENTINEL not in source_text
+    assert '03-insecure.list' not in source_text
+    assert 'https://' not in source_text
+    assert 'odd-suite' not in source_text
+    assert 'unicorn' not in source_text
+    assert any(detail.get('host') == 'ports.ubuntu.com' and detail.get('suite') == 'resolute' and detail.get('architectures') == ['arm64'] for detail in source_telemetry['details'])
+    assert selected_sources.evidence.total <= module.RETAINED_LIMIT
+
+with tempfile.TemporaryDirectory(dir=root) as temporary:
+    apt = Path(temporary) / 'apt'
+    parts = apt / 'sources.list.d'
+    parts.mkdir(parents=True)
+    (apt / 'sources.list').write_text('deb http://ports.ubuntu.com/ubuntu-ports resolute main\n')
+    (parts / 'read-error.list').write_bytes(b'\xff' + SENTINEL.encode())
+    read_error = controller()
+    read_error.evidence = module.Retention(root / 'source-read-error-evidence')
+    read_error.image_codename = 'resolute'
+    try:
+        module.Controller.select_sources(read_error, apt)
+    except UnicodeDecodeError:
+        pass
+    else:
+        raise AssertionError('invalid source encoding must retain its existing raised behavior')
+    read_error_payload = (read_error.evidence.directory / 'source-selection.json').read_bytes()
+    assert len(read_error_payload) <= module.SOURCE_TELEMETRY_LIMIT
+    assert SENTINEL not in read_error_payload.decode('utf-8')
+    assert any(detail['code'] == 'read-error' for detail in json.loads(read_error_payload)['details'])
 
 tree = runnable('descendant-pipes')
 started = time.monotonic()
@@ -1778,6 +1944,240 @@ print('extracted acquisition controls passed')
   assertEquals(
     new TextDecoder().decode(result.stdout).trim(),
     'extracted acquisition controls passed',
+  )
+})
+
+Deno.test('source selection telemetry preserves parser semantics and one shared budget', async () => {
+  const controller = acquisitionController(await releaseWorkflow())
+  const harness = String.raw`
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location('evidence_controller', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+root = Path(sys.argv[2])
+CANARY = 'EVIDENCE-CREDENTIAL-CANARY-DO-NOT-RETAIN'
+GOOD = 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports resolute main\n'
+EXPECTED_GOOD = {'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'resolute', 'components': ['main'], 'architectures': 'arm64'}
+
+def bare(label):
+    item = object.__new__(module.Controller)
+    item.evidence = module.Retention(root / (label + '-evidence'))
+    item.image_codename = 'resolute'
+    return item
+
+def source_case(label, files):
+    apt = root / label / 'apt'
+    (apt / 'sources.list.d').mkdir(parents=True)
+    for name, content in files.items():
+        path = apt / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    item = bare(label)
+    try:
+        outcome = ('records', module.Controller.select_sources(item, apt))
+    except Exception as error:
+        outcome = ('raised', type(error).__name__)
+    payload = (item.evidence.directory / 'source-selection.json').read_bytes()
+    return item, outcome, json.loads(payload), payload
+
+# E1: expected outcomes were independently frozen from the 02cd9 selector.
+item, outcome, telemetry, payload = source_case('trusted-malformed-list', {
+    'sources.list': GOOD + 'deb [arch=unicorn] http://ports.ubuntu.com/ubuntu-ports odd-suite main\n' + 'deb [trusted=yes] http://ports.ubuntu.com:bad/ubuntu-ports resolute main\n',
+})
+assert outcome == ('records', [EXPECTED_GOOD, {'uri': 'http://ports.ubuntu.com/ubuntu-ports', 'suite': 'odd-suite', 'components': ['main'], 'architectures': 'unicorn'}])
+assert any(row['code'] == 'insecure-trust' for row in telemetry['details'])
+
+item, outcome, telemetry, payload = source_case('active-malformed-deb822', {
+    'sources.list': GOOD,
+    'sources.list.d/ubuntu.sources': 'Types: deb\nURIs: http://ports.ubuntu.com:bad/ubuntu-ports\nSuites: resolute\n',
+})
+assert outcome == ('raised', 'ValueError')
+assert any(row['code'] == 'uri-parse-failure' and row['location'] == 'sources.list.d/ubuntu.sources' and row['entry'] == 1 for row in telemetry['details'])
+
+for label, files in [
+    ('trusted-malformed-ipv6', {'sources.list': GOOD + 'deb [trusted=yes] http://[::1/ubuntu resolute main\n'}),
+    ('disabled-malformed-port', {'sources.list': GOOD, 'sources.list.d/ubuntu.sources': 'Types: deb\nEnabled: no\nURIs: http://ports.ubuntu.com:bad/ubuntu-ports\nSuites: resolute\nComponents: main\n'}),
+]:
+    item, outcome, telemetry, payload = source_case(label, files)
+    assert outcome == ('records', [EXPECTED_GOOD])
+
+item, outcome, telemetry, payload = source_case('active-malformed-ipv6', {
+    'sources.list': GOOD + 'deb http://[::1/ubuntu resolute main\n',
+})
+assert outcome == ('raised', 'ValueError')
+assert any(row['code'] == 'uri-parse-failure' and row['entry'] == 2 for row in telemetry['details'])
+
+# E2: 100 records remain selected in both phases within one 16KiB/64-detail budget.
+apt = root / 'two-phase' / 'apt'
+(apt / 'sources.list.d').mkdir(parents=True)
+(apt / 'sources.list').write_text(GOOD * 100)
+two_phase = bare('two-phase')
+first = module.Controller.select_sources(two_phase, apt)
+initial_path = two_phase.evidence.directory / 'source-selection.json'
+initial = initial_path.read_bytes()
+second = module.Controller.select_sources(two_phase, apt, observation='post-audit')
+post = (two_phase.evidence.directory / 'source-selection-post-audit.json').read_bytes()
+initial_value, post_value = json.loads(initial), json.loads(post)
+assert first == second and len(first) == 100 and initial_path.read_bytes() == initial
+assert len(initial) + len(post) <= module.SOURCE_TELEMETRY_LIMIT
+assert len(initial_value['details']) + len(post_value['details']) <= module.SOURCE_TELEMETRY_RECORD_LIMIT
+assert initial_value['counts']['selected'] == post_value['counts']['selected'] == 100
+assert initial_value['details_truncated'] and post_value['details_truncated']
+two_phase.evidence.write_json('acquisition-summary.json', {'terminal': True}, terminal=True)
+assert two_phase.evidence.total <= module.RETAINED_LIMIT
+
+item, outcome, telemetry, payload = source_case('terminal-parser-failure', {
+    'sources.list': GOOD * 100 + f'deb http://ports.ubuntu.com:bad/ubuntu-ports?token={CANARY} resolute main\n',
+})
+assert outcome == ('raised', 'ValueError')
+assert telemetry['counts']['selected'] == 100 and telemetry['details_truncated']
+assert any(row['code'] == 'uri-parse-failure' and row['entry'] == 101 for row in telemetry['details'])
+assert len(payload) <= module.SOURCE_TELEMETRY_PHASE_LIMIT and CANARY.encode() not in payload
+
+# E3: logical source entries survive missing and malformed URI paths without raw input.
+item, outcome, telemetry, payload = source_case('missing-uri-only', {
+    'sources.list.d/ubuntu.sources': f'Types: deb\nSuites: {CANARY}\nComponents: main\n',
+})
+assert outcome == ('raised', 'AcquisitionError')
+assert any(row['code'] == 'missing-uri' and row['location'] == 'sources.list.d/ubuntu.sources' and row['entry'] == 1 for row in telemetry['details'])
+assert CANARY.encode() not in payload
+
+item, outcome, telemetry, payload = source_case('missing-uri-with-valid', {
+    'sources.list': GOOD,
+    'sources.list.d/ubuntu.sources': f'Types: deb\nSuites: {CANARY}\nComponents: main\n',
+})
+assert outcome == ('records', [EXPECTED_GOOD])
+assert any(row['code'] == 'missing-uri' and row['entry'] == 1 for row in telemetry['details'])
+
+item, outcome, telemetry, payload = source_case('active-parse-redacted', {
+    'sources.list.d/ubuntu.sources': f'Types: deb\nURIs: http://ports.ubuntu.com:bad/ubuntu-ports?token={CANARY}\nSuites: {CANARY}\nComponents: main\n',
+})
+assert outcome == ('raised', 'ValueError')
+assert any(row['code'] == 'uri-parse-failure' and row['location'] == 'sources.list.d/ubuntu.sources' and row['entry'] == 1 for row in telemetry['details'])
+assert CANARY.encode() not in payload
+print('E1-E3 extracted controls passed')
+`
+  const result = await runAcquisitionHarness(controller, harness)
+  assert(result.success, new TextDecoder().decode(result.stderr))
+  assertEquals(
+    new TextDecoder().decode(result.stdout).trim(),
+    'E1-E3 extracted controls passed',
+  )
+})
+
+Deno.test('offline install Results retain acquisition evidence without executing package commands', async () => {
+  const controller = acquisitionController(await releaseWorkflow())
+  const harness = String.raw`
+import copy
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location('install_controller', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+root = Path(sys.argv[2])
+preimage = {'packages': {'installed': {}, 'residual': {}, 'sha256': 'a' * 64}, 'runtime': {'target': 'stable'}, 'runtime_sha256': 'b' * 64}
+solver = 'Inst gdb (15.0 Ubuntu:26.04/resolute [arm64])\nConf gdb (15.0 Ubuntu:26.04/resolute [arm64])\n0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\n'
+
+def install_case(label, result, postimage=None, finish_gdb=False):
+    item = object.__new__(module.Controller)
+    item.evidence = module.Retention(root / (label + '-evidence'))
+    item.work = root / (label + '-work')
+    item.work.mkdir()
+    item.failure_stage = None
+    item.acquisition_reason = None
+    item.audit_error = None
+    item.image_codename = None
+    item.commands = []
+    item.phase = 'initializing'
+    item.plan = []
+    item.source_records = []
+    item.keyring = None
+    item.post_sources = None
+    item.post_keyring = None
+    item.preimage = None
+    item.postimage = None
+    item.status = 'initializing'
+    item.gdb = None
+    item.github_output = root / (label + '-output')
+    item.image_identity = lambda: {'os_release': {'VERSION_CODENAME': 'resolute'}}
+    post = copy.deepcopy(postimage if postimage is not None else preimage)
+    item.measure = lambda phase: copy.deepcopy(preimage if phase in {'preimage', 'preinstall-audit'} else post)
+    gdb_calls = []
+    def trusted_gdb():
+        gdb_calls.append(True)
+        return '/usr/bin/gdb' if finish_gdb and len(gdb_calls) > 1 else None
+    item.trusted_gdb = trusted_gdb
+    item.keyring_identity = lambda *args: {'path': module.KEYRING, 'sha256': 'c' * 64, 'size': 1, 'owner': 'ubuntu-keyring:arm64', 'owner_tuple': {}}
+    apt = root / (label + '-apt')
+    (apt / 'sources.list.d').mkdir(parents=True)
+    (apt / 'sources.list').write_text('deb http://ports.ubuntu.com/ubuntu-ports resolute main\n')
+    select = module.Controller.select_sources
+    item.select_sources = lambda root_value=Path('/etc/apt'), observation='initial': select(item, apt, observation)
+    archive = item.work / 'archives'
+    archive.mkdir(exist_ok=True)
+    deb = archive / 'gdb.deb'
+    deb.write_bytes(b'abc')
+    metadata = f'Package: gdb\nVersion: 15.0\nArchitecture: arm64\nFilename: pool/main/g/gdb/gdb.deb\nSize: 3\nSHA256: {module.sha_file(deb)}\n'
+    requested, runs = [], []
+    def require(command, phase, *args, **kwargs):
+        requested.append((list(command), phase))
+        value = solver if phase in {'solver-initial', 'solver-frozen'} else metadata if phase == 'authenticated-metadata' else "'http://ports.ubuntu.com/ubuntu-ports/pool/main/g/gdb/gdb.deb' gdb.deb 3 SHA256:ignored\n" if phase == 'print-uris' else 'Package: gdb\nVersion: 15.0\nArchitecture: arm64\n' if phase == 'deb-identity' else ''
+        return module.Result(0, False, value.encode(), b'', len(value.encode()), 0, True, True, True)
+    item.require = require
+    def run(command, phase, *args, **kwargs):
+        assert phase == 'offline-dpkg-install'
+        runs.append(list(command))
+        return result
+    item.run = run
+    module.Controller.execute(item)
+    exit_code = module.Controller.finish(item)
+    summary = json.loads((item.evidence.directory / 'acquisition-summary.json').read_text())
+    assert item.commands == [] and len(runs) == 1 and requested
+    return exit_code, summary
+
+for label, result in [
+    ('install-nonzero', module.Result(1, False, b'', b'', 0, 0, True, True, True)),
+    ('install-timeout', module.Result(0, True, b'', b'', 0, 0, True, True, True)),
+    ('install-capture', module.Result(0, False, b'', b'', 0, 0, True, True, False)),
+    ('install-stdout', module.Result(0, False, b'', b'', 0, 0, False, True, True)),
+    ('install-stderr', module.Result(0, False, b'', b'', 0, 0, True, False, True)),
+]:
+    exit_code, summary = install_case(label, result)
+    assert exit_code == 0 and summary['runtime_unchanged'] is True and summary['controls_not_run'] is None
+    assert summary['status'] == 'installation-incomplete'
+    assert summary['failure_stage'] == summary['stage'] == 'offline-dpkg-install'
+    assert summary['acquisition_reason'] == {'code': 'installation-incomplete', 'message': 'offline debugger installation did not complete', 'error_type': 'Result'}
+
+drift = copy.deepcopy(preimage)
+drift['runtime'] = {'target': 'drift'}
+exit_code, summary = install_case('install-drift', module.Result(1, False, b'', b'', 0, 0, True, True, True), drift)
+assert exit_code == 1 and summary['runtime_unchanged'] is False and summary['controls_not_run'] == 'unsafe-or-unknown-postimage'
+assert summary['acquisition_reason']['code'] == 'installation-incomplete'
+
+installed = copy.deepcopy(preimage)
+installed['packages']['installed']['gdb:arm64'] = {'package': 'gdb:arm64', 'architecture': 'arm64', 'version': '15.0', 'status': 'ii '}
+exit_code, summary = install_case('install-success', module.Result(0, False, b'', b'', 0, 0, True, True, True), installed, finish_gdb=True)
+assert exit_code == 0 and summary['runtime_unchanged'] is True and summary['acquisition_reason'] is None
+exit_code, summary = install_case('install-success-incomplete-plan', module.Result(0, False, b'', b'', 0, 0, True, True, True), finish_gdb=True)
+assert exit_code == 0 and summary['runtime_unchanged'] is True
+assert summary['failure_stage'] == 'offline-dpkg-install'
+assert summary['acquisition_reason'] == {'code': 'installation-incomplete', 'message': 'frozen debugger plan was incomplete after a successful install exit', 'error_type': 'AcquisitionError'}
+print('E4 extracted controls passed')
+`
+  const result = await runAcquisitionHarness(controller, harness)
+  assert(result.success, new TextDecoder().decode(result.stderr))
+  assertEquals(
+    new TextDecoder().decode(result.stdout).trim(),
+    'E4 extracted controls passed',
   )
 })
 
