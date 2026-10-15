@@ -105,12 +105,15 @@ export type StorageUsageRes = {
 export const presignUpload = async (
   auth: UserApiAuth,
   path: string,
+  fileSize: number,
   region?: StorageRegion,
   contentType?: string,
 ): Promise<PresignUploadRes> => {
-  const body: Record<string, string> = { path }
+  const body: Record<string, string | number> = { path }
   if (region) body.region = region
   if (contentType) body.contentType = contentType
+  // With fileSize, user-api signs Content-Length into the URL. It takes a positive integer only, so an empty file is sent without it.
+  if (fileSize > 0) body.fileSize = fileSize
   const response = await fetch(`${METAL_API_URL}/storage/presign/upload`, {
     method: 'POST',
     headers: await storageHeaders(auth),
