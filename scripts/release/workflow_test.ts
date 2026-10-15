@@ -982,6 +982,217 @@ Deno.test('split native producers preserve the required facades and fail them cl
   assert(mac.includes('if: ${{ always() && !cancelled() }}'))
 })
 
+Deno.test('split producers carry source-owned evidence through existing diagnostic logs', async () => {
+  const workflow = await releaseWorkflow()
+  const producerSpecs = [
+    [
+      'source-arm-baseline',
+      'aarch64-unknown-linux-gnu',
+      'x86_64-unknown-linux-gnu',
+      'baseline',
+    ],
+    [
+      'source-arm-modified',
+      'aarch64-unknown-linux-gnu',
+      'x86_64-unknown-linux-gnu',
+      'modified',
+    ],
+    [
+      'source-macos-x64-baseline',
+      'x86_64-apple-darwin',
+      'x86_64-apple-darwin',
+      'baseline',
+    ],
+    [
+      'source-macos-x64-modified',
+      'x86_64-apple-darwin',
+      'x86_64-apple-darwin',
+      'modified',
+    ],
+  ] as const
+  const decoder = new TextDecoder()
+
+  for (const [job, target, buildHost, variant] of producerSpecs) {
+    const section = jobSection(workflow, job)
+    const shell = stepShell(section, 'Build cold source variant')
+    const preamble = shell.split('\n').find((line) => line.trim())
+    if (preamble === undefined) {
+      throw new Error(`missing build preamble for ${job}`)
+    }
+    assertEquals(preamble, 'set -euo pipefail')
+    const variantOut = shell.match(/^variant_out=.*$/m)?.[0]
+    const common = shell.match(/^common=\(.*\)$/m)?.[0]
+    const command = shell.match(
+      /^deno run .*source-rebuild\/verify-native\.ts --phase build-variant .*$/m,
+    )?.[0]
+    assert(variantOut, `missing variant output setup for ${job}`)
+    assert(common, `missing common build arguments for ${job}`)
+    assert(command, `missing build-variant invocation for ${job}`)
+    assertEquals(
+      variantOut,
+      'variant_out="dist/release-inputs/source-variants/$TARGET/$VARIANT"',
+    )
+    assertEquals(
+      count(command, '--evidence-out'),
+      1,
+      `expected one source evidence destination for ${job}`,
+    )
+    assert(
+      command.includes(
+        '--evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT"',
+      ),
+    )
+    assert(
+      command.endsWith(
+        '2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"',
+      ),
+    )
+    assertEquals(count(section, 'source-evidence-$VARIANT'), 1)
+    assertEquals(
+      count(
+        section,
+        'uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
+      ),
+      2,
+    )
+    const diagnostic = section.slice(
+      section.lastIndexOf('      - name: Preserve'),
+    )
+    assert(diagnostic.includes('if: ${{ always() && !cancelled() }}'))
+    assert(diagnostic.includes('timeout-minutes: 5'))
+    assert(diagnostic.includes('path: ${{ runner.temp }}/source-logs'))
+    assert(diagnostic.includes('if-no-files-found: warn'))
+    assert(diagnostic.includes('retention-days: 7'))
+
+    const expectedArguments = (runnerTemp: string) => [
+      'run',
+      '--frozen',
+      '--allow-read',
+      '--allow-write',
+      '--allow-run',
+      '--allow-env',
+      'source-rebuild/verify-native.ts',
+      '--phase',
+      'build-variant',
+      '--target',
+      target,
+      '--build-host',
+      buildHost,
+      '--out',
+      `dist/release-inputs/source-variants/${target}/${variant}`,
+      '--pins',
+      'source-materials/pins.json',
+      '--source-receipt',
+      'dist/release-inputs/source-materials-receipt.json',
+      '--slv-source',
+      'dist/release-inputs/source-materials/slv-source.tar.gz',
+      '--deno-source',
+      'dist/release-inputs/source-materials/deno-source.tar.gz',
+      '--cargo-vendor',
+      'dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz',
+      '--notice-file',
+      'dist/release-inputs/THIRD_PARTY_NOTICES',
+      '--variant',
+      variant,
+      '--jobs',
+      '4',
+      '--source-root',
+      `${runnerTemp}/build-source-root`,
+      '--work-dir',
+      `${runnerTemp}/build-work`,
+      '--tools-receipt',
+      `${runnerTemp}/build-tools.json`,
+      '--producer-context',
+      `${runnerTemp}/producer-context.json`,
+      '--evidence-out',
+      `${runnerTemp}/source-logs/source-evidence-${variant}`,
+    ]
+    const executeCarrier = async (
+      commandPreamble: string,
+      exitCode: number,
+      label: string,
+    ) => {
+      const directory = await Deno.makeTempDir({
+        prefix: 'slv evidence carrier ',
+      })
+      try {
+        const runnerTemp = `${directory}/runner temp`
+        const bin = `${directory}/bin`
+        const argvPath = `${directory}/argv capture`
+        await Deno.mkdir(`${runnerTemp}/source-logs`, { recursive: true })
+        await Deno.mkdir(bin)
+        await Deno.writeTextFile(
+          `${bin}/deno`,
+          '#!/bin/bash\nset -eu\nprintf \'%s\\0\' "$@" > "$ARGV_CAPTURE"\nprintf \'carrier stdout:%s\\n\' "$CARRIER_LABEL"\nprintf \'carrier stderr:%s\\n\' "$CARRIER_LABEL" >&2\nexit "$CARRIER_EXIT"\n',
+        )
+        await Deno.chmod(`${bin}/deno`, 0o755)
+        const result = await new Deno.Command('bash', {
+          args: [
+            '-ceu',
+            `${commandPreamble}\n${variantOut}\n${common}\n${command}`,
+          ],
+          cwd: directory,
+          clearEnv: true,
+          env: {
+            PATH: `${bin}:${Deno.env.get('PATH') ?? ''}`,
+            RUNNER_TEMP: runnerTemp,
+            TARGET: target,
+            BUILD_HOST: buildHost,
+            VARIANT: variant,
+            ARGV_CAPTURE: argvPath,
+            CARRIER_LABEL: label,
+            CARRIER_EXIT: String(exitCode),
+          },
+          stdout: 'piped',
+          stderr: 'piped',
+        }).output()
+        return {
+          code: result.code,
+          stdout: decoder.decode(result.stdout),
+          stderr: decoder.decode(result.stderr),
+          log: await Deno.readTextFile(
+            `${runnerTemp}/source-logs/build-${variant}.log`,
+          ),
+          argv: (await Deno.readTextFile(argvPath)).split('\0').slice(0, -1),
+          expectedArguments: expectedArguments(runnerTemp),
+        }
+      } finally {
+        await Deno.remove(directory, { recursive: true })
+      }
+    }
+
+    for (const exitCode of [0, 17]) {
+      const label = `${job}:${exitCode}`
+      const observed = await executeCarrier(preamble, exitCode, label)
+      assertEquals(observed.code, exitCode, `pipeline exit for ${label}`)
+      const expectedOutput =
+        `carrier stdout:${label}\ncarrier stderr:${label}\n`
+      assertEquals(observed.stdout, expectedOutput)
+      assertEquals(observed.stderr, '')
+      assertEquals(observed.log, expectedOutput)
+      assertEquals(observed.argv, observed.expectedArguments)
+    }
+
+    if (job === 'source-arm-baseline') {
+      const missingPipefail = preamble.replace(' pipefail', '')
+      assertEquals(missingPipefail, 'set -euo')
+      const label = `${job}:pipefail-removed`
+      const observed = await executeCarrier(missingPipefail, 17, label)
+      assertEquals(
+        observed.code,
+        0,
+        'removing only real pipefail masks exit 17',
+      )
+      const expectedOutput =
+        `carrier stdout:${label}\ncarrier stderr:${label}\n`
+      assert(observed.stdout.includes(expectedOutput))
+      assertEquals(observed.stderr, '')
+      assertEquals(observed.log, expectedOutput)
+      assertEquals(observed.argv, observed.expectedArguments)
+    }
+  }
+})
+
 Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operation', async () => {
   const workflow = await releaseWorkflow()
   const diagnosticExclusion =
