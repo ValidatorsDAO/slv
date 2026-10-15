@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto'
 import {
   assertExecutionSucceeded,
   assertSafeTree,
+  captureArmObservation,
   captureCargoFingerprintCollection,
   emitNativeTargetProof,
   extractArchive,
+  internalWriteArmObservation,
   parseNativeArgs,
   prepareBuildDirectories,
   resolveSourceArchivePaths,
@@ -606,7 +608,7 @@ Deno.test('native recipe guarded arrays preserve zero and spaced values on the o
       / {2}"\$clang" -target "\$apple_link_target" -isysroot "\$SLV_APPLE_SDK_PATH" \\\n {4}\$\{apple_link_flags\[@\]\+"\$\{apple_link_flags\[@\]\}"\} -### -x c \/dev\/null -o "\$output\/linker-driver-probe" \\\n {4}> \/dev\/null 2>"\$linker_driver_probe_log"/,
     )?.[0]
     const cargo = [...recipe.matchAll(
-      / {4}"\$cargo" build --locked --offline --release \$\{target_args\[@\]\+"\$\{target_args\[@\]\}"\} -j "\$jobs" -p denort/g,
+      / {2,6}run_guarded_cargo_command "\$cargo" build --locked --offline --release \${target_args\[@\]\+"\${target_args\[@\]}"} -j "\$jobs" -p denort/g,
     )].map((match) => match[0])
     requireFixture(
       apple,
@@ -649,7 +651,15 @@ Deno.test('native recipe guarded arrays preserve zero and spaced values on the o
     )
 
     for (const cargoCall of cargo) {
-      const empty = await runRecipeCommand(cargoCall, 'target_args=()', root)
+      const executableCargoCall = cargoCall.replace(
+        'run_guarded_cargo_command ',
+        '',
+      )
+      const empty = await runRecipeCommand(
+        executableCargoCall,
+        'target_args=()',
+        root,
+      )
       requireFixture(
         JSON.stringify(empty) === JSON.stringify([
           'build',
@@ -664,7 +674,7 @@ Deno.test('native recipe guarded arrays preserve zero and spaced values on the o
         'empty Cargo array added an empty argument or changed ordering',
       )
       const two = await runRecipeCommand(
-        cargoCall,
+        executableCargoCall,
         "target_args=(--target 'aarch64 target with spaces')",
         root,
       )
@@ -3493,5 +3503,2722 @@ Deno.test('tool environment root placements are canonical receipt paths', () => 
     expandEnvironment('@tool/clang/lib', output) !== `${output}/clang/lib`
   ) {
     throw new Error('nested tool placement changed unexpectedly')
+  }
+})
+
+async function fixtureElf(path: string, machine: number): Promise<void> {
+  const header = new Uint8Array(64)
+  header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0)
+  header[18] = machine & 0xff
+  header[19] = machine >> 8
+  await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
+  await Deno.writeFile(path, header)
+}
+
+async function armObservationFixture(
+  root: string,
+  evidence: string,
+): Promise<Awaited<ReturnType<typeof captureCargoFingerprintCollection>>> {
+  const target = 'aarch64-unknown-linux-gnu'
+  await Deno.mkdir(evidence, { recursive: true })
+  const dep = (
+    context: 'host' | 'target',
+    crate: string,
+    name: string,
+    features: string,
+  ) =>
+    JSON.stringify({
+      // Cargo fingerprints retain the feature list as a JSON-encoded string.
+      features,
+      deps: [[
+        '18446744073709551615',
+        'build_script_build',
+        false,
+        '18446744073709551614',
+      ]],
+      local: [{
+        CheckDepInfo: {
+          dep_info: context === 'host'
+            ? `release/.fingerprint/${crate}/dep-${name}`
+            : `${target}/release/.fingerprint/${crate}/dep-${name}`,
+        },
+      }],
+    }) + '\n'
+  const run = (context: 'host' | 'target', crate: string) =>
+    JSON.stringify({
+      // An empty string means this run record did not declare compiled features.
+      features: '',
+      deps: [[
+        '18446744073709551615',
+        'build_script_build',
+        false,
+        '18446744073709551613',
+      ]],
+      local: [
+        { RerunIfEnvChanged: { var: 'GN_ARGS' } },
+        {
+          RerunIfChanged: {
+            output: context === 'host'
+              ? `release/build/${crate}/output`
+              : `${target}/release/build/${crate}/output`,
+          },
+        },
+        { RerunIfEnvChanged: { var: 'EXTRA_GN_ARGS' } },
+      ],
+    }) + '\n'
+  const records = [
+    [
+      `${root}/target/release/.fingerprint/deno_snapshots-a781e5da6343f794`,
+      'build-script-build-script-build.json',
+      dep(
+        'host',
+        'deno_snapshots-a781e5da6343f794',
+        'build-script-build-script-build',
+        '[]',
+      ),
+    ],
+    [
+      `${root}/target/release/.fingerprint/v8-0af051d50882f6ed`,
+      'build-script-build-script-build.json',
+      dep(
+        'host',
+        'v8-0af051d50882f6ed',
+        'build-script-build-script-build',
+        '["simdutf", "use_custom_libcxx"]',
+      ),
+    ],
+    [
+      `${root}/target/release/.fingerprint/v8-4cccfc92ccfabbc6`,
+      'run-build-script-build-script-build.json',
+      run('host', 'v8-4cccfc92ccfabbc6'),
+    ],
+    [
+      `${root}/target/release/.fingerprint/v8-b7691ad1244b4ffd`,
+      'lib-v8.json',
+      dep(
+        'host',
+        'v8-b7691ad1244b4ffd',
+        'lib-v8',
+        '["simdutf", "use_custom_libcxx"]',
+      ),
+    ],
+    [
+      `${root}/target/${target}/release/.fingerprint/deno_snapshots-183e082d99e5c29e`,
+      'run-build-script-build-script-build.json',
+      run('target', 'deno_snapshots-183e082d99e5c29e'),
+    ],
+    [
+      `${root}/target/${target}/release/.fingerprint/deno_snapshots-5640c557e2fca22c`,
+      'lib-deno_snapshots.json',
+      dep(
+        'target',
+        'deno_snapshots-5640c557e2fca22c',
+        'lib-deno_snapshots',
+        '[]',
+      ),
+    ],
+    [
+      `${root}/target/${target}/release/.fingerprint/v8-e2e053d7e4c51008`,
+      'run-build-script-build-script-build.json',
+      run('target', 'v8-e2e053d7e4c51008'),
+    ],
+    [
+      `${root}/target/${target}/release/.fingerprint/v8-7af81a1066660ee4`,
+      'lib-v8.json',
+      dep(
+        'target',
+        'v8-7af81a1066660ee4',
+        'lib-v8',
+        '["simdutf", "use_custom_libcxx"]',
+      ),
+    ],
+  ] as const
+  for (const [directory, name, bytes] of records) {
+    await Deno.mkdir(directory, { recursive: true })
+    await Deno.writeTextFile(`${directory}/${name}`, bytes)
+  }
+  const out =
+    `${root}/target/${target}/release/build/deno_snapshots-183e082d99e5c29e/out`
+  await Deno.mkdir(`${out}/residual_sources`, { recursive: true })
+  const snapshot = new Uint8Array(20)
+  snapshot.set([1, 2, 3, 4], 0)
+  new DataView(snapshot.buffer).setBigUint64(12, 4n, true)
+  await Deno.writeFile(`${out}/CLI_SNAPSHOT.bin`, snapshot)
+  await Deno.writeTextFile(
+    `${out}/EXTENSION_RESIDUAL_SOURCES.rs`,
+    'include_bytes!("residual_sources/mod.js");\n',
+  )
+  await Deno.writeTextFile(`${out}/residual_sources/mod.js`, 'export {};\n')
+  await fixtureElf(
+    `${root}/target/release/build/deno_snapshots-a781e5da6343f794/build-script-build`,
+    62,
+  )
+  await fixtureElf(`${root}/target/${target}/release/denort`, 183)
+  const defines =
+    '-DV8_TARGET_ARCH_ARM64 -DV8_COMPRESS_POINTERS -DV8_ENABLE_SANDBOX -DV8_STATIC_ROOTS -DV8_STATIC_ROOTS_GENERATION -DV8_ENABLE_EXTENSIBLE_RO_SNAPSHOT'
+  for (
+    const [context, cpu, simulator] of [['host', 'x64', ' -DUSE_SIMULATOR'], [
+      'consumer',
+      'arm64',
+      '',
+    ]] as const
+  ) {
+    await Deno.writeTextFile(
+      `${evidence}/${context}-args.gn`,
+      `target_cpu = "${cpu}"\nv8_target_cpu = "arm64"\nv8_target_is_simulator = ""\n`,
+    )
+    await Deno.writeTextFile(
+      `${evidence}/${context}-rusty_v8.ninja`,
+      `defines = ${defines}${simulator}\n`,
+    )
+  }
+  return await captureCargoFingerprintCollection(root, {
+    phase: 'baseline',
+    target,
+    runtime_sha256: 'a'.repeat(64),
+    derived_relink_cargo_lock_sha256: 'b'.repeat(64),
+  })
+}
+
+Deno.test('ARM observation validates full Cargo roles and ELF/Ninja semantics without GN listing queries', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-observation-' })
+  try {
+    const evidence = `${root}/evidence`
+    await Deno.mkdir(evidence)
+    const fingerprints = await armObservationFixture(root, evidence)
+    const observed = await captureArmObservation(
+      root,
+      'aarch64-unknown-linux-gnu',
+      evidence,
+      fingerprints,
+    )
+    requireFixture(
+      observed?.status === 'complete',
+      `valid simulator observation was ${observed?.status}`,
+    )
+    requireFixture(
+      (observed?.host.cargo_records as unknown[] | undefined)?.length === 4 &&
+        (observed?.consumer.cargo_records as unknown[] | undefined)?.length ===
+          4,
+      'full compiled/run/library Cargo role collection was not retained',
+    )
+    const hostRecords = observed?.host.cargo_records as Array<
+      Record<string, unknown>
+    >
+    const hostCompile = hostRecords.find((record) =>
+      record.path === 'v8-0af051d50882f6ed/build-script-build-script-build.json'
+    )
+    const hostRun = hostRecords.find((record) =>
+      record.path ===
+        'v8-4cccfc92ccfabbc6/run-build-script-build-script-build.json'
+    )
+    requireFixture(
+      (hostCompile?.features as Record<string, unknown> | undefined)?.raw ===
+          '["simdutf", "use_custom_libcxx"]' &&
+        JSON.stringify(
+            (hostCompile?.features as Record<string, unknown>)?.normalized,
+          ) ===
+          '["simdutf","use_custom_libcxx"]' &&
+        (hostRun?.features as Record<string, unknown> | undefined)?.state ===
+          'unavailable-by-run',
+      'raw Cargo feature encodings were not preserved distinctly from normalized state',
+    )
+    const absentMacros = await armObservationFixture(
+      `${root}/absent-macros-stage`,
+      `${root}/absent-macros-evidence`,
+    )
+    await Deno.writeTextFile(
+      `${root}/absent-macros-evidence/host-rusty_v8.ninja`,
+      'defines = -DV8_TARGET_ARCH_ARM64 -DV8_ENABLE_EXTENSIBLE_RO_SNAPSHOT -DUSE_SIMULATOR\n',
+    )
+    await Deno.writeTextFile(
+      `${root}/absent-macros-evidence/consumer-rusty_v8.ninja`,
+      'defines = -DV8_TARGET_ARCH_ARM64 -DV8_ENABLE_EXTENSIBLE_RO_SNAPSHOT\n',
+    )
+    const absentObserved = await captureArmObservation(
+      `${root}/absent-macros-stage`,
+      'aarch64-unknown-linux-gnu',
+      `${root}/absent-macros-evidence`,
+      absentMacros,
+    )
+    requireFixture(
+      absentObserved?.status === 'complete' &&
+        JSON.stringify(
+            (absentObserved.host.effective_semantics as Record<string, unknown>)
+              .compiled_settings,
+          ) ===
+          '{"V8_COMPRESS_POINTERS":{"enabled":false,"raw_token":null},"V8_ENABLE_SANDBOX":{"enabled":false,"raw_token":null},"V8_STATIC_ROOTS":{"enabled":false,"raw_token":null},"V8_STATIC_ROOTS_GENERATION":{"enabled":false,"raw_token":null},"V8_ENABLE_EXTENSIBLE_RO_SNAPSHOT":{"enabled":true,"raw_token":"1"}}',
+      'complete Ninja assignment did not represent absent optional macros as false',
+    )
+    await Deno.writeTextFile(
+      `${root}/absent-macros-evidence/consumer-rusty_v8.ninja`,
+      'defines = -DV8_TARGET_ARCH_ARM64 -DV8_ENABLE_EXTENSIBLE_RO_SNAPSHOT -DV8_COMPRESS_POINTERS\n',
+    )
+    requireFixture(
+      (await captureArmObservation(
+        `${root}/absent-macros-stage`,
+        'aarch64-unknown-linux-gnu',
+        `${root}/absent-macros-evidence`,
+        absentMacros,
+      ))?.status === 'configuration-mismatch',
+      'host and consumer optional macro disagreement was accepted',
+    )
+    requireFixture(
+      !(await Deno.stat(`${evidence}/snapshot-bundle`).catch((error) =>
+        error instanceof Deno.errors.NotFound
+          ? undefined
+          : Promise.reject(error)
+      )),
+      'observation retained a duplicate raw snapshot bundle',
+    )
+    requireFixture(
+      (observed.snapshot_bundle.members as unknown[]).length === 3,
+      'snapshot inventory did not retain exact bundle members',
+    )
+    const largeHost =
+      `${root}/target/release/build/deno_snapshots-a781e5da6343f794/build-script-build`
+    const largeHandle = await Deno.open(largeHost, { write: true })
+    await largeHandle.truncate(33 * 1024 * 1024)
+    largeHandle.close()
+    requireFixture(
+      (await captureArmObservation(
+        root,
+        'aarch64-unknown-linux-gnu',
+        evidence,
+        fingerprints,
+      ))?.status === 'complete',
+      'large executable identity was incorrectly limited as a snapshot member',
+    )
+    await Deno.writeTextFile(
+      `${root}/target/aarch64-unknown-linux-gnu/release/build/deno_snapshots-183e082d99e5c29e/out/residual_sources/unreferenced.js`,
+      'extra\n',
+    )
+    requireFixture(
+      (await captureArmObservation(
+        root,
+        'aarch64-unknown-linux-gnu',
+        evidence,
+        fingerprints,
+      ))?.status === 'incomplete',
+      'unreferenced snapshot member was accepted',
+    )
+    const negative = `${root}/negative`
+    await Deno.mkdir(negative)
+    const negativeFingerprints = await armObservationFixture(
+      `${root}/negative-stage`,
+      negative,
+    )
+    await Deno.writeTextFile(
+      `${negative}/host-rusty_v8.ninja`,
+      `defines = -DV8_TARGET_ARCH_ARM64\n`,
+    )
+    const rejected = await captureArmObservation(
+      `${root}/negative-stage`,
+      'aarch64-unknown-linux-gnu',
+      negative,
+      negativeFingerprints,
+    )
+    requireFixture(
+      rejected?.status === 'configuration-mismatch',
+      'wrong actual simulator define was accepted from requested GN settings',
+    )
+    await Deno.writeTextFile(
+      `${negative}/host-rusty_v8.ninja`,
+      'defines = -DV8_TARGET_ARCH_ARM64 -DV8_COMPRESS_POINTERS -DV8_ENABLE_SANDBOX -DV8_STATIC_ROOTS -DV8_STATIC_ROOTS_GENERATION -DV8_ENABLE_EXTENSIBLE_RO_SNAPSHOT -DUSE_SIMULATOR\n',
+    )
+    await Deno.writeTextFile(
+      `${negative}/consumer-rusty_v8.ninja`,
+      'defines = -DV8_TARGET_ARCH_ARM64 $\n  -DUSE_SIMULATOR\n',
+    )
+    requireFixture(
+      (await captureArmObservation(
+        `${root}/negative-stage`,
+        'aarch64-unknown-linux-gnu',
+        negative,
+        negativeFingerprints,
+      ))?.status === 'incomplete',
+      'continued Ninja defines assignment was treated as complete',
+    )
+    const competing = await armObservationFixture(
+      `${root}/competing-stage`,
+      `${root}/competing-evidence`,
+    )
+    competing.records.push({
+      ...competing.records.find((record) =>
+        record.context === 'target-release' && /lib-v8\.json$/.test(record.path)
+      )!,
+    })
+    requireFixture(
+      (await captureArmObservation(
+        `${root}/competing-stage`,
+        'aarch64-unknown-linux-gnu',
+        `${root}/competing-evidence`,
+        competing,
+      ))?.status === 'incomplete',
+      'competing V8 library role was accepted',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM snapshot inventory uses one ASCII order across table, tree, and manifest', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-inventory-order-' })
+  try {
+    const target = 'aarch64-unknown-linux-gnu'
+    const names = [
+      'a.txt',
+      'a/x.js',
+      'ext_deno_node_http2_ts.js',
+      'ext_deno_node_http_ts.js',
+    ]
+    const expected = [
+      'CLI_SNAPSHOT.bin',
+      'EXTENSION_RESIDUAL_SOURCES.rs',
+      ...names.map((name) => `residual_sources/${name}`),
+    ]
+    const capture = async (label: string, insertion: string[]) => {
+      const stage = `${root}/${label}-stage`
+      const evidence = `${root}/${label}-evidence`
+      const fingerprints = await armObservationFixture(stage, evidence)
+      const out =
+        `${stage}/target/${target}/release/build/deno_snapshots-183e082d99e5c29e/out`
+      await Deno.remove(`${out}/residual_sources/mod.js`)
+      for (const name of insertion) {
+        const path = `${out}/residual_sources/${name}`
+        await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), {
+          recursive: true,
+        })
+        await Deno.writeTextFile(path, `fixture:${name}\n`)
+      }
+      await Deno.writeTextFile(
+        `${out}/EXTENSION_RESIDUAL_SOURCES.rs`,
+        names.map((name) =>
+          `include_str!(concat!(env!("OUT_DIR"), "/residual_sources/${name}"));`
+        ).join('\n') + '\n',
+      )
+      const observed = await captureArmObservation(
+        stage,
+        target,
+        evidence,
+        fingerprints,
+      )
+      const manifest = await Deno.readFile(
+        `${evidence}/snapshot-bundle-manifest.json`,
+      )
+      return { observed, manifest }
+    }
+    const forward = await capture('forward', names)
+    const reverse = await capture('reverse', [...names].reverse())
+    const forwardPaths = (forward.observed?.snapshot_bundle.members as Array<
+      Record<string, unknown>
+    >)
+      .map((member) => member.path)
+    requireFixture(
+      forward.observed?.status === 'complete' &&
+        JSON.stringify(forwardPaths) === JSON.stringify(expected) &&
+        JSON.stringify(forward.manifest) === JSON.stringify(reverse.manifest),
+      'table/tree/manifest inventory ordering is not stable ASCII full-path order',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM observation rejects malformed raw Cargo feature encodings', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-feature-negative-' })
+  try {
+    const cases: Array<[string, unknown]> = [
+      ['non-string', []],
+      ['empty-compiled', ''],
+      ['malformed-json', '["simdutf"'],
+      ['duplicate-feature', '["simdutf","simdutf"]'],
+      ['oversized-feature', JSON.stringify(['x'.repeat(257)])],
+      ['missing-feature', undefined],
+    ]
+    for (const [name, rawFeature] of cases) {
+      const stage = `${root}/${name}-stage`
+      const evidence = `${root}/${name}-evidence`
+      const fingerprints = await armObservationFixture(stage, evidence)
+      const record = fingerprints.records.find((value) =>
+        value.context === 'host-release' &&
+        /v8-0af051d50882f6ed\/build-script-build-script-build\.json$/.test(
+          value.path,
+        )
+      )!
+      const data = JSON.parse(atob(record.content_base64))
+      if (rawFeature === undefined) delete data.features
+      else data.features = rawFeature
+      record.content_base64 = btoa(JSON.stringify(data) + '\n')
+      requireFixture(
+        (await captureArmObservation(
+          stage,
+          'aarch64-unknown-linux-gnu',
+          evidence,
+          fingerprints,
+        ))?.status === 'incomplete',
+        `invalid ${name} Cargo feature value was accepted`,
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM raw capture copies only generated files and never invokes GN', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-raw-capture-' })
+  try {
+    const evidence = `${root}/evidence`
+    const host = `${root}/host`
+    const consumer = `${root}/consumer`
+    const marker = `${root}/unexpected-gn-query`
+    for (const output of [host, consumer]) {
+      await Deno.mkdir(`${output}/obj`, { recursive: true })
+      await Deno.writeTextFile(`${output}/args.gn`, 'target_cpu = "arm64"\n')
+      await Deno.writeTextFile(
+        `${output}/obj/rusty_v8.ninja`,
+        'defines = -DV8_TARGET_ARCH_ARM64\n',
+      )
+    }
+    await Deno.mkdir(evidence)
+    const fakeGn = `${root}/gn`
+    await Deno.writeTextFile(
+      fakeGn,
+      `#!/usr/bin/env bash\ntouch ${marker}\nexit 99\n`,
+    )
+    await Deno.chmod(fakeGn, 0o755)
+    const fragment = await recipeFragment(
+      '# ARM_EVIDENCE_RAW_CAPTURE_BEGIN',
+      '# ARM_EVIDENCE_RAW_CAPTURE_END',
+    )
+    const result = await new Deno.Command('/usr/bin/bash', {
+      args: [
+        '-euo',
+        'pipefail',
+        '-c',
+        `${fragment}\ncapture_arm_raw_evidence "$1" "$2"`,
+        '--',
+        host,
+        consumer,
+      ],
+      clearEnv: true,
+      env: {
+        BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+        GN: fakeGn,
+        PYTHON: '/usr/bin/python3',
+        evidence_out: evidence,
+        PATH: '/usr/bin:/bin',
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    requireFixture(
+      result.success &&
+        JSON.parse(
+            await Deno.readTextFile(evidence + '/raw-capture.json'),
+          ).status === 'raw-capture-complete',
+      'ARM raw capture did not retain valid generated-file evidence',
+    )
+    requireFixture(
+      await Deno.stat(`${evidence}/host-args.gn`).then(() => true).catch(() =>
+        false
+      ) &&
+        await Deno.stat(`${evidence}/consumer-rusty_v8.ninja`).then(() => true)
+          .catch(() => false) &&
+        !(await Deno.stat(marker).then(() => true).catch(() => false)) &&
+        !(await Deno.stat(`${evidence}/host-gn-args-list.txt`).then(() => true)
+          .catch(() => false)),
+      'ARM raw capture queried GN or emitted a GN listing artifact',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM state routine latches write failures and validates the full producer identity', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-state-lifetime-' })
+  try {
+    const fragment = await recipeFragment(
+      '# ARM_OBSERVATION_STATE_BEGIN',
+      '# ARM_OBSERVATION_STATE_END',
+    )
+    const valid = {
+      source_commit: 'c'.repeat(40),
+      source_receipt_sha256: 'd'.repeat(64),
+      recipe_sha256: 'e'.repeat(64),
+      target: 'aarch64-unknown-linux-gnu',
+      build_host: { os: 'linux', arch: 'x64' },
+      variant: 'baseline',
+      producer_context: {
+        schema_version: 1,
+        kind: 'slv-native-producer-context',
+        repository: 'ValidatorsDAO/slv',
+        workflow:
+          'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
+        run_id: '1',
+        run_attempt: '1',
+        job_id: 'arm-baseline',
+      },
+    }
+    const evidence = root + '/directory-state'
+    await Deno.mkdir(evidence + '/compilation-state.json', { recursive: true })
+    const guarded = await new Deno.Command('/usr/bin/bash', {
+      args: [
+        '-euo',
+        'pipefail',
+        '-c',
+        fragment +
+        '\nif ! arm_observation_state initial initial; then arm_observation_latch_error initial-state; fi\nif ! arm_observation_state phase guarded-cargo-start; then arm_observation_latch_error guarded-cargo-start; fi\nprintf entered > "$evidence_out/source-marker"',
+      ],
+      clearEnv: true,
+      env: {
+        BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+        PYTHON: '/usr/bin/python3',
+        evidence_out: evidence,
+        SLV_ARM_OBSERVATION_CONTEXT: JSON.stringify(valid),
+        PATH: '/usr/bin:/bin',
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    requireFixture(
+      guarded.success &&
+        await Deno.stat(evidence + '/source-marker').then(() => true).catch(
+          () => false,
+        ) &&
+        new TextDecoder().decode(guarded.stderr).includes(
+          'SLV_ARM_OBSERVATION_CAPTURE_ERROR',
+        ),
+      'state write failure aborted the pre-guard source path',
+    )
+
+    const recovered = root + '/recovered-state'
+    await Deno.mkdir(recovered + '/compilation-state.json', { recursive: true })
+    const recoveredResult = await new Deno.Command('/usr/bin/bash', {
+      args: [
+        '-euo',
+        'pipefail',
+        '-c',
+        fragment +
+        '\nif ! arm_observation_state initial initial; then arm_observation_latch_error initial-state; fi\nrmdir "$evidence_out/compilation-state.json"\nif ! arm_observation_state phase guarded-cargo-start; then arm_observation_latch_error guarded-cargo-start; fi\nprintf entered > "$evidence_out/source-marker"\nif ! arm_observation_state raw raw-capture 37 raw-capture-incomplete; then arm_observation_latch_error raw-state; fi',
+      ],
+      clearEnv: true,
+      env: {
+        BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+        PYTHON: '/usr/bin/python3',
+        evidence_out: recovered,
+        SLV_ARM_OBSERVATION_CONTEXT: JSON.stringify(valid),
+        PATH: '/usr/bin:/bin',
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    const recoveredState = JSON.parse(
+      await Deno.readTextFile(recovered + '/compilation-state.json'),
+    )
+    requireFixture(
+      recoveredResult.success &&
+        await Deno.stat(recovered + '/source-marker').then(() => true).catch(
+          () => false,
+        ) &&
+        recoveredState.status === 'incomplete' &&
+        recoveredState.original_build_exit_code === 37 &&
+        recoveredState.capture_errors.includes('initial-state') &&
+        recoveredState.capture_errors.includes('guarded-cargo-start') &&
+        recoveredState.capture_errors.includes('state-missing'),
+      'recovered observation destination cleared an earlier pre-guard failure',
+    )
+
+    const accepted = root + '/accepted'
+    await Deno.mkdir(accepted)
+    const acceptedResult = await new Deno.Command('/usr/bin/bash', {
+      args: [
+        '-euo',
+        'pipefail',
+        '-c',
+        fragment +
+        '\narm_observation_state initial initial\narm_observation_state phase guarded-cargo-start\narm_observation_state raw raw-capture 37 raw-capture-complete',
+      ],
+      clearEnv: true,
+      env: {
+        BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+        PYTHON: '/usr/bin/python3',
+        evidence_out: accepted,
+        SLV_ARM_OBSERVATION_CONTEXT: JSON.stringify(valid),
+        PATH: '/usr/bin:/bin',
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    const initial = JSON.parse(
+      await Deno.readTextFile(accepted + '/compilation-state.json'),
+    )
+    requireFixture(
+      acceptedResult.success &&
+        initial.status === 'started' &&
+        initial.phase === 'raw-capture' &&
+        initial.last_observed_phase === 'raw-capture' &&
+        initial.original_build_exit_code === 37 &&
+        initial.raw_capture_status === 'raw-capture-complete' &&
+        initial.binding.producer_context.job_id === 'arm-baseline',
+      'valid full producer identity was not retained',
+    )
+
+    const nullProducer = root + '/null-producer'
+    await Deno.mkdir(nullProducer)
+    const nullProducerResult = await new Deno.Command('/usr/bin/bash', {
+      args: [
+        '-euo',
+        'pipefail',
+        '-c',
+        fragment + '\narm_observation_state initial initial',
+      ],
+      clearEnv: true,
+      env: {
+        BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+        PYTHON: '/usr/bin/python3',
+        evidence_out: nullProducer,
+        SLV_ARM_OBSERVATION_CONTEXT: JSON.stringify({
+          ...valid,
+          producer_context: null,
+        }),
+        PATH: '/usr/bin:/bin',
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    const nullProducerState = JSON.parse(
+      await Deno.readTextFile(nullProducer + '/compilation-state.json'),
+    )
+    requireFixture(
+      nullProducerResult.success &&
+        nullProducerState.status === 'started' &&
+        nullProducerState.binding.producer_context === null,
+      'null producer context was rejected',
+    )
+
+    const invalidProducerContexts: Array<Record<string, unknown>> = [
+      {
+        schema_version: 1,
+        kind: 'slv-native-producer-context',
+        repository: 'ValidatorsDAO/slv',
+      },
+      { ...valid.producer_context, extra: 'unexpected' },
+      {
+        ...valid.producer_context,
+        workflow: 'Other/repository/.github/workflows/build.yml',
+      },
+      { ...valid.producer_context, job_id: 7 },
+      { ...valid.producer_context, run_id: 7 },
+      { ...valid.producer_context, run_attempt: false },
+      { ...valid.producer_context, run_id: '01' },
+    ]
+    for (const [index, producer_context] of invalidProducerContexts.entries()) {
+      const rejected = root + '/rejected-' + index
+      await Deno.mkdir(rejected)
+      const rejectedResult = await new Deno.Command('/usr/bin/bash', {
+        args: [
+          '-euo',
+          'pipefail',
+          '-c',
+          fragment + '\narm_observation_state initial initial',
+        ],
+        clearEnv: true,
+        env: {
+          BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+          PYTHON: '/usr/bin/python3',
+          evidence_out: rejected,
+          SLV_ARM_OBSERVATION_CONTEXT: JSON.stringify({
+            ...valid,
+            producer_context,
+          }),
+          PATH: '/usr/bin:/bin',
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      const rejectedState = JSON.parse(
+        await Deno.readTextFile(rejected + '/compilation-state.json'),
+      )
+      requireFixture(
+        !rejectedResult.success &&
+          rejectedState.status === 'incomplete' &&
+          rejectedState.identity_status === 'unavailable',
+        'invalid producer context ' + index + ' was accepted',
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM state helpers validate persisted state before phase or raw mutation', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-prior-state-' })
+  try {
+    const fragment = await recipeFragment(
+      '# ARM_OBSERVATION_STATE_BEGIN',
+      '# ARM_OBSERVATION_STATE_END',
+    )
+    const binding = {
+      source_commit: 'c'.repeat(40),
+      source_receipt_sha256: 'd'.repeat(64),
+      recipe_sha256: 'e'.repeat(64),
+      target: 'aarch64-unknown-linux-gnu',
+      build_host: { os: 'linux', arch: 'x64' },
+      variant: 'baseline',
+      producer_context: {
+        schema_version: 1,
+        kind: 'slv-native-producer-context',
+        repository: 'ValidatorsDAO/slv',
+        workflow:
+          'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
+        run_id: '1',
+        run_attempt: '1',
+        job_id: 'arm-baseline',
+      },
+    }
+    const run = async (
+      evidence: string,
+      context: string,
+      program: string,
+    ) =>
+      await new Deno.Command('/usr/bin/bash', {
+        args: ['-euo', 'pipefail', '-c', fragment + '\n' + program],
+        clearEnv: true,
+        env: {
+          BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+          PYTHON: '/usr/bin/python3',
+          evidence_out: evidence,
+          SLV_ARM_OBSERVATION_CONTEXT: context,
+          PATH: '/usr/bin:/bin',
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+    const validContext = JSON.stringify(binding)
+    type InvalidState = {
+      name: string
+      mutate: (state: Record<string, unknown>) => void
+      render?: (state: Record<string, unknown>) => string
+    }
+    const invalid: InvalidState[] = [
+      {
+        name: 'capture-errors-object',
+        mutate: (state) => state.capture_errors = {},
+      },
+      {
+        name: 'capture-errors-empty-string',
+        mutate: (state) => state.capture_errors = '',
+      },
+      {
+        name: 'capture-errors-null',
+        mutate: (state) => state.capture_errors = null,
+      },
+      {
+        name: 'capture-errors-item',
+        mutate: (state) => state.capture_errors = [7],
+      },
+      {
+        name: 'capture-errors-code',
+        mutate: (state) => state.capture_errors = ['not a bounded code'],
+      },
+      {
+        name: 'capture-errors-duplicate',
+        mutate: (state) =>
+          state.capture_errors = ['raw-capture', 'raw-capture'],
+      },
+      {
+        name: 'capture-errors-overflow',
+        mutate: (state) => {
+          state.capture_errors = Array.from(
+            { length: 17 },
+            (_, index) => `error-${index}`,
+          )
+        },
+      },
+      {
+        name: 'capture-error-object',
+        mutate: (state) => state.capture_error = {},
+      },
+      {
+        name: 'capture-error-code',
+        mutate: (state) => state.capture_error = 'not a bounded code',
+      },
+      { name: 'status', mutate: (state) => state.status = 'unknown' },
+      { name: 'status-object', mutate: (state) => state.status = {} },
+      { name: 'phase', mutate: (state) => state.phase = 'unknown' },
+      { name: 'phase-object', mutate: (state) => state.phase = {} },
+      {
+        name: 'last-phase',
+        mutate: (state) => state.last_observed_phase = 'unknown',
+      },
+      {
+        name: 'last-phase-object',
+        mutate: (state) => state.last_observed_phase = {},
+      },
+      {
+        name: 'schema-boolean',
+        mutate: (state) => state.schema_version = true,
+      },
+      {
+        name: 'monotonic-boolean',
+        mutate: (state) => state.monotonic_started = true,
+      },
+      {
+        name: 'monotonic-negative',
+        mutate: (state) => state.monotonic_started = -1,
+      },
+      {
+        name: 'monotonic-nonfinite',
+        mutate: () => undefined,
+        render: (state) =>
+          JSON.stringify(state).replace(
+            /"monotonic_started":[^,}]+/,
+            '"monotonic_started":NaN',
+          ),
+      },
+      {
+        name: 'elapsed-boolean',
+        mutate: (state) => state.monotonic_elapsed_seconds = true,
+      },
+      {
+        name: 'elapsed-negative',
+        mutate: (state) => state.monotonic_elapsed_seconds = -1,
+      },
+      {
+        name: 'elapsed-nonfinite',
+        mutate: (state) => state.monotonic_elapsed_seconds = 0,
+        render: (state) =>
+          JSON.stringify(state).replace(
+            /"monotonic_elapsed_seconds":[^,}]+/,
+            '"monotonic_elapsed_seconds":NaN',
+          ),
+      },
+      {
+        name: 'binding-array',
+        mutate: (state) => state.binding = [],
+      },
+      {
+        name: 'missing-binding-identity',
+        mutate: (state) => {
+          delete state.binding
+          state.identity_status = 'started'
+        },
+      },
+    ]
+    for (const fixture of invalid) {
+      const stage = `${root}/${fixture.name}/stage`
+      const evidence = `${root}/${fixture.name}/evidence`
+      const fingerprints = await armObservationFixture(stage, evidence)
+      const capture = await captureArmObservation(
+        stage,
+        'aarch64-unknown-linux-gnu',
+        evidence,
+        fingerprints,
+      )
+      const initial = await run(
+        evidence,
+        validContext,
+        'arm_observation_state initial initial',
+      )
+      requireFixture(initial.success, `${fixture.name} initial state failed`)
+      const path = `${evidence}/compilation-state.json`
+      const prior = JSON.parse(await Deno.readTextFile(path))
+      fixture.mutate(prior)
+      await Deno.writeTextFile(
+        path,
+        fixture.render?.(prior) ?? JSON.stringify(prior),
+      )
+      const operations = await run(
+        evidence,
+        validContext,
+        'if ! arm_observation_state phase guarded-cargo-start; then arm_observation_latch_error guarded-cargo-start; fi\nif ! arm_observation_state raw raw-capture 0 raw-capture-complete; then arm_observation_latch_error raw-state; fi',
+      )
+      const diagnostics = new TextDecoder().decode(operations.stderr)
+      requireFixture(
+        operations.success &&
+          (diagnostics.match(/"error"\s*:\s*"state-invalid"/g)?.length ?? 0) >=
+            2,
+        `${fixture.name} was normalized before phase/raw validation: ${diagnostics}`,
+      )
+      await internalWriteArmObservation(capture, {
+        ...binding,
+        original_build_exit_code: 0,
+      }).then(
+        () => {
+          throw new Error(`${fixture.name} produced a complete observation`)
+        },
+        () => undefined,
+      )
+      const finalState = JSON.parse(await Deno.readTextFile(path))
+      const metadata = JSON.parse(
+        await Deno.readTextFile(`${evidence}/compilation-metadata.json`),
+      )
+      requireFixture(
+        finalState.status === 'incomplete' &&
+          metadata.status === 'incomplete' &&
+          finalState.original_build_exit_code === 0 &&
+          metadata.original_build_exit_code === 0 &&
+          finalState.capture_errors.includes('state-invalid') &&
+          metadata.capture_errors.includes('state-invalid'),
+        `${fixture.name} did not persist incomplete source-zero evidence`,
+      )
+    }
+    for (
+      const mode of [
+        'empty-errors',
+        'missing-optional',
+        'schema-decimal-one',
+      ] as const
+    ) {
+      const stage = `${root}/${mode}/stage`
+      const evidence = `${root}/${mode}/evidence`
+      const fingerprints = await armObservationFixture(stage, evidence)
+      const capture = await captureArmObservation(
+        stage,
+        'aarch64-unknown-linux-gnu',
+        evidence,
+        fingerprints,
+      )
+      requireFixture(
+        (await run(
+          evidence,
+          validContext,
+          'arm_observation_state initial initial',
+        ))
+          .success,
+        `${mode} initial state failed`,
+      )
+      const path = `${evidence}/compilation-state.json`
+      const state = JSON.parse(await Deno.readTextFile(path))
+      let stateBytes: string
+      if (mode === 'empty-errors') {
+        state.capture_errors = []
+        stateBytes = JSON.stringify(state)
+      } else if (mode === 'missing-optional') {
+        delete state.capture_errors
+        delete state.last_observed_phase
+        stateBytes = JSON.stringify(state)
+      } else {
+        stateBytes = JSON.stringify(state).replace(
+          /"schema_version":1/,
+          '"schema_version":1.0',
+        )
+      }
+      await Deno.writeTextFile(path, stateBytes)
+      const operations = await run(
+        evidence,
+        validContext,
+        'arm_observation_state phase guarded-cargo-start\narm_observation_state raw raw-capture 0 raw-capture-complete',
+      )
+      requireFixture(operations.success, `${mode} valid state was rejected`)
+      await internalWriteArmObservation(capture, {
+        ...binding,
+        original_build_exit_code: 0,
+      })
+      const metadata = JSON.parse(
+        await Deno.readTextFile(`${evidence}/compilation-metadata.json`),
+      )
+      requireFixture(
+        metadata.status === 'complete',
+        `${mode} optional state history did not complete`,
+      )
+    }
+    for (
+      const [name, context, accepted] of [
+        [
+          'producer-boolean',
+          validContext.replace('"schema_version":1', '"schema_version":true'),
+          false,
+        ],
+        [
+          'producer-decimal-one',
+          validContext.replace('"schema_version":1', '"schema_version":1.0'),
+          true,
+        ],
+      ] as const
+    ) {
+      const evidence = `${root}/${name}/evidence`
+      await Deno.mkdir(evidence, { recursive: true })
+      const result = await run(
+        evidence,
+        context,
+        'arm_observation_state initial initial',
+      )
+      const state = JSON.parse(
+        await Deno.readTextFile(`${evidence}/compilation-state.json`),
+      )
+      requireFixture(
+        result.success === accepted &&
+          (accepted
+            ? state.status === 'started'
+            : state.status === 'incomplete' &&
+              state.identity_status === 'unavailable'),
+        `${name} did not preserve TypeScript numeric schema semantics`,
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM capture failures retain source status and independently attempt metadata and state', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-capture-failure-' })
+  try {
+    const evidence = root + '/evidence'
+    const host = root + '/host'
+    const consumer = root + '/consumer'
+    for (const output of [host, consumer]) {
+      await Deno.mkdir(output + '/obj', { recursive: true })
+      await Deno.writeTextFile(output + '/args.gn', 'target_cpu = "arm64"\\n')
+      await Deno.writeTextFile(
+        output + '/obj/rusty_v8.ninja',
+        'defines = -DV8_TARGET_ARCH_ARM64\\n',
+      )
+    }
+    await Deno.mkdir(evidence)
+    await Deno.mkdir(evidence + '/raw-capture.json')
+    const fragment = await recipeFragment(
+      '# ARM_EVIDENCE_RAW_CAPTURE_BEGIN',
+      '# ARM_EVIDENCE_RAW_CAPTURE_END',
+    )
+    const result = await new Deno.Command('/usr/bin/bash', {
+      args: [
+        '-euo',
+        'pipefail',
+        '-c',
+        fragment +
+        '\nstatus=37\nif ! capture_arm_raw_evidence "$1" "$2"; then :; fi\ntest "$status" -eq 37',
+        '--',
+        host,
+        consumer,
+      ],
+      clearEnv: true,
+      env: {
+        BUILD_TARGET: 'aarch64-unknown-linux-gnu',
+        PYTHON: '/usr/bin/python3',
+        evidence_out: evidence,
+        PATH: '/usr/bin:/bin',
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    requireFixture(
+      result.success &&
+        new TextDecoder().decode(result.stderr).includes(
+          'SLV_ARM_OBSERVATION_CAPTURE_ERROR',
+        ),
+      'raw-capture failure replaced the saved source status or hid its error',
+    )
+
+    const canonicalBinding = {
+      source_commit: 'c'.repeat(40),
+      source_receipt_sha256: 'd'.repeat(64),
+      recipe_sha256: 'e'.repeat(64),
+      target: 'aarch64-unknown-linux-gnu',
+      build_host: { os: 'linux', arch: 'x64' },
+      variant: 'baseline',
+      producer_context: null,
+    }
+    const stage = root + '/stage'
+    const completeEvidence = root + '/complete-evidence'
+    const fingerprints = await armObservationFixture(stage, completeEvidence)
+    const capture = await captureArmObservation(
+      stage,
+      'aarch64-unknown-linux-gnu',
+      completeEvidence,
+      fingerprints,
+    )
+    await Deno.writeTextFile(
+      completeEvidence + '/compilation-state.json',
+      JSON.stringify({
+        schema_version: 1,
+        kind: 'slv-arm-snapshot-build-observation-state',
+        status: 'started',
+        phase: 'raw-capture',
+        last_observed_phase: 'raw-capture',
+        monotonic_started: 1,
+        binding: canonicalBinding,
+      }),
+    )
+    await Deno.mkdir(completeEvidence + '/compilation-metadata.json')
+    await internalWriteArmObservation(capture, {
+      ...canonicalBinding,
+      original_build_exit_code: 0,
+    }).then(
+      () => {
+        throw new Error('metadata write failure was accepted as complete')
+      },
+      () => undefined,
+    )
+    const state = JSON.parse(
+      await Deno.readTextFile(completeEvidence + '/compilation-state.json'),
+    )
+    requireFixture(
+      state.status === 'incomplete' &&
+        Array.isArray(state.capture_errors) &&
+        state.capture_errors.includes('metadata-write'),
+      'metadata failure prevented independent state retention: ' +
+        JSON.stringify(state),
+    )
+
+    const canonicalEvidence = root + '/canonical-evidence'
+    const canonicalStage = root + '/canonical-stage'
+    const canonicalFingerprints = await armObservationFixture(
+      canonicalStage,
+      canonicalEvidence,
+    )
+    const canonicalCapture = await captureArmObservation(
+      canonicalStage,
+      'aarch64-unknown-linux-gnu',
+      canonicalEvidence,
+      canonicalFingerprints,
+    )
+    await Deno.writeTextFile(
+      canonicalEvidence + '/compilation-state.json',
+      JSON.stringify({
+        schema_version: 1,
+        kind: 'slv-arm-snapshot-build-observation-state',
+        status: 'started',
+        phase: 'raw-capture',
+        last_observed_phase: 'raw-capture',
+        monotonic_started: 1,
+        binding: canonicalBinding,
+      }),
+    )
+    await internalWriteArmObservation(canonicalCapture, {
+      ...canonicalBinding,
+      derived_relink_cargo_lock_sha256: 'f'.repeat(64),
+      runtime_sha256: 'a'.repeat(64),
+      requested: { gn_args: 'use_glib=false', extra_gn_args: 'use_lld=true' },
+      timing: {
+        started_at: '2026-10-15T00:00:00Z',
+        finished_at: '2026-10-15T00:00:01Z',
+        elapsed_seconds: 1,
+      },
+      original_build_exit_code: 0,
+      configuration_check: 'passed',
+    })
+    const canonicalMetadata = JSON.parse(
+      await Deno.readTextFile(canonicalEvidence + '/compilation-metadata.json'),
+    )
+    const canonicalState = JSON.parse(
+      await Deno.readTextFile(canonicalEvidence + '/compilation-state.json'),
+    )
+    requireFixture(
+      canonicalMetadata.status === 'complete' &&
+        canonicalState.status === 'complete' &&
+        canonicalState.last_observed_phase === 'raw-capture' &&
+        Array.isArray(canonicalState.capture_errors) &&
+        canonicalState.capture_errors.length === 0,
+      'extended final observations conflicted with the canonical recipe binding',
+    )
+
+    const stateOnlyEvidence = root + '/state-only-evidence'
+    const stateOnlyStage = root + '/state-only-stage'
+    const stateOnlyFingerprints = await armObservationFixture(
+      stateOnlyStage,
+      stateOnlyEvidence,
+    )
+    const stateOnlyCapture = await captureArmObservation(
+      stateOnlyStage,
+      'aarch64-unknown-linux-gnu',
+      stateOnlyEvidence,
+      stateOnlyFingerprints,
+    )
+    const stateOnlyPath = stateOnlyEvidence + '/compilation-state.json'
+    await Deno.writeTextFile(
+      stateOnlyPath,
+      JSON.stringify({
+        schema_version: 1,
+        kind: 'slv-arm-snapshot-build-observation-state',
+        status: 'started',
+        phase: 'raw-capture',
+        last_observed_phase: 'raw-capture',
+        monotonic_started: 1,
+        binding: canonicalBinding,
+      }),
+    )
+    await internalWriteArmObservation(
+      stateOnlyCapture,
+      {
+        ...canonicalBinding,
+        original_build_exit_code: 0,
+      },
+      async () => {
+        await Deno.remove(stateOnlyPath)
+        await Deno.mkdir(stateOnlyPath)
+      },
+    ).then(
+      () => {
+        throw new Error('state-only final write failure was accepted')
+      },
+      () => undefined,
+    )
+    const stateOnlyMetadata = JSON.parse(
+      await Deno.readTextFile(stateOnlyEvidence + '/compilation-metadata.json'),
+    )
+    requireFixture(
+      stateOnlyMetadata.status === 'incomplete' &&
+        stateOnlyMetadata.original_build_exit_code === 0 &&
+        stateOnlyMetadata.capture_errors.includes('state-write'),
+      'successful metadata did not retain the later state-write failure: ' +
+        JSON.stringify(stateOnlyMetadata),
+    )
+
+    const sourceZeroEvidence = root + '/source-zero-evidence'
+    const sourceZeroStage = root + '/source-zero-stage'
+    const sourceZeroFingerprints = await armObservationFixture(
+      sourceZeroStage,
+      sourceZeroEvidence,
+    )
+    await Deno.remove(sourceZeroEvidence + '/host-args.gn')
+    const sourceZeroCapture = await captureArmObservation(
+      sourceZeroStage,
+      'aarch64-unknown-linux-gnu',
+      sourceZeroEvidence,
+      sourceZeroFingerprints,
+    )
+    await Deno.writeTextFile(
+      sourceZeroEvidence + '/compilation-state.json',
+      JSON.stringify({
+        schema_version: 1,
+        kind: 'slv-arm-snapshot-build-observation-state',
+        status: 'started',
+        phase: 'raw-capture',
+        last_observed_phase: 'raw-capture',
+        monotonic_started: 1,
+        binding: canonicalBinding,
+      }),
+    )
+    await internalWriteArmObservation(sourceZeroCapture, {
+      ...canonicalBinding,
+      original_build_exit_code: 0,
+    }).then(
+      () => {
+        throw new Error('source-zero capture failure was accepted as complete')
+      },
+      () => undefined,
+    )
+    const sourceZeroState = JSON.parse(
+      await Deno.readTextFile(sourceZeroEvidence + '/compilation-state.json'),
+    )
+    requireFixture(
+      sourceZeroCapture?.status === 'incomplete' &&
+        sourceZeroState.status === 'incomplete' &&
+        sourceZeroState.original_build_exit_code === 0 &&
+        sourceZeroState.capture_errors.includes('capture-incomplete'),
+      'source-zero incomplete capture became complete: ' +
+        JSON.stringify(sourceZeroState),
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM writer retains incomplete and rejects malformed prior state histories', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-state-history-' })
+  try {
+    const binding = {
+      source_commit: 'c'.repeat(40),
+      source_receipt_sha256: 'd'.repeat(64),
+      recipe_sha256: 'e'.repeat(64),
+      target: 'aarch64-unknown-linux-gnu',
+      build_host: { os: 'linux', arch: 'x64' },
+      variant: 'baseline',
+      producer_context: null,
+      original_build_exit_code: 0,
+    }
+    const cases: Array<{
+      name: string
+      state: Record<string, unknown>
+      expected: string
+    }> = [
+      {
+        name: 'plain-incomplete',
+        state: { status: 'incomplete' },
+        expected: 'state-incomplete',
+      },
+      {
+        name: 'malformed-capture-error',
+        state: { capture_error: { reason: 'not-a-code' } },
+        expected: 'state-invalid',
+      },
+      {
+        name: 'malformed-capture-errors',
+        state: { capture_errors: ['raw-capture', 7] },
+        expected: 'state-invalid',
+      },
+    ]
+    for (const fixture of cases) {
+      const evidence = root + '/' + fixture.name + '/evidence'
+      const stage = root + '/' + fixture.name + '/stage'
+      const fingerprints = await armObservationFixture(stage, evidence)
+      const capture = await captureArmObservation(
+        stage,
+        'aarch64-unknown-linux-gnu',
+        evidence,
+        fingerprints,
+      )
+      await Deno.writeTextFile(
+        evidence + '/compilation-state.json',
+        JSON.stringify({
+          schema_version: 1,
+          kind: 'slv-arm-snapshot-build-observation-state',
+          phase: 'raw-capture',
+          last_observed_phase: 'raw-capture',
+          monotonic_started: 1,
+          binding,
+          ...fixture.state,
+        }),
+      )
+      await internalWriteArmObservation(capture, binding).then(
+        () => {
+          throw new Error(fixture.name + ' became a complete observation')
+        },
+        () => undefined,
+      )
+      const metadata = JSON.parse(
+        await Deno.readTextFile(evidence + '/compilation-metadata.json'),
+      )
+      const state = JSON.parse(
+        await Deno.readTextFile(evidence + '/compilation-state.json'),
+      )
+      requireFixture(
+        metadata.status === 'incomplete' &&
+          state.status === 'incomplete' &&
+          metadata.capture_errors.includes(fixture.expected) &&
+          state.capture_errors.includes(fixture.expected),
+        fixture.name + ' was normalized into a clean completion',
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+async function cargoGuardFragment(): Promise<string> {
+  return await recipeFragment(
+    '# CARGO_BUILD_GUARD_BEGIN',
+    '# CARGO_BUILD_GUARD_END',
+  )
+}
+
+async function runCurrentCargoGuard(
+  root: string,
+  resume: boolean,
+  generateStatus: number,
+  assertionStatus: number,
+  copyStatus: number,
+  buildStatus: number,
+): Promise<{ code: number; calls: string[] }> {
+  const fragment = await cargoGuardFragment()
+  const work = `${root}/work`
+  const calls = `${root}/cargo-calls`
+  const cargo = `${root}/fake-cargo.sh`
+  await Deno.mkdir(`${work}/deno`, { recursive: true })
+  await Deno.writeTextFile(`${work}/deno/Cargo.lock`, 'fixture lock\n')
+  await Deno.writeTextFile(
+    cargo,
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$CARGO_CALLS"
+if [[ "$1" == generate-lockfile ]]; then exit "$GENERATE_STATUS"; fi
+exit "$BUILD_STATUS"
+`,
+  )
+  await Deno.chmod(cargo, 0o755)
+  const copied = `${root}/derived-relink-Cargo.lock`
+  // cp is an actual recipe command.  A directory at its expected destination
+  // is the production seam for its distinct failure, without changing argv.
+  if (copyStatus !== 0) await Deno.symlink('/dev/full', copied)
+  const program = `
+assert_only_local_v8_relink() { return "$ASSERTION_STATUS"; }
+target_args=()
+${fragment}
+exit "$status"
+`
+  const result = await new Deno.Command('/usr/bin/bash', {
+    args: ['-u', '-o', 'pipefail', '-c', program],
+    clearEnv: true,
+    env: {
+      PATH: '/usr/bin:/bin',
+      ASSERTION_STATUS: String(assertionStatus),
+      BUILD_STATUS: String(buildStatus),
+      CARGO_CALLS: calls,
+      GENERATE_STATUS: String(generateStatus),
+      cargo,
+      jobs: '4',
+      log: `${root}/cargo.log`,
+      macos_bindgen_preflight_status: '0',
+      output: root,
+      resume: String(resume),
+      source_lock: `${root}/source-Cargo.lock`,
+      work,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  const recorded = await Deno.readTextFile(calls).catch(() => '')
+  return {
+    code: result.code,
+    calls: recorded === '' ? [] : recorded.trimEnd().split('\n'),
+  }
+}
+
+async function lifecycleHelpers(): Promise<string> {
+  return await recipeFragment(
+    '# CARGO_BUILD_LIFECYCLE_HELPERS_BEGIN',
+    '# CARGO_BUILD_LIFECYCLE_HELPERS_END',
+  )
+}
+
+async function runCurrentSupervisor(
+  root: string,
+  workerBody: string,
+  cancellation?: 'INT' | 'TERM' | 'HUP',
+  completionFault = false,
+  releaseFault = false,
+  lateStop = false,
+): Promise<{ code: number; elapsed: number; child: number; stdout: string }> {
+  const helpers = await lifecycleHelpers()
+  await Deno.mkdir(root, { recursive: true })
+  const worker = `${root}/worker.sh`
+  const childPath = `${root}/child.pid`
+  await Deno.writeTextFile(worker, `#!/usr/bin/env bash\n${workerBody}\n`)
+  await Deno.chmod(worker, 0o700)
+  const signal = cancellation
+    ? `
+for _ in $(seq 1 100); do [[ -f "$child_path" ]] && break; sleep .01; done
+kill -${cancellation} "$supervisor_pid"
+`
+    : ''
+  const injector = completionFault || releaseFault || lateStop
+    ? `"$PYTHON" - "$supervisor" <<'PYEOF'
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+source = path.read_text()
+${
+      completionFault
+        ? `needle = "os.write(completion_fd, (str(status) + '\\\\n').encode('ascii'))"
+assert needle in source
+source = source.replace(needle, 'raise OSError()', 1)`
+        : ''
+    }
+${
+      releaseFault
+        ? `needle = "os.write(release_write, b'R')"
+assert needle in source
+source = source.replace(needle, 'raise OSError()', 1)`
+        : ''
+    }
+${
+      lateStop
+        ? `needle = "cleanup_deadline = min(final_deadline, now() + BUILD_CLEANUP_SECONDS)"
+assert needle in source
+source = source.replace(needle, 'os.kill(os.getpid(), signal.SIGTERM)\\n    ' + needle, 1)`
+        : ''
+    }
+path.write_text(source)
+PYEOF`
+    : ''
+  const script = `
+${helpers}
+assert_only_local_v8_relink() { return 0; }
+output="$root"
+PYTHON=/usr/bin/python3
+supervisor="$(write_macos_build_supervisor)"
+${injector}
+set +e
+CHILD_PID="$child_path" "$PYTHON" "$supervisor" "$worker" &
+supervisor_pid=$!
+${signal}
+wait "$supervisor_pid"
+status=$?
+set -e
+printf '%s\\n' "$status" > "$root/status"
+`
+  const started = performance.now()
+  const result = await new Deno.Command('/usr/bin/bash', {
+    args: ['-u', '-o', 'pipefail', '-c', script],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin', root, child_path: childPath, worker },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  const elapsed = performance.now() - started
+  requireFixture(
+    result.success,
+    `current lifecycle helper shell failed: ${
+      new TextDecoder().decode(result.stderr)
+    }`,
+  )
+  const childText = await Deno.readTextFile(childPath).catch(() => '')
+  requireFixture(
+    childText !== '',
+    `current supervisor did not launch worker: stdout=${
+      new TextDecoder().decode(result.stdout)
+    } stderr=${new TextDecoder().decode(result.stderr)}`,
+  )
+  return {
+    code: Number((await Deno.readTextFile(`${root}/status`)).trim()),
+    elapsed,
+    child: Number(childText.trim()),
+    stdout: new TextDecoder().decode(result.stdout),
+  }
+}
+
+async function processIsGone(pid: number): Promise<boolean> {
+  const result = await new Deno.Command('/bin/kill', {
+    args: ['-0', String(pid)],
+    stdout: 'null',
+    stderr: 'null',
+  }).output()
+  return !result.success
+}
+
+Deno.test('current Cargo guard preserves first command status and blocks later fresh phases', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-cargo-guard-status-' })
+  try {
+    const lockFailure = await runCurrentCargoGuard(
+      root + '/lock',
+      false,
+      37,
+      0,
+      0,
+      0,
+    )
+    requireFixture(
+      lockFailure.code === 37 && lockFailure.calls.length === 1 &&
+        lockFailure.calls[0] === 'generate-lockfile --offline',
+      'generate-lockfile 37 did not stop validation, copy, and Cargo build',
+    )
+    const validationFailure = await runCurrentCargoGuard(
+      root + '/validation',
+      false,
+      0,
+      41,
+      0,
+      0,
+    )
+    requireFixture(
+      validationFailure.code === 41 && validationFailure.calls.length === 1,
+      'lock validation 41 did not stop copy and Cargo build',
+    )
+    const copyFailure = await runCurrentCargoGuard(
+      root + '/copy',
+      false,
+      0,
+      0,
+      1,
+      0,
+    )
+    requireFixture(
+      copyFailure.code !== 0 && copyFailure.calls.length === 1,
+      'failed derived-lock copy started Cargo build',
+    )
+    const freshBuild = await runCurrentCargoGuard(
+      root + '/fresh-success',
+      false,
+      0,
+      0,
+      0,
+      0,
+    )
+    requireFixture(
+      freshBuild.code === 0 &&
+        JSON.stringify(freshBuild.calls) ===
+          JSON.stringify([
+            'generate-lockfile --offline',
+            'build --locked --offline --release -j 4 -p denort',
+          ]),
+      'fresh successful guard did not retain its Cargo status and argv',
+    )
+
+    const resumeBuild = await runCurrentCargoGuard(
+      root + '/resume',
+      true,
+      0,
+      0,
+      0,
+      37,
+    )
+    requireFixture(
+      resumeBuild.code === 37 &&
+        JSON.stringify(resumeBuild.calls) ===
+          JSON.stringify(['build --locked --offline --release -j 4 -p denort']),
+      'resume Cargo argv or build status changed',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor preserves worker status and reaps only its held group', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-status-',
+  })
+  const sibling = new Deno.Command('/bin/sleep', {
+    args: ['30'],
+    stdout: 'null',
+    stderr: 'null',
+  }).spawn()
+  try {
+    const zero = await runCurrentSupervisor(
+      root + '/zero',
+      'sleep 30 &\nprintf "%s\\n" "$!" > "$CHILD_PID"\nexit 0',
+    )
+    requireFixture(
+      zero.code === 0 && await processIsGone(zero.child),
+      'supervisor did not retain actual worker zero after a successful held-anchor census',
+    )
+    const result = await runCurrentSupervisor(
+      root,
+      'sleep 30 &\nprintf "%s\\n" "$!" > "$CHILD_PID"\nexit 37',
+    )
+    requireFixture(
+      result.code === 37 && await processIsGone(result.child),
+      'supervisor did not retain 37 while reaping its same-group child',
+    )
+    requireFixture(
+      !(await processIsGone(sibling.pid)),
+      'supervisor signaled an unrelated sibling outside its owned session',
+    )
+  } finally {
+    try {
+      sibling.kill('SIGKILL')
+    } catch { /* already gone */ }
+    await sibling.status.catch(() => undefined)
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor retains bounded same-session residue evidence in its build log', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-residue-',
+  })
+  let escapedChild = 0
+  try {
+    const escaped = `${root}/escaped-child.py`
+    await Deno.writeTextFile(
+      escaped,
+      `import os, pathlib, time
+os.setpgrp()
+pathlib.Path(os.environ['CHILD_PID']).write_text(str(os.getpid()))
+os.close(1)
+os.close(2)
+time.sleep(30)
+`,
+    )
+    const result = await runCurrentSupervisor(
+      root,
+      `/usr/bin/python3 ${JSON.stringify(escaped)} &
+printf "%s\n" "$!" > "$CHILD_PID"
+exit 0`,
+    )
+    escapedChild = result.child
+    const line = result.stdout.split('\n').find((value) =>
+      value.startsWith('SLV_MACOS_CARGO_CLEANUP_INCOMPLETE ')
+    )
+    const diagnostic = line
+      ? JSON.parse(
+        line.slice('SLV_MACOS_CARGO_CLEANUP_INCOMPLETE '.length),
+      ) as {
+        status?: string
+        reason?: string
+        residue?: Array<{ pid?: number; pgid?: number; sid?: number }>
+        residue_total?: number
+        residue_truncated?: boolean
+      }
+      : undefined
+    requireFixture(
+      result.code === 125 && result.elapsed < 2300 &&
+        !(await processIsGone(escapedChild)) &&
+        diagnostic?.status === 'incomplete' &&
+        diagnostic.reason === 'session-residue' &&
+        diagnostic.residue_total === 2 &&
+        diagnostic.residue_truncated === false &&
+        diagnostic.residue?.some((row) =>
+          row.pid === escapedChild &&
+          row.pgid === escapedChild && typeof row.sid === 'number'
+        ),
+      'same-SID subgroup cleanup evidence was not retained through the existing build log',
+    )
+  } finally {
+    if (escapedChild > 0 && !(await processIsGone(escapedChild))) {
+      try {
+        Deno.kill(escapedChild, 'SIGKILL')
+      } catch { /* fixture cleanup */ }
+    }
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor reserves final reap time after a release-write failure', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-release-fault-',
+  })
+  try {
+    const result = await runCurrentSupervisor(
+      root,
+      'sleep 30 &\nprintf "%s\n" "$!" > "$CHILD_PID"\nexit 0',
+      undefined,
+      false,
+      true,
+    )
+    requireFixture(
+      result.code === 125 && result.elapsed < 2300 &&
+        await processIsGone(result.child) &&
+        result.stdout.includes('"reason":"release-write"'),
+      'release-write fault exhausted build cleanup time before final reap',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor retains a late first cancellation over saved worker zero', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-late-stop-',
+  })
+  try {
+    const result = await runCurrentSupervisor(
+      root,
+      'sleep 30 &\nprintf "%s\n" "$!" > "$CHILD_PID"\nexit 0',
+      undefined,
+      false,
+      false,
+      true,
+    )
+    const childGone = await processIsGone(result.child)
+    requireFixture(
+      result.code === 143 && result.elapsed < 2300 && childGone,
+      `late cancellation was normalized into the saved worker result: code=${result.code} elapsed=${result.elapsed} childGone=${childGone} stdout=${result.stdout}`,
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor makes cancellation bounded and signal-compatible', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-signal-',
+  })
+  try {
+    for (
+      const [signal, expected] of [['INT', 130], ['TERM', 143], [
+        'HUP',
+        129,
+      ]] as const
+    ) {
+      const result = await runCurrentSupervisor(
+        `${root}/${signal}`,
+        'sleep 30 &\nprintf "%s\\n" "$!" > "$CHILD_PID"\nwait',
+        signal,
+      )
+      requireFixture(
+        result.code === expected && result.elapsed < 3300 &&
+          await processIsGone(result.child),
+        `${signal} did not finish boundedly with the child group reaped`,
+      )
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+async function observerPythonPrefix(): Promise<string> {
+  const observer = await recipeFragment(
+    '# MACOS_BUILD_OBSERVER_BEGIN',
+    '# MACOS_BUILD_OBSERVER_END',
+  )
+  const begin = observer.indexOf("<<'PYEOF' &\n")
+  const end = observer.indexOf("emit('build-child-start')", begin)
+  requireFixture(begin >= 0 && end > begin, 'observer Python seam is missing')
+  return observer.slice(begin + "<<'PYEOF' &\n".length, end)
+}
+
+async function currentObserverCensusMatrix(): Promise<{
+  normal: { ok: boolean; exit_code?: number }
+  variants: Array<{
+    mode: string
+    result: { ok: boolean; reason?: string }
+    elapsed: number
+    censusCodes: Array<number | null>
+  }>
+}> {
+  const prefix = await observerPythonPrefix()
+  const variants = [
+    ['exit37-empty', 'import sys;sys.exit(37)'],
+    ['exit0-empty', 'pass'],
+    [
+      'eof-before-exit',
+      'import os,signal,time;os.close(1);signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(30)',
+    ],
+  ] as const
+  const program = `
+import json, subprocess, sys, time
+sys.argv = ['observer', str(__import__('os').getpid()), '/tmp', '/tmp/baseline-denort.log', '45']
+${prefix}
+normal = run([sys.executable, '-c', 'pass'], time.monotonic() + 1)
+original_popen = subprocess.Popen
+variants = []
+for mode, child_program in ${JSON.stringify(variants)}:
+    census = []
+    def popen(argv, *args, **kwargs):
+        if argv == ['/bin/ps', '-axo', 'pid=,pgid=']:
+            child = original_popen([sys.executable, '-c', child_program], *args, **kwargs)
+            census.append(child)
+            return child
+        return original_popen(argv, *args, **kwargs)
+    subprocess.Popen = popen
+    started = time.monotonic()
+    result = run([sys.executable, '-c', 'pass'], time.monotonic() + 1)
+    elapsed = time.monotonic() - started
+    subprocess.Popen = original_popen
+    codes = [child.poll() for child in census]
+    for child in census:
+        if child.poll() is None:
+            child.kill()
+        while child.poll() is None:
+            time.sleep(.005)
+    variants.append({'mode': mode, 'result': result, 'elapsed': elapsed, 'censusCodes': codes})
+print(json.dumps({'normal': normal, 'variants': variants}))
+`
+  const result = await new Deno.Command('/usr/bin/python3', {
+    args: ['-c', program],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `current observer census seam failed: ${
+      new TextDecoder().decode(result.stderr)
+    }`,
+  )
+  return JSON.parse(new TextDecoder().decode(result.stdout))
+}
+
+Deno.test('current observer requires a reaped census with its held anchor before accepting utility zero', async () => {
+  const matrix = await currentObserverCensusMatrix()
+  requireFixture(
+    matrix.normal.ok && matrix.normal.exit_code === 0,
+    'actual successful census did not retain utility zero',
+  )
+  requireFixture(
+    matrix.variants.every((variant) =>
+      !variant.result.ok && variant.result.reason === 'cleanup-incomplete' &&
+      variant.censusCodes.every((code) => code !== null) && variant.elapsed < 1
+    ),
+    'failed, anchorless, or unreaped census was accepted as utility success',
+  )
+})
+
+Deno.test('current observer closes each release endpoint after repeated timeout cleanup', async () => {
+  const prefix = await observerPythonPrefix()
+  const program = `
+import json, os, signal, subprocess, sys, time
+sys.argv = ['observer', str(os.getpid()), '/tmp', '/tmp/baseline-denort.log', '45']
+${prefix}
+original_launch = launch
+handles, checks, results = [], [], []
+def tracked_launch(*args, **kwargs):
+    handle, failure = original_launch(*args, **kwargs)
+    if handle is not None:
+        handles.append((handle, handle['release_write']))
+    return handle, failure
+launch = tracked_launch
+utility = 'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(30)'
+for _ in range(2):
+    result = run([sys.executable, '-c', utility], time.monotonic() + .25)
+    handle, release_fd = handles[-1]
+    try:
+        os.fstat(release_fd)
+        closed = False
+    except OSError:
+        closed = True
+    results.append(result)
+    checks.append({'handle_release_is_none': handle['release_write'] is None, 'fd_closed': closed})
+print(json.dumps({'results': results, 'checks': checks, 'active': len(active)}))
+`
+  const result = await new Deno.Command('/usr/bin/python3', {
+    args: ['-c', program],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `current observer timeout seam failed: ${
+      new TextDecoder().decode(result.stderr)
+    }`,
+  )
+  const outcome = JSON.parse(new TextDecoder().decode(result.stdout)) as {
+    results: Array<{ ok: boolean; reason?: string }>
+    checks: Array<{ handle_release_is_none: boolean; fd_closed: boolean }>
+    active: number
+  }
+  requireFixture(
+    outcome.results.every((entry) => !entry.ok && entry.reason === 'timeout') &&
+      outcome.checks.every((entry) =>
+        entry.handle_release_is_none && entry.fd_closed
+      ) && outcome.active === 0,
+    'timeout cleanup retained an observer release endpoint or active ownership',
+  )
+})
+
+async function waitForProcessGone(pid: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (await processIsGone(pid)) return true
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  return false
+}
+
+Deno.test('current observer cleans a closed-pipe same-group descendant before accepting utility zero', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-observer-closed-pipe-' })
+  let child = 0
+  try {
+    const prefix = await observerPythonPrefix()
+    const tool = `${root}/closed-pipe-tool.py`
+    const childPath = `${root}/child.pid`
+    const childCode =
+      `import os,time,pathlib;pathlib.Path(os.environ['DESC']).write_text(str(os.getpid()));os.close(1);os.close(2);time.sleep(30)`
+    await Deno.writeTextFile(
+      tool,
+      `import os,subprocess,sys\nsubprocess.Popen([sys.executable,'-c',${
+        JSON.stringify(childCode)
+      }])\nos.close(1);os.close(2);sys.exit(0)\n`,
+    )
+    await Deno.chmod(tool, 0o700)
+    const program = `
+import json, os, pathlib, sys, time
+sys.argv = ['observer', str(os.getpid()), ${JSON.stringify(root)}, ${
+      JSON.stringify(`${root}/baseline-denort.log`)
+    }, '45']
+${prefix}
+os.environ['DESC'] = ${JSON.stringify(childPath)}
+started = time.monotonic()
+result = run([sys.executable, ${JSON.stringify(tool)}], time.monotonic() + 3)
+print(json.dumps({'result': result, 'elapsed': time.monotonic() - started}))
+`
+    const result = await new Deno.Command('/usr/bin/python3', {
+      args: ['-c', program],
+      clearEnv: true,
+      env: { PATH: '/usr/bin:/bin' },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    child = Number((await Deno.readTextFile(childPath)).trim())
+    const outcome = JSON.parse(new TextDecoder().decode(result.stdout)) as {
+      result: { ok: boolean; exit_code?: number }
+      elapsed: number
+    }
+    requireFixture(
+      result.success && outcome.result.ok && outcome.result.exit_code === 0 &&
+        outcome.elapsed < 3 && await waitForProcessGone(child),
+      'closed-pipe descendant was accepted without bounded original-group cleanup',
+    )
+  } finally {
+    if (child > 0 && !(await processIsGone(child))) {
+      try {
+        Deno.kill(child, 'SIGKILL')
+      } catch { /* fixture cleanup */ }
+    }
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current observer anchor cleans its utility group after supervisor loss', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-observer-parent-loss-' })
+  let child = 0
+  let parent: Deno.ChildProcess | undefined
+  try {
+    const prefix = await observerPythonPrefix()
+    const tool = `${root}/sleep-tool.py`
+    const childPath = `${root}/child.pid`
+    await Deno.writeTextFile(
+      tool,
+      `import os,pathlib,time\npathlib.Path(os.environ['PID_FILE']).write_text(str(os.getpid()))\ntime.sleep(30)\n`,
+    )
+    await Deno.chmod(tool, 0o700)
+    const program = `
+import os, pathlib, sys, time
+sys.argv = ['observer', str(os.getpid()), ${JSON.stringify(root)}, ${
+      JSON.stringify(`${root}/baseline-denort.log`)
+    }, '45']
+${prefix}
+os.environ['PID_FILE'] = ${JSON.stringify(childPath)}
+run([sys.executable, ${JSON.stringify(tool)}], time.monotonic() + 20)
+`
+    parent = new Deno.Command('/usr/bin/python3', {
+      args: ['-c', program],
+      clearEnv: true,
+      env: { PATH: '/usr/bin:/bin' },
+      stdout: 'null',
+      stderr: 'null',
+    }).spawn()
+    await waitForFixture(childPath)
+    child = Number((await Deno.readTextFile(childPath)).trim())
+    parent.kill('SIGKILL')
+    await parent.status
+    requireFixture(
+      await waitForProcessGone(child),
+      'anchor did not clean its owned utility group after parent-loss release EOF',
+    )
+  } finally {
+    if (parent) {
+      try {
+        parent.kill('SIGKILL')
+      } catch { /* already exited */ }
+      await parent.status.catch(() => undefined)
+    }
+    if (child > 0 && !(await processIsGone(child))) {
+      try {
+        Deno.kill(child, 'SIGKILL')
+      } catch { /* fixture cleanup */ }
+    }
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current build supervisor treats completion EOF as incomplete and reaps its held group', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-supervisor-completion-eof-',
+  })
+  try {
+    const result = await runCurrentSupervisor(
+      root,
+      'sleep 30 &\nprintf "%s\\n" "$!" > "$CHILD_PID"\nexit 0',
+      undefined,
+      true,
+    )
+    const childGone = await waitForProcessGone(result.child)
+    requireFixture(
+      result.code === 125 && result.elapsed < 3300 && childGone,
+      `completion EOF waited on a held anchor or accepted source success: code=${result.code} elapsed=${result.elapsed} childGone=${childGone} stdout=${result.stdout}`,
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('macOS observer fragment emits bounded live PID/comm-only records before its child exits', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-macos-observer-' })
+  try {
+    const fragment = await recipeFragment(
+      '# MACOS_BUILD_OBSERVER_BEGIN',
+      '# MACOS_BUILD_OBSERVER_END',
+    )
+    const program = `${fragment}
+sleep 3 & child=$!\n: > "$output/baseline-denort.log"\nstart_macos_build_observer "$child" "$output/baseline-denort.log" 1\nsleep 2\nstop_macos_build_observer "$macos_observer_pid"\nwait "$child"\n`
+    const result = await new Deno.Command('/usr/bin/bash', {
+      args: ['-euo', 'pipefail', '-c', program],
+      clearEnv: true,
+      env: {
+        PATH: '/usr/bin:/bin',
+        PYTHON: '/usr/bin/python3',
+        output: root,
+        SECRET_CANARY: 'must-not-appear',
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    const output = new TextDecoder().decode(result.stdout)
+    const lines = output.split('\n').filter((line) =>
+      line.startsWith('SLV_MAC_BUILD_OBSERVATION ')
+    )
+    requireFixture(
+      result.success && lines.length >= 2,
+      'observer did not emit initial and periodic live records',
+    )
+    requireFixture(
+      lines.some((line) => line.includes('build-child-start')) &&
+        lines.some((line) => line.includes('running')),
+      'observer phases were not retained before child completion',
+    )
+    const terminal = JSON.parse(
+      lines.at(-1)!.slice('SLV_MAC_BUILD_OBSERVATION '.length),
+    ) as Record<string, unknown>
+    requireFixture(
+      lines.every((line) => line.length <= 4096) &&
+        !output.includes('must-not-appear') &&
+        terminal.phase === 'observer-stop' && terminal.cached === true,
+      'observer leaked argv/environment data, exceeded its line bound, or sampled after stop',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+async function runCurrentMacWorker(
+  root: string,
+  resume: boolean,
+  generateStatus: number,
+  assertionStatus: number,
+  buildStatus: number,
+  markerSinkFailure: false | 'full' | 'closed' = false,
+): Promise<{ code: number; markers: string[]; calls: string[] }> {
+  const helpers = await lifecycleHelpers()
+  const work = `${root}/work`
+  const cargo = `${root}/fake-cargo.sh`
+  const calls = `${root}/cargo-calls`
+  await Deno.mkdir(`${work}/deno`, { recursive: true })
+  await Deno.writeTextFile(`${work}/deno/Cargo.lock`, 'fixture lock\n')
+  await Deno.writeTextFile(
+    cargo,
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$CARGO_CALLS"
+if [[ "$1" == generate-lockfile ]]; then exit "$GENERATE_STATUS"; fi
+exit "$BUILD_STATUS"
+`,
+  )
+  await Deno.chmod(cargo, 0o755)
+  const setup = await new Deno.Command('/usr/bin/bash', {
+    args: [
+      '-u',
+      '-o',
+      'pipefail',
+      '-c',
+      `
+assert_only_local_v8_relink() { return "$ASSERTION_STATUS"; }
+output=${JSON.stringify(root)}
+${helpers}
+write_macos_cargo_worker
+`,
+    ],
+    clearEnv: true,
+    env: {
+      PATH: '/usr/bin:/bin',
+      ASSERTION_STATUS: String(assertionStatus),
+      output: root,
+    },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    setup.success,
+    `current macOS worker generator failed: ${
+      new TextDecoder().decode(setup.stderr)
+    }`,
+  )
+  const worker = new TextDecoder().decode(setup.stdout).trim()
+  const workerArgs = [
+    `${root}/source-Cargo.lock`,
+    work,
+    root,
+    cargo,
+    '4',
+    String(resume),
+  ]
+  const result = markerSinkFailure === 'full'
+    ? await new Deno.Command('/usr/bin/bash', {
+      args: [
+        '-c',
+        '"$1" "$2" "$3" "$4" "$5" "$6" "$7" > /dev/full',
+        'bash',
+        worker,
+        ...workerArgs,
+      ],
+      clearEnv: true,
+      env: {
+        PATH: '/usr/bin:/bin',
+        ASSERTION_STATUS: String(assertionStatus),
+        BUILD_STATUS: String(buildStatus),
+        CARGO_CALLS: calls,
+        GENERATE_STATUS: String(generateStatus),
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    : markerSinkFailure === 'closed'
+    ? await new Deno.Command('/usr/bin/python3', {
+      args: [
+        '-c',
+        'import subprocess,sys; child=subprocess.Popen(sys.argv[1:],stdout=subprocess.PIPE,stderr=subprocess.PIPE); child.stdout.readline(); child.stdout.close(); child.wait(timeout=2); print(child.returncode)',
+        worker,
+        ...workerArgs,
+      ],
+      clearEnv: true,
+      env: {
+        PATH: '/usr/bin:/bin',
+        ASSERTION_STATUS: String(assertionStatus),
+        BUILD_STATUS: String(buildStatus),
+        CARGO_CALLS: calls,
+        GENERATE_STATUS: String(generateStatus),
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    : await new Deno.Command(worker, {
+      args: workerArgs,
+      clearEnv: true,
+      env: {
+        PATH: '/usr/bin:/bin',
+        ASSERTION_STATUS: String(assertionStatus),
+        BUILD_STATUS: String(buildStatus),
+        CARGO_CALLS: calls,
+        GENERATE_STATUS: String(generateStatus),
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+  const output = new TextDecoder().decode(result.stdout)
+  const recorded = await Deno.readTextFile(calls).catch(() => '')
+  return {
+    code: markerSinkFailure === 'closed' ? Number(output.trim()) : result.code,
+    markers: output.split('\n').filter((line) =>
+      line.startsWith('SLV_MAC_BUILD_PHASE ')
+    ),
+    calls: recorded === '' ? [] : recorded.trimEnd().split('\n'),
+  }
+}
+
+Deno.test('current macOS fixed worker records sparse real command boundaries without replacing source status', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-macos-worker-phases-' })
+  try {
+    const fresh = await runCurrentMacWorker(root + '/fresh', false, 0, 0, 0)
+    const lockFailure = await runCurrentMacWorker(
+      root + '/lock',
+      false,
+      37,
+      0,
+      0,
+    )
+    const validationFailure = await runCurrentMacWorker(
+      root + '/validation',
+      false,
+      0,
+      41,
+      0,
+    )
+    const resume = await runCurrentMacWorker(root + '/resume', true, 0, 0, 37)
+    const brokenMarkerSink = await runCurrentMacWorker(
+      root + '/broken-marker-sink',
+      false,
+      37,
+      0,
+      0,
+      'full',
+    )
+    const closedMarkerReader = await runCurrentMacWorker(
+      root + '/closed-marker-reader',
+      true,
+      0,
+      0,
+      37,
+      'closed',
+    )
+    requireFixture(
+      fresh.code === 0 &&
+        JSON.stringify(fresh.markers) ===
+          JSON.stringify([
+            'SLV_MAC_BUILD_PHASE lock-generate-start',
+            'SLV_MAC_BUILD_PHASE lock-generate-finished',
+            'SLV_MAC_BUILD_PHASE lock-validation-start',
+            'SLV_MAC_BUILD_PHASE lock-validation-finished',
+            'SLV_MAC_BUILD_PHASE cargo-build-start',
+            'SLV_MAC_BUILD_PHASE cargo-build-finished',
+          ]) &&
+        fresh.calls.length === 2,
+      'fresh worker did not retain the real lock/Cargo marker order',
+    )
+    requireFixture(
+      lockFailure.code === 37 &&
+        JSON.stringify(lockFailure.markers) ===
+          JSON.stringify([
+            'SLV_MAC_BUILD_PHASE lock-generate-start',
+            'SLV_MAC_BUILD_PHASE lock-generate-finished',
+          ]) &&
+        lockFailure.calls.length === 1,
+      'lock failure marker replaced status or started a later phase',
+    )
+    requireFixture(
+      validationFailure.code === 41 &&
+        JSON.stringify(validationFailure.markers) ===
+          JSON.stringify([
+            'SLV_MAC_BUILD_PHASE lock-generate-start',
+            'SLV_MAC_BUILD_PHASE lock-generate-finished',
+            'SLV_MAC_BUILD_PHASE lock-validation-start',
+            'SLV_MAC_BUILD_PHASE lock-validation-finished',
+          ]) &&
+        validationFailure.calls.length === 1,
+      'validation failure marker replaced status or started Cargo',
+    )
+    requireFixture(
+      brokenMarkerSink.code === 37 && brokenMarkerSink.calls.length === 1 &&
+        closedMarkerReader.code === 37 && closedMarkerReader.calls.length === 1,
+      'failed marker output replaced the saved lock source status',
+    )
+    requireFixture(
+      resume.code === 37 &&
+        JSON.stringify(resume.markers) ===
+          JSON.stringify([
+            'SLV_MAC_BUILD_PHASE cargo-build-start',
+            'SLV_MAC_BUILD_PHASE cargo-build-finished',
+          ]) &&
+        resume.calls.length === 1,
+      'resume worker emitted fresh-only markers or changed its Cargo status',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current observer retains newest bounded Ninja completion, sparse log phase, subtree scope, and raw host units', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-macos-observer-b2-' })
+  try {
+    const prefix = await observerPythonPrefix()
+    const ninja = `${root}/target/release/gn_out/.ninja_log`
+    const log = `${root}/baseline-denort.log`
+    await Deno.mkdir(`${root}/target/release/gn_out`, { recursive: true })
+    await Deno.writeFile(
+      ninja,
+      new TextEncoder().encode(
+        `${
+          'x'.repeat(4097)
+        }\n0\t10\t100\told/object.o\thash\n11\t20\t101\tnew/object.o\thash\npartial`,
+      ),
+    )
+    await Deno.writeTextFile(
+      log,
+      'Cargo output\nSLV_MAC_BUILD_PHASE lock-generate-start\nSLV_MAC_BUILD_PHASE cargo-build-start\n',
+    )
+    const program = `
+import json, os, sys, time
+sys.argv = ['observer', '900', ${JSON.stringify(root)}, ${
+      JSON.stringify(log)
+    }, '45']
+${prefix}
+observer = os.getpid()
+def source_run(argv, deadline, out_limit=8192, err_limit=1024):
+    if argv[0] == '/bin/ps':
+        rows = '\\n'.join([
+            '900 1 1.0 10 supervisor',
+            '901 900 2.0 20 cargo',
+            str(observer)+' 900 99.0 99 observer-canary',
+            '902 '+str(observer)+' 88.0 88 utility-canary',
+            '990 1 77.0 77 foreign-sibling',
+        ])
+        return {'ok': True, 'stdout': rows}
+    if argv[0] == '/usr/bin/vm_stat':
+        return {'ok': True, 'stdout': 'Mach Virtual Memory Statistics: (page size of 4096 bytes)\\nPages free: 12.\\nPages active: 34.\\nPageins: 5.\\nSwapouts: 6.\\n'}
+    if argv[-1] == 'hw.memsize': return {'ok': True, 'stdout': '8192\\n'}
+    if argv[-1] == 'vm.swapusage': return {'ok': True, 'stdout': 'total = 2.00G  used = 1.00G  free = 1.00G'}
+    raise AssertionError(argv)
+run = source_run
+print(json.dumps({'phase': phase_marker(), 'tree': process_tree(time.monotonic()+1), 'memory': memory(time.monotonic()+1), 'progress': progress()}, sort_keys=True))
+`
+    const result = await new Deno.Command('/usr/bin/python3', {
+      args: ['-c', program],
+      clearEnv: true,
+      env: { PATH: '/usr/bin:/bin' },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    requireFixture(
+      result.success,
+      `current B2 observer seam failed: ${
+        new TextDecoder().decode(result.stderr)
+      }`,
+    )
+    const value = JSON.parse(new TextDecoder().decode(result.stdout)) as {
+      phase: { available?: boolean; last_observed?: string }
+      tree: {
+        selected_count?: number
+        parsed_count?: number
+        rejected_count?: number
+        cpu_percent_ps_sum?: number
+        rss_sum_bytes?: number
+        processes?: Array<{ basename?: string }>
+      }
+      memory: {
+        vm_stat?: {
+          page_size_bytes?: number
+          counters?: Record<string, number>
+        }
+        swap?: {
+          quality?: string
+          fields?: Record<string, { unit?: string; bytes?: number }>
+        }
+      }
+      progress: {
+        available?: boolean
+        quality?: string
+        latest_complete?: { output_basename?: string; end_time_ms?: number }
+      }
+    }
+    requireFixture(
+      value.phase.available &&
+        value.phase.last_observed === 'cargo-build-start' &&
+        value.progress.available && value.progress.quality === 'partial' &&
+        value.progress.latest_complete?.output_basename === 'object.o' &&
+        value.progress.latest_complete.end_time_ms === 20,
+      'bounded Ninja/log tail lost the newest complete row or inferred an execution state',
+    )
+    requireFixture(
+      value.tree.selected_count === 2 && value.tree.parsed_count === 5 &&
+        value.tree.rejected_count === 0 &&
+        value.tree.cpu_percent_ps_sum === 3 &&
+        value.tree.rss_sum_bytes === 30 * 1024 &&
+        value.tree.processes?.every((row) =>
+          row.basename !== 'observer-canary' &&
+          row.basename !== 'utility-canary' &&
+          row.basename !== 'foreign-sibling'
+        ),
+      'supplied supervisor subtree did not exclude the observer utility branch or aggregate all selected rows',
+    )
+    requireFixture(
+      value.memory.vm_stat?.page_size_bytes === 4096 &&
+        value.memory.vm_stat.counters?.pageins === 5 &&
+        value.memory.vm_stat.counters?.swapouts === 6 &&
+        value.memory.swap?.quality === 'complete' &&
+        value.memory.swap.fields?.total?.unit === 'G' &&
+        value.memory.swap.fields.total.bytes === 2 * 1024 * 1024 * 1024,
+      'raw vm_stat/swap parser lost units or invented a counter interpretation',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current observer leaves out-of-window Ninja history unavailable and retains partial swap facts', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-macos-observer-window-' })
+  try {
+    const prefix = await observerPythonPrefix()
+    const ninja = `${root}/target/release/gn_out/.ninja_log`
+    await Deno.mkdir(`${root}/target/release/gn_out`, { recursive: true })
+    await Deno.writeFile(
+      ninja,
+      new TextEncoder().encode(
+        '0\\t10\\t100\\toutside.o\\thash\\n' + 'x'.repeat(5000),
+      ),
+    )
+    const program = `
+import json, sys, time
+sys.argv = ['observer', '900', ${JSON.stringify(root)}, ${
+      JSON.stringify(`${root}/log`)
+    }, '45']
+${prefix}
+def source_run(argv, deadline, out_limit=8192, err_limit=1024):
+    if argv[0] == '/usr/bin/vm_stat': return {'ok': True, 'stdout': 'Mach Virtual Memory Statistics: (page size of 4096 bytes)\\n'}
+    if argv[-1] == 'hw.memsize': return {'ok': False, 'reason': 'missing-memsize'}
+    if argv[-1] == 'vm.swapusage': return {'ok': True, 'stdout': 'total = 2.00G  used = 1.00G'}
+    raise AssertionError(argv)
+run = source_run
+print(json.dumps({'phase': phase_marker(), 'progress': progress(), 'memory': memory(time.monotonic()+1)}, sort_keys=True))
+`
+    const result = await new Deno.Command('/usr/bin/python3', {
+      args: ['-c', program],
+      clearEnv: true,
+      env: { PATH: '/usr/bin:/bin' },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    requireFixture(
+      result.success,
+      `current bounded window seam failed: ${
+        new TextDecoder().decode(result.stderr)
+      }`,
+    )
+    const value = JSON.parse(new TextDecoder().decode(result.stdout)) as {
+      phase: { available?: boolean; quality?: string; reason?: string }
+      progress: { available?: boolean; quality?: string; size_bytes?: number }
+      memory: {
+        vm_stat?: {
+          available?: boolean
+          quality?: string
+          page_size_bytes?: number
+        }
+        physical_memory_bytes?: number | null
+        physical_memory_reason?: string
+        swap?: {
+          available?: boolean
+          quality?: string
+          fields?: Record<string, unknown>
+        }
+      }
+    }
+    requireFixture(
+      value.progress.available === false &&
+        value.progress.quality === 'partial' &&
+        typeof value.progress.size_bytes === 'number',
+      'observer scanned outside its bounded Ninja tail or hid available stat facts',
+    )
+    requireFixture(
+      value.memory.vm_stat?.available &&
+        value.memory.vm_stat.quality === 'partial' &&
+        value.memory.vm_stat.page_size_bytes === 4096 &&
+        value.memory.physical_memory_bytes === null &&
+        value.memory.physical_memory_reason === 'missing-memsize' &&
+        value.memory.swap?.available &&
+        value.memory.swap.quality === 'partial' &&
+        Object.keys(value.memory.swap.fields ?? {}).length === 3 &&
+        (value.memory.swap.fields?.total as { available?: boolean } | undefined)
+            ?.available === true &&
+        (value.memory.swap.fields?.used as { available?: boolean } | undefined)
+            ?.available === true &&
+        (value.memory.swap.fields?.free as { available?: boolean } | undefined)
+            ?.available === false,
+      'partial host observations discarded known page/swap facts or defaulted absence to zero',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current observer trims oversized detail without losing coordinates or suppressing the next sample', async () => {
+  const prefix = await observerPythonPrefix()
+  const program = `
+import io, json, os, sys
+sys.argv = ['observer', '900', '/tmp', '/tmp/missing-log', '45']
+${prefix}
+def phase_marker(): return {'available': True, 'quality': 'complete', 'last_observed': 'cargo-build-start'}
+def process_tree(deadline): return {'available': True, 'scope': 'supplied-supervisor-and-observable-descendants', 'scope_quality': 'complete', 'parse_quality': 'complete', 'selected_count': 64, 'parsed_count': 64, 'rejected_count': 0, 'cpu_percent_ps_sum': 64.0, 'rss_sum_bytes': 65536, 'processes': [{'pid': i, 'basename': 'x'*400, 'rss_bytes': i, 'cpu_percent_ps': 1.0} for i in range(64)]}
+def memory(deadline): return {'units': {'pages':'reported-pages','memory':'bytes'}, 'vm_stat': {'available': True, 'quality': 'complete', 'page_size_bytes': 4096, 'page_counts': {'active': 1}, 'counters': {}}, 'physical_memory_bytes': 8192, 'swap': {'available': True, 'quality': 'complete', 'fields': {'total': {'value': 1, 'unit':'G', 'bytes': 1073741824}}}}
+def progress(): return {'available': True, 'exists': True, 'size_bytes': 1, 'mtime_epoch_seconds': 1, 'quality': 'complete', 'latest_complete': {'start_time_ms': 0, 'end_time_ms': 1, 'restat_mtime': 1, 'output_basename': 'y'*10000}}
+emit('running')
+emit('running')
+`
+  const result = await new Deno.Command('/usr/bin/python3', {
+    args: ['-c', program],
+    clearEnv: true,
+    env: { PATH: '/usr/bin:/bin' },
+    stdout: 'piped',
+    stderr: 'piped',
+  }).output()
+  requireFixture(
+    result.success,
+    `current trim seam failed: ${new TextDecoder().decode(result.stderr)}`,
+  )
+  const lines = new TextDecoder().decode(result.stdout).trimEnd().split('\n')
+  const records = lines.map((line) => {
+    requireFixture(
+      line.startsWith('SLV_MAC_BUILD_OBSERVATION '),
+      'trim seam emitted a non-observation line',
+    )
+    requireFixture(
+      new TextEncoder().encode(line).length <= 4096,
+      'trim seam exceeded UTF-8 record budget',
+    )
+    return JSON.parse(
+      line.slice('SLV_MAC_BUILD_OBSERVATION '.length),
+    ) as Record<string, unknown>
+  })
+  requireFixture(
+    records.length === 2 &&
+      records.every((record) =>
+        record.trimmed === true && record.root_pid === 900 &&
+        typeof record.utc === 'string' &&
+        typeof record.elapsed_seconds_monotonic === 'number' &&
+        record.phase === 'running'
+      ),
+    'oversized detail replaced primary coordinates or suppressed the next sample',
+  )
+})
+
+Deno.test('current observer rejects partial markers and malformed parser rows without replacing valid observations', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-observer-validity-',
+  })
+  try {
+    const prefix = await observerPythonPrefix()
+    const ninja = `${root}/target/release/gn_out/.ninja_log`
+    const log = `${root}/baseline-denort.log`
+    await Deno.mkdir(`${root}/target/release/gn_out`, { recursive: true })
+    await Deno.writeTextFile(
+      ninja,
+      '1\t2\t3\tvalid.o\thash\n30\t40\t5\tmissing-hash.o\n',
+    )
+    await Deno.writeTextFile(
+      log,
+      'SLV_MAC_BUILD_PHASE cargo-build-start\nSLV_MAC_BUILD_PHASE cargo-build-finished',
+    )
+    const program = `
+import json, os, sys, time
+sys.argv = ['observer', '100', ${JSON.stringify(root)}, ${
+      JSON.stringify(log)
+    }, '45']
+${prefix}
+def ps(rows):
+    return lambda argv, *args, **kwargs: {'ok': True, 'stdout': rows} if argv[0] == '/bin/ps' else {'ok': True, 'stdout': 'page size of 4096 bytes\\nPages free: 2.\\n' if argv[0].endswith('vm_stat') else ('1234' if argv[-1] == 'hw.memsize' else 'total = 2..0M used = 1.0M free = 1.0M')}
+rows = '100 1 1.0 10 supervisor\\n101 100 2.0 20 anchor\\n102 101 3.0 30 worker\\n103 102 NaN 40 malformed'
+run = ps(rows)
+phase = phase_marker()
+missing_hash = progress()
+with open(${
+      JSON.stringify(ninja)
+    }, 'wb') as source: source.write(b'1\\t2\\t3\\tvalid.o\\thash\\n90\\t80\\t5\\treverse.o\\thash\\n')
+reverse_time = progress()
+print(json.dumps({'phase': phase, 'missing_hash': missing_hash, 'reverse_time': reverse_time, 'tree': process_tree(time.monotonic()+1), 'memory': memory(time.monotonic()+1)}, sort_keys=True, allow_nan=False))
+`
+    const result = await new Deno.Command('/usr/bin/python3', {
+      args: ['-c', program],
+      clearEnv: true,
+      env: { PATH: '/usr/bin:/bin' },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    requireFixture(
+      result.success,
+      `current parser validity seam failed: ${
+        new TextDecoder().decode(result.stderr)
+      }`,
+    )
+    const value = JSON.parse(new TextDecoder().decode(result.stdout)) as {
+      phase: { quality?: string; last_observed?: string; reason?: string }
+      missing_hash: {
+        quality?: string
+        latest_complete?: { output_basename?: string }
+      }
+      reverse_time: {
+        quality?: string
+        latest_complete?: { output_basename?: string }
+      }
+      tree: {
+        parse_quality?: string
+        selected_count?: number
+        rejected_count?: number
+        cpu_percent_ps_sum?: number
+      }
+      memory: {
+        swap?: {
+          quality?: string
+          fields?: Record<string, { available?: boolean; reason?: string }>
+        }
+      }
+    }
+    requireFixture(
+      value.phase.quality === 'partial' &&
+        value.phase.last_observed === 'cargo-build-start' &&
+        value.phase.reason === 'log-tail-partial',
+      'unterminated marker advanced a completed command boundary',
+    )
+    requireFixture(
+      value.missing_hash.quality === 'partial' &&
+        value.missing_hash.latest_complete?.output_basename === 'valid.o' &&
+        value.reverse_time.quality === 'partial' &&
+        value.reverse_time.latest_complete?.output_basename === 'valid.o',
+      'invalid Ninja completion row displaced the latest complete bounded row',
+    )
+    requireFixture(
+      value.tree.parse_quality === 'partial' &&
+        value.tree.selected_count === 3 && value.tree.rejected_count === 1 &&
+        value.tree.cpu_percent_ps_sum === 6,
+      'nonfinite CPU row was not rejected while retaining valid subtree totals',
+    )
+    requireFixture(
+      value.memory.swap?.quality === 'partial' &&
+        value.memory.swap.fields?.total?.available === false &&
+        value.memory.swap.fields?.total?.reason === 'value-parse' &&
+        value.memory.swap.fields?.used?.available === true &&
+        value.memory.swap.fields?.free?.available === true,
+      'malformed swap field aborted observation or discarded valid fields',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
   }
 })

@@ -21,6 +21,7 @@ import {
 } from './prepare-tools.ts'
 
 const decoder = new TextDecoder()
+const encoder = new TextEncoder()
 const SHA256 = /^[a-f0-9]{64}$/
 const TARGETS = new Set([
   'x86_64-unknown-linux-gnu',
@@ -62,6 +63,13 @@ type CommandReceipt = {
   log: string
   log_sha256: string
   environment: Record<string, string>
+}
+type ObservedCommandResult = {
+  started_at: string
+  finished_at: string
+  elapsed_seconds: number
+  exit_code: number
+  signal: string | null
 }
 type ToolReceipt = {
   target: string
@@ -270,6 +278,20 @@ export function parseNativeArgs(argv: string[]): Args {
     !values['--tools-receipt']
   ) {
     throw new Error(`${phase} requires --tools-receipt`)
+  }
+  if (
+    values['--evidence-out'] !== undefined &&
+    phase !== 'build' && phase !== 'build-variant'
+  ) {
+    throw new Error(
+      '--evidence-out is permitted only for build or build-variant',
+    )
+  }
+  if (
+    values['--evidence-out'] !== undefined &&
+    !values['--evidence-out'].startsWith('/')
+  ) {
+    throw new Error('--evidence-out must be an absolute directory')
   }
   if (values['--jobs'] !== undefined) {
     if (
@@ -521,9 +543,11 @@ async function streamingCommand(
   cwd: string,
   log: string,
   env: Record<string, string>,
+  observed?: (result: ObservedCommandResult) => void,
 ): Promise<CommandReceipt> {
   const environment = await allowedEnvironment(cwd, env)
   const started_at = new Date().toISOString()
+  const startedMonotonic = performance.now()
   const result = await new Deno.Command(executable, {
     args,
     cwd,
@@ -533,6 +557,15 @@ async function streamingCommand(
     stderr: 'inherit',
   }).output()
   const finished_at = new Date().toISOString()
+  // Preserve the child result before a missing log or log hash can reject the
+  // public receipt. Successful receipts keep their existing fields.
+  observed?.({
+    started_at,
+    finished_at,
+    elapsed_seconds: Math.max(0, (performance.now() - startedMonotonic) / 1000),
+    exit_code: result.code,
+    signal: result.signal ?? null,
+  })
   await regularFile(log, 'streamed command log')
   return {
     command: [executable, ...args],
@@ -1681,6 +1714,1241 @@ export async function verifyCargoFingerprintCollection(
   }
 }
 
+type ArmObservationFile = {
+  path: string
+  size: number
+  sha256: string
+}
+type ArmObservationCapture = {
+  evidenceOut: string
+  status: 'complete' | 'incomplete' | 'configuration-mismatch'
+  missing_evidence: string[]
+  host: Record<string, unknown>
+  consumer: Record<string, unknown>
+  snapshot_bundle: Record<string, unknown>
+}
+
+const ARM_OBSERVATION_LIMITS = {
+  metadata: 512 * 1024,
+  gn: 256 * 1024,
+  ninja: 512 * 1024,
+  bundle: 64 * 1024 * 1024,
+  member: 32 * 1024 * 1024,
+  members: 1024,
+  path: 256,
+  table: 128 * 1024,
+} as const
+
+function observationAsciiCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function observationPath(relative: string, label: string): string {
+  if (
+    !relative || relative.startsWith('/') ||
+    relative.split('/').some((part) =>
+      !part || part === '.' || part === '..'
+    ) || encoder.encode(relative).byteLength > ARM_OBSERVATION_LIMITS.path
+  ) throw new Error(`${label} has an unsafe observation path`)
+  return relative
+}
+
+async function observationRegularFile(
+  path: string,
+  label: string,
+  maximum: number,
+  relative = path.slice(path.lastIndexOf('/') + 1),
+): Promise<ArmObservationFile> {
+  const info = await Deno.lstat(path)
+  if (!info.isFile || info.isSymlink || info.size > maximum) {
+    throw new Error(`${label} is unavailable or exceeds its observation limit`)
+  }
+  return {
+    path: observationPath(relative, label),
+    size: info.size,
+    sha256: await sha256(path),
+  }
+}
+
+function ninjaDefines(bytes: Uint8Array, label: string): string {
+  const lines = decoder.decode(bytes).split('\n')
+  const matches = lines.filter((line) => /^defines\s*=/.test(line))
+  if (matches.length !== 1 || matches[0].trimEnd().endsWith('$')) {
+    throw new Error(`${label} lacks one supported complete defines assignment`)
+  }
+  return matches[0]
+}
+
+function macroValue(defines: string, name: string): string | undefined {
+  const matches = [
+    ...defines.matchAll(
+      new RegExp(`(?:^|\\s)-D${name}(?:=([^\\s]+))?(?=\\s|$)`, 'g'),
+    ),
+  ]
+  if (matches.length > 1) throw new Error(`Ninja defines duplicate ${name}`)
+  return matches[0] ? matches[0][1] ?? '1' : undefined
+}
+
+function v8Architecture(defines: string): boolean {
+  const architectures = [
+    ...defines.matchAll(
+      /(?:^|\s)-D(V8_TARGET_ARCH_[A-Z0-9_]+)(?:=[^\s]+)?(?=\s|$)/g,
+    ),
+  ].map((match) => match[1])
+  if (
+    architectures.length !== 1 || architectures[0] !== 'V8_TARGET_ARCH_ARM64'
+  ) {
+    throw new Error('Ninja defines do not uniquely select V8_TARGET_ARCH_ARM64')
+  }
+  return true
+}
+
+async function elfIdentity(
+  path: string,
+  label: string,
+  relative: string,
+): Promise<Record<string, unknown>> {
+  const info = await Deno.lstat(path)
+  if (!info.isFile || info.isSymlink) {
+    throw new Error(`${label} is not a regular executable`)
+  }
+  const record = {
+    path: observationPath(relative, label),
+    size: info.size,
+    sha256: await sha256(path),
+  }
+  const file = await Deno.open(path, { read: true })
+  try {
+    const header = new Uint8Array(64)
+    const count = await file.read(header)
+    if (
+      count !== 64 || header[0] !== 0x7f || header[1] !== 0x45 ||
+      header[2] !== 0x4c ||
+      header[3] !== 0x46 || header[4] !== 2 || header[5] !== 1
+    ) {
+      throw new Error(`${label} is not a little-endian ELF64 executable`)
+    }
+    return {
+      ...record,
+      elf64_little_endian_machine: header[18] | (header[19] << 8),
+      header_base64: base64(header),
+    }
+  } finally {
+    file.close()
+  }
+}
+
+type SelectedCargoRecord = {
+  context: 'host-release' | 'target-release'
+  path: string
+  sha256: string
+  features: unknown
+  data: Record<string, unknown>
+}
+
+type ActiveCargoRoles = {
+  hostSnapshotCompile: SelectedCargoRecord
+  hostV8Compile: SelectedCargoRecord
+  hostV8Run: SelectedCargoRecord
+  hostV8Library: SelectedCargoRecord
+  targetSnapshotRun: SelectedCargoRecord
+  targetSnapshotLibrary: SelectedCargoRecord
+  targetV8Run: SelectedCargoRecord
+  targetV8Library: SelectedCargoRecord
+}
+
+function cargoData(record: CargoFingerprintRecord): Record<string, unknown> {
+  const parsed = JSON.parse(
+    decoder.decode(decodeBase64(record.content_base64, 'cargo fingerprint')),
+  )
+  return object(parsed, `Cargo fingerprint ${record.context}/${record.path}`)
+}
+
+function selectedFeatures(
+  data: Record<string, unknown>,
+  path: string,
+): Record<string, unknown> {
+  const raw = data.features
+  if (typeof raw !== 'string') {
+    throw new Error('Cargo fingerprint features are not a raw string')
+  }
+  if (encoder.encode(raw).byteLength > 16 * 1024) {
+    throw new Error(
+      'Cargo fingerprint raw feature value exceeds its observation limit',
+    )
+  }
+  const runRecord = /\/run-build-script-build-script-build\.json$/.test(path)
+  if (runRecord) {
+    if (raw !== '') {
+      throw new Error('Cargo run record has declared feature information')
+    }
+    return { raw, normalized: null, state: 'unavailable-by-run' }
+  }
+  if (!raw) {
+    throw new Error('Cargo compiled or library record has empty feature data')
+  }
+  let decoded: unknown
+  try {
+    decoded = JSON.parse(raw)
+  } catch {
+    throw new Error('Cargo fingerprint feature string is invalid JSON')
+  }
+  if (
+    !Array.isArray(decoded) || decoded.length > 256 ||
+    !decoded.every((value) =>
+      typeof value === 'string' && encoder.encode(value).byteLength <= 256
+    )
+  ) {
+    throw new Error(
+      'Cargo fingerprint feature string is not a bounded string list',
+    )
+  }
+  const normalized = [...decoded].sort()
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error('Cargo fingerprint feature string has duplicate entries')
+  }
+  return { raw, normalized, state: 'declared' }
+}
+
+function selectCargoRecord(
+  fingerprints: CargoFingerprintCollection,
+  context: 'host-release' | 'target-release',
+  pattern: RegExp,
+  label: string,
+): SelectedCargoRecord {
+  const records = fingerprints.records.filter((record) =>
+    record.context === context && pattern.test(record.path)
+  )
+  if (records.length !== 1) throw new Error(`${label} is missing or ambiguous`)
+  const record = records[0]
+  const data = cargoData(record)
+  return {
+    context: record.context,
+    path: record.path,
+    sha256: record.sha256,
+    features: selectedFeatures(data, record.path),
+    data,
+  }
+}
+
+function selectedRecordValue(
+  record: SelectedCargoRecord,
+): Record<string, unknown> {
+  return {
+    context: record.context,
+    path: record.path,
+    sha256: record.sha256,
+    features: record.features,
+    local: record.data.local ?? null,
+    dependencies: record.data.deps ?? null,
+  }
+}
+
+function cargoCrateDirectory(record: SelectedCargoRecord): string {
+  const slash = record.path.indexOf('/')
+  if (slash < 1) throw new Error('Cargo fingerprint path lacks crate directory')
+  return record.path.slice(0, slash)
+}
+
+function outputFromRunRecord(
+  record: SelectedCargoRecord,
+  target: string,
+): string {
+  const local = record.data.local
+  if (!Array.isArray(local)) {
+    throw new Error('snapshot run record has invalid local output linkage')
+  }
+  const outputs: string[] = []
+  for (const entry of local) {
+    const rerun = object(entry, 'snapshot run record local').RerunIfChanged
+    if (rerun === undefined) continue
+    outputs.push(text(
+      object(rerun, 'snapshot run record RerunIfChanged').output,
+      'snapshot run record output',
+    ))
+  }
+  if (outputs.length !== 1) {
+    throw new Error('snapshot run record lacks one unambiguous output linkage')
+  }
+  const output = outputs[0]
+  const expected = record.context === 'host-release'
+    ? `release/build/${cargoCrateDirectory(record)}/output`
+    : `${target}/release/build/${cargoCrateDirectory(record)}/output`
+  if (
+    output !== expected ||
+    output.split('/').some((part) => part === '..' || !part)
+  ) {
+    throw new Error(
+      'snapshot run record output is outside the selected target build tree',
+    )
+  }
+  return output.slice(0, -'/output'.length)
+}
+
+function checkDepInfo(record: SelectedCargoRecord, target: string): void {
+  const local = record.data.local
+  if (!Array.isArray(local)) {
+    throw new Error('Cargo fingerprint lacks local dep-info linkage')
+  }
+  const entries = local.filter((entry) =>
+    object(entry, 'Cargo fingerprint local').CheckDepInfo !== undefined
+  )
+  if (entries.length !== 1) {
+    throw new Error('Cargo fingerprint lacks one dep-info linkage')
+  }
+  const value = text(
+    object(
+      object(entries[0], 'Cargo fingerprint local').CheckDepInfo,
+      'Cargo CheckDepInfo',
+    ).dep_info,
+    'Cargo dep-info path',
+  )
+  const prefix = record.context === 'host-release'
+    ? `release/.fingerprint/${cargoCrateDirectory(record)}/`
+    : `${target}/release/.fingerprint/${cargoCrateDirectory(record)}/`
+  if (!value.startsWith(prefix) || value.includes('..')) {
+    throw new Error('Cargo dep-info linkage is outside its selected context')
+  }
+}
+
+function activeCargoRoles(
+  fingerprints: CargoFingerprintCollection,
+  target: string,
+): ActiveCargoRoles {
+  const roles = {
+    hostSnapshotCompile: selectCargoRecord(
+      fingerprints,
+      'host-release',
+      /^deno_snapshots-[^/]+\/build-script-build-script-build\.json$/,
+      'host deno_snapshots compiled build script',
+    ),
+    hostV8Compile: selectCargoRecord(
+      fingerprints,
+      'host-release',
+      /^v8-[^/]+\/build-script-build-script-build\.json$/,
+      'host V8 compiled build script',
+    ),
+    hostV8Run: selectCargoRecord(
+      fingerprints,
+      'host-release',
+      /^v8-[^/]+\/run-build-script-build-script-build\.json$/,
+      'host V8 run build script',
+    ),
+    hostV8Library: selectCargoRecord(
+      fingerprints,
+      'host-release',
+      /^v8-[^/]+\/lib-v8\.json$/,
+      'host V8 library',
+    ),
+    targetSnapshotRun: selectCargoRecord(
+      fingerprints,
+      'target-release',
+      /^deno_snapshots-[^/]+\/run-build-script-build-script-build\.json$/,
+      'target deno_snapshots run build script',
+    ),
+    targetSnapshotLibrary: selectCargoRecord(
+      fingerprints,
+      'target-release',
+      /^deno_snapshots-[^/]+\/lib-deno_snapshots\.json$/,
+      'target deno_snapshots library',
+    ),
+    targetV8Run: selectCargoRecord(
+      fingerprints,
+      'target-release',
+      /^v8-[^/]+\/run-build-script-build-script-build\.json$/,
+      'target V8 run build script',
+    ),
+    targetV8Library: selectCargoRecord(
+      fingerprints,
+      'target-release',
+      /^v8-[^/]+\/lib-v8\.json$/,
+      'target V8 library',
+    ),
+  }
+  for (
+    const record of [
+      roles.hostSnapshotCompile,
+      roles.hostV8Compile,
+      roles.hostV8Library,
+      roles.targetSnapshotLibrary,
+      roles.targetV8Library,
+    ]
+  ) checkDepInfo(record, target)
+  for (
+    const record of [
+      roles.hostV8Run,
+      roles.targetSnapshotRun,
+      roles.targetV8Run,
+    ]
+  ) outputFromRunRecord(record, target)
+  return roles
+}
+
+async function activeSnapshotOutDir(
+  output: string,
+  target: string,
+  fingerprints: CargoFingerprintCollection,
+): Promise<{
+  directory: string
+  relative: string
+  hostBuildDirectory: string
+  hostBuildRelative: string
+  roles: ActiveCargoRoles
+  cargo: Record<string, unknown>
+}> {
+  const roles = activeCargoRoles(fingerprints, target)
+  const relative = outputFromRunRecord(roles.targetSnapshotRun, target)
+  const hostDirectory = cargoCrateDirectory(roles.hostSnapshotCompile)
+  const directory = `${output}/target/${relative}/out`
+  const info = await Deno.lstat(directory)
+  if (!info.isDirectory || info.isSymlink) {
+    throw new Error('active deno_snapshots OUT_DIR is unavailable')
+  }
+  return {
+    directory,
+    relative: `target/${relative}/out`,
+    hostBuildDirectory: `${output}/target/release/build/${hostDirectory}`,
+    hostBuildRelative: `target/release/build/${hostDirectory}`,
+    roles,
+    cargo: Object.fromEntries(
+      Object.entries(roles).map((
+        [name, record],
+      ) => [name, selectedRecordValue(record)]),
+    ),
+  }
+}
+
+async function residualSourcePaths(table: string): Promise<string[]> {
+  const bytes = await Deno.readFile(table)
+  if (bytes.byteLength > ARM_OBSERVATION_LIMITS.table) {
+    throw new Error('residual source table exceeds capture limit')
+  }
+  const found: string[] = []
+  for (
+    const match of decoder.decode(bytes).matchAll(
+      /residual_sources\/([A-Za-z0-9._/-]+)/g,
+    )
+  ) {
+    found.push(
+      observationPath(`residual_sources/${match[1]}`, 'residual source table'),
+    )
+  }
+  if (!found.length || new Set(found).size !== found.length) {
+    throw new Error('residual source table has missing or duplicate members')
+  }
+  return found.sort(observationAsciiCompare)
+}
+
+async function regularTreeFiles(
+  root: string,
+  relative = '',
+): Promise<string[]> {
+  const info = await Deno.lstat(root)
+  if (!info.isDirectory || info.isSymlink) {
+    throw new Error(
+      `snapshot tree component is not a real directory: ${relative || '.'}`,
+    )
+  }
+  const entries = []
+  for await (const entry of Deno.readDir(root)) entries.push(entry)
+  entries.sort((a, b) => observationAsciiCompare(a.name, b.name))
+  const result: string[] = []
+  for (const entry of entries) {
+    const child = relative ? `${relative}/${entry.name}` : entry.name
+    const path = `${root}/${entry.name}`
+    const childInfo = await Deno.lstat(path)
+    if (childInfo.isSymlink) {
+      throw new Error(`snapshot tree contains symlink: ${child}`)
+    }
+    if (childInfo.isDirectory) {
+      result.push(...await regularTreeFiles(path, child))
+    } else if (childInfo.isFile) {
+      result.push(observationPath(child, 'snapshot tree'))
+    } else {throw new Error(
+        `snapshot tree contains non-regular member: ${child}`,
+      )}
+  }
+  return result.sort(observationAsciiCompare)
+}
+
+async function captureSnapshotBundle(
+  output: string,
+  target: string,
+  evidenceOut: string,
+  fingerprints: CargoFingerprintCollection,
+): Promise<Record<string, unknown>> {
+  const active = await activeSnapshotOutDir(output, target, fingerprints)
+  const table = `${active.directory}/EXTENSION_RESIDUAL_SOURCES.rs`
+  const source = `${active.directory}/CLI_SNAPSHOT.bin`
+  const names = await residualSourcePaths(table)
+  const discovered = await regularTreeFiles(
+    `${active.directory}/residual_sources`,
+    'residual_sources',
+  )
+  if (!equalJson(discovered, names)) {
+    throw new Error('snapshot residual tree does not exactly match its table')
+  }
+  const requested = [
+    'CLI_SNAPSHOT.bin',
+    'EXTENSION_RESIDUAL_SOURCES.rs',
+    ...names,
+  ].sort(observationAsciiCompare)
+  if (requested.length > ARM_OBSERVATION_LIMITS.members) {
+    throw new Error('snapshot bundle has too many members')
+  }
+  const preflight: Array<{ relative: string; source: string; size: number }> =
+    []
+  let total = 0
+  for (const relative of requested) {
+    const full = `${active.directory}/${relative}`
+    const info = await Deno.lstat(full)
+    if (
+      !info.isFile || info.isSymlink ||
+      info.size > ARM_OBSERVATION_LIMITS.member
+    ) throw new Error(`snapshot member is invalid or oversized: ${relative}`)
+    total += info.size
+    preflight.push({ relative, source: full, size: info.size })
+  }
+  if (total > ARM_OBSERVATION_LIMITS.bundle) {
+    throw new Error('snapshot bundle exceeds capture limit')
+  }
+  // Inventory identities are measured from the active OUT_DIR. Raw bundle
+  // copies are deliberately absent: duplicating the generated snapshot is not
+  // needed to bind this producer observation and would consume runner disk.
+  const members: ArmObservationFile[] = []
+  for (const member of preflight) {
+    members.push(
+      await observationRegularFile(
+        member.source,
+        `snapshot ${member.relative}`,
+        ARM_OBSERVATION_LIMITS.member,
+        member.relative,
+      ),
+    )
+  }
+  const bytes = await Deno.readFile(source)
+  if (bytes.byteLength < 8) {
+    throw new Error('CLI snapshot lacks V8 length footer')
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const v8Length = Number(view.getBigUint64(bytes.byteLength - 8, true))
+  if (!Number.isSafeInteger(v8Length) || v8Length > bytes.byteLength - 8) {
+    throw new Error('CLI snapshot V8 length footer is invalid')
+  }
+  const inventory = {
+    active_out_dir_relative: active.relative,
+    members: members.sort((a, b) => observationAsciiCompare(a.path, b.path)),
+  }
+  const inventoryBytes = encoder.encode(
+    JSON.stringify(inventory, null, 2) + '\n',
+  )
+  const inventorySha256 = await sha256Bytes(inventoryBytes)
+  await Deno.writeFile(
+    `${evidenceOut}/snapshot-bundle-manifest.json`,
+    inventoryBytes,
+  )
+  return {
+    ...inventory,
+    inventory_sha256: inventorySha256,
+    cargo_records: active.cargo,
+    v8_payload: {
+      size: v8Length,
+      sha256: await sha256Bytes(bytes.subarray(0, v8Length)),
+    },
+    sidecar: {
+      size: bytes.byteLength - 8 - v8Length,
+      sha256: await sha256Bytes(bytes.subarray(v8Length, bytes.byteLength - 8)),
+    },
+    whole_cli_snapshot: {
+      size: bytes.byteLength,
+      sha256: await sha256Bytes(bytes),
+    },
+  }
+}
+
+function declaredGnValues(
+  bytes: Uint8Array,
+  label: string,
+): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const line of decoder.decode(bytes).split('\n')) {
+    const match = /^([a-z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line)
+    if (!match) continue
+    if (values[match[1]] !== undefined) {
+      throw new Error(`${label} has duplicate declared ${match[1]}`)
+    }
+    values[match[1]] = match[2]
+  }
+  return values
+}
+
+export async function captureArmObservation(
+  output: string,
+  target: string,
+  evidenceOut: string | undefined,
+  fingerprints: CargoFingerprintCollection,
+): Promise<ArmObservationCapture | undefined> {
+  if (target !== 'aarch64-unknown-linux-gnu' || !evidenceOut) return undefined
+  const missing: string[] = []
+  let active: Awaited<ReturnType<typeof activeSnapshotOutDir>> | undefined
+  let snapshot_bundle: Record<string, unknown> = { status: 'unavailable' }
+  let hostExecutable =
+    `${output}/target/release/build/deno_snapshots-unavailable/build-script-build`
+  let hostRelative =
+    'target/release/build/deno_snapshots-unavailable/build-script-build'
+  try {
+    active = await activeSnapshotOutDir(output, target, fingerprints)
+    hostExecutable = `${active.hostBuildDirectory}/build-script-build`
+    hostRelative = `${active.hostBuildRelative}/build-script-build`
+    snapshot_bundle = await captureSnapshotBundle(
+      output,
+      target,
+      evidenceOut,
+      fingerprints,
+    )
+  } catch (error) {
+    missing.push(
+      `snapshot bundle: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
+  const captureContext = async (
+    context: 'host' | 'consumer',
+    expectedMachine: number,
+    expectedSimulator: boolean,
+    executable: string,
+    executableRelative: string,
+    cargoRecords: SelectedCargoRecord[],
+  ): Promise<Record<string, unknown>> => {
+    const raw = {
+      args: `${evidenceOut}/${context}-args.gn`,
+      ninja: `${evidenceOut}/${context}-rusty_v8.ninja`,
+    }
+    try {
+      const args = await observationRegularFile(
+        raw.args,
+        `${context} args.gn`,
+        ARM_OBSERVATION_LIMITS.gn,
+        `${context}-args.gn`,
+      )
+      const ninja = await observationRegularFile(
+        raw.ninja,
+        `${context} Ninja`,
+        ARM_OBSERVATION_LIMITS.ninja,
+        `${context}-rusty_v8.ninja`,
+      )
+      const declared = declaredGnValues(
+        await Deno.readFile(raw.args),
+        `${context} args.gn`,
+      )
+      const defines = ninjaDefines(
+        await Deno.readFile(raw.ninja),
+        `${context} Ninja`,
+      )
+      const identity = await elfIdentity(
+        executable,
+        `${context} executable`,
+        executableRelative,
+      )
+      const simulator = macroValue(defines, 'USE_SIMULATOR') !== undefined
+      const targetArm = v8Architecture(defines)
+      const settings = Object.fromEntries([
+        'V8_COMPRESS_POINTERS',
+        'V8_ENABLE_SANDBOX',
+        'V8_STATIC_ROOTS',
+        'V8_STATIC_ROOTS_GENERATION',
+        'V8_ENABLE_EXTENSIBLE_RO_SNAPSHOT',
+      ].map((name) => {
+        const raw = macroValue(defines, name)
+        return [name, { enabled: raw !== undefined, raw_token: raw ?? null }]
+      }))
+      // ninjaDefines has already established that this is one complete,
+      // non-continued assignment. Optional feature macros are therefore false
+      // only here, when they are absent from that complete observed assignment.
+      const configured =
+        identity.elf64_little_endian_machine === expectedMachine && targetArm &&
+        simulator === expectedSimulator
+      if (!configured) {
+        missing.push(
+          `${context} compiled configuration contradicts ARM simulator expectation`,
+        )
+      }
+      return {
+        declared_gn_arguments: declared,
+        files: [args, ninja],
+        executable_identity: identity,
+        cargo_records: cargoRecords.map(selectedRecordValue),
+        effective_semantics: {
+          v8_target_arch_arm64: targetArm,
+          use_simulator: simulator,
+          compiled_settings: settings,
+          ninja_defines_sha256: await sha256(raw.ninja),
+        },
+      }
+    } catch (error) {
+      missing.push(
+        `${context}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return { status: 'unavailable' }
+    }
+  }
+  const host = await captureContext(
+    'host',
+    62,
+    true,
+    hostExecutable,
+    hostRelative,
+    active
+      ? [
+        active.roles.hostSnapshotCompile,
+        active.roles.hostV8Compile,
+        active.roles.hostV8Run,
+        active.roles.hostV8Library,
+      ]
+      : [],
+  )
+  const consumer = await captureContext(
+    'consumer',
+    183,
+    false,
+    `${output}/target/${target}/release/denort`,
+    `target/${target}/release/denort`,
+    active
+      ? [
+        active.roles.targetSnapshotRun,
+        active.roles.targetSnapshotLibrary,
+        active.roles.targetV8Run,
+        active.roles.targetV8Library,
+      ]
+      : [],
+  )
+  const hostSettings =
+    (host.effective_semantics as Record<string, unknown> | undefined)
+      ?.compiled_settings
+  const consumerSettings =
+    (consumer.effective_semantics as Record<string, unknown> | undefined)
+      ?.compiled_settings
+  if (
+    hostSettings && consumerSettings &&
+    !equalJson(hostSettings, consumerSettings)
+  ) {
+    missing.push('host and consumer compiled V8 settings differ')
+  }
+  const status =
+    missing.some((value) =>
+        value.includes('contradicts') || value.includes('settings differ')
+      )
+      ? 'configuration-mismatch'
+      : missing.length
+      ? 'incomplete'
+      : 'complete'
+  return {
+    evidenceOut,
+    status,
+    missing_evidence: missing,
+    host,
+    consumer,
+    snapshot_bundle,
+  }
+}
+
+function compactCargoReference(value: unknown): Record<string, unknown> {
+  const record = object(value, 'ARM selected Cargo record')
+  const local = Array.isArray(record.local) ? record.local : []
+  const dependencies = Array.isArray(record.dependencies)
+    ? record.dependencies
+    : []
+  const output: string[] = []
+  const depInfo: string[] = []
+  for (const entry of local) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const rerun = row.RerunIfChanged
+    if (rerun && typeof rerun === 'object' && !Array.isArray(rerun)) {
+      const candidate = (rerun as Record<string, unknown>).output
+      if (typeof candidate === 'string') output.push(candidate)
+    }
+    const check = row.CheckDepInfo
+    if (check && typeof check === 'object' && !Array.isArray(check)) {
+      const candidate = (check as Record<string, unknown>).dep_info
+      if (typeof candidate === 'string') depInfo.push(candidate)
+    }
+  }
+  return {
+    context: record.context,
+    path: record.path,
+    sha256: record.sha256,
+    features: record.features,
+    local_entry_count: local.length,
+    dependency_count: dependencies.length,
+    output: output.length === 1 ? output[0] : null,
+    dep_info: depInfo.length === 1 ? depInfo[0] : null,
+    summary_status: 'reference-only',
+  }
+}
+
+function compactArmValue(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  if (value.status === 'unavailable') return { status: 'unavailable' }
+  return {
+    files: value.files,
+    executable_identity: value.executable_identity,
+    effective_semantics: value.effective_semantics,
+    cargo_records: Array.isArray(value.cargo_records)
+      ? value.cargo_records.map(compactCargoReference)
+      : [],
+  }
+}
+
+function compactArmBundle(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  if (value.status === 'unavailable') return { status: 'unavailable' }
+  const cargo = value.cargo_records
+  return {
+    active_out_dir_relative: value.active_out_dir_relative,
+    members: value.members,
+    inventory_sha256: value.inventory_sha256,
+    v8_payload: value.v8_payload,
+    sidecar: value.sidecar,
+    whole_cli_snapshot: value.whole_cli_snapshot,
+    cargo_records: cargo && typeof cargo === 'object' && !Array.isArray(cargo)
+      ? Object.fromEntries(
+        Object.entries(cargo as Record<string, unknown>).map((
+          [name, record],
+        ) => [name, compactCargoReference(record)]),
+      )
+      : {},
+  }
+}
+
+function armObservationDiagnostic(
+  operation: string,
+  error: unknown,
+): { operation: string; error: string } {
+  const text = error instanceof Error ? error.message : String(error)
+  const diagnostic = { operation, error: text.slice(0, 128) }
+  console.error(
+    'SLV_ARM_OBSERVATION_CAPTURE_ERROR ' + JSON.stringify(diagnostic),
+  )
+  return diagnostic
+}
+
+function boundedArmErrors(values: unknown[]): string[] {
+  const errors: string[] = []
+  for (const value of values) {
+    if (
+      typeof value === 'string' &&
+      /^[A-Za-z0-9_.:-]{1,128}$/.test(value) &&
+      !errors.includes(value) &&
+      errors.length < 16
+    ) errors.push(value)
+  }
+  return errors
+}
+
+type ArmStateSnapshot = {
+  state: Record<string, unknown> | undefined
+  errors: string[]
+  lastPhase: string
+  bindingConflict: Record<string, unknown> | undefined
+}
+
+function canonicalArmBinding(
+  binding: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    source_commit: binding.source_commit,
+    source_receipt_sha256: binding.source_receipt_sha256,
+    recipe_sha256: binding.recipe_sha256,
+    target: binding.target,
+    build_host: binding.build_host,
+    variant: binding.variant,
+    producer_context: binding.producer_context,
+  }
+}
+
+async function armStateSnapshot(
+  evidenceOut: string,
+  binding: Record<string, unknown>,
+): Promise<ArmStateSnapshot> {
+  const path = evidenceOut + '/compilation-state.json'
+  let state: Record<string, unknown>
+  try {
+    const info = await Deno.lstat(path)
+    if (!info.isFile || info.isSymlink || info.size > 64 * 1024) {
+      throw new Error('not-regular')
+    }
+    state = object(JSON.parse(await Deno.readTextFile(path)), 'ARM state')
+    const captureError = state.capture_error
+    const captureErrors = state.capture_errors
+    const phase = state.phase
+    const lastPhase = state.last_observed_phase
+    if (
+      state.schema_version !== 1 ||
+      state.kind !== 'slv-arm-snapshot-build-observation-state' ||
+      !['started', 'incomplete', 'complete'].includes(state.status as string) ||
+      typeof phase !== 'string' ||
+      ![
+        'initial',
+        'guarded-cargo-start',
+        'guarded-cargo-finished',
+        'raw-capture',
+        'unavailable',
+        'finished',
+      ].includes(phase) ||
+      (
+        lastPhase !== undefined &&
+        (
+          typeof lastPhase !== 'string' ||
+          ![
+            'initial',
+            'guarded-cargo-start',
+            'guarded-cargo-finished',
+            'raw-capture',
+            'unavailable',
+            'finished',
+          ].includes(lastPhase)
+        )
+      ) ||
+      typeof state.monotonic_started !== 'number' ||
+      !Number.isFinite(state.monotonic_started) ||
+      state.monotonic_started < 0 ||
+      (
+        state.monotonic_elapsed_seconds !== undefined &&
+        (
+          typeof state.monotonic_elapsed_seconds !== 'number' ||
+          !Number.isFinite(state.monotonic_elapsed_seconds) ||
+          state.monotonic_elapsed_seconds < 0
+        )
+      ) ||
+      (
+        captureError !== undefined &&
+        (
+          typeof captureError !== 'string' ||
+          !/^[A-Za-z0-9_.:-]{1,128}$/.test(captureError)
+        )
+      ) ||
+      (
+        captureErrors !== undefined &&
+        (
+          !Array.isArray(captureErrors) ||
+          captureErrors.length > 16 ||
+          !captureErrors.every((value) =>
+            typeof value === 'string' &&
+            /^[A-Za-z0-9_.:-]{1,128}$/.test(value)
+          ) ||
+          new Set(captureErrors).size !== captureErrors.length
+        )
+      ) ||
+      (
+        state.binding !== undefined &&
+        (
+          !state.binding ||
+          typeof state.binding !== 'object' ||
+          Array.isArray(state.binding)
+        )
+      ) ||
+      (state.binding === undefined && state.identity_status !== 'unavailable')
+    ) {
+      throw new Error('invalid')
+    }
+  } catch (error) {
+    const kind = error instanceof Deno.errors.NotFound
+      ? 'state-missing'
+      : 'state-invalid'
+    return {
+      state: undefined,
+      errors: [kind],
+      lastPhase: 'unavailable',
+      bindingConflict: undefined,
+    }
+  }
+  const errors = boundedArmErrors([
+    state.capture_error,
+    ...(state.capture_errors as string[] | undefined ?? []),
+    ...(state.status === 'incomplete' ? ['state-incomplete'] : []),
+  ])
+  if (state.identity_status === 'unavailable') {
+    errors.push('identity-unavailable')
+  }
+  const stateBinding = state.binding as Record<string, unknown> | undefined
+  let bindingConflict: Record<string, unknown> | undefined
+  if (
+    stateBinding &&
+    !equalJson(
+      canonicalArmBinding(stateBinding),
+      canonicalArmBinding(binding),
+    )
+  ) {
+    errors.push('binding-conflict')
+    bindingConflict = {
+      sha256: await sha256Bytes(encoder.encode(stableJson(stateBinding))),
+      status: state.status,
+    }
+  }
+  return {
+    state,
+    errors: boundedArmErrors(errors),
+    lastPhase:
+      (typeof state.last_observed_phase === 'string'
+        ? state.last_observed_phase
+        : state.phase) as string,
+    bindingConflict,
+  }
+}
+
+async function atomicArmWrite(path: string, bytes: Uint8Array): Promise<void> {
+  const temporary = path + '.tmp-' + crypto.randomUUID()
+  try {
+    await Deno.writeFile(temporary, bytes, { createNew: true })
+    await Deno.rename(temporary, path)
+  } finally {
+    await Deno.remove(temporary).catch(() => undefined)
+  }
+}
+
+function armStateDocument(
+  prior: ArmStateSnapshot,
+  binding: Record<string, unknown>,
+  status: 'complete' | 'incomplete',
+  phase: string,
+  errors: string[],
+  additions: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...(prior.state ?? {
+      schema_version: 1,
+      kind: 'slv-arm-snapshot-build-observation-state',
+      monotonic_started: null,
+    }),
+    ...additions,
+    binding,
+    status,
+    phase,
+    last_observed_phase: prior.lastPhase,
+    capture_errors: errors,
+    ...(prior.bindingConflict
+      ? { observed_binding_conflict: prior.bindingConflict }
+      : {}),
+  }
+}
+
+async function writeArmObservation(
+  capture: ArmObservationCapture | undefined,
+  binding: Record<string, unknown>,
+  afterMetadataWrite?: () => Promise<void>,
+): Promise<void> {
+  if (!capture) return
+  const prior = await armStateSnapshot(capture.evidenceOut, binding)
+  const inherited = boundedArmErrors([
+    ...prior.errors,
+    ...(capture.status === 'complete' ? [] : ['capture-incomplete']),
+  ])
+  const complete = inherited.length === 0 && capture.status === 'complete'
+  const status = complete ? 'complete' : 'incomplete'
+  const payload = {
+    schema_version: 1,
+    kind: 'slv-arm-snapshot-build-observation',
+    ...binding,
+    status,
+    phase: prior.lastPhase,
+    last_observed_phase: prior.lastPhase,
+    host: compactArmValue(capture.host),
+    consumer: compactArmValue(capture.consumer),
+    snapshot_bundle: compactArmBundle(capture.snapshot_bundle),
+    missing_evidence: capture.missing_evidence,
+    capture_errors: inherited,
+    ...(prior.bindingConflict
+      ? { observed_binding_conflict: prior.bindingConflict }
+      : {}),
+  }
+  const metadata = (metadataErrors: string[]) =>
+    encoder.encode(
+      JSON.stringify(
+        {
+          ...payload,
+          status: metadataErrors.length ? 'incomplete' : status,
+          capture_errors: metadataErrors,
+        },
+        null,
+        2,
+      ) + '\n',
+    )
+  if (metadata(inherited).byteLength > ARM_OBSERVATION_LIMITS.metadata) {
+    throw new Error('ARM compilation metadata exceeds its observation limit')
+  }
+  const writeErrors: string[] = []
+  let metadataWritten = false
+  try {
+    await atomicArmWrite(
+      capture.evidenceOut + '/compilation-metadata.json',
+      metadata(inherited),
+    )
+    metadataWritten = true
+    if (afterMetadataWrite) await afterMetadataWrite()
+  } catch (error) {
+    writeErrors.push(
+      armObservationDiagnostic('metadata-write', error).operation,
+    )
+  }
+  const errors = boundedArmErrors([...inherited, ...writeErrors])
+  try {
+    const state = armStateDocument(
+      prior,
+      binding,
+      errors.length ? 'incomplete' : status,
+      errors.length ? prior.lastPhase : 'finished',
+      errors,
+      {
+        missing_evidence: capture.missing_evidence,
+        raw_capture_status: capture.status === 'complete'
+          ? 'raw-capture-complete'
+          : 'raw-capture-incomplete',
+        ...(typeof binding.original_build_exit_code === 'number'
+          ? { original_build_exit_code: binding.original_build_exit_code }
+          : {}),
+      },
+    )
+    await atomicArmWrite(
+      capture.evidenceOut + '/compilation-state.json',
+      encoder.encode(JSON.stringify(state, null, 2) + '\n'),
+    )
+  } catch (error) {
+    writeErrors.push(armObservationDiagnostic('state-write', error).operation)
+  }
+  const finalErrors = boundedArmErrors([...errors, ...writeErrors])
+  if (metadataWritten && writeErrors.includes('state-write')) {
+    try {
+      await atomicArmWrite(
+        capture.evidenceOut + '/compilation-metadata.json',
+        metadata(finalErrors),
+      )
+    } catch (error) {
+      armObservationDiagnostic('metadata-rewrite', error)
+    }
+  }
+  if (finalErrors.length || capture.status !== 'complete') {
+    throw new Error('ARM compilation observation is incomplete')
+  }
+}
+
+export const internalWriteArmObservation = writeArmObservation
+
+function armObservationBinding(
+  inputs: ImmutableInputs,
+  target: string,
+  buildHost: string,
+  variant: Variant,
+  producer: ProducerContext | null,
+): Record<string, unknown> {
+  return {
+    source_commit: inputs.assembly.source.commit,
+    source_receipt_sha256: inputs.assemblyReceiptSha256,
+    target,
+    build_host: targetHost(buildHost),
+    variant,
+    producer_context: producer,
+  }
+}
+
+async function armFailureRawReference(
+  evidenceOut: string,
+): Promise<Record<string, unknown>> {
+  const path = evidenceOut + '/raw-capture.json'
+  try {
+    await regularFile(path, 'ARM raw capture')
+    const info = await Deno.stat(path)
+    return {
+      path: 'raw-capture.json',
+      size: info.size,
+      sha256: await sha256(path),
+    }
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      reason: error instanceof Error
+        ? error.message.slice(0, 128)
+        : 'unavailable',
+    }
+  }
+}
+
+async function recordArmBuildFailure(
+  evidenceOut: string | undefined,
+  binding: Record<string, unknown> | undefined,
+  observed: ObservedCommandResult | undefined,
+  reason: string,
+): Promise<void> {
+  if (!evidenceOut || !binding) return
+  const prior = await armStateSnapshot(evidenceOut, binding)
+  const errors = boundedArmErrors([
+    ...prior.errors,
+    observed ? 'source-command-failed' : 'source-result-unavailable',
+  ])
+  const timing = observed
+    ? {
+      started_at: observed.started_at,
+      finished_at: observed.finished_at,
+      elapsed_seconds: observed.elapsed_seconds,
+    }
+    : { status: 'unavailable' }
+  const rawCapture = await armFailureRawReference(evidenceOut)
+  const payload = {
+    schema_version: 1,
+    kind: 'slv-arm-snapshot-build-observation',
+    ...binding,
+    status: 'incomplete',
+    phase: prior.lastPhase,
+    last_observed_phase: prior.lastPhase,
+    original_build_exit_code: observed?.exit_code ?? null,
+    original_build_signal: observed?.signal ?? null,
+    timing,
+    raw_capture: rawCapture,
+    capture_errors: errors,
+    missing_evidence: [reason],
+    ...(prior.bindingConflict
+      ? { observed_binding_conflict: prior.bindingConflict }
+      : {}),
+  }
+  const writeErrors: string[] = []
+  try {
+    const bytes = encoder.encode(JSON.stringify(payload, null, 2) + '\n')
+    if (bytes.byteLength > ARM_OBSERVATION_LIMITS.metadata) {
+      throw new Error('failure metadata exceeds its observation limit')
+    }
+    await atomicArmWrite(evidenceOut + '/compilation-metadata.json', bytes)
+  } catch (error) {
+    writeErrors.push(
+      armObservationDiagnostic('failure-metadata-write', error).operation,
+    )
+  }
+  try {
+    const state = armStateDocument(
+      prior,
+      binding,
+      'incomplete',
+      prior.lastPhase,
+      boundedArmErrors([...errors, ...writeErrors]),
+      {
+        original_build_exit_code: observed?.exit_code ?? null,
+        original_build_signal: observed?.signal ?? null,
+        timing,
+        raw_capture: rawCapture,
+        missing_evidence: [reason],
+      },
+    )
+    await atomicArmWrite(
+      evidenceOut + '/compilation-state.json',
+      encoder.encode(JSON.stringify(state, null, 2) + '\n'),
+    )
+  } catch (error) {
+    armObservationDiagnostic('failure-state-write', error)
+  }
+}
+
 async function stageBuild(
   recipeSource: string,
   sources: NativeSources,
@@ -1690,6 +2958,8 @@ async function stageBuild(
   buildHost: string,
   label: 'baseline' | 'modified',
   jobs: string,
+  evidenceOut?: string,
+  observationBinding?: Record<string, unknown>,
 ): Promise<{
   build: CommandReceipt
   denort: string
@@ -1702,6 +2972,8 @@ async function stageBuild(
   runtime_abi: Record<string, unknown>
   runtime_abi_receipt_sha256: string
   cargo_fingerprints: CargoFingerprintCollection
+  arm_observation: ArmObservationCapture | undefined
+  arm_binding: Record<string, unknown> | undefined
 }> {
   const recipeDirectory = `${output}/recipe`
   await Deno.mkdir(recipeDirectory, { recursive: true })
@@ -1714,6 +2986,17 @@ async function stageBuild(
   await Deno.copyFile(preflightSource, preflightRecipe)
   await Deno.chmod(recipe, 0o755)
   await Deno.chmod(preflightRecipe, 0o755)
+  const recipeSha256 = await sha256(recipe)
+  const fullBinding =
+    target === 'aarch64-unknown-linux-gnu' && evidenceOut && observationBinding
+      ? { ...observationBinding, recipe_sha256: recipeSha256 }
+      : undefined
+  const armContext = fullBinding ? JSON.stringify(fullBinding) : undefined
+  if (armContext && encoder.encode(armContext).byteLength > 16 * 1024) {
+    throw new Error(
+      'ARM observation context exceeds its bounded recipe handoff',
+    )
+  }
   const cross = target !== buildHost
   const hostPython = await resolveHostPython()
   const buildEnvironment = Object.fromEntries(
@@ -1748,6 +3031,7 @@ async function stageBuild(
     DENO_SOURCE_DIR: sources.deno,
     RUSTY_V8_SOURCE_DIR: sources.rustyV8,
     CARGO_VENDOR_DIR: sources.cargoVendor,
+    ...(armContext ? { SLV_ARM_OBSERVATION_CONTEXT: armContext } : {}),
     ...(targetHost(target).os === 'linux'
       ? {
         BUILD_TARGET: target,
@@ -1767,22 +3051,44 @@ async function stageBuild(
     const value = Deno.env.get(key)
     if (value) env[key] = value
   }
-  const build = await streamingCommand(
-    Deno.build.os === 'darwin' ? '/bin/bash' : '/usr/bin/bash',
-    // The recipe copies these explicit immutable source paths into its own
-    // disposable worktree. Passing their common extraction root here only
-    // records the source assembly context; it does not cause a second native
-    // input-tree copy in the driver.
-    [
-      recipe,
-      await real(sources.deno.slice(0, sources.deno.lastIndexOf('/'))),
+  let observed: ObservedCommandResult | undefined
+  let build: CommandReceipt
+  try {
+    build = await streamingCommand(
+      Deno.build.os === 'darwin' ? '/bin/bash' : '/usr/bin/bash',
+      [
+        recipe,
+        ...(evidenceOut ? ['--evidence-out', evidenceOut] : []),
+        await real(sources.deno.slice(0, sources.deno.lastIndexOf('/'))),
+        output,
+      ],
       output,
-    ],
-    output,
-    `${output}/baseline-denort.log`,
-    env,
-  )
-  succeeded(build, `${label} source build`)
+      `${output}/baseline-denort.log`,
+      env,
+      (result) => {
+        observed = result
+      },
+    )
+  } catch (error) {
+    await recordArmBuildFailure(
+      evidenceOut,
+      fullBinding,
+      observed,
+      observed
+        ? 'source command receipt log capture failed'
+        : 'source command did not return a result',
+    )
+    throw error
+  }
+  if (build.exit_code !== 0) {
+    await recordArmBuildFailure(
+      evidenceOut,
+      fullBinding,
+      observed,
+      'source build did not complete; partial raw evidence may be retained',
+    )
+    succeeded(build, `${label} source build`)
+  }
   const release = targetHost(target).os === 'linux'
     ? `${output}/target/${target}/release`
     : `${output}/target/release`
@@ -1840,19 +3146,77 @@ async function stageBuild(
     runtime_sha256: await sha256(denort),
     derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
   })
+  if (target === 'aarch64-unknown-linux-gnu' && evidenceOut) {
+    await Deno.writeFile(
+      `${evidenceOut}/cargo-fingerprints.json`,
+      encoder.encode(JSON.stringify(cargoFingerprints, null, 2) + '\n'),
+    )
+  }
+  const armObservation = await captureArmObservation(
+    output,
+    target,
+    evidenceOut,
+    cargoFingerprints,
+  )
   return {
     build,
     denort,
     v8,
     ninja,
-    recipe_sha256: await sha256(recipe),
+    recipe_sha256: recipeSha256,
     recipe_receipt_sha256: await sha256(recipeReceipt),
     derived_relink_cargo_lock: derivedRelinkCargoLock,
     derived_relink_cargo_lock_sha256: derivedRelinkCargoLockSha256,
     runtime_abi: runtimeAbi,
     runtime_abi_receipt_sha256: await sha256(abiReceipt),
     cargo_fingerprints: cargoFingerprints,
+    arm_observation: armObservation,
+    arm_binding: fullBinding,
   }
+}
+
+async function recordArmObservation(
+  stage: {
+    arm_observation: ArmObservationCapture | undefined
+    arm_binding: Record<string, unknown> | undefined
+    recipe_sha256: string
+    derived_relink_cargo_lock_sha256: string
+    denort: string
+    build: CommandReceipt
+  },
+  inputs: ImmutableInputs,
+  target: string,
+  buildHost: string,
+  variant: Variant,
+  producer: ProducerContext | null,
+): Promise<void> {
+  await writeArmObservation(stage.arm_observation, {
+    ...(stage.arm_binding ?? {
+      source_commit: inputs.assembly.source.commit,
+      source_receipt_sha256: inputs.assemblyReceiptSha256,
+      recipe_sha256: stage.recipe_sha256,
+      target,
+      build_host: targetHost(buildHost),
+      variant,
+      producer_context: producer,
+    }),
+    derived_relink_cargo_lock_sha256: stage.derived_relink_cargo_lock_sha256,
+    runtime_sha256: await sha256(stage.denort),
+    requested: { gn_args: 'use_glib=false', extra_gn_args: 'use_lld=true' },
+    timing: {
+      started_at: stage.build.started_at,
+      finished_at: stage.build.finished_at,
+      elapsed_seconds: Math.max(
+        0,
+        Date.parse(stage.build.finished_at) -
+          Date.parse(stage.build.started_at),
+      ) / 1000,
+    },
+    original_build_exit_code: stage.build.exit_code,
+    configuration_check: stage.arm_observation?.status === 'complete'
+      ? 'passed'
+      : 'failed',
+  })
 }
 
 async function compileProbe(
@@ -2445,6 +3809,7 @@ async function buildPhase(args: Args): Promise<void> {
   }
   const transport = `${out}/transport`
   await Deno.mkdir(transport)
+  const evidenceRoot = await prepareCombinedEvidenceRoot(args['--evidence-out'])
   const baseline = await stageBuild(
     recipe,
     baselineSources,
@@ -2454,6 +3819,16 @@ async function buildPhase(args: Args): Promise<void> {
     buildHostTarget,
     'baseline',
     jobs,
+    evidenceRoot ? `${evidenceRoot}/baseline` : undefined,
+    armObservationBinding(inputs, target, buildHostTarget, 'baseline', null),
+  )
+  await recordArmObservation(
+    baseline,
+    inputs,
+    target,
+    buildHostTarget,
+    'baseline',
+    null,
   )
 
   const baselineProbeCompile = await compileProbe(
@@ -2567,6 +3942,16 @@ async function buildPhase(args: Args): Promise<void> {
     buildHostTarget,
     'modified',
     jobs,
+    evidenceRoot ? `${evidenceRoot}/modified` : undefined,
+    armObservationBinding(inputs, target, buildHostTarget, 'modified', null),
+  )
+  await recordArmObservation(
+    modified,
+    inputs,
+    target,
+    buildHostTarget,
+    'modified',
+    null,
   )
   // The recipe already made its own immutable build worktree. Keep only the
   // patch hashes and receipt, then release this copied source before probe
@@ -2703,6 +4088,25 @@ async function checkedSourceLocks(inputs: ImmutableInputs): Promise<string> {
   return selected
 }
 
+async function prepareCombinedEvidenceRoot(
+  evidenceOut: string | undefined,
+): Promise<string | undefined> {
+  if (!evidenceOut) return undefined
+  const existing = await Deno.lstat(evidenceOut).catch((error) => {
+    if (error instanceof Deno.errors.NotFound) return undefined
+    throw error
+  })
+  if (existing) {
+    throw new Error('--evidence-out must name a fresh directory')
+  }
+  await Deno.mkdir(evidenceOut)
+  const info = await Deno.lstat(evidenceOut)
+  if (!info.isDirectory || info.isSymlink) {
+    throw new Error('--evidence-out must be a real directory')
+  }
+  return evidenceOut
+}
+
 async function producerContext(
   path: string,
   label: string,
@@ -2776,6 +4180,22 @@ async function buildVariantPhase(args: Args): Promise<void> {
       buildHostTarget,
       'baseline',
       '4',
+      args['--evidence-out'],
+      armObservationBinding(
+        inputs,
+        target,
+        buildHostTarget,
+        'baseline',
+        context,
+      ),
+    )
+    await recordArmObservation(
+      baseline,
+      inputs,
+      target,
+      buildHostTarget,
+      'baseline',
+      context,
     )
     const probeCompile = await compileProbe(
       tools.environment.DENO_FRONTEND,
@@ -2889,6 +4309,22 @@ async function buildVariantPhase(args: Args): Promise<void> {
       buildHostTarget,
       'modified',
       '4',
+      args['--evidence-out'],
+      armObservationBinding(
+        inputs,
+        target,
+        buildHostTarget,
+        'modified',
+        context,
+      ),
+    )
+    await recordArmObservation(
+      modified,
+      inputs,
+      target,
+      buildHostTarget,
+      'modified',
+      context,
     )
     await Deno.remove(modifiedRustyV8, { recursive: true })
     const probeCompile = await compileProbe(
