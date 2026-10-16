@@ -137,9 +137,9 @@ ansible-playbook -i inventory.yml mainnet-validator/init.yml \
 # Restart a validator
 ansible-playbook -i inventory.yml mainnet-validator/restart_node.yml
 
-# Build Solana from source
+# Build Solana from source (agave_version, jito_version or allnodes_jito_version, for the validator_type of the host)
 ansible-playbook -i inventory.yml cmn/build_solana.yml \
-  -e '{"solana_version":"v3.1.8"}'
+  -e '{"agave_version":"4.3.2"}'
 ```
 
 ## ERPC Network Benefits

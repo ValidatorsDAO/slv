@@ -55,7 +55,7 @@ jinja/                      # Jinja2 templates for config generation
 
 4. **All variables can be passed via `extra_vars`** — No need to edit `versions.yml`.
 
-5. **`build_solana.yml` is preferred** over `install_solana.yml` (source build vs pre-built binary).
+5. **`build_solana.yml` is preferred** over `install_solana.yml` (source build vs pre-built binary). It builds the `agave_version`, `jito_version` or `allnodes_jito_version` of the host or of `-e`, else `version_agave`, `version_jito` or `version_allnodes_jito` of the section of `versions.yml` that the calling playbook passes as `versions_section` (`mainnet_validators`, `testnet_validators`, `mainnet_rpcs`, `testnet_rpcs` or `devnet_rpcs`). With neither it stops, before it builds anything.
 
 ### Agent Assignments
 

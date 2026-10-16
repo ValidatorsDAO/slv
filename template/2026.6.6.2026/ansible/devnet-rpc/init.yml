@@ -5,20 +5,14 @@
 # never share port 10000.
 # geyser_plugin: richat in the inventory is the way to richat (geyser_richat_build.yml and
 # install_richat.yml, at devnet_rpcs.richat_version), but richat has no release for agave 4.3
-# or later yet: the play stops, before it changes anything, on a node that is set to run such
-# an agave (richat_first_unsupported_agave below). Any other value of geyser_plugin stops it too.
+# or later yet: cmn/check_richat_release.yml stops the play, before it changes anything, on a node
+# that is set to run such an agave. Any other value of geyser_plugin stops it too.
+# The client is built at the agave_version or jito_version of the host, else at version_agave or
+# version_jito of devnet_rpcs (cmn/build_solana.yml, which takes the section as versions_section).
 - name: Load validator type from inventory
   hosts: all
   gather_facts: no
   any_errors_fatal: true
-  # the pin of the client is read from versions.yml when the file exists
-  vars_files:
-    - ["~/.slv/versions.yml", "/dev/null"]
-  vars:
-    # The first agave release that no richat release supports: richat-v8.2.2 is built for agave
-    # 3.1 and the newest richat for 4.0. Raise it when a richat release for a newer agave comes,
-    # and point devnet_rpcs.richat_version at that release.
-    richat_first_unsupported_agave: [4, 3, 0]
   tasks:
     - name: Fail unless validator_type is a supported type
       ansible.builtin.assert:
@@ -42,32 +36,13 @@
         fail_msg: "geyser_plugin must be yellowstone or richat (or left out for yellowstone), not '{{ geyser_plugin }}'. Nothing was changed on {{ inventory_hostname }}."
         success_msg: "Geyser plugin is {{ geyser_plugin }}"
 
-    - name: Check that a richat release supports the client of this node
-      when:
-        - geyser_plugin == 'richat'
-        - rpc_type | default('') in ['Geyser gRPC', 'Index RPC + gRPC']
-        - validator_type in ['agave', 'jito']
-      block:
-        - name: Read the version of the client that this node is set to run
-          set_fact:
-            slv_client_version: >-
-              {{ jito_version | default(slv_rpcs.version_jito | default('', true), true)
-                 if validator_type == 'jito'
-                 else agave_version | default(slv_rpcs.version_agave | default('', true), true) }}
-          vars:
-            slv_rpcs: "{{ devnet_rpcs | default({}) }}"
-
-        - name: Fail unless the version of the client is known
-          ansible.builtin.assert:
-            that:
-              - (slv_client_version | string | regex_findall('[0-9]+') | length) > 0
-            fail_msg: "geyser_plugin: richat cannot be used on {{ inventory_hostname }}: no version of agave or jito is set for it (agave_version, jito_version, or version_agave and version_jito in devnet_rpcs of ~/.slv/versions.yml), and richat has no release for agave 4.3 or later yet. Remove geyser_plugin from the inventory to get Yellowstone, the default. Nothing was changed."
-
-        - name: Fail when richat has no release for the agave of this node
-          ansible.builtin.assert:
-            that:
-              - ((slv_client_version | string).split('-')[0] | regex_findall('[0-9]+') | map('int') | list + [0, 0, 0])[:3] < richat_first_unsupported_agave
-            fail_msg: "geyser_plugin: richat cannot be used on {{ inventory_hostname }}: richat has no release for agave 4.3 or later yet, and this node is set to run {{ slv_client_version }}. Remove geyser_plugin from the inventory to get Yellowstone, the default. Nothing was changed."
+- import_playbook: ../cmn/check_richat_release.yml
+  vars:
+    versions_section: devnet_rpcs
+  when:
+    - geyser_plugin == 'richat'
+    - rpc_type | default('') in ['Geyser gRPC', 'Index RPC + gRPC']
+    - validator_type in ['agave', 'jito']
 
 - import_playbook: ../cmn/fix_permissions.yml
 - import_playbook: ../cmn/copy_restart_sh.yml
@@ -85,6 +60,8 @@
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
 - import_playbook: ../cmn/build_solana.yml
+  vars:
+    versions_section: devnet_rpcs
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 

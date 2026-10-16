@@ -10,6 +10,11 @@ validator_type stops init.yml of the three networks and update_startup_config.ym
 devnet-rpc the same way; none of them turns it into a Firedancer type. The RPC gateway takes the pubsub
 of the node's own agave unless the node runs richat.
 
+The richat playbooks (geyser_richat_build.yml, install_richat.yml, init_richat_geyser.yml) refuse the
+same way when they are run directly, and the build of the client (cmn/build_solana.yml, which init.yml of
+the validator and RPC networks runs) reads the pins of the section that its caller names, not those of
+mainnet_validators.
+
 The tests run the real ansible-playbook on this machine over a local connection, without become,
 sudo, a network or a host:
 
@@ -23,6 +28,10 @@ sudo, a network or a host:
             a systemd task its arguments), under the task's own condition, so the list of a host is
             what the play would do for it. A stat task reports that the file exists when the host
             variable slv_stub_exists is true.
+  direct    a playbook that installs richat is copied with each of its plays recorded as under
+            "recorded", and the import of the richat check (cmn/check_richat_release.yml) kept as it is.
+  build     the import of cmn/build_solana.yml of an init.yml is run as it is, with the builders cut at
+            their git task: what they have resolved by then is the tag that the build would clone.
   render    the set_fact, git and template tasks of a plugin play run in a copy of that play: every
             template goes into a temporary directory and git is not run, only recorded. The other tasks
             (cargo, systemd, file, stat) are left out. HOME is a temporary directory whose .slv holds
@@ -40,6 +49,7 @@ The whole set takes under a minute. The versions of ansible-core that slv is use
 that did not run: there is none.
 """
 
+import concurrent.futures
 import functools
 import json
 import os
@@ -103,6 +113,42 @@ VERSIONS = make_versions(PINS)
 OLD_VERSIONS = make_versions(OLD_PINS)
 NO_PINS = make_versions(None)
 
+# The playbooks that install richat, and the section of versions.yml each of them names.
+RICHAT_PLAYBOOKS = tuple(
+    "%s-rpc/%s" % (network, name) for network in NETWORKS for name in ("geyser_richat_build.yml", "install_richat.yml")
+) + ("mainnet-rpc/init_richat_geyser.yml",)
+RICHAT_CHECK = "check_richat_release.yml"
+
+# The init.yml that run cmn/build_solana.yml, and the section of versions.yml each reads the pins from.
+BUILD_CALLERS = {
+    "mainnet-validator/init.yml": "mainnet_validators",
+    "testnet-validator/init.yml": "testnet_validators",
+    "mainnet-rpc/init.yml": "mainnet_rpcs",
+    "testnet-rpc/init.yml": "testnet_rpcs",
+    "devnet-rpc/init.yml": "devnet_rpcs",
+}
+# A section for each, with numbers of its own: (agave, jito, allnodes-jito). Only the validators have an allnodes pin.
+BUILD_PINS = {
+    "mainnet_validators": ("1.0.1", "1.0.2-jito", "1.0.3-allnodes"),
+    "testnet_validators": ("2.0.1", "2.0.2-jito", "2.0.3-allnodes"),
+    "mainnet_rpcs": ("3.0.1", "3.0.2-jito", None),
+    "testnet_rpcs": ("4.0.1", "4.0.2-jito", None),
+    "devnet_rpcs": ("5.0.1", "5.0.2-jito", None),
+}
+BUILDERS = ("build_agave", "build_jito", "build_allnodes_jito")
+
+
+def build_versions(pins=True):
+    sections = {}
+    for section, (agave, jito, allnodes) in BUILD_PINS.items():
+        entry = {"geyser_version": "unrelated"}
+        if pins:
+            entry.update(version_agave=agave, version_jito=jito)
+            if allnodes is not None:
+                entry["version_allnodes_jito"] = allnodes
+        sections[section] = entry
+    return sections
+
 # Values that geyser_plugin must not take (None is an empty value in the inventory).
 INVALID_PLUGINS = ("Richat", "RICHAT", "", "none", "both", "yellowstone ", "richat,yellowstone", "geyser", None,
                    True, ["richat"])
@@ -125,6 +171,15 @@ def setUpModule():
         stderr=subprocess.STDOUT, text=True, check=True,
     ).stdout.splitlines()[0]
     sys.stderr.write("tests of the RPC init playbooks, run with %s\n" % version)
+
+
+def prefetch(function, argument_lists):
+    """Call the cached run function for each list of arguments, a few at a time: every call starts an
+    ansible-playbook, and the tests then find the results in the cache."""
+    workers = min(8, os.cpu_count() or 2)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for future in [pool.submit(function, *arguments) for arguments in argument_lists]:
+            future.result()
 
 
 def slug(text):
@@ -231,6 +286,32 @@ def richat_inert_hosts():
     }
 
 
+def build_hosts():
+    """One host for each validator_type."""
+    return {"build-" + name: {"validator_type": name} for name in SUPPORTED_TYPES}
+
+
+def build_override_hosts():
+    """Versions of the host, which come before the pins of the section."""
+    return {
+        "own-agave": {"validator_type": "agave", "agave_version": "7.7.1"},
+        "own-firedancer-agave": {"validator_type": "firedancer-agave", "agave_version": "7.7.2"},
+        "own-jito": {"validator_type": "jito", "jito_version": "7.7.3-jito"},
+        "own-firedancer-jito": {"validator_type": "firedancer-jito", "jito_version": "7.7.4-jito"},
+        "own-allnodes": {"validator_type": "allnodes-jito", "allnodes_jito_version": "7.7.5"},
+        # a node builds the client of its own type: the version of another type is not its version
+        "other-agave": {"validator_type": "agave", "jito_version": "7.7.6-jito"},
+        "other-jito": {"validator_type": "jito", "agave_version": "7.7.7"},
+        # an empty version is no version
+        "empty-agave": {"validator_type": "agave", "agave_version": ""},
+    }
+
+
+def build_stopped_hosts():
+    """Nothing to build from: the pins of the section are not there and the host has no version."""
+    return {"stopped-" + name: {"validator_type": name} for name in ("agave", "jito", "allnodes-jito")}
+
+
 # scenario -> (the hosts, the versions.yml). The pins of "valid" are below the first agave that richat has no
 # release for, so that its richat hosts reach the richat plays; the other scenarios say what their pins are.
 SCENARIOS = {
@@ -244,6 +325,13 @@ SCENARIOS = {
     "richat-allowed": (richat_allowed_hosts, VERSIONS),
     "richat-unknown-version": (richat_unknown_hosts, NO_PINS),
     "richat-inert": (richat_inert_hosts, VERSIONS),
+}
+
+# the scenarios of the builders: (the hosts, the versions.yml)
+BUILD_SCENARIOS = {
+    "pins": (build_hosts, build_versions()),
+    "own-versions": (build_override_hosts, build_versions()),
+    "no-pins": (build_stopped_hosts, build_versions(pins=False)),
 }
 
 # playbook, scenario -> the hosts of a recorded run
@@ -382,12 +470,14 @@ class FlowResult:
         return [play for play in self.imports if play in PLUGIN_PLAYS]
 
 
-def make_flow_copy(network, root):
-    """A copy of init.yml of <network>-rpc under root, with a stub for every playbook it imports."""
-    directory = root / ("%s-rpc" % network)
+def make_flow_copy(name, root):
+    """A copy of init.yml of the directory `name` (mainnet-rpc, testnet-validator, ...) under root, with a stub
+    for every playbook it imports, except the richat check: its conditions are those of init.yml, and what
+    it does is the thing under test."""
+    directory = root / name
     directory.mkdir()
     init = directory / "init.yml"
-    shutil.copy(ANSIBLE_DIR / ("%s-rpc" % network) / "init.yml", init)
+    shutil.copy(ANSIBLE_DIR / name / "init.yml", init)
     imported = re.findall(r"^- import_playbook:\s*(\S+)\s*$", init.read_text(), re.M)
     assert imported, "no import_playbook line in %s" % init
     with init.open("a") as handle:
@@ -395,7 +485,11 @@ def make_flow_copy(network, root):
     for play in imported:
         stub = (directory / play).resolve()
         stub.parent.mkdir(parents=True, exist_ok=True)
-        stub.write_text(STUB.format(play=play))
+        real = (ANSIBLE_DIR / name / play).resolve()
+        if real.name == RICHAT_CHECK and real.is_file():
+            shutil.copy(real, stub)
+        else:
+            stub.write_text(STUB.format(play=play))
     return init
 
 
@@ -415,7 +509,7 @@ def run_init(network, scenario="valid"):
     with tempfile.TemporaryDirectory(prefix="slv-rpc-flow-") as tmp:
         root = Path(tmp)
         home = make_home(root, versions)
-        init = make_flow_copy(network, root)
+        init = make_flow_copy("%s-rpc" % network, root)
         logs = root / "logs"
         logs.mkdir()
         hosts = hosts_of()
@@ -458,6 +552,8 @@ def recorded_copy_of(play):
             entry += " " + args["src"]
         elif module == "systemd":
             entry += " " + " ".join("%s=%s" % (key, args[key]) for key in sorted(args))
+        # the record is a string inside an expression: a variable of the task is not expanded in it
+        entry = entry.replace("{{", "<<").replace("}}", ">>")
         facts = {"slv_ran": "{{ (slv_ran | default([])) + [%s] }}" % json.dumps(entry)}
         if "register" in task:
             if module == "stat":
@@ -473,6 +569,7 @@ def recorded_copy_of(play):
         "hosts": "all",
         "gather_facts": False,
         "vars_files": play.get("vars_files", []),
+        "vars": play.get("vars", {}),
         "tasks": tasks,
     }
 
@@ -494,6 +591,145 @@ def run_recorded(playbook, scenario):
         write_inventory(root / "inventory.json", hosts)
         process = run_ansible(["-i", "inventory.json", copy, "-e", "slv_log_dir=%s" % logs], root, home)
         return read_logs(logs, hosts, process)
+
+
+# ---------------------------------------------------------------------------
+# direct: the playbooks that install richat, run by themselves
+# ---------------------------------------------------------------------------
+
+
+def write_recorded_tree(relative, root, top=True):
+    """ansible/<relative> under root with each of its plays recorded, each import of a playbook of that
+    directory replaced by the same, and the import of the richat check kept as the real playbook."""
+    source = (ANSIBLE_DIR / relative).resolve()
+    entries = yaml.safe_load(source.read_text())
+    written = []
+    for entry in entries:
+        target = entry.get("import_playbook")
+        if target is None:
+            written.append(recorded_copy_of(entry))
+            continue
+        imported = (source.parent / target).resolve()
+        if imported.name == RICHAT_CHECK:
+            copy = (root / relative).resolve().parent / target
+            copy.resolve().parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(imported, copy.resolve())
+        else:
+            write_recorded_tree(str(imported.relative_to(ANSIBLE_DIR.resolve())), root, top=False)
+        written.append(entry)
+    if top:
+        written += yaml.safe_load(WRITE_DOWN)
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(yaml.safe_dump(written, sort_keys=False))
+    return destination
+
+
+@functools.lru_cache(maxsize=None)
+def run_direct(relative, scenario):
+    """Run ansible/<relative>, a playbook that installs richat, against the hosts of a scenario of SCENARIOS
+    with every task recorded, not run; the result maps each host to a FlowResult whose imports are the records."""
+    hosts_of, versions = SCENARIOS[scenario]
+    with tempfile.TemporaryDirectory(prefix="slv-rpc-direct-") as tmp:
+        root = Path(tmp)
+        home = make_home(root, versions)
+        playbook = write_recorded_tree(relative, root)
+        logs = root / "logs"
+        logs.mkdir()
+        hosts = hosts_of()
+        write_inventory(root / "inventory.json", hosts)
+        process = run_ansible(["-i", "inventory.json", playbook, "-e", "slv_log_dir=%s" % logs], root, home)
+        return read_logs(logs, hosts, process)
+
+
+# ---------------------------------------------------------------------------
+# build: the version that cmn/build_solana.yml builds
+# ---------------------------------------------------------------------------
+
+
+def builder_probe_copy_of(play, label):
+    """The play up to its first git task: the set_fact and assert tasks before it as they are, so that the
+    version is resolved and checked as the playbook does it, and the git task as a record of its arguments."""
+    tasks = [{
+        "name": "a directory for the host",
+        "ansible.builtin.file": {"path": "{{ slv_out }}/{{ inventory_hostname }}", "state": "directory"},
+    }]
+    for task in play["tasks"]:
+        module, args = module_of(task)
+        if module in ("set_fact", "assert", "fail", "debug"):
+            tasks.append({key: value for key, value in task.items() if key not in ("become", "become_user")})
+        elif module == "git":
+            tasks.append({
+                "name": "record the git task",
+                "ansible.builtin.copy": {"content": "{{ slv_record | to_json }}", "dest": "{{ slv_out }}/{{ inventory_hostname }}/%s.json" % label},
+                "vars": {"slv_record": {"module": module, "args": args}},
+            })
+            break
+    else:
+        raise AssertionError("%s has no git task" % label)
+    return {
+        "name": "version of %s" % label,
+        "hosts": "all",
+        "gather_facts": False,
+        "vars_files": play.get("vars_files", []),
+        "vars": play.get("vars", {}),
+        "tasks": tasks,
+    }
+
+
+class BuildResult:
+    def __init__(self, tags, output, returncode):
+        self.tags = tags  # {builder: the tag it would clone}
+        self.output = output
+        self.returncode = returncode
+
+
+def build_import_of(caller):
+    """The import of cmn/build_solana.yml in init.yml of the caller, as it is; "direct" is a bare import."""
+    if caller == "direct":
+        return {"import_playbook": "../cmn/build_solana.yml"}
+    entries = [entry for entry in yaml.safe_load((ANSIBLE_DIR / caller).read_text())
+               if str(entry.get("import_playbook", "")).endswith("cmn/build_solana.yml")]
+    assert len(entries) == 1, "%s is expected to import cmn/build_solana.yml once" % caller
+    return entries[0]
+
+
+@functools.lru_cache(maxsize=None)
+def run_build(caller, scenario):
+    """Run the import of cmn/build_solana.yml of a caller (an init.yml of BUILD_CALLERS, or "direct") with the
+    three builders cut at their git task, against the hosts of a scenario of BUILD_SCENARIOS."""
+    hosts_of, versions = BUILD_SCENARIOS[scenario]
+    with tempfile.TemporaryDirectory(prefix="slv-rpc-build-") as tmp:
+        root = Path(tmp)
+        home = make_home(root, versions)
+        (root / "cmn").mkdir()
+        # build_solana.yml as it is, without its empty first play, which would gather facts as solv
+        dispatch = [entry for entry in yaml.safe_load((ANSIBLE_DIR / "cmn" / "build_solana.yml").read_text())
+                    if "import_playbook" in entry]
+        assert len(dispatch) == len(BUILDERS), "build_solana.yml is expected to import the three builders"
+        (root / "cmn" / "build_solana.yml").write_text(yaml.safe_dump(dispatch, sort_keys=False))
+        for label in BUILDERS:
+            play = yaml.safe_load((ANSIBLE_DIR / "cmn" / (label + ".yml")).read_text())
+            assert len(play) == 1, "%s is expected to hold one play" % label
+            (root / "cmn" / (label + ".yml")).write_text(yaml.safe_dump([builder_probe_copy_of(play[0], label)], sort_keys=False))
+        directory = root / (caller.split("/")[0] if caller != "direct" else "net")
+        directory.mkdir()
+        probe = directory / "probe.yml"
+        probe.write_text(yaml.safe_dump([build_import_of(caller)], sort_keys=False))
+        out = root / "out"
+        out.mkdir()
+        hosts = hosts_of()
+        write_inventory(root / "inventory.json", hosts)
+        process = run_ansible(["-i", "inventory.json", probe, "-e", "slv_out=%s" % out], root, home)
+        results = {}
+        for name in hosts:
+            tags = {}
+            for label in BUILDERS:
+                record = out / name / (label + ".json")
+                if record.exists():
+                    tags[label] = json.loads(record.read_text())["args"]["version"]
+            results[name] = BuildResult(tags, process.stdout, process.returncode)
+        return results
 
 
 # ---------------------------------------------------------------------------
@@ -610,8 +846,9 @@ def run_render(network, play_name):
     with tempfile.TemporaryDirectory(prefix="slv-rpc-render-") as tmp:
         root = Path(tmp)
         home = make_home(root)
-        source = yaml.safe_load((ANSIBLE_DIR / ("%s-rpc" % network) / play_name).read_text())
-        assert isinstance(source, list) and len(source) == 1, "%s is expected to hold one play" % play_name
+        source = [entry for entry in yaml.safe_load((ANSIBLE_DIR / ("%s-rpc" % network) / play_name).read_text())
+                  if "import_playbook" not in entry]
+        assert len(source) == 1, "%s is expected to hold one play besides its imports" % play_name
         playbook = root / "render.yml"
         playbook.write_text(yaml.safe_dump([render_copy_of(source[0])], sort_keys=False))
         out = root / "out"
@@ -666,11 +903,12 @@ def plugin_message(host):
 def refusal_message(host, version=None):
     middle = r"richat has no release for agave 4\.3 or later yet, and this node is set to run %s\." % (
         re.escape(version) if version else r"[^\n]*")
-    return r"geyser_plugin: richat cannot be used on %s: %s Remove geyser_plugin from the inventory to get Yellowstone, the default\. Nothing was changed\." % (re.escape(host), middle)
+    return r"richat cannot be used on %s: %s Use the Yellowstone plugin, the default of init\.yml: remove geyser_plugin from the inventory\. Nothing was changed\." % (re.escape(host), middle)
 
 
-def unknown_version_message(host):
-    return r"geyser_plugin: richat cannot be used on %s: no version of agave or jito is set for it [^\n]*richat has no release for agave 4\.3 or later yet\. Remove geyser_plugin from the inventory to get Yellowstone, the default\. Nothing was changed\." % re.escape(host)
+def unknown_version_message(host, section=None):
+    where = re.escape(section) if section else r"[^\n]*"
+    return r"richat cannot be used on %s: no version of agave or jito is set for it \(agave_version, jito_version, or version_agave and version_jito in %s of ~/\.slv/versions\.yml\), and richat has no release for agave 4\.3 or later yet\. Use the Yellowstone plugin, the default of init\.yml: remove geyser_plugin from the inventory\. Nothing was changed\." % (re.escape(host), where)
 
 
 class InitInstallsTheGeyserPlugin(unittest.TestCase):
@@ -793,14 +1031,20 @@ class InitInstallsTheGeyserPlugin(unittest.TestCase):
             root = Path(tmp)
             home = make_home(root)
             playbooks = {}
-            for network in NETWORKS:
-                copies = root / network
+            for directory_name in ("%s-rpc" % network for network in NETWORKS):
+                copies = root / directory_name
                 copies.mkdir()
-                playbooks["%s-rpc/init.yml (flow copy)" % network] = make_flow_copy(network, copies)
-                playbooks["%s-rpc/geyser_build.yml" % network] = ANSIBLE_DIR / ("%s-rpc" % network) / "geyser_build.yml"
+                playbooks["%s/init.yml (flow copy)" % directory_name] = make_flow_copy(directory_name, copies)
+                playbooks["%s/geyser_build.yml" % directory_name] = ANSIBLE_DIR / directory_name / "geyser_build.yml"
+            for directory_name in ("mainnet-validator", "testnet-validator"):
+                copies = root / directory_name
+                copies.mkdir()
+                playbooks["%s/init.yml (flow copy)" % directory_name] = make_flow_copy(directory_name, copies)
             for network in UPDATE_NETWORKS:
                 playbooks["%s-rpc/update_startup_config.yml" % network] = ANSIBLE_DIR / ("%s-rpc" % network) / "update_startup_config.yml"
-            for path in ("cmn/stop_richat.yml", "cmn/install_rpc_gateway.yml", "mainnet-rpc/update_startup_config.yml"):
+            for path in ("cmn/stop_richat.yml", "cmn/install_rpc_gateway.yml", "mainnet-rpc/update_startup_config.yml",
+                         "cmn/check_richat_release.yml", "cmn/build_solana.yml", "cmn/build_agave.yml", "cmn/build_jito.yml",
+                         "cmn/build_allnodes_jito.yml") + RICHAT_PLAYBOOKS:
                 playbooks[path] = ANSIBLE_DIR / path
             # the gateway play uses openssh_keypair, which community.crypto has
             collections = make_stub_collection(root, "community", "crypto", ["openssh_keypair"])
@@ -886,7 +1130,7 @@ class RichatIsRefusedWhereNoReleaseSupportsTheClient(unittest.TestCase):
                 with self.subTest("%s %s" % (network, name)):
                     self.assertEqual(flow[name].imports, [])
                     self.assertNotEqual(flow[name].returncode, 0)
-                    self.assertRegex(flow[name].output, unknown_version_message(name))
+                    self.assertRegex(flow[name].output, unknown_version_message(name, "%s_rpcs" % network))
 
     def test_g15_richat_chosen_on_a_node_that_installs_no_plugin_is_not_refused(self):
         for network in NETWORKS:
@@ -957,6 +1201,115 @@ class DocsNameTheDefaultPlugin(unittest.TestCase):
                 self.assertRegex(text, r"(?i)yellowstone[^\n]*default|default[^\n]*yellowstone")
                 self.assertRegex(text, r"(?i)richat has no release for agave 4\.3 or later yet")
                 self.assertNotRegex(text, r"(?i)richat[^\n]*recommended|recommended[^\n]*richat")
+
+
+def expected_client_version(network, variables):
+    """The version that the richat check reads for a node: its own, else the pin of the network."""
+    jito = variables["validator_type"] == "jito"
+    return variables.get("jito_version" if jito else "agave_version", PINS[network][1 if jito else 0])
+
+
+class RichatPlaybooksRefuseWhenRunDirectly(unittest.TestCase):
+    """geyser_richat_build.yml, install_richat.yml and init_richat_geyser.yml import the same check as init.yml."""
+
+    def test_g20_a_direct_run_of_a_playbook_that_installs_richat_is_refused_like_init(self):
+        prefetch(run_direct, [(playbook, scenario) for playbook in RICHAT_PLAYBOOKS
+                              for scenario in ("richat-refused", "richat-allowed", "richat-unknown-version")])
+        for playbook in RICHAT_PLAYBOOKS:
+            network = playbook.split("-rpc/")[0]
+            refused = run_direct(playbook, "richat-refused")
+            for name, variables in richat_refused_hosts().items():
+                with self.subTest("%s %s" % (playbook, name)):
+                    self.assertEqual(refused[name].imports, [])
+                    self.assertNotEqual(refused[name].returncode, 0)
+                    self.assertRegex(refused[name].output, r"fatal: \[%s\]: FAILED!" % re.escape(name))
+                    self.assertRegex(refused[name].output, refusal_message(name, expected_client_version(network, variables)))
+            allowed = run_direct(playbook, "richat-allowed")
+            for name in richat_allowed_hosts():
+                with self.subTest("%s %s" % (playbook, name)):
+                    self.assertEqual(allowed[name].returncode, 0, allowed[name].output[-2000:])
+                    self.assertNotEqual(allowed[name].imports, [])
+            unknown = run_direct(playbook, "richat-unknown-version")
+            for name in richat_unknown_hosts():
+                with self.subTest("%s %s: no version" % (playbook, name)):
+                    self.assertEqual(unknown[name].imports, [])
+                    self.assertRegex(unknown[name].output, unknown_version_message(name, "%s_rpcs" % network))
+
+
+def no_version_message(host, client, section):
+    names = {"agave": ("agave", "agave_version", "version_agave"), "jito": ("jito", "jito_version", "version_jito"),
+             "allnodes-jito": ("allnodes-jito", "allnodes_jito_version", "version_allnodes_jito")}
+    label, override, pin = names[client]
+    return r"No %s version for %s: set %s \(-e or the host\), or %s in %s of ~/\.slv/versions\.yml\. Nothing was built\." % (
+        re.escape(label), re.escape(host), override, pin, re.escape(section))
+
+
+NO_SECTION = "the section that the calling playbook passes as versions_section"
+
+
+class BuildReadsTheSectionOfItsCaller(unittest.TestCase):
+    """cmn/build_solana.yml builds the version of the host, else the pin of the section that its caller names."""
+
+    def test_g21_each_caller_builds_the_pin_of_the_section_of_its_network_and_role(self):
+        prefetch(run_build, [(caller, "pins") for caller in BUILD_CALLERS])
+        for caller, section in BUILD_CALLERS.items():
+            agave, jito, allnodes = BUILD_PINS[section]
+            expected = {
+                "build-agave": {"build_agave": "v" + agave},
+                "build-firedancer-agave": {"build_agave": "v" + agave},
+                "build-jito": {"build_jito": "v" + jito},
+                "build-firedancer-jito": {"build_jito": "v" + jito},
+                "build-allnodes-jito": {"build_allnodes_jito": "v" + allnodes} if allnodes else {},
+            }
+            results = run_build(caller, "pins")
+            for name, tags in expected.items():
+                with self.subTest("%s %s" % (caller, name)):
+                    self.assertEqual(results[name].tags, tags)
+                    if not tags:
+                        # the RPC sections have no allnodes-jito pin: the build stops and says where it looked
+                        self.assertRegex(results[name].output, no_version_message(name, "allnodes-jito", section))
+
+    def test_g22_the_version_of_the_host_comes_before_the_pin_and_is_the_one_of_its_own_client(self):
+        prefetch(run_build, [(caller, "own-versions") for caller in BUILD_CALLERS])
+        for caller, section in BUILD_CALLERS.items():
+            agave, jito, _ = BUILD_PINS[section]
+            expected = {
+                "own-agave": {"build_agave": "v7.7.1"},
+                "own-firedancer-agave": {"build_agave": "v7.7.2"},
+                "own-jito": {"build_jito": "v7.7.3-jito"},
+                "own-firedancer-jito": {"build_jito": "v7.7.4-jito"},
+                "own-allnodes": {"build_allnodes_jito": "v7.7.5-allnodes"},
+                "other-agave": {"build_agave": "v" + agave},
+                "other-jito": {"build_jito": "v" + jito},
+                "empty-agave": {"build_agave": "v" + agave},
+            }
+            results = run_build(caller, "own-versions")
+            for name, tags in expected.items():
+                with self.subTest("%s %s" % (caller, name)):
+                    self.assertEqual(results[name].tags, tags)
+
+    def test_g23_with_neither_a_version_nor_a_pin_the_build_stops_and_says_where_it_looked(self):
+        prefetch(run_build, [(caller, "no-pins") for caller in BUILD_CALLERS] + [("direct", "pins"), ("direct", "own-versions")])
+        for caller, section in BUILD_CALLERS.items():
+            results = run_build(caller, "no-pins")
+            for name, client in (("stopped-agave", "agave"), ("stopped-jito", "jito"), ("stopped-allnodes-jito", "allnodes-jito")):
+                with self.subTest("%s %s" % (caller, name)):
+                    self.assertEqual(results[name].tags, {})
+                    self.assertRegex(results[name].output, r"fatal: \[%s\]: FAILED!" % re.escape(name))
+                    self.assertRegex(results[name].output, no_version_message(name, client, section))
+        # a run of cmn/build_solana.yml by itself has no section: only a version of the host can be built
+        pins = run_build("direct", "pins")
+        for name, client in (("build-agave", "agave"), ("build-firedancer-agave", "agave"), ("build-jito", "jito"),
+                             ("build-firedancer-jito", "jito"), ("build-allnodes-jito", "allnodes-jito")):
+            with self.subTest("direct %s" % name):
+                self.assertEqual(pins[name].tags, {})
+                self.assertRegex(pins[name].output, no_version_message(name, client, NO_SECTION))
+        own = run_build("direct", "own-versions")
+        for name, tags in {"own-agave": {"build_agave": "v7.7.1"}, "own-jito": {"build_jito": "v7.7.3-jito"},
+                           "own-allnodes": {"build_allnodes_jito": "v7.7.5-allnodes"}, "other-agave": {}, "other-jito": {},
+                           "empty-agave": {}}.items():
+            with self.subTest("direct %s" % name):
+                self.assertEqual(own[name].tags, tags)
 
 
 if __name__ == "__main__":

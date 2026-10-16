@@ -870,8 +870,11 @@ Deno.test('behavior 9: update_startup_config writes geyser.json for the plugin l
   }
 
   // the two libraries are the ones the build playbooks make and the configs load
-  const richatBuild =
-    readPlaybook('ansible/mainnet-rpc/geyser_richat_build.yml')[0]
+  // (the play follows the import of the richat check)
+  const richatBuild = readPlaybook(
+    'ansible/mainnet-rpc/geyser_richat_build.yml',
+  ).find((entry) => entry.import_playbook === undefined)
+  assert(richatBuild, 'geyser_richat_build.yml has a play')
   const richatVars = richatBuild.vars as Record<string, string>
   assertEquals(
     expandVars(vars.richat_lib_path, vars),
