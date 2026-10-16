@@ -9,8 +9,14 @@ Ansible playbooks and Jinja2 templates for deploying and managing Solana validat
 | `jito` | Jito MEV client (default for mainnet) |
 | `allnodes-jito` | Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches) |
 | `agave` | Standard Agave validator |
-| `firedancer-agave` | Firedancer with Agave consensus |
-| `firedancer-jito` | Firedancer with Jito consensus |
+| `firedancer-agave` | Firedancer with Agave consensus. Testnet only: refused on mainnet during the Alpenglow migration |
+| `firedancer-jito` | Firedancer with Jito consensus. Testnet only: refused on mainnet during the Alpenglow migration |
+
+Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not
+supported during the migration. A mainnet voting validator is `agave`, `jito` or
+`allnodes-jito`: mainnet `init.yml` and `init-firedancer.yml` refuse the Firedancer types
+before anything is changed, and `slv v setup:firedancer` and `slv v update:firedancer`
+refuse on mainnet.
 
 ## Directory Structure
 
@@ -38,8 +44,8 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `slv v restart` | `{net}/restart_node.yml` | Graceful restart (`agave-validator exit`, then systemd) |
 | `slv v build:solana` | `{net}/install_solana.yml` | Build Solana from source (dispatches by `validator_type`) |
 | `slv v install:solana` | `cmn/install_solana.yml` | Install Solana binary (deprecated, prefer build) |
-| `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer |
-| `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary |
+| `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer. Testnet only: refused on mainnet (Alpenglow) |
+| `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary. Testnet only: refused on mainnet (Alpenglow) |
 | `slv v update:script` | `{net}/update_startup_config.yml` | Re-render start-validator.sh from template |
 | `slv v set:identity -p <host>` | `{net}/set_identity_key.yml` | Set validator identity key on one host |
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
@@ -59,7 +65,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 |---|---|
 | `init.yml` | Full node initialization (Agave/Jito) |
 | `init-jito.yml` | Jito-specific initialization |
-| `init-firedancer.yml` | Firedancer initialization |
+| `init-firedancer.yml` | Firedancer initialization. Refuses every host on mainnet (Alpenglow) |
 | `restart_node.yml` | Restart validator |
 | `start_node.yml` | Start validator |
 | `stop_node.yml` | Stop validator |
@@ -67,8 +73,8 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `install_agave.yml` | Build Agave from source |
 | `install_jito.yml` | Build Jito from source |
 | `install_rust.yml` | Install Rust toolchain |
-| `setup_firedancer.yml` | Setup Firedancer binary and config |
-| `update_firedancer.yml` | Update Firedancer binary |
+| `setup_firedancer.yml` | Setup Firedancer binary and config. Refused on mainnet (Alpenglow): `slv v setup:firedancer -n mainnet` stops before the playbook runs |
+| `update_firedancer.yml` | Update Firedancer binary. Refused on mainnet (Alpenglow): `slv v update:firedancer -n mainnet` stops before the playbook runs |
 | `update_startup_config.yml` | Update start-validator.sh from Jinja template |
 | `deploy-start-validator-sh.yml` | Deploy start script to remote |
 | `create-start-validator-sh.yml` | Generate start script from template |
@@ -165,7 +171,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 
 | Variable | Description | Default |
 |---|---|---|
-| `validator_type` | Validator type (`jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito`) | `jito` |
+| `validator_type` | Validator type (`jito`, `allnodes-jito`, `agave`; `firedancer-agave` and `firedancer-jito` on testnet only, mainnet refuses them) | `jito` |
 | `solana_version` | Solana/Agave version to build (used when `validator_type == 'agave'`) | — |
 | `jito_version` | Jito version to build (used when `validator_type == 'jito'`) | — |
 | `allnodes_jito_version` | Allnodes-Jito version (used when `validator_type == 'allnodes-jito'`); template appends `-allnodes` to form the git tag | — |
@@ -302,10 +308,10 @@ for the generated output format.
 | `server_ip` | "Target server IP?" | Valid IPv4 |
 | `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
 | `region` | "Server region? (amsterdam, frankfurt, tokyo, ny, ...)" | String |
-| `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito` |
+| `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`; `firedancer-agave` and `firedancer-jito` on testnet only (mainnet refuses them) |
 | `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
 | `jito_version` | "Jito version?" (if jito/allnodes-jito) | Semver |
-| `firedancer_version` | "Firedancer version?" (if firedancer) | String |
+| `firedancer_version` | "Firedancer version?" (testnet, if firedancer) | String |
 | `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
 | `vote_account` | "Vote account pubkey? (or generate)" | Base58 pubkey or `generate` |
 | `snapshot_url` | "Snapshot URL? (auto-detected for ERPC nodes)" | URL (cannot be empty for init) |
