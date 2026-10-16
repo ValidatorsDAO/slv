@@ -85,7 +85,7 @@ Based on selection, set the **required** version variable:
 - `firedancer-agave` — Firedancer with Agave consensus
 
 ### Step 5: Versions
-- `solana_version` — Solana/Agave version (required, default: `3.1.8`)
+- `solana_version` — Solana/Agave version (required, default: `4.3.2`)
 - `jito_version` — **Required** if jito/allnodes-jito selected
 - `firedancer_version` — **Required** if firedancer selected
 

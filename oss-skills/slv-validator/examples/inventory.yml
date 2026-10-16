@@ -10,7 +10,7 @@
 #
 # Or with extra_vars override:
 #   ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-#     -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"3.1.14"}'
+#     -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"4.3.2-allnodes"}'
 
 all:
   hosts:
@@ -25,9 +25,9 @@ all:
     validator_type: "jito"
 
     # --- Versions (or set in ~/.slv/versions.yml under mainnet_validators / testnet_validators) ---
-    # solana_version: "3.1.14"             # for validator_type=agave
-    # jito_version: "3.1.14-jito"          # for validator_type=jito
-    # allnodes_jito_version: "3.1.14"      # for validator_type=allnodes-jito (template appends -allnodes)
+    # solana_version: "4.3.2"              # for validator_type=agave
+    # jito_version: "4.3.1-jito"           # for validator_type=jito
+    # allnodes_jito_version: "4.3.2-allnodes"  # for validator_type=allnodes-jito (-allnodes is appended when missing)
     # firedancer_version: "0.305.20104"    # for validator_type=firedancer-*
 
     # --- Identity ---

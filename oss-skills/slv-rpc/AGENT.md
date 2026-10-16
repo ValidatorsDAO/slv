@@ -95,7 +95,7 @@ Present options:
 - `firedancer-agave` — Firedancer with Agave consensus
 
 ### Step 4: Versions
-- `solana_version` — Solana/Agave version (required, default: `3.1.8`)
+- `solana_version` — Solana/Agave version (required, default: `4.3.2`)
 - `jito_version` — **Required** if jito/allnodes-jito selected (typically matches solana_version)
 - `firedancer_version` — **Required** if firedancer selected
 - `yellowstone_grpc_version` — If Geyser gRPC selected (Yellowstone plugin)

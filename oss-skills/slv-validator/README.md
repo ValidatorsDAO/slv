@@ -43,7 +43,7 @@ cp examples/inventory.yml my-inventory.yml
 # 2. Deploy
 cd ansible/
 ansible-playbook -i ../my-inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"3.1.8"}'
+  -e '{"validator_type":"jito","solana_version":"4.3.2"}'
 ```
 
 ## Contents

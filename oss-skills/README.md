@@ -35,7 +35,7 @@ openclaw skill install slv-validator
 # Use the Ansible playbooks directly
 cd slv-validator/ansible/
 ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"3.1.8","snapshot_url":"https://..."}'
+  -e '{"validator_type":"jito","solana_version":"4.3.2","snapshot_url":"https://..."}'
 ```
 
 ## Prerequisites

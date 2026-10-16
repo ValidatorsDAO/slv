@@ -199,7 +199,7 @@ performance tuning, source build, snapshot download, systemd setup, and start.
 
 ### B. Version / config update
 ```bash
-# 1. Edit ~/.slv/versions.yml (e.g. version_jito: 3.1.13 -> 3.1.14)
+# 1. Edit ~/.slv/versions.yml (e.g. version_jito: 4.3.0-jito.1 -> 4.3.1-jito)
 # 2. Build new binary from source
 slv v build:solana -n <network> -p <host>
 # 3. Re-render start-validator.sh (picks up inventory changes such as bam_url
@@ -233,7 +233,7 @@ directly via `ansible-playbook` with `extra_vars`:
 
 ```bash
 ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"3.1.14","snapshot_url":"https://..."}'
+  -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"4.3.2-allnodes","snapshot_url":"https://..."}'
 ```
 
 No `versions.yml` required when you pass everything via `extra_vars`.
@@ -252,7 +252,7 @@ for the generated output format.
 | `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
 | `region` | "Server region? (amsterdam, frankfurt, tokyo, ny, ...)" | String |
 | `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito` |
-| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
+| `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
 | `jito_version` | "Jito version?" (if jito/allnodes-jito) | Semver |
 | `firedancer_version` | "Firedancer version?" (if firedancer) | String |
 | `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
@@ -305,7 +305,7 @@ ansible-playbook -i inventory.yml {network}-validator/init.yml \
 Always offer `--check` mode before actual deployment:
 ```bash
 ansible-playbook -i inventory.yml {network}-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"3.1.8"}' --check
+  -e '{"validator_type":"jito","solana_version":"4.3.2"}' --check
 ```
 
 ## Performance Tuning

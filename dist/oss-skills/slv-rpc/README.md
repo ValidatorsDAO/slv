@@ -37,7 +37,7 @@ cp examples/inventory.yml my-inventory.yml
 
 cd ansible/
 ansible-playbook -i ../my-inventory.yml mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Index RPC","solana_version":"3.1.8"}'
+  -e '{"rpc_type":"Index RPC","solana_version":"4.3.2"}'
 ```
 
 ## Contents

@@ -5,7 +5,7 @@
 #
 # Or with extra_vars:
 #   ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
-#     -e '{"solana_version":"3.1.8","rpc_type":"Geyser gRPC"}'
+#     -e '{"solana_version":"4.3.2","rpc_type":"Geyser gRPC"}'
 
 all:
   hosts:
@@ -24,8 +24,8 @@ all:
     validator_type: "agave"
 
     # --- Versions ---
-    solana_version: "3.1.8"
-    # jito_version: "3.1.8"
+    solana_version: "4.3.2"
+    # jito_version: "4.3.1-jito"
     # firedancer_version: "0.305.20104"
     # yellowstone_grpc_version: "v2.2.1"
     # richat_version: "richat-v8.1.0"

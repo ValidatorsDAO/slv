@@ -6,8 +6,12 @@ import rpcLog from '/lib/config/rpcLog.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
 import { getAnsibleHosts } from '/lib/yml/getAnsibleHost.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
+import { refuseFdctlMainnetValidatorDeploy } from '/lib/fdctlMainnetGuard.ts'
 
 const deployValidatorMainnet = async (limit?: string) => {
+  // Alpenglow: Firedancer and Frankendancer are not supported on mainnet during
+  // the migration, so such a host is not deployed.
+  if (await refuseFdctlMainnetValidatorDeploy(limit)) return false
   const inventoryType = 'mainnet_validators'
   const templateRoot = getTemplatePath()
   await listValidators('mainnet', limit)

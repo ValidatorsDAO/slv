@@ -38,14 +38,19 @@ const cleanObject = <T>(value: T): T => {
  * - Ensures required keys exist (fills missing with defaults)
  * - Preserves user values and unknown keys
  * - Recovers from parse errors by backing up and restoring defaults
+ *
+ * A value already in the file is never replaced by a newer default, so a
+ * `slv upgrade` leaves the versions an operator pinned as they are.
  */
-export const migrateVersionsYml = async (): Promise<boolean> => {
+export const migrateVersionsYml = async (
+  versionsPath: string = VERSIONS_PATH,
+): Promise<boolean> => {
   const defaults = defaultVersionsObject()
   let current: unknown = undefined
   let needsBackup = false
 
   try {
-    const text = await Deno.readTextFile(VERSIONS_PATH)
+    const text = await Deno.readTextFile(versionsPath)
     current = parse(text)
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) {
@@ -66,8 +71,8 @@ export const migrateVersionsYml = async (): Promise<boolean> => {
 
   if (needsBackup) {
     try {
-      const backupPath = `${VERSIONS_PATH}.bak.${Date.now()}`
-      await Deno.rename(VERSIONS_PATH, backupPath)
+      const backupPath = `${versionsPath}.bak.${Date.now()}`
+      await Deno.rename(versionsPath, backupPath)
       console.log(colors.dim(`Backed up invalid versions.yml -> ${backupPath}`))
     } catch (_error) {
       // Ignore backup failures to keep the migration non-fatal
@@ -84,7 +89,7 @@ export const migrateVersionsYml = async (): Promise<boolean> => {
   })
 
   try {
-    await Deno.writeTextFile(VERSIONS_PATH, yml)
+    await Deno.writeTextFile(versionsPath, yml)
     console.log(colors.green('versions.yml migrated'))
     return true
   } catch (error) {

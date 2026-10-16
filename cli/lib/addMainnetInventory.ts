@@ -11,17 +11,6 @@ import type {
 /** Validator type a new mainnet inventory entry starts with. */
 const DEFAULT_MAINNET_VALIDATOR_TYPE: SolanaNodeType = 'jito'
 
-const FRANKENDANCER_TYPES: readonly string[] = [
-  'firedancer-agave',
-  'firedancer-jito',
-]
-
-/** Warning for a Frankendancer validator type, or null for any other type. */
-const frankendancerWarning = (validatorType: string): string | null =>
-  FRANKENDANCER_TYPES.includes(validatorType)
-    ? `${validatorType} is Frankendancer, a hybrid of Firedancer and Agave. It must be replaced before Alpenglow activates on mainnet.`
-    : null
-
 const buildMainnetHostEntry = (
   name: string,
   identityAccount: string,
@@ -90,5 +79,4 @@ export {
   addMainnetInventory,
   buildMainnetHostEntry,
   DEFAULT_MAINNET_VALIDATOR_TYPE,
-  frankendancerWarning,
 }

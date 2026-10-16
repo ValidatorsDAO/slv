@@ -230,7 +230,7 @@ Both plugins are built from source (no binary downloads):
 
 ```bash
 ansible-playbook -i inventory mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Index RPC","solana_version":"3.1.8","snapshot_url":"https://..."}'
+  -e '{"rpc_type":"Index RPC","solana_version":"4.3.2","snapshot_url":"https://..."}'
 ```
 
 No `versions.yml` required — all variables can be passed via `extra_vars`.
@@ -248,7 +248,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `region` | "Server region?" | String |
 | `rpc_type` | "RPC type?" | `RPC`, `Index RPC`, `Geyser gRPC`, `Index RPC + gRPC` |
 | `validator_type` | "Underlying client?" | `agave`, `jito`, `allnodes-jito`, `firedancer-agave` |
-| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
+| `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
 

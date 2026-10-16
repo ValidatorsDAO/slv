@@ -117,7 +117,7 @@ Both plugins are built from source (no binary downloads):
 ```bash
 # Deploy a new gRPC Geyser node
 ansible-playbook -i inventory mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Geyser gRPC","solana_version":"3.1.8","yellowstone_grpc_version":"v6.0.0","snapshot_url":"https://..."}'
+  -e '{"rpc_type":"Geyser gRPC","solana_version":"4.3.2","yellowstone_grpc_version":"v6.0.0","snapshot_url":"https://..."}'
 
 # Build/update Richat plugin
 ansible-playbook -i inventory mainnet-rpc/geyser_richat_build.yml \
@@ -138,7 +138,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `region` | "Server region?" | String |
 | `rpc_type` | "Geyser gRPC or Index RPC + gRPC?" | `Geyser gRPC`, `Index RPC + gRPC` |
 | `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
-| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
+| `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
 

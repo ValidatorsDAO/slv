@@ -17,8 +17,8 @@ import { DEFAULT_RPC_ADDRESS, SolanaNodeTypes } from '@cmn/constants/config.ts'
 import {
   addMainnetInventory,
   DEFAULT_MAINNET_VALIDATOR_TYPE,
-  frankendancerWarning,
 } from '/lib/addMainnetInventory.ts'
+import { refuseMainnetValidatorType } from '/lib/fdctlMainnetGuard.ts'
 import { updateMainnetInventory } from '/lib/updateMainnetInventory.ts'
 import {
   findNearestJitoRegion,
@@ -47,9 +47,10 @@ const initMainnetConfig = async (
   if (!validatorType) {
     return
   }
-  const frankendancer = frankendancerWarning(validatorType)
-  if (frankendancer) {
-    console.log(colors.yellow(`⚠️ ${frankendancer}`))
+  // Alpenglow: Firedancer and Frankendancer are not supported on mainnet during
+  // the migration. Stop before a key is generated or an inventory is written.
+  if (refuseMainnetValidatorType(validatorType)) {
+    return
   }
   let commissionBps = '1000'
   if (validatorType.includes('jito')) {

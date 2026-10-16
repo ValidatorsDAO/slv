@@ -5,11 +5,15 @@ import { colors } from '@cliffy/colors'
 import rpcLog from '/lib/config/rpcLog.ts'
 import { listRPCs } from '/src/rpc/listRPCs.ts'
 import { getAnsibleHosts } from '/lib/yml/getAnsibleHost.ts'
+import { warnFdctlMainnetRpcDeploy } from '/lib/fdctlMainnetGuard.ts'
 
 const deployRPCMainnet = async (limit?: string) => {
   const inventoryType = 'mainnet_rpcs'
   const templateRoot = getTemplatePath()
   await listRPCs('mainnet', limit)
+  // Alpenglow: a Frankendancer RPC node is not supported for the migration.
+  // This only warns; the deploy still goes on.
+  await warnFdctlMainnetRpcDeploy(limit)
   const limitString = limit ? limit : 'all'
   const ansibleHosts = await getAnsibleHosts(inventoryType, limitString)
   if (!await confirmDeploy()) {

@@ -2,7 +2,7 @@
 #
 # Usage:
 #   ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
-#     -e '{"rpc_type":"Geyser gRPC","solana_version":"3.1.8"}'
+#     -e '{"rpc_type":"Geyser gRPC","solana_version":"4.3.2"}'
 
 all:
   hosts:
@@ -21,7 +21,7 @@ all:
     validator_type: "agave"
 
     # --- Versions ---
-    solana_version: "3.1.8"
+    solana_version: "4.3.2"
     # yellowstone_grpc_version: "v2.2.1"
     richat_version: "richat-v8.1.0"
 
