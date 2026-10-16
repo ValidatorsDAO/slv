@@ -77,7 +77,9 @@ gRPC Geyser nodes are managed via `slv r` (RPC) commands with `rpc_type` set to 
 |---|---|---|
 | `rpc_type` | Must be `Geyser gRPC` or `Index RPC + gRPC` | — |
 | `validator_type` | Client type (`agave`, `jito`, `firedancer-agave`, etc.) | — |
-| `solana_version` | Solana/Agave version | — |
+| `agave_version` | Agave version of an `agave` node, without the leading `v` | `version_agave` of the `<network>_rpcs` section of `~/.slv/versions.yml` |
+| `jito_version` | Jito version of a `jito` node, with the `-jito` suffix (e.g. `4.3.2-jito`) | `version_jito` of the same section |
+| `allnodes_jito_version` | Allnodes-Jito version of an `allnodes-jito` node (e.g. `4.3.2-allnodes`) | — (the RPC sections hold no pin for it) |
 | `geyser_plugin` | Geyser plugin, an inventory variable: `yellowstone` or `richat` | `yellowstone` |
 | `geyser_version` | Yellowstone gRPC release tag | `geyser_version` of the network in `~/.slv/versions.yml` |
 | `richat_version` | Richat plugin version, for `geyser_plugin: richat` (e.g. `richat-v8.1.0`) | — |
@@ -113,7 +115,7 @@ Yellowstone is the default plugin of `init.yml`. A node that ran Richat gets `ri
 ```bash
 # Deploy a new gRPC Geyser node
 ansible-playbook -i inventory mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Geyser gRPC","solana_version":"4.3.2","snapshot_url":"https://..."}'
+  -e '{"rpc_type":"Geyser gRPC","agave_version":"4.3.2","snapshot_url":"https://..."}'
 
 # Build/update the Richat plugin, on a node whose agave is older than 4.3 (see Geyser Plugin Sources)
 ansible-playbook -i inventory mainnet-rpc/geyser_richat_build.yml \
@@ -134,7 +136,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `region` | "Server region?" | String |
 | `rpc_type` | "Geyser gRPC or Index RPC + gRPC?" | `Geyser gRPC`, `Index RPC + gRPC` |
 | `validator_type` | "Underlying client?" | `agave`, `jito`, `allnodes-jito`, `firedancer-agave` |
-| `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
+| `agave_version`, `jito_version` or `allnodes_jito_version` (the one of the `validator_type`) | "Solana version? (default: 4.3.2)" | Semver without a leading `v`; `4.3.2-jito` for `jito`, `4.3.2-allnodes` for `allnodes-jito` |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
 
@@ -190,5 +192,6 @@ All paths relative to skill's `ansible/` directory:
 ```bash
 cd /path/to/slv-grpc-geyser/ansible/
 ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Geyser gRPC","solana_version":"<version>"}'
+  -e '{"rpc_type":"Geyser gRPC","agave_version":"<version>"}'
 ```
+Pass `jito_version` (e.g. `4.3.2-jito`) or `allnodes_jito_version` (e.g. `4.3.2-allnodes`) in place of `agave_version` for a `jito` or `allnodes-jito` node. `solana_version` is not read by `init.yml`.

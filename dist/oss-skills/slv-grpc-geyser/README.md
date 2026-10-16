@@ -37,7 +37,7 @@ cp examples/inventory.yml my-inventory.yml
 
 cd ansible/
 ansible-playbook -i ../my-inventory.yml mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Geyser gRPC","solana_version":"4.3.2"}'
+  -e '{"rpc_type":"Geyser gRPC","agave_version":"4.3.2"}'
 ```
 
 ## Contents

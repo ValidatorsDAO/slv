@@ -2,7 +2,7 @@
 #
 # Usage:
 #   ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
-#     -e '{"rpc_type":"Geyser gRPC","solana_version":"4.3.2"}'
+#     -e '{"rpc_type":"Geyser gRPC","agave_version":"4.3.2"}'
 
 all:
   hosts:
@@ -21,7 +21,11 @@ all:
     validator_type: "agave"
 
     # --- Versions ---
-    solana_version: "4.3.2"
+    # The version variable of the validator_type; when it is left out the build takes version_agave or
+    # version_jito of the network's *_rpcs section of ~/.slv/versions.yml
+    agave_version: "4.3.2"             # validator_type: agave
+    # jito_version: "4.3.2-jito"       # validator_type: jito
+    # allnodes_jito_version: "4.3.2-allnodes"  # validator_type: allnodes-jito (no pin in versions.yml)
     # geyser_version: "<Yellowstone release tag>"  # default: geyser_version of the network in ~/.slv/versions.yml
     # geyser_plugin: richat  # Yellowstone is the default; richat has no release for agave 4.3 or later yet,
     #                        # so init.yml stops on a node that is set to run such an agave

@@ -23,8 +23,10 @@
         enabled: false
       when: richat_unit.stat.exists
 
-    # The library is the link that geyser_richat_build.yml makes. A link that points nowhere is a
-    # library for update_startup_config.yml too, so the link itself is looked for, not its target.
+    # The library is the link that geyser_richat_build.yml makes. mainnet-rpc/update_startup_config.yml
+    # looks for both libraries, the richat one and the Yellowstone one, with follow: true, so a link
+    # that points nowhere is no library to it. This play looks at the link itself (follow: false), so
+    # that such a link is moved aside as well and does not count again once its target is built.
     - name: Look for the richat plugin library
       stat:
         path: /home/solv/librichat_plugin_agave.so

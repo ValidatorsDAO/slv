@@ -1,4 +1,12 @@
 ---
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, an agave older than 4.3.0, the floor of Alpenglow
+# on mainnet. This play installs agave_version of the host or -e, else version_agave of mainnet_rpcs, and the check reads the same.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: mainnet_rpcs
+    floor_client: agave
+    floor_plugin: false
+
 - name: Install Agave3
   hosts: all
   become: true
