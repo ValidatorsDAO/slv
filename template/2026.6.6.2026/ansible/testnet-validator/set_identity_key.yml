@@ -14,6 +14,12 @@
         fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
         success_msg: "Validator type is {{ validator_type | default('undefined') }}"
 
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_alpenglow_freeze: true
+
     - name: Check the tower file of the identity on the target
       ansible.builtin.stat:
         path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"

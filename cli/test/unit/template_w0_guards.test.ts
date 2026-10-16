@@ -340,11 +340,9 @@ Deno.test('behavior 4: rm_ledger refuses a live validator and both ledger wipes 
   )
 })
 
-Deno.test('behavior 5: switch_off refuses before demotion and switch_on requires the tower', () => {
-  const clusterUrls: Record<string, string> = {
-    'mainnet-validator': 'https://api.mainnet-beta.solana.com',
-    'testnet-validator': 'https://api.testnet.solana.com',
-  }
+const probeFile = '../cmn/tasks/alpenglow_state.yml'
+
+Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demotion and switch_on requires the tower', () => {
   const isGuard = (task: Entry) =>
     hasModule(task, 'assert') || hasModule(task, 'fail')
   for (const network of validatorNetworks) {
@@ -360,19 +358,19 @@ Deno.test('behavior 5: switch_off refuses before demotion and switch_on requires
         tasks,
         (task) => /set-identity/.test(commandOf(task)),
       )
-      const request = firstIndex(tasks, (task) => hasModule(task, 'uri'))
-      assert(request >= 0 && request < firstSetIdentity, `${path}: request`)
-      const uri = moduleArgs(tasks[request], 'uri') as Entry
-      assertEquals(uri.url, clusterUrls[network], `${path}: cluster url`)
-      assertEquals(String(uri.method).toUpperCase(), 'POST')
-      assertEquals(uri.body_format, 'json')
-      assertEquals(uri.body, {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'getAgGenesisCert',
-      })
-      assertEquals(tasks[request].delegate_to, 'localhost')
-      assertEquals(tasks[request].run_once, true)
+      const probe = firstIndex(
+        tasks,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
+      )
+      assert(probe >= 0 && probe < firstSetIdentity, `${path}: probe`)
+      assertEquals(
+        tasks[probe].vars,
+        {
+          slv_alpenglow_network: network.replace('-validator', ''),
+          slv_alpenglow_freeze: true,
+        },
+        `${path}: probe variables`,
+      )
 
       const alpenglowGuard = firstIndex(
         tasks,
@@ -381,12 +379,18 @@ Deno.test('behavior 5: switch_off refuses before demotion and switch_on requires
           normalized(task).includes('TowerBFT'),
       )
       assert(
-        alpenglowGuard > request && alpenglowGuard < firstSetIdentity,
+        alpenglowGuard > probe && alpenglowGuard < firstSetIdentity,
         `${path}: Alpenglow guard`,
       )
       assert(
-        normalized(tasks[alpenglowGuard]).includes('result is none'),
-        `${path}: guard must require a null result`,
+        normalized(tasks[alpenglowGuard]).includes(
+          "slv_alpenglow_state == 'towerbft'",
+        ),
+        `${path}: guard must require the TowerBFT state`,
+      )
+      assert(
+        normalized(tasks[alpenglowGuard]).includes('vote history'),
+        `${path}: guard must say why a swap on Alpenglow waits`,
       )
 
       const towerStat = firstIndex(
@@ -428,6 +432,201 @@ Deno.test('behavior 5: switch_off refuses before demotion and switch_on requires
         `${path}: set-identity must pass --require-tower`,
       )
     }
+  }
+})
+
+const freezeText =
+  'identity changes wait until getAgGenesisCert returns a certificate'
+
+const listYamlFiles = (directory: string): string[] =>
+  [...Deno.readDirSync(new URL(directory, templateRoot))].flatMap((entry) =>
+    entry.isDirectory
+      ? listYamlFiles(`${directory}${entry.name}/`)
+      : entry.name.endsWith('.yml')
+      ? [`${directory}${entry.name}`]
+      : []
+  )
+
+Deno.test('alpenglow state: the probe asks the cluster from the controller and the freeze is written once', () => {
+  const path = 'ansible/cmn/tasks/alpenglow_state.yml'
+  const tasks = readPlaybook(path)
+  const requests = tasks.filter((task) => hasModule(task, 'uri'))
+  assertEquals(
+    requests.map((task) =>
+      (moduleArgs(task, 'uri') as { body: { method: string } }).body.method
+    ),
+    ['getAgGenesisCert', 'getAccountInfo'],
+  )
+  for (const task of requests) {
+    const uri = moduleArgs(task, 'uri') as Entry
+    assertEquals(String(uri.method).toUpperCase(), 'POST')
+    assertEquals(uri.body_format, 'json')
+    assertEquals((uri.body as Entry).jsonrpc, '2.0')
+    assertEquals(task.delegate_to, 'localhost', `${task.name}: delegate_to`)
+    assertEquals(task.run_once, true, `${task.name}: run_once`)
+    assertEquals(task.check_mode, false, `${task.name}: check_mode`)
+    assertEquals(task.become, false, `${task.name}: become`)
+    assertEquals(task.failed_when, false, `${task.name}: failed_when`)
+    assertEquals(
+      task.no_log,
+      true,
+      `${task.name}: no_log keeps a keyed URL out`,
+    )
+  }
+  assertEquals(
+    ((moduleArgs(requests[1], 'uri') as Entry).body as Entry).params,
+    [
+      'A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS',
+      {
+        encoding: 'base64',
+        dataSlice: { offset: 0, length: 1 },
+        commitment: 'processed',
+      },
+    ],
+  )
+  const text = readText(path)
+  for (
+    const url of [
+      'https://api.mainnet-beta.solana.com',
+      'https://api.testnet.solana.com',
+      'https://api.devnet.solana.com',
+    ]
+  ) {
+    assert(text.includes(url), `${path}: public RPC ${url}`)
+  }
+  const freeze = tasks[tasks.length - 1]
+  assert(hasModule(freeze, 'assert'), `${path}: the last task is the freeze`)
+  assertEquals(conditionsOf(freeze), [
+    'slv_alpenglow_freeze | default(false) | bool',
+  ])
+  assert(normalized(freeze).includes(freezeText))
+
+  const writers = listYamlFiles('ansible/').filter((file) =>
+    readText(file).includes(freezeText)
+  )
+  assertEquals(writers, [path], 'the window and unknown refusal has one author')
+})
+
+const identityPlaybooks = [
+  'switch_off_identity',
+  'switch_off_firedancer_identity',
+  'switch_on_identity',
+  'switch_on_firedancer_identity',
+  'set_identity_key',
+  'set_unstaked_key',
+  'set_identity_to_active',
+  'nodowntime_migrate',
+]
+
+Deno.test('alpenglow freeze: every identity playbook imports the probe with the freeze on before it changes anything', () => {
+  for (const network of validatorNetworks) {
+    const files = network === 'testnet-validator'
+      ? [...identityPlaybooks, 'change_identity_and_restart']
+      : identityPlaybooks
+    for (const file of files) {
+      const path = `ansible/${network}/${file}.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const probe = firstIndex(
+        tasks,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
+      )
+      assert(probe >= 0, `${path}: imports the probe`)
+      assertEquals(
+        tasks[probe].vars,
+        {
+          slv_alpenglow_network: network.replace('-validator', ''),
+          slv_alpenglow_freeze: true,
+        },
+        `${path}: probe variables`,
+      )
+      for (const before of tasks.slice(0, probe)) {
+        assert(
+          hasModule(before, 'assert') || hasModule(before, 'fail') ||
+            hasModule(before, 'set_fact'),
+          `${path}: "${before.name}" runs before the probe`,
+        )
+      }
+    }
+  }
+})
+
+Deno.test('alpenglow fdctl: mainnet refuses Firedancer and Frankendancer as an identity target, testnet does not', () => {
+  const message = 'Firedancer and Frankendancer cannot take a mainnet identity'
+  const fdctlTypes = ['firedancer-agave', 'firedancer-jito', 'frankendancer']
+  const isChange = (task: Entry) =>
+    hasModule(task, 'shell') || hasModule(task, 'copy') ||
+    hasModule(task, 'fetch') || hasModule(task, 'ping')
+  const refusalOf = (path: string, tasks: Entry[]) => {
+    const refusal = firstIndex(
+      tasks,
+      (task) =>
+        (hasModule(task, 'assert') || hasModule(task, 'fail')) &&
+        normalized(task).includes(message),
+    )
+    assert(refusal >= 0, `${path}: refuses an fdctl target`)
+    assert(
+      refusal < firstIndex(tasks, isChange),
+      `${path}: refuses before it changes anything`,
+    )
+    return tasks[refusal]
+  }
+
+  const mainnet = (file: string) => `ansible/mainnet-validator/${file}.yml`
+  // switch_on_firedancer_identity is an fdctl target by definition: no condition
+  const unconditional = refusalOf(
+    mainnet('switch_on_firedancer_identity'),
+    tasksOf(readPlaybook(mainnet('switch_on_firedancer_identity'))[0]),
+  )
+  assert(hasModule(unconditional, 'fail'))
+  assertEquals(conditionsOf(unconditional), [])
+
+  for (const file of ['set_identity_key', 'set_identity_to_active']) {
+    const task = refusalOf(
+      mainnet(file),
+      tasksOf(readPlaybook(mainnet(file))[0]),
+    )
+    assert(hasModule(task, 'assert'))
+    for (const type of fdctlTypes) {
+      assert(normalized(task).includes(`'${type}'`), `${file}: ${type}`)
+    }
+    assert(normalized(task).includes('validator_type not in'), file)
+  }
+
+  // nodowntime_migrate says so in its first play, before switch_off demotes the source
+  const migrate = refusalOf(
+    mainnet('nodowntime_migrate'),
+    tasksOf(readPlaybook(mainnet('nodowntime_migrate'))[0]),
+  )
+  assert(
+    normalized(migrate).includes('hostvars[target_host].validator_type'),
+    'nodowntime_migrate: the target decides',
+  )
+  for (const type of fdctlTypes) {
+    assert(normalized(migrate).includes(`'${type}'`))
+  }
+
+  for (const file of [...identityPlaybooks, 'change_identity_and_restart']) {
+    const path = `ansible/testnet-validator/${file}.yml`
+    try {
+      assert(!readText(path).includes(message), `${path}: testnet is unchanged`)
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error
+    }
+  }
+})
+
+Deno.test('addendum 12: init.yml stops on a missing or unknown validator_type and never defaults to Frankendancer', () => {
+  for (const network of validatorNetworks) {
+    const path = `ansible/${network}/init.yml`
+    assertNoTypeFallback(path)
+    const entries = readPlaybook(path)
+    assertTypeGate(tasksOf(entries[0])[0], path)
+    assertEquals(
+      entries[0].any_errors_fatal,
+      true,
+      `${path}: one bad host ends the run`,
+    )
+    assert(!readText(path).includes('Set validator type fact'), path)
   }
 })
 
@@ -928,6 +1127,7 @@ const changedTemplates = [
     ].map((file) => `ansible/${network}/${file}.yml`)
   ),
   'ansible/mainnet-validator/install_allnodes_jito.yml',
+  'ansible/cmn/tasks/alpenglow_state.yml',
   ...[
     'rm_ledger',
     'restart_agave_with_rm_ledger',
@@ -1066,7 +1266,6 @@ const refreshedCopies: Record<string, string> = {
 // Dist copies of those files that already differed from their template source
 // at 08acbaf3.
 const differedAtBase = new Set([
-  'slv-validator/ansible/mainnet-validator/nodowntime_migrate.yml',
   'slv-validator/ansible/mainnet-validator/restart_node.yml',
   'slv-validator/ansible/mainnet-validator/start_node.yml',
   'slv-validator/ansible/mainnet-validator/stop_node.yml',

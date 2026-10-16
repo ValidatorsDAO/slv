@@ -1,0 +1,144 @@
+---
+# Which consensus does the cluster run? This sets slv_alpenglow_state to
+#
+#   towerbft   the Alpenglow feature account is absent or not activated
+#   window     the feature is activated and getAgGenesisCert still returns null:
+#              the cluster is between the feature activation and the genesis certificate
+#   alpenglow  getAgGenesisCert returns a certificate
+#   unknown    an RPC error, or an answer that cannot be read
+#
+# and slv_alpenglow_detail to a short reason (it never holds the RPC URL).
+#
+# Import it with ansible.builtin.import_tasks. It asks the cluster RPC from the
+# controller, once, and changes nothing. Variables:
+#
+#   slv_alpenglow_network      mainnet, testnet or devnet (required): picks the public RPC
+#   slv_alpenglow_rpc_url      ask this RPC instead (a URL that carries a key is never printed)
+#   slv_alpenglow_freeze       true: stop the play with one message while the state is
+#                              window or unknown. Every identity change sets it.
+#   slv_alpenglow_rpc_retries  retries of a call whose answer cannot be read (2)
+#   slv_alpenglow_rpc_delay    seconds between the attempts (2)
+
+- name: Check the inputs of the Alpenglow state probe
+  ansible.builtin.assert:
+    that:
+      - slv_alpenglow_network | default('') in ['mainnet', 'testnet', 'devnet']
+    fail_msg: "slv_alpenglow_network must be mainnet, testnet or devnet (it is '{{ slv_alpenglow_network | default('not set') }}'). Nothing was changed."
+    quiet: true
+  run_once: true
+
+- name: Ask the cluster for the Alpenglow genesis certificate (getAgGenesisCert)
+  ansible.builtin.uri:
+    url: "{{ slv_alpenglow_rpc_url | default('', true) or {'mainnet': 'https://api.mainnet-beta.solana.com', 'testnet': 'https://api.testnet.solana.com', 'devnet': 'https://api.devnet.solana.com'}[slv_alpenglow_network] }}"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: getAgGenesisCert
+    return_content: true
+    timeout: 20
+  register: slv_ag_cert_reply
+  until: >-
+    (slv_ag_cert_reply.status | default(0)) == 200 and
+    slv_ag_cert_reply.json is defined and slv_ag_cert_reply.json is mapping and
+    'error' not in slv_ag_cert_reply.json and 'result' in slv_ag_cert_reply.json
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+  delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Read what the genesis certificate answer says
+  ansible.builtin.set_fact:
+    slv_ag_cert_kind: >-
+      {%- set reply = slv_ag_cert_reply -%}
+      {%- set body = reply.json | default(none) -%}
+      {%- if (reply.status | default(-1)) == -1 -%}unreadable (no answer)
+      {%- elif reply.status != 200 -%}unreadable (HTTP {{ reply.status }})
+      {%- elif body is not mapping -%}unreadable (no JSON answer)
+      {%- elif 'error' in body -%}unreadable (JSON-RPC error{{ ' ' ~ body.error.code if body.error is mapping and body.error.code is defined and body.error.code is integer else '' }})
+      {%- elif 'result' not in body -%}unreadable (no result)
+      {%- elif body.result is none -%}null
+      {%- elif body.result is mapping and 'block' in body.result and 'signature' in body.result -%}certificate
+      {%- else -%}unreadable (unexpected result)
+      {%- endif -%}
+  run_once: true
+
+- name: Ask the cluster whether the Alpenglow feature is activated (its feature account)
+  ansible.builtin.uri:
+    url: "{{ slv_alpenglow_rpc_url | default('', true) or {'mainnet': 'https://api.mainnet-beta.solana.com', 'testnet': 'https://api.testnet.solana.com', 'devnet': 'https://api.devnet.solana.com'}[slv_alpenglow_network] }}"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: getAccountInfo
+      params:
+        - A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS
+        - encoding: base64
+          dataSlice:
+            offset: 0
+            length: 1
+          commitment: processed
+    return_content: true
+    timeout: 20
+  register: slv_ag_feature_reply
+  until: >-
+    (slv_ag_feature_reply.status | default(0)) == 200 and
+    slv_ag_feature_reply.json is defined and slv_ag_feature_reply.json is mapping and
+    'error' not in slv_ag_feature_reply.json and 'result' in slv_ag_feature_reply.json
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+  delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  delegate_to: localhost
+  run_once: true
+  become: false
+  when: slv_ag_cert_kind == 'null'
+
+- name: Read what the feature account answer says
+  ansible.builtin.set_fact:
+    slv_ag_feature_kind: >-
+      {%- set reply = slv_ag_feature_reply -%}
+      {%- set body = reply.json | default(none) -%}
+      {%- if reply is skipped -%}not asked
+      {%- elif (reply.status | default(-1)) == -1 -%}unreadable (no answer)
+      {%- elif reply.status != 200 -%}unreadable (HTTP {{ reply.status }})
+      {%- elif body is not mapping -%}unreadable (no JSON answer)
+      {%- elif 'error' in body -%}unreadable (JSON-RPC error{{ ' ' ~ body.error.code if body.error is mapping and body.error.code is defined and body.error.code is integer else '' }})
+      {%- elif body.result is not mapping or 'context' not in body.result or body.result.context is not mapping or 'value' not in body.result -%}unreadable (unexpected result)
+      {%- elif body.result.value is none -%}absent
+      {%- elif body.result.value is not mapping or body.result.value.owner | default('') != 'Feature111111111111111111111111111111111111' -%}unreadable (not a feature account)
+      {%- elif body.result.value.data | default([]) == ['AA==', 'base64'] -%}inactive
+      {%- elif body.result.value.data | default([]) == ['AQ==', 'base64'] -%}active
+      {%- else -%}unreadable (unexpected account data)
+      {%- endif -%}
+  run_once: true
+
+- name: Decide which consensus the cluster runs
+  ansible.builtin.set_fact:
+    slv_alpenglow_state: >-
+      {%- if slv_ag_cert_kind.startswith('unreadable') -%}unknown
+      {%- elif slv_ag_cert_kind == 'certificate' -%}alpenglow
+      {%- elif slv_ag_feature_kind.startswith('unreadable') -%}unknown
+      {%- elif slv_ag_feature_kind == 'active' -%}window
+      {%- else -%}towerbft
+      {%- endif -%}
+    slv_alpenglow_detail: "getAgGenesisCert: {{ slv_ag_cert_kind }}; feature account: {{ slv_ag_feature_kind }}"
+  run_once: true
+
+- name: Stop the identity change while the cluster is between the Alpenglow activation and the genesis certificate
+  ansible.builtin.assert:
+    that:
+      - slv_alpenglow_state not in ['window', 'unknown']
+    fail_msg: "The cluster is between the Alpenglow feature activation and the genesis certificate, or its state cannot be read: identity changes wait until getAgGenesisCert returns a certificate. State: {{ slv_alpenglow_state }} ({{ slv_alpenglow_detail }}). Nothing was changed on {{ ansible_play_hosts_all | join(', ') }}."
+    quiet: true
+  run_once: true
+  when: slv_alpenglow_freeze | default(false) | bool

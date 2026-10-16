@@ -100,6 +100,7 @@ resolve_cmn_deps() {
     seen+=("$current")
 
     if [[ -f "$ANSIBLE_DIR/cmn/$current" ]]; then
+      mkdir -p "$(dirname "$DIST_DIR/ansible/cmn/$current")"
       cp "$ANSIBLE_DIR/cmn/$current" "$DIST_DIR/ansible/cmn/$current"
 
       while IFS= read -r ref2; do
@@ -111,7 +112,8 @@ resolve_cmn_deps() {
 
   if grep -rq 'tasks/' "$DIST_DIR/ansible/cmn/" 2>/dev/null; then
     if [[ -d "$ANSIBLE_DIR/cmn/tasks" ]]; then
-      cp -r "$ANSIBLE_DIR/cmn/tasks" "$DIST_DIR/ansible/cmn/tasks"
+      mkdir -p "$DIST_DIR/ansible/cmn/tasks"
+      cp -r "$ANSIBLE_DIR/cmn/tasks/." "$DIST_DIR/ansible/cmn/tasks/"
     fi
   fi
 }

@@ -6,35 +6,17 @@
   gather_facts: no
   any_errors_fatal: true
   tasks:
-    - name: Ask the cluster whether Alpenglow is active (getAgGenesisCert)
-      ansible.builtin.uri:
-        url: https://api.mainnet-beta.solana.com
-        method: POST
-        body_format: json
-        body:
-          jsonrpc: "2.0"
-          id: 1
-          method: getAgGenesisCert
-        return_content: true
-        timeout: 20
-      register: ag_genesis_cert
-      failed_when: false
-      changed_when: false
-      check_mode: false
-      delegate_to: localhost
-      run_once: true
-      become: false
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_alpenglow_freeze: true
 
-    - name: Refuse unless the cluster reports no Alpenglow genesis certificate
+    - name: Refuse to move a TowerBFT tower file on a cluster that runs Alpenglow
       ansible.builtin.assert:
         that:
-          - ag_genesis_cert.status | default(0) == 200
-          - ag_genesis_cert.json is defined
-          - ag_genesis_cert.json is mapping
-          - "'error' not in ag_genesis_cert.json"
-          - "'result' in ag_genesis_cert.json"
-          - ag_genesis_cert.json.result is none
-        fail_msg: "This switch handles only TowerBFT clusters, and Alpenglow is active or unknown: getAgGenesisCert at https://api.mainnet-beta.solana.com did not return a null result (http status {{ ag_genesis_cert.status | default('none') }}). Nothing was changed on {{ inventory_hostname }}."
+          - slv_alpenglow_state == 'towerbft'
+        fail_msg: "This switch moves a TowerBFT tower file, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate). Moving the vote history file between hosts is not part of this version of slv yet. Nothing was changed on {{ inventory_hostname }}."
         quiet: true
       run_once: true
 
