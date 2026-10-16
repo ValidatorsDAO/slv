@@ -310,13 +310,15 @@ const howDown = (peer: InventoryHost, ctx: GossipContext): string | null => {
 
 /**
  * Judges one gossip entry of the identity at an address that is not the
- * target's. A staked node stays in gossip for up to 2 days after it stops, so
- * such an entry is the stale entry of a stopped host, and not a second
- * instance, only when all three hold: the address is that of an inventory host
- * that shares the identity, that host is down (it reads another identity, or
- * the operator named or confirmed it stopped), and nothing votes with the
- * identity (the last vote of the vote account is older than the vote window of
- * the consensus). Anything that cannot be shown is a refusal.
+ * target's. agave keeps the ContactInfo of a staked origin for the long CRDS
+ * timeout (CRDS_GOSSIP_PURGE_DURATION in gossip/src/crds_gossip_pull.rs), so a
+ * node that stopped stays in gossip for a long time, and such an entry is the
+ * stale entry of a stopped host, and not a second instance, only when all
+ * three hold: the address is that of an inventory host that shares the
+ * identity, that host is down (it reads another identity, or the operator
+ * named or confirmed it stopped), and nothing votes with the identity (the
+ * last vote of the vote account is older than the vote window of the
+ * consensus). Anything that cannot be shown is a refusal.
  */
 const judgeForeignEntry = (ip: string, ctx: GossipContext): GossipVerdict => {
   const { identity, vote } = ctx
@@ -407,7 +409,7 @@ const judgeForeignEntry = (ip: string, ctx: GossipContext): GossipVerdict => {
       down.map((owner) => `${owner.peer.name} (${owner.how})`).join(', ')
     }; the vote account last voted ${vote.age} slots ago, more than the ${window} slots of ${
       consensusLabel(ctx.consensus)
-    }, so nothing votes with it. A staked node stays in gossip for up to 2 days after it stops`,
+    }, so nothing votes with it. A staked node can stay in gossip for a long time after it stops`,
   }
 }
 
@@ -643,9 +645,10 @@ const defaultPrecheckDeps = (): PrecheckDeps => ({
  * else: the cluster's gossip table, the vote account's recent votes, and the
  * inventory peers that hold the same identity.
  *
- * A staked node stays in the gossip table for up to 2 days after it stops, so
- * an entry of the identity at the address of a stopped peer is no sign of a
- * second instance when nothing votes with the identity (judgeForeignEntry).
+ * agave keeps the ContactInfo of a staked origin for the long CRDS timeout
+ * (CRDS_GOSSIP_PURGE_DURATION in gossip/src/crds_gossip_pull.rs), so an entry
+ * of the identity at the address of a stopped peer is no sign of a second
+ * instance when nothing votes with the identity (judgeForeignEntry).
  */
 const runIdentityPrecheck = async (
   input: PrecheckInput,

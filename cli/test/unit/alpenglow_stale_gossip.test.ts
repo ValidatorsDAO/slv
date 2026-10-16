@@ -10,10 +10,11 @@ import {
 } from '/lib/identityPrecheck.ts'
 import type { InventoryHost } from '/lib/targetGuard.ts'
 
-// A staked node stays in the cluster's gossip table for up to 2 days after it
-// stops. So a failover from a dead primary meets the identity in gossip at the
-// address of the host that is already dead. These tests run the real precheck
-// against a stubbed cluster and follow what set:identity gives the playbook.
+// agave keeps the ContactInfo of a staked origin for the long CRDS timeout
+// (CRDS_GOSSIP_PURGE_DURATION in gossip/src/crds_gossip_pull.rs). So a failover
+// from a dead primary meets the identity in gossip at the address of the host
+// that is already dead. These tests run the real precheck against a stubbed
+// cluster and follow what set:identity gives the playbook.
 
 const IDENTITY = 'Aa'.repeat(22)
 const UNSTAKED = 'Bb'.repeat(22)
@@ -183,6 +184,10 @@ Deno.test('set:identity --primary-down goes on when the old primary is still in 
     `identity ${IDENTITY} is in gossip at 203.0.113.10, the stale entry of val-primary (named as stopped with --primary-down)`,
   )
   assertStringIncludes(f.info, 'last voted 4000 slots ago')
+  assertStringIncludes(
+    f.info,
+    'A staked node can stay in gossip for a long time after it stops',
+  )
 })
 
 Deno.test('set:identity --primary-down refuses the same gossip entry while the vote account is still voting', async () => {
