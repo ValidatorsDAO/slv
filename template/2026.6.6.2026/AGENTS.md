@@ -64,6 +64,8 @@ jinja/                      # Jinja2 templates for config generation
 
    The playbooks that a CLI command runs on their own check the version they will install, before they change anything. `install_solana.yml`, `install_agave.yml` and `install_jito.yml` of the validator and RPC networks import the check and read the version the way the installer does (`-e`, else the pin of the section for a validator network; the host or `-e`, else the pin of the section for an RPC network); an RPC installer builds no plugin, so only its client is checked. `cmn/install_solana.yml`, which installs the `version` of the host or `-e` on a host of any of the five sections, checks that version, and has no default version any more: with none it stops. `mainnet-validator/install_allnodes_jito.yml` run on its own is not checked; it is checked when `mainnet-validator/install_solana.yml` runs it.
 
+   `cmn/patch_sha256.yml` (`slv patch:sha256`) builds the source tag `solana_version`, which only `-e` gives: it has no default tag, it stops without one, and the `solana_version` of the inventory is not used (the testnet hosts carry one for the snapshot finder). Before it changes anything it holds the tag to the floor of the network that the group of the host names (`mainnet_validators`, `testnet_validators`, `mainnet_rpcs`, `testnet_rpcs` or `devnet_rpcs`, one of them), reading the client as jito where the patch builds jito-solana and as agave otherwise.
+
 ### Agent Assignments
 
 | Agent | Specialty | Scope |

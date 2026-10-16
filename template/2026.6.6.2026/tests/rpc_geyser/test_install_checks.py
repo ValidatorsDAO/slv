@@ -13,6 +13,9 @@ it is going to install, and so does each of the installers when it is run direct
   install_solana.yml   dispatches on validator_type, so the check reads the client of the type of each host.
   cmn/install_solana.yml  (deprecated) installs `version` of the host or -e, else the pin of the section that the group of the
                        host names, and has no version to fall back on.
+  cmn/patch_sha256.yml   `slv patch:sha256` builds the source tag solana_version, which only -e gives: with none it stops, the
+                       solana_version of the inventory is not taken, and the tag is held to the floor of the network that the
+                       group of the host names. The patch play is recorded here, not run.
 
 Like test_alpenglow_floor.py, whose helpers they take, the tests run the real ansible-playbook on this machine over a local
 connection, without become, sudo, a network or a host, on each file cut after its import of the check. Run from the repository
@@ -21,6 +24,7 @@ root:
     python3 -m unittest discover -s template/latest/tests/rpc_geyser -p 'test_*.py' -v
 """
 
+import copy
 import functools
 import json
 import os
@@ -52,7 +56,17 @@ from test_alpenglow_floor import (  # noqa: E402
     pins_of_set,
     read,
 )
-from test_init_geyser_plugin import ANSIBLE_DIR, make_home, module_of, prefetch, run_ansible, write_inventory  # noqa: E402
+from test_init_geyser_plugin import (  # noqa: E402
+    ANSIBLE_DIR,
+    WRITE_DOWN,
+    make_home,
+    module_of,
+    prefetch,
+    read_logs,
+    recorded_copy_of,
+    run_ansible,
+    write_inventory,
+)
 from test_legacy_inits import LegacyResult  # noqa: E402
 
 PIN_EXPRESSION = "{{ (%s | default({})).get('version_%s', '') }}"
@@ -417,6 +431,159 @@ class DeprecatedInstallSolanaChecksTheVersion(unittest.TestCase):
             with self.subTest(name):
                 self.assertNotEqual(result.returncode, 0)
                 message = stop_messages(result.output)[name]
+                self.assertIn("exactly one of the groups mainnet_validators", message)
+                self.assertIn("Nothing was changed", message)
+
+
+# ---------------------------------------------------------------------------
+# cmn/patch_sha256.yml
+# ---------------------------------------------------------------------------
+
+PATCH = "cmn/patch_sha256.yml"
+PATCH_PLAY = "Patch Solana Validator with optimized SHA256 (no restart)"
+# the version of the source tag, with -e: none, empty, the default that the playbook used to have (below every floor), a
+# release at the floor of mainnet only, a release at every floor, and a value that is no version
+PATCH_VERSIONS = (None, "", "v3.1.10-jito", "v4.3.2-jito", "v4.4.0-beta.1-jito", "latest")
+
+
+def make_patch_flow(root):
+    """cmn/patch_sha256.yml with its patch play recorded (what it would change on the host is written down in slv_ran, not
+    done), after the play that works the section out and the check, which are as they are; the check next to it."""
+    entries = entries_of(PATCH)
+    (index,) = [number for number, entry in enumerate(entries) if entry.get("import_playbook") == "check_alpenglow_floor.yml"]
+    patch = copy.deepcopy(entries[index + 1])
+    assert patch["name"] == PATCH_PLAY and index + 2 == len(entries), "the patch play follows the check and is the last one"
+    # a task is written down with its arguments in a string of an expression, and a double quote in them would end that
+    # string: the record of a command says it with single quotes
+    for task in patch["tasks"]:
+        module, arguments = module_of(task)
+        if module == "command" and isinstance(arguments, str):
+            key = next(name for name in task if name.rsplit(".", 1)[-1] == "command")
+            task[key] = arguments.replace('"', "'")
+    cmn = root / "cmn"
+    cmn.mkdir()
+    shutil.copy(CHECK, cmn / CHECK.name)
+    playbook = cmn / "patch_sha256.yml"
+    playbook.write_text(yaml.safe_dump(entries[: index + 1] + [recorded_copy_of(patch)] + yaml.safe_load(WRITE_DOWN), sort_keys=False))
+    return playbook
+
+
+def is_jito_based(variables):
+    validator_type = variables.get("validator_type", "")
+    return "jito" in validator_type or validator_type == "firedancer"
+
+
+def patch_hosts(section):
+    """Hosts of one section, of every kind of validator_type, and hosts that carry a solana_version of their own (a good one
+    and one below every floor, as the testnet hosts carry one for the snapshot finder)."""
+    hosts = {}
+    for validator_type in ("agave", "jito", "firedancer", "allnodes-jito", None):
+        variables = {} if validator_type is None else {"validator_type": validator_type}
+        hosts["%s-%s" % (section, validator_type or "untyped")] = ([section], variables)
+    hosts["%s-host-good" % section] = ([section], {"validator_type": "jito", "solana_version": "v9.9.9-jito"})
+    hosts["%s-host-old" % section] = ([section], {"validator_type": "agave", "solana_version": "v3.1.10"})
+    return hosts
+
+
+@functools.lru_cache(maxsize=None)
+def run_patch(section, version=None):
+    """cmn/patch_sha256.yml cut as make_patch_flow says, for the hosts of patch_hosts, with versions.yml pins at the floor
+    (so that a pin that the playbook took in place of -e would show) and -e solana_version=<version> (none when None);
+    the result maps each host to a FlowResult, and the process is the second item."""
+    with tempfile.TemporaryDirectory(prefix="slv-patch-") as tmp:
+        root = Path(tmp)
+        home = make_home(root, make_floor_versions(section, pins_of_set(section, "good")))
+        playbook = make_patch_flow(root)
+        logs = root / "logs"
+        logs.mkdir()
+        hosts = patch_hosts(section)
+        write_grouped_inventory(root / "inventory.json", hosts)
+        args = ["-i", "inventory.json", playbook, "-e", "slv_log_dir=%s" % logs]
+        if version is not None:
+            args += ["-e", "solana_version=%s" % version]
+        process = run_ansible(args, root, home)
+        return read_logs(logs, {name: None for name in hosts}, process), process
+
+
+def expected_patch(section, version):
+    """What the playbook has to do for a host of the section run with -e solana_version=<version>: ("pass",), ("warn",) or
+    ("stop", words of the message)."""
+    if version in (None, ""):
+        return ("stop", "needs solana_version")
+    network = network_of(section)
+    if read(version) is None:
+        return ("stop", "is not a version") if network == "mainnet" else ("warn",)
+    return ("stop", "is older than Alpenglow runs on") if below(version, network) else ("pass",)
+
+
+class PatchSha256HasNoDefaultVersionAndChecksTheFloor(unittest.TestCase):
+    def test_p01_it_begins_with_the_stop_and_the_check_and_has_no_version_of_its_own(self):
+        text = (ANSIBLE_DIR / PATCH).read_text()
+        self.assertNotIn("v3.1.10-jito", text)
+        self.assertNotIn("default_version", text)
+        entries = entries_of(PATCH)
+        self.assertEqual(len(entries), 3)
+        first, check, patch = entries
+        # the play before the check changes nothing, and it stops every host together
+        self.assertTrue(first["any_errors_fatal"])
+        self.assertFalse(first["gather_facts"])
+        for task in first["tasks"]:
+            self.assertIn(module_of(task)[0], {"assert", "set_fact"})
+        # the inventory's solana_version is below -e and above nothing: the plays hold an empty one of their own
+        self.assertEqual(first["vars"]["solana_version"], "")
+        self.assertEqual(patch["vars"]["solana_version"], "")
+        # the check reads solana_version, for the section and the client that the first play worked out
+        self.assertEqual(check["import_playbook"], "check_alpenglow_floor.yml")
+        self.assertEqual(check["vars"], {
+            "versions_section": "{{ slv_floor_section }}", "floor_client": "{{ slv_floor_client }}",
+            "floor_version_var": "solana_version", "floor_plugin": False,
+        })
+        self.assertNotIn("when", check)
+        # the client is the one the patch builds
+        self.assertEqual(first["vars"]["is_jito_based"], patch["vars"]["is_jito_based"])
+        self.assertEqual(patch["name"], PATCH_PLAY)
+
+    def test_p02_a_run_without_a_version_or_with_one_below_the_floor_stops_before_anything_is_changed(self):
+        sections = tuple(SECTION_NETWORK)
+        prefetch(run_patch, [(section, version) for section in sections for version in PATCH_VERSIONS])
+        for section in sections:
+            for version in PATCH_VERSIONS:
+                results, process = run_patch(section, version)
+                want = expected_patch(section, version)
+                messages = stop_messages(process.stdout)
+                for name, (_groups, variables) in patch_hosts(section).items():
+                    label = "jito" if is_jito_based(variables) else "agave"
+                    with self.subTest("%s -e %r %s" % (section, version, name)):
+                        if want[0] == "stop":
+                            # the host got nowhere: not one task of the patch was written down
+                            self.assertEqual(results[name].imports, [], process.stdout[-1500:])
+                            self.assertIn(want[1], messages[name])
+                            self.assertIn("Nothing was changed", messages[name])
+                            if version not in (None, ""):
+                                # the tag that -e gave, not the one of the host, and the client the patch builds
+                                self.assertTrue(messages[name].startswith("%s %s" % (label, version)), messages[name])
+                                self.assertIn(" on %s (solana_version of the host or -e)" % name, messages[name])
+                        else:
+                            self.assertNotIn(name, messages)
+                            # the host reached the first task of the patch
+                            self.assertEqual(results[name].imports[:1], ["apt"], process.stdout[-1500:])
+                            self.assertEqual("WARNING %s:" % name in process.stdout, want[0] == "warn")
+
+    def test_p03_a_host_that_is_in_no_section_or_in_two_stops_the_run_before_anything_is_changed(self):
+        for name, groups in (("nowhere", []), ("two-sections", ["mainnet_validators", "mainnet_rpcs"])):
+            with self.subTest(name):
+                with tempfile.TemporaryDirectory(prefix="slv-patch-groups-") as tmp:
+                    root = Path(tmp)
+                    home = make_home(root, make_floor_versions("mainnet_validators", pins_of_set("mainnet_validators", "good")))
+                    playbook = make_patch_flow(root)
+                    logs = root / "logs"
+                    logs.mkdir()
+                    hosts = {name: (groups, {"validator_type": "jito"})}
+                    write_grouped_inventory(root / "inventory.json", hosts)
+                    process = run_ansible(["-i", "inventory.json", playbook, "-e", "slv_log_dir=%s" % logs, "-e", "solana_version=v4.3.2-jito"], root, home)
+                    self.assertNotEqual(process.returncode, 0)
+                    self.assertEqual(read_logs(logs, {name: None}, process)[name].imports, [])
+                    message = stop_messages(process.stdout)[name]
                 self.assertIn("exactly one of the groups mainnet_validators", message)
                 self.assertIn("Nothing was changed", message)
 

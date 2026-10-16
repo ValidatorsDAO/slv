@@ -1,11 +1,60 @@
 ---
+# This playbook builds a client from the source tag solana_version and puts the binary in place of the agave-validator of
+# the host. It has no default tag: without -e solana_version it stops, on every host, before anything is changed. The
+# solana_version of the inventory is not used either (the testnet hosts carry one for the snapshot finder): the value of
+# the plays here is empty, and only -e is above it. slv patch:sha256 passes the tag with -e.
+#
+# Before anything is changed the tag is held to the Alpenglow floor of the network of the host (4.3.0 on mainnet,
+# 4.4.0-beta.0 on testnet and devnet) by cmn/check_alpenglow_floor.yml, as the init.yml of each network holds the
+# versions it builds. The network is the group of the host, as in cmn/install_solana.yml: mainnet_validators,
+# testnet_validators, mainnet_rpcs, testnet_rpcs or devnet_rpcs, one of them. The client the check names is jito where
+# the build below is jito-solana (is_jito_based), and agave otherwise.
+- name: Work out the source tag, the versions.yml section and the client of each host
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    solana_version: ""
+    # the same as in the play below
+    is_jito_based: >-
+      {{
+        'jito' in (validator_type | default(''))
+        or (validator_type | default('')) == 'firedancer'
+      }}
+  tasks:
+    - name: Stop unless solana_version is given with -e
+      ansible.builtin.assert:
+        that:
+          - (solana_version | default('', true) | string | trim) != ''
+        fail_msg: "cmn/patch_sha256.yml needs solana_version, the Solana source tag to build from, given with -e (for example -e solana_version=v4.3.2-jito). It has no default, and the solana_version of the inventory is not used. Nothing was changed on {{ inventory_hostname }}."
+
+    - name: Stop unless the host is in exactly one section of versions.yml
+      ansible.builtin.assert:
+        that:
+          - (group_names | intersect(['mainnet_validators', 'testnet_validators', 'mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs'])) | length == 1
+        fail_msg: "cmn/patch_sha256.yml needs {{ inventory_hostname }} to be in exactly one of the groups mainnet_validators, testnet_validators, mainnet_rpcs, testnet_rpcs and devnet_rpcs, so that the source tag it builds can be held to the Alpenglow floor of its network. Nothing was changed."
+
+    - name: Work out the section and the client that this patch is built for
+      ansible.builtin.set_fact:
+        slv_floor_section: "{{ (group_names | intersect(['mainnet_validators', 'testnet_validators', 'mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs'])) | first }}"
+        slv_floor_client: "{{ 'jito' if (is_jito_based | bool) else 'agave' }}"
+
+- import_playbook: check_alpenglow_floor.yml
+  vars:
+    versions_section: "{{ slv_floor_section }}"
+    floor_client: "{{ slv_floor_client }}"
+    floor_version_var: solana_version
+    floor_plugin: false
+
 - name: Patch Solana Validator with optimized SHA256 (no restart)
   hosts: all
   become: yes
   gather_facts: false
 
   vars:
-    solana_version: "v3.1.10-jito"
+    # no default: the check above stopped every host that was run without -e, and an empty value here keeps the
+    # solana_version of the inventory out
+    solana_version: ""
     is_jito_based: >-
       {{
         'jito' in (validator_type | default(''))
