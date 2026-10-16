@@ -375,7 +375,8 @@ def _seal(model):
 #     validator/src/cli.rs port_range_validator, net-utils/src/lib.rs.
 #   * The default range is 8000-10000: net-utils/src/lib.rs VALIDATOR_PORT_RANGE.
 #   * jito-solana and allnodes/solana-jito add no inbound listener over agave
-#     (their additions are gRPC clients and a UDP sampler on an ephemeral port).
+#     (their additions are gRPC clients and send-only UDP sockets bound to port 0: jito's
+#     shred_receiver_socket and external_sender_socket, allnodes' QoS forwarder).
 #
 # Facts that differ between profiles are the fields of the tuples below.
 
@@ -493,6 +494,20 @@ _PROFILES = (
     #   The socket-opening code outside tests is the same as in v4.3.0-jito.0; xdp-ebpf is agave's,
     #   with no redirect
     _Profile("jito-4.3.1-jito", "agave", ("jito",), ("4.3.1-jito",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.3.2-jito (013a4306)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (identical to agave 4.3.2 and to v4.3.1-jito)
+    #   execute.rs gossip_port:230 rpc_bind_address:545 rpc_addrs:877
+    #   The socket-opening code outside tests is the same as in v4.3.1-jito; xdp-ebpf is agave's,
+    #   with no redirect
+    _Profile("jito-4.3.2-jito", "agave", ("jito",), ("4.3.2-jito",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.4.0-beta.0-jito (c2e16837)
+    #   net-utils/src/lib.rs width 26 (:63), default range (:53)
+    #   gossip/src/node.rs:122 (identical to agave 4.4.0-beta.0 and to v4.4.0-beta.1-jito)
+    #   execute.rs gossip_port:229 rpc_bind_address:545 rpc_addrs:877
+    #   The socket-opening code outside tests is the same as in v4.4.0-beta.1-jito; xdp-ebpf is
+    #   agave's, with no redirect
+    _Profile("jito-4.4.0-beta.0-jito", "agave", ("jito",), ("4.4.0-beta.0-jito",), 26, (), {}),
     # jito-foundation/jito-solana@v4.4.0-beta.1-jito (e179f53f)
     #   net-utils/src/lib.rs width 26 (:63), default range (:53)
     #   gossip/src/node.rs:122 (identical to agave 4.4.0-beta.1)

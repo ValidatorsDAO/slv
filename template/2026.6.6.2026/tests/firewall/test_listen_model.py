@@ -510,7 +510,8 @@ class ListenModelBehaviors(ModelTestCase):
             ("unknown client", profile("solana-labs", "1.18.0")),
             ("an agave version between two rows", profile("agave", "4.3.1")),
             ("an agave beta after the last row", profile("agave", "4.4.0-beta.2")),
-            ("a jito version after the last row", profile("jito", "4.3.2-jito")),
+            ("a jito version between two rows", profile("jito", "4.3.3-jito")),
+            ("a jito beta after the last row", profile("jito", "4.4.0-beta.2-jito")),
             ("an allnodes version between two rows", profile("allnodes-jito", "4.3.1-allnodes")),
             ("a jito version for the allnodes client", profile("allnodes-jito", "4.3.1-jito")),
         )
@@ -520,7 +521,11 @@ class ListenModelBehaviors(ModelTestCase):
         with self.subTest("the error lists the versions that have a row, the Alpenglow ones included"):
             for client, version, listed in (
                 ("agave", "4.3.1", ("4.3.0", "4.3.2", "4.4.0-beta.0", "4.4.0-beta.1")),
-                ("jito", "4.3.2-jito", ("4.3.0-jito.0", "4.3.1-jito", "4.4.0-beta.1-jito")),
+                (
+                    "jito",
+                    "4.3.3-jito",
+                    ("4.3.0-jito.0", "4.3.1-jito", "4.3.2-jito", "4.4.0-beta.0-jito", "4.4.0-beta.1-jito"),
+                ),
                 ("allnodes-jito", "4.3.1-allnodes", ("4.3.0-allnodes.1", "4.3.2-allnodes", "4.4.0-beta.1-allnodes")),
             ):
                 exc = self.assertStopsDerive("no_profile", rendered_agave, profile(client, version))
@@ -1709,6 +1714,8 @@ class ListenModelSupport(ModelTestCase):
         ("jito", "4.0.0-beta.2-jito"),
         ("jito", "4.3.0-jito.0"),
         ("jito", "4.3.1-jito"),
+        ("jito", "4.3.2-jito"),
+        ("jito", "4.4.0-beta.0-jito"),
         ("jito", "4.4.0-beta.1-jito"),
         ("allnodes-jito", "3.1.14"),
         ("allnodes-jito", "4.3.0-allnodes.1"),

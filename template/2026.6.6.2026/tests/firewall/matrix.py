@@ -89,9 +89,11 @@ CLIENT_PINS = {
         "allnodes-jito": "VERSION_ALLNODES_JITO_MAINNET",
         "firedancer": "VERSION_FIREDANCER_MAINNET",
     },
+    # the testnet validators have pins of their own: the RPC pins of testnet stay on the version
+    # that a Geyser plugin is built for
     ("testnet", "validator"): {
-        "agave": "VERSION_SOLANA_TESTNET",
-        "jito": "VERSION_JITO_TESTNET",
+        "agave": "VERSION_SOLANA_VALIDATOR_TESTNET",
+        "jito": "VERSION_JITO_VALIDATOR_TESTNET",
         "allnodes-jito": "VERSION_ALLNODES_JITO_TESTNET",
         "firedancer": "VERSION_FIREDANCER_TESTNET",
     },
