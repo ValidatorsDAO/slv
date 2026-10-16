@@ -260,6 +260,10 @@ def warning_codes(model):
     return [w["code"] for w in model["warnings"]]
 
 
+# the allnodes versions whose xdp_receive.rs redirects the eight sockets of _ALLNODES_RX_XDP
+ALLNODES_WITH_RECEIVE_XDP = ("4.3.0-allnodes.1", "4.3.2-allnodes", "4.4.0-beta.1-allnodes")
+
+
 class ModelTestCase(unittest.TestCase):
     def assertStops(self, code, *args, **kwargs):
         """The model must stop with this error code."""
@@ -381,40 +385,44 @@ class ListenModelBehaviors(ModelTestCase):
                     )
 
     def test_b08_receive_xdp_needs_an_explicit_acknowledgement(self):
-        allnodes = profile("allnodes-jito", "4.3.0-allnodes.1")
         args = args_item("mainnet-validator.allnodes-4.3.0-allnodes.1.start-validator.sh")
         caps_on = unit_item("mainnet-validator.solv.service.xdp-on")
-        self.assertStopsDerive("xdp_rx_bypass_unacknowledged", [args, caps_on], allnodes)
-        self.assertStopsDerive(
-            "xdp_rx_bypass_unacknowledged", [args, caps_on], allnodes, inputs(accept_xdp_rx_bypass=False)
-        )
-        accepted = derive([args, caps_on], allnodes, inputs(accept_xdp_rx_bypass=True))
-        self.assertEqual(
-            accepted["udp"]["xdp_rx_bypass"],
-            [
-                "ancestor_hashes",
-                "block_id_repair",
-                "repair",
-                "serve_repair",
-                "tpu_fwd_quic",
-                "tpu_quic",
-                "tpu_vote",
-                "tvu",
-            ],
-        )
-        self.assertIn("xdp_rx_bypass_accepted", warning_codes(accepted))
         net_only = {
             "kind": "unit",
             "text": replaced(fixture("mainnet-validator.solv.service.xdp-on"), " CAP_BPF CAP_PERFMON", "", times=2),
         }
-        for name, unit in (
-            ("CAP_NET_RAW and CAP_NET_ADMIN only", net_only),
-            ("no capabilities", unit_item("mainnet-validator.solv.service.xdp-off")),
-        ):
-            with self.subTest(name):
-                model = derive([args, unit], allnodes)
-                self.assertEqual(model["udp"]["xdp_rx_bypass"], [])
-                self.assertNotIn("xdp_rx_bypass_accepted", warning_codes(model))
+        for version in ALLNODES_WITH_RECEIVE_XDP:
+            allnodes = profile("allnodes-jito", version)
+            with self.subTest(version):
+                self.assertStopsDerive("xdp_rx_bypass_unacknowledged", [args, caps_on], allnodes)
+                self.assertStopsDerive(
+                    "xdp_rx_bypass_unacknowledged", [args, caps_on], allnodes, inputs(accept_xdp_rx_bypass=False)
+                )
+                accepted = derive([args, caps_on], allnodes, inputs(accept_xdp_rx_bypass=True))
+                # the eight sockets of xdp_receive.rs: block_id_repair is the only Alpenglow socket among them
+                # (votor_server and quic_votor_client stay kernel sockets)
+                self.assertEqual(
+                    accepted["udp"]["xdp_rx_bypass"],
+                    [
+                        "ancestor_hashes",
+                        "block_id_repair",
+                        "repair",
+                        "serve_repair",
+                        "tpu_fwd_quic",
+                        "tpu_quic",
+                        "tpu_vote",
+                        "tvu",
+                    ],
+                )
+                self.assertIn("xdp_rx_bypass_accepted", warning_codes(accepted))
+                for name, unit in (
+                    ("CAP_NET_RAW and CAP_NET_ADMIN only", net_only),
+                    ("no capabilities", unit_item("mainnet-validator.solv.service.xdp-off")),
+                ):
+                    with self.subTest("%s, %s" % (version, name)):
+                        model = derive([args, unit], allnodes)
+                        self.assertEqual(model["udp"]["xdp_rx_bypass"], [])
+                        self.assertNotIn("xdp_rx_bypass_accepted", warning_codes(model))
 
     def test_b09_rpc_port_inside_the_dynamic_range_stops(self):
         # the template defaults: --dynamic-port-range 8900-8930 and --rpc-port 8899. Gossip binds the
@@ -500,10 +508,24 @@ class ListenModelBehaviors(ModelTestCase):
             ("an unlisted Frankendancer", profile("firedancer-jito", "0.1204.99999")),
             ("full Firedancer", profile("firedancer", "26.09.6")),
             ("unknown client", profile("solana-labs", "1.18.0")),
+            ("an agave version between two rows", profile("agave", "4.3.1")),
+            ("an agave beta after the last row", profile("agave", "4.4.0-beta.2")),
+            ("a jito version after the last row", profile("jito", "4.3.2-jito")),
+            ("an allnodes version between two rows", profile("allnodes-jito", "4.3.1-allnodes")),
+            ("a jito version for the allnodes client", profile("allnodes-jito", "4.3.1-jito")),
         )
         for name, prof in cases:
             with self.subTest(name):
                 self.assertStopsDerive("no_profile", rendered_agave, prof)
+        with self.subTest("the error lists the versions that have a row, the Alpenglow ones included"):
+            for client, version, listed in (
+                ("agave", "4.3.1", ("4.3.0", "4.3.2", "4.4.0-beta.0", "4.4.0-beta.1")),
+                ("jito", "4.3.2-jito", ("4.3.0-jito.0", "4.3.1-jito", "4.4.0-beta.1-jito")),
+                ("allnodes-jito", "4.3.1-allnodes", ("4.3.0-allnodes.1", "4.3.2-allnodes", "4.4.0-beta.1-allnodes")),
+            ):
+                exc = self.assertStopsDerive("no_profile", rendered_agave, profile(client, version))
+                for known in listed:
+                    self.assertIn(known, exc.detail, client)
 
     def test_b15_a_trusted_interface_that_is_the_uplink_stops(self):
         rendered = [args_item("mainnet-validator.agave-4.3.0.start-validator.sh")]
@@ -1681,33 +1703,51 @@ class ListenModelSupport(ModelTestCase):
         ("agave", "4.0.0-beta.2"),
         ("agave", "4.3.0"),
         ("agave", "4.4.0-beta.0"),
+        ("agave", "4.3.2"),
+        ("agave", "4.4.0-beta.1"),
         ("jito", "3.1.10-jito"),
         ("jito", "4.0.0-beta.2-jito"),
         ("jito", "4.3.0-jito.0"),
+        ("jito", "4.3.1-jito"),
+        ("jito", "4.4.0-beta.1-jito"),
         ("allnodes-jito", "3.1.14"),
         ("allnodes-jito", "4.3.0-allnodes.1"),
+        ("allnodes-jito", "4.3.2-allnodes"),
+        ("allnodes-jito", "4.4.0-beta.1-allnodes"),
     )
     FRANKENDANCER = ("0.814.30108", "0.1204.40300")
+    START_SCRIPT = {
+        "agave": "mainnet-validator.agave-4.3.0.start-validator.sh",
+        "jito": "mainnet-validator.jito-4.3.0-jito.0.start-validator.sh",
+        "allnodes-jito": "mainnet-validator.allnodes-4.3.0-allnodes.1.start-validator.sh",
+    }
+
+    def agave_line_render(self, client, text=None):
+        """(rendered, inputs) for a row of AGAVE_LINE: its start script (or `text`, an edit of it), and for
+        allnodes the unit and the acknowledgement of receive XDP that its rows with that path ask for."""
+        script = args_item(self.START_SCRIPT[client] if text is None else text, literal=text is not None)
+        if client != "allnodes-jito":
+            return [script], inputs()
+        return [script, unit_item("mainnet-validator.solv.service.xdp-on")], inputs(accept_xdp_rx_bypass=True)
 
     def test_x01_every_listed_version_has_a_profile(self):
-        start_script = {
-            "agave": "mainnet-validator.agave-4.3.0.start-validator.sh",
-            "jito": "mainnet-validator.jito-4.3.0-jito.0.start-validator.sh",
-            "allnodes-jito": "mainnet-validator.allnodes-4.3.0-allnodes.1.start-validator.sh",
-        }
+        with self.subTest("the table lists every row of the plugin"):
+            rows = [(c, v) for p in plugin()._PROFILES if p.family == "agave" for c in p.clients for v in p.versions]
+            self.assertEqual(sorted(rows), sorted(self.AGAVE_LINE))
+            frankendancer = [v for p in plugin()._PROFILES if p.family == "frankendancer" for v in p.versions]
+            self.assertEqual(sorted(frankendancer), sorted(self.FRANKENDANCER))
         for client, version in self.AGAVE_LINE:
             with self.subTest("%s %s" % (client, version)):
-                rendered = [args_item(start_script[client])]
-                over = {}
-                if client == "allnodes-jito":
-                    rendered.append(unit_item("mainnet-validator.solv.service.xdp-on"))
-                    over["accept_xdp_rx_bypass"] = True
-                model = derive(rendered, profile(client, version), inputs(**over))
+                rendered, over = self.agave_line_render(client)
+                model = derive(rendered, profile(client, version), over)
                 self.assertEqual(model["udp"]["public"], P((8900, 8929)))
                 self.assertEqual(model["tcp"]["mgmt"], P((7211, 7212)))
                 self.assertEqual(model["profile"]["version"], version)
-                # only allnodes 4.3.0-allnodes.1 has a receive-XDP path
-                self.assertEqual(bool(model["udp"]["xdp_rx_bypass"]), version == "4.3.0-allnodes.1")
+                self.assertEqual(model["profile"]["client"], client)
+                # only the allnodes versions of ALLNODES_WITH_RECEIVE_XDP have a receive-XDP path
+                self.assertEqual(
+                    bool(model["udp"]["xdp_rx_bypass"]), version in ALLNODES_WITH_RECEIVE_XDP, "receive XDP"
+                )
         for client in ("firedancer-agave", "firedancer-jito", "frankendancer"):
             for version in self.FRANKENDANCER:
                 with self.subTest("%s %s" % (client, version)):
@@ -1787,37 +1827,38 @@ class ListenModelSupport(ModelTestCase):
         )
         self.assertStopsDerive("range_too_narrow", defaults, profile("firedancer-agave", "0.1204.40300"))
 
-    def test_x07_only_allnodes_4_3_0_can_receive_past_netfilter(self):
+    def test_x07_only_the_allnodes_versions_with_the_receive_path_can_receive_past_netfilter(self):
         caps_on = unit_item("mainnet-validator.solv.service.xdp-on")
-        args_agave = args_item("mainnet-validator.agave-4.3.0.start-validator.sh")
-        self.assertEqual(derive([args_agave, caps_on], profile("agave", "4.3.0"))["udp"]["xdp_rx_bypass"], [])
+        for client, version in self.AGAVE_LINE:
+            if version not in ALLNODES_WITH_RECEIVE_XDP:
+                with self.subTest("%s %s has no receive path, with the capabilities on" % (client, version)):
+                    rendered, over = self.agave_line_render(client)
+                    prof = profile(client, version)
+                    model = derive(rendered[:1] + [caps_on], prof, inputs(accept_xdp_rx_bypass=True))
+                    self.assertEqual(model["udp"]["xdp_rx_bypass"], [])
         args_allnodes = args_item("mainnet-validator.allnodes-4.3.0-allnodes.1.start-validator.sh")
-        old = derive([args_allnodes, caps_on], profile("allnodes-jito", "3.1.14"))
-        self.assertEqual(old["udp"]["xdp_rx_bypass"], [])
-        self.assertStopsDerive("rendered_missing", [args_allnodes], profile("allnodes-jito", "4.3.0-allnodes.1"))
-        with self.subTest("an inverted AmbientCapabilities= grants everything it does not name"):
-            unit = {"kind": "unit", "text": "[Service]\nAmbientCapabilities=~CAP_SYS_PTRACE\n"}
-            self.assertStopsDerive(
-                "xdp_rx_bypass_unacknowledged", [args_allnodes, unit], profile("allnodes-jito", "4.3.0-allnodes.1")
-            )
-        with self.subTest("an inverted CapabilityBoundingSet= is hardening and grants nothing"):
-            unit = {"kind": "unit", "text": "[Service]\nCapabilityBoundingSet=~CAP_SYS_PTRACE\n"}
-            self.assertEqual(
-                derive([args_allnodes, unit], profile("allnodes-jito", "4.3.0-allnodes.1"))["udp"]["xdp_rx_bypass"], []
-            )
-        with self.subTest("lower case names and continued lines"):
-            unit = {"kind": "unit", "text": "[Service]\nAmbientCapabilities=cap_net_raw \\\n  cap_bpf cap_perfmon\n"}
-            self.assertStopsDerive(
-                "xdp_rx_bypass_unacknowledged", [args_allnodes, unit], profile("allnodes-jito", "4.3.0-allnodes.1")
-            )
-        with self.subTest("an empty assignment resets the list"):
-            unit = {
-                "kind": "unit",
-                "text": "[Service]\nAmbientCapabilities=CAP_BPF CAP_PERFMON\nAmbientCapabilities=\n",
-            }
-            self.assertEqual(
-                derive([args_allnodes, unit], profile("allnodes-jito", "4.3.0-allnodes.1"))["udp"]["xdp_rx_bypass"], []
-            )
+        for version in ALLNODES_WITH_RECEIVE_XDP:
+            allnodes = profile("allnodes-jito", version)
+            with self.subTest("%s asks for the unit" % version):
+                self.assertStopsDerive("rendered_missing", [args_allnodes], allnodes)
+            with self.subTest("%s: an inverted AmbientCapabilities= grants everything it does not name" % version):
+                unit = {"kind": "unit", "text": "[Service]\nAmbientCapabilities=~CAP_SYS_PTRACE\n"}
+                self.assertStopsDerive("xdp_rx_bypass_unacknowledged", [args_allnodes, unit], allnodes)
+            with self.subTest("%s: an inverted CapabilityBoundingSet= is hardening and grants nothing" % version):
+                unit = {"kind": "unit", "text": "[Service]\nCapabilityBoundingSet=~CAP_SYS_PTRACE\n"}
+                self.assertEqual(derive([args_allnodes, unit], allnodes)["udp"]["xdp_rx_bypass"], [])
+            with self.subTest("%s: lower case names and continued lines" % version):
+                unit = {"kind": "unit", "text": "[Service]\nAmbientCapabilities=cap_net_raw \\\n  cap_bpf cap_perfmon\n"}
+                self.assertStopsDerive("xdp_rx_bypass_unacknowledged", [args_allnodes, unit], allnodes)
+            with self.subTest("%s: an empty assignment resets the list" % version):
+                unit = {
+                    "kind": "unit",
+                    "text": "[Service]\nAmbientCapabilities=CAP_BPF CAP_PERFMON\nAmbientCapabilities=\n",
+                }
+                self.assertEqual(derive([args_allnodes, unit], allnodes)["udp"]["xdp_rx_bypass"], [])
+        with self.subTest("allnodes 3.1.14 has no receive path"):
+            old = derive([args_allnodes, caps_on], profile("allnodes-jito", "3.1.14"))
+            self.assertEqual(old["udp"]["xdp_rx_bypass"], [])
 
     def test_x08_the_frankendancer_config_reader_reads_only_what_it_needs(self):
         base = fixture("mainnet-validator.firedancer-config.toml")
@@ -2097,6 +2138,22 @@ class ListenModelSupport(ModelTestCase):
                     sys.modules.pop(key, None)
                 else:
                     sys.modules[key] = value
+
+    def test_x15_every_row_of_the_agave_line_has_the_minimum_range_width_of_its_source(self):
+        script_range = "--dynamic-port-range 8900-8930"
+        for client, version in self.AGAVE_LINE:
+            # net-utils/src/lib.rs MINIMUM_VALIDATOR_PORT_RANGE_WIDTH: 25 up to 4.0, 26 from 4.3
+            minimum = 25 if version.startswith(("3.", "4.0.")) else 26
+            script = fixture(self.START_SCRIPT[client])
+            with self.subTest("%s %s: %d ports" % (client, version, minimum)):
+                narrow = replaced(script, script_range, "--dynamic-port-range 8900-%d" % (8900 + minimum - 1))
+                rendered, over = self.agave_line_render(client, narrow)
+                exc = self.assertStopsDerive("range_too_narrow", rendered, profile(client, version), over)
+                self.assertIn("needs at least %d" % minimum, exc.detail)
+                exact = replaced(script, script_range, "--dynamic-port-range 8900-%d" % (8900 + minimum))
+                rendered, over = self.agave_line_render(client, exact)
+                model = derive(rendered, profile(client, version), over)
+                self.assertEqual(model["udp"]["public"], P((8900, 8899 + minimum)))
 
 
 if __name__ == "__main__":

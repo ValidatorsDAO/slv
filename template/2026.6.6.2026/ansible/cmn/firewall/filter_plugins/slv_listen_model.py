@@ -358,6 +358,9 @@ def _seal(model):
 #     gossip socket, which is the pinned --gossip-port or the first port in
 #     the range where UDP and TCP both bind.  gossip/src/node.rs
 #     new_with_external_ip, net-utils/src/sockets.rs bind_gossip_port_in_range.
+#   * The Alpenglow sockets (votor_server, block_id_repair, quic_votor_client) are bound by the same
+#     function with the same port range: in every tag listed from v4.3.0 on, gossip/src/node.rs
+#     new_with_external_ip binds 17 UDP sockets in the range plus gossip.
 #   * Without --gossip-port the value is the literal 0 (validator/src/commands/
 #     run/execute.rs: find_available_port_in_range(addr, (0, 1)) returns 0), so
 #     the gossip port is picked inside the range at start.
@@ -383,11 +386,14 @@ _Profile = namedtuple(
 
 DEFAULT_RANGE = (8000, 10000)  # half-open, the agave default
 
-# allnodes/solana-jito@v4.3.0-allnodes.1 validator/src/commands/run/xdp_receive.rs
-# (groups(): tpu_quic, tvu, repair, serve_repair, ancestor_hashes_requests,
-# block_id_repair, tpu_vote, tpu_forwards_quic) redirect these eight UDP sockets
-# with AF_XDP past netfilter when CAP_BPF and CAP_PERFMON are available
-# (receive_capabilities(); README.md "Only the first pair is required").
+# allnodes/solana-jito@v4.3.0-allnodes.1, @v4.3.2-allnodes and @v4.4.0-beta.1-allnodes
+# validator/src/commands/run/xdp_receive.rs (groups(): tpu_quic, tvu, repair, serve_repair,
+# ancestor_hashes_requests, block_id_repair, tpu_vote, tpu_forwards_quic) redirect these eight UDP
+# sockets with AF_XDP past netfilter when CAP_BPF and CAP_PERFMON are available
+# (receive_capabilities(); README.md "Only the first pair is required").  The file is the same in
+# the first two tags, and in the third only the module path of xdp_quic differs.  Of the Alpenglow
+# sockets only block_id_repair is in a group: votor_server and quic_votor_client are in none, so they
+# stay kernel sockets that netfilter sees.
 _ALLNODES_RX_XDP = (
     "ancestor_hashes",
     "block_id_repair",
@@ -453,6 +459,21 @@ _PROFILES = (
     #   execute.rs gossip_port rpc_bind_address rpc_addrs: v4.3.0 222 537 807, v4.4.0-beta.0 221 537 806
     #   xdp-ebpf has no redirect: nothing is received past netfilter
     _Profile("agave-4.3.0", "agave", ("agave",), ("4.3.0", "4.4.0-beta.0"), 26, (), {}),
+    # anza-xyz/agave@v4.3.2 (a2033000)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (identical to v4.3.0): 17 UDP sockets in the range plus gossip, among
+    #   them votor_server:303, block_id_repair:313 and quic_votor_client:356
+    #   execute.rs gossip_port:222 rpc_bind_address:537 rpc_addrs:807
+    #   xdp-ebpf has no redirect: nothing is received past netfilter
+    _Profile("agave-4.3.2", "agave", ("agave",), ("4.3.2",), 26, (), {}),
+    # anza-xyz/agave@v4.4.0-beta.1 (3ad9da2c)
+    #   net-utils/src/lib.rs width 26 (:63), default range (:53)
+    #   gossip/src/node.rs:122 (identical to v4.3.2): the same sockets, the Alpenglow ones included; the
+    #   QUIC socket wrapper net-utils/src/quic_socket.rs only wraps sockets that node.rs has bound (AF_XDP
+    #   for sending, the kernel UDP socket for receiving)
+    #   execute.rs gossip_port:221 rpc_bind_address:537 rpc_addrs:806
+    #   xdp-ebpf has no redirect: nothing is received past netfilter
+    _Profile("agave-4.4.0-beta.1", "agave", ("agave",), ("4.4.0-beta.1",), 26, (), {}),
     # jito-foundation/jito-solana@v3.1.10-jito
     #   net-utils/src/lib.rs:70 width 25; gossip/src/node.rs:84 (the agave 3.1.10 sockets)
     #   execute.rs gossip_port:878 rpc_bind_address:254 rpc_addrs:623
@@ -465,6 +486,20 @@ _PROFILES = (
     #   net-utils/src/lib.rs:62 width 26; gossip/src/node.rs:122 (identical to agave 4.3.0)
     #   execute.rs gossip_port:230 rpc_bind_address:545 rpc_addrs:877
     _Profile("jito-4.3.0-jito.0", "agave", ("jito",), ("4.3.0-jito.0",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.3.1-jito (dd998b9f)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (identical to agave 4.3.2)
+    #   execute.rs gossip_port:230 rpc_bind_address:545 rpc_addrs:877
+    #   The socket-opening code outside tests is the same as in v4.3.0-jito.0; xdp-ebpf is agave's,
+    #   with no redirect
+    _Profile("jito-4.3.1-jito", "agave", ("jito",), ("4.3.1-jito",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.4.0-beta.1-jito (e179f53f)
+    #   net-utils/src/lib.rs width 26 (:63), default range (:53)
+    #   gossip/src/node.rs:122 (identical to agave 4.4.0-beta.1)
+    #   execute.rs gossip_port:229 rpc_bind_address:545 rpc_addrs:877
+    #   Outside tests it opens sockets where v4.3.1-jito does, apart from the QUIC wrappers that moved
+    #   into net-utils/src/quic_socket.rs (as in agave 4.4.0-beta.1); xdp-ebpf is agave's, with no redirect
+    _Profile("jito-4.4.0-beta.1-jito", "agave", ("jito",), ("4.4.0-beta.1-jito",), 26, (), {}),
     # allnodes/solana-jito@v3.1.14-allnodes
     #   net-utils/src/lib.rs:70 width 25; gossip/src/node.rs:84 (the agave 3.1.10 sockets)
     #   execute.rs gossip_port:846 rpc_bind_address:239 rpc_addrs:626
@@ -480,6 +515,38 @@ _PROFILES = (
         "agave",
         ("allnodes-jito",),
         ("4.3.0-allnodes.1",),
+        26,
+        _ALLNODES_RX_XDP,
+        {},
+    ),
+    # allnodes/solana-jito@v4.3.2-allnodes (5f056aa4)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (the file of v4.3.0-allnodes.1; against agave 4.3.2 it differs in the
+    #   number of extra-address binds of tpu_quic and in one log line, not in a port)
+    #   execute.rs gossip_port:258 rpc_bind_address:679 rpc_addrs:1019
+    #   Receive XDP: validator/src/commands/run/xdp_receive.rs, the file of v4.3.0-allnodes.1, and
+    #   the xdp and xdp-ebpf crates are the same (see _ALLNODES_RX_XDP)
+    _Profile(
+        "allnodes-4.3.2-allnodes",
+        "agave",
+        ("allnodes-jito",),
+        ("4.3.2-allnodes",),
+        26,
+        _ALLNODES_RX_XDP,
+        {},
+    ),
+    # allnodes/solana-jito@v4.4.0-beta.1-allnodes (e37b36eb)
+    #   net-utils/src/lib.rs width 26 (:74), default range (:64)
+    #   gossip/src/node.rs:122 (the same two differences from agave 4.4.0-beta.1)
+    #   execute.rs gossip_port:255 rpc_bind_address:677 rpc_addrs:1017
+    #   Receive XDP: validator/src/commands/run/xdp_receive.rs (the same eight groups; only the
+    #   module path of xdp_quic changed; see _ALLNODES_RX_XDP); xdp-ebpf is the same, and in the xdp
+    #   crate only tx_loop.rs differs from v4.3.2-allnodes, as in agave
+    _Profile(
+        "allnodes-4.4.0-beta.1-allnodes",
+        "agave",
+        ("allnodes-jito",),
+        ("4.4.0-beta.1-allnodes",),
         26,
         _ALLNODES_RX_XDP,
         {},
