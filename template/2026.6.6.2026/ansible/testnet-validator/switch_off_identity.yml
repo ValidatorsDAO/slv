@@ -18,6 +18,14 @@
       ansible.builtin.set_fact:
         slv_switch_mode: "{{ slv_alpenglow_state }}"
 
+    - name: Refuse an identity_account that is not a base58 public key, it names the vote history file on the controller
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the vote history file on the controller. Nothing was changed."
+        quiet: true
+      when: slv_switch_mode == 'alpenglow'
+
     - name: Check that the source holds the tower file of the identity
       ansible.builtin.stat:
         path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"
@@ -76,6 +84,7 @@
     - name: Remember what the cluster ran when the source is demoted, for the switch_on that follows
       ansible.builtin.set_fact:
         slv_pre_demotion_state: "{{ slv_alpenglow_state }}"
+        slv_pre_demotion_feature: "{{ slv_ag_feature_kind | default('') }}"
 
     - name: Note where the validator log ends before the identity changes
       ansible.builtin.stat:

@@ -168,7 +168,7 @@ Deno.test('behavior 2: restart, stop, start and nodowntime_migrate assert the ty
   }
 })
 
-Deno.test('behavior 3: set_identity_key needs the tower or vote history unless first_activation is true, and opts out of the vote history only for a confirmed dead primary', () => {
+Deno.test('behavior 3: set_identity_key needs the tower or vote history unless first_activation is true, asks the cluster before it sets the identity on Alpenglow, and opts out of the vote history only for a confirmed dead primary', () => {
   for (const network of validatorNetworks) {
     const path = `ansible/${network}/set_identity_key.yml`
     const tasks = tasksOf(readPlaybook(path)[0])
@@ -241,7 +241,10 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
       `${path}: the refusal names the way out for a dead primary`,
     )
 
-    // dead primary mode: one host, the checks, then a refusal that names the failed check
+    // the checks (nothing votes with the identity, the host has caught up, gossip when an old primary
+    // is named): every Alpenglow run that is not a first activation, with the vote history file or without it
+    const checkConditions = [alpenglow, firstActivation]
+    // the one host and the vote history flag: a confirmed dead primary and no file
     const deadConditions = [alpenglow, noFile, firstActivation, primaryDown]
     const deadImport = tasks.findIndex((task) =>
       moduleArgs(task, 'import_tasks') ===
@@ -253,12 +256,27 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     )
     assertEquals(
       new Set(conditionsOf(tasks[deadImport])),
-      new Set(deadConditions),
-      `${path}: dead primary checks run only for a confirmed dead primary`,
+      new Set(checkConditions),
+      `${path}: the checks run on every Alpenglow set that is not a first activation, whatever the vote history file`,
     )
+    const importVars = tasks[deadImport].vars as Entry
     assertEquals(
-      (tasks[deadImport].vars as Entry).slv_alpenglow_network,
+      importVars.slv_alpenglow_network,
       network.replace('-validator', ''),
+    )
+    // gossip is read when the run names an old primary: confirmed down, or an address named down
+    assert(
+      normalized(importVars.slv_dp_check_gossip).includes(primaryDown) &&
+        normalized(importVars.slv_dp_check_gossip).includes(
+          'primary_down_address',
+        ),
+      `${path}: gossip is read for a confirmed dead primary and for an address named down`,
+    )
+    assert(
+      normalized(importVars.slv_dp_down_address).includes(
+        'primary_down_address',
+      ),
+      `${path}: the address named down is the one the CLI passes`,
     )
     const oneHost = tasks.findIndex((task) =>
       hasModule(task, 'assert') &&
@@ -270,7 +288,7 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     )
     assertEquals(
       new Set(conditionsOf(tasks[oneHost])),
-      new Set(deadConditions),
+      new Set([alpenglow, firstActivation, primaryDown]),
     )
     const deadRefusal = tasks.findIndex((task, index) =>
       index > deadImport && hasModule(task, 'fail') &&
@@ -279,11 +297,15 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assert(deadRefusal > deadImport && deadRefusal < firstSetIdentity)
     assertEquals(
       new Set(conditionsOf(tasks[deadRefusal])),
-      new Set([...deadConditions, 'not (slv_dp_ok | bool)']),
+      new Set([...checkConditions, 'not (slv_dp_ok | bool)']),
     )
     assert(
       normalized(tasks[deadRefusal]).includes('slv_dp_reason'),
       `${path}: the refusal says which check failed`,
+    )
+    assert(
+      normalized(tasks[deadRefusal]).includes('primary_down_address'),
+      `${path}: the refusal names the variable that allows the address of a stopped node`,
     )
 
     // --require-tower: the tower is the only file, and the cluster does not run Alpenglow
@@ -806,6 +828,96 @@ const listYamlFiles = (directory: string): string[] =>
       ? [`${directory}${entry.name}`]
       : []
   )
+
+Deno.test('base58 identity: an identity_account that is not a base58 public key stops the vote history paths before they name a file on the controller', () => {
+  const base58 = '[1-9A-HJ-NP-Za-km-z]{32,44}'
+  const isBase58Guard = (task: Entry) =>
+    hasModule(task, 'assert') && normalized(task).includes(base58) &&
+    normalized(task).includes('is match(')
+  for (const network of validatorNetworks) {
+    // switch_off: before the file is looked for, the cluster is asked again and the source is demoted
+    {
+      const path = `ansible/${network}/switch_off_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const guard = firstIndex(tasks, isBase58Guard)
+      const wait = firstIndex(
+        tasks,
+        (task) => /wait-for-restart-window/.test(commandOf(task)),
+      )
+      const demotion = firstIndex(
+        tasks,
+        (task) => /set-identity/.test(commandOf(task)),
+      )
+      const mode = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+      )
+      assert(
+        mode >= 0 && guard > mode && guard < wait && wait < demotion,
+        `${path}: the identity is checked before the source waits or is demoted`,
+      )
+      assertEquals(conditionsOf(tasks[guard]), [
+        "slv_switch_mode == 'alpenglow'",
+      ])
+      assert(
+        normalized(tasks[guard]).includes(
+          'hostvars[inventory_hostname].identity_account',
+        ),
+        `${path}: the guard reads the identity_account of the host`,
+      )
+    }
+    // switch_on: before the key file and the vote history copy are looked for on the controller
+    {
+      const path = `ansible/${network}/switch_on_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const guard = firstIndex(tasks, isBase58Guard)
+      const slurp = firstIndex(tasks, (task) => hasModule(task, 'slurp'))
+      const block = firstIndex(
+        tasks,
+        (task) =>
+          Array.isArray(task.block) &&
+          (task.block as Entry[]).some((inner) =>
+            hasModule(inner, 'stat') &&
+            String((moduleArgs(inner, 'stat') as Entry).path).includes(
+              'slv_vh_copy',
+            )
+          ),
+      )
+      const mode = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+      )
+      assert(
+        mode >= 0 && guard > mode && guard < slurp && slurp < block,
+        `${path}: the identity is checked before the controller paths are built`,
+      )
+      assertEquals(conditionsOf(tasks[guard]), [
+        "slv_switch_mode == 'alpenglow'",
+      ])
+    }
+  }
+  // the take: the first task, before the copy path is built from the identity
+  const take = parse(
+    readText('ansible/cmn/tasks/vote_history_take.yml'),
+  ) as Entry[]
+  assert(
+    isBase58Guard(take[0]),
+    'vote_history_take.yml: the identity is checked first',
+  )
+  assert(
+    normalized(take[0]).includes('slv_vh_identity'),
+    'vote_history_take.yml: the guard reads slv_vh_identity',
+  )
+  assert(
+    take.slice(1).every((task) => !isBase58Guard(task)) &&
+      normalized(take[1]).includes('slv_vh_copy'),
+    'vote_history_take.yml: the copy path is built right after the check',
+  )
+})
 
 Deno.test('alpenglow state: the probe asks the cluster from the controller and the freeze is written once', () => {
   const path = 'ansible/cmn/tasks/alpenglow_state.yml'

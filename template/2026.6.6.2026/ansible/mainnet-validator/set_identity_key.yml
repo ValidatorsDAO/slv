@@ -68,7 +68,7 @@
         - first_activation | default(false) is not sameas true
         - not (primary_down_confirmed | default(false) | bool)
 
-    - name: Take one host at a time when the vote history file is missing and the old primary is down
+    - name: Take one host at a time when the old primary is confirmed down
       ansible.builtin.assert:
         that:
           - ansible_play_hosts_all | length == 1
@@ -76,34 +76,35 @@
         quiet: true
       when:
         - slv_alpenglow_state == 'alpenglow'
-        - not vote_history_file.stat.exists
         - first_activation | default(false) is not sameas true
         - primary_down_confirmed | default(false) | bool
 
-    - name: Check that the old primary cannot be voting with the identity
+    - name: Check that no other node can be voting with the identity, whatever the vote history file says
       ansible.builtin.import_tasks: ../cmn/tasks/vote_history_dead_primary.yml
       vars:
         slv_alpenglow_network: mainnet
         slv_dp_identity: "{{ hostvars[inventory_hostname].identity_account }}"
         slv_dp_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
         slv_dp_address: "{{ hostvars[inventory_hostname].ansible_host | default('') }}"
+        slv_dp_check_gossip: "{{ (primary_down_confirmed | default(false) | bool) or (primary_down_address | default('', true) | string | trim | length > 0) }}"
+        slv_dp_down_address: "{{ primary_down_address | default('', true) }}"
       when:
         - slv_alpenglow_state == 'alpenglow'
-        - not vote_history_file.stat.exists
         - first_activation | default(false) is not sameas true
-        - primary_down_confirmed | default(false) | bool
 
-    - name: Refuse to set the identity without its vote history file while another node may vote with it
+    - name: Refuse to set the identity while another node may vote with it
       ansible.builtin.fail:
         msg: >-
-          The identity was not set on {{ inventory_hostname }} without its vote history file: {{ slv_dp_reason }}.
-          Make sure the old primary is off the network, give this host time to catch up, and run
-          slv v set:identity --primary-down again.
+          The identity was not set on {{ inventory_hostname }}: {{ slv_dp_reason }}.
+          Make sure the old primary is stopped, wait until the vote account has not voted for
+          {{ slv_dp_window | default(270, true) }} slots (about two minutes) and this host has caught up, then run
+          slv v set:identity again. A staked node can stay in gossip for a long time after it
+          stops: its address is allowed when it is passed as primary_down_address (slv v
+          set:identity does that for a node it reads as stopped, or that you name with
+          --primary-down).
       when:
         - slv_alpenglow_state == 'alpenglow'
-        - not vote_history_file.stat.exists
         - first_activation | default(false) is not sameas true
-        - primary_down_confirmed | default(false) | bool
         - not (slv_dp_ok | bool)
 
     - name: Require the tower when only the tower file exists

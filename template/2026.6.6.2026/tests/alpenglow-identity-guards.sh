@@ -294,11 +294,11 @@ run_case() { # network playbook types state
     "$run/ansible/$net-validator" "$run/ansible/cmn/tasks"
   : >"$run/home/.profile"
   : >"$run/calls.log"
-  printf '[1,2,3]' >"$run/home/.slv/keys/IDENTITYKEY.json"
-  printf 'home-tower' >"$run/home/.slv/tower/tower-1_9-IDENTITYKEY.bin"
+  printf '[1,2,3]' >"$run/home/.slv/keys/StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA.json"
+  printf 'home-tower' >"$run/home/.slv/tower/tower-1_9-StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA.bin"
   case $play in
     switch_off_* | set_identity_key | nodowntime_migrate)
-      printf 'ledger-tower' >"$run/mnt/ledger/tower-1_9-IDENTITYKEY.bin"
+      printf 'ledger-tower' >"$run/mnt/ledger/tower-1_9-StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA.bin"
       ;;
   esac
   cp "$template/ansible/cmn/tasks/"*.yml "$run/ansible/cmn/tasks/"
@@ -323,13 +323,13 @@ all:
     src:
       ansible_connection: local
       ansible_python_interpreter: auto_silent
-      identity_account: IDENTITYKEY
+      identity_account: StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA
       vote_account: VOTE
       validator_type: $src
     dst:
       ansible_connection: local
       ansible_python_interpreter: auto_silent
-      identity_account: IDENTITYKEY
+      identity_account: StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA
       vote_account: VOTE
       validator_type: $dst
 INV
@@ -407,8 +407,8 @@ for entry in "${cases[@]}"; do
       refused=1
       [[ $rc != 0 && $rc != missing && $sets -eq 0 && $voters -eq 0 && $messages == "$outcome " ]] && refused=0
       case $play in
-        switch_on_*) [[ ! -e $run/mnt/ledger/tower-1_9-IDENTITYKEY.bin ]] || refused=1 ;;
-        switch_off_* | nodowntime_migrate) grep -qx home-tower "$run/home/.slv/tower/tower-1_9-IDENTITYKEY.bin" || refused=1 ;;
+        switch_on_*) [[ ! -e $run/mnt/ledger/tower-1_9-StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA.bin ]] || refused=1 ;;
+        switch_off_* | nodowntime_migrate) grep -qx home-tower "$run/home/.slv/tower/tower-1_9-StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA.bin" || refused=1 ;;
         change_identity_and_restart) [[ ! -s $run/calls.log && ! -e $run/solv/identity.json ]] || refused=1 ;;
       esac
       check $refused "$id: expected the $outcome refusal (rc $rc, $sets set-identity calls, $voters authorized-voter calls, messages: ${messages:-none}) $(tail -n 4 "$run/log" | tr '\n' ' ')"
@@ -561,14 +561,14 @@ for entry in "${flip_cases[@]}"; do
       flip2)
         # the probe right before the demotion sees the change: the source is not touched
         [[ $rc != 0 && $sets -eq 0 && $waited -eq 1 ]] && grep -qF "$freeze_text" "$run/log" && ! grep -qF "$demoted_text" "$run/log" &&
-          grep -qx home-tower "$run/home/.slv/tower/tower-1_9-IDENTITYKEY.bin"
+          grep -qx home-tower "$run/home/.slv/tower/tower-1_9-StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA.bin"
         check $? "$id: a state that changes after wait-for-restart-window stops the demotion (rc $rc, $sets set-identity calls, $waited waits) $(tail -n 3 "$run/log" | tr '\n' ' ')"
         ;;
       flip3)
         # the source is demoted, switch_on refuses: both nodes are unstaked and the message says what to do by hand
         [[ $rc != 0 && $sets -eq 1 && $promoted -eq 0 ]] && grep -qF "$freeze_text" "$run/log" && grep -qF "$demoted_text" "$run/log" &&
           grep -q 'source host src was already switched to its unstaked identity' "$run/log" &&
-          grep -q 'promote IDENTITYKEY on dst yourself' "$run/log" && grep -q 'slv v set:identity -p dst' "$run/log" &&
+          grep -q 'promote StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA on dst yourself' "$run/log" && grep -q 'slv v set:identity -p dst' "$run/log" &&
           grep -q 'Nothing is promoted automatically' "$run/log" && ! grep -q 'Nothing was changed' "$run/log"
         check $? "$id: switch_on refusing after the demotion names both nodes, the identity and the target (rc $rc, $sets set-identity calls, $promoted promotions) $(tail -n 3 "$run/log" | tr '\n' ' ')"
         ;;

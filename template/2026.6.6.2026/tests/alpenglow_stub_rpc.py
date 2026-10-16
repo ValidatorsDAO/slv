@@ -14,17 +14,20 @@ It answers the calls the probe and the dead primary checks make, and nothing els
                     one byte dataSlice at processed commitment
   getEpochInfo      only at processed commitment
   getClusterNodes   the nodes in gossip: ending the path with nodes=none|target|other|
-                    both|error|http500 puts the identity (id=NAME, default IDENTITYKEY)
-                    at the address of the target (ip=, default 10.9.9.9), at another
-                    one (other=, default 10.1.1.1), at both, or nowhere
+                    both|error|http500 puts the identity (id=NAME, default the staked key
+                    of the rigs) at the address of the target (ip=, default 10.9.9.9), at
+                    another one (other=, default 10.1.1.1), at both, or nowhere; also=IP
+                    adds one more entry of the identity at IP to any of the first four
   getVoteAccounts   only for one vote account at processed commitment with
                     keepUnstakedDelinquents: vote=current:N or delinquent:N gives it a
                     last vote N, vote=current:N:STEP (or delinquent:N:STEP) gives it N the
                     first time it is asked on a path and STEP more each later time (a vote
                     account whose node votes; the default is current:1000:25),
                     vote=missing leaves it out, vote=error|http500 fail
-  getSlot           the finalized slot of the node (scenario "local"): slot=N,
-                    slot=error|http500|garbage
+  getSlot           at commitment finalized, the finalized slot of the node (scenario
+                    "local"): slot=N (default 1000); at commitment processed, the current
+                    slot of the cluster: now=N (default 100000). Both take error|http500|
+                    garbage in place of N
 
 Any other question is a JSON-RPC error, so a client that asks something else cannot
 pass by luck. Every request is appended to REQUEST_LOG as one JSON line.
@@ -90,8 +93,9 @@ AFLIP = re.compile(r"^aflip-([0-9]+)$")
 TFLIP = re.compile(r"^tflip-([0-9]+)$")
 # hiccup-K-N answers towerbft to the first K requests of each method on a path, HTTP 503 to
 # the next N, and towerbft again after that (N = 999999: the cluster stays out of reach);
-# ahiccup-K-N does the same with alpenglow in place of towerbft
-HICCUP = re.compile(r"^(a?)hiccup-([0-9]+)-([0-9]+)$")
+# ahiccup-K-N does the same with alpenglow in place of towerbft, and phiccup-K-N with
+# towerbft-pending (the feature account exists and the epoch has far to go)
+HICCUP = re.compile(r"^([ap]?)hiccup-([0-9]+)-([0-9]+)$")
 PENDING = re.compile(r"^pending-([0-9]+)$")
 
 lock = threading.Lock()
@@ -176,7 +180,7 @@ def resolve(scenario, count):
         first, failures = int(hiccup.group(2)), int(hiccup.group(3))
         if first < count <= first + failures:
             return None
-        scenario = "alpenglow" if hiccup.group(1) else "towerbft"
+        scenario = {"a": "alpenglow", "p": "towerbft-pending"}.get(hiccup.group(1), "towerbft")
     pending = PENDING.match(scenario)
     if pending:
         return ("null", "inactive", int(pending.group(1)))
@@ -257,12 +261,14 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "error":
                 self.send(200, dict(envelope, error={"code": -32005, "message": "no"}))
                 return
-            identity = options.get("id", "IDENTITYKEY")
+            identity = options.get("id", "StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA")
             nodes = [gossip_node("SOMEOTHERNODE1", "10.7.7.1"), gossip_node("SOMEOTHERNODE2", "10.7.7.2")]
             if mode in ("target", "both"):
                 nodes.append(gossip_node(identity, options.get("ip", "10.9.9.9")))
             if mode in ("other", "both"):
                 nodes.append(gossip_node(identity, options.get("other", "10.1.1.1")))
+            if mode != "none" and "also" in options:
+                nodes.append(gossip_node(identity, options["also"]))
             self.send(200, dict(envelope, result=nodes))
             return
         elif method == "getVoteAccounts":
@@ -289,7 +295,7 @@ class Handler(BaseHTTPRequestHandler):
             last_vote = int(start or 0) + int(step or 0) * (count - 1)
             entry = {
                 "votePubkey": config["votePubkey"],
-                "nodePubkey": options.get("id", "IDENTITYKEY"),
+                "nodePubkey": options.get("id", "StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA"),
                 "activatedStake": 1,
                 "commission": 0,
                 "epochVoteAccount": True,
@@ -304,10 +310,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif method == "getSlot":
             options = path_options(self.path)
-            if params != [{"commitment": "finalized"}]:
+            if params == [{"commitment": "finalized"}]:
+                slot = options.get("slot", "1000")
+            elif params == [{"commitment": "processed"}]:
+                slot = options.get("now", "100000")
+            else:
                 self.send(200, dict(envelope, error={"code": -32602, "message": "unexpected question"}))
                 return
-            slot = options.get("slot", "1000")
             if slot == "http500":
                 self.send(500, {"error": "server error"})
             elif slot == "error":

@@ -64,6 +64,7 @@
     - name: Remember what the cluster ran when the source is demoted, for the switch_on that follows
       ansible.builtin.set_fact:
         slv_pre_demotion_state: "{{ slv_alpenglow_state }}"
+        slv_pre_demotion_feature: "{{ slv_ag_feature_kind | default('') }}"
 
     - name: Set Identity to Unstaked Key
       shell: |

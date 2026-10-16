@@ -21,6 +21,14 @@
       ansible.builtin.set_fact:
         slv_switch_mode: "{{ slv_ag_resume_mode if (slv_ag_resume | default(false) | bool) else slv_alpenglow_state }}"
 
+    - name: Refuse an identity_account that is not a base58 public key, it names the vote history file on the controller
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the vote history file on the controller. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      when: slv_switch_mode == 'alpenglow'
+
     - name: Upload Tower File
       ansible.builtin.copy:
         src: ~/.slv/tower/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
@@ -74,7 +82,7 @@
           ansible.builtin.assert:
             that:
               - slv_vh_copy_stat.stat.exists
-            fail_msg: "{{ slv_vh_copy }} does not exist on the controller, so there is no vote history to put on {{ inventory_hostname }} and the identity was not set. slv v switch takes the file off the host that runs the identity before it gets here. When that host is down, use slv v set:identity -p {{ inventory_hostname }} with --primary-down. {{ slv_ag_outcome | default('') }}"
+            fail_msg: "{{ slv_vh_copy }} does not exist on the controller, so there is no vote history to put on {{ inventory_hostname }} and the identity was not set. slv v switch takes the file off the host that runs the identity before it gets here. When that host is down, stop it, wait until the vote account has not voted for 270 slots (about two minutes) and run slv v set:identity -p {{ inventory_hostname }} --primary-down. {{ slv_ag_outcome | default('') }}"
             quiet: true
 
         - name: Refuse an identity that is not the one the source ran

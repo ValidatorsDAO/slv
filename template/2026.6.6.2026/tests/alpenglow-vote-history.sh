@@ -20,9 +20,14 @@
 #      waits until the file of the host changes and the last vote of the vote account moves
 #      on the cluster, removes the copy; it keeps the copy and says where it is when a step
 #      fails or the host does not vote
-#   3. set_identity_key: needs the file, never passes --require-tower, and passes
-#      --do-not-require-vote-history only after the dead primary checks (the identity is not
-#      in gossip anywhere else, the finalized slot of the host is past the last vote)
+#   3. set_identity_key: needs the file, never passes --require-tower, and on every run that
+#      is not a first activation, file or no file, asks first whether anything votes with the
+#      identity (the last vote of the vote account is more than 270 slots before the current
+#      slot of the cluster) and whether the host has caught up (its finalized slot is at least
+#      270 slots past that last vote); with primary_down_confirmed or a primary_down_address
+#      it also reads gossip (the identity is at no address but the one of the host and the
+#      address named down); --do-not-require-vote-history only for a confirmed dead primary
+#      and no file
 #   4. nodowntime_migrate: one run end to end, and the refusals before anything is demoted
 #   5. TowerBFT is unchanged
 #   6. after a demotion in a migrate run the cluster is asked patiently; when it stays out of
@@ -81,7 +86,7 @@ fi
 
 me=$(id -un)
 mygroup=$(id -gn)
-STAKED=IDENTITYKEY
+STAKED=StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA
 UNSTAKED=UNSTAKEDKEY
 
 # --- the rig ----------------------------------------------------------------
@@ -103,7 +108,7 @@ begin() { # id network
   printf '[1,2,3]' >"$S/home/.slv/keys/$STAKED.json"
 }
 
-# inventory src_type dst_type [dst identity]
+# inventory src_type dst_type [dst identity] [dst address] [src identity]
 inventory() {
   cat >"$S/inventory.yml" <<INV
 all:
@@ -112,7 +117,7 @@ all:
       ansible_connection: local
       ansible_python_interpreter: auto_silent
       ansible_host: 10.9.9.8
-      identity_account: $STAKED
+      identity_account: ${5:-$STAKED}
       vote_account: VOTEACCOUNT
       validator_type: $1
     dst:
@@ -250,6 +255,8 @@ case_off_silent_votor() {
   refused src switch_off_identity "Votor did not report" "an old Votor line does not stand in for the one of this demotion"
   log_has src switch_off_identity "is on its unstaked identity now and nothing was promoted"
   check $? "the message says the source is unstaked and nothing was promoted"
+  log_has src switch_off_identity "has not voted for 270 slots" && log_has src switch_off_identity "slv v set:identity -p <that host>"
+  check $? "the message names the wait that set:identity needs and the command"
   [[ $(count_calls src 'set-identity .*unstaked-identity.json') -eq 1 && ! -e "$(copy_file)" ]]
   check $? "the source was demoted, and no copy is left: neither a new one nor one of an earlier switch"
 }
@@ -297,6 +304,23 @@ case_off_fdctl() {
   refused src switch_off_firedancer_identity "cannot move an identity on a cluster that runs Alpenglow" "a Firedancer host is not switched off on Alpenglow"
   [[ $(count_calls src .) -eq 0 ]]
   check $? "nothing was run on the host"
+}
+
+case_off_bad_identity() {
+  local n=0 bad
+  for bad in aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa StakedKeyForTheRigs0AAAAAAAAAAAAAAAAAA \
+    StakedKeyForTheRigsOAAAAAAAAAAAAAAAAAA StakedKeyForTheRigsIAAAAAAAAAAAAAAAAAA StakedKeyForTheRigslAAAAAAAAAAAAAAAAAA \
+    '../../../../tmp/x' '"StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA\n"'; do
+    n=$((n + 1))
+    begin "off_bad_identity_$n" "$1"
+    inventory agave agave "$STAKED" 10.9.9.9 "$bad"
+    box src src
+    printf 'vote-history-initial\n' >"$(vote_file src)"
+    play src switch_off_identity "-e off_host=src" -e "slv_alpenglow_rpc_url=$(alp)"
+    refused src switch_off_identity "is not a base58 public key" "switch_off refuses the identity_account $bad before it demotes anything"
+    [[ $(count_calls src .) -eq 0 && ! -e $S/home/.slv/vote_history ]]
+    check $? "nothing was waited for, demoted or copied ($bad)"
+  done
 }
 
 case_off_towerbft() {
@@ -365,22 +389,39 @@ case_on_no_copy() {
   printf 'stale-vote-history\n' >"$(vote_file dst)"
   play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
   refused dst switch_on_identity "does not exist on the controller" "switch_on refuses without the vote history file"
+  log_has dst switch_on_identity "has not voted for 270 slots" && log_has dst switch_on_identity "slv v set:identity -p dst --primary-down"
+  check $? "the message names the wait and the command that passes when the old primary is down"
   [[ $(count_calls dst .) -eq 0 && $(cat "$(vote_file dst)") == stale-vote-history ]]
   check $? "nothing was uploaded or set"
 }
 
 case_on_other_identity() {
   begin on_other_identity "$1"
-  inventory agave agave OTHERIDENTITY
+  inventory agave agave AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB
   box dst dst
   prepare_copy "$SOURCE_FILE_TEXT"
-  cp "$S/home/.slv/keys/$STAKED.json" "$S/home/.slv/keys/OTHERIDENTITY.json"
+  cp "$S/home/.slv/keys/$STAKED.json" "$S/home/.slv/keys/AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB.json"
   # the vote history file is named after the identity of the target here, which is not the one of the source
-  cp "$(copy_file)" "$S/home/.slv/vote_history/vote_history-OTHERIDENTITY.bin"
+  cp "$(copy_file)" "$S/home/.slv/vote_history/vote_history-AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB.bin"
   play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)" -e slv_alpenglow_demoted_source=src
   refused dst switch_on_identity "does not belong to it" "switch_on refuses an identity the source did not run"
   [[ $(count_calls dst .) -eq 0 ]]
   check $? "nothing was uploaded or set"
+}
+
+case_on_bad_identity() {
+  local n=0 bad
+  for bad in aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '../../../../tmp/x' '"StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA\n"'; do
+    n=$((n + 1))
+    begin "on_bad_identity_$n" "$1"
+    inventory agave agave "$bad"
+    box dst dst
+    prepare_copy "$SOURCE_FILE_TEXT"
+    play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
+    refused dst switch_on_identity "is not a base58 public key" "switch_on refuses the identity_account $bad"
+    [[ $(count_calls dst .) -eq 0 && -e "$(copy_file)" ]]
+    check $? "nothing was uploaded or set, and the copy is untouched ($bad)"
+  done
 }
 
 case_on_voter_present() {
@@ -450,8 +491,8 @@ case_key_file_present() {
   key_target dst TARGET_VOTES=1
   printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
   printf 'old-tower\n' >"$(tower_file dst)"
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)"
-  ok dst set_identity_key "the vote history file is enough"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 2000)"
+  ok dst set_identity_key "the vote history file is enough when nothing votes with the identity and the host has caught up"
   [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst require-tower) -eq 0 && $(count_calls dst do-not-require-vote-history) -eq 0 && $(count_calls dst 'authorized-voter add') -eq 1 ]]
   check $? "set-identity has no flag at all, a tower file notwithstanding, and the authorized voter is added"
 }
@@ -460,7 +501,7 @@ case_key_cluster_stuck() {
   begin key_cluster_stuck "$1"
   key_target
   printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /vote=current:1000)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /vote=current:1000)" -e "slv_target_rpc_url=$(local_rpc 2000)"
   refused dst set_identity_key "did not move past 1000" "a last vote that does not move on the cluster fails set:identity on Alpenglow"
 }
 
@@ -492,14 +533,14 @@ case_key_first_activation() {
   check $? "set-identity has no flag"
 }
 
-dead() { # nodes vote slot [extra args]
-  echo "$(alp "/nodes=$1/vote=$2")"
+dead() { # nodes vote [current slot of the cluster]
+  echo "$(alp "/nodes=$1/vote=$2/now=${3:-2000}")"
 }
 
 case_key_dead_ok() {
   begin key_dead_ok "$1"
   key_target
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1005)" -e '{"primary_down_confirmed": true}'
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e '{"primary_down_confirmed": true}'
   ok dst set_identity_key "a confirmed dead primary: the checks pass and the file is done without"
   [[ $(count_calls dst 'set-identity --do-not-require-vote-history') -eq 1 && $(count_calls dst require-tower) -eq 0 ]]
   check $? "set-identity has --do-not-require-vote-history and no --require-tower"
@@ -508,7 +549,7 @@ case_key_dead_ok() {
 case_key_dead_ok_string() {
   begin key_dead_ok_string "$1"
   key_target
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1005)" -e primary_down_confirmed=true
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e primary_down_confirmed=true
   ok dst set_identity_key "primary_down_confirmed=true as text works too"
   [[ $(count_calls dst 'set-identity --do-not-require-vote-history') -eq 1 ]]
   check $? "set-identity has --do-not-require-vote-history"
@@ -517,42 +558,51 @@ case_key_dead_ok_string() {
 case_key_dead_target_address() {
   begin key_dead_target_address "$1"
   key_target
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead target current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1005)" -e primary_down_confirmed=true
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead target current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e primary_down_confirmed=true
   ok dst set_identity_key "the identity in gossip at the address of the target itself is fine"
 }
 
 case_key_dead_delinquent() {
   begin key_dead_delinquent "$1"
   key_target
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none delinquent:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1001)" -e primary_down_confirmed=true
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none delinquent:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e primary_down_confirmed=true
   ok dst set_identity_key "a delinquent vote account is read too"
 }
 
-dead_refused() { # id nodes vote slot text description
-  begin "$1" "$NET"
+dead_run() { # id nodes vote slot [extra ansible args...]: a host without the file, the old primary confirmed down
+  local id=$1 nodes=$2 vote=$3 slot=$4
+  shift 4
+  begin "$id" "$NET"
   key_target
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead "$2" "$3")" -e "slv_target_rpc_url=$(local_rpc "$4")" -e primary_down_confirmed=true
-  refused dst set_identity_key "$5" "$6"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead "$nodes" "$vote")" -e "slv_target_rpc_url=$(local_rpc "$slot")" -e primary_down_confirmed=true "$@"
+}
+dead_refused() { # id nodes vote slot text description [extra ansible args...]
+  local id=$1 nodes=$2 vote=$3 slot=$4 text=$5 description=$6
+  shift 6
+  dead_run "$id" "$nodes" "$vote" "$slot" "$@"
+  refused dst set_identity_key "$text" "$description"
   [[ $(count_calls dst .) -eq 0 ]]
   check $? "nothing was run on the host"
 }
 
-case_key_dead_gossip() { dead_refused key_dead_gossip other current:1000 1005 "is in gossip at 10.1.1.1" "the identity in gossip at another address stops dead primary mode"; }
-case_key_dead_gossip_both() { dead_refused key_dead_gossip_both both current:1000 1005 "is in gossip at 10.1.1.1" "the identity at the target and at another address stops dead primary mode"; }
-case_key_dead_slot_equal() { dead_refused key_dead_slot_equal none current:1000 1000 "is not past the last vote 1000" "a finalized slot equal to the last vote is not past it"; }
-case_key_dead_slot_behind() { dead_refused key_dead_slot_behind none current:1000 900 "is not past the last vote 1000" "a finalized slot behind the last vote is not past it"; }
-case_key_dead_vote_missing() { dead_refused key_dead_vote_missing none missing 1005 "does not list the vote account VOTEACCOUNT" "a vote account the cluster does not list stops dead primary mode"; }
-case_key_dead_nodes_error() { dead_refused key_dead_nodes_error error current:1000 1005 "did not give a readable list of nodes" "an unreadable list of nodes stops dead primary mode"; }
-case_key_dead_votes_error() { dead_refused key_dead_votes_error none error 1005 "did not give a readable answer to getVoteAccounts" "unreadable vote accounts stop dead primary mode"; }
-case_key_dead_slot_error() { dead_refused key_dead_slot_error none current:1000 error "did not answer getSlot" "an unreadable slot stops dead primary mode"; }
-case_key_dead_slot_garbage() { dead_refused key_dead_slot_garbage none current:1000 garbage "did not answer getSlot" "a slot that is not JSON stops dead primary mode"; }
+case_key_dead_gossip() { dead_refused key_dead_gossip other current:1000 1300 "is in gossip at 10.1.1.1" "the identity in gossip at another address stops dead primary mode"; }
+case_key_dead_gossip_both() { dead_refused key_dead_gossip_both both current:1000 1300 "is in gossip at 10.1.1.1" "the identity at the target and at another address stops dead primary mode"; }
+case_key_dead_slot_equal() { dead_refused key_dead_slot_equal none current:1000 1000 "slots past the last vote 1000" "a finalized slot equal to the last vote is not past it"; }
+case_key_dead_slot_behind() { dead_refused key_dead_slot_behind none current:1000 900 "slots past the last vote 1000" "a finalized slot behind the last vote is not past it"; }
+case_key_dead_slot_short() { dead_refused key_dead_slot_short none current:1000 1100 "slots past the last vote 1000" "a finalized slot only 100 past the last vote is not 270 slots past it"; }
+case_key_dead_vote_missing() { dead_refused key_dead_vote_missing none missing 1300 "does not list the vote account VOTEACCOUNT" "a vote account the cluster does not list stops dead primary mode"; }
+case_key_dead_nodes_error() { dead_refused key_dead_nodes_error error current:1000 1300 "did not give a readable list of nodes" "an unreadable list of nodes stops dead primary mode"; }
+case_key_dead_votes_error() { dead_refused key_dead_votes_error none error 1300 "did not give a readable answer to getVoteAccounts" "unreadable vote accounts stop dead primary mode"; }
+case_key_dead_slot_error() { dead_refused key_dead_slot_error none current:1000 error "RPC of this host did not answer getSlot" "an unreadable slot stops dead primary mode"; }
+case_key_dead_slot_garbage() { dead_refused key_dead_slot_garbage none current:1000 garbage "RPC of this host did not answer getSlot" "a slot that is not JSON stops dead primary mode"; }
+case_key_dead_voting() { dead_refused key_dead_voting none current:1900:2 2300 "may still be voting with the identity" "a vote account that voted 100 slots before the current slot stops dead primary mode, however far the host has caught up"; }
 
 case_key_dead_hostname() {
   begin key_dead_hostname "$1"
-  inventory agave agave IDENTITYKEY target.example.net
+  inventory agave agave StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA target.invalid
   box dst dst
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000)" -e "slv_target_rpc_url=$(local_rpc 1005)" -e primary_down_confirmed=true
-  refused dst set_identity_key "is not an IP address" "an address that is not an IP stops dead primary mode"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e primary_down_confirmed=true
+  refused dst set_identity_key "is not an IP address and does not resolve to one" "an address that is neither an IP nor a name that resolves stops dead primary mode"
   [[ $(count_calls dst .) -eq 0 ]]
   check $? "nothing was run on the host"
 }
@@ -560,7 +610,7 @@ case_key_dead_hostname() {
 case_key_dead_two_hosts() {
   begin key_dead_two_hosts "$1"
   key_target
-  play dst set_identity_key "-l all" -e "slv_alpenglow_rpc_url=$(dead none current:1000)" -e "slv_target_rpc_url=$(local_rpc 1005)" -e primary_down_confirmed=true
+  play dst set_identity_key "-l all" -e "slv_alpenglow_rpc_url=$(dead none current:1000)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e primary_down_confirmed=true
   refused dst set_identity_key "applies to the one host that takes the identity" "dead primary mode does not run on more than one host"
   [[ $(count_calls dst .) -eq 0 ]]
   check $? "nothing was run on the host"
@@ -570,12 +620,22 @@ case_key_dead_with_file() {
   begin key_dead_with_file "$1"
   key_target
   printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 1)" -e primary_down_confirmed=true
-  ok dst set_identity_key "with the file there, dead primary mode is not used"
-  [[ $(count_calls dst do-not-require-vote-history) -eq 0 ]]
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1)" -e primary_down_confirmed=true
+  refused dst set_identity_key "slots past the last vote 1000" "with the file there, a finalized slot that is not 270 past the last vote still stops the run"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host"
+}
+
+case_key_dead_with_file_ok() {
+  begin key_dead_with_file_ok "$1"
+  key_target
+  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(dead none current:1000:2)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e primary_down_confirmed=true
+  ok dst set_identity_key "with the file there, a confirmed dead primary needs the same checks and then goes on with the file"
+  [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst do-not-require-vote-history) -eq 0 ]]
   check $? "set-identity has no --do-not-require-vote-history"
-  [[ $(grep -c "case=$ID" "$work/stub.log" || true) -gt 0 && $(grep "case=$ID" "$work/stub.log" | grep -c 'getClusterNodes\|getSlot' || true) -eq 0 ]]
-  check $? "no dead primary question (gossip, finalized slot) was asked"
+  grep "case=$ID" "$work/stub.log" | grep -q getClusterNodes
+  check $? "gossip was read"
 }
 
 case_key_dead_first_activation() {
@@ -587,11 +647,72 @@ case_key_dead_first_activation() {
   check $? "set-identity has no --do-not-require-vote-history"
 }
 
+# the old primary's entry stays in gossip after it stopped: the address named down is allowed, and only
+# while nothing votes
+case_key_dead_down_address_ok() {
+  dead_run key_dead_down_address_ok other current:1000:2 1300 -e primary_down_address=10.1.1.1
+  ok dst set_identity_key "the entry of the old primary that stays in gossip is allowed at the address named down once nothing votes"
+  [[ $(count_calls dst 'set-identity --do-not-require-vote-history') -eq 1 ]]
+  check $? "set-identity has --do-not-require-vote-history"
+}
+case_key_dead_down_address_voting() { dead_refused key_dead_down_address_voting other current:1900:2 2300 "may still be voting with the identity" "the same with a last vote 100 slots before the current slot stops the run" -e primary_down_address=10.1.1.1; }
+case_key_dead_third_address() { dead_refused key_dead_third_address other/other=10.2.2.2 current:1000 1300 "is in gossip at 10.2.2.2" "an entry at a third address stops the run" -e primary_down_address=10.1.1.1; }
+case_key_dead_down_and_third() { dead_refused key_dead_down_and_third other/also=10.2.2.2 current:1000 1300 "is in gossip at 10.2.2.2, not at the address of this host" "the address named down does not allow an entry at a third address" -e primary_down_address=10.1.1.1; }
+
+case_key_dead_hostname_resolves() {
+  begin key_dead_hostname_resolves "$1"
+  inventory agave agave "$STAKED" localhost
+  box dst dst
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /nodes=target/ip=127.0.0.1/vote=current:1000:2/now=2000)" -e "slv_target_rpc_url=$(local_rpc 1300)" -e primary_down_confirmed=true
+  ok dst set_identity_key "an ansible_host that is a name is compared by the addresses it resolves to"
+}
+
+# the file is there: the checks apply all the same
+file_run() { # id options-of-the-cluster-url finalized-slot [extra ansible args...]
+  local id=$1 options=$2 slot=$3
+  shift 3
+  begin "$id" "$NET"
+  key_target
+  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp "$options")" -e "slv_target_rpc_url=$(local_rpc "$slot")" "$@"
+}
+file_refused() { # id options-of-the-cluster-url finalized-slot text description [extra ansible args...]
+  local id=$1 options=$2 slot=$3 text=$4 description=$5
+  shift 5
+  file_run "$id" "$options" "$slot" "$@"
+  refused dst set_identity_key "$text" "$description"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host"
+}
+case_key_file_voting() { file_refused key_file_voting /vote=current:1900:25/now=2000 2300 "may still be voting with the identity" "a vote account that voted 100 slots before the current slot stops set:identity although the file is there"; }
+case_key_file_behind() { file_refused key_file_behind /vote=current:1000:25/now=2000 1200 "slots past the last vote 1000" "a host whose finalized slot is not 270 past the last vote stops set:identity although the file is there"; }
+case_key_file_slot_error() { file_refused key_file_slot_error /vote=current:1000:25/now=2000 error "RPC of this host did not answer getSlot" "a host that does not answer getSlot stops set:identity although the file is there"; }
+case_key_file_votes_error() { file_refused key_file_votes_error /vote=error/now=2000 2300 "did not give a readable answer to getVoteAccounts" "a cluster that does not give the last vote stops set:identity although the file is there"; }
+case_key_file_now_error() { file_refused key_file_now_error /vote=current:1000:25/now=error 2300 "the cluster did not answer getSlot" "a cluster that does not give its current slot stops set:identity although the file is there"; }
+case_key_file_edge_now() { file_refused key_file_edge_now /vote=current:1000:25/now=1270 1300 "may still be voting with the identity" "a last vote exactly 270 slots before the current slot is not older than the window"; }
+case_key_file_edge_slot() { file_refused key_file_edge_slot /vote=current:1000:25/now=2000 1269 "slots past the last vote 1000" "a finalized slot 269 past the last vote is not 270 past it"; }
+case_key_file_edge_ok() {
+  file_run key_file_edge_ok /vote=current:1000:25/now=1271 1270
+  ok dst set_identity_key "a last vote 271 slots before the current slot and a finalized slot 270 past it are enough"
+  [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst do-not-require-vote-history) -eq 0 ]]
+  check $? "set-identity has no vote history flag"
+}
+
+# primary_down_address without primary_down_confirmed (the CLI passes it for a peer that reads as stopped)
+case_key_file_down_address_ok() {
+  file_run key_file_down_address_ok /nodes=other/vote=current:1000:25/now=2000 2000 -e primary_down_address=10.1.1.1
+  ok dst set_identity_key "the entry of a stopped node at the address named down does not stop set:identity when nothing votes"
+  [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst do-not-require-vote-history) -eq 0 ]]
+  check $? "set-identity has no vote history flag: the file is there and nobody confirmed the old primary down"
+}
+case_key_file_down_address_voting() { file_refused key_file_down_address_voting /nodes=other/vote=current:1900:25/now=2000 2300 "may still be voting with the identity" "the entry at the address named down is allowed only while nothing votes" -e primary_down_address=10.1.1.1; }
+case_key_file_third_address() { file_refused key_file_third_address /nodes=other/other=10.2.2.2/vote=current:1000:25/now=2000 2000 "is in gossip at 10.2.2.2" "an entry at an address that is not the one named down stops the run" -e primary_down_address=10.1.1.1; }
+
 case_key_voter_error() {
   begin key_voter_error "$1"
   key_target ADD_VOTER=error
   printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 2000)"
   refused dst set_identity_key "Failed to read authorized voter keypair" "an authorized voter that cannot be added fails set:identity on Alpenglow"
 }
 
@@ -599,7 +720,7 @@ case_key_voter_present() {
   begin key_voter_present "$1"
   key_target ADD_VOTER=present
   printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 2000)"
   ok dst set_identity_key "an authorized voter that is already there is fine"
 }
 
@@ -607,7 +728,7 @@ case_key_not_voting() {
   begin key_not_voting "$1"
   key_target TARGET_VOTES=0
   printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 2000)"
   refused dst set_identity_key "is not voting yet" "a host that does not vote fails set:identity on Alpenglow"
 }
 
@@ -650,7 +771,7 @@ case_mig_happy() {
 
 case_mig_identity() {
   begin mig_identity "$1"
-  inventory agave agave OTHERIDENTITY
+  inventory agave agave AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB
   box both both
   printf 'vote-history-initial\n' >"$(vote_file both)"
   play both nodowntime_migrate "-e source_host=src -e target_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
@@ -691,6 +812,8 @@ case_mig_unknown_after_take() {
   refused both nodowntime_migrate "are both unstaked now" "a switch_on that refuses after the demotion says both nodes are unstaked"
   log_has both nodowntime_migrate "vote history file taken from src is at ~/.slv/vote_history/vote_history-$STAKED.bin"
   check $? "the message says where the vote history file is"
+  log_has both nodowntime_migrate "has not voted for 270 slots" && log_has both nodowntime_migrate "run slv v set:identity -p dst."
+  check $? "the message names the wait and the command"
   [[ $(count_calls both 'set-identity') -eq 1 && -e "$(copy_file)" && $(stat -c %a "$(copy_file)") == 600 ]]
   check $? "only the demotion ran and the copy is kept, readable by its owner only"
 }
@@ -734,8 +857,22 @@ case_mig_down_after_demotion() {
   check $? "the target takes the identity with the tower"
   log_has both nodowntime_migrate "The cluster could not be read for 3 seconds after src was switched to its unstaked identity"
   check $? "the play says it went on without a reading"
+  log_has both nodowntime_migrate "had no Alpenglow feature account then" && ! log_has both nodowntime_migrate "takes at least"
+  check $? "with no feature account the play does not say that an activation takes time to start"
   [[ ! -e "$S/home/.slv/vote_history" ]]
   check $? "no vote history file was taken: this is the TowerBFT path"
+}
+
+case_mig_down_after_demotion_pending() {
+  begin mig_down_after_demotion_pending "$1"
+  tower_migrate_box agave agave
+  play both nodowntime_migrate "-e source_host=src -e target_host=dst" -e "slv_alpenglow_rpc_url=$rpc/phiccup-3-999999/case=$ID" \
+    -e slv_alpenglow_patience_seconds=3 -e slv_alpenglow_rpc_delay=1
+  ok both nodowntime_migrate "a cluster that stays out of reach after the demotion does not leave both nodes unstaked, with the feature account pending"
+  log_has both nodowntime_migrate "an activation of Alpenglow takes at least" && ! log_has both nodowntime_migrate "had no Alpenglow feature account then"
+  check $? "with a pending feature account the play says how long an activation takes to start"
+  [[ $(count_calls both 'set-identity') -eq 2 && $(count_calls both 'set-identity --require-tower') -eq 1 ]]
+  check $? "the target takes the identity with the tower"
 }
 
 case_mig_alpenglow_down_after_demotion() {
@@ -779,6 +916,8 @@ case_mig_alpenglow_after_demotion() {
   check $? "the message tells to promote the identity by hand, without waiting for a certificate that is already there"
   ! log_has both nodowntime_migrate "Wait until getAgGenesisCert returns a certificate"
   check $? "the message does not tell to wait for the certificate"
+  log_has both nodowntime_migrate "left no vote history file on the controller" && log_has both nodowntime_migrate "slv v set:identity -p dst --primary-down"
+  check $? "the message names the command for a source that was demoted on TowerBFT: there is no vote history file to carry"
   [[ $(count_calls both 'set-identity') -eq 1 ]]
   check $? "only the demotion ran"
 }
@@ -797,16 +936,21 @@ case_mig_down_fdctl() {
 }
 
 cases=(
-  off_happy off_no_file off_silent_votor off_churning off_mode_changes off_window_opens off_fdctl off_towerbft
+  off_happy off_no_file off_silent_votor off_churning off_mode_changes off_window_opens off_fdctl off_towerbft off_bad_identity
   on_happy on_cluster_stuck on_cluster_unread on_no_copy on_other_identity on_voter_present on_voter_error on_not_voting
-  on_fdctl on_towerbft
+  on_fdctl on_towerbft on_bad_identity
   key_file_present key_cluster_stuck key_file_absent key_tower_only key_first_activation key_dead_ok key_dead_ok_string
   key_dead_target_address key_dead_delinquent key_dead_gossip key_dead_gossip_both key_dead_slot_equal
-  key_dead_slot_behind key_dead_vote_missing key_dead_nodes_error key_dead_votes_error key_dead_slot_error
-  key_dead_slot_garbage key_dead_hostname key_dead_two_hosts key_dead_with_file key_dead_first_activation key_voter_error
-  key_voter_present key_not_voting key_fdctl key_towerbft
+  key_dead_slot_behind key_dead_slot_short key_dead_vote_missing key_dead_nodes_error key_dead_votes_error key_dead_slot_error
+  key_dead_slot_garbage key_dead_voting key_dead_hostname key_dead_hostname_resolves key_dead_two_hosts key_dead_with_file
+  key_dead_with_file_ok key_dead_first_activation key_dead_down_address_ok key_dead_down_address_voting
+  key_dead_third_address key_dead_down_and_third
+  key_file_voting key_file_behind key_file_slot_error key_file_votes_error key_file_now_error key_file_edge_now
+  key_file_edge_slot key_file_edge_ok key_file_down_address_ok key_file_down_address_voting key_file_third_address
+  key_voter_error key_voter_present key_not_voting key_fdctl key_towerbft
   mig_happy mig_identity mig_fdctl_source mig_fdctl_target mig_unknown_after_take
-  mig_hiccup_clears mig_hiccup_before mig_down_after_demotion mig_down_too_long mig_alpenglow_after_demotion mig_down_fdctl
+  mig_hiccup_clears mig_hiccup_before mig_down_after_demotion mig_down_after_demotion_pending mig_down_too_long
+  mig_alpenglow_after_demotion mig_down_fdctl
   mig_alpenglow_down_after_demotion
 )
 
