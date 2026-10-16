@@ -25,7 +25,7 @@ all:
 
     # --- Versions ---
     solana_version: "4.3.2"
-    # jito_version: "4.3.1-jito"
+    # jito_version: "4.3.2-jito"
     # firedancer_version: "0.305.20104"
     # yellowstone_grpc_version: "v2.2.1"
     # richat_version: "richat-v8.1.0"

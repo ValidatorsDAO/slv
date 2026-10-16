@@ -26,7 +26,7 @@ all:
 
     # --- Versions (or set in ~/.slv/versions.yml under mainnet_validators / testnet_validators) ---
     # solana_version: "4.3.2"              # for validator_type=agave
-    # jito_version: "4.3.1-jito"           # for validator_type=jito
+    # jito_version: "4.3.2-jito"           # for validator_type=jito
     # allnodes_jito_version: "4.3.2-allnodes"  # for validator_type=allnodes-jito (-allnodes is appended when missing)
     # firedancer_version: "0.305.20104"    # for validator_type=firedancer-*
 

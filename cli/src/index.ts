@@ -18,6 +18,7 @@ import { upgrade } from '@/upgrade.ts'
 import { signupCmd } from '/src/signup/index.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { migrateVersionsYml } from '/lib/migrate/migrateVersionsYml.ts'
+import { noticeBelowFloorPins } from '/lib/versionFloor.ts'
 import { installCmd } from '/src/install/index.ts'
 import { migrateCmd } from '@/migrate/index.ts'
 import { storageCmd } from '@/storage/index.ts'
@@ -52,6 +53,8 @@ program
   .action(async () => {
     await migrateVersionsYml()
     await copyTemplateDirs()
+    // The pins in versions.yml are kept; say which ones Alpenglow cannot run on.
+    await noticeBelowFloorPins()
   })
 
 // Subcommands

@@ -131,16 +131,17 @@ const describeHosts = (hosts: readonly FdctlHost[]): string =>
 /**
  * Stops `slv v deploy -n mainnet` before anything else when a host it reaches
  * is a Firedancer or Frankendancer validator. Prints why, sets exit code 1 and
- * returns true when it refused.
+ * returns true when it refused. `action` names what was asked for.
  */
 const refuseFdctlMainnetValidatorDeploy = async (
   limit?: string,
   overrides: Partial<FdctlGuardDeps> = {},
+  action = 'deploy',
 ): Promise<boolean> => {
   const deps = { ...defaultFdctlGuardDeps(), ...overrides }
   const hosts = await fdctlHostsInTarget('mainnet_validators', limit, deps)
   if (hosts.length === 0) return false
-  deps.error(`❌ Refusing to deploy on mainnet: ${describeHosts(hosts)}.`)
+  deps.error(`❌ Refusing to ${action} on mainnet: ${describeHosts(hosts)}.`)
   deps.error(`   ${ALPENGLOW_NOTE}`)
   deps.error(`   ${WAY_OUT}`)
   if (isPatternLimit(limit, 'mainnet_validators')) {
@@ -152,6 +153,20 @@ const refuseFdctlMainnetValidatorDeploy = async (
   deps.setExitCode(1)
   return true
 }
+
+/**
+ * The same refusal for `slv v setup:firedancer` and `slv v update:firedancer`:
+ * only `-n mainnet` is checked, any other network goes on.
+ */
+const refuseFdctlMainnetCommand = (
+  network: string | undefined,
+  action: string,
+  limit?: string,
+  overrides: Partial<FdctlGuardDeps> = {},
+): Promise<boolean> =>
+  network === 'mainnet'
+    ? refuseFdctlMainnetValidatorDeploy(limit, overrides, action)
+    : Promise.resolve(false)
 
 /**
  * Warns before `slv rpc deploy -n mainnet` about a Frankendancer RPC node it
@@ -174,6 +189,7 @@ export {
   isFdctlValidatorType,
   mainnetRpcFdctlWarning,
   mainnetValidatorTypeRefusal,
+  refuseFdctlMainnetCommand,
   refuseFdctlMainnetValidatorDeploy,
   refuseMainnetValidatorType,
   warnFdctlMainnetRpcDeploy,

@@ -1,4 +1,7 @@
-import { VERSION } from '@cmn/constants/version.ts'
+import {
+  VERSION,
+  VERSION_JITO_VALIDATOR_TESTNET,
+} from '@cmn/constants/version.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { readLang } from '@/ai/config.ts'
 import { detectProfile, profilePromptBlock } from '@/ai/console/profile.ts'
@@ -176,7 +179,7 @@ CRITICAL: ALWAYS use \`-o PasswordAuthentication=no\` on ALL ssh commands.`,
 - Snapshot URL is auto-detected by the sub-agent (nearest region ping test). No need to ask the user.
 - Available snapshot regions: Amsterdam, Frankfurt, London, NY, Chicago, Singapore, Tokyo
 - When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
-  Read it via read_file and show e.g. "Solana Version: 4.0.0-beta.2-jito (from versions.yml)"
+  Read it via read_file and show e.g. "Solana Version: ${VERSION_JITO_VALIDATOR_TESTNET} (from versions.yml)"
 - Do NOT ask for version — Cecil reads defaults from ~/.slv/versions.yml automatically.
 - Do NOT ask for snapshot URL, commission, port range — defaults are used.
 - Do NOT offer dry-runs. Just deploy when the user confirms.

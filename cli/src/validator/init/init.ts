@@ -6,6 +6,7 @@ import { checkSSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { getLocalConnection } from '@cmn/prompt/localConnection.ts'
 import { colors } from '@cliffy/colors'
 import { listAction } from '/src/metal/list/listAction.ts'
+import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 const init = async (options?: { localhost?: boolean }) => {
   const validator = await prompt([
@@ -17,6 +18,9 @@ const init = async (options?: { localhost?: boolean }) => {
       default: 'testnet',
     },
   ])
+
+  // A client pinned below what Alpenglow runs on is not set up.
+  if (await refuseBelowFloorPins(validator.network, 'validator')) return
 
   let ubuntu
   if (options?.localhost) {

@@ -11,6 +11,7 @@ import {
   type FdctlGuardDeps,
   mainnetRpcFdctlWarning,
   mainnetValidatorTypeRefusal,
+  refuseFdctlMainnetCommand,
   refuseFdctlMainnetValidatorDeploy,
   refuseMainnetValidatorType,
   warnFdctlMainnetRpcDeploy,
@@ -236,6 +237,75 @@ Deno.test('slv v deploy on mainnet goes on for agave, jito and allnodes-jito hos
     false,
   )
   assertEquals(missing.read, ['mainnet_validators'])
+})
+
+Deno.test('slv v setup:firedancer and slv v update:firedancer on mainnet are refused like the deploy, and other networks go on', async () => {
+  const inventories = {
+    mainnet_validators: inventoryText('mainnet_validators', MAINNET_HOSTS),
+  }
+  for (const action of ['set up Firedancer', 'update Firedancer']) {
+    const rec = recorder(inventories)
+    assertEquals(
+      await refuseFdctlMainnetCommand('mainnet', action, undefined, rec.deps),
+      true,
+      action,
+    )
+    assertEquals(rec.read, ['mainnet_validators'], action)
+    assertEquals(rec.exitCodes, [1], action)
+    const message = rec.errors.join('\n')
+    assertStringIncludes(
+      message,
+      `Refusing to ${action} on mainnet: val-b (firedancer-jito)`,
+    )
+    for (const fact of REFUSAL_FACTS) {
+      assertStringIncludes(message, fact, action)
+    }
+  }
+  // -p names the hosts, as it does for the deploy.
+  const scoped = recorder(inventories)
+  assertEquals(
+    await refuseFdctlMainnetCommand(
+      'mainnet',
+      'update Firedancer',
+      'val-a',
+      scoped.deps,
+    ),
+    false,
+  )
+  assertEquals([scoped.errors, scoped.exitCodes], [[], []])
+  for (const network of ['testnet', 'devnet', 'Mainnet', undefined]) {
+    const rec = recorder(inventories)
+    assertEquals(
+      await refuseFdctlMainnetCommand(
+        network,
+        'set up Firedancer',
+        undefined,
+        rec.deps,
+      ),
+      false,
+      String(network),
+    )
+    assertEquals([rec.read, rec.errors, rec.exitCodes], [[], [], []])
+  }
+})
+
+Deno.test('slv v setup:firedancer and slv v update:firedancer call the refusal before they run ansible', async () => {
+  const index = await read('src/validator/index.ts')
+  for (
+    const [command, action] of [
+      ['setup:firedancer', 'set up Firedancer'],
+      ['update:firedancer', 'update Firedancer'],
+    ]
+  ) {
+    const start = index.indexOf(`validatorCmd.command('${command}')`)
+    assert(start > 0, command)
+    const end = index.indexOf('validatorCmd.command(', start + 1)
+    const block = index.slice(start, end)
+    const refuse = block.indexOf('refuseFdctlMainnetCommand(')
+    assert(refuse > 0, `${command} does not call the refusal`)
+    assertStringIncludes(block, `'${action}'`)
+    assert(refuse < block.indexOf('runAnsilbe('), `${command}: after ansible`)
+  }
 })
 
 Deno.test('a mainnet RPC with a Frankendancer config is warned about as not supported for the migration', () => {

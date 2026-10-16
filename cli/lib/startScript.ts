@@ -7,6 +7,7 @@ import {
   type RunAnsibleOptions,
   runAnsilbe,
 } from '/lib/runAnsible.ts'
+import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 // The agave start script depends on the agave-validator binary on the host (its
 // XDP flags follow the installed version). A command that installs, builds or
@@ -62,6 +63,8 @@ type AnsibleRun = (
 
 type StartScriptDeps = {
   run: AnsibleRun
+  /** True when the client pins of this network and role are below what Alpenglow runs on; it has said so. */
+  refuseBelowFloor: (network: string, role: NodeRole) => Promise<boolean>
   templateRoot: () => string
   info: (line: string) => void
   error: (line: string) => void
@@ -70,6 +73,7 @@ type StartScriptDeps = {
 
 const defaultStartScriptDeps = (): StartScriptDeps => ({
   run: runAnsilbe,
+  refuseBelowFloor: (network, role) => refuseBelowFloorPins(network, role),
   templateRoot: getTemplatePath,
   info: (line) => console.log(colors.cyan(line)),
   error: (line) => console.error(colors.red(line)),
@@ -98,7 +102,8 @@ type AgaveBinaryChange = {
  * when it succeeded, the play that renders the start script for the same limit.
  * Returns true when both succeeded. A failed render sets exit code 1 and says
  * that the node must not be restarted until `update:script` succeeds. Nothing
- * runs for a network the role does not have.
+ * runs for a network the role does not have, nor while a pin of the network's
+ * versions.yml section is below what Alpenglow runs on.
  */
 const installAgaveBinary = async (
   change: AgaveBinaryChange,
@@ -112,6 +117,8 @@ const installAgaveBinary = async (
     return false
   }
   const network = parsed.network
+  // A client pinned below what Alpenglow runs on is not installed.
+  if (await deps.refuseBelowFloor(network, change.role)) return false
   const inventoryType = nodeInventoryType(change.role, network)
   const ansible = `${deps.templateRoot()}/ansible`
 

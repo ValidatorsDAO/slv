@@ -7,11 +7,14 @@ import { listValidators } from '/src/validator/listValidators.ts'
 import { getAnsibleHosts } from '/lib/yml/getAnsibleHost.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
 import { refuseFdctlMainnetValidatorDeploy } from '/lib/fdctlMainnetGuard.ts'
+import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 const deployValidatorMainnet = async (limit?: string) => {
   // Alpenglow: Firedancer and Frankendancer are not supported on mainnet during
   // the migration, so such a host is not deployed.
   if (await refuseFdctlMainnetValidatorDeploy(limit)) return false
+  // A client pinned below what Alpenglow runs on is not installed.
+  if (await refuseBelowFloorPins('mainnet', 'validator')) return false
   const inventoryType = 'mainnet_validators'
   const templateRoot = getTemplatePath()
   await listValidators('mainnet', limit)

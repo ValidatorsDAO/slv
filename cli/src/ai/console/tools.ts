@@ -28,6 +28,7 @@ import {
   redactSecretKeys,
 } from '@/ai/console/toolSafety.ts'
 import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
+import { VERSION_JITO_VALIDATOR_TESTNET } from '@cmn/constants/version.ts'
 import { isReadOnlyLine } from '@/ai/console/readOnly.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
@@ -1229,7 +1230,7 @@ ${specialistGuidance}
 
 ### Pre-requisites
 1. Read \`${home}/.slv/versions.yml\` FIRST to get default versions for the selected network/type.
-   - For jito on testnet: use \`testnet_validators.version_jito\` (e.g. "4.0.0-beta.2-jito")
+   - For jito on testnet: use \`testnet_validators.version_jito\` (e.g. "${VERSION_JITO_VALIDATOR_TESTNET}")
    - For agave on mainnet: use \`mainnet_validators.version_agave\`
    - etc.
 

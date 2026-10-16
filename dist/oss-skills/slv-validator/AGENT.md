@@ -117,7 +117,7 @@ the field that matches the host's `validator_type`:
 | `firedancer-*` | `version_firedancer` | (Firedancer install playbook) |
 
 You can also override per-run with `-e <field>=<value>` (e.g.
-`-e jito_version=4.3.1-jito` for `slv v build:solana`).
+`-e jito_version=4.3.2-jito` for `slv v build:solana`).
 
 ### Testnet Jito-Specific Settings
 
@@ -173,12 +173,12 @@ After the user selects a `validator_type`, verify the corresponding CLI binary i
 If the CLI is missing or mismatched, run the appropriate build playbook **before** proceeding:
 ```bash
 # Example: install Jito build for testnet
-ansible-playbook -i inventory.yml testnet-validator/install_jito.yml -e '{"solana_version":"v4.3.1-jito"}'
+ansible-playbook -i inventory.yml testnet-validator/install_jito.yml -e '{"solana_version":"v4.3.2-jito"}'
 ```
 ⚠️ Build takes 30–60 minutes (Rust source compilation).
 
 ### Step 3: Versions
-- `solana_version` — Solana version (required). For Jito builds, use `v4.3.1-jito` format. Single variable for all solv-based types.
+- `solana_version` — Solana version (required). For Jito builds, use `v4.3.2-jito` format. Single variable for all solv-based types.
 - `firedancer_version` — **Required** if validator_type contains `firedancer`
 
 ### Step 4: Keys

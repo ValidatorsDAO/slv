@@ -5,8 +5,11 @@ import { colors } from '@cliffy/colors'
 import rpcLog from '/lib/config/rpcLog.ts'
 import { listRPCs } from '/src/rpc/listRPCs.ts'
 import { getAnsibleHosts } from '/lib/yml/getAnsibleHost.ts'
+import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 const deployRPCTestnet = async (limit?: string) => {
+  // A client pinned below what Alpenglow runs on is not installed.
+  if (await refuseBelowFloorPins('testnet', 'rpc')) return false
   const inventoryType = 'testnet_rpcs'
   const templateRoot = getTemplatePath()
   await listRPCs('testnet', limit)

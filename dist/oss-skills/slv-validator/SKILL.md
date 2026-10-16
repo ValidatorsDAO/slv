@@ -199,7 +199,7 @@ performance tuning, source build, snapshot download, systemd setup, and start.
 
 ### B. Version / config update
 ```bash
-# 1. Edit ~/.slv/versions.yml (e.g. version_jito: 4.3.0-jito.1 -> 4.3.1-jito)
+# 1. Edit ~/.slv/versions.yml (e.g. set version_jito: 4.3.2-jito)
 # 2. Build new binary from source
 slv v build:solana -n <network> -p <host>
 # 3. Re-render start-validator.sh (picks up inventory changes such as bam_url

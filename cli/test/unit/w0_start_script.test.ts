@@ -28,6 +28,8 @@ const harness = (results: boolean[] = []) => {
       calls.push({ playbook, inventoryType, limit, extraVars, options })
       return Promise.resolve(results[calls.length - 1] ?? true)
     },
+    // The version floor reads ~/.slv/versions.yml; these tests do not.
+    refuseBelowFloor: () => Promise.resolve(false),
     templateRoot: () => '/t',
     info: (line) => info.push(line),
     error: (line) => errors.push(line),
@@ -279,6 +281,27 @@ Deno.test('the start-script play does not run when the install play did not succ
     assertEquals(h.calls[0].playbook, row.install, row.label)
     assertEquals(h.errors, [], row.label)
     assertEquals(h.exitCodes, [], row.label)
+  }
+})
+
+Deno.test('every command that installs, builds or patches the agave binary stops before any play when the pins of its network and role are below what Alpenglow runs on', async () => {
+  for (const row of ROWS) {
+    const h = harness()
+    const asked: string[] = []
+    h.deps.refuseBelowFloor = (network, role) => {
+      asked.push(`${network} ${role}`)
+      return Promise.resolve(true)
+    }
+    const cmd = new Command().throwErrors()
+    row.register(cmd, h.deps)
+    await cmd.parse(row.argv)
+    const [network, kind] = row.inventory.split('_')
+    assertEquals(
+      asked,
+      [`${network} ${kind === 'validators' ? 'validator' : 'rpc'}`],
+      row.label,
+    )
+    assertEquals(h.calls, [], row.label)
   }
 })
 

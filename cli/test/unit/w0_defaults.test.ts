@@ -2,9 +2,14 @@ import { assert, assertEquals, assertStringIncludes } from '@std/assert'
 import { parse, stringify } from '@std/yaml'
 import { VERSIONS_PATH } from '@cmn/constants/path.ts'
 import {
+  VERSION_ALLNODES_JITO_MAINNET,
+  VERSION_JITO_MAINNET,
+  VERSION_JITO_VALIDATOR_MAINNET,
+  VERSION_JITO_VALIDATOR_TESTNET,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_VALIDATOR_MAINNET,
 } from '@cmn/constants/version.ts'
+import { CONTEXT_MODULES } from '@/ai/console/systemPrompt.ts'
 import {
   defaultVersionsObject,
   defaultVersionsYml,
@@ -24,7 +29,7 @@ const FIREDANCER = '0.814.30108'
 
 const MAINNET_VALIDATORS = {
   version_agave: '4.3.2',
-  version_jito: '4.3.1-jito',
+  version_jito: '4.3.2-jito',
   version_allnodes_jito: '4.3.2-allnodes',
   version_firedancer: FIREDANCER,
   ...ACCESS,
@@ -32,7 +37,7 @@ const MAINNET_VALIDATORS = {
 
 const MAINNET_RPCS = {
   version_agave: '4.3.2',
-  version_jito: '4.3.1-jito',
+  version_jito: '4.3.2-jito',
   version_firedancer: FIREDANCER,
   richat_version: 'richat-v8.2.2',
   geyser_version: 'v16.1.1+solana.4.3.0',
@@ -313,5 +318,58 @@ Deno.test('the OSS skill docs state the mainnet Solana version the CLI defaults 
       assert(stated.length > 0, `${path} states no default Solana version`)
       for (const version of stated) assertEquals(version, expected, path)
     }
+  }
+})
+
+Deno.test('the OSS skill docs name the default jito and allnodes versions wherever they give one, in both copies', async () => {
+  assertEquals(VERSION_JITO_MAINNET, VERSION_JITO_VALIDATOR_MAINNET)
+  const files = [
+    'README.md',
+    'slv-validator/AGENT.md',
+    'slv-validator/SKILL.md',
+    'slv-validator/README.md',
+    'slv-validator/examples/inventory.yml',
+    'slv-rpc/AGENT.md',
+    'slv-rpc/SKILL.md',
+    'slv-rpc/README.md',
+    'slv-rpc/examples/inventory.yml',
+    'slv-grpc-geyser/AGENT.md',
+    'slv-grpc-geyser/SKILL.md',
+    'slv-grpc-geyser/README.md',
+    'slv-grpc-geyser/examples/inventory.yml',
+  ]
+  let named = 0
+  for (const root of ['oss-skills', 'dist/oss-skills']) {
+    for (const file of files) {
+      const path = `${root}/${file}`
+      const text = await Deno.readTextFile(
+        new URL(`../../../${path}`, import.meta.url),
+      )
+      const jito = text.match(/(?<![\d.])\d+\.\d+\.\d+-jito\b/g) ?? []
+      const allnodes = text.match(/(?<![\d.])\d+\.\d+\.\d+-allnodes\b/g) ??
+        []
+      for (const version of jito) {
+        assertEquals(version, VERSION_JITO_MAINNET, path)
+      }
+      for (const version of allnodes) {
+        assertEquals(version, VERSION_ALLNODES_JITO_MAINNET, path)
+      }
+      named += jito.length + allnodes.length
+    }
+  }
+  assert(named > 0, 'the docs name no jito or allnodes version')
+})
+
+Deno.test('the console prompts quote the testnet validator jito default as their version example', async () => {
+  assertStringIncludes(
+    CONTEXT_MODULES.deploy,
+    `"Solana Version: ${VERSION_JITO_VALIDATOR_TESTNET} (from versions.yml)"`,
+  )
+  const tools = await Deno.readTextFile(
+    new URL('../../src/ai/console/tools.ts', import.meta.url),
+  )
+  assertStringIncludes(tools, '(e.g. "${VERSION_JITO_VALIDATOR_TESTNET}")')
+  for (const text of [CONTEXT_MODULES.deploy, tools]) {
+    assertEquals(text.includes('4.0.0-beta.2'), false)
   }
 })
