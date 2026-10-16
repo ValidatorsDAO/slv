@@ -103,6 +103,12 @@ jobs:
           bash template/latest/tests/assert-pinned-ansible.sh
           bash template/latest/tests/alpenglow-identity-guards.sh
 
+      - name: alpenglow-vote-history.sh
+        if: ${{ !cancelled() }}
+        run: |
+          bash template/latest/tests/assert-pinned-ansible.sh
+          bash template/latest/tests/alpenglow-vote-history.sh
+
       - name: agave-xdp-render.sh
         if: ${{ !cancelled() }}
         run: |

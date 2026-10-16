@@ -168,14 +168,9 @@ Deno.test('behavior 2: restart, stop, start and nodowntime_migrate assert the ty
   }
 })
 
-Deno.test('behavior 3: set_identity_key needs the tower or vote history unless first_activation is true', () => {
+Deno.test('behavior 3: set_identity_key needs the tower or vote history unless first_activation is true, and opts out of the vote history only for a confirmed dead primary', () => {
   for (const network of validatorNetworks) {
     const path = `ansible/${network}/set_identity_key.yml`
-    const raw = readText(path)
-    assert(
-      !raw.includes('--do-not-require-vote-history'),
-      `${path}: must not opt out of the vote history requirement`,
-    )
     const tasks = tasksOf(readPlaybook(path)[0])
     const firstSetIdentity = firstIndex(
       tasks,
@@ -204,7 +199,13 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assert(voteStat >= 0 && voteStat < firstSetIdentity, `${path}: vote stat`)
     const towerRegister = String(tasks[towerStat].register)
     const voteRegister = String(tasks[voteStat].register)
+    const firstActivation =
+      'first_activation | default(false) is not sameas true'
+    const alpenglow = "slv_alpenglow_state == 'alpenglow'"
+    const primaryDown = 'primary_down_confirmed | default(false) | bool'
+    const noFile = `not ${voteRegister}.stat.exists`
 
+    // TowerBFT: the tower or the vote history file, as before
     const refusal = tasks.findIndex((task) =>
       hasModule(task, 'fail') &&
       conditionsOf(task).includes(`not ${towerRegister}.stat.exists`)
@@ -213,13 +214,79 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assertEquals(
       new Set(conditionsOf(tasks[refusal])),
       new Set([
-        `not ${voteRegister}.stat.exists`,
+        "slv_alpenglow_state == 'towerbft'",
+        noFile,
         `not ${towerRegister}.stat.exists`,
-        'first_activation | default(false) is not sameas true',
+        firstActivation,
       ]),
       `${path}: refusal conditions`,
     )
 
+    // Alpenglow: only the vote history file counts, a tower file does not stand in for it
+    const alpenglowRefusal = tasks.findIndex((task) =>
+      hasModule(task, 'fail') &&
+      conditionsOf(task).includes(`not (${primaryDown})`)
+    )
+    assert(
+      alpenglowRefusal > voteStat && alpenglowRefusal < firstSetIdentity,
+      `${path}: Alpenglow refusal`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[alpenglowRefusal])),
+      new Set([alpenglow, noFile, firstActivation, `not (${primaryDown})`]),
+      `${path}: Alpenglow refusal conditions`,
+    )
+    assert(
+      normalized(tasks[alpenglowRefusal]).includes('--primary-down'),
+      `${path}: the refusal names the way out for a dead primary`,
+    )
+
+    // dead primary mode: one host, the checks, then a refusal that names the failed check
+    const deadConditions = [alpenglow, noFile, firstActivation, primaryDown]
+    const deadImport = tasks.findIndex((task) =>
+      moduleArgs(task, 'import_tasks') ===
+        '../cmn/tasks/vote_history_dead_primary.yml'
+    )
+    assert(
+      deadImport > alpenglowRefusal && deadImport < firstSetIdentity,
+      `${path}: dead primary checks`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[deadImport])),
+      new Set(deadConditions),
+      `${path}: dead primary checks run only for a confirmed dead primary`,
+    )
+    assertEquals(
+      (tasks[deadImport].vars as Entry).slv_alpenglow_network,
+      network.replace('-validator', ''),
+    )
+    const oneHost = tasks.findIndex((task) =>
+      hasModule(task, 'assert') &&
+      normalized(task).includes('ansible_play_hosts_all | length == 1')
+    )
+    assert(
+      oneHost > alpenglowRefusal && oneHost < deadImport,
+      `${path}: one host at a time before the checks`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[oneHost])),
+      new Set(deadConditions),
+    )
+    const deadRefusal = tasks.findIndex((task, index) =>
+      index > deadImport && hasModule(task, 'fail') &&
+      conditionsOf(task).includes('not (slv_dp_ok | bool)')
+    )
+    assert(deadRefusal > deadImport && deadRefusal < firstSetIdentity)
+    assertEquals(
+      new Set(conditionsOf(tasks[deadRefusal])),
+      new Set([...deadConditions, 'not (slv_dp_ok | bool)']),
+    )
+    assert(
+      normalized(tasks[deadRefusal]).includes('slv_dp_reason'),
+      `${path}: the refusal says which check failed`,
+    )
+
+    // --require-tower: the tower is the only file, and the cluster does not run Alpenglow
     const flagTasks = tasks.filter((task) =>
       normalized(task).includes('--require-tower')
     )
@@ -232,14 +299,38 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assert(hasModule(flag, 'set_fact'), `${path}: flag must be a fact`)
     assert(
       normalized(flag).includes(
-        `${towerRegister}.stat.exists and not ${voteRegister}.stat.exists`,
+        `slv_alpenglow_state != 'alpenglow' and ${towerRegister}.stat.exists and ${noFile}`,
       ),
-      `${path}: --require-tower only when the tower is the only file`,
+      `${path}: --require-tower only when the tower is the only file and the cluster runs TowerBFT`,
     )
     assert(tasks.indexOf(flag) < firstSetIdentity, `${path}: flag order`)
-    const flagName = Object.keys(
-      moduleArgs(flag, 'set_fact') as Entry,
+    const flagName = Object.keys(moduleArgs(flag, 'set_fact') as Entry)[0]
+
+    // --do-not-require-vote-history: Alpenglow, no file, not a first activation, dead primary confirmed
+    const voteFlagTasks = tasks.filter((task) =>
+      normalized(task).includes('--do-not-require-vote-history')
+    )
+    assertEquals(
+      voteFlagTasks.length,
+      1,
+      `${path}: one task decides --do-not-require-vote-history`,
+    )
+    const voteFlag = voteFlagTasks[0]
+    assert(hasModule(voteFlag, 'set_fact'), `${path}: vote flag must be a fact`)
+    for (const condition of deadConditions) {
+      assert(
+        normalized(voteFlag).includes(condition),
+        `${path}: --do-not-require-vote-history needs: ${condition}`,
+      )
+    }
+    assert(
+      tasks.indexOf(voteFlag) < firstSetIdentity,
+      `${path}: vote flag order`,
+    )
+    const voteFlagName = Object.keys(
+      moduleArgs(voteFlag, 'set_fact') as Entry,
     )[0]
+
     const setIdentityTasks = tasks.filter((task) =>
       /set-identity/.test(commandOf(task))
     )
@@ -250,6 +341,31 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
         `${path}: "${task.name}" does not pass the flag`,
       )
     }
+    const [agaveSetIdentity, firedancerSetIdentity] = setIdentityTasks
+    assert(
+      commandOf(agaveSetIdentity).includes(`{{ ${voteFlagName} }}`),
+      `${path}: the agave command passes the vote history flag`,
+    )
+    assert(
+      !commandOf(firedancerSetIdentity).includes(voteFlagName),
+      `${path}: fdctl has no vote history flag`,
+    )
+
+    // on Alpenglow the authorized voter has to be there (Votor derives its BLS key from it)
+    const addVoter = tasks.find((task) =>
+      /authorized-voter add/.test(commandOf(task)) &&
+      gateOf(task)?.includes('agave')
+    )
+    assert(addVoter, `${path}: agave authorized-voter add`)
+    assertEquals(
+      new Set(conditionsOf({ when: addVoter.failed_when } as Entry)),
+      new Set([
+        alpenglow,
+        'add_voter_agave_result.rc != 0',
+        "'Authorized voter already present' not in (add_voter_agave_result.stdout ~ add_voter_agave_result.stderr)",
+      ]),
+      `${path}: a failed authorized-voter add stops the play on Alpenglow`,
+    )
   }
 })
 
@@ -342,17 +458,19 @@ Deno.test('behavior 4: rm_ledger refuses a live validator and both ledger wipes 
 
 const probeFile = '../cmn/tasks/alpenglow_state.yml'
 
-Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demotion and switch_on requires the tower', () => {
+Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demotion and switch_on requires the tower or the vote history', () => {
   const isGuard = (task: Entry) =>
     hasModule(task, 'assert') || hasModule(task, 'fail')
   for (const network of validatorNetworks) {
-    for (
-      const file of [
-        'switch_off_identity.yml',
-        'switch_off_firedancer_identity.yml',
-      ]
-    ) {
-      const path = `ansible/${network}/${file}`
+    const probeVars = {
+      slv_alpenglow_network: network.replace('-validator', ''),
+      slv_alpenglow_freeze: true,
+      slv_alpenglow_move_types: ["{{ validator_type | default('') }}"],
+    }
+
+    // switch_off_firedancer_identity: an fdctl host moves a tower, so TowerBFT only
+    {
+      const path = `ansible/${network}/switch_off_firedancer_identity.yml`
       const tasks = tasksOf(readPlaybook(path)[0])
       const firstSetIdentity = firstIndex(
         tasks,
@@ -363,14 +481,7 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         (task) => moduleArgs(task, 'import_tasks') === probeFile,
       )
       assert(probe >= 0 && probe < firstSetIdentity, `${path}: probe`)
-      assertEquals(
-        tasks[probe].vars,
-        {
-          slv_alpenglow_network: network.replace('-validator', ''),
-          slv_alpenglow_freeze: true,
-        },
-        `${path}: probe variables`,
-      )
+      assertEquals(tasks[probe].vars, probeVars, `${path}: probe variables`)
 
       const alpenglowGuard = firstIndex(
         tasks,
@@ -439,20 +550,243 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         `${path}: the second probe is followed by the TowerBFT guard`,
       )
     }
-    for (
-      const file of [
-        'switch_on_identity.yml',
-        'switch_on_firedancer_identity.yml',
-      ]
-    ) {
-      const path = `ansible/${network}/${file}`
-      const setIdentity = tasksOf(readPlaybook(path)[0]).filter((task) =>
+
+    // switch_off_identity: the tower on TowerBFT, the vote history file on Alpenglow
+    {
+      const path = `ansible/${network}/switch_off_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const firstSetIdentity = firstIndex(
+        tasks,
+        (task) => /set-identity/.test(commandOf(task)),
+      )
+      const wait = firstIndex(
+        tasks,
+        (task) => /wait-for-restart-window/.test(commandOf(task)),
+      )
+      const probes = tasks.flatMap((task, index) =>
+        moduleArgs(task, 'import_tasks') === probeFile ? [index] : []
+      )
+      assertEquals(probes.length, 2, `${path}: two probes`)
+      assert(
+        probes[0] < wait,
+        `${path}: the first probe stands before the wait`,
+      )
+      assert(
+        probes[1] > wait && probes[1] < firstSetIdentity,
+        `${path}: the second probe stands between the wait and the demotion`,
+      )
+      assertEquals(tasks[probes[0]].vars, probeVars, `${path}: probe variables`)
+      assertEquals(tasks[probes[1]].vars, probeVars, `${path}: second probe`)
+
+      // the mode the switch moves is fixed by the first probe, and the second probe has to agree
+      const mode = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+      )
+      assert(mode > probes[0] && mode < wait, `${path}: switch mode`)
+      assertEquals(
+        (moduleArgs(tasks[mode], 'set_fact') as Entry).slv_switch_mode,
+        '{{ slv_alpenglow_state }}',
+      )
+      const lateGuard = tasks.findIndex((task, index) =>
+        index > probes[1] && isGuard(task) &&
+        normalized(task).includes('slv_alpenglow_state == slv_switch_mode')
+      )
+      assert(
+        lateGuard > probes[1] && lateGuard < firstSetIdentity,
+        `${path}: the second probe is followed by the guard that the mode did not change`,
+      )
+
+      // the file to carry is checked before the wait and before the demotion
+      for (
+        const [fragment, mode] of [
+          ['tower-1_9-', 'towerbft'],
+          ['vote_history-', 'alpenglow'],
+        ]
+      ) {
+        const stat = firstIndex(
+          tasks,
+          (task) =>
+            hasModule(task, 'stat') &&
+            String((moduleArgs(task, 'stat') as Entry).path).startsWith(
+              `/mnt/ledger/${fragment}`,
+            ) &&
+            String((moduleArgs(task, 'stat') as Entry).path).includes(
+              'identity_account',
+            ),
+        )
+        assert(stat > probes[0] && stat < wait, `${path}: ${fragment} stat`)
+        assertEquals(conditionsOf(tasks[stat]), [
+          `slv_switch_mode == '${mode}'`,
+        ])
+        const guard = firstIndex(
+          tasks,
+          (task) =>
+            isGuard(task) &&
+            normalized(task).includes(`${tasks[stat].register}.stat.exists`),
+        )
+        assert(guard > stat && guard < wait, `${path}: ${fragment} guard`)
+        assertEquals(conditionsOf(tasks[guard]), [
+          `slv_switch_mode == '${mode}'`,
+        ])
+      }
+
+      // after the demotion: the tower is fetched on TowerBFT, the vote history file is taken on Alpenglow
+      const towerFetch = tasks.filter((task) => hasModule(task, 'fetch'))
+      assertEquals(towerFetch.length, 1, `${path}: one fetch`)
+      assert(tasks.indexOf(towerFetch[0]) > firstSetIdentity)
+      assertEquals(conditionsOf(towerFetch[0]), [
+        "slv_switch_mode == 'towerbft'",
+      ])
+      const take = tasks.findIndex((task) =>
+        Array.isArray(task.block) &&
+        (task.block as Entry[]).some((inner) =>
+          moduleArgs(inner, 'import_tasks') ===
+            '../cmn/tasks/vote_history_take.yml'
+        )
+      )
+      assert(
+        take > firstSetIdentity,
+        `${path}: the vote history file is taken after the demotion`,
+      )
+      assertEquals(conditionsOf(tasks[take]), [
+        "slv_switch_mode == 'alpenglow'",
+      ])
+      assert(
+        Array.isArray(tasks[take].rescue),
+        `${path}: a failed take says what is left to do`,
+      )
+    }
+
+    // switch_on_firedancer_identity: an fdctl host takes a tower
+    {
+      const path = `ansible/${network}/switch_on_firedancer_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const setIdentity = tasks.filter((task) =>
         /set-identity/.test(commandOf(task))
       )
       assertEquals(setIdentity.length, 1, `${path}: set-identity task`)
       assert(
         commandOf(setIdentity[0]).includes('--require-tower'),
         `${path}: set-identity must pass --require-tower`,
+      )
+      const probe = firstIndex(
+        tasks,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
+      )
+      assertEquals(tasks[probe].vars, probeVars, `${path}: probe variables`)
+    }
+
+    // switch_on_identity: --require-tower with the tower on TowerBFT, the vote history file on Alpenglow
+    {
+      const path = `ansible/${network}/switch_on_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const probe = firstIndex(
+        tasks,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
+      )
+      assertEquals(tasks[probe].vars, probeVars, `${path}: probe variables`)
+      const mode = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+      )
+      assert(mode > probe, `${path}: switch mode`)
+      assertEquals(
+        (moduleArgs(tasks[mode], 'set_fact') as Entry).slv_switch_mode,
+        '{{ slv_ag_resume_mode if (slv_ag_resume | default(false) | bool) else slv_alpenglow_state }}',
+      )
+
+      const towerSetIdentity = tasks.filter((task) =>
+        /set-identity/.test(commandOf(task))
+      )
+      assertEquals(
+        towerSetIdentity.length,
+        1,
+        `${path}: set-identity on TowerBFT`,
+      )
+      assert(commandOf(towerSetIdentity[0]).includes('--require-tower'))
+      assertEquals(conditionsOf(towerSetIdentity[0]), [
+        "slv_switch_mode == 'towerbft'",
+      ])
+      const upload = tasks.find((task) =>
+        hasModule(task, 'copy') &&
+        String((moduleArgs(task, 'copy') as Entry).src).includes('/tower/')
+      )
+      assert(upload, `${path}: the tower is uploaded`)
+      assertEquals(conditionsOf(upload), ["slv_switch_mode == 'towerbft'"])
+
+      const block = tasks.find((task) => Array.isArray(task.block))
+      assert(block, `${path}: the Alpenglow block`)
+      assertEquals(conditionsOf(block), ["slv_switch_mode == 'alpenglow'"])
+      const inner = block.block as Entry[]
+      assert(
+        Array.isArray(block.rescue),
+        `${path}: a failed step says where the copy is`,
+      )
+      const innerSetIdentity = inner.filter((task) =>
+        /set-identity/.test(commandOf(task))
+      )
+      assertEquals(innerSetIdentity.length, 1)
+      assert(
+        !commandOf(innerSetIdentity[0]).includes('--require-tower'),
+        `${path}: no tower flag on Alpenglow: agave then requires the vote history file`,
+      )
+      const index = (predicate: (task: Entry) => boolean) =>
+        inner.findIndex(predicate)
+      const stat = index((task) =>
+        hasModule(task, 'stat') && task.register === 'slv_vh_copy_stat'
+      )
+      const refuse = index((task) =>
+        isGuard(task) &&
+        normalized(task).includes('slv_vh_copy_stat.stat.exists')
+      )
+      const upload2 = index((task) =>
+        hasModule(task, 'copy') &&
+        String((moduleArgs(task, 'copy') as Entry).dest).startsWith(
+          '/mnt/ledger/vote_history-',
+        )
+      )
+      const set = inner.indexOf(innerSetIdentity[0])
+      const voter = index((task) =>
+        /authorized-voter add/.test(commandOf(task))
+      )
+      const confirm = index((task) =>
+        moduleArgs(task, 'import_tasks') ===
+          '../cmn/tasks/vote_history_confirm.yml'
+      )
+      const remove = index((task) =>
+        hasModule(task, 'file') &&
+        (moduleArgs(task, 'file') as Entry).state === 'absent'
+      )
+      assert(
+        stat >= 0 && stat < refuse && refuse < upload2 && upload2 < set &&
+          set < voter && voter < confirm && confirm < remove,
+        `${path}: copy check, upload, set-identity, authorized voter, confirmation, removal of the copy`,
+      )
+      const copy = moduleArgs(inner[upload2], 'copy') as Entry
+      assertEquals(
+        [copy.owner, copy.group, copy.mode],
+        ['solv', 'solv', '0644'],
+        `${path}: the file gets the owner and mode agave gives it`,
+      )
+      assert(
+        Array.isArray(inner[voter].failed_when),
+        `${path}: a failed authorized-voter add stops the play on Alpenglow`,
+      )
+      assert(
+        normalized(inner[voter].failed_when).includes(
+          'Authorized voter already present',
+        ),
+        `${path}: an authorized voter that is already there is not a failure`,
+      )
+      assertEquals(
+        (inner[confirm].vars as Entry).slv_vh_baseline_sha256,
+        '{{ slv_vh_uploaded.stat.checksum }}',
+        `${path}: the baseline of the vote check is the uploaded file`,
       )
     }
   }
@@ -462,6 +796,7 @@ const freezeText =
   'identity changes wait until getAgGenesisCert returns a certificate'
 const imminentText = 'Run the identity change after the genesis certificate'
 const demotedText = 'are both unstaked now'
+const fdctlMoveText = 'cannot move an identity on a cluster that runs Alpenglow'
 
 const listYamlFiles = (directory: string): string[] =>
   [...Deno.readDirSync(new URL(directory, templateRoot))].flatMap((entry) =>
@@ -527,19 +862,38 @@ Deno.test('alpenglow state: the probe asks the cluster from the controller and t
   ) {
     assert(text.includes(url), `${path}: public RPC ${url}`)
   }
-  const refusals = tasks.slice(-2)
+  const refusals = tasks.filter((task) =>
+    /^Stop (the|an) identity change/.test(String(task.name))
+  )
+  assertEquals(refusals.length, 3, `${path}: three refusals`)
+  const freeze = 'slv_alpenglow_freeze | default(false) | bool'
   for (const refusal of refusals) {
-    assert(hasModule(refusal, 'assert'), `${path}: the last tasks are refusals`)
-    assertEquals(conditionsOf(refusal), [
-      'slv_alpenglow_freeze | default(false) | bool',
-    ])
+    assert(hasModule(refusal, 'assert'), `${path}: the refusals are asserts`)
   }
+  // unknown does not stop a promotion that goes on without a reading (see the demotion test)
+  assertEquals(conditionsOf(refusals[0]), [
+    freeze,
+    'not (slv_ag_resume | default(false) | bool)',
+  ])
+  assertEquals(conditionsOf(refusals[1]), [freeze])
+  assertEquals(conditionsOf(refusals[2]), [freeze])
   assert(normalized(refusals[0]).includes(freezeText))
   assert(normalized(refusals[0]).includes("not in ['window', 'unknown']"))
   assert(normalized(refusals[1]).includes(imminentText))
   assert(normalized(refusals[1]).includes("slv_alpenglow_state != 'imminent'"))
+  assert(normalized(refusals[2]).includes(fdctlMoveText))
+  assert(
+    normalized(refusals[2]).includes(
+      "slv_alpenglow_state != 'alpenglow' or (slv_alpenglow_move_types | default([])",
+    ),
+  )
+  for (const type of ['firedancer-agave', 'firedancer-jito', 'frankendancer']) {
+    assert(normalized(refusals[2]).includes(`'${type}'`), `refuses ${type}`)
+  }
 
-  for (const sentence of [freezeText, imminentText, demotedText]) {
+  for (
+    const sentence of [freezeText, imminentText, demotedText, fdctlMoveText]
+  ) {
     const writers = listYamlFiles('ansible/').filter((file) =>
       readText(file).includes(sentence)
     )
@@ -569,6 +923,158 @@ Deno.test('alpenglow demotion: nodowntime_migrate tells the switch_on plays whic
   }
 })
 
+Deno.test('alpenglow demotion: the probe is patient after a demotion, and a promotion goes on with the tower or the vote history file only when the cluster stays unread and the run is young', () => {
+  const path = 'ansible/cmn/tasks/alpenglow_state.yml'
+  const tasks = readPlaybook(path)
+  const named = (prefix: string): number => {
+    const index = tasks.findIndex((task) =>
+      String(task.name).startsWith(prefix)
+    )
+    assert(index >= 0, `${path}: no task named "${prefix}"`)
+    return index
+  }
+
+  // patience: only for a probe with the freeze on after a demotion that followed a reading
+  const patience = named(
+    'Work out how long a call that cannot be read is retried',
+  )
+  const facts = moduleArgs(tasks[patience], 'set_fact') as Entry
+  for (
+    const part of [
+      'slv_alpenglow_freeze | default(false) | bool',
+      "slv_alpenglow_demoted_source | default('', true) != ''",
+      "hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) in ['towerbft', 'alpenglow']",
+      'slv_alpenglow_patience_seconds | default(60)',
+    ]
+  ) {
+    assert(
+      normalized(facts.slv_ag_give_up_at).includes(part),
+      `patience: ${part}`,
+    )
+  }
+  assert(
+    normalized(facts.slv_ag_patient_retries).includes(
+      'slv_alpenglow_rpc_delay',
+    ),
+    'patience: retries follow the delay',
+  )
+  const requests = tasks.filter((task) => hasModule(task, 'uri'))
+  assertEquals(requests.length, 3)
+  for (const task of requests) {
+    assert(
+      tasks.indexOf(task) > patience,
+      `${task.name}: asked after the patience is set`,
+    )
+    assert(
+      normalized(task.until).includes('slv_ag_give_up_at'),
+      `${task.name}: the deadline ends the retries`,
+    )
+    assert(
+      normalized(task.retries).includes('slv_ag_patient_retries'),
+      `${task.name}: patient retries`,
+    )
+  }
+
+  // the decision: unknown, after a TowerBFT or an Alpenglow reading, less than half of the margin
+  // at 0.4 s a slot, and never into the vote history path with a Firedancer host
+  const decide = named('Decide which consensus the cluster runs')
+  const resume = named(
+    'Work out whether the promotion goes on although the cluster could not be read',
+  )
+  assert(resume > decide, `${path}: the decision follows the state`)
+  const resumeFacts = moduleArgs(tasks[resume], 'set_fact') as Entry
+  for (
+    const part of [
+      "slv_alpenglow_state == 'unknown'",
+      'slv_ag_give_up_at | default(0) | int) > 0',
+      "hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) in ['towerbft', 'alpenglow']",
+      'slv_pre_demotion_probe_at',
+      '(slv_alpenglow_margin_slots | default(3000) | int) * 0.4 / 2',
+      "== 'towerbft' or (slv_alpenglow_move_types | default([]) | intersect(['firedancer-agave', 'firedancer-jito', 'frankendancer']) | length) == 0",
+    ]
+  ) {
+    assert(
+      String(resumeFacts.slv_ag_resume).replaceAll(/\s+/g, ' ').includes(part),
+      `resume: ${part}`,
+    )
+  }
+  assert(
+    normalized(resumeFacts.slv_ag_resume_mode).includes(
+      'hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state',
+    ),
+    'resume: the mode is what the cluster ran at the reading',
+  )
+  const refusal = named('Stop the identity change while the cluster is between')
+  assert(refusal > resume, `${path}: the decision comes before the refusals`)
+  const say = named(
+    'Say that the promotion goes on although the cluster could not be read',
+  )
+  assertEquals(conditionsOf(tasks[say]), [
+    'slv_alpenglow_freeze | default(false) | bool',
+    'slv_ag_resume | default(false) | bool',
+  ])
+
+  // the switch_off plays keep the reading right before the demotion; switch_on follows it
+  for (const network of validatorNetworks) {
+    for (
+      const file of ['switch_off_identity', 'switch_off_firedancer_identity']
+    ) {
+      const playbook = `ansible/${network}/${file}.yml`
+      const list = tasksOf(readPlaybook(playbook)[0])
+      const factOf = (name: string): number =>
+        list.findIndex((task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry)[name] !== undefined
+        )
+      const probes = list.flatMap((task, index) =>
+        moduleArgs(task, 'import_tasks') === probeFile ? [index] : []
+      )
+      const at = factOf('slv_pre_demotion_probe_at')
+      const state = factOf('slv_pre_demotion_state')
+      const demotion = firstIndex(
+        list,
+        (task) => /set-identity/.test(commandOf(task)),
+      )
+      assert(
+        at >= 0 && at < probes[1] && at > probes[0],
+        `${playbook}: the time is taken before the probe right before the demotion`,
+      )
+      assertEquals(
+        (moduleArgs(list[at], 'set_fact') as Entry).slv_pre_demotion_probe_at,
+        '{{ now(utc=true).timestamp() | int }}',
+      )
+      assert(
+        state > probes[1] && state < demotion,
+        `${playbook}: the state is kept after the probe and before the demotion`,
+      )
+      assertEquals(
+        (moduleArgs(list[state], 'set_fact') as Entry).slv_pre_demotion_state,
+        '{{ slv_alpenglow_state }}',
+      )
+      // nothing is kept for a demotion that the guards refuse
+      assert(
+        list.slice(probes[1] + 1, state).some((task) =>
+          hasModule(task, 'assert')
+        ),
+        `${playbook}: a guard stands between the probe and the facts`,
+      )
+    }
+    const onTasks = tasksOf(
+      readPlaybook(`ansible/${network}/switch_on_identity.yml`)[0],
+    )
+    const mode = onTasks.find((task) =>
+      hasModule(task, 'set_fact') &&
+      (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined
+    )
+    assert(mode)
+    assertEquals(
+      (moduleArgs(mode, 'set_fact') as Entry).slv_switch_mode,
+      '{{ slv_ag_resume_mode if (slv_ag_resume | default(false) | bool) else slv_alpenglow_state }}',
+      `${network}: switch_on takes the path of the reading before the demotion when the promotion goes on without a reading`,
+    )
+  }
+})
+
 const identityPlaybooks = [
   'switch_off_identity',
   'switch_off_firedancer_identity',
@@ -579,6 +1085,31 @@ const identityPlaybooks = [
   'set_identity_to_active',
   'nodowntime_migrate',
 ]
+
+// the validator types that take part in an identity move: the probe stops a Firedancer or
+// Frankendancer host in one while the cluster runs Alpenglow
+const moveTypesOf = (file: string): Entry => {
+  if (
+    [
+      'switch_off_identity',
+      'switch_off_firedancer_identity',
+      'switch_on_identity',
+      'switch_on_firedancer_identity',
+      'set_identity_key',
+    ].includes(file)
+  ) {
+    return { slv_alpenglow_move_types: ["{{ validator_type | default('') }}"] }
+  }
+  if (file === 'nodowntime_migrate') {
+    return {
+      slv_alpenglow_move_types: [
+        "{{ hostvars[source_host].validator_type | default('') }}",
+        "{{ hostvars[target_host].validator_type | default('') }}",
+      ],
+    }
+  }
+  return {}
+}
 
 Deno.test('alpenglow freeze: every identity playbook imports the probe with the freeze on before it changes anything', () => {
   for (const network of validatorNetworks) {
@@ -598,6 +1129,7 @@ Deno.test('alpenglow freeze: every identity playbook imports the probe with the 
         {
           slv_alpenglow_network: network.replace('-validator', ''),
           slv_alpenglow_freeze: true,
+          ...moveTypesOf(file),
         },
         `${path}: probe variables`,
       )
@@ -1225,6 +1757,10 @@ const changedTemplates = [
   ),
   'ansible/mainnet-validator/install_allnodes_jito.yml',
   'ansible/cmn/tasks/alpenglow_state.yml',
+  'ansible/cmn/tasks/vote_history_take.yml',
+  'ansible/cmn/tasks/vote_history_confirm.yml',
+  'ansible/cmn/tasks/vote_history_last_vote.yml',
+  'ansible/cmn/tasks/vote_history_dead_primary.yml',
   ...[
     'rm_ledger',
     'restart_agave_with_rm_ledger',

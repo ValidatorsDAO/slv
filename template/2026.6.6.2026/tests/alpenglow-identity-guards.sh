@@ -13,12 +13,15 @@
 #   1. the probe (cmn/tasks/alpenglow_state.yml) sets slv_alpenglow_state to towerbft,
 #      window, alpenglow or unknown, and never prints the RPC URL
 #   2. window and unknown stop every identity change, on both networks, with one message
-#   3. alpenglow still stops a switch (the vote history path is not there yet) and
-#      stops nothing else
+#   3. alpenglow: an agave, jito or allnodes-jito host goes on with the vote history file
+#      (alpenglow-vote-history.sh runs that path); here the file is missing, so a switch
+#      stops before the demotion, switch_on stops without the copy of the source, and
+#      set:identity stops and names --primary-down. A Firedancer or Frankendancer host
+#      stops every identity move; set_unstaked_key and set_identity_to_active are not moves
 #   4. mainnet: Firedancer and Frankendancer never take an identity, in any state, and
 #      nodowntime_migrate says so before it demotes the source; as the source they go
 #      on only while the state is towerbft
-#   5. testnet: only window and unknown are new
+#   5. testnet: only window, unknown and alpenglow are new
 #   6. init.yml and update_startup_config.yml: a host without a validator_type, or with
 #      one slv does not know, stops the run before the first change instead of becoming
 #      a Frankendancer host
@@ -225,39 +228,42 @@ identity_playbooks=(switch_off_identity switch_off_firedancer_identity switch_on
   nodowntime_migrate change_identity_and_restart)
 
 # network|playbook|validator type (source>target for nodowntime_migrate)|outcome per state:
-#   towerbft,window,unknown,alpenglow  with run, freeze, alpenglow or fdctl
+#   towerbft,window,unknown,alpenglow  with run, freeze, fdctl (a mainnet Firedancer target),
+#   afdctl (Firedancer or Frankendancer in an identity move on Alpenglow), vhfile (switch_off
+#   without the vote history file), vhcopy (switch_on without the copy of the source) or
+#   primarydown (set:identity without the vote history file)
 #   (the fifth state, imminent, refuses every row with its own message)
 cases=(
-  'mainnet|switch_off_identity|agave|run,freeze,freeze,alpenglow'
-  'mainnet|switch_off_firedancer_identity|firedancer-jito|run,freeze,freeze,alpenglow'
-  'mainnet|switch_on_identity|agave|run,freeze,freeze,run'
-  'mainnet|switch_on_firedancer_identity|firedancer-jito|fdctl,freeze,freeze,fdctl'
-  'mainnet|set_identity_key|agave|run,freeze,freeze,run'
-  'mainnet|set_identity_key|jito|run,freeze,freeze,run'
-  'mainnet|set_identity_key|allnodes-jito|run,freeze,freeze,run'
-  'mainnet|set_identity_key|firedancer-agave|fdctl,freeze,freeze,fdctl'
-  'mainnet|set_identity_key|firedancer-jito|fdctl,freeze,freeze,fdctl'
+  'mainnet|switch_off_identity|agave|run,freeze,freeze,vhfile'
+  'mainnet|switch_off_firedancer_identity|firedancer-jito|run,freeze,freeze,afdctl'
+  'mainnet|switch_on_identity|agave|run,freeze,freeze,vhcopy'
+  'mainnet|switch_on_firedancer_identity|firedancer-jito|fdctl,freeze,freeze,afdctl'
+  'mainnet|set_identity_key|agave|run,freeze,freeze,primarydown'
+  'mainnet|set_identity_key|jito|run,freeze,freeze,primarydown'
+  'mainnet|set_identity_key|allnodes-jito|run,freeze,freeze,primarydown'
+  'mainnet|set_identity_key|firedancer-agave|fdctl,freeze,freeze,afdctl'
+  'mainnet|set_identity_key|firedancer-jito|fdctl,freeze,freeze,afdctl'
   'mainnet|set_unstaked_key|agave|run,freeze,freeze,run'
   'mainnet|set_unstaked_key|firedancer-jito|run,freeze,freeze,run'
   'mainnet|set_identity_to_active|jito|run,freeze,freeze,run'
   'mainnet|set_identity_to_active|firedancer-jito|fdctl,freeze,freeze,fdctl'
-  'mainnet|nodowntime_migrate|agave>agave|run,freeze,freeze,alpenglow'
-  'mainnet|nodowntime_migrate|firedancer-jito>agave|run,freeze,freeze,alpenglow'
-  'mainnet|nodowntime_migrate|agave>firedancer-jito|fdctl,freeze,freeze,fdctl'
-  'mainnet|nodowntime_migrate|firedancer-agave>firedancer-jito|fdctl,freeze,freeze,fdctl'
-  'testnet|switch_off_identity|agave|run,freeze,freeze,alpenglow'
-  'testnet|switch_off_firedancer_identity|firedancer-jito|run,freeze,freeze,alpenglow'
-  'testnet|switch_on_identity|agave|run,freeze,freeze,run'
-  'testnet|switch_on_firedancer_identity|firedancer-jito|run,freeze,freeze,run'
-  'testnet|set_identity_key|agave|run,freeze,freeze,run'
-  'testnet|set_identity_key|firedancer-jito|run,freeze,freeze,run'
+  'mainnet|nodowntime_migrate|agave>agave|run,freeze,freeze,vhfile'
+  'mainnet|nodowntime_migrate|firedancer-jito>agave|run,freeze,freeze,afdctl'
+  'mainnet|nodowntime_migrate|agave>firedancer-jito|fdctl,freeze,freeze,afdctl'
+  'mainnet|nodowntime_migrate|firedancer-agave>firedancer-jito|fdctl,freeze,freeze,afdctl'
+  'testnet|switch_off_identity|agave|run,freeze,freeze,vhfile'
+  'testnet|switch_off_firedancer_identity|firedancer-jito|run,freeze,freeze,afdctl'
+  'testnet|switch_on_identity|agave|run,freeze,freeze,vhcopy'
+  'testnet|switch_on_firedancer_identity|firedancer-jito|run,freeze,freeze,afdctl'
+  'testnet|set_identity_key|agave|run,freeze,freeze,primarydown'
+  'testnet|set_identity_key|firedancer-jito|run,freeze,freeze,afdctl'
   'testnet|set_unstaked_key|agave|run,freeze,freeze,run'
   'testnet|set_unstaked_key|firedancer-jito|run,freeze,freeze,run'
   'testnet|set_identity_to_active|jito|run,freeze,freeze,run'
   'testnet|set_identity_to_active|firedancer-jito|run,freeze,freeze,run'
-  'testnet|nodowntime_migrate|agave>agave|run,freeze,freeze,alpenglow'
-  'testnet|nodowntime_migrate|firedancer-jito>firedancer-jito|run,freeze,freeze,alpenglow'
-  'testnet|nodowntime_migrate|agave>firedancer-jito|run,freeze,freeze,alpenglow'
+  'testnet|nodowntime_migrate|agave>agave|run,freeze,freeze,vhfile'
+  'testnet|nodowntime_migrate|firedancer-jito>firedancer-jito|run,freeze,freeze,afdctl'
+  'testnet|nodowntime_migrate|agave>firedancer-jito|run,freeze,freeze,afdctl'
   'testnet|change_identity_and_restart|firedancer-jito|run,freeze,freeze,run'
 )
 states=(towerbft window unknown alpenglow imminent)
@@ -295,7 +301,7 @@ run_case() { # network playbook types state
       printf 'ledger-tower' >"$run/mnt/ledger/tower-1_9-IDENTITYKEY.bin"
       ;;
   esac
-  cp "$template/ansible/cmn/tasks/alpenglow_state.yml" "$run/ansible/cmn/tasks/"
+  cp "$template/ansible/cmn/tasks/"*.yml "$run/ansible/cmn/tasks/"
   local file
   for file in "$template/ansible/$net-validator/"*.yml; do
     sed -e "s#/home/solv#$run/solv#g" -e "s#/mnt#$run/mnt#g" "$file" >"$run/ansible/$net-validator/$(basename "$file")"
@@ -353,10 +359,13 @@ done
 wait
 
 freeze_text='identity changes wait until getAgGenesisCert returns a certificate'
-alpenglow_text='the cluster runs Alpenglow'
+afdctl_text='cannot move an identity on a cluster that runs Alpenglow'
 fdctl_text='Firedancer and Frankendancer cannot take a mainnet identity'
 imminent_text='Run the identity change after the genesis certificate'
 demoted_text='are both unstaked now'
+vhfile_text='so there is no vote history to carry to the target'
+vhcopy_text='does not exist on the controller'
+primarydown_text='run slv v set:identity with --primary-down'
 
 for entry in "${cases[@]}"; do
   IFS='|' read -r net play types outcomes <<<"$entry"
@@ -377,9 +386,12 @@ for entry in "${cases[@]}"; do
     voters=$(grep -c 'authorized-voter' "$run/calls.log" || true)
     messages=''
     grep -qF "$freeze_text" "$run/log" && messages+='freeze '
-    grep -qF "$alpenglow_text" "$run/log" && messages+='alpenglow '
+    grep -qF "$afdctl_text" "$run/log" && messages+='afdctl '
     grep -qF "$fdctl_text" "$run/log" && messages+='fdctl '
     grep -qF "$imminent_text" "$run/log" && messages+='imminent '
+    grep -qF "$vhfile_text" "$run/log" && messages+='vhfile '
+    grep -qF "$vhcopy_text" "$run/log" && messages+='vhcopy '
+    grep -qF "$primarydown_text" "$run/log" && messages+='primarydown '
     if [[ $outcome == run ]]; then
       want=1
       [[ $play == nodowntime_migrate ]] && want=2

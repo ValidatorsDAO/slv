@@ -20,6 +20,19 @@
       vars:
         slv_alpenglow_network: testnet
         slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ hostvars[source_host].validator_type | default('') }}"
+          - "{{ hostvars[target_host].validator_type | default('') }}"
+
+    - name: Refuse a source and a target that do not carry the same identity on a cluster that runs Alpenglow
+      ansible.builtin.assert:
+        that:
+          - hostvars[source_host].identity_account | default('') != ''
+          - hostvars[source_host].identity_account | default('') == hostvars[target_host].identity_account | default('')
+        fail_msg: "The vote history file is named after the identity of the source ({{ hostvars[source_host].identity_account | default('not set') }}), and the target sets the identity of its own key file ({{ hostvars[target_host].identity_account | default('not set') }}): the two inventory entries have to carry the same identity_account. Nothing was changed."
+        quiet: true
+      run_once: true
+      when: slv_alpenglow_state == 'alpenglow'
 
     - name: Check connectivity to all hosts
       ansible.builtin.ping:

@@ -1,0 +1,125 @@
+---
+# Waits, for a bounded time, until a host that has just been given a staked identity votes
+# with it. Import it from the play of that host, after set-identity and authorized-voter.
+# Variables:
+#
+#   slv_vh_identity                the staked identity (a base58 public key)
+#   slv_vh_baseline_sha256         sha256 of the vote history file as it was before the identity
+#                                  was set; empty when the host had none
+#   slv_vh_vote_account            the vote account of the identity
+#   slv_vh_last_vote_before        the last vote of the vote account that the cluster showed
+#                                  before the identity was set (vote_history_last_vote.yml),
+#                                  -1 or empty when it was not read
+#   slv_vote_history_wait_seconds  how long to wait for each of the two signs below (60)
+#   slv_vote_poll_seconds          seconds between two looks (2)
+#   slv_alpenglow_network / slv_alpenglow_rpc_url   which cluster RPC to ask
+#
+# Two signs, in this order:
+#
+#   1. On the host: Votor writes /mnt/ledger/vote_history-<identity>.bin each time it casts a
+#      vote and only then (a host that cannot vote, for lack of an authorized voter that
+#      matches the registered BLS key or because its identity is not the one of the vote
+#      account, writes nothing). The host votes when that file differs from the baseline.
+#      Without this sign the play stops.
+#   2. On the cluster: the last vote of the vote account (getVoteAccounts, commitment
+#      processed) is past the one read before the identity was set, so the votes arrive.
+#      rootSlot says nothing here: under Votor it moves in bursts and stays behind for some
+#      validators that vote every slot. When the cluster shows a last vote that did not move
+#      the play stops; when it could not be asked (or there was no last vote to compare with)
+#      the play says so and goes on, because the file of the host already shows the votes.
+
+- name: Work out the file and the wait of the voting check
+  ansible.builtin.set_fact:
+    slv_vc_file: "/mnt/ledger/vote_history-{{ slv_vh_identity }}.bin"
+    slv_vc_poll: "{{ [slv_vote_poll_seconds | default(2) | int, 1] | max }}"
+    slv_vc_polls: "{{ [((slv_vote_history_wait_seconds | default(60) | int) / ([slv_vote_poll_seconds | default(2) | int, 1] | max)) | round(0, 'ceil') | int, 1] | max }}"
+    slv_vc_before: "{{ slv_vh_last_vote_before | default(-1, true) | int(-1) }}"
+
+- name: Wait until the vote history file changes
+  ansible.builtin.shell: |
+    f={{ slv_vc_file | quote }}
+    s=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$s" ] && [ "$s" != {{ (slv_vh_baseline_sha256 | default('', true)) | quote }} ]; then echo "$s"; fi
+  args:
+    executable: /bin/bash
+  register: slv_vc_voted
+  until: slv_vc_voted.stdout | trim | length > 0
+  retries: "{{ slv_vc_polls }}"
+  delay: "{{ slv_vc_poll }}"
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Stop when the host does not vote
+  ansible.builtin.fail:
+    msg: "The identity {{ slv_vh_identity }} is set on {{ inventory_hostname }}, but {{ slv_vc_file }} did not change within {{ slv_vote_history_wait_seconds | default(60) }} seconds, so the host is not voting yet. It may still be catching up, or no authorized voter matches the BLS key registered on the vote account. Look at the validator log and at agave-validator -l /mnt/ledger monitor before you do anything else with this identity."
+  when: slv_vc_voted.stdout | trim | length == 0
+
+- name: Ask the cluster whether the last vote of the vote account moved (getVoteAccounts)
+  ansible.builtin.uri:
+    url: "{{ slv_alpenglow_rpc_url | default('', true) or {'mainnet': 'https://api.mainnet-beta.solana.com', 'testnet': 'https://api.testnet.solana.com', 'devnet': 'https://api.devnet.solana.com'}[slv_alpenglow_network] }}"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: getVoteAccounts
+      params:
+        - votePubkey: "{{ slv_vh_vote_account }}"
+          commitment: processed
+          keepUnstakedDelinquents: true
+    return_content: true
+    timeout: 30
+  register: slv_vc_cluster
+  until: >-
+    (slv_vc_cluster.status | default(0)) == 200 and
+    (slv_vc_cluster.json | default({}, true)) is mapping and
+    ((slv_vc_cluster.json | default({}, true)).result | default({}, true)) is mapping and
+    ((((slv_vc_cluster.json | default({}, true)).result | default({}, true)).current | default([], true))
+    + (((slv_vc_cluster.json | default({}, true)).result | default({}, true)).delinquent | default([], true)))
+    | selectattr('votePubkey', 'equalto', slv_vh_vote_account)
+    | map(attribute='lastVote') | select('number') | map('int') | select('gt', slv_vc_before | int) | list | length > 0
+  retries: "{{ slv_vc_polls }}"
+  delay: "{{ slv_vc_poll }}"
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  delegate_to: localhost
+  become: false
+  when:
+    - slv_vc_before | int >= 0
+    - slv_vh_vote_account | default('', true) | length > 0
+
+- name: Read the last vote the cluster shows now
+  ansible.builtin.set_fact:
+    slv_vc_after: >-
+      {%- set body = slv_vc_cluster.json | default(none) -%}
+      {%- set ns = namespace(last=-1) -%}
+      {%- if slv_vc_cluster is not skipped and body is mapping and body.result is defined and body.result is mapping -%}
+      {%- for group in ['current', 'delinquent'] -%}
+      {%- for account in body.result[group] | default([], true) if account is mapping and account.votePubkey | default('') == slv_vh_vote_account and account.lastVote is defined and account.lastVote is integer and account.lastVote is not boolean and account.lastVote >= 0 -%}
+      {%- set ns.last = account.lastVote -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ ns.last }}
+
+- name: Stop when the cluster shows that the last vote of the vote account did not move
+  ansible.builtin.fail:
+    msg: "The identity {{ slv_vh_identity }} is set on {{ inventory_hostname }} and the host writes its vote history, but the last vote of the vote account {{ slv_vh_vote_account }} did not move past {{ slv_vc_before }} within {{ slv_vote_history_wait_seconds | default(60) }} seconds (the cluster shows {{ slv_vc_after | int(-1) }}). The votes may not reach the cluster: check the ports and the firewall of the host, the registered BLS key, and agave-validator -l /mnt/ledger monitor before you do anything else with this identity."
+  when:
+    - slv_vc_before | int >= 0
+    - slv_vc_after | int(-1) >= 0
+    - slv_vc_after | int(-1) <= slv_vc_before | int
+
+- name: Say what the cluster shows, or that it could not be asked
+  ansible.builtin.debug:
+    msg: >-
+      {%- if slv_vc_before | int < 0 or slv_vh_vote_account | default('', true) | length == 0 -%}
+      The host {{ inventory_hostname }} writes its vote history with {{ slv_vh_identity }}. The cluster was not asked whether the last vote of the vote account moved, because the last vote before the change was not read.
+      {%- elif slv_vc_after | int(-1) < 0 -%}
+      The host {{ inventory_hostname }} writes its vote history with {{ slv_vh_identity }}. The cluster did not give a readable last vote for {{ slv_vh_vote_account }}, so that the votes arrive is not confirmed: look at the vote account yourself.
+      {%- else -%}
+      The last vote of {{ slv_vh_vote_account }} moved from {{ slv_vc_before }} to {{ slv_vc_after | int(-1) }} after {{ inventory_hostname }} took {{ slv_vh_identity }}.
+      {%- endif -%}

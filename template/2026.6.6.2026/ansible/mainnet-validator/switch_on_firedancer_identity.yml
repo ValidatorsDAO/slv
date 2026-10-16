@@ -11,6 +11,8 @@
       vars:
         slv_alpenglow_network: mainnet
         slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ validator_type | default('') }}"
 
     - name: Refuse a Firedancer or Frankendancer host as a mainnet identity target
       ansible.builtin.fail:
