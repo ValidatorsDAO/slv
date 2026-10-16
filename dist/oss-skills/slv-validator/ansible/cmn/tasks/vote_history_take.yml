@@ -16,6 +16,13 @@
 # and (2) two reads of the file a few seconds apart give the same sha256. The file lands
 # in ~/.slv/vote_history on the controller, readable by its owner only.
 
+- name: Refuse an identity that is not a base58 public key, it names the vote history file on the controller
+  ansible.builtin.assert:
+    that:
+      - slv_vh_identity | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+    fail_msg: "The identity '{{ slv_vh_identity | default('not set') }}' is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the vote history file on the controller, and nothing was copied."
+    quiet: true
+
 - name: Work out the file, the log and the waits of the vote history hand-over
   ansible.builtin.set_fact:
     slv_vh_file: "/mnt/ledger/vote_history-{{ slv_vh_identity }}.bin"
@@ -25,7 +32,7 @@
     slv_vh_gap: "{{ [slv_vote_history_gap_seconds | default(5) | int, 1] | max }}"
     slv_vh_log_polls: "{{ [((slv_vote_history_wait_seconds | default(60) | int) / ([slv_vote_poll_seconds | default(2) | int, 1] | max)) | round(0, 'ceil') | int, 1] | max }}"
     slv_vh_stable_polls: "{{ [((slv_vote_history_wait_seconds | default(60) | int) / (([slv_vote_history_gap_seconds | default(5) | int, 1] | max) + 1)) | round(0, 'ceil') | int, 1] | max }}"
-    slv_vh_left: "The host {{ inventory_hostname }} is on its unstaked identity now and nothing was promoted. Its vote history file is /mnt/ledger/vote_history-{{ slv_vh_identity }}.bin: once it no longer changes, copy it to /mnt/ledger on the host that takes the identity and run slv v set:identity -p <that host>, or put the staked identity back here with agave-validator -l /mnt/ledger set-identity <the staked identity file>."
+    slv_vh_left: "The host {{ inventory_hostname }} is on its unstaked identity now and nothing was promoted. Its vote history file is /mnt/ledger/vote_history-{{ slv_vh_identity }}.bin: once it no longer changes, copy it to /mnt/ledger on the host that takes the identity (owner solv), wait until the vote account has not voted for 270 slots (about two minutes) and run slv v set:identity -p <that host>. Or put the staked identity back here with agave-validator -l /mnt/ledger set-identity <the staked identity file>."
 
 - name: Remove an older copy from the controller, so that no copy of another moment is left behind
   ansible.builtin.file:

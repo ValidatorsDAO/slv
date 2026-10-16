@@ -37,14 +37,18 @@
 #                                 unstaked.
 #
 # The reading right before a demotion (switch_off_identity.yml and switch_off_firedancer_identity.yml)
-# is kept in the host facts slv_pre_demotion_state and slv_pre_demotion_probe_at (epoch seconds, the
+# is kept in the host facts slv_pre_demotion_state, slv_pre_demotion_feature (what the feature account
+# was: absent, inactive, active or not asked) and slv_pre_demotion_probe_at (epoch seconds, the
 # controller's clock, taken before the cluster was asked). When the state of a later switch_on is
 # still unknown after the patient retries, and less than half of slv_alpenglow_margin_slots slots
 # (at 0.4 seconds a slot) have passed since that reading, the probe sets slv_ag_resume to true and
 # slv_ag_resume_mode to what the cluster ran at that reading, and does not stop on unknown:
 #
-#   towerbft   the activation of Alpenglow cannot have started in that time: the switch_on goes on
-#              with the TowerBFT promotion
+#   towerbft   the switch_on goes on with the TowerBFT promotion. When the feature account was
+#              pending at that reading, an activation of Alpenglow cannot have started in that time
+#              (the epoch had at least slv_alpenglow_margin_slots slots left). When it was absent,
+#              one can have been scheduled since, and nothing here rules that out (the known limit
+#              of the probe, which reads an absent account as towerbft however few slots are left)
 #   alpenglow  Alpenglow does not revert: the switch_on goes on with the vote history file (not
 #              when a Firedancer or Frankendancer host takes part, which Alpenglow stops)
 #
@@ -266,8 +270,9 @@
   ansible.builtin.set_fact:
     slv_ag_outcome: >-
       {%- if slv_alpenglow_demoted_source | default('', true) -%}
-      The source host {{ slv_alpenglow_demoted_source }} was already switched to its unstaked identity in this run, so {{ slv_alpenglow_demoted_source }} and {{ inventory_hostname }} are both unstaked now. {{ 'Wait until getAgGenesisCert returns a certificate, then promote' if slv_alpenglow_state in ['window', 'unknown', 'imminent'] else 'Promote' }} {{ hostvars[inventory_hostname].identity_account | default('its identity') }} on {{ inventory_hostname }} yourself (for example slv v set:identity -p {{ inventory_hostname }}). Nothing is promoted automatically.
-      {%- if slv_ag_controller_copy.stat.exists | default(false) %} The vote history file taken from {{ slv_alpenglow_demoted_source }} is at ~/.slv/vote_history/vote_history-{{ hostvars[inventory_hostname].identity_account | default('') }}.bin on the controller: copy it to /mnt/ledger on {{ inventory_hostname }} first.{% endif -%}
+      The source host {{ slv_alpenglow_demoted_source }} was already switched to its unstaked identity in this run, so {{ slv_alpenglow_demoted_source }} and {{ inventory_hostname }} are both unstaked now. {{ 'Wait until getAgGenesisCert returns a certificate, then promote' if slv_alpenglow_state in ['window', 'unknown', 'imminent'] else 'Promote' }} {{ hostvars[inventory_hostname].identity_account | default('its identity') }} on {{ inventory_hostname }} yourself. Nothing is promoted automatically.
+      {%- if slv_ag_controller_copy.stat.exists | default(false) %} The vote history file taken from {{ slv_alpenglow_demoted_source }} is at ~/.slv/vote_history/vote_history-{{ hostvars[inventory_hostname].identity_account | default('') }}.bin on the controller: copy it to /mnt/ledger on {{ inventory_hostname }} (owner solv), wait until the vote account has not voted for 270 slots (about two minutes after {{ slv_alpenglow_demoted_source }} was switched) and run slv v set:identity -p {{ inventory_hostname }}.
+      {%- else %} {{ slv_alpenglow_demoted_source }} left no vote history file on the controller. When the cluster runs Alpenglow, wait until the vote account has not voted for 270 slots (about two minutes after {{ slv_alpenglow_demoted_source }} was switched) and run slv v set:identity -p {{ inventory_hostname }} --primary-down; while it runs TowerBFT, copy the tower file from ~/.slv/tower on the controller to /mnt/ledger on {{ inventory_hostname }} and run slv v set:identity -p {{ inventory_hostname }}.{% endif -%}
       {%- else -%}
       Nothing was changed on {{ ansible_play_hosts_all | join(', ') }}.
       {%- endif -%}
@@ -308,7 +313,12 @@
     msg: >-
       The cluster could not be read for {{ slv_alpenglow_patience_seconds | default(60) }} seconds after {{ slv_alpenglow_demoted_source }} was switched to its unstaked identity ({{ slv_alpenglow_detail }}).
       {% if slv_ag_resume_mode == 'towerbft' -%}
-      The reading right before that demotion, {{ slv_ag_resume_elapsed }} seconds ago, was TowerBFT, and an activation of Alpenglow takes at least {{ ((slv_alpenglow_margin_slots | default(3000) | int) * 0.4 / 2) | int }} seconds to start from there ({{ slv_alpenglow_margin_slots | default(3000) }} slots of 0.4 seconds, halved), so {{ inventory_hostname }} takes the identity with the tower now. agave still checks the tower file, and on Alpenglow the vote history file, itself.
+      {%- set feature = hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_feature | default('') -%}
+      {%- if feature == 'inactive' -%}
+      The reading right before that demotion, {{ slv_ag_resume_elapsed }} seconds ago, was TowerBFT with the Alpenglow feature pending, and an activation of Alpenglow takes at least {{ ((slv_alpenglow_margin_slots | default(3000) | int) * 0.4 / 2) | int }} seconds to start from there ({{ slv_alpenglow_margin_slots | default(3000) }} slots of 0.4 seconds, halved), so {{ inventory_hostname }} takes the identity with the tower now. agave still checks the tower file, and on Alpenglow the vote history file, itself.
+      {%- else -%}
+      The reading right before that demotion, {{ slv_ag_resume_elapsed }} seconds ago, was TowerBFT, and {{ 'the cluster had no Alpenglow feature account then' if feature == 'absent' else 'the state of the Alpenglow feature account was not recorded' }}. That does not rule out an activation that was scheduled since, so {{ inventory_hostname }} takes the identity with the tower now without that assurance. agave still checks the tower file, and on Alpenglow the vote history file, itself.
+      {%- endif -%}
       {%- else -%}
       The reading right before that demotion, {{ slv_ag_resume_elapsed }} seconds ago, was Alpenglow, which does not revert, so {{ inventory_hostname }} takes the identity with the vote history file now. agave still checks the vote history file itself.
       {%- endif %}

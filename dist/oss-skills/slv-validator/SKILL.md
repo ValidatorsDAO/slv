@@ -243,8 +243,10 @@ nodes unstaked right away: the probe of `to_host` retries for up to 60 seconds
 (`slv_alpenglow_patience_seconds`). If the cluster stays unreadable and the reading
 right before the demotion was less than half of `slv_alpenglow_margin_slots` slots
 ago (3000 by default, at 0.4 seconds a slot: 10 minutes), the promotion goes on and
-the output says so: with the tower after a TowerBFT reading (the Alpenglow
-activation cannot have started in that time), with the vote history file after an
+the output says so: with the tower after a TowerBFT reading (while the Alpenglow
+feature account was pending at that reading, an activation cannot have started in
+that time; while it was absent, one can have been scheduled since, the reading does
+not rule that out, and the output says so), with the vote history file after an
 Alpenglow reading (Alpenglow does not revert; not with a Firedancer or Frankendancer
 host). agave still checks the tower or the vote history file itself when the
 identity is set. A cluster that is between the activation and the certificate
@@ -274,8 +276,10 @@ file. Votor needs it to keep from voting twice in a slot.
    that vote every slot.
 4. The copy on the controller is removed when all of that worked. If a step
    fails the copy stays, and the message says where it is, which hosts are
-   unstaked right now and what is left to do by hand. Nothing is promoted
-   automatically.
+   unstaked right now and what is left to do by hand: copy the file to
+   `/mnt/ledger` on `to_host`, wait until the vote account has not voted for 270
+   slots (about two minutes), and run `slv v set:identity -p <to_host>`. Nothing
+   is promoted automatically.
 5. Swap the host entries in the inventory file.
 
 Firedancer and Frankendancer hosts (`firedancer-agave`, `firedancer-jito`,
@@ -287,9 +291,12 @@ TowerBFT.
 **Between the Alpenglow activation and the genesis certificate (`window`), shortly
 before the activation (`imminent`: the feature is pending and fewer than 3000
 slots are left in the epoch), or when the state cannot be read (`unknown`)**: every
-identity change (`switch`, `set:identity`, `set:unstaked`) stops with nothing
-changed, on both networks. Run it again once `getAgGenesisCert` returns a
-certificate.
+identity change (`switch`, `set:identity`, `set:unstaked`) that has not demoted
+anything yet stops with nothing changed, on both networks. Run it again once
+`getAgGenesisCert` returns a certificate. A switch that has already demoted
+`from_host` stops the promotion instead when the state turns `window` or `imminent`,
+or stays `unknown` and the rules above do not let it go on: both hosts are unstaked
+then, and the message says what is left to do by hand.
 
 `from_host` / `to_host` are inventory keys (e.g. `validator-primary`,
 `validator-spare`), not IPs. Both must have `validator_type` set
@@ -305,26 +312,48 @@ slv v set:identity -n <network> -p <host> --first-activation  # an identity that
 slv v set:identity -n <network> -p <host> --primary-down      # the old primary is stopped and cannot vote
 ```
 On Alpenglow `set_identity_key.yml` needs `/mnt/ledger/vote_history-<identity>.bin`
-on the host and never passes `--require-tower`. Copy the file from the host that
-last ran the identity (a switch does that).
+on the host (unless `--first-activation` or `--primary-down`) and never passes
+`--require-tower`. Copy the file from the host that last ran the identity (a switch
+does that).
+
+The file does not show that nobody else votes with the identity: it can be older
+than the last vote of the node that held the identity. So on every Alpenglow run
+that is not a first activation, with the file or without it, the playbook asks
+the cluster before it sets anything, and stops with nothing changed when one of
+these fails or cannot be read:
+1. Nothing votes with the identity: the last vote of the vote account
+   (`getVoteAccounts`, `lastVote`) is more than 270 slots before the current slot
+   of the cluster (`getSlot`). A node that voted within that window may still be
+   voting.
+2. `<host>` has caught up: its finalized slot (its own RPC, `getSlot` with
+   commitment `finalized`) is at least 270 slots past that last vote.
+
+After the old primary stopped, or was switched to its unstaked identity, give it
+about two minutes before you run the command.
+
+A staked node can stay in the gossip table for a long time after it stops, so an
+entry of the identity at the address of the old primary does not show that it runs;
+a vote does. The CLI reads gossip before it starts the playbook. It lets one such
+entry pass when the address belongs to an inventory host that is stopped (named with
+`--primary-down`, confirmed with `--peer-down-confirmed`, or read as running another
+identity) and nothing votes with the identity, and hands that address to the playbook
+as `primary_down_address`. With `--primary-down` it also passes
+`primary_down_confirmed=true`. When the playbook gets either one it reads gossip
+(`getClusterNodes`) too and compares by IP (an `ansible_host` that is a name is looked
+up on the controller): the identity may be listed at the address of `<host>` and at
+`primary_down_address`, nowhere else. An entry at any other
+address stops the play, and the address named down counts only because check 1 shows
+that nothing votes there.
 
 When the old primary is dead and its vote history file went with it, use
 `--primary-down` (on every network a terminal is needed: the CLI asks you to type
 the old primary's inventory name to confirm that it is stopped, powered off if
-need be, and cannot vote; it refuses if the identity is in gossip at any address
-but the one of `<host>`). The CLI passes `primary_down_confirmed=true` and the
-playbook then checks again, from the controller and from `<host>`, before it
-passes `--do-not-require-vote-history` to `set-identity`:
-- the identity is not in gossip (`getClusterNodes`) at any address but the one of
-  `<host>`, and
-- the finalized slot of `<host>` (its own RPC, `getSlot` with commitment
-  `finalized`) is past the last vote of the vote account (`getVoteAccounts`).
-
-If either check fails the play stops and names it. If the vote history file is on
-`<host>` it is used and `--do-not-require-vote-history` is not passed, whatever
-`primary_down_confirmed` says. `--do-not-require-vote-history` skips the
-protection against voting twice in a slot: use it only for a primary that is
-really down. On TowerBFT the playbook ignores `primary_down_confirmed`.
+need be, and cannot vote). If `<host>` has no vote history file the playbook then
+passes `--do-not-require-vote-history` to `set-identity`, after the checks above. If
+the file is there it is used and the flag is not passed, whatever
+`primary_down_confirmed` says. `--do-not-require-vote-history` skips the protection
+against voting twice in a slot: use it only for a primary that is really down. On
+TowerBFT the playbook ignores `primary_down_confirmed` and `primary_down_address`.
 
 ## Alpenglow readiness, before and after epoch 1064
 
