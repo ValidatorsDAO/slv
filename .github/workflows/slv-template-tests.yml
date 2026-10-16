@@ -1,0 +1,116 @@
+name: SLV Template Tests
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "template/**"
+      - "oss-skills/**"
+      - "dist/oss-skills/**"
+      - "build-skill-oss.sh"
+      - "cli/lib/fdctlMainnetGuard.ts"
+      - ".github/workflows/slv-template-tests.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "template/**"
+      - "oss-skills/**"
+      - "dist/oss-skills/**"
+      - "build-skill-oss.sh"
+      - "cli/lib/fdctlMainnetGuard.ts"
+      - ".github/workflows/slv-template-tests.yml"
+
+permissions:
+  contents: read
+
+env:
+  # The ansible-core that noble's apt offers, which is what slv's CLI gets with
+  # `apt-get install ansible` (cli/lib/runAnsibleLocal.ts), pinned and checked the way
+  # slv-firewall-render.yml does it. The job compares apt's candidate with the pin before it
+  # installs, and stops when they differ: noble's release pocket keeps the pinned package
+  # installable after an update arrives, so the install alone would go on testing with a
+  # version the CLI no longer gets. Change the two lines together. The runner image has an
+  # ansible-core of its own (pipx, in /opt/pipx_bin) ahead of /usr/bin on PATH, so the install step
+  # puts /usr/bin first and names the pinned binary in ANSIBLE_PLAYBOOK, and every step that runs a
+  # test begins with tests/assert-pinned-ansible.sh, which fails the step on any other ansible-playbook.
+  ANSIBLE_CORE_APT_VERSION: "2.16.3-0ubuntu2"
+  ANSIBLE_CORE_VERSION: "2.16.3"
+  ANSIBLE_NOCOLOR: "1"
+  DEBIAN_FRONTEND: noninteractive
+  LC_ALL: C.UTF-8
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  template-tests:
+    name: Template tests (ansible-core 2.16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install ansible-core ${{ env.ANSIBLE_CORE_APT_VERSION }}
+        run: |
+          sudo apt-get update
+          candidate=$(apt-cache policy ansible-core | awk '$1 == "Candidate:" {print $2}')
+          if [ "$candidate" != "$ANSIBLE_CORE_APT_VERSION" ]; then
+            echo "FAIL apt_offers_the_pinned_ansible_core: apt offers ansible-core ${candidate:-none} and this workflow pins ${ANSIBLE_CORE_APT_VERSION}. Run the tests with the version apt offers, then change ANSIBLE_CORE_APT_VERSION and ANSIBLE_CORE_VERSION."
+            exit 1
+          fi
+          sudo apt-get install -y --no-install-recommends --allow-downgrades \
+            "ansible-core=${ANSIBLE_CORE_APT_VERSION}" python3-yaml bzip2 wget
+          /usr/bin/ansible-playbook --version | head -n 1
+          /usr/bin/ansible-playbook --version | grep -F "core ${ANSIBLE_CORE_VERSION}"
+          /usr/bin/python3 -c 'import yaml; print("PyYAML", yaml.__version__)'
+          # The steps after this one run the pinned build: /usr/bin comes first on their PATH, and
+          # ANSIBLE_PLAYBOOK names the file (the Python tests start the ansible-playbook it names).
+          echo "/usr/bin" >> "$GITHUB_PATH"
+          echo "ANSIBLE_PLAYBOOK=/usr/bin/ansible-playbook" >> "$GITHUB_ENV"
+          PATH="/usr/bin:$PATH" ANSIBLE_PLAYBOOK=/usr/bin/ansible-playbook bash template/latest/tests/assert-pinned-ansible.sh
+
+      # The checks below run even when an earlier one failed, so that the log names each check that
+      # fails. A check that exits with a status other than 0 fails its step and the job. A Python
+      # test that is skipped did not run, so a skip fails the step as well.
+      - name: rpc_geyser (RPC init, update and gateway playbooks)
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          bash template/latest/tests/assert-pinned-ansible.sh
+          log="$RUNNER_TEMP/unittest-rpc_geyser.log"
+          /usr/bin/python3 -m unittest discover -s template/latest/tests/rpc_geyser -p 'test_*.py' -v 2>&1 | tee "$log"
+          if grep -Eq '( \.\.\. skipped |skipped=[0-9]|^Ran 0 tests )' "$log"; then
+            echo "FAIL rpc_geyser: a test was skipped, or none ran" >&2
+            exit 1
+          fi
+
+      - name: test_alpenglow_start_scripts.py
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          bash template/latest/tests/assert-pinned-ansible.sh
+          log="$RUNNER_TEMP/unittest-alpenglow_start_scripts.log"
+          /usr/bin/python3 -m unittest discover -s template/latest/tests -p 'test_alpenglow_start_scripts.py' -v 2>&1 | tee "$log"
+          if grep -Eq '( \.\.\. skipped |skipped=[0-9]|^Ran 0 tests )' "$log"; then
+            echo "FAIL test_alpenglow_start_scripts: a test was skipped, or none ran" >&2
+            exit 1
+          fi
+
+      - name: alpenglow-identity-guards.sh
+        if: ${{ !cancelled() }}
+        run: |
+          bash template/latest/tests/assert-pinned-ansible.sh
+          bash template/latest/tests/alpenglow-identity-guards.sh
+
+      - name: agave-xdp-render.sh
+        if: ${{ !cancelled() }}
+        run: |
+          bash template/latest/tests/assert-pinned-ansible.sh
+          bash template/latest/tests/agave-xdp-render.sh
+
+      - name: validator-restarter-snapshot.sh
+        if: ${{ !cancelled() }}
+        run: |
+          bash template/latest/tests/assert-pinned-ansible.sh
+          bash template/latest/tests/validator-restarter-snapshot.sh

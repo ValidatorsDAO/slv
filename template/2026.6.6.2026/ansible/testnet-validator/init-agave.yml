@@ -1,4 +1,26 @@
 ---
+# Agave initialisation of a testnet validator. It begins as init.yml does: the type gate, and
+# cmn/check_alpenglow_floor.yml, which stops an agave older than 4.4.0-beta.0, the floor of Alpenglow on testnet.
+# Both stop the run before anything is changed. install_agave.yml installs agave_version of -e, else
+# v<testnet_validators.version_agave>, whatever the host sets, and the check reads the same.
+- name: Load validator type from inventory
+  hosts: all
+  gather_facts: no
+  any_errors_fatal: true
+  tasks:
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: testnet_validators
+    floor_client: agave
+    agave_version: "{{ (testnet_validators | default({})).get('version_agave', '') }}"
+
 - import_playbook: ../cmn/fix_permissions.yml
 - import_playbook: add_solv.yml
 - import_playbook: ../cmn/install_package.yml

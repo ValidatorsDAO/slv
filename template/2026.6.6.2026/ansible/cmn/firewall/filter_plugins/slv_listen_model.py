@@ -6,8 +6,11 @@ listens on and who may reach each of them.  It is derived from text that the
 start playbooks render, from the profile of the client version, from the operator's
 firewall variables and from a snapshot of host facts, plus the ports that this file
 fixes for the node exporter and for each opt-in component (no host is touched, no nft
-is involved).  A renderer turns the model into nftables.  The model is meant to be the
-only source of the ports of the firewall; nothing in this release enforces that.
+is involved).  A renderer turns the model into nftables.  The model is the only source of
+the ports of the firewall that slv installs on a host: apply.yml (in the directory above
+filter_plugins) installs the table rendered from it, and tasks/fence.yml and config_guard.yml
+of that directory stop a play that would write other nftables rules, or settings that open a
+port the applied table does not cover, on a host that slv manages.
 
 Three Jinja filters are provided:
 
@@ -102,9 +105,10 @@ Output (schema "slv-listen-model/1")
     and on udp 546 only from source port 547 and a link-local address.  A listener on one
     of the two ports is refused all the same: the model says nothing about who may reach
     it, and the rule lets in whatever comes from the server port.
-    slv_listen_model_union applies the same rule to its result, and stops with
-    union_widens_reach when a port that only the applied model holds may get more sources
-    from the new model than the applied model gave it (see that function).
+    slv_listen_model_union applies the same rule to its result and, like a model that is
+    derived, to each of its inputs; it also stops with union_widens_reach when a port that
+    only the applied model holds may get more sources from the new model than the applied
+    model gave it (see that function).
       udp.pub            public UDP ports of components (wireguard)
       udp.allowlist      [{"component", "ports", "sources": {"v4", "v6"}}]: UDP ports
                          that only the listed sources may reach (shred-relay)
@@ -354,6 +358,9 @@ def _seal(model):
 #     gossip socket, which is the pinned --gossip-port or the first port in
 #     the range where UDP and TCP both bind.  gossip/src/node.rs
 #     new_with_external_ip, net-utils/src/sockets.rs bind_gossip_port_in_range.
+#   * The Alpenglow sockets (votor_server, block_id_repair, quic_votor_client) are bound by the same
+#     function with the same port range: in every tag listed from v4.3.0 on, gossip/src/node.rs
+#     new_with_external_ip binds 17 UDP sockets in the range plus gossip.
 #   * Without --gossip-port the value is the literal 0 (validator/src/commands/
 #     run/execute.rs: find_available_port_in_range(addr, (0, 1)) returns 0), so
 #     the gossip port is picked inside the range at start.
@@ -368,7 +375,8 @@ def _seal(model):
 #     validator/src/cli.rs port_range_validator, net-utils/src/lib.rs.
 #   * The default range is 8000-10000: net-utils/src/lib.rs VALIDATOR_PORT_RANGE.
 #   * jito-solana and allnodes/solana-jito add no inbound listener over agave
-#     (their additions are gRPC clients and a UDP sampler on an ephemeral port).
+#     (their additions are gRPC clients and send-only UDP sockets bound to port 0: jito's
+#     shred_receiver_socket and external_sender_socket, allnodes' QoS forwarder).
 #
 # Facts that differ between profiles are the fields of the tuples below.
 
@@ -379,11 +387,14 @@ _Profile = namedtuple(
 
 DEFAULT_RANGE = (8000, 10000)  # half-open, the agave default
 
-# allnodes/solana-jito@v4.3.0-allnodes.1 validator/src/commands/run/xdp_receive.rs
-# (groups(): tpu_quic, tvu, repair, serve_repair, ancestor_hashes_requests,
-# block_id_repair, tpu_vote, tpu_forwards_quic) redirect these eight UDP sockets
-# with AF_XDP past netfilter when CAP_BPF and CAP_PERFMON are available
-# (receive_capabilities(); README.md "Only the first pair is required").
+# allnodes/solana-jito@v4.3.0-allnodes.1, @v4.3.2-allnodes and @v4.4.0-beta.1-allnodes
+# validator/src/commands/run/xdp_receive.rs (groups(): tpu_quic, tvu, repair, serve_repair,
+# ancestor_hashes_requests, block_id_repair, tpu_vote, tpu_forwards_quic) redirect these eight UDP
+# sockets with AF_XDP past netfilter when CAP_BPF and CAP_PERFMON are available
+# (receive_capabilities(); README.md "Only the first pair is required").  The file is the same in
+# the first two tags, and in the third only the module path of xdp_quic differs.  Of the Alpenglow
+# sockets only block_id_repair is in a group: votor_server and quic_votor_client are in none, so they
+# stay kernel sockets that netfilter sees.
 _ALLNODES_RX_XDP = (
     "ancestor_hashes",
     "block_id_repair",
@@ -449,6 +460,21 @@ _PROFILES = (
     #   execute.rs gossip_port rpc_bind_address rpc_addrs: v4.3.0 222 537 807, v4.4.0-beta.0 221 537 806
     #   xdp-ebpf has no redirect: nothing is received past netfilter
     _Profile("agave-4.3.0", "agave", ("agave",), ("4.3.0", "4.4.0-beta.0"), 26, (), {}),
+    # anza-xyz/agave@v4.3.2 (a2033000)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (identical to v4.3.0): 17 UDP sockets in the range plus gossip, among
+    #   them votor_server:303, block_id_repair:313 and quic_votor_client:356
+    #   execute.rs gossip_port:222 rpc_bind_address:537 rpc_addrs:807
+    #   xdp-ebpf has no redirect: nothing is received past netfilter
+    _Profile("agave-4.3.2", "agave", ("agave",), ("4.3.2",), 26, (), {}),
+    # anza-xyz/agave@v4.4.0-beta.1 (3ad9da2c)
+    #   net-utils/src/lib.rs width 26 (:63), default range (:53)
+    #   gossip/src/node.rs:122 (identical to v4.3.2): the same sockets, the Alpenglow ones included; the
+    #   QUIC socket wrapper net-utils/src/quic_socket.rs only wraps sockets that node.rs has bound (AF_XDP
+    #   for sending, the kernel UDP socket for receiving)
+    #   execute.rs gossip_port:221 rpc_bind_address:537 rpc_addrs:806
+    #   xdp-ebpf has no redirect: nothing is received past netfilter
+    _Profile("agave-4.4.0-beta.1", "agave", ("agave",), ("4.4.0-beta.1",), 26, (), {}),
     # jito-foundation/jito-solana@v3.1.10-jito
     #   net-utils/src/lib.rs:70 width 25; gossip/src/node.rs:84 (the agave 3.1.10 sockets)
     #   execute.rs gossip_port:878 rpc_bind_address:254 rpc_addrs:623
@@ -461,6 +487,34 @@ _PROFILES = (
     #   net-utils/src/lib.rs:62 width 26; gossip/src/node.rs:122 (identical to agave 4.3.0)
     #   execute.rs gossip_port:230 rpc_bind_address:545 rpc_addrs:877
     _Profile("jito-4.3.0-jito.0", "agave", ("jito",), ("4.3.0-jito.0",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.3.1-jito (dd998b9f)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (identical to agave 4.3.2)
+    #   execute.rs gossip_port:230 rpc_bind_address:545 rpc_addrs:877
+    #   The socket-opening code outside tests is the same as in v4.3.0-jito.0; xdp-ebpf is agave's,
+    #   with no redirect
+    _Profile("jito-4.3.1-jito", "agave", ("jito",), ("4.3.1-jito",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.3.2-jito (013a4306)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (identical to agave 4.3.2 and to v4.3.1-jito)
+    #   execute.rs gossip_port:230 rpc_bind_address:545 rpc_addrs:877
+    #   The socket-opening code outside tests is the same as in v4.3.1-jito; xdp-ebpf is agave's,
+    #   with no redirect
+    _Profile("jito-4.3.2-jito", "agave", ("jito",), ("4.3.2-jito",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.4.0-beta.0-jito (c2e16837)
+    #   net-utils/src/lib.rs width 26 (:63), default range (:53)
+    #   gossip/src/node.rs:122 (identical to agave 4.4.0-beta.0 and to v4.4.0-beta.1-jito)
+    #   execute.rs gossip_port:229 rpc_bind_address:545 rpc_addrs:877
+    #   The socket-opening code outside tests is the same as in v4.4.0-beta.1-jito; xdp-ebpf is
+    #   agave's, with no redirect
+    _Profile("jito-4.4.0-beta.0-jito", "agave", ("jito",), ("4.4.0-beta.0-jito",), 26, (), {}),
+    # jito-foundation/jito-solana@v4.4.0-beta.1-jito (e179f53f)
+    #   net-utils/src/lib.rs width 26 (:63), default range (:53)
+    #   gossip/src/node.rs:122 (identical to agave 4.4.0-beta.1)
+    #   execute.rs gossip_port:229 rpc_bind_address:545 rpc_addrs:877
+    #   Outside tests it opens sockets where v4.3.1-jito does, apart from the QUIC wrappers that moved
+    #   into net-utils/src/quic_socket.rs (as in agave 4.4.0-beta.1); xdp-ebpf is agave's, with no redirect
+    _Profile("jito-4.4.0-beta.1-jito", "agave", ("jito",), ("4.4.0-beta.1-jito",), 26, (), {}),
     # allnodes/solana-jito@v3.1.14-allnodes
     #   net-utils/src/lib.rs:70 width 25; gossip/src/node.rs:84 (the agave 3.1.10 sockets)
     #   execute.rs gossip_port:846 rpc_bind_address:239 rpc_addrs:626
@@ -476,6 +530,38 @@ _PROFILES = (
         "agave",
         ("allnodes-jito",),
         ("4.3.0-allnodes.1",),
+        26,
+        _ALLNODES_RX_XDP,
+        {},
+    ),
+    # allnodes/solana-jito@v4.3.2-allnodes (5f056aa4)
+    #   net-utils/src/lib.rs width 26 (:62), default range (:52)
+    #   gossip/src/node.rs:122 (the file of v4.3.0-allnodes.1; against agave 4.3.2 it differs in the
+    #   number of extra-address binds of tpu_quic and in one log line, not in a port)
+    #   execute.rs gossip_port:258 rpc_bind_address:679 rpc_addrs:1019
+    #   Receive XDP: validator/src/commands/run/xdp_receive.rs, the file of v4.3.0-allnodes.1, and
+    #   the xdp and xdp-ebpf crates are the same (see _ALLNODES_RX_XDP)
+    _Profile(
+        "allnodes-4.3.2-allnodes",
+        "agave",
+        ("allnodes-jito",),
+        ("4.3.2-allnodes",),
+        26,
+        _ALLNODES_RX_XDP,
+        {},
+    ),
+    # allnodes/solana-jito@v4.4.0-beta.1-allnodes (e37b36eb)
+    #   net-utils/src/lib.rs width 26 (:74), default range (:64)
+    #   gossip/src/node.rs:122 (the same two differences from agave 4.4.0-beta.1)
+    #   execute.rs gossip_port:255 rpc_bind_address:677 rpc_addrs:1017
+    #   Receive XDP: validator/src/commands/run/xdp_receive.rs (the same eight groups; only the
+    #   module path of xdp_quic changed; see _ALLNODES_RX_XDP); xdp-ebpf is the same, and in the xdp
+    #   crate only tx_loop.rs differs from v4.3.2-allnodes, as in agave
+    _Profile(
+        "allnodes-4.4.0-beta.1-allnodes",
+        "agave",
+        ("allnodes-jito",),
+        ("4.4.0-beta.1-allnodes",),
         26,
         _ALLNODES_RX_XDP,
         {},
@@ -1906,16 +1992,25 @@ def _holders(proto, name, shared, models):
     return "the %s model" % labels[0] if labels else "neither model"
 
 
-# The classes of _UNION_FIELDS that the input chain of slv.nft.j2 has a rule for, and the
-# families of the sources that the rule of a public class lets in (see slv_listen_model_union
-# for what each class lets in).  local_only has no rule.
+# The classes whose ports the mgmt_ok chain of slv.nft.j2 accepts, so M reaches them (see
+# slv_listen_model_union for M and for what each class lets in).
 _MGMT_LIKE = ("tcp.ssh", "tcp.mgmt", "tcp.consumer", "tcp.metrics")
+# The classes that every source reaches but the deny sources, with the families of the sources
+# that their rule accepts.  tcp.wg_only is in neither constant (_reach_gaps handles it on its own),
+# and local_only has no rule in the table.
 _PUBLIC_FAMILIES = {
     "udp.public": ("v4",),
     "udp.xdp": ("v4",),
     "udp.pub": ("v4", "v6"),
     "tcp.public": ("v4", "v6"),
 }
+
+
+# The table accepts the two classes of _SAME_SOURCES from the same sources (udp.xdp is the part of
+# udp.public that a net tile takes first), so a port that the new model holds in one of them is not
+# applied-only in the other.
+_TWIN_CLASS = {first: second for first, second in _SAME_SOURCES}
+_TWIN_CLASS.update({second: first for first, second in _SAME_SOURCES})
 
 
 def _port_difference(first, second):
@@ -1964,6 +2059,18 @@ def _outside(first, second, families=("v4", "v6")):
 
 def _networks_text(networks):
     return ", ".join(str(net) for net in networks)
+
+
+def _deny_overlap(model):
+    """The first deny network of the model that overlaps its mgmt, lb or scrape sources, as
+    (deny network, the other network, the name of its sources), or None: the rule that
+    slv_listen_model applies to its inputs (deny_overlaps_allow)."""
+    deny = _source_networks(model, "deny")
+    for key in ("mgmt", "lb", "scrape"):
+        hit = _overlaps(deny, _source_networks(model, key))
+        if hit:
+            return hit[0], hit[1], key
+    return None
 
 
 def _gaps_sources(old, new, key):
@@ -2048,6 +2155,9 @@ def _reach_gaps(old, new, proto, key):
     that name the field; empty when the new reach is within the applied one as far as these fields
     show (see slv_listen_model_union)."""
     name = "%s.%s" % (proto, key)
+    if name not in _MGMT_LIKE and name not in _PUBLIC_FAMILIES and name != "tcp.wg_only":
+        # a class of _UNION_FIELDS that was added without a rule must stop the union, not go unchecked
+        raise NotImplementedError("slv_listen_model_union has no reach rule for %s: add one to _reach_gaps" % name)
     gaps = []
     if name in _MGMT_LIKE:
         gaps += _gaps_sources(old, new, "mgmt") + _gaps_trusted_ifaces(old, new) + _gaps_tunnel(old, new)
@@ -2064,12 +2174,36 @@ def _reach_gaps(old, new, proto, key):
     return gaps
 
 
+def _widens_detail(refused):
+    """The detail of union_widens_reach for the classes in refused, [(group, key, applied-only
+    ports, gaps)], in the order of _UNION_FIELDS."""
+    clauses = []
+    for group, key, only_old, gaps in refused:
+        name = "%s.%s" % (group, key)
+        clauses.append(
+            "%s port %s is only in %s of the applied model, and the new model may let more sources into %s "
+            "than the applied model does (%s)" % (group, _port_text(only_old), name, name, "; ".join(gaps))
+        )
+    words = ("that port", "it", "it") if len(refused) == 1 else ("those ports", "they", "them")
+    return (
+        "%s. The table that carries the ports of both models would give %s the sources of the new model, "
+        "so %s could be open to sources that neither model opens %s to. Apply the change in two steps: "
+        "first a configuration without %s (with the old sources), then the new configuration."
+        % ("; ".join(clauses), words[0], words[1], words[2], words[0])
+    )
+
+
 def slv_listen_model_union(old, new):
     """For each port set in _UNION_FIELDS, the ports of both models; everything else, the
     allowlist included, comes from the new one.
 
     The table that carries the union must not let a source reach a port unless the table of the
     old model or the table of the new one lets it, so the union stops when it would.
+
+    Each input is checked on its own first, like a model that is derived: a port in two of its
+    classes stops the union with class_overlap, and a deny source that overlaps its mgmt, lb or
+    scrape sources with deny_overlaps_allow (the comparison below takes the lb and scrape sources
+    as they are, and the table drops a deny source before the rules for them).
 
     A port that is in one class of the old model and in another of the new one would be open
     to the sources of both classes: the union is checked like a model and stops with
@@ -2081,8 +2215,10 @@ def slv_listen_model_union(old, new):
     sources that neither model opens it to, so the union stops with union_widens_reach unless
     the comparison below shows the new reach of the class to be within the old reach.  A port
     that both models hold in the class keeps the new reach, which the new table gives it
-    anyway, and so does a port that only the new model holds.  The reach of a class is what
-    the input chain of slv.nft.j2 accepts for a new connection:
+    anyway, and so does a port that only the new model holds.  The table accepts udp.public and
+    udp.xdp from the same sources, so a port that the new model holds in one of them is not
+    applied-only in the other.  The reach of a class is what the input chain of slv.nft.j2
+    accepts for a new connection:
 
       tcp.ssh              M; with ssh.public, also every source but the deny sources, at the
                            rate ssh.rate for each
@@ -2101,9 +2237,11 @@ def slv_listen_model_union(old, new):
     are collapsed and each network of the new list has to be inside one network of the old list,
     the trusted interfaces are compared as exact names, ssh.rate by equality and the tunnel by
     interface and subnet, and where a class is public, or the class is tcp.wg_only and the new
-    model has the tunnel, the new deny sources have to hold every one of the old ones.  The
-    detail names the class, the ports and the fields; the way out is two steps, first a
-    configuration without that port (with the old sources), then the new configuration.
+    model has the tunnel, the new deny sources of the families that the rule of the class
+    accepts (IPv4 only for udp.public, udp.xdp and tcp.wg_only) have to hold every one of the
+    old ones.  One error names every class that is refused, with its ports and fields; the way
+    out is two steps, first a configuration without those ports (with the old sources), then
+    the new configuration.
     """
     old_copy = _model_copy(old, "old model")
     new_copy = _model_copy(new, "new model")
@@ -2116,6 +2254,14 @@ def slv_listen_model_union(old, new):
                 "the %s model itself holds %s port %s in %s and in %s, which this version refuses to "
                 "derive. Apply a configuration without that port first."
                 % (label, proto, _port_text([shared]), name, other_name),
+            )
+        overlap = _deny_overlap(model)
+        if overlap:
+            raise ModelError(
+                "deny_overlaps_allow",
+                "the %s model itself has the deny source %s, which overlaps %s in sources.%s, and this version "
+                "refuses to derive such a model. Apply a configuration whose deny sources overlap none of the "
+                "mgmt, lb and scrape sources first." % (label, overlap[0], overlap[1], overlap[2]),
             )
     result = _model_copy(new, "new model")
     for group, key in _UNION_FIELDS:
@@ -2141,22 +2287,21 @@ def slv_listen_model_union(old, new):
                 _holders(proto, other_name, shared, models),
             ),
         )
+    refused = []
     for group, key in _UNION_FIELDS:
         if group == "local_only":
             continue  # the table has no rule for these ports
-        only_old = _port_difference(_merge(old_copy[group][key]), _merge(new_copy[group][key]))
+        held = new_copy[group][key]
+        twin = _TWIN_CLASS.get("%s.%s" % (group, key))
+        if twin:
+            twin_group, twin_key = twin.split(".")
+            held = held + new_copy[twin_group][twin_key]
+        only_old = _port_difference(_merge(old_copy[group][key]), _merge(held))
         gaps = _reach_gaps(old_copy, new_copy, group, key) if only_old else []
         if gaps:
-            name = "%s.%s" % (group, key)
-            raise ModelError(
-                "union_widens_reach",
-                "%s port %s is only in %s of the applied model, and the new model may let more sources into %s "
-                "than the applied model does (%s). The table that carries the ports of both models would give "
-                "that port the sources of the new model, so it could be open to sources that neither model "
-                "opens it to. Apply the change in two steps: first a configuration without that port (with "
-                "the old sources), then the new configuration."
-                % (group, _port_text(only_old), name, name, "; ".join(gaps)),
-            )
+            refused.append((group, key, only_old, gaps))
+    if refused:
+        raise ModelError("union_widens_reach", _widens_detail(refused))
     return _seal(result)
 
 

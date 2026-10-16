@@ -1,4 +1,12 @@
 ---
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, a jito older than 4.3.0, the floor of Alpenglow
+# on mainnet. This play installs jito_version of -e, else v<mainnet_validators.version_jito>, whatever the host sets, and the check reads the same.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: mainnet_validators
+    floor_client: jito
+    jito_version: "{{ (mainnet_validators | default({})).get('version_jito', '') }}"
+
 - name: Install Jito Solana (agave + solana bins from target/release)
   hosts: all
   become: true
@@ -51,6 +59,15 @@
         dest: '{{ jito_install_dir }}'
         version: '{{ jito_version }}'
         force: yes
+
+    - name: Remove stale cargo-build-sbf/cargo-test-sbf (avoid cargo-install conflict)
+      become: no
+      file:
+        path: '{{ jito_install_dir }}/bin/{{ item }}'
+        state: absent
+      loop:
+        - cargo-build-sbf
+        - cargo-test-sbf
 
     - name: Build Jito Solana (cargo-install-all)
       become: no

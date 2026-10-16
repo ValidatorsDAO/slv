@@ -1,4 +1,10 @@
 ---
+# richat has no release for agave 4.3 or later yet: cmn/check_richat_release.yml stops a node that is
+# set to run such an agave before anything is built.
+- import_playbook: ../cmn/check_richat_release.yml
+  vars:
+    versions_section: testnet_rpcs
+
 - name: Build and install Richat daemon from source
   hosts: all
   become: true

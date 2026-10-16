@@ -1,4 +1,22 @@
 ---
+# The older mainnet RPC initialisation. It begins as init.yml does: the type gate, which stops a validator_type
+# that is not supported, and, after the RPC type is set, cmn/check_alpenglow_floor.yml, which stops a jito
+# older than 4.3.0, the floor of Alpenglow on mainnet, and a Yellowstone plugin built for a solana older
+# than that. Both stop the run before anything is changed. install_jito.yml installs jito_version of the host
+# or -e, else version_jito of mainnet_rpcs, and geyser_build.yml builds geyser_version of the host or -e,
+# else that of mainnet_rpcs; the check reads the same.
+- name: Load validator type from inventory
+  hosts: all
+  gather_facts: no
+  any_errors_fatal: true
+  tasks:
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
 - name: Load RPC type from inventory
   hosts: all
   gather_facts: no
@@ -16,6 +34,10 @@
         msg: "RPC type is not set. Please set it in the inventory."
       when: rpc_type is not defined
 
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: mainnet_rpcs
+    floor_client: jito
 
 - import_playbook: ../cmn/fix_permissions.yml
 - import_playbook: ../cmn/copy_restart_sh.yml

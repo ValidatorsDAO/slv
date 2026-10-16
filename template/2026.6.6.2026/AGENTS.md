@@ -26,13 +26,13 @@ ansible/
 │   └── ...
 ├── mainnet-rpc/            # Mainnet RPC (Index RPC & Geyser gRPC)
 │   ├── init.yml            # Full initialization playbook
-│   ├── geyser_build.yml    # Yellowstone Geyser plugin build
-│   ├── geyser_richat_build.yml  # Richat Geyser build (recommended)
+│   ├── geyser_build.yml    # Yellowstone Geyser plugin build (the default of init.yml)
+│   ├── geyser_richat_build.yml  # Richat Geyser build (geyser_plugin: richat; no richat release for agave 4.3+ yet)
 │   └── ...
 ├── mainnet-validator/      # Mainnet Validator
-│   ├── init.yml            # Full initialization (supports all validator_types)
+│   ├── init.yml            # Full initialization (agave, jito, allnodes-jito; refuses the Firedancer types)
 │   ├── init-jito.yml       # Jito-specific init
-│   ├── init-firedancer.yml # Firedancer-specific init
+│   ├── init-firedancer.yml # Firedancer-specific init (refuses every host: Firedancer is not supported on mainnet)
 │   └── ...
 ├── testnet-rpc/            # Testnet RPC
 ├── testnet-validator/      # Testnet Validator
@@ -43,14 +43,30 @@ jinja/                      # Jinja2 templates for config generation
 ### Key Concepts
 
 1. **`validator_type`** — Controls the node software stack:
-   - `agave` | `jito` | `firedancer-agave` | `firedancer-jito` | `frankendancer`
+   - `agave` | `jito` | `allnodes-jito` | `firedancer-agave` | `firedancer-jito`
+   - a mainnet voting validator is `agave`, `jito` or `allnodes-jito`: `mainnet-validator/init.yml` refuses the Firedancer types (see 6)
 
 2. **`rpc_type`** — (Mainnet RPC only) Controls RPC features:
    - `Index RPC` | `Geyser gRPC` | `Index RPC + gRPC`
 
-3. **All variables can be passed via `extra_vars`** — No need to edit `versions.yml`.
+3. **`geyser_plugin`** — (RPC `init.yml`, inventory variable) The Geyser plugin of `Geyser gRPC` and `Index RPC + gRPC` nodes on agave or jito:
+   - `yellowstone` — the default when the variable is absent; built by `geyser_build.yml` at `<network>_rpcs.geyser_version` of `versions.yml`
+   - `richat` — richat has no release for agave 4.3 or later yet, so `init.yml` stops, before it changes anything, on a node that is set to run such an agave. The richat playbooks stay for when a release exists.
+   - any other value stops `init.yml`. A node that ran richat gets `richat.service` stopped and disabled, and its plugin library moved aside (`librichat_plugin_agave.so` becomes `librichat_plugin_agave.so.disabled`; nothing is deleted, and `mv` returns it), when it is initialised with Yellowstone.
 
-4. **`build_solana.yml` is preferred** over `install_solana.yml` (source build vs pre-built binary).
+4. **All variables can be passed via `extra_vars`** — No need to edit `versions.yml`.
+
+5. **`build_solana.yml` is preferred** over `install_solana.yml` (source build vs pre-built binary). It builds the `agave_version`, `jito_version` or `allnodes_jito_version` of the host or of `-e`, else `version_agave`, `version_jito` or `version_allnodes_jito` of the section of `versions.yml` that the calling playbook passes as `versions_section` (`mainnet_validators`, `testnet_validators`, `mainnet_rpcs`, `testnet_rpcs` or `devnet_rpcs`). With neither it stops, before it builds anything.
+
+6. **`init.yml` of the validator and RPC networks stops, before it changes anything, on a client that Alpenglow does not run on.** `cmn/check_alpenglow_floor.yml` reads the versions that the init builds (the client of `validator_type` as in 5, and for an RPC node that gets the Yellowstone plugin the `geyser_version` of the host or of `-e`, else of the section) and compares them with the floor of the network: 4.3.0 on mainnet, 4.4.0-beta.0 on testnet and devnet. A version is read like the CLI reads it (`tests/alpenglow_floor_vectors.json` lists the cases): `4.2` is 4.2.0, `4.2.1.1` is 4.2.1, `3.1.10-bam` is 3.1.10, a `-jito` or `-allnodes` tag does not change the release, and a Yellowstone tag is read by the solana release it is built for (`+solana.4.4.0.beta.0` is 4.4.0-beta.0). A version with no X.Y in it (`latest`, `main`, a commit hash) stops a mainnet init and is only warned about on testnet and devnet. `mainnet-validator/init.yml` also refuses `firedancer-agave`, `firedancer-jito` and `frankendancer` (Alpenglow starts on mainnet at epoch 1064 and does not support them yet).
+
+   The older entry points begin the same way: `mainnet-validator/init-jito.yml` and `init-allnodes-jito.yml`, `testnet-validator/init-agave.yml` and `init-firedancer.yml`, and `mainnet-rpc/init-old.yml` carry the type gate of their network's `init.yml` and the floor check, which reads the client that the entry point installs (`floor_client`) and the version its installer installs. `mainnet-validator/init-firedancer.yml` only sets up Firedancer, so it refuses every host on mainnet, and so do `mainnet-validator/setup_firedancer.yml` and `update_firedancer.yml`, which set up and update Firedancer.
+
+   The playbooks that a CLI command runs on their own check the version they will install, before they change anything. `install_solana.yml`, `install_agave.yml` and `install_jito.yml` of the validator and RPC networks import the check and read the version the way the installer does (`-e`, else the pin of the section for a validator network; the host or `-e`, else the pin of the section for an RPC network); an RPC installer builds no plugin, so only its client is checked. `cmn/install_solana.yml`, which installs the `version` of the host or `-e` on a host of any of the five sections, checks that version, and has no default version any more: with none it stops. `mainnet-validator/install_allnodes_jito.yml` does the same when it is run on its own (`-e allnodes_jito_version`, else the pin `version_allnodes_jito` of `mainnet_validators`).
+
+   The value of `agave_version`, `jito_version` and `allnodes_jito_version` has two forms. `init.yml`, `cmn/build_*.yml` and the installers of the RPC networks add the leading `v` themselves, so they take `4.3.2`, `4.3.2-jito` and `4.3.2-allnodes` (a version of `allnodes_jito_version` that lacks `-allnodes` gets it). The installers of the validator networks (`install_agave.yml`, `install_jito.yml`, `install_allnodes_jito.yml`, and `install_solana.yml` that runs them, which is `slv v build:solana`) use `-e` as the git tag as given, so they take `v4.3.2`, `v4.3.2-jito` and `v4.3.2-allnodes`.
+
+   `cmn/patch_sha256.yml` (`slv patch:sha256`) builds the source tag `solana_version`, which only `-e` gives: it has no default tag, it stops without one, it takes only the form of a release tag (an optional `v`, then letters, digits, `.`, `+` and `-`, no `..`), and the `solana_version` of the inventory is not used (the testnet hosts carry one for the snapshot finder). Before it changes anything it holds the tag to the floor of the network that the group of the host names (`mainnet_validators`, `testnet_validators`, `mainnet_rpcs`, `testnet_rpcs` or `devnet_rpcs`, one of them), reading the client as jito where the patch builds jito-solana and as agave otherwise.
 
 ### Agent Assignments
 

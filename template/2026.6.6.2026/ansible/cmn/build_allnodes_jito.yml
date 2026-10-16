@@ -13,9 +13,13 @@
     solana_lib_dir: '{{ solana_release_dir }}/lib'
 
   tasks:
+    # allnodes_jito_version of -e or of the host, else version_allnodes_jito of the section of versions.yml
+    # that the calling playbook passes as versions_section (mainnet_validators, ...)
     - name: Resolve allnodes-jito version (override with -e allnodes_jito_version=)
       set_fact:
-        allnodes_jito_version_configured: "{{ allnodes_jito_version | default(mainnet_validators.version_allnodes_jito | default('', true), true) }}"
+        allnodes_jito_version_configured: "{{ allnodes_jito_version | default(slv_pins.version_allnodes_jito | default('', true), true) }}"
+      vars:
+        slv_pins: "{{ lookup('ansible.builtin.vars', versions_section, default={}) if (versions_section | default('')) != '' else {} }}"
 
     - name: Resolve allnodes-jito tag (a version that already contains -allnodes is used as is)
       set_fact:
@@ -25,7 +29,7 @@
       assert:
         that:
           - allnodes_jito_version_resolved != 'v-allnodes'
-        fail_msg: "allnodes_jito_version must be provided (via -e allnodes_jito_version= or mainnet_validators.version_allnodes_jito in ~/.slv/versions.yml)"
+        fail_msg: "No allnodes-jito version for {{ inventory_hostname }}: set allnodes_jito_version (-e or the host), or version_allnodes_jito in {{ versions_section | default('the section that the calling playbook passes as versions_section') }} of ~/.slv/versions.yml. Nothing was built."
 
     - name: Check if Rust is installed
       become: no

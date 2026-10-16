@@ -23,6 +23,7 @@ import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
+import { refuseFdctlMainnetCommand } from '/lib/fdctlMainnetGuard.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -166,6 +167,15 @@ validatorCmd.command('setup:firedancer')
   })
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .action(async (options) => {
+    // Alpenglow: Firedancer and Frankendancer are not supported on mainnet
+    // during the migration.
+    if (
+      await refuseFdctlMainnetCommand(
+        options.network,
+        'set up Firedancer',
+        options.pubkey,
+      )
+    ) return
     const inventoryType: InventoryType = options.network === 'mainnet'
       ? 'mainnet_validators'
       : 'testnet_validators'
@@ -192,6 +202,15 @@ validatorCmd.command('update:firedancer')
   })
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .action(async (options) => {
+    // Alpenglow: Firedancer and Frankendancer are not supported on mainnet
+    // during the migration.
+    if (
+      await refuseFdctlMainnetCommand(
+        options.network,
+        'update Firedancer',
+        options.pubkey,
+      )
+    ) return
     const inventoryType: InventoryType = options.network === 'mainnet'
       ? 'mainnet_validators'
       : 'testnet_validators'

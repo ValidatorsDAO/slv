@@ -16,6 +16,8 @@ import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import type { VersionSection } from '/lib/config/updateAllowedIps.ts'
+import { warnFdctlMainnetRpcCommand } from '/lib/fdctlMainnetGuard.ts'
+import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 // rpc Command
 export const rpcCmd = new Command()
@@ -84,6 +86,9 @@ rpcCmd.command('setup:firedancer')
   })
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .action(async (options) => {
+    // Alpenglow: a Frankendancer RPC node is not supported for the migration.
+    // This only warns; the setup still goes on.
+    await warnFdctlMainnetRpcCommand(options.network, options.pubkey)
     const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
     const playbook =
@@ -105,6 +110,9 @@ rpcCmd.command('update:firedancer')
   })
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .action(async (options) => {
+    // Alpenglow: a Frankendancer RPC node is not supported for the migration.
+    // This only warns; the update still goes on.
+    await warnFdctlMainnetRpcCommand(options.network, options.pubkey)
     const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
     const playbook = `${templateRoot}/ansible/cmn/update_firedancer.yml`
@@ -145,6 +153,8 @@ rpcCmd.command('update:geyser')
     default: 'mainnet',
   })
   .action(async (options) => {
+    // A Geyser plugin pinned below what Alpenglow runs on is not built.
+    if (await refuseBelowFloorPins(options.network, 'rpc')) return
     const inventoryType = options.network + '_rpcs' as InventoryType
     const templateRoot = getTemplatePath()
     const playbook =

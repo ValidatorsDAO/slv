@@ -59,7 +59,7 @@
     # 8. Run Snapshot Finder
     - name: Run Snapshot Finder
       shell: |
-        source ./venv/bin/activate && python3 snapshot-finder.py --snapshot_path /mnt/snapshot --version {{ mainnet_rpcs.version_jito }} --min_download_speed 45
+        source ./venv/bin/activate && python3 snapshot-finder.py --snapshot_path /mnt/snapshot --version {{ mainnet_rpcs.version_jito | quote }} --min_download_speed 45
       args:
         chdir: /home/solv/solana-snapshot-finder
         executable: /bin/bash

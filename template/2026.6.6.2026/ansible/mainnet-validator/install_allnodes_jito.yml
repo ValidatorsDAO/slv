@@ -1,4 +1,13 @@
 ---
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, an allnodes-jito older than 4.3.0, the floor of Alpenglow
+# on mainnet. This play installs allnodes_jito_version of -e, else v<mainnet_validators.version_allnodes_jito> (-allnodes is added
+# when it is missing), whatever the host sets, and the check reads the same.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: mainnet_validators
+    floor_client: allnodes
+    allnodes_jito_version: "{{ (mainnet_validators | default({})).get('version_allnodes_jito', '') }}"
+
 - name: Install Allnodes Jito Solana (allnodes/solana-jito fork)
   hosts: all
   become: true

@@ -5,7 +5,7 @@
 #
 # Or with extra_vars:
 #   ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
-#     -e '{"solana_version":"3.1.8","rpc_type":"Geyser gRPC"}'
+#     -e '{"agave_version":"4.3.2","rpc_type":"Geyser gRPC"}'
 
 all:
   hosts:
@@ -20,15 +20,20 @@ all:
     rpc_type: "RPC"
 
     # --- Validator Type (underlying client) ---
-    # Options: agave, jito, jito-bam, firedancer-agave
+    # Options: agave, jito, allnodes-jito, firedancer-agave
     validator_type: "agave"
 
     # --- Versions ---
-    solana_version: "3.1.8"
-    # jito_version: "3.1.8"
+    # The version variable of the validator_type; when it is left out the build takes version_agave or
+    # version_jito of the network's *_rpcs section of ~/.slv/versions.yml
+    agave_version: "4.3.2"             # validator_type: agave
+    # jito_version: "4.3.2-jito"       # validator_type: jito
+    # allnodes_jito_version: "4.3.2-allnodes"  # validator_type: allnodes-jito (no pin in versions.yml)
     # firedancer_version: "0.305.20104"
-    # yellowstone_grpc_version: "v2.2.1"
-    # richat_version: "richat-v8.1.0"
+    # geyser_version: "<Yellowstone release tag>"  # default: geyser_version of the network in ~/.slv/versions.yml
+    # geyser_plugin: richat  # Yellowstone is the default; richat has no release for agave 4.3 or later yet,
+    #                        # so init.yml stops on a node that is set to run such an agave
+    # richat_version: "richat-v8.1.0"  # only with geyser_plugin: richat
 
     # --- Snapshot ---
     snapshot_url: ""

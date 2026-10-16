@@ -1,0 +1,10 @@
+# Public-access ports — accept from any source.
+#
+# `public_tcp_ports` / `public_udp_ports` are inventory lists; entries
+# may be a bare integer (8001) or a range string ("8000-8020").
+{% for p in (public_tcp_ports | default([])) %}
+tcp dport {{ p }} accept;
+{% endfor %}
+{% for p in (public_udp_ports | default([])) %}
+udp dport {{ p }} accept;
+{% endfor %}

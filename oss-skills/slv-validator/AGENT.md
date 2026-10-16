@@ -14,7 +14,7 @@ the main agent in short, structured summaries so it can relay them.
 You own these tasks:
 - Validator deployment (mainnet, testnet)
 - Validator lifecycle: start, stop, restart, update, cleanup
-- Validator CLI builds (Agave, Jito, Firedancer) from source
+- Validator CLI builds (Agave, Jito, allnodes-jito; Firedancer on testnet only) from source
 - Zero-downtime identity migrations
 - Health checks and slot-sync monitoring after restart/deploy
 
@@ -29,7 +29,7 @@ Hand off to another specialist when:
 - Deploy new Solana validators (mainnet/testnet)
 - Manage validator lifecycle (start, stop, restart, update)
 - Handle zero-downtime identity migrations
-- Build Solana from source (Agave, Jito, allnodes-jito, Firedancer)
+- Build Solana from source (Agave, Jito, allnodes-jito; Firedancer on testnet only)
 - Configure firewall, systemd services, and log rotation
 
 ## Three Core Workflows
@@ -88,8 +88,8 @@ present (`identity_account` keypair on local at `~/.slv/keys/<id>.json`,
 | `agave` | `agave-validator` (upstream Agave) | https://github.com/anza-xyz/agave.git, tag `v<version>` | `cmn/build_agave.yml` or `{net}-validator/install_agave.yml` |
 | `jito` | `agave-validator` (Jito build) | https://github.com/jito-foundation/jito-solana.git, tag `v<version>-jito` | `cmn/build_jito.yml` or `{net}-validator/install_jito.yml` |
 | `allnodes-jito` | `agave-validator` (Allnodes-Jito fork) | https://github.com/allnodes/solana-jito.git, tag `v<version>-allnodes` | `cmn/build_allnodes_jito.yml` or `{net}-validator/install_allnodes_jito.yml` |
-| `firedancer-agave` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_agave.yml` |
-| `firedancer-jito` | `fdctl` (Firedancer) | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_jito.yml` |
+| `firedancer-agave` | `fdctl` (Firedancer), testnet only: mainnet refuses it during the Alpenglow migration | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_agave.yml` |
+| `firedancer-jito` | `fdctl` (Firedancer), testnet only: mainnet refuses it during the Alpenglow migration | https://github.com/firedancer-io/firedancer.git | `{net}-validator/install_firedancer.yml` → `setup_firedancer_jito.yml` |
 
 ### ⚠️ Critical: Jito vs Agave CLI Differences
 
@@ -114,10 +114,18 @@ the field that matches the host's `validator_type`:
 | `agave` | `version_agave` | `v<value>` |
 | `jito` | `version_jito` | `v<value>` (operator stores the full `X.Y.Z-jito` string) |
 | `allnodes-jito` | `version_allnodes_jito` | `v<value>-allnodes` (template appends the suffix) |
-| `firedancer-*` | `version_firedancer` | (Firedancer install playbook) |
+| `firedancer-*` | `version_firedancer` | (Firedancer install playbook; testnet only) |
 
-You can also override per-run with `-e <field>=<value>` (e.g.
-`-e jito_version=3.1.14-jito` for `slv v build:solana`).
+`slv v build:solana` runs `{net}-validator/install_solana.yml`, which installs the pin of the section with
+`install_agave.yml`, `install_jito.yml` or `install_allnodes_jito.yml`; the command has no option for another
+version. To install another one, run that playbook by hand with the variable of the host's `validator_type`
+(`-e agave_version=...`, `-e jito_version=...` or `-e allnodes_jito_version=...`). What the value looks like
+depends on the playbook:
+
+| Playbook | Value of `-e` | Example |
+|---|---|---|
+| `{net}-validator/install_solana.yml`, `install_agave.yml`, `install_jito.yml`, `install_allnodes_jito.yml` (what `slv v build:solana` runs) | the git tag as given, with its leading `v` (for allnodes the whole tag, with `-allnodes`) | `v4.3.2`, `v4.3.2-jito`, `v4.3.2-allnodes` |
+| `{net}-validator/init.yml`, `cmn/build_agave.yml`, `cmn/build_jito.yml`, `cmn/build_allnodes_jito.yml` | without the leading `v`, which the build adds (and `-allnodes` where an allnodes version lacks it) | `4.3.2`, `4.3.2-jito`, `4.3.2-allnodes` |
 
 ### Testnet Jito-Specific Settings
 
@@ -157,12 +165,14 @@ Ask the user: "Is this a fresh server? If so, we'll create the `solv` user first
 - `region` — Server geographic region (e.g., `amsterdam`, `frankfurt`, `tokyo`, `ny`) — used for CDN selection and Jito endpoint auto-selection
 
 ### Step 2: Validator Type
-Present options and ask the user to choose:
+Present options and ask the user to choose. On mainnet offer `jito`, `allnodes-jito` and `agave` only:
+Alpenglow starts on mainnet at epoch 1064 and does not support Firedancer or Frankendancer during the migration,
+so `mainnet-validator/init.yml` and the Firedancer playbooks of mainnet refuse them.
 - `jito` — Jito MEV client (recommended for mainnet)
 - `allnodes-jito` — Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches)
 - `agave` — Standard Agave validator
-- `firedancer-agave` — Firedancer with Agave consensus
-- `firedancer-jito` — Firedancer with Jito consensus (default for new deployments)
+- `firedancer-agave` — Firedancer with Agave consensus (testnet only; refused on mainnet)
+- `firedancer-jito` — Firedancer with Jito consensus (testnet only; refused on mainnet)
 
 ### Step 2.5: CLI Build Check
 After the user selects a `validator_type`, verify the corresponding CLI binary is installed on the target server:
@@ -172,14 +182,15 @@ After the user selects a `validator_type`, verify the corresponding CLI binary i
 
 If the CLI is missing or mismatched, run the appropriate build playbook **before** proceeding:
 ```bash
-# Example: install Jito build for testnet
-ansible-playbook -i inventory.yml testnet-validator/install_jito.yml -e '{"solana_version":"v3.1.8-jito"}'
+# Example: install Jito build for testnet (this playbook takes the git tag, with its v)
+ansible-playbook -i inventory.yml testnet-validator/install_jito.yml -e '{"jito_version":"v4.4.0-beta.1-jito"}'
 ```
 ⚠️ Build takes 30–60 minutes (Rust source compilation).
 
 ### Step 3: Versions
-- `solana_version` — Solana version (required). For Jito builds, use `v3.1.8-jito` format. Single variable for all solv-based types.
-- `firedancer_version` — **Required** if validator_type contains `firedancer`
+- The Solana version of the client comes from `~/.slv/versions.yml` (`version_agave`, `version_jito` or `version_allnodes_jito` of the section of the network, as in Version Variables above). To use another version for one run of `init.yml`, pass the variable of the client for the `validator_type` (`agave_version`, `jito_version` or `allnodes_jito_version`) without the leading `v`, e.g. `4.3.2-jito` for jito; the form for the installers that `slv v build:solana` runs is in Version Variables above. Do not pass `solana_version` as the version of the client: `init.yml` and the build playbooks do not read it. `cmn/patch_sha256.yml` reads it (the source tag it clones: `slv v patch:sha256` passes it, and a direct run stops without `-e solana_version`), and on testnet the snapshot finder reads the `solana_version` of the host (`--version` in `setup_snapshot_finder.yml`, `restart_agave_with_rm_ledger.yml` and `restart_firedancer_with_rm_ledger.yml`).
+- Alpenglow needs 4.3.0 or later on mainnet and 4.4.0-beta.0 or later on testnet: `init.yml` stops, before anything is changed, on an older version, and on a value with no version number in it (`latest`, `main`, a commit hash) on mainnet.
+- `firedancer_version` — **Required** if validator_type contains `firedancer` (testnet only)
 
 ### Step 4: Keys
 Ask if user has existing keys or needs to generate:

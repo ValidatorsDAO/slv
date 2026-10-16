@@ -2,7 +2,7 @@
   "name": "slv-grpc-geyser",
   "displayName": "SLV gRPC Geyser",
   "version": "0.9.962",
-  "description": "Deploy and manage Solana gRPC Geyser streaming nodes with AI-powered interactive guidance. Supports Yellowstone gRPC and Richat high-throughput streaming via Ansible playbooks.",
+  "description": "Deploy and manage Solana gRPC Geyser streaming nodes with AI-powered interactive guidance. Supports Yellowstone gRPC streaming via Ansible playbooks (Richat once a release supports agave 4.3 or later).",
   "author": "ValidatorsDAO",
   "license": "Apache-2.0",
   "homepage": "https://github.com/ValidatorsDAO/slv",

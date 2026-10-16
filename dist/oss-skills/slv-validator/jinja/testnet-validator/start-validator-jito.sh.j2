@@ -9,16 +9,76 @@ exec agave-validator \
 --entrypoint entrypoint2.testnet.solana.com:8001 \
 --entrypoint entrypoint3.testnet.solana.com:8001 \
 --known-validator 5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on \
+--known-validator dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs \
+--known-validator Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN \
+--known-validator eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ \
+--known-validator 9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv \
 --only-known-rpc \
 --expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
---dynamic-port-range {{ dynamic_port_range | default("8000-8025") }} \
+--dynamic-port-range {{ dynamic_port_range | default("8000-8030") }} \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
---wait-for-supermajority {{ wait_for_supermajority | default("383520372") }} \
---expected-shred-version {{ expected_shred_version | default("27350") }} \
---expected-bank-hash {{ expected_bank_hash | default("3zk4WMwk6wCTVJXu9UAk2dYWMedCKooDs15XL5u6FkvE") }} \
+{% if wait_for_supermajority is defined and wait_for_supermajority %}
+--wait-for-supermajority {{ wait_for_supermajority }} \
+{% endif %}
+--expected-shred-version {{ expected_shred_version | default("57087") }} \
+{% if expected_bank_hash is defined and expected_bank_hash %}
+--expected-bank-hash {{ expected_bank_hash }} \
+{% endif %}
 --limit-ledger-size {{ limit_ledger_size | default(200000000) }} \
 --no-port-check \
+{# _agave_version is the X.Y.Z of the agave this host starts next as major*1000000 + minor*1000 + patch: installed_agave_version, which the play reads from the installed agave-validator, when there is one, else the version of this host's agave, jito or allnodes client from the -e override or versions.yml; suffixes such as -jito.0 are ignored #}
+{% set _slv = testnet_validators | default({}) %}
+{% set _client_version = jito_version | default(_slv.version_jito | default('', true), true) %}
+{% set _client_version = installed_agave_version | default('', true) or _client_version %}
+{% set _digits = (_client_version | string).split('-')[0] | regex_findall('[0-9]+') %}
+{% if not _digits %}
+{{ agave_version_not_found | mandatory('Cannot tell which agave version this host runs: set jito_version or version_jito under testnet_validators in ~/.slv/versions.yml') }}
+{% endif %}
+{% set _num = _digits + ['0', '0'] %}
+{% set _agave_version = (_num[0] | int) * 1000000 + (_num[1] | int) * 1000 + (_num[2] | int) %}
+{% if xdp_enabled | default(false) and xdp_interface | default('') %}
+{% if _agave_version >= 4001000 %}
+--xdp-interface {{ xdp_interface }} \
+--xdp-cpu-cores {{ xdp_cpu_cores | default(1, true) }} \
+{% if xdp_zero_copy | default(false) %}
+--xdp-zero-copy \
+{% endif %}
+{% else %}
+--experimental-retransmit-xdp-interface {{ xdp_interface }} \
+--experimental-retransmit-xdp-cpu-cores {{ xdp_cpu_cores | default(1, true) }} \
+{% if xdp_zero_copy | default(false) %}
+--experimental-retransmit-xdp-zero-copy \
+{% endif %}
+{% endif %}
+{% if xdp_poh_pinned_cpu_core is defined %}
+--experimental-poh-pinned-cpu-core {{ xdp_poh_pinned_cpu_core }} \
+{% endif %}
+{% elif _agave_version >= 4002000 and not (xdp_enabled | default(false)) %}
+--no-xdp \
+{% endif %}
+{# votor_peer_overrides: identities of unstaked RPC nodes that this validator also sends its Alpenglow votes and certificates to (agave 4.3.0 and later, read only when the validator starts). Give the primary and the standby the same list. An identity ends at \Z: $ would also accept one that is followed by a newline. #}
+{% set _votor_peers = votor_peer_overrides | default([], true) %}
+{% if _votor_peers %}
+{% if _votor_peers is string or _votor_peers is mapping or _votor_peers is not sequence %}
+{{ votor_peer_overrides_not_a_list | mandatory("votor_peer_overrides must be a list of identity public keys") }}
+{% endif %}
+{% for _peer in _votor_peers %}
+{% if _peer is not string or not (_peer | regex_search('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')) %}
+{{ votor_peer_overrides_not_a_public_key | mandatory("votor_peer_overrides holds " ~ (_peer | string) ~ ", which is not a base58 public key") }}
+{% endif %}
+{% endfor %}
+{% if not (identity_account | default('', true)) %}
+{{ identity_account_not_found | mandatory("identity_account is not set, so votor_peer_overrides cannot be checked against this node's own identity") }}
+{% elif identity_account in _votor_peers %}
+{{ votor_peer_overrides_holds_this_node | mandatory("votor_peer_overrides holds this node's own identity_account " ~ identity_account ~ ", which agave refuses at start-up") }}
+{% endif %}
+{% if _agave_version >= 4003000 %}
+{% for _peer in _votor_peers | unique %}
+--votor-peer-overrides {{ _peer }} \
+{% endfor %}
+{% endif %}
+{% endif %}
 --rpc-bind-address 0.0.0.0 \
 --commission-bps {{ commission_bps | default(0) }} \
 --bam-url {{ bam_url | default("http://ny.testnet.bam.jito.wtf") }} \

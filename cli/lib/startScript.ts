@@ -7,6 +7,10 @@ import {
   type RunAnsibleOptions,
   runAnsilbe,
 } from '/lib/runAnsible.ts'
+import {
+  refuseBelowFloorPins,
+  refuseVersionBelowFloor,
+} from '/lib/versionFloor.ts'
 
 // The agave start script depends on the agave-validator binary on the host (its
 // XDP flags follow the installed version). A command that installs, builds or
@@ -62,6 +66,15 @@ type AnsibleRun = (
 
 type StartScriptDeps = {
   run: AnsibleRun
+  /** True when the client pins of this network and role are below what Alpenglow runs on; it has said so. */
+  refuseBelowFloor: (network: string, role: NodeRole) => Promise<boolean>
+  /** True when a client version named on the command line is below what Alpenglow runs on; it has said so. */
+  refuseVersionBelowFloor: (
+    network: string,
+    role: NodeRole,
+    version: string,
+    flag: string,
+  ) => Promise<boolean>
   templateRoot: () => string
   info: (line: string) => void
   error: (line: string) => void
@@ -70,6 +83,9 @@ type StartScriptDeps = {
 
 const defaultStartScriptDeps = (): StartScriptDeps => ({
   run: runAnsilbe,
+  refuseBelowFloor: (network, role) => refuseBelowFloorPins(network, role),
+  refuseVersionBelowFloor: (network, role, version, flag) =>
+    refuseVersionBelowFloor(network, role, version, flag),
   templateRoot: getTemplatePath,
   info: (line) => console.log(colors.cyan(line)),
   error: (line) => console.error(colors.red(line)),
@@ -91,6 +107,8 @@ type AgaveBinaryChange = {
   /** The hosts, as the command's -p value: the same hosts get the start script. */
   limit?: string
   extraVars?: ExtraVars
+  /** A version the operator named with a flag: it is checked instead of the pins. */
+  explicitVersion?: { version: string; flag: string }
 }
 
 /**
@@ -98,7 +116,9 @@ type AgaveBinaryChange = {
  * when it succeeded, the play that renders the start script for the same limit.
  * Returns true when both succeeded. A failed render sets exit code 1 and says
  * that the node must not be restarted until `update:script` succeeds. Nothing
- * runs for a network the role does not have.
+ * runs for a network the role does not have, nor while a pin of the network's
+ * versions.yml section is below what Alpenglow runs on. A version named on the
+ * command line is checked on its own, and the pins are not looked at then.
  */
 const installAgaveBinary = async (
   change: AgaveBinaryChange,
@@ -112,6 +132,18 @@ const installAgaveBinary = async (
     return false
   }
   const network = parsed.network
+  // A client below what Alpenglow runs on is not installed: the version the
+  // operator named, or else the pins of the network's section.
+  const explicit = change.explicitVersion
+  const refused = explicit
+    ? await deps.refuseVersionBelowFloor(
+      network,
+      change.role,
+      explicit.version,
+      explicit.flag,
+    )
+    : await deps.refuseBelowFloor(network, change.role)
+  if (refused) return false
   const inventoryType = nodeInventoryType(change.role, network)
   const ansible = `${deps.templateRoot()}/ansible`
 
@@ -227,6 +259,9 @@ const registerSolanaBinaryCommands = (
         play: () => 'cmn/install_solana.yml',
         limit: options.pubkey,
         extraVars: options.version ? { version: options.version } : undefined,
+        explicitVersion: options.version
+          ? { version: options.version, flag: 'install:solana -v' }
+          : undefined,
       }, deps)
     })
 }

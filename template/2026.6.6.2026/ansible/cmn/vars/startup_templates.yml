@@ -31,8 +31,18 @@
 #     start-validator.sh.j2), so a node's arguments change after its first update.
 #   - testnet and devnet RPC with Old Faithful: those init playbooks do not install it
 #
-# testnet-rpc and devnet-rpc name a richat template that their jinja/ directory
-# does not have; the matrix records those cells as template_missing.
+# Geyser gRPC and Index RPC + gRPC on agave and jito: the entry is the geyser.json of the
+# Yellowstone plugin, which init installs (geyser_build.yml of the network). The inventory can
+# set geyser_plugin: richat, but init stops such a node while richat has no release for its
+# agave (4.3 or later, which every pin of this release is), so no node needs a richat entry
+# yet. The table has one list for each start configuration and no place for a choice that the
+# inventory makes: when richat can be used again, that node would be described by the same
+# list with the Yellowstone entry replaced by
+#   {kind: richat, path: mainnet-rpc/richat-setting.yml.j2, play: mainnet-rpc/install_richat.yml}
+# which has the same consumer gRPC port (10000) and, in the templates of this release, two
+# ports that Yellowstone's config does not have: the richat pubsub on 7111 (consumer) and the
+# richat metrics on 10124, where Yellowstone's metrics are on 8999. Only mainnet-rpc has
+# richat templates; testnet-rpc and devnet-rpc have none.
 slv_startup_templates:
   mainnet:
     validator:
@@ -49,7 +59,7 @@ slv_startup_templates:
         "Geyser gRPC":
           - &mainnet_rpc_start {kind: agave-args, path: mainnet-rpc/start-validator.sh.j2, play: mainnet-rpc/create-start-validator-sh.yml}
           - &mainnet_rpc_unit {kind: unit, path: mainnet-rpc/solv.service.j2, play: mainnet-rpc/setup-solv-service.yml}
-          - &mainnet_rpc_richat {kind: richat, path: mainnet-rpc/richat-setting.yml.j2, play: mainnet-rpc/install_richat.yml}
+          - &mainnet_rpc_geyser {kind: yellowstone, path: mainnet-rpc/geyser.json.j2, play: mainnet-rpc/geyser_build.yml}
         "Index RPC":
           - *mainnet_rpc_start
           - *mainnet_rpc_unit
@@ -60,7 +70,7 @@ slv_startup_templates:
         "Index RPC + gRPC":
           - *mainnet_rpc_start
           - *mainnet_rpc_unit
-          - *mainnet_rpc_richat
+          - *mainnet_rpc_geyser
           - *mainnet_rpc_of1
       jito: *mainnet_rpc_agave_line
       firedancer-agave: &mainnet_rpc_firedancer_line
@@ -85,7 +95,7 @@ slv_startup_templates:
         "Geyser gRPC":
           - &testnet_rpc_start {kind: agave-args, path: testnet-rpc/start-validator.sh.j2, play: testnet-rpc/create-start-validator-sh.yml}
           - &testnet_rpc_unit {kind: unit, path: testnet-rpc/solv.service.j2, play: testnet-rpc/setup_solv_service.yml}
-          - &testnet_rpc_richat {kind: richat, path: testnet-rpc/richat-setting.yml.j2, play: testnet-rpc/install_richat.yml}
+          - &testnet_rpc_geyser {kind: yellowstone, path: testnet-rpc/geyser.json.j2, play: testnet-rpc/geyser_build.yml}
         "Index RPC":
           - *testnet_rpc_start
           - *testnet_rpc_unit
@@ -95,7 +105,7 @@ slv_startup_templates:
         "Index RPC + gRPC":
           - *testnet_rpc_start
           - *testnet_rpc_unit
-          - *testnet_rpc_richat
+          - *testnet_rpc_geyser
       jito: *testnet_rpc_agave_line
       firedancer-agave: &testnet_rpc_firedancer_line
         "Index RPC":
@@ -109,7 +119,7 @@ slv_startup_templates:
         "Geyser gRPC":
           - &devnet_rpc_start {kind: agave-args, path: devnet-rpc/start-validator.sh.j2, play: devnet-rpc/create-start-validator-sh.yml}
           - &devnet_rpc_unit {kind: unit, path: devnet-rpc/solv.service.j2, play: devnet-rpc/setup_solv_service.yml}
-          - &devnet_rpc_richat {kind: richat, path: devnet-rpc/richat-setting.yml.j2, play: devnet-rpc/install_richat.yml}
+          - &devnet_rpc_geyser {kind: yellowstone, path: devnet-rpc/geyser.json.j2, play: devnet-rpc/geyser_build.yml}
         "Index RPC":
           - *devnet_rpc_start
           - *devnet_rpc_unit
@@ -119,7 +129,7 @@ slv_startup_templates:
         "Index RPC + gRPC":
           - *devnet_rpc_start
           - *devnet_rpc_unit
-          - *devnet_rpc_richat
+          - *devnet_rpc_geyser
       jito: *devnet_rpc_agave_line
       firedancer-agave: &devnet_rpc_firedancer_line
         "Index RPC":

@@ -1,0 +1,77 @@
+---
+# SMT (Hyper-Threading) disable via GRUB nosmt=force
+# Sets `need_reboot=true` on the host when GRUB was modified.
+- name: Disable SMT (Hyper-Threading) via GRUB
+  hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    grub_default: /etc/default/grub
+    smt_param: "nosmt=force"
+    smt_marker_file: /var/lib/slv/.smt_disabled
+  tasks:
+    - name: Ensure /var/lib/slv exists
+      ansible.builtin.file:
+        path: /var/lib/slv
+        state: directory
+        mode: "0755"
+
+    - name: Skip if SMT already disabled by SLV
+      ansible.builtin.stat:
+        path: "{{ smt_marker_file }}"
+      register: smt_marker
+
+    - name: Read current GRUB cmdline default
+      ansible.builtin.shell: |
+        set -e
+        # shellcheck disable=SC1091
+        . /etc/default/grub
+        echo "${GRUB_CMDLINE_LINUX_DEFAULT:-}"
+      register: grub_default_line
+      changed_when: false
+      when: not smt_marker.stat.exists
+
+    - name: Add nosmt=force to GRUB_CMDLINE_LINUX_DEFAULT (if missing)
+      ansible.builtin.shell: |
+        set -e
+        # shellcheck disable=SC1091
+        . /etc/default/grub
+        CLEAN=$(echo "${GRUB_CMDLINE_LINUX_DEFAULT:-}" | sed 's/nosmt=[^ ]*//g; s/  */ /g; s/^ //; s/ $//')
+        NEW="$CLEAN {{ smt_param }}"
+        NEW=$(echo "$NEW" | sed 's/  */ /g; s/^ //; s/ $//')
+        sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$NEW\"|" {{ grub_default }}
+      args:
+        executable: /bin/bash
+      register: smt_grub_update
+      when:
+        - not smt_marker.stat.exists
+        - smt_param not in (grub_default_line.stdout | default(''))
+
+    - name: Run update-grub
+      ansible.builtin.command: update-grub
+      when:
+        - not smt_marker.stat.exists
+        - smt_grub_update is changed
+      register: smt_update_grub
+      changed_when: true
+
+    - name: Mark SMT disable applied (idempotency marker)
+      ansible.builtin.copy:
+        dest: "{{ smt_marker_file }}"
+        content: "applied at {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }}\n"
+        mode: "0644"
+      when:
+        - not smt_marker.stat.exists
+        - smt_grub_update is changed
+
+    - name: Set need_reboot fact for orchestrator
+      ansible.builtin.set_fact:
+        smt_disable_applied: "{{ (not smt_marker.stat.exists) and (smt_grub_update is changed) }}"
+        need_reboot: "{{ (need_reboot | default(false)) or ((not smt_marker.stat.exists) and (smt_grub_update is changed)) }}"
+
+    - name: Report SMT status
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'SMT disable applied — reboot required'
+             if smt_disable_applied
+             else 'SMT disable already in place — no change' }}

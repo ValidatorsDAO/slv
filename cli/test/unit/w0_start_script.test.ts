@@ -28,6 +28,9 @@ const harness = (results: boolean[] = []) => {
       calls.push({ playbook, inventoryType, limit, extraVars, options })
       return Promise.resolve(results[calls.length - 1] ?? true)
     },
+    // The version floor reads ~/.slv/versions.yml; these tests do not.
+    refuseBelowFloor: () => Promise.resolve(false),
+    refuseVersionBelowFloor: () => Promise.resolve(false),
     templateRoot: () => '/t',
     info: (line) => info.push(line),
     error: (line) => errors.push(line),
@@ -279,6 +282,139 @@ Deno.test('the start-script play does not run when the install play did not succ
     assertEquals(h.calls[0].playbook, row.install, row.label)
     assertEquals(h.errors, [], row.label)
     assertEquals(h.exitCodes, [], row.label)
+  }
+})
+
+// The flag a row names its own version with, and that version.
+const explicitVersionOf = (
+  row: Row,
+): { flag: string; version: string } | undefined => {
+  for (
+    const [option, flag] of [
+      ['-v', 'install:solana -v'],
+      ['--solana-version', 'patch:sha256 --solana-version'],
+    ]
+  ) {
+    const at = row.argv.indexOf(option)
+    if (at >= 0) return { flag, version: row.argv[at + 1] }
+  }
+  return undefined
+}
+
+const kindOf = (row: Row): string => {
+  const [network, kind] = row.inventory.split('_')
+  return `${network} ${kind === 'validators' ? 'validator' : 'rpc'}`
+}
+
+Deno.test('every command that installs, builds or patches the agave binary without a version of its own stops before any play when the pins of its network and role are below what Alpenglow runs on', async () => {
+  const rows = ROWS.filter((row) => !explicitVersionOf(row))
+  assert(rows.length > 0)
+  for (const row of rows) {
+    const h = harness()
+    const asked: string[] = []
+    const askedVersion: string[] = []
+    h.deps.refuseBelowFloor = (network, role) => {
+      asked.push(`${network} ${role}`)
+      return Promise.resolve(true)
+    }
+    h.deps.refuseVersionBelowFloor = (network, role, version, flag) => {
+      askedVersion.push(`${network} ${role} ${version} ${flag}`)
+      return Promise.resolve(true)
+    }
+    const cmd = new Command().throwErrors()
+    row.register(cmd, h.deps)
+    await cmd.parse(row.argv)
+    assertEquals(asked, [kindOf(row)], row.label)
+    assertEquals(askedVersion, [], row.label)
+    assertEquals(h.calls, [], row.label)
+  }
+})
+
+Deno.test('a command given a version of its own checks that version against the floor and not the pins', async () => {
+  const rows = ROWS.filter((row) => explicitVersionOf(row))
+  assertEquals(rows.length, 4)
+  for (const row of rows) {
+    const named = explicitVersionOf(row)!
+    // The version is refused: no play runs, and the pins are not asked about.
+    const refused = harness()
+    const asked: string[] = []
+    const pins: string[] = []
+    refused.deps.refuseVersionBelowFloor = (network, role, version, flag) => {
+      asked.push(`${network} ${role} ${version} ${flag}`)
+      return Promise.resolve(true)
+    }
+    refused.deps.refuseBelowFloor = (network, role) => {
+      pins.push(`${network} ${role}`)
+      return Promise.resolve(false)
+    }
+    const cmd = new Command().throwErrors()
+    row.register(cmd, refused.deps)
+    await cmd.parse(row.argv)
+    assertEquals(
+      asked,
+      [`${kindOf(row)} ${named.version} ${named.flag}`],
+      row.label,
+    )
+    assertEquals(pins, [], row.label)
+    assertEquals(refused.calls, [], row.label)
+
+    // The version is fine: the plays run even though the pins are stale.
+    const allowed = harness()
+    const stale: string[] = []
+    allowed.deps.refuseBelowFloor = (network, role) => {
+      stale.push(`${network} ${role}`)
+      return Promise.resolve(true)
+    }
+    const again = new Command().throwErrors()
+    row.register(again, allowed.deps)
+    await again.parse(row.argv)
+    assertEquals(stale, [], row.label)
+    assertEquals(allowed.calls.length, 2, row.label)
+  }
+})
+
+Deno.test('a version typed at the patch:sha256 prompt is held to the floor like one given with --solana-version, and an accepted default is checked as a pin', async () => {
+  // answer: what is typed at the prompt; null means there is no terminal.
+  const patch = async (answer: string | null, refuseVersion: boolean) => {
+    const h = harness()
+    const versions: string[] = []
+    const pins: string[] = []
+    h.deps.refuseVersionBelowFloor = (network, role, version, flag) => {
+      versions.push(`${network} ${role} ${version} ${flag}`)
+      return Promise.resolve(refuseVersion)
+    }
+    h.deps.refuseBelowFloor = (network, role) => {
+      pins.push(`${network} ${role}`)
+      return Promise.resolve(true)
+    }
+    const cmd = new Command().throwErrors()
+    registerSha256PatchCommands(cmd, 'validator', 'testnet', h.deps, {
+      isTerminal: () => answer !== null,
+      defaultVersion: () => Promise.resolve('v4.3.2'),
+      prompt: () => Promise.resolve(answer ?? ''),
+    })
+    await cmd.parse(['patch:sha256', '-n', 'mainnet', '-p', 'val-a'])
+    return { versions, pins, calls: h.calls }
+  }
+
+  // Typed in place of the default: that version is checked, and the pins are
+  // not asked about.
+  const typed = await patch('3.1.10', true)
+  assertEquals(typed.versions, [
+    'mainnet validator v3.1.10 patch:sha256 source tag',
+  ])
+  assertEquals(typed.pins, [])
+  assertEquals(typed.calls, [])
+  // A typed version at or above the floor runs, whatever the pins say.
+  const fine = await patch('4.3.2-jito', false)
+  assertEquals(fine.pins, [])
+  assertEquals(fine.calls.length, 2)
+  // Accepting the default, or having no terminal: the default is a pin.
+  for (const answer of ['v4.3.2', '4.3.2', null]) {
+    const kept = await patch(answer, true)
+    assertEquals(kept.versions, [], String(answer))
+    assertEquals(kept.pins, ['mainnet validator'], String(answer))
+    assertEquals(kept.calls, [], String(answer))
   }
 })
 

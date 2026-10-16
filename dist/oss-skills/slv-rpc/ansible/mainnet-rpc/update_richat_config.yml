@@ -1,0 +1,62 @@
+---
+# Lightweight playbook to update only the richat config + restart on change.
+# Use install_richat.yml when you want to (re)build the binary too; this one
+# never touches the binary, so it's safe to run frequently.
+#
+# Idempotent: if the rendered template matches what's on disk, no change and
+# no restart.  When the template differs, the file is updated and richat is
+# restarted via a handler (single restart even on multi-task changes).
+#
+# Usage:
+#   ansible-playbook -i ~/.slv/inventory.mainnet.rpcs.yml \
+#     template/2026.5.5.1612/ansible/mainnet-rpc/update_richat_config.yml
+#
+#   # Limit to specific hosts (replace with the inventory hostnames you want):
+#   ansible-playbook ... --limit 'host-a,host-b'
+
+- name: Update richat config (no rebuild)
+  hosts: all
+  gather_facts: no
+  vars:
+    richat_config_template: "~/.slv/mainnet-rpc/richat-setting.yml.j2"
+    richat_config_path: "/home/solv/richat-config.yml"
+
+  tasks:
+    - name: Render richat-config.yml from template
+      become: true
+      ansible.builtin.template:
+        src: "{{ richat_config_template }}"
+        dest: "{{ richat_config_path }}"
+        owner: solv
+        group: solv
+        mode: "0644"
+        # Backup the previous file so we can roll back manually if a config
+        # change breaks richat.  Backups land at <path>.<timestamp>~.
+        backup: yes
+      register: rg_render
+      notify: restart richat
+
+    # Reachability of the new ports is the contract this playbook enforces.
+    # If a future config change unbinds 7111 (or moves it), this task surfaces
+    # the regression instead of leaving a silently-broken node.
+    - name: Force handlers now (so the wait below sees the restarted process)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for richat to be listening on 10000 / 10100 / 7111
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ item }}"
+        state: started
+        timeout: 30
+      loop:
+        - 10000   # apps.grpc.server  (Yellowstone-compatible)
+        - 10100   # apps.richat.grpc  (richat-native)
+        - 7111    # apps.pubsub        (Solana JSON-RPC pubsub WS)
+      when: rg_render.changed
+
+  handlers:
+    - name: restart richat
+      become: true
+      ansible.builtin.systemd:
+        name: richat.service
+        state: restarted

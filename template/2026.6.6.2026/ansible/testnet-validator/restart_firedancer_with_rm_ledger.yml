@@ -30,7 +30,7 @@
 
     - name: Run Snapshot Finder
       shell: |
-        source ./venv/bin/activate && python3 snapshot-finder.py --snapshot_path /mnt/snapshot --version {{ hostvars[inventory_hostname].solana_version }} -r http://api.testnet.solana.com --min_download_speed 45
+        source ./venv/bin/activate && python3 snapshot-finder.py --snapshot_path /mnt/snapshot --version {{ hostvars[inventory_hostname].solana_version | quote }} -r http://api.testnet.solana.com --min_download_speed 45
       args:
         chdir: /home/solv/solana-snapshot-finder
         executable: /bin/bash

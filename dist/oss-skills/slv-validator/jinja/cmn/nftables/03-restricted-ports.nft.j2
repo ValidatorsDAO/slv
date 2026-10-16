@@ -1,0 +1,19 @@
+{# Restricted port rules — accept only from listed IPs, drop otherwise.
+   Set/counter names are derived from each port via set_slug (see
+   00-sets-common.nft.j2 for the same derivation). #}
+{% macro set_slug(port) -%}
+{{ port | string | regex_replace('[^0-9]+', '_') }}
+{%- endmacro %}
+
+{% for rp in (restricted_ports | default([])) %}
+{% set slug = set_slug(rp.port) %}
+{% if rp.tcp | default(true) %}
+tcp dport {{ rp.port }} ip saddr @allow_{{ slug }}_v4 counter name c_{{ slug }}_allow accept;
+tcp dport {{ rp.port }} counter name c_{{ slug }}_drop drop;
+{% endif %}
+{% if rp.udp | default(false) %}
+udp dport {{ rp.port }} ip saddr @allow_{{ slug }}_v4 counter name c_{{ slug }}_allow accept;
+udp dport {{ rp.port }} counter name c_{{ slug }}_drop drop;
+{% endif %}
+
+{% endfor %}

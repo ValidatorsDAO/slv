@@ -27,7 +27,9 @@
     # geyser.json has to be for the plugin library that is installed on the host,
     # so both libraries are looked for before anything is written. Richat is the
     # link geyser_richat_build.yml makes; Yellowstone is the path its own config
-    # points at (geyser_lib_path).
+    # points at (geyser_lib_path). The answer is geyser_plugin_installed, not
+    # geyser_plugin: that is the name of the inventory variable that chooses the
+    # plugin for init.yml, and this play does not read it.
     - name: Look for the Richat geyser plugin library
       stat:
         path: "{{ richat_lib_path }}"
@@ -44,7 +46,7 @@
 
     - name: Decide which geyser plugin this host runs
       set_fact:
-        geyser_plugin: >-
+        geyser_plugin_installed: >-
           {{ 'both' if (richat_lib.stat.exists and yellowstone_lib.stat.exists)
              else 'richat' if richat_lib.stat.exists
              else 'yellowstone' if yellowstone_lib.stat.exists
@@ -56,12 +58,14 @@
         msg: >-
           No geyser plugin library is installed on {{ inventory_hostname }}: neither
           {{ richat_lib_path }} nor {{ yellowstone_lib_path }} exists, so there is no
-          geyser.json to write. Build the Richat plugin with geyser_richat_build.yml and
-          install the Richat daemon with install_richat.yml, then run this again.
+          geyser.json to write. Build the Yellowstone plugin with geyser_build.yml (init.yml
+          does that unless the inventory sets geyser_plugin: richat), or build the Richat plugin
+          with geyser_richat_build.yml and install the Richat daemon with install_richat.yml
+          (richat has no release for agave 4.3 or later yet), then run this again.
           Nothing was changed.
       when:
         - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
-        - geyser_plugin == 'none'
+        - geyser_plugin_installed == 'none'
 
     - name: Stop when both geyser plugin libraries are installed
       fail:
@@ -72,7 +76,7 @@
           run this again. Nothing was changed.
       when:
         - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
-        - geyser_plugin == 'both'
+        - geyser_plugin_installed == 'both'
 
     # The XDP flags have to suit the agave that starts next, so the version comes
     # from the agave-validator installed on this host, found the way the solv unit
@@ -132,7 +136,7 @@
         backup: true
       when:
         - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
-        - geyser_plugin == 'richat'
+        - geyser_plugin_installed == 'richat'
 
     - name: Copy the geyser.json configuration file for Yellowstone
       template:
@@ -144,4 +148,4 @@
         backup: true
       when:
         - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
-        - geyser_plugin == 'yellowstone'
+        - geyser_plugin_installed == 'yellowstone'

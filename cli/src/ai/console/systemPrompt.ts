@@ -1,4 +1,7 @@
-import { VERSION } from '@cmn/constants/version.ts'
+import {
+  VERSION,
+  VERSION_JITO_VALIDATOR_TESTNET,
+} from '@cmn/constants/version.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { readLang } from '@/ai/config.ts'
 import { detectProfile, profilePromptBlock } from '@/ai/console/profile.ts'
@@ -139,7 +142,7 @@ export const CONTEXT_MODULES: Record<string, string> = {
 4. SSH CHECK → load the \`ssh_check\` context module for full procedure
 5. Network (mainnet/testnet)
 6. Region (amsterdam/frankfurt/tokyo/ny)
-7. Validator type (jito/agave/firedancer-agave/firedancer-jito)
+7. Validator type (jito/agave on any network; firedancer-agave/firedancer-jito on testnet only, mainnet refuses them)
 8. Identity + Vote account
 
 IMPORTANT: Before any deployment, call load_context with modules "ssh_check" and "deploy" for SSH check procedure and deployment rules.
@@ -176,7 +179,7 @@ CRITICAL: ALWAYS use \`-o PasswordAuthentication=no\` on ALL ssh commands.`,
 - Snapshot URL is auto-detected by the sub-agent (nearest region ping test). No need to ask the user.
 - Available snapshot regions: Amsterdam, Frankfurt, London, NY, Chicago, Singapore, Tokyo
 - When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
-  Read it via read_file and show e.g. "Solana Version: 4.0.0-beta.2-jito (from versions.yml)"
+  Read it via read_file and show e.g. "Solana Version: ${VERSION_JITO_VALIDATOR_TESTNET} (from versions.yml)"
 - Do NOT ask for version — Cecil reads defaults from ~/.slv/versions.yml automatically.
 - Do NOT ask for snapshot URL, commission, port range — defaults are used.
 - Do NOT offer dry-runs. Just deploy when the user confirms.
@@ -203,7 +206,7 @@ After deployment, the target node has this key layout:
 ### Validator commands (\`slv v\` or \`slv validator\`)
 | Command | Description |
 |---|---|
-| \`slv v init\` | Interactive validator config initialization — asks for IP, network (mainnet/testnet), validator type (jito/agave/firedancer), etc. |
+| \`slv v init\` | Interactive validator config initialization — asks for IP, network (mainnet/testnet), validator type (jito/agave on any network, firedancer on testnet only), etc. |
 | \`slv v deploy\` | Full deployment (runs Ansible playbook) |
 | \`slv v start\` | Start validator |
 | \`slv v stop\` | Stop validator |

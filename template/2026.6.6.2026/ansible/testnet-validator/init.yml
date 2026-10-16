@@ -2,19 +2,21 @@
 - name: Load validator type from inventory
   hosts: all
   gather_facts: no
+  any_errors_fatal: true
   tasks:
-    - name: Set validator type fact for each host
-      set_fact:
-        validator_type: "{{ validator_type | default('firedancer-jito') }}"
-    
-    - name: Debug validator type. Stop if not set
-      debug:
-        msg: "Validator type is {{ validator_type }}"
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
 
-    - name: Fail if validator type is not set
-      fail:
-        msg: "Validator type is not set. Please set it in the inventory."
-      when: validator_type is not defined
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, a client that is older than the floor of
+# testnet (4.4.0-beta.0): the agave_version, jito_version or allnodes_jito_version of the host, else the
+# version_* pin of testnet_validators.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: testnet_validators
 
 # 共通処理
 - import_playbook: ../cmn/fix_permissions.yml
@@ -32,6 +34,8 @@
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
 - import_playbook: ../cmn/build_solana.yml
+  vars:
+    versions_section: testnet_validators
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
 

@@ -69,7 +69,8 @@ grep -Fq 'restarter_snapshot_network: testnet' \
   "$root/dist/oss-skills/slv-rpc/ansible/testnet-rpc/init.yml"
 grep -Fq 'restarter_snapshot_network: devnet' \
   "$root/dist/oss-skills/slv-rpc/ansible/devnet-rpc/init.yml"
-test ! -e "$root/dist/oss-skills/slv-validator/ansible/mainnet-validator/init-allnodes-jito.yml"
+grep -Fq 'restarter_snapshot_network: mainnet' \
+  "$root/dist/oss-skills/slv-validator/ansible/mainnet-validator/init-allnodes-jito.yml"
 
 behavior_root=$(mktemp -d /tmp/slv-restarter-test.XXXXXX)
 trap 'rm -rf -- "$behavior_root"' EXIT
