@@ -323,10 +323,15 @@ the cluster before it sets anything, and stops with nothing changed when one of
 these fails or cannot be read:
 1. Nothing votes with the identity: the last vote of the vote account
    (`getVoteAccounts`, `lastVote`) is more than 270 slots before the current slot
-   of the cluster (`getSlot`). A node that voted within that window may still be
-   voting.
+   of the cluster (`getSlot`). The check cannot tell which node votes. If `<host>`
+   already runs the identity it fails too, and the message says so: look at the
+   identity `<host>` runs (its own RPC, `getIdentity`) before you run the command
+   again, because then there is nothing to set.
 2. `<host>` has caught up: its finalized slot (its own RPC, `getSlot` with
    commitment `finalized`) is at least 270 slots past that last vote.
+3. Gossip: the cluster (`getClusterNodes`) lists the identity at no address but the
+   one of `<host>` and `primary_down_address`, compared by IP (an `ansible_host`
+   that is a name is looked up on the controller).
 
 After the old primary stopped, or was switched to its unstaked identity, give it
 about two minutes before you run the command.
@@ -338,12 +343,9 @@ entry pass when the address belongs to an inventory host that is stopped (named 
 `--primary-down`, confirmed with `--peer-down-confirmed`, or read as running another
 identity) and nothing votes with the identity, and hands that address to the playbook
 as `primary_down_address`. With `--primary-down` it also passes
-`primary_down_confirmed=true`. When the playbook gets either one it reads gossip
-(`getClusterNodes`) too and compares by IP (an `ansible_host` that is a name is looked
-up on the controller): the identity may be listed at the address of `<host>` and at
-`primary_down_address`, nowhere else. An entry at any other
-address stops the play, and the address named down counts only because check 1 shows
-that nothing votes there.
+`primary_down_confirmed=true`. The playbook allows the identity at that one address
+only because check 1 shows that nothing votes there. Without `primary_down_address`,
+an entry at any address but the one of `<host>` stops the play.
 
 When the old primary is dead and its vote history file went with it, use
 `--primary-down` (on every network a terminal is needed: the CLI asks you to type

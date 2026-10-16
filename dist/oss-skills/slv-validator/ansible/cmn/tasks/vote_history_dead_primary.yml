@@ -13,7 +13,6 @@
 #   slv_dp_vote_account     its vote account
 #   slv_dp_window           the Alpenglow vote window in slots (270; 150 under TowerBFT, which does not
 #                           come here)
-#   slv_dp_check_gossip     true: run check 3 too (default true)
 #   slv_dp_address          the address of this host (ansible_host), read by check 3: an IP address, or
 #                           a name that resolves to one (looked up on the controller)
 #   slv_dp_down_address     the IP address of the node that was named or confirmed down, read by
@@ -26,13 +25,14 @@
 # Check 1, nothing votes with the identity: the last vote of the vote account (getVoteAccounts with
 # commitment processed) is more than slv_dp_window slots before the current slot of the cluster
 # (getSlot with commitment processed). Both are asked of the cluster from the controller, the slot
-# first, so that a vote cast between the two calls counts against the identity.
+# first, so that a vote cast between the two calls counts against the identity. The check cannot tell
+# which node votes: when this host already runs the identity it fails too, and its message says so.
 # Check 2, this host has caught up: the finalized slot of this host (getSlot with commitment finalized,
 # asked of its own RPC) is at least slv_dp_window slots past that last vote, so that a vote still on its
 # way when the old primary stopped can no longer land, and this host has seen what the cluster did since.
-# Check 3, gossip (when slv_dp_check_gossip is true): the cluster lists the identity at no address but the
-# one of this host and slv_dp_down_address (getClusterNodes, compared by IP). An entry at the address
-# named down is allowed because check 1 shows that nothing votes there.
+# Check 3, gossip, on every run: the cluster lists the identity at no address but the one of this host
+# and slv_dp_down_address (getClusterNodes, compared by IP). An entry at the address named down is
+# allowed because check 1 shows that nothing votes there.
 #
 # A vote account that is not listed, or an answer that cannot be read, fails the check it belongs to.
 
@@ -61,7 +61,6 @@
   no_log: true
   delegate_to: localhost
   become: false
-  when: slv_dp_check_gossip | default(true) | bool
 
 - name: Tell whether the address of this host is an IP address
   ansible.builtin.set_fact:
@@ -82,7 +81,6 @@
   delegate_to: localhost
   become: false
   when:
-    - slv_dp_check_gossip | default(true) | bool
     - slv_dp_me != ''
     - not (slv_dp_me_is_ip | bool)
 
@@ -155,7 +153,7 @@
       {%- elif now is not mapping or now.result is not defined or now.result is not integer or now.result is boolean -%}
       the cluster did not answer getSlot, so the age of the last vote cannot be told
       {%- elif now.result - last <= window -%}
-      the vote account {{ slv_dp_vote_account }} voted at slot {{ last }}, {{ [now.result - last, 0] | max }} slots before the current slot {{ now.result }}: a node may still be voting with the identity (it counts as stopped after more than {{ window }} slots without a vote)
+      the identity voted {{ [now.result - last, 0] | max }} slots ago (the last vote of the vote account {{ slv_dp_vote_account }} is at slot {{ last }}, the current slot is {{ now.result }}): a node may still be voting with the identity. If {{ inventory_hostname }} already runs it (ask its own RPC with getIdentity), there is nothing to set: check that before you run this again. A node counts as stopped after more than {{ window }} slots without a vote
       {%- endif -%}
     slv_dp_last_vote: "{{ slv_lv_last | int(-1) }}"
 
@@ -180,8 +178,7 @@
       {%- set found = (slv_dp_lookup.stdout | default('', true) | string | lower).split() if (slv_dp_lookup is defined and slv_dp_lookup is not skipped) else [] -%}
       {%- set mine = [slv_dp_me] if (slv_dp_me_is_ip | bool) else found -%}
       {%- set ns = namespace(foreign=[]) -%}
-      {%- if not (slv_dp_check_gossip | default(true) | bool) -%}
-      {%- elif mine | length == 0 -%}
+      {%- if mine | length == 0 -%}
       the address of this host ({{ slv_dp_address | default('not set', true) }}) is not an IP address{{ ' and does not resolve to one' if slv_dp_me != '' else '' }}, so it cannot be compared with the gossip addresses
       {%- elif body is not mapping or body.result is not defined or body.result is not sequence -%}
       the cluster did not give a readable list of nodes (getClusterNodes)
