@@ -240,11 +240,15 @@ Deno.test('slv v deploy on mainnet goes on for agave, jito and allnodes-jito hos
   assertEquals(missing.read, ['mainnet_validators'])
 })
 
-Deno.test('slv v setup:firedancer and slv v update:firedancer on mainnet are refused like the deploy, and other networks go on', async () => {
+const COMMANDS = ['set up Firedancer', 'update Firedancer']
+
+// The commands install Firedancer on every host they reach, so a mainnet run is
+// refused whatever the validator_type of those hosts is.
+Deno.test('slv v setup:firedancer and slv v update:firedancer on mainnet are refused, naming the action, the hosts they reach and the way out', async () => {
   const inventories = {
     mainnet_validators: inventoryText('mainnet_validators', MAINNET_HOSTS),
   }
-  for (const action of ['set up Firedancer', 'update Firedancer']) {
+  for (const action of COMMANDS) {
     const rec = recorder(inventories)
     assertEquals(
       await refuseFdctlMainnetCommand('mainnet', action, undefined, rec.deps),
@@ -256,24 +260,113 @@ Deno.test('slv v setup:firedancer and slv v update:firedancer on mainnet are ref
     const message = rec.errors.join('\n')
     assertStringIncludes(
       message,
-      `Refusing to ${action} on mainnet: val-b (firedancer-jito)`,
+      `Refusing to ${action} on mainnet: val-a (jito), val-b (firedancer-jito), val-c (agave).`,
     )
+    assertStringIncludes(
+      message,
+      'whatever the validator_type of the host says',
+    )
+    assertStringIncludes(message, 'Nothing was changed')
     for (const fact of REFUSAL_FACTS) {
       assertStringIncludes(message, fact, action)
     }
   }
-  // -p names the hosts, as it does for the deploy.
-  const scoped = recorder(inventories)
-  assertEquals(
-    await refuseFdctlMainnetCommand(
-      'mainnet',
-      'update Firedancer',
-      'val-a',
-      scoped.deps,
-    ),
-    false,
-  )
-  assertEquals([scoped.errors, scoped.exitCodes], [[], []])
+})
+
+Deno.test('slv v setup:firedancer -p and slv v update:firedancer -p on mainnet are refused for an agave, jito or allnodes-jito host, naming only the hosts they name', async () => {
+  const inventories = {
+    mainnet_validators: inventoryText('mainnet_validators', {
+      'val-a': 'jito',
+      'val-c': 'agave',
+      'val-d': 'allnodes-jito',
+      'val-e': 'jito',
+    }),
+  }
+  const cases: Array<[string, string]> = [
+    ['val-a', 'val-a (jito)'],
+    ['val-c', 'val-c (agave)'],
+    ['val-d', 'val-d (allnodes-jito)'],
+    [' val-a, val-c ', 'val-a (jito), val-c (agave)'],
+  ]
+  for (const action of COMMANDS) {
+    for (const [limit, named] of cases) {
+      const rec = recorder(inventories)
+      assertEquals(
+        await refuseFdctlMainnetCommand('mainnet', action, limit, rec.deps),
+        true,
+        `${action} -p ${limit}`,
+      )
+      assertEquals(rec.exitCodes, [1], `${action} -p ${limit}`)
+      const message = rec.errors.join('\n')
+      assertStringIncludes(
+        message,
+        `Refusing to ${action} on mainnet: ${named}.`,
+      )
+      assertEquals(message.includes('val-e'), false, `${action} -p ${limit}`)
+    }
+  }
+})
+
+Deno.test('slv v setup:firedancer and slv v update:firedancer on mainnet without -p are refused when no host of the inventory is Firedancer', async () => {
+  const inventories = {
+    mainnet_validators: inventoryText('mainnet_validators', {
+      'val-a': 'agave',
+      'val-b': 'jito',
+      'val-c': 'allnodes-jito',
+    }),
+  }
+  for (const action of COMMANDS) {
+    const rec = recorder(inventories)
+    assertEquals(
+      await refuseFdctlMainnetCommand('mainnet', action, undefined, rec.deps),
+      true,
+      action,
+    )
+    assertEquals(rec.exitCodes, [1], action)
+    assertStringIncludes(
+      rec.errors.join('\n'),
+      `Refusing to ${action} on mainnet: val-a (agave), val-b (jito), val-c (allnodes-jito).`,
+    )
+  }
+})
+
+Deno.test('slv v setup:firedancer and slv v update:firedancer on mainnet are refused when the inventory is missing, empty or cannot be read', async () => {
+  const unreadable = recorder()
+  unreadable.deps.readInventory = () => Promise.reject(new Error('EACCES'))
+  const cases: Array<[string, Recorded]> = [
+    ['missing', recorder()],
+    [
+      'empty',
+      recorder({ mainnet_validators: inventoryText('mainnet_validators', {}) }),
+    ],
+    ['unreadable', unreadable],
+  ]
+  for (const [name, rec] of cases) {
+    assertEquals(
+      await refuseFdctlMainnetCommand(
+        'mainnet',
+        'set up Firedancer',
+        'val-a',
+        rec.deps,
+      ),
+      true,
+      name,
+    )
+    assertEquals(rec.exitCodes, [1], name)
+    const message = rec.errors.join('\n')
+    assertStringIncludes(
+      message,
+      'Refusing to set up Firedancer on mainnet.',
+      name,
+    )
+    assertStringIncludes(message, 'Nothing was changed', name)
+  }
+})
+
+Deno.test('slv v setup:firedancer and slv v update:firedancer go on for any network but mainnet', async () => {
+  const inventories = {
+    mainnet_validators: inventoryText('mainnet_validators', MAINNET_HOSTS),
+  }
   for (const network of ['testnet', 'devnet', 'Mainnet', undefined]) {
     const rec = recorder(inventories)
     assertEquals(
@@ -286,7 +379,11 @@ Deno.test('slv v setup:firedancer and slv v update:firedancer on mainnet are ref
       false,
       String(network),
     )
-    assertEquals([rec.read, rec.errors, rec.exitCodes], [[], [], []])
+    assertEquals(
+      [rec.read, rec.errors, rec.exitCodes],
+      [[], [], []],
+      String(network),
+    )
   }
 })
 

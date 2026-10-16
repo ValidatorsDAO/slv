@@ -80,24 +80,42 @@ const refuseMainnetValidatorType = (
   return true
 }
 
+type RawHost = { validator_type?: unknown } | null
+
+/** The hosts of `group` in the inventory text, as they are written. */
+const rawHostsOf = (
+  inventoryText: string,
+  group: InventoryType,
+): [string, RawHost][] => {
+  const data = parse(inventoryText) as
+    | Record<string, { hosts?: Record<string, RawHost> } | null>
+    | null
+  return Object.entries(data?.[group]?.hosts ?? {})
+}
+
 /** The hosts of `group` in the inventory text whose validator_type runs fdctl. */
 const fdctlHostsOf = (
   inventoryText: string,
   group: InventoryType,
-): FdctlHost[] => {
-  const data = parse(inventoryText) as
-    | Record<
-      string,
-      { hosts?: Record<string, { validator_type?: unknown } | null> } | null
-    >
-    | null
-  const hosts = data?.[group]?.hosts ?? {}
-  return Object.entries(hosts).flatMap(([name, entry]) =>
+): FdctlHost[] =>
+  rawHostsOf(inventoryText, group).flatMap(([name, entry]) =>
     isFdctlValidatorType(entry?.validator_type)
       ? [{ name, validatorType: String(entry?.validator_type) }]
       : []
   )
-}
+
+/** Every host of `group` in the inventory text, with its validator_type ('' when it has none). */
+const validatorHostsOf = (
+  inventoryText: string,
+  group: InventoryType,
+): FdctlHost[] =>
+  rawHostsOf(inventoryText, group).map(([name, entry]) => ({
+    name,
+    validatorType: entry?.validator_type === undefined ||
+        entry.validator_type === null
+      ? ''
+      : String(entry.validator_type),
+  }))
 
 /** True for a --limit that is neither the whole group nor a list of plain host names. */
 const isPatternLimit = (
@@ -107,26 +125,37 @@ const isPatternLimit = (
   !isWholeGroupLimit(limit, group) && parsePlainHostNames(limit) === null
 
 /**
- * The fdctl hosts of `group` that a run with this --limit reaches. A pattern
- * (an exclusion, a wildcard) can reach any host, so every fdctl host of the
+ * The hosts `extract` finds in `group` that a run with this --limit reaches. A
+ * pattern (an exclusion, a wildcard) can reach any host, so every host of the
  * group counts.
  */
-const fdctlHostsInTarget = async (
+const hostsInTarget = async (
   group: InventoryType,
   limit: string | undefined,
   deps: FdctlGuardDeps,
+  extract: (text: string, group: InventoryType) => FdctlHost[],
 ): Promise<FdctlHost[]> => {
   const text = await deps.readInventory(group)
   if (text === null) return []
-  const hosts = fdctlHostsOf(text, group)
+  const hosts = extract(text, group)
   const names = parsePlainHostNames(limit)
   return isWholeGroupLimit(limit, group) || names === null
     ? hosts
     : hosts.filter((host) => names.includes(host.name))
 }
 
+/** The fdctl hosts of `group` that a run with this --limit reaches. */
+const fdctlHostsInTarget = (
+  group: InventoryType,
+  limit: string | undefined,
+  deps: FdctlGuardDeps,
+): Promise<FdctlHost[]> => hostsInTarget(group, limit, deps, fdctlHostsOf)
+
 const describeHosts = (hosts: readonly FdctlHost[]): string =>
-  hosts.map((host) => `${host.name} (${host.validatorType})`).join(', ')
+  hosts.map((host) =>
+    `${host.name} (${host.validatorType || 'no validator_type'})`
+  )
+    .join(', ')
 
 /**
  * Stops `slv v deploy -n mainnet` before anything else when a host it reaches
@@ -155,18 +184,46 @@ const refuseFdctlMainnetValidatorDeploy = async (
 }
 
 /**
- * The same refusal for `slv v setup:firedancer` and `slv v update:firedancer`:
- * only `-n mainnet` is checked, any other network goes on.
+ * Stops `slv v setup:firedancer` and `slv v update:firedancer` on mainnet
+ * whatever the validator_type of the hosts is: the command itself installs
+ * Firedancer on the hosts it reaches, and on an agave, jito or allnodes-jito
+ * node that puts it next to the validator. Only `-n mainnet` is checked, any
+ * other network goes on. The hosts the run reaches are named when the inventory
+ * can be read; the refusal does not depend on it.
  */
-const refuseFdctlMainnetCommand = (
+const refuseFdctlMainnetCommand = async (
   network: string | undefined,
   action: string,
   limit?: string,
   overrides: Partial<FdctlGuardDeps> = {},
-): Promise<boolean> =>
-  network === 'mainnet'
-    ? refuseFdctlMainnetValidatorDeploy(limit, overrides, action)
-    : Promise.resolve(false)
+): Promise<boolean> => {
+  if (network !== 'mainnet') return false
+  const deps = { ...defaultFdctlGuardDeps(), ...overrides }
+  let reached: FdctlHost[] = []
+  try {
+    reached = await hostsInTarget(
+      'mainnet_validators',
+      limit,
+      deps,
+      validatorHostsOf,
+    )
+  } catch {
+    // An inventory that cannot be read does not make the command safe.
+  }
+  deps.error(
+    `❌ Refusing to ${action} on mainnet${
+      reached.length > 0 ? `: ${describeHosts(reached)}` : ''
+    }.`,
+  )
+  deps.error(`   ${ALPENGLOW_NOTE}`)
+  deps.error(
+    '   The command installs Firedancer on every host it reaches, whatever the validator_type of the host says, so an agave, jito or allnodes-jito host is refused too.',
+  )
+  deps.error(`   ${WAY_OUT}`)
+  deps.error('   Nothing was changed.')
+  deps.setExitCode(1)
+  return true
+}
 
 /**
  * Warns before `slv rpc deploy -n mainnet` about a Frankendancer RPC node it

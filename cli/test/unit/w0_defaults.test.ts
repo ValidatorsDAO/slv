@@ -52,8 +52,8 @@ const TESTNET_VALIDATORS = {
   ...ACCESS,
 }
 
-// Yellowstone's only 4.4 build is built for 4.4.0-beta.0, so the testnet and
-// devnet RPC defaults stay on that client.
+// The Yellowstone tag v17.0.0-rc5+solana.4.4.0.beta.0 is the build made for
+// 4.4.0-beta.0, so the testnet and devnet RPC defaults stay on that client.
 const TESTNET_RPCS = {
   version_agave: '4.4.0-beta.0',
   version_jito: '4.4.0-beta.0-jito',

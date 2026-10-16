@@ -11,11 +11,12 @@ export const VERSION = '2026.6.6.2026'
 // Alpenglow starts on mainnet with epoch 1064 and needs agave or jito built on
 // Agave 4.3.0 or later; testnet and devnet already run it on 4.4.0-beta.*.
 // A Geyser RPC default pairs a client with a plugin built for it. Mainnet uses
-// the latest Yellowstone release built for solana 4.3.0. Yellowstone's only 4.4
-// build, a tag without a release, is built for 4.4.0-beta.0, so the testnet and
-// devnet RPC defaults stay on 4.4.0-beta.0 while the testnet validators run
-// 4.4.0-beta.1. versions.yml holds one client version per network section, so
-// every RPC type of that network follows the Geyser build.
+// the latest Yellowstone release built for solana 4.3.0. The Yellowstone tag
+// v17.0.0-rc5+solana.4.4.0.beta.0, a tag without a release, is the build made
+// for 4.4.0-beta.0, so the testnet and devnet RPC defaults stay on 4.4.0-beta.0
+// while the testnet validators run 4.4.0-beta.1. versions.yml holds one client
+// version per network section, so every RPC type of that network follows the
+// Geyser build.
 export const VERSION_SOLANA_TESTNET = '4.4.0-beta.0'
 export const VERSION_SOLANA_DEVNET = '4.4.0-beta.0'
 export const VERSION_SOLANA_MAINNET = '4.3.2'
