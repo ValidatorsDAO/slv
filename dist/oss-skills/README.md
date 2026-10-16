@@ -10,7 +10,7 @@ Each skill includes Ansible playbooks, Jinja2 templates, interactive deployment 
 |---|---|---|
 | [**slv-validator**](slv-validator/) | Solana validator deployment & management | Mainnet/testnet validators (Jito, Agave, Firedancer) |
 | [**slv-rpc**](slv-rpc/) | Solana RPC node deployment & management | Standard RPC, Index RPC, Geyser gRPC, Index+gRPC |
-| [**slv-grpc-geyser**](slv-grpc-geyser/) | gRPC Geyser streaming node specialist | Yellowstone gRPC, Richat high-throughput streaming |
+| [**slv-grpc-geyser**](slv-grpc-geyser/) | gRPC Geyser streaming node specialist | Yellowstone gRPC streaming (richat once a release supports agave 4.3 or later) |
 
 ## How It Works
 

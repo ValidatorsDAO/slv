@@ -99,7 +99,7 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | Playbook | Description |
 |---|---|
 | `init.yml` | Full RPC node initialization |
-| `init_richat_geyser.yml` | Initialize Richat Geyser configuration |
+| `init_richat_geyser.yml` | Initialize Richat Geyser configuration (richat has no release for agave 4.3 or later yet) |
 | `restart_node.yml` | Restart RPC node |
 | `start_node.yml` | Start RPC node |
 | `stop_node.yml` | Stop RPC node |
@@ -108,12 +108,13 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `install_jito.yml` | Build Jito from source |
 | `install_rust.yml` | Install Rust toolchain |
 | `install_package.yml` | Install system packages |
-| `install_richat.yml` | Install Richat gRPC plugin |
+| `install_richat.yml` | Install Richat gRPC plugin (only with `geyser_plugin: richat`) |
 | `install_of1.yml` | Install Old Faithful (yellowstone-faithful) |
 | `install_of1_service.yml` | Setup Old Faithful systemd service |
 | `cmn/of1_index_cache_sync.yml` | Install rolling-cache sync script + daily timer |
-| `geyser_build.yml` | Build Yellowstone gRPC from source |
-| `geyser_richat_build.yml` | Build Richat gRPC plugin from source |
+| `geyser_build.yml` | Build Yellowstone gRPC from source (the Geyser plugin of `init.yml` by default) |
+| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, after the Yellowstone build of `init.yml` |
+| `geyser_richat_build.yml` | Build Richat gRPC plugin from source (only with `geyser_plugin: richat`) |
 | `update_geyser.yml` | Update Geyser plugin |
 | `update_startup_config.yml` | Update start-validator.sh from template |
 | `update_ubuntu.yml` | Update Ubuntu packages |
@@ -145,9 +146,9 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `start_node.yml` / `stop_node.yml` | Start/stop node |
 | `install_solana.yml` | Build Solana from source |
 | `install_agave.yml` / `install_jito.yml` | Build client from source |
-| `install_richat.yml` | Install Richat plugin |
-| `geyser_build.yml` | Build Yellowstone gRPC |
-| `geyser_richat_build.yml` | Build Richat plugin from source |
+| `install_richat.yml` | Install Richat plugin (only with `geyser_plugin: richat`) |
+| `geyser_build.yml` | Build Yellowstone gRPC (the Geyser plugin of `init.yml` by default) |
+| `geyser_richat_build.yml` | Build Richat plugin from source (only with `geyser_plugin: richat`) |
 | `update_geyser.yml` | Update Geyser plugin |
 | `update_firedancer.yml` | Update Firedancer |
 | `update_startup_config.yml` | Update start script |
@@ -165,9 +166,9 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `start_node.yml` / `stop_node.yml` | Start/stop node |
 | `install_solana.yml` | Build Solana from source |
 | `install_agave.yml` / `install_jito.yml` | Build client from source |
-| `install_richat.yml` | Install Richat plugin |
-| `geyser_build.yml` | Build Yellowstone gRPC |
-| `geyser_richat_build.yml` | Build Richat plugin from source |
+| `install_richat.yml` | Install Richat plugin (only with `geyser_plugin: richat`) |
+| `geyser_build.yml` | Build Yellowstone gRPC (the Geyser plugin of `init.yml` by default) |
+| `geyser_richat_build.yml` | Build Richat plugin from source (only with `geyser_plugin: richat`) |
 | `update_geyser.yml` | Update Geyser plugin |
 | `update_startup_config.yml` | Update start script |
 | `setup_firedancer.yml` | Setup Firedancer |
@@ -211,8 +212,9 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `solana_version` | Solana/Agave version | — |
 | `jito_version` | Jito version | — |
 | `firedancer_version` | Firedancer version | — |
-| `yellowstone_grpc_version` | Yellowstone gRPC version | — |
-| `richat_version` | Richat plugin version (e.g. `richat-v8.1.0`) | — |
+| `geyser_plugin` | Geyser plugin of `Geyser gRPC` and `Index RPC + gRPC` nodes, an inventory variable: `yellowstone`, or `richat`, which `init.yml` refuses while the agave of the node is 4.3 or later | `yellowstone` |
+| `geyser_version` | Yellowstone gRPC release tag | `geyser_version` of the network in `~/.slv/versions.yml` |
+| `richat_version` | Richat plugin version, for `geyser_plugin: richat` (e.g. `richat-v8.1.0`) | — |
 | `snapshot_url` | Snapshot download URL | — |
 | `tpu_peer_address` | TPU peer address (for Index RPC transaction forwarding) | — |
 | `limit_ledger_size` | Ledger size limit | `200000000` (Index), `100000000` (others) |
@@ -225,6 +227,8 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 Both plugins are built from source (no binary downloads):
 - **Yellowstone gRPC**: https://github.com/rpcpool/yellowstone-grpc
 - **Richat**: https://github.com/lamports-dev/richat
+
+Yellowstone is the default plugin of `init.yml`. Richat is chosen with `geyser_plugin: richat` in the inventory, but richat has no release for agave 4.3 or later yet: `init.yml` stops, before it changes anything, on a node set to run such an agave. The Richat playbooks stay for when a release exists. A node that ran Richat gets `richat.service` stopped and disabled when it is initialised with Yellowstone, so the two never share port 10000.
 
 ## Usage
 
@@ -258,8 +262,8 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 |---|---|---|
 | `jito_version` | Matches solana_version | jito/allnodes-jito types |
 | `firedancer_version` | — | firedancer types |
-| `yellowstone_grpc_version` | — | Yellowstone gRPC plugin |
-| `richat_version` | — | Richat plugin |
+| `geyser_version` | `geyser_version` of the network in `~/.slv/versions.yml` | Yellowstone gRPC plugin (the default) |
+| `richat_version` | — | Richat plugin (`geyser_plugin: richat`) |
 | `of1_version` | — | Index RPC (Old Faithful) |
 | `epoch` | — | Index RPC (faithful service) |
 | `faithful_proxy_target_url` | — | Index RPC |

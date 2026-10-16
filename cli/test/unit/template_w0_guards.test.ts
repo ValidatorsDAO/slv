@@ -926,13 +926,24 @@ Deno.test('behavior 9: update_startup_config writes geyser.json for the plugin l
     assertEquals(conditionsOf(look), [geyserRpcTypes])
   }
 
-  // one answer for each of the four states
+  // one answer for each of the four states, in a fact that is not named like the
+  // inventory variable (geyser_plugin) with which init.yml chooses the plugin
   const decide = named('Decide which geyser plugin this host runs')
   assertEquals(conditionsOf(decide), [geyserRpcTypes])
-  const expression = /^\{\{\s*([\s\S]+?)\s*\}\}$/.exec(
-    String((moduleArgs(decide, 'set_fact') as Entry).geyser_plugin),
+  assertEquals(
+    Object.keys(moduleArgs(decide, 'set_fact') as Entry),
+    ['geyser_plugin_installed'],
   )
-  assert(expression, `${path}: geyser_plugin is not an expression`)
+  for (const task of tasks) {
+    assert(
+      !/\bgeyser_plugin\b/.test(conditionsOf(task).join(' ')),
+      `${path}: "${task.name}" reads the inventory variable geyser_plugin`,
+    )
+  }
+  const expression = /^\{\{\s*([\s\S]+?)\s*\}\}$/.exec(
+    String((moduleArgs(decide, 'set_fact') as Entry).geyser_plugin_installed),
+  )
+  assert(expression, `${path}: geyser_plugin_installed is not an expression`)
   const chain = expression[1].split(/\s+else\s+/)
   const pluginFor = (richat: boolean, yellowstone: boolean): string => {
     const facts: Record<string, boolean> = {
@@ -948,25 +959,38 @@ Deno.test('behavior 9: update_startup_config writes geyser.json for the plugin l
         })
       if (holds) return value.replaceAll("'", '')
     }
-    throw new Error(`${path}: geyser_plugin has no final answer`)
+    throw new Error(`${path}: geyser_plugin_installed has no final answer`)
   }
   assertEquals(pluginFor(true, false), 'richat')
   assertEquals(pluginFor(false, true), 'yellowstone')
   assertEquals(pluginFor(false, false), 'none')
   assertEquals(pluginFor(true, true), 'both')
 
-  // neither library: stop and name the playbooks that make one; both: stop
+  // neither library: stop and name the playbooks that make one, Yellowstone's
+  // first; both: stop
   const none = named('Stop when neither geyser plugin library is installed')
-  assertEquals(conditionsOf(none), [geyserRpcTypes, "geyser_plugin == 'none'"])
+  assertEquals(conditionsOf(none), [
+    geyserRpcTypes,
+    "geyser_plugin_installed == 'none'",
+  ])
   const noneMessage = String((moduleArgs(none, 'fail') as Entry).msg)
-  for (const playbook of ['geyser_richat_build.yml', 'install_richat.yml']) {
+  for (
+    const playbook of [
+      'geyser_build.yml',
+      'geyser_richat_build.yml',
+      'install_richat.yml',
+    ]
+  ) {
     assert(
       noneMessage.includes(playbook),
       `${path}: message misses ${playbook}`,
     )
   }
   const both = named('Stop when both geyser plugin libraries are installed')
-  assertEquals(conditionsOf(both), [geyserRpcTypes, "geyser_plugin == 'both'"])
+  assertEquals(conditionsOf(both), [
+    geyserRpcTypes,
+    "geyser_plugin_installed == 'both'",
+  ])
   assert(String((moduleArgs(both, 'fail') as Entry).msg).includes('Remove'))
 
   // each library gets its own config, the old geyser.json is kept, and the host's
@@ -992,7 +1016,7 @@ Deno.test('behavior 9: update_startup_config writes geyser.json for the plugin l
     assertEquals(args.backup, true, `${name}: keep the previous geyser.json`)
     assertEquals(conditionsOf(task), [
       geyserRpcTypes,
-      `geyser_plugin == '${plugin}'`,
+      `geyser_plugin_installed == '${plugin}'`,
     ])
     assertEquals(task.vars, undefined)
   }

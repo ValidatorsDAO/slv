@@ -72,7 +72,7 @@ Agent: I'll set up a mainnet Jito validator. Let me walk you through:
 
 - **Validators** — Jito, Agave, Firedancer (mainnet & testnet)
 - **RPC Nodes** — Standard, Index, Geyser gRPC, Index+gRPC
-- **gRPC Geyser Streaming** — Yellowstone, Richat
+- **gRPC Geyser Streaming** — Yellowstone (richat once a release supports agave 4.3 or later)
 
 ## AI Console Agents
 

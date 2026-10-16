@@ -32,17 +32,17 @@
 #   - testnet and devnet RPC with Old Faithful: those init playbooks do not install it
 #
 # Geyser gRPC and Index RPC + gRPC on agave and jito: the entry is the geyser.json of the
-# Yellowstone plugin, which init installs (geyser_build.yml of the network) unless the
-# inventory sets geyser_plugin: richat. The table has one list for each start configuration
-# and no place for a choice that the inventory makes, so it does not describe a node with
-# geyser_plugin: richat. That node would be described by the same list with the Yellowstone
-# entry replaced by
+# Yellowstone plugin, which init installs (geyser_build.yml of the network). The inventory can
+# set geyser_plugin: richat, but init stops such a node while richat has no release for its
+# agave (4.3 or later, which every pin of this release is), so no node needs a richat entry
+# yet. The table has one list for each start configuration and no place for a choice that the
+# inventory makes: when richat can be used again, that node would be described by the same
+# list with the Yellowstone entry replaced by
 #   {kind: richat, path: mainnet-rpc/richat-setting.yml.j2, play: mainnet-rpc/install_richat.yml}
 # which has the same consumer gRPC port (10000) and, in the templates of this release, two
 # ports that Yellowstone's config does not have: the richat pubsub on 7111 (consumer) and the
 # richat metrics on 10124, where Yellowstone's metrics are on 8999. Only mainnet-rpc has
-# richat templates; testnet-rpc and devnet-rpc have none, so geyser_plugin: richat does not
-# render there.
+# richat templates; testnet-rpc and devnet-rpc have none.
 slv_startup_templates:
   mainnet:
     validator:

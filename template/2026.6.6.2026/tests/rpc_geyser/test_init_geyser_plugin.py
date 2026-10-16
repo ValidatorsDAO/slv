@@ -2,33 +2,42 @@
 
 For rpc_type "Geyser gRPC" and "Index RPC + gRPC" on agave and jito, ansible/<network>-rpc/init.yml
 installs the Yellowstone plugin of the network (geyser_build.yml). The inventory variable
-geyser_plugin: richat installs richat instead (geyser_richat_build.yml and install_richat.yml), and any
-other value stops the play before it changes anything. A missing or unknown validator_type stops init.yml
-of the three networks and update_startup_config.yml of testnet-rpc and devnet-rpc the same way; none of
-them turns it into a Firedancer type.
+geyser_plugin: richat is the way to richat (geyser_richat_build.yml and install_richat.yml), but richat
+has no release for agave 4.3 or later yet, so it stops the play, before anything is changed, on a node
+that is set to run such an agave. Any other value stops the play too. A node that ran richat has
+richat.service stopped and disabled when it is initialised with Yellowstone. A missing or unknown
+validator_type stops init.yml of the three networks and update_startup_config.yml of testnet-rpc and
+devnet-rpc the same way; none of them turns it into a Firedancer type. The RPC gateway takes the pubsub
+of the node's own agave unless the node runs richat.
 
 The tests run the real ansible-playbook on this machine over a local connection, without become,
 sudo, a network or a host:
 
-  flow    ansible/<network>-rpc/init.yml is copied and every playbook it imports is replaced by a stub
-          that adds its own name to a list kept in a fact of the host. The first play of init.yml and
-          the conditions of the imports are the real ones, so the list of a host is the plays that init
-          runs for it.
-  update  update_startup_config.yml of testnet-rpc or devnet-rpc is copied with every task that is not
-          an assert, fail, set_fact or debug replaced by a record in the same kind of list (a template
-          task records its template), so the list of a host is what the play would do for it.
-  render  the set_fact, git and template tasks of a plugin play run in a copy of that play: every
-          template goes into a temporary directory and git is not run, only recorded. The other tasks
-          (cargo, systemd, file, stat) are left out. HOME is a temporary directory whose .slv holds
-          the jinja directories of this release and a versions.yml, as slv's own ~/.slv does.
+  flow      ansible/<network>-rpc/init.yml is copied and every playbook it imports is replaced by a stub
+            that adds its own name to a list kept in a fact of the host. The first play of init.yml and
+            the conditions of the imports are the real ones, so the list of a host is the plays that
+            init runs for it.
+  recorded  a playbook with one play (update_startup_config.yml of testnet-rpc or devnet-rpc,
+            cmn/stop_richat.yml) is copied with every task that is not an assert, fail, set_fact or
+            debug replaced by a record in the same kind of list (a template task records its template,
+            a systemd task its arguments), under the task's own condition, so the list of a host is
+            what the play would do for it. A stat task reports that the file exists when the host
+            variable slv_stub_exists is true.
+  render    the set_fact, git and template tasks of a plugin play run in a copy of that play: every
+            template goes into a temporary directory and git is not run, only recorded. The other tasks
+            (cargo, systemd, file, stat) are left out. HOME is a temporary directory whose .slv holds
+            the jinja directories of this release and a versions.yml, as slv's own ~/.slv does.
+  vars      the variables of the play of cmn/install_rpc_gateway.yml are evaluated for each host; the
+            tasks of the play are not run.
 
 Needs PyYAML and ansible-playbook (the one on PATH, or the one that ANSIBLE_PLAYBOOK names). Run from
 the repository root:
 
     python3 -m unittest discover -s template/latest/tests/rpc_geyser -p 'test_*.py' -v
 
-The whole set takes about half a minute. The versions of ansible-core that slv is used with are 2.16
-(what apt installs on Ubuntu 24.04) and 2.21; run the set with each.
+The whole set takes under a minute. The versions of ansible-core that slv is used with are 2.16
+(what apt installs on Ubuntu 24.04) and 2.21; run the set with each. A test that is skipped is a test
+that did not run: there is none.
 """
 
 import functools
@@ -45,6 +54,7 @@ from pathlib import Path
 import yaml
 
 RELEASE = Path(__file__).resolve().parents[2]
+REPOSITORY = RELEASE.parents[1]
 ANSIBLE_DIR = RELEASE / "ansible"
 STARTUP_TEMPLATES = ANSIBLE_DIR / "cmn" / "vars" / "startup_templates.yml"
 
@@ -59,23 +69,39 @@ OTHER_RPC_TYPES = ("Index RPC", "SendTx RPC")
 YELLOWSTONE_PLAYS = ["geyser_build.yml"]
 RICHAT_PLAYS = ["geyser_richat_build.yml", "install_richat.yml"]
 PLUGIN_PLAYS = tuple(YELLOWSTONE_PLAYS + RICHAT_PLAYS)
+STOP_RICHAT = "../cmn/stop_richat.yml"
 
 # where the start script of the node looks for the plugin config, and where richat keeps its own
 GEYSER_JSON = "/home/solv/geyser.json"
 RICHAT_CONFIG = "/home/solv/richat-config.yml"
 RICHAT_UNIT = "/etc/systemd/system/richat.service"
 
-# A versions.yml whose sections differ, so that a play that reads another network's section shows.
-VERSIONS = {
-    "%s_rpcs" % network: {
-        "version_agave": "4.3.2",
-        "version_jito": "4.3.2-jito",
-        "version_firedancer": "0.814.30108",
-        "richat_version": "richat-of-%s" % network,
-        "geyser_version": "yellowstone-of-%s" % network,
-    }
-    for network in NETWORKS
-}
+# The client pins of a versions.yml: the RPC defaults of each network (agave 4.3.2 on mainnet, 4.4.0-beta.0
+# on testnet and devnet), and pins below the first agave that richat has no release for.
+PINS = {"mainnet": ("4.3.2", "4.3.2-jito"), "testnet": ("4.4.0-beta.0", "4.4.0-beta.0-jito"),
+        "devnet": ("4.4.0-beta.0", "4.4.0-beta.0-jito")}
+OLD_PINS = {network: ("4.2.9", "4.2.9-jito") for network in NETWORKS}
+
+
+def make_versions(pins):
+    """A versions.yml whose sections differ in the plugin versions, so that a play that reads another
+    network's section shows. pins is {network: (agave, jito)}, or None for sections without a client pin."""
+    sections = {}
+    for network in NETWORKS:
+        section = {
+            "version_firedancer": "0.814.30108",
+            "richat_version": "richat-of-%s" % network,
+            "geyser_version": "yellowstone-of-%s" % network,
+        }
+        if pins is not None:
+            section["version_agave"], section["version_jito"] = pins[network]
+        sections["%s_rpcs" % network] = section
+    return sections
+
+
+VERSIONS = make_versions(PINS)
+OLD_VERSIONS = make_versions(OLD_PINS)
+NO_PINS = make_versions(None)
 
 # Values that geyser_plugin must not take (None is an empty value in the inventory).
 INVALID_PLUGINS = ("Richat", "RICHAT", "", "none", "both", "yellowstone ", "richat,yellowstone", "geyser", None,
@@ -155,18 +181,88 @@ def good_hosts():
     }
 
 
+def richat_host(validator_type, rpc_type, **versions):
+    return dict({"validator_type": validator_type, "rpc_type": rpc_type, "geyser_plugin": "richat"}, **versions)
+
+
+def richat_refused_hosts():
+    """Richat nodes whose client is agave 4.3.0 or later: by the pin of the network, or by a version of the
+    host (which the start script and the builders read before the pin)."""
+    return {
+        "refused-agave-geyser": richat_host("agave", "Geyser gRPC"),
+        "refused-agave-index-grpc": richat_host("agave", "Index RPC + gRPC"),
+        "refused-jito-geyser": richat_host("jito", "Geyser gRPC"),
+        "refused-jito-index-grpc": richat_host("jito", "Index RPC + gRPC"),
+        "refused-boundary": richat_host("agave", "Geyser gRPC", agave_version="4.3.0"),
+        "refused-v-prefix": richat_host("agave", "Geyser gRPC", agave_version="v4.3.1"),
+        "refused-prerelease": richat_host("agave", "Geyser gRPC", agave_version="4.4.0-beta.0"),
+        "refused-next-major": richat_host("agave", "Geyser gRPC", agave_version="5.0.0"),
+        "refused-jito-version": richat_host("jito", "Geyser gRPC", jito_version="4.3.0-jito"),
+    }
+
+
+def richat_allowed_hosts():
+    """Richat nodes whose client is older than agave 4.3.0, by a version of the host (the pins of the
+    network are newer). A jito node reads jito_version, and any other node agave_version."""
+    return {
+        "allowed-just-below": richat_host("agave", "Geyser gRPC", agave_version="4.2.9"),
+        "allowed-two-digit-patch": richat_host("agave", "Geyser gRPC", agave_version="3.1.10"),
+        "allowed-v-prefix": richat_host("agave", "Index RPC + gRPC", agave_version="v4.1.0"),
+        "allowed-jito": richat_host("jito", "Index RPC + gRPC", jito_version="4.2.0-jito"),
+        "allowed-jito-ignores-agave-version": richat_host("jito", "Geyser gRPC", agave_version="4.4.0", jito_version="4.2.0-jito"),
+        "allowed-agave-ignores-jito-version": richat_host("agave", "Geyser gRPC", agave_version="4.2.9", jito_version="4.4.0-jito"),
+    }
+
+
+def richat_unknown_hosts():
+    """Richat nodes with no version of the client anywhere."""
+    return {
+        "unknown-agave": richat_host("agave", "Geyser gRPC"),
+        "unknown-jito": richat_host("jito", "Index RPC + gRPC"),
+    }
+
+
+def richat_inert_hosts():
+    """geyser_plugin: richat on nodes that would not install richat."""
+    return {
+        "inert-agave-index": richat_host("agave", "Index RPC"),
+        "inert-agave-sendtx": richat_host("agave", "SendTx RPC"),
+        "inert-firedancer-index": richat_host("firedancer-jito", "Index RPC"),
+    }
+
+
+# scenario -> (the hosts, the versions.yml). The pins of "valid" are below the first agave that richat has no
+# release for, so that its richat hosts reach the richat plays; the other scenarios say what their pins are.
 SCENARIOS = {
-    "valid": valid_hosts,
-    "invalid-plugin": invalid_plugin_hosts,
-    "invalid-type": invalid_type_hosts,
+    "valid": (valid_hosts, OLD_VERSIONS),
+    "invalid-plugin": (invalid_plugin_hosts, VERSIONS),
+    "invalid-type": (invalid_type_hosts, VERSIONS),
     # two good hosts with one host that stops the play: nothing runs for the good ones either
-    "ends-run-plugin": lambda: dict(good_hosts(), **{"bad-plugin": {"validator_type": "agave", "rpc_type": "Geyser gRPC", "geyser_plugin": "bogus"}}),
-    "ends-run-type": lambda: dict(good_hosts(), **{"bad-type": {"rpc_type": "Geyser gRPC"}}),
+    "ends-run-plugin": (lambda: dict(good_hosts(), **{"bad-plugin": {"validator_type": "agave", "rpc_type": "Geyser gRPC", "geyser_plugin": "bogus"}}), VERSIONS),
+    "ends-run-type": (lambda: dict(good_hosts(), **{"bad-type": {"rpc_type": "Geyser gRPC"}}), VERSIONS),
+    "richat-refused": (richat_refused_hosts, VERSIONS),
+    "richat-allowed": (richat_allowed_hosts, VERSIONS),
+    "richat-unknown-version": (richat_unknown_hosts, NO_PINS),
+    "richat-inert": (richat_inert_hosts, VERSIONS),
 }
 
-UPDATE_SCENARIOS = {
-    "valid": lambda: {"update-" + name: {"validator_type": name} for name in SUPPORTED_TYPES},
-    "invalid-type": invalid_type_hosts,
+# playbook, scenario -> the hosts of a recorded run
+RECORDED_SCENARIOS = {
+    "update-valid": lambda: {"update-" + name: {"validator_type": name} for name in SUPPORTED_TYPES},
+    "update-invalid-type": invalid_type_hosts,
+    "richat-unit": lambda: {"unit-present": {"slv_stub_exists": True}, "unit-absent": {"slv_stub_exists": False}},
+}
+
+# host -> its variables, and the pubsub the RPC gateway should take (None: whatever it takes, see the test)
+GATEWAY_HOSTS = {
+    "default-port": ({"port_rpc": 7211}, "ws://localhost:7212"),
+    "yellowstone-port": ({"geyser_plugin": "yellowstone", "port_rpc": 7211}, "ws://localhost:7212"),
+    "other-port": ({"port_rpc": 8899}, "ws://localhost:8900"),
+    "no-port": ({}, "ws://localhost:8900"),
+    "empty-port": ({"port_rpc": ""}, "ws://localhost:8900"),
+    "richat": ({"geyser_plugin": "richat", "port_rpc": 7211}, "ws://localhost:7111"),
+    "chosen": ({"rpc_gateway_pubsub_ws": "ws://example.invalid:1234", "port_rpc": 7211}, "ws://example.invalid:1234"),
+    "chosen-richat": ({"rpc_gateway_pubsub_ws": "ws://example.invalid:1234", "geyser_plugin": "richat"}, "ws://example.invalid:1234"),
 }
 
 
@@ -211,11 +307,23 @@ def environment(home):
     return env
 
 
-def run_ansible(args, work, home, timeout=900):
+def run_ansible(args, work, home, timeout=900, extra_env=None):
     return subprocess.run(
-        [ansible_playbook()] + [str(arg) for arg in args], cwd=str(work), env=environment(home),
+        [ansible_playbook()] + [str(arg) for arg in args], cwd=str(work), env=dict(environment(home), **(extra_env or {})),
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout,
     )
+
+
+def make_stub_collection(root, namespace, name, modules):
+    """A collection of empty modules: enough for --syntax-check to find the module a task names, which
+    ansible-core, unlike the ansible package, does not bring. Returns the collections path."""
+    collections = root / "collections"
+    base = collections / "ansible_collections" / namespace / name
+    (base / "plugins" / "modules").mkdir(parents=True, exist_ok=True)
+    (base / "galaxy.yml").write_text("namespace: %s\nname: %s\nversion: 1.0.0\n" % (namespace, name))
+    for module in modules:
+        (base / "plugins" / "modules" / (module + ".py")).write_text("")
+    return collections
 
 
 def write_inventory(path, hosts):
@@ -224,7 +332,7 @@ def write_inventory(path, hosts):
     path.write_text(json.dumps(inventory))  # JSON is YAML
 
 
-def make_home(root):
+def make_home(root, versions=VERSIONS):
     """A home like the one slv works from: ~/.slv holds the jinja directories of this release and the
     versions.yml that the plays read."""
     home = root / "home"
@@ -232,7 +340,7 @@ def make_home(root):
     slv.mkdir(parents=True)
     for entry in sorted((RELEASE / "jinja").iterdir()):
         (slv / entry.name).symlink_to(entry)
-    (slv / "versions.yml").write_text(yaml.safe_dump(VERSIONS))
+    (slv / "versions.yml").write_text(yaml.safe_dump(versions))
     return home
 
 
@@ -303,20 +411,21 @@ def read_logs(logs, hosts, process):
 def run_init(network, scenario="valid"):
     """Run init.yml of <network>-rpc against the hosts of a scenario with every imported playbook stubbed;
     the result maps each host to a FlowResult."""
+    hosts_of, versions = SCENARIOS[scenario]
     with tempfile.TemporaryDirectory(prefix="slv-rpc-flow-") as tmp:
         root = Path(tmp)
-        home = make_home(root)
+        home = make_home(root, versions)
         init = make_flow_copy(network, root)
         logs = root / "logs"
         logs.mkdir()
-        hosts = SCENARIOS[scenario]()
+        hosts = hosts_of()
         write_inventory(root / "inventory.json", hosts)
         process = run_ansible(["-i", "inventory.json", init, "-e", "slv_log_dir=%s" % logs], root, home)
         return read_logs(logs, hosts, process)
 
 
 # ---------------------------------------------------------------------------
-# update: what update_startup_config.yml would do
+# recorded: what a playbook would do
 # ---------------------------------------------------------------------------
 
 _KEYWORDS = frozenset(
@@ -335,18 +444,26 @@ def module_of(task):
 
 def recorded_copy_of(play):
     """The play with every task that is not an assert, fail, set_fact or debug replaced by a record of itself
-    in the fact slv_ran (a template task records its template), under the same condition. A task that
-    registers a result gets one that says it succeeded."""
+    in the fact slv_ran (a template task records its template, a systemd task its arguments), under the same
+    condition. A task that registers a result gets one that says it succeeded; a stat says that the file
+    exists when slv_stub_exists is true."""
     tasks = []
     for task in play["tasks"]:
         module, args = module_of(task)
         if module in ("assert", "fail", "set_fact", "debug"):
             tasks.append({key: value for key, value in task.items() if key not in ("become", "become_user")})
             continue
-        entry = "template " + args["src"] if module == "template" else module
+        entry = module
+        if module == "template":
+            entry += " " + args["src"]
+        elif module == "systemd":
+            entry += " " + " ".join("%s=%s" % (key, args[key]) for key in sorted(args))
         facts = {"slv_ran": "{{ (slv_ran | default([])) + [%s] }}" % json.dumps(entry)}
         if "register" in task:
-            facts[task["register"]] = {"rc": 0, "stdout": "4.3.2", "stderr": ""}
+            if module == "stat":
+                facts[task["register"]] = {"stat": {"exists": "{{ slv_stub_exists | default(true) | bool }}"}}
+            else:
+                facts[task["register"]] = {"rc": 0, "stdout": "4.3.2", "stderr": ""}
         recorded = {"name": task.get("name", module), "ansible.builtin.set_fact": facts}
         if "when" in task:
             recorded["when"] = task["when"]
@@ -361,22 +478,60 @@ def recorded_copy_of(play):
 
 
 @functools.lru_cache(maxsize=None)
-def run_update(network, scenario="valid"):
-    """Run the recorded copy of <network>-rpc/update_startup_config.yml against the hosts of a scenario; the
-    result maps each host to a FlowResult whose imports are the records."""
-    with tempfile.TemporaryDirectory(prefix="slv-rpc-update-") as tmp:
+def run_recorded(playbook, scenario):
+    """Run the recorded copy of ansible/<playbook> against the hosts of a recorded scenario; the result maps
+    each host to a FlowResult whose imports are the records."""
+    with tempfile.TemporaryDirectory(prefix="slv-rpc-recorded-") as tmp:
         root = Path(tmp)
         home = make_home(root)
-        source = yaml.safe_load((ANSIBLE_DIR / ("%s-rpc" % network) / "update_startup_config.yml").read_text())
+        source = yaml.safe_load((ANSIBLE_DIR / playbook).read_text())
         assert isinstance(source, list) and len(source) == 1, "one play is expected"
-        playbook = root / "update.yml"
-        playbook.write_text(yaml.safe_dump([recorded_copy_of(source[0])] + yaml.safe_load(WRITE_DOWN), sort_keys=False))
+        copy = root / "recorded.yml"
+        copy.write_text(yaml.safe_dump([recorded_copy_of(source[0])] + yaml.safe_load(WRITE_DOWN), sort_keys=False))
         logs = root / "logs"
         logs.mkdir()
-        hosts = UPDATE_SCENARIOS[scenario]()
+        hosts = RECORDED_SCENARIOS[scenario]()
         write_inventory(root / "inventory.json", hosts)
-        process = run_ansible(["-i", "inventory.json", playbook, "-e", "slv_log_dir=%s" % logs], root, home)
+        process = run_ansible(["-i", "inventory.json", copy, "-e", "slv_log_dir=%s" % logs], root, home)
         return read_logs(logs, hosts, process)
+
+
+# ---------------------------------------------------------------------------
+# vars: the variables of the RPC gateway play
+# ---------------------------------------------------------------------------
+
+
+@functools.lru_cache(maxsize=None)
+def run_gateway_pubsub():
+    """The rg_pubsub of the play of cmn/install_rpc_gateway.yml for each host of GATEWAY_HOSTS."""
+    with tempfile.TemporaryDirectory(prefix="slv-rpc-gateway-") as tmp:
+        root = Path(tmp)
+        home = make_home(root)
+        source = yaml.safe_load((ANSIBLE_DIR / "cmn" / "install_rpc_gateway.yml").read_text())
+        assert isinstance(source, list) and len(source) == 1, "one play is expected"
+        probe = {
+            "name": "the variables of the gateway play",
+            "hosts": "all",
+            "gather_facts": False,
+            "vars": source[0]["vars"],
+            "tasks": [{
+                "name": "write rg_pubsub down",
+                "ansible.builtin.copy": {"content": "{{ rg_pubsub }}", "dest": "{{ slv_log_dir }}/{{ inventory_hostname }}.pubsub"},
+            }],
+        }
+        playbook = root / "gateway.yml"
+        playbook.write_text(yaml.safe_dump([probe], sort_keys=False))
+        logs = root / "logs"
+        logs.mkdir()
+        write_inventory(root / "inventory.json", {name: variables for name, (variables, _) in GATEWAY_HOSTS.items()})
+        process = run_ansible(["-i", "inventory.json", playbook, "-e", "slv_log_dir=%s" % logs], root, home)
+        results = {}
+        for name in GATEWAY_HOSTS:
+            path = logs / (name + ".pubsub")
+            if not path.exists():
+                raise AssertionError("no rg_pubsub for %s:\n%s" % (name, process.stdout[-3000:]))
+            results[name] = path.read_text()
+        return results
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +663,16 @@ def plugin_message(host):
     return r"geyser_plugin must be yellowstone or richat \(or left out for yellowstone\), not [^\n]*\. Nothing was changed on %s\." % re.escape(host)
 
 
+def refusal_message(host, version=None):
+    middle = r"richat has no release for agave 4\.3 or later yet, and this node is set to run %s\." % (
+        re.escape(version) if version else r"[^\n]*")
+    return r"geyser_plugin: richat cannot be used on %s: %s Remove geyser_plugin from the inventory to get Yellowstone, the default\. Nothing was changed\." % (re.escape(host), middle)
+
+
+def unknown_version_message(host):
+    return r"geyser_plugin: richat cannot be used on %s: no version of agave or jito is set for it [^\n]*richat has no release for agave 4\.3 or later yet\. Remove geyser_plugin from the inventory to get Yellowstone, the default\. Nothing was changed\." % re.escape(host)
+
+
 class InitInstallsTheGeyserPlugin(unittest.TestCase):
     """Which plugin plays init runs for a host, and what they render."""
 
@@ -527,6 +692,7 @@ class InitInstallsTheGeyserPlugin(unittest.TestCase):
                 self.assertGreater(imports.index("geyser_build.yml"), imports.index("create-start-validator-sh.yml"))
 
     def test_g02_geyser_plugin_selects_between_yellowstone_and_richat(self):
+        # on the pins of "valid", which are older than the first agave that richat has no release for
         for network in NETWORKS:
             flow = run_init(network)
             for name, variables in valid_hosts().items():
@@ -634,9 +800,17 @@ class InitInstallsTheGeyserPlugin(unittest.TestCase):
                 playbooks["%s-rpc/geyser_build.yml" % network] = ANSIBLE_DIR / ("%s-rpc" % network) / "geyser_build.yml"
             for network in UPDATE_NETWORKS:
                 playbooks["%s-rpc/update_startup_config.yml" % network] = ANSIBLE_DIR / ("%s-rpc" % network) / "update_startup_config.yml"
+            for path in ("cmn/stop_richat.yml", "cmn/install_rpc_gateway.yml", "mainnet-rpc/update_startup_config.yml"):
+                playbooks[path] = ANSIBLE_DIR / path
+            # the gateway play uses openssh_keypair, which community.crypto has
+            collections = make_stub_collection(root, "community", "crypto", ["openssh_keypair"])
             for name, playbook in playbooks.items():
                 with self.subTest(name):
-                    process = run_ansible(["--syntax-check", "-i", "localhost,", playbook], root, home)
+                    self.assertTrue(playbook.is_file(), "%s is not there" % playbook)
+                    process = run_ansible(
+                        ["--syntax-check", "-i", "localhost,", playbook], root, home,
+                        extra_env={"ANSIBLE_COLLECTIONS_PATH": str(collections)},
+                    )
                     self.assertEqual(process.returncode, 0, process.stdout)
 
 
@@ -657,7 +831,7 @@ class ValidatorTypeIsNeverDefaulted(unittest.TestCase):
         for network in NETWORKS:
             for scenario in ("ends-run-plugin", "ends-run-type"):
                 flow = run_init(network, scenario)
-                for name in SCENARIOS[scenario]():
+                for name in SCENARIOS[scenario][0]():
                     with self.subTest("%s %s: %s" % (network, scenario, name)):
                         self.assertEqual(flow[name].imports, [])
                         self.assertNotEqual(flow[name].returncode, 0)
@@ -668,19 +842,121 @@ class ValidatorTypeIsNeverDefaulted(unittest.TestCase):
             "firedancer-agave": "firedancer-config.toml.j2", "firedancer-jito": "firedancer-config.toml.j2",
         }
         for network in UPDATE_NETWORKS:
-            valid = run_update(network)
+            playbook = "%s-rpc/update_startup_config.yml" % network
+            valid = run_recorded(playbook, "update-valid")
             for validator_type in SUPPORTED_TYPES:
                 with self.subTest("%s %s" % (network, validator_type)):
                     ran = [entry for entry in valid["update-" + validator_type].imports if entry.startswith("template ")]
                     expected = ["template ~/.slv/%s-rpc/%s" % (network, templates[validator_type])] if validator_type in templates else []
                     self.assertEqual(ran, expected)
-            invalid = run_update(network, "invalid-type")
+            invalid = run_recorded(playbook, "update-invalid-type")
             for name, variables in invalid_type_hosts().items():
                 with self.subTest("%s %s: validator_type %r" % (network, name, variables.get("validator_type", "<missing>"))):
                     self.assertEqual(invalid[name].imports, [])
                     self.assertNotEqual(invalid[name].returncode, 0)
                     self.assertRegex(invalid[name].output, r"fatal: \[%s\]: FAILED!" % re.escape(name))
                     self.assertRegex(invalid[name].output, type_message(name))
+
+
+class RichatIsRefusedWhereNoReleaseSupportsTheClient(unittest.TestCase):
+    """geyser_plugin: richat stops the play, before anything is built, for an agave that richat has no release for."""
+
+    def test_g13_richat_is_accepted_below_agave_4_3_0_and_refused_from_it(self):
+        for network in NETWORKS:
+            refused = run_init(network, "richat-refused")
+            for name, variables in richat_refused_hosts().items():
+                with self.subTest("%s %s" % (network, name)):
+                    self.assertEqual(refused[name].imports, [])
+                    self.assertNotEqual(refused[name].returncode, 0)
+                    self.assertRegex(refused[name].output, r"fatal: \[%s\]: FAILED!" % re.escape(name))
+                    # the version the node is set to run: the host's own, else the pin of the network
+                    pin = PINS[network][1 if variables["validator_type"] == "jito" else 0]
+                    own = variables.get("jito_version" if variables["validator_type"] == "jito" else "agave_version", pin)
+                    self.assertRegex(refused[name].output, refusal_message(name, own))
+            allowed = run_init(network, "richat-allowed")
+            for name in richat_allowed_hosts():
+                with self.subTest("%s %s" % (network, name)):
+                    self.assertEqual(allowed[name].plugin_plays, RICHAT_PLAYS)
+                    self.assertEqual(allowed[name].returncode, 0, allowed[name].output[-2000:])
+
+    def test_g14_richat_is_refused_when_the_version_of_the_client_is_not_known(self):
+        for network in NETWORKS:
+            flow = run_init(network, "richat-unknown-version")
+            for name in richat_unknown_hosts():
+                with self.subTest("%s %s" % (network, name)):
+                    self.assertEqual(flow[name].imports, [])
+                    self.assertNotEqual(flow[name].returncode, 0)
+                    self.assertRegex(flow[name].output, unknown_version_message(name))
+
+    def test_g15_richat_chosen_on_a_node_that_installs_no_plugin_is_not_refused(self):
+        for network in NETWORKS:
+            flow = run_init(network, "richat-inert")
+            for name in richat_inert_hosts():
+                with self.subTest("%s %s" % (network, name)):
+                    self.assertEqual(flow[name].returncode, 0, flow[name].output[-2000:])
+                    self.assertEqual(flow[name].plugin_plays, [])
+                    self.assertNotEqual(flow[name].imports, [])
+
+
+class RichatIsStoppedWhereYellowstoneTakesOver(unittest.TestCase):
+    """A node that ran richat does not keep it next to the Yellowstone plugin."""
+
+    def test_g16_init_stops_richat_after_the_yellowstone_build_and_before_the_node_starts(self):
+        for network in NETWORKS:
+            flow = run_init(network)
+            for name, variables in valid_hosts().items():
+                with self.subTest("%s %s" % (network, name)):
+                    imports = flow[name].imports
+                    if variables.get("geyser_plugin", "yellowstone") == "yellowstone" and expected_plugin_plays(variables):
+                        self.assertIn(STOP_RICHAT, imports)
+                        start = next(i for i, play in enumerate(imports) if play.endswith("start_solv.yml"))
+                        self.assertEqual(imports.index(STOP_RICHAT), imports.index("geyser_build.yml") + 1)
+                        self.assertLess(imports.index(STOP_RICHAT), start)
+                    else:
+                        self.assertNotIn(STOP_RICHAT, imports)
+
+    def test_g17_stop_richat_stops_and_disables_the_unit_when_there_is_one_and_does_nothing_otherwise(self):
+        playbook = ANSIBLE_DIR / "cmn" / "stop_richat.yml"
+        self.assertTrue(playbook.is_file(), "%s is not there" % playbook)
+        result = run_recorded("cmn/stop_richat.yml", "richat-unit")
+        self.assertEqual(
+            result["unit-present"].imports, ["stat", "systemd enabled=False name=richat.service state=stopped"],
+        )
+        self.assertEqual(result["unit-absent"].imports, ["stat"])
+
+
+class RpcGatewayFollowsThePlugin(unittest.TestCase):
+    """The pubsub that the RPC gateway reads."""
+
+    def test_g18_the_pubsub_of_the_gateway_is_the_one_of_the_agave_of_the_node_unless_the_node_runs_richat(self):
+        pubsub = run_gateway_pubsub()
+        for name, (_, expected) in GATEWAY_HOSTS.items():
+            with self.subTest(name):
+                self.assertEqual(pubsub[name], expected)
+
+
+class DocsNameTheDefaultPlugin(unittest.TestCase):
+    """The docs of the RPC skills and of the template say which plugin is the default and what became of richat."""
+
+    DOCS = [
+        "template/2026.6.6.2026/AGENTS.md",
+    ] + [
+        "%s/%s/%s" % (root, skill, name)
+        for root in ("oss-skills", "dist/oss-skills")
+        for skill in ("slv-rpc", "slv-grpc-geyser")
+        for name in ("SKILL.md", "AGENT.md")
+    ]
+
+    def test_g19_the_docs_make_yellowstone_the_default_and_say_richat_has_no_release_for_agave_4_3(self):
+        if not (REPOSITORY / "oss-skills").is_dir():
+            self.skipTest("%s holds no oss-skills: these docs are in the repository" % REPOSITORY)
+        for doc in self.DOCS:
+            with self.subTest(doc):
+                text = (REPOSITORY / doc).read_text()
+                self.assertIn("geyser_plugin", text)
+                self.assertRegex(text, r"(?i)yellowstone[^\n]*default|default[^\n]*yellowstone")
+                self.assertRegex(text, r"(?i)richat has no release for agave 4\.3 or later yet")
+                self.assertNotRegex(text, r"(?i)richat[^\n]*recommended|recommended[^\n]*richat")
 
 
 if __name__ == "__main__":

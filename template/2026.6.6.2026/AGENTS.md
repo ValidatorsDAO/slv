@@ -26,8 +26,8 @@ ansible/
 │   └── ...
 ├── mainnet-rpc/            # Mainnet RPC (Index RPC & Geyser gRPC)
 │   ├── init.yml            # Full initialization playbook
-│   ├── geyser_build.yml    # Yellowstone Geyser plugin build
-│   ├── geyser_richat_build.yml  # Richat Geyser build (recommended)
+│   ├── geyser_build.yml    # Yellowstone Geyser plugin build (the default of init.yml)
+│   ├── geyser_richat_build.yml  # Richat Geyser build (geyser_plugin: richat; no richat release for agave 4.3+ yet)
 │   └── ...
 ├── mainnet-validator/      # Mainnet Validator
 │   ├── init.yml            # Full initialization (supports all validator_types)
@@ -48,9 +48,14 @@ jinja/                      # Jinja2 templates for config generation
 2. **`rpc_type`** — (Mainnet RPC only) Controls RPC features:
    - `Index RPC` | `Geyser gRPC` | `Index RPC + gRPC`
 
-3. **All variables can be passed via `extra_vars`** — No need to edit `versions.yml`.
+3. **`geyser_plugin`** — (RPC `init.yml`, inventory variable) The Geyser plugin of `Geyser gRPC` and `Index RPC + gRPC` nodes on agave or jito:
+   - `yellowstone` — the default when the variable is absent; built by `geyser_build.yml` at `<network>_rpcs.geyser_version` of `versions.yml`
+   - `richat` — richat has no release for agave 4.3 or later yet, so `init.yml` stops, before it changes anything, on a node that is set to run such an agave. The richat playbooks stay for when a release exists.
+   - any other value stops `init.yml`. A node that ran richat gets `richat.service` stopped and disabled when it is initialised with Yellowstone.
 
-4. **`build_solana.yml` is preferred** over `install_solana.yml` (source build vs pre-built binary).
+4. **All variables can be passed via `extra_vars`** — No need to edit `versions.yml`.
+
+5. **`build_solana.yml` is preferred** over `install_solana.yml` (source build vs pre-built binary).
 
 ### Agent Assignments
 

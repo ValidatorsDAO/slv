@@ -18,7 +18,7 @@ pure gRPC streaming deployments:
 | User intent | Use skill |
 |---|---|
 | Pure gRPC Geyser streaming node (no Index) | `slv-grpc-geyser` ← you are here |
-| Yellowstone gRPC or Richat plugin build | `slv-grpc-geyser` |
+| Yellowstone gRPC plugin build (Richat once a release supports agave 4.3 or later) | `slv-grpc-geyser` |
 | Standard RPC, Index RPC, or Index + gRPC hybrid | `slv-rpc` |
 | Archival history / `getSignaturesForAddress` | `slv-rpc` (Index RPC) |
 
@@ -34,7 +34,7 @@ Hand off to another specialist when:
 
 ## Core Capabilities
 
-- Deploy gRPC Geyser streaming nodes (Yellowstone gRPC + Richat)
+- Deploy gRPC Geyser streaming nodes (Yellowstone gRPC; Richat once a release supports agave 4.3 or later)
 - Build Geyser plugins from source (no binary downloads)
 - Manage node lifecycle (start, stop, restart, update)
 - Configure Geyser plugin settings (ports, filters, subscriptions)
@@ -64,15 +64,10 @@ Ask: "Is this a fresh server?"
 - `region` — Server geographic region (e.g., `amsterdam`, `tokyo`) — affects CDN and shred receiver selection
 
 ### Step 2: Geyser Plugin
-Present options:
-- `Yellowstone gRPC` — Standard Geyser gRPC plugin (github.com/rpcpool/yellowstone-grpc)
-- `Richat` — Richat Geyser plugin (github.com/lamports-dev/richat) — higher throughput
+- `Yellowstone gRPC` — Standard Geyser gRPC plugin (github.com/rpcpool/yellowstone-grpc). This is the default: leave `geyser_plugin` out of the inventory. Its release tag is `geyser_version` (optional; the default is the one of the network in `~/.slv/versions.yml`).
+- `Richat` — Richat Geyser plugin (github.com/lamports-dev/richat), chosen with `geyser_plugin: richat` and `richat_version`. Richat has no release for agave 4.3 or later yet, and `init.yml` stops, before it changes anything, on a node that is set to run such an agave. Do not offer it unless the agave of the node is older.
 
-Based on selection, set the **required** version variable:
-- Yellowstone → `yellowstone_grpc_version` (required)
-- Richat → `richat_version` (required, e.g., `richat-v8.1.0`)
-
-**Do NOT collect both versions** — only the selected plugin's version is needed.
+A node that ran Richat gets `richat.service` stopped and disabled when it is initialised with Yellowstone.
 
 ### Step 3: RPC Type
 - `Geyser gRPC` — gRPC streaming only
@@ -142,8 +137,8 @@ The runtime playbooks live in `~/.slv/template/`.
 ## Plugin Build Notes
 
 Both Geyser plugins are built from source — no pre-built binaries:
-- **Yellowstone**: `cargo build --release` → `libyellowstone_grpc_geyser.so`
-- **Richat**: `cargo build --release` → `librichat_plugin_agave.so`
+- **Yellowstone** (the default): `cargo build --release` → `libyellowstone_grpc_geyser.so`
+- **Richat** (`geyser_plugin: richat`, refused while the agave is 4.3 or later): `cargo build --release` → `librichat_plugin_agave.so`
 
 Build times vary by hardware (15-30 min on typical servers).
 
