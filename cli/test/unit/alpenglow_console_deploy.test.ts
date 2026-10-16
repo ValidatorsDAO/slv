@@ -69,3 +69,18 @@ Deno.test('the console deploy step makes the sub-agent refuse the Firedancer typ
   // All of it comes before the command that runs the playbook.
   assert(step.indexOf('Mainnet refuses') < step.indexOf('ansible-playbook -i'))
 })
+
+Deno.test('the main console prompt names the Firedancer validator types as testnet-only wherever it lists the types', async () => {
+  const text = await Deno.readTextFile(
+    new URL('../../src/ai/console/systemPrompt.ts', import.meta.url),
+  )
+  const order = between(text, '7. Validator type', '\n')
+  assertStringIncludes(
+    order,
+    'firedancer-agave/firedancer-jito on testnet only',
+  )
+  assertStringIncludes(order, 'mainnet refuses them')
+  const init = between(text, '| \\`slv v init\\` |', '\n')
+  assertStringIncludes(init, 'validator type (jito/agave on any network')
+  assertStringIncludes(init, 'firedancer on testnet only')
+})

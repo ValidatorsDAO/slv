@@ -5,8 +5,10 @@ import {
   findBelowFloorPins,
   type FloorDeps,
   isBelowFloor,
+  readClientVersion,
   refuseBelowFloorPins,
   refuseVersionBelowFloor,
+  yellowstoneBuiltFor,
 } from '/lib/versionFloor.ts'
 
 // slv overhaul: Alpenglow. How the floor reads what an operator writes in
@@ -174,6 +176,136 @@ Deno.test('a version typed on the command line is read the same way, and one wit
       )
       assertEquals(rec.info.length, 1, `${network} ${version}`)
       assertStringIncludes(rec.info[0], `install:solana -v ${version}`)
+    }
+  }
+})
+
+// --- the vectors the Ansible check shares ---------------------------------------
+//
+// template/latest/tests/alpenglow_floor_vectors.json holds the cases that
+// ansible/cmn/check_alpenglow_floor.yml and this module both have to answer the
+// same way: how a version is read, whether it is below the floor of each network,
+// and how a Yellowstone tag is read.
+
+type Networks = Record<'mainnet' | 'testnet' | 'devnet', boolean>
+
+type Vectors = {
+  floors: Record<string, string>
+  rank: Record<string, number>
+  client_versions: {
+    value: string | number
+    reads: number[] | null
+    below: Networks
+    why: string
+  }[]
+  geyser_tags: {
+    tag: string
+    built_for: string | null
+    reads: number[] | null
+    below: Networks
+    why: string
+  }[]
+}
+
+const VECTORS = JSON.parse(
+  await Deno.readTextFile(
+    new URL(
+      '../../../template/latest/tests/alpenglow_floor_vectors.json',
+      import.meta.url,
+    ),
+  ),
+) as Vectors
+
+const NETWORKS = ['mainnet', 'testnet', 'devnet'] as const
+
+Deno.test('the floors and the ranks of the shared vectors are the ones of the CLI', () => {
+  assertEquals(VECTORS.floors, ALPENGLOW_FLOORS)
+  for (
+    const [name, rank] of [
+      ['alpha', VECTORS.rank.alpha],
+      ['beta', VECTORS.rank.beta],
+      ['rc', VECTORS.rank.rc],
+    ] as const
+  ) {
+    assertEquals(readClientVersion(`1.2.3-${name}.7`), [1, 2, 3, rank, 7], name)
+  }
+  assertEquals(readClientVersion('1.2.3'), [1, 2, 3, VECTORS.rank.release, 0])
+})
+
+Deno.test('every client version of the shared vectors reads as the vector says and is below the floors the vector says', () => {
+  assert(VECTORS.client_versions.length > 50)
+  for (const vector of VECTORS.client_versions) {
+    // A number in the file is what YAML makes of 4.2: it is read as its text.
+    const value = String(vector.value)
+    assertEquals<unknown>(
+      readClientVersion(value),
+      vector.reads,
+      `${value}: ${vector.why}`,
+    )
+    for (const network of NETWORKS) {
+      assertEquals(
+        isBelowFloor(value, ALPENGLOW_FLOORS[network]),
+        vector.below[network],
+        `${value} on ${network}: ${vector.why}`,
+      )
+    }
+  }
+})
+
+Deno.test('a pin is refused or warned about as the shared vectors say: below the floor it is refused, with no X.Y it is refused on mainnet and only warned about on testnet', async () => {
+  for (const vector of VECTORS.client_versions) {
+    for (const network of ['mainnet', 'testnet'] as const) {
+      const section = `${network}_validators`
+      const rec = recorder({ [section]: { version_jito: vector.value } })
+      const refused = await refuseBelowFloorPins(network, 'validator', rec.deps)
+      const expected = vector.reads === null
+        ? network === 'mainnet'
+        : vector.below[network]
+      assertEquals(
+        refused,
+        expected,
+        `${vector.value} in ${section}: ${vector.why}`,
+      )
+      assertEquals(
+        rec.exitCodes,
+        expected ? [1] : [],
+        `${vector.value} in ${section}`,
+      )
+      if (vector.reads === null && network === 'testnet') {
+        assertEquals(
+          rec.info.length,
+          1,
+          `${vector.value} is warned about on testnet`,
+        )
+      }
+    }
+  }
+})
+
+Deno.test('every Yellowstone tag of the shared vectors is read by the solana release it is built for', () => {
+  assert(VECTORS.geyser_tags.length > 10)
+  const sections = {
+    mainnet: 'mainnet_rpcs',
+    testnet: 'testnet_rpcs',
+    devnet: 'devnet_rpcs',
+  } as const
+  for (const vector of VECTORS.geyser_tags) {
+    const builtFor = yellowstoneBuiltFor(vector.tag)
+    assertEquals(builtFor, vector.built_for, `${vector.tag}: ${vector.why}`)
+    assertEquals<unknown>(
+      builtFor === null ? null : readClientVersion(builtFor),
+      vector.reads,
+      `${vector.tag}: ${vector.why}`,
+    )
+    for (const network of NETWORKS) {
+      const pins = findBelowFloorPins({
+        [sections[network]]: { geyser_version: vector.tag },
+      })
+      assertEquals(
+        pins.length,
+        vector.below[network] ? 1 : 0,
+        `${vector.tag} on ${network}: ${vector.why}`,
+      )
     }
   }
 })

@@ -142,7 +142,7 @@ export const CONTEXT_MODULES: Record<string, string> = {
 4. SSH CHECK → load the \`ssh_check\` context module for full procedure
 5. Network (mainnet/testnet)
 6. Region (amsterdam/frankfurt/tokyo/ny)
-7. Validator type (jito/agave/firedancer-agave/firedancer-jito)
+7. Validator type (jito/agave on any network; firedancer-agave/firedancer-jito on testnet only, mainnet refuses them)
 8. Identity + Vote account
 
 IMPORTANT: Before any deployment, call load_context with modules "ssh_check" and "deploy" for SSH check procedure and deployment rules.
@@ -206,7 +206,7 @@ After deployment, the target node has this key layout:
 ### Validator commands (\`slv v\` or \`slv validator\`)
 | Command | Description |
 |---|---|
-| \`slv v init\` | Interactive validator config initialization — asks for IP, network (mainnet/testnet), validator type (jito/agave/firedancer), etc. |
+| \`slv v init\` | Interactive validator config initialization — asks for IP, network (mainnet/testnet), validator type (jito/agave on any network, firedancer on testnet only), etc. |
 | \`slv v deploy\` | Full deployment (runs Ansible playbook) |
 | \`slv v start\` | Start validator |
 | \`slv v stop\` | Stop validator |
