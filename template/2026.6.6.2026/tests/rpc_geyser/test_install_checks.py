@@ -83,6 +83,8 @@ for _network, _role, _section in (
         INSTALLERS["%s-%s/%s.yml" % (_network, _role, _name)] = {
             "section": _section, "client": _client, "reads": "-e" if _role == "validator" else "host",
         }
+# mainnet-validator/install_allnodes_jito.yml sets the version as a play variable too (the tag, with -allnodes added when it is missing)
+INSTALLERS["mainnet-validator/install_allnodes_jito.yml"] = {"section": "mainnet_validators", "client": "allnodes", "reads": "-e"}
 # the client of each installer in its pin key of the section (allnodes is version_allnodes_jito)
 PIN_SUFFIX = {"agave": "agave", "jito": "jito", "allnodes": "allnodes_jito"}
 
@@ -234,7 +236,9 @@ class InstallPlaybooksBeginWithTheCheck(unittest.TestCase):
             play = entries_of(path)[-1]
             variable = OWN_KEY[flow["client"]]
             with self.subTest(path):
-                if flow["reads"] == "-e":
+                if flow["client"] == "allnodes":
+                    self.assertIn(variable, play["vars"])
+                elif flow["reads"] == "-e":
                     self.assertEqual(play["vars"][variable], "v{{ %s.version_%s }}" % (flow["section"], flow["client"]))
                 else:
                     self.assertNotIn(variable, play["vars"])
