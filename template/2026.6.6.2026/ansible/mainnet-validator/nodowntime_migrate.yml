@@ -51,9 +51,11 @@
 - import_playbook: switch_on_identity.yml
   vars:
     on_host: "{{ target_host }}"
+    slv_alpenglow_demoted_source: "{{ source_host }}"
   when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: switch_on_firedancer_identity.yml
   vars:
     on_host: "{{ target_host }}"
+    slv_alpenglow_demoted_source: "{{ source_host }}"
   when: validator_type in ['firedancer-agave', 'firedancer-jito']

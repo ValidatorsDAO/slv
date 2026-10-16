@@ -39,6 +39,20 @@
       args:
         executable: /bin/bash
 
+    - name: Ask the cluster again right before the demotion
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_alpenglow_freeze: true
+
+    - name: Refuse to demote unless the cluster still runs TowerBFT
+      ansible.builtin.assert:
+        that:
+          - slv_alpenglow_state == 'towerbft'
+        fail_msg: "This switch moves a TowerBFT tower file, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate). Moving the vote history file between hosts is not part of this version of slv yet. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      run_once: true
+
     - name: Set Identity to Unstaked Key
       shell: |
         . ~/.profile

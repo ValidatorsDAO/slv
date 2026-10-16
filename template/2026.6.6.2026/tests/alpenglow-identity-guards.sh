@@ -19,8 +19,12 @@
 #      nodowntime_migrate says so before it demotes the source; as the source they go
 #      on only while the state is towerbft
 #   5. testnet: only window and unknown are new
-#   6. init.yml: a host without a validator_type, or with one slv does not know, stops
-#      the run before the first change instead of becoming a Frankendancer host
+#   6. init.yml and update_startup_config.yml: a host without a validator_type, or with
+#      one slv does not know, stops the run before the first change instead of becoming
+#      a Frankendancer host
+#   7. a pending activation close to the end of the epoch (imminent) stops them too, a
+#      second probe stands right before the demotion, and a switch_on that refuses after
+#      the source was demoted says both nodes are unstaked and what to do
 set -uo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 template="$root/template/2026.6.6.2026"
@@ -122,6 +126,17 @@ probe_cases=(
   'feature-wrong-owner|unknown-feature-wrong-owner|mainnet|unknown'
   'feature-wrong-data|unknown-feature-wrong-data|mainnet|unknown'
   'feature-no-context|unknown-feature-no-context|mainnet|unknown'
+  'pending-far|pending-100000|mainnet|towerbft'
+  'pending-at-margin|pending-3000|mainnet|towerbft'
+  'pending-below-margin|pending-2999|mainnet|imminent'
+  'pending-last-slot|pending-1|mainnet|imminent'
+  'absent-near|absent-near|mainnet|towerbft'
+  'epoch-rpc-error|pending-epoch-rpc-error|mainnet|unknown'
+  'epoch-http500|pending-epoch-http-500|mainnet|unknown'
+  'epoch-garbage|pending-epoch-garbage|mainnet|unknown'
+  'epoch-no-fields|pending-epoch-no-fields|mainnet|unknown'
+  'epoch-bad-types|pending-epoch-bad-types|mainnet|unknown'
+  'epoch-inverted|pending-epoch-inverted|mainnet|unknown'
   'flaky-window|flaky-window/probe|mainnet|window'
   'flaky-towerbft|flaky-towerbft/probe|mainnet|towerbft'
   'unreachable|URL=http://127.0.0.1:'"$closed_port"'/|mainnet|unknown'
@@ -148,6 +163,9 @@ run_probe secret 'unknown-http500?api-key=SECRETKEY123' mainnet -vvv &
 run_probe secret-ok 'window?api-key=SECRETKEY123' mainnet -vvv &
 run_probe bad-network window foo &
 run_probe empty-network window '' &
+run_probe margin-wider pending-3000 mainnet -e slv_alpenglow_margin_slots=3001 &
+run_probe margin-off pending-100 mainnet -e slv_alpenglow_margin_slots=0 &
+run_probe margin-bad pending-100 mainnet -e slv_alpenglow_margin_slots=abc &
 wait
 
 for entry in "${probe_cases[@]}"; do
@@ -159,12 +177,28 @@ for entry in "${probe_cases[@]}"; do
   check $((1 - $?)) "probe $id: the RPC URL is printed"
 done
 
-# the feature account is asked only when the certificate is null
-count_calls() { grep -c "\"path\": \"/$1\", \"scenario\": \"[a-z-]*\", \"method\": \"$2\"" "$work/stub.log" || true; }
+# the feature account is asked only when the certificate is null, the epoch only when the feature is pending
+count_calls() { grep -c "\"path\": \"/$1\", \"scenario\": \"[^\"]*\", \"method\": \"$2\"" "$work/stub.log" || true; }
 [[ $(count_calls alpenglow getAccountInfo) -eq 0 ]]
 check $? "probe: a certificate settles the state without asking for the feature account"
 [[ $(count_calls window getAccountInfo) -gt 0 ]]
 check $? "probe: a null certificate sends the second question"
+for name in towerbft window alpenglow absent-near; do
+  [[ $(count_calls "$name" getEpochInfo) -eq 0 ]]
+  check $? "probe $name: the epoch is asked only when the feature is pending"
+done
+for name in pending-2999 pending-3000; do
+  [[ $(count_calls "$name" getEpochInfo) -gt 0 ]]
+  check $? "probe $name: a pending feature sends the epoch question"
+done
+grep -q 'epoch: 2999 slots left' "$work/probe/pending-below-margin.log"
+check $? "probe: the detail of an imminent activation says how many slots are left"
+grep -q 'RESULT state=imminent' "$work/probe/margin-wider.log"
+check $? "probe: a margin of 3001 slots makes 3000 slots left imminent"
+grep -q 'RESULT state=towerbft' "$work/probe/margin-off.log"
+check $? "probe: a margin of 0 turns the margin off"
+[[ $(cat "$work/probe/margin-bad.rc") != 0 ]] && grep -q 'a whole number of slots' "$work/probe/margin-bad.log"
+check $? "probe: a margin that is not a whole number stops the play"
 
 # a key in the URL stays out of every line, even at -vvv
 grep -q SECRETKEY123 "$work/probe/secret.log" "$work/probe/secret-ok.log"
@@ -192,6 +226,7 @@ identity_playbooks=(switch_off_identity switch_off_firedancer_identity switch_on
 
 # network|playbook|validator type (source>target for nodowntime_migrate)|outcome per state:
 #   towerbft,window,unknown,alpenglow  with run, freeze, alpenglow or fdctl
+#   (the fifth state, imminent, refuses every row with its own message)
 cases=(
   'mainnet|switch_off_identity|agave|run,freeze,freeze,alpenglow'
   'mainnet|switch_off_firedancer_identity|firedancer-jito|run,freeze,freeze,alpenglow'
@@ -225,13 +260,15 @@ cases=(
   'testnet|nodowntime_migrate|agave>firedancer-jito|run,freeze,freeze,alpenglow'
   'testnet|change_identity_and_restart|firedancer-jito|run,freeze,freeze,run'
 )
-states=(towerbft window unknown alpenglow)
-scenario_of() {
+states=(towerbft window unknown alpenglow imminent)
+scenario_of() { # state, case id (flip scenarios count their probes per path)
   case $1 in
     towerbft) echo towerbft ;;
     window) echo window ;;
     unknown) echo unknown-http500 ;;
     alpenglow) echo alpenglow ;;
+    imminent) echo pending-100 ;;
+    flip*) echo "flip-${1#flip}/$2" ;;
   esac
 }
 
@@ -300,7 +337,7 @@ INV
     cd "$run" || exit 1
     HOME="$run/home" PATH="$run/bin:$PATH" ANSIBLE_HOME="$run/ansible-home" limited \
       ansible-playbook -i "$run/inventory.yml" "${selection[@]}" -e ansible_become=false \
-      -e "slv_alpenglow_rpc_url=$rpc/$(scenario_of "$state")" -e slv_alpenglow_rpc_delay=0 \
+      -e "slv_alpenglow_rpc_url=$rpc/$(scenario_of "$state" "$id")" -e slv_alpenglow_rpc_delay=0 \
       "$run/ansible/$net-validator/$play.yml" >"$run/log" 2>&1 </dev/null
     echo $? >"$run/rc"
   )
@@ -318,11 +355,14 @@ wait
 freeze_text='identity changes wait until getAgGenesisCert returns a certificate'
 alpenglow_text='the cluster runs Alpenglow'
 fdctl_text='Firedancer and Frankendancer cannot take a mainnet identity'
+imminent_text='Run the identity change after the genesis certificate'
+demoted_text='are both unstaked now'
 
 for entry in "${cases[@]}"; do
   IFS='|' read -r net play types outcomes <<<"$entry"
   IFS=',' read -r -a expected <<<"$outcomes"
-  for i in 0 1 2 3; do
+  expected+=(imminent)
+  for i in 0 1 2 3 4; do
     state=${states[$i]}
     outcome=${expected[$i]}
     id=$(case_id "$net" "$play" "$types" "$state")
@@ -339,6 +379,7 @@ for entry in "${cases[@]}"; do
     grep -qF "$freeze_text" "$run/log" && messages+='freeze '
     grep -qF "$alpenglow_text" "$run/log" && messages+='alpenglow '
     grep -qF "$fdctl_text" "$run/log" && messages+='fdctl '
+    grep -qF "$imminent_text" "$run/log" && messages+='imminent '
     if [[ $outcome == run ]]; then
       want=1
       [[ $play == nodowntime_migrate ]] && want=2
@@ -415,10 +456,121 @@ for net in mainnet testnet; do
   done
 done
 
+# update_startup_config.yml is one play, so it runs whole, with its paths moved into a
+# temporary directory and fake commands: a missing or unknown type has to stop it at once
+run_update() { # network label value (- = no validator_type at all, EMPTY = an empty one)
+  local net=$1 label=$2 value=$3 dir="$work/update/$1-$2"
+  [[ $value == EMPTY ]] && value=''
+  mkdir -p "$dir/bin" "$dir/solv" "$dir/mnt" "$dir/home/.slv"
+  : >"$dir/calls.log"
+  sed -e "s#/home/solv#$dir/solv#g" -e "s#/mnt#$dir/mnt#g" -e "s#owner: solv#owner: $(id -un)#g" -e "s#group: solv#group: $(id -gn)#g" \
+    "$template/ansible/$net-validator/update_startup_config.yml" >"$dir/update.yml"
+  if grep -Eq '(^|[^A-Za-z0-9_])/(home/solv|mnt)([^A-Za-z0-9_]|$)' "$dir/update.yml"; then
+    echo "a path of the real host is left in update_startup_config.yml of $net" >"$dir/refused"
+    echo 99 >"$dir/rc"
+    return 0
+  fi
+  local name
+  for name in agave-validator systemctl sudo; do
+    printf '#!/bin/bash\necho "%s $*" >>"%s"\nexit 0\n' "$name" "$dir/calls.log" >"$dir/bin/$name"
+    chmod +x "$dir/bin/$name"
+  done
+  {
+    printf 'all:\n  hosts:\n    rig:\n      ansible_connection: local\n      ansible_python_interpreter: auto_silent\n'
+    printf '      vote_account: VOTE\n      commission_bps: 0\n      block_engine_url: http://localhost\n'
+    [[ $value == - ]] || printf '      validator_type: "%s"\n' "$value"
+  } >"$dir/inventory.yml"
+  HOME="$dir/home" PATH="$dir/bin:$PATH" ANSIBLE_HOME="$dir/ansible-home" limited \
+    ansible-playbook -i "$dir/inventory.yml" -e ansible_become=false "$dir/update.yml" >"$dir/log" 2>&1 </dev/null
+  echo $? >"$dir/rc"
+}
+update_cases=(
+  'missing|-'
+  'empty|EMPTY'
+  'unknown|foo'
+  'frankendancer|frankendancer'
+  'firedancer|firedancer'
+)
+for net in mainnet testnet; do
+  for entry in "${update_cases[@]}"; do
+    IFS='|' read -r label value <<<"$entry"
+    run_update "$net" "$label" "$value" &
+    while (($(jobs -rp | wc -l) >= 8)); do wait -n; done
+  done
+done
+wait
+for net in mainnet testnet; do
+  for entry in "${update_cases[@]}"; do
+    IFS='|' read -r label value <<<"$entry"
+    dir="$work/update/$net-$label"
+    rc=$(cat "$dir/rc" 2>/dev/null || echo missing)
+    [[ ! -e $dir/refused && $rc != 0 && $rc != missing ]] && grep -q 'is not supported on rig' "$dir/log" && grep -q 'Nothing was changed' "$dir/log" &&
+      [[ ! -s $dir/calls.log && ! -e $dir/solv/start-validator.sh && ! -e $dir/solv/firedancer-config.toml ]]
+    check $? "$net update_startup_config.yml: validator_type $label stops the play before it writes anything (rc $rc) $(tail -n 3 "$dir/log" | tr '\n' ' ')"
+  done
+done
+
+# --- 7. the state changes while a nodowntime_migrate run is going on ----------
+
+# A migrate run probes four times: at the start, when switch_off starts, right before
+# switch_off demotes the source, and when switch_on starts. flip-K answers towerbft to
+# the first K probes and window to every later one.
+flip_cases=('mainnet|agave>agave' 'testnet|agave>agave' 'mainnet|firedancer-jito>agave' 'testnet|firedancer-jito>firedancer-jito')
+flip_states=(flip2 flip3 flip9)
+for entry in "${flip_cases[@]}"; do
+  IFS='|' read -r net types <<<"$entry"
+  for state in "${flip_states[@]}"; do
+    run_case "$net" nodowntime_migrate "$types" "$state" &
+    while (($(jobs -rp | wc -l) >= 8)); do wait -n; done
+  done
+done
+wait
+
+for entry in "${flip_cases[@]}"; do
+  IFS='|' read -r net types <<<"$entry"
+  for state in "${flip_states[@]}"; do
+    id=$(case_id "$net" nodowntime_migrate "$types" "$state")
+    run="$work/runs/$id"
+    rc=$(cat "$run/rc" 2>/dev/null || echo missing)
+    sets=$(grep -c 'set-identity' "$run/calls.log" || true)
+    promoted=$(grep -c 'require-tower\|authorized-voter' "$run/calls.log" || true)
+    waited=$(grep -c 'wait-for-restart-window' "$run/calls.log" || true)
+    case $state in
+      flip2)
+        # the probe right before the demotion sees the change: the source is not touched
+        [[ $rc != 0 && $sets -eq 0 && $waited -eq 1 ]] && grep -qF "$freeze_text" "$run/log" && ! grep -qF "$demoted_text" "$run/log" &&
+          grep -qx home-tower "$run/home/.slv/tower/tower-1_9-IDENTITYKEY.bin"
+        check $? "$id: a state that changes after wait-for-restart-window stops the demotion (rc $rc, $sets set-identity calls, $waited waits) $(tail -n 3 "$run/log" | tr '\n' ' ')"
+        ;;
+      flip3)
+        # the source is demoted, switch_on refuses: both nodes are unstaked and the message says what to do by hand
+        [[ $rc != 0 && $sets -eq 1 && $promoted -eq 0 ]] && grep -qF "$freeze_text" "$run/log" && grep -qF "$demoted_text" "$run/log" &&
+          grep -q 'source host src was already switched to its unstaked identity' "$run/log" &&
+          grep -q 'promote IDENTITYKEY on dst yourself' "$run/log" && grep -q 'slv v set:identity -p dst' "$run/log" &&
+          grep -q 'Nothing is promoted automatically' "$run/log" && ! grep -q 'Nothing was changed' "$run/log"
+        check $? "$id: switch_on refusing after the demotion names both nodes, the identity and the target (rc $rc, $sets set-identity calls, $promoted promotions) $(tail -n 3 "$run/log" | tr '\n' ' ')"
+        ;;
+      flip9)
+        # control: no change, the run goes through
+        [[ $rc == 0 && $sets -eq 2 ]] && ! grep -qF "$freeze_text" "$run/log"
+        check $? "$id: without a change the migrate run goes through (rc $rc, $sets set-identity calls)"
+        ;;
+    esac
+  done
+done
+
 # --- the one message and the static import ----------------------------------
 
 [[ $(grep -rlF "$freeze_text" "$template/ansible" | wc -l) -eq 1 ]]
 check $? "the window and unknown refusal is written in one place"
+[[ $(grep -rlF "$imminent_text" "$template/ansible" | wc -l) -eq 1 ]]
+check $? "the imminent activation refusal is written in one place"
+[[ $(grep -rlF "$demoted_text" "$template/ansible" | wc -l) -eq 1 ]]
+check $? "what to do after a demotion is written in one place"
+for net in mainnet testnet; do
+  [[ $(grep -c 'slv_alpenglow_demoted_source: "{{ source_host }}"' "$template/ansible/$net-validator/nodowntime_migrate.yml") -eq 2 ]]
+  check $? "$net/nodowntime_migrate.yml tells both switch_on plays which source host it demoted"
+done
 for net in mainnet testnet; do
   for play in "${identity_playbooks[@]}"; do
     file="$template/ansible/$net-validator/$play.yml"

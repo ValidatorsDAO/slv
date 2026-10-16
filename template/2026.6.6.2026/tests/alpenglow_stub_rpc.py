@@ -7,16 +7,18 @@ Prints the port it listens on (127.0.0.1, chosen by the system) and serves until
 it is killed. The first segment of the request path names the scenario, so one
 server answers every case: POST http://127.0.0.1:PORT/window
 
-It answers the two calls the probe makes, and nothing else:
+It answers the three calls the probe makes, and nothing else:
 
   getAgGenesisCert  the genesis certificate, or null
   getAccountInfo    only for the Alpenglow feature account, only as base64 with a
-                    one byte dataSlice; any other question is a JSON-RPC error,
-                    so a probe that asks something else cannot pass by luck
+                    one byte dataSlice at processed commitment
+  getEpochInfo      only at processed commitment
 
-Every request is appended to REQUEST_LOG as one JSON line.
+Any other question is a JSON-RPC error, so a probe that asks something else cannot
+pass by luck. Every request is appended to REQUEST_LOG as one JSON line.
 """
 import json
+import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +26,8 @@ from urllib.parse import urlsplit
 
 FEATURE = "A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS"
 FEATURE_PROGRAM = "Feature111111111111111111111111111111111111"
+EPOCH_LENGTH = 432000
+FAR = 200000  # slots left in the epoch when a scenario does not say
 
 CERTIFICATE = {
     "block": {"slot": 444625255, "blockId": [7] * 32},
@@ -37,6 +41,7 @@ CERTIFICATE = {
 SCENARIOS = {
     "towerbft": ("null", "absent"),
     "towerbft-pending": ("null", "inactive"),
+    "absent-near": ("null", "absent"),
     "window": ("null", "active"),
     "alpenglow": ("certificate", "active"),
     "alpenglow-no-feature-call": ("certificate", "http-500"),
@@ -53,9 +58,20 @@ SCENARIOS = {
     "unknown-feature-no-context": ("null", "no-context"),
 }
 
-# flaky-* answers each method with HTTP 503 the first time it is asked on a path
-# and then like the named scenario (end the path with a name of your own to start over)
+# The feature is pending (its account exists, not activated) and the epoch ends soon:
+#   pending-N             N slots are left in the epoch
+#   pending-epoch-KIND    getEpochInfo answers badly: rpc-error | http-500 | garbage
+#                         | no-fields | bad-types | inverted
+EPOCH_BAD = {"rpc-error", "http-500", "garbage", "no-fields", "bad-types", "inverted"}
+
+# flaky-NAME answers each method with HTTP 503 the first time it is asked on a path
+# and then like NAME (end the path with a name of your own to start over)
 FLAKY = {"flaky-window": "window", "flaky-towerbft": "towerbft"}
+
+# flip-K answers towerbft to the first K probes on a path and window to every later
+# one (a probe is one request of each method)
+FLIP = re.compile(r"^flip-([0-9]+)$")
+PENDING = re.compile(r"^pending-([0-9]+)$")
 
 lock = threading.Lock()
 seen = {}
@@ -80,6 +96,39 @@ def feature_value(kind):
     if kind == "wrong-data":
         return dict(account, data=["AAECAwQFBgcI", "base64"])
     return None
+
+
+def epoch_info(slot_index, slots_in_epoch):
+    return {
+        "absoluteSlot": 457000000 + slot_index,
+        "blockHeight": 440000000,
+        "epoch": 1063,
+        "slotIndex": slot_index,
+        "slotsInEpoch": slots_in_epoch,
+        "transactionCount": 1,
+    }
+
+
+def resolve(scenario, count):
+    """-> (cert kind, feature kind, slots left or an EPOCH_BAD kind) for this request."""
+    if scenario in FLAKY:
+        if count == 1:
+            return None
+        scenario = FLAKY[scenario]
+    flip = FLIP.match(scenario)
+    if flip:
+        scenario = "towerbft" if count <= int(flip.group(1)) else "window"
+    pending = PENDING.match(scenario)
+    if pending:
+        return ("null", "inactive", int(pending.group(1)))
+    if scenario.startswith("pending-epoch-") and scenario[len("pending-epoch-"):] in EPOCH_BAD:
+        return ("null", "inactive", scenario[len("pending-epoch-"):])
+    if scenario == "absent-near":
+        return ("null", "absent", 100)
+    if scenario in SCENARIOS:
+        cert, feature = SCENARIOS[scenario]
+        return (cert, feature, FAR)
+    raise KeyError(scenario)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -110,15 +159,15 @@ class Handler(BaseHTTPRequestHandler):
             with open(log_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps({"path": self.path, "scenario": scenario, "method": method, "params": params}) + "\n")
             count = seen[(self.path, method)] = seen.get((self.path, method), 0) + 1
-        if scenario in FLAKY:
-            if count == 1:
-                self.send(503, {"error": "busy"})
-                return
-            scenario = FLAKY[scenario]
-        if scenario not in SCENARIOS:
+        try:
+            resolved = resolve(scenario, count)
+        except KeyError:
             self.send(404, {"error": "no such scenario"})
             return
-        cert, feature = SCENARIOS[scenario]
+        if resolved is None:
+            self.send(503, {"error": "busy"})
+            return
+        cert, feature, left = resolved
         envelope = {"jsonrpc": "2.0", "id": request.get("id")}
 
         if method == "getAgGenesisCert":
@@ -135,6 +184,11 @@ class Handler(BaseHTTPRequestHandler):
             if not asked_right:
                 self.send(200, dict(envelope, error={"code": -32602, "message": "unexpected question"}))
                 return
+        elif method == "getEpochInfo":
+            if params != [{"commitment": "processed"}]:
+                self.send(200, dict(envelope, error={"code": -32602, "message": "unexpected question"}))
+                return
+            kind = left if left in EPOCH_BAD else "left"
         else:
             self.send(200, dict(envelope, error={"code": -32601, "message": "Method not found"}))
             return
@@ -152,6 +206,16 @@ class Handler(BaseHTTPRequestHandler):
                 "string": "certificate",
                 "empty-object": {},
             }[kind]
+            self.send(200, dict(envelope, result=result))
+        elif method == "getEpochInfo":
+            if kind == "no-fields":
+                result = {"epoch": 1063}
+            elif kind == "bad-types":
+                result = dict(epoch_info(5, EPOCH_LENGTH), slotIndex="5", slotsInEpoch=True)
+            elif kind == "inverted":
+                result = epoch_info(EPOCH_LENGTH + 10, EPOCH_LENGTH)
+            else:
+                result = epoch_info(EPOCH_LENGTH - left, EPOCH_LENGTH)
             self.send(200, dict(envelope, result=result))
         else:
             context = {"apiVersion": "4.3.0", "slot": 457689875}

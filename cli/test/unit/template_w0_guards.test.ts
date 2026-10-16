@@ -415,6 +415,29 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         towerGuard > towerStat && towerGuard < firstSetIdentity,
         `${path}: tower guard`,
       )
+
+      // a second probe stands between the wait for the restart window and the demotion
+      const wait = firstIndex(
+        tasks,
+        (task) => /wait-for-restart-window/.test(commandOf(task)),
+      )
+      const probes = tasks.flatMap((task, index) =>
+        moduleArgs(task, 'import_tasks') === probeFile ? [index] : []
+      )
+      assertEquals(probes.length, 2, `${path}: two probes`)
+      assert(
+        probes[1] > wait && probes[1] < firstSetIdentity,
+        `${path}: the second probe stands between the wait and the demotion`,
+      )
+      assertEquals(tasks[probes[1]].vars, tasks[probes[0]].vars)
+      const lateGuard = tasks.findIndex((task, index) =>
+        index > probes[1] && isGuard(task) &&
+        normalized(task).includes("slv_alpenglow_state == 'towerbft'")
+      )
+      assert(
+        lateGuard > probes[1] && lateGuard < firstSetIdentity,
+        `${path}: the second probe is followed by the TowerBFT guard`,
+      )
     }
     for (
       const file of [
@@ -437,6 +460,8 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
 
 const freezeText =
   'identity changes wait until getAgGenesisCert returns a certificate'
+const imminentText = 'Run the identity change after the genesis certificate'
+const demotedText = 'are both unstaked now'
 
 const listYamlFiles = (directory: string): string[] =>
   [...Deno.readDirSync(new URL(directory, templateRoot))].flatMap((entry) =>
@@ -455,7 +480,7 @@ Deno.test('alpenglow state: the probe asks the cluster from the controller and t
     requests.map((task) =>
       (moduleArgs(task, 'uri') as { body: { method: string } }).body.method
     ),
-    ['getAgGenesisCert', 'getAccountInfo'],
+    ['getAgGenesisCert', 'getAccountInfo', 'getEpochInfo'],
   )
   for (const task of requests) {
     const uri = moduleArgs(task, 'uri') as Entry
@@ -484,7 +509,15 @@ Deno.test('alpenglow state: the probe asks the cluster from the controller and t
       },
     ],
   )
+  assertEquals(
+    ((moduleArgs(requests[2], 'uri') as Entry).body as Entry).params,
+    [{ commitment: 'processed' }],
+  )
+  assertEquals(conditionsOf(requests[2]), [
+    "slv_ag_feature_kind == 'inactive'",
+  ])
   const text = readText(path)
+  assert(text.includes('slv_alpenglow_margin_slots | default(3000)'), path)
   for (
     const url of [
       'https://api.mainnet-beta.solana.com',
@@ -494,17 +527,46 @@ Deno.test('alpenglow state: the probe asks the cluster from the controller and t
   ) {
     assert(text.includes(url), `${path}: public RPC ${url}`)
   }
-  const freeze = tasks[tasks.length - 1]
-  assert(hasModule(freeze, 'assert'), `${path}: the last task is the freeze`)
-  assertEquals(conditionsOf(freeze), [
-    'slv_alpenglow_freeze | default(false) | bool',
-  ])
-  assert(normalized(freeze).includes(freezeText))
+  const refusals = tasks.slice(-2)
+  for (const refusal of refusals) {
+    assert(hasModule(refusal, 'assert'), `${path}: the last tasks are refusals`)
+    assertEquals(conditionsOf(refusal), [
+      'slv_alpenglow_freeze | default(false) | bool',
+    ])
+  }
+  assert(normalized(refusals[0]).includes(freezeText))
+  assert(normalized(refusals[0]).includes("not in ['window', 'unknown']"))
+  assert(normalized(refusals[1]).includes(imminentText))
+  assert(normalized(refusals[1]).includes("slv_alpenglow_state != 'imminent'"))
 
-  const writers = listYamlFiles('ansible/').filter((file) =>
-    readText(file).includes(freezeText)
-  )
-  assertEquals(writers, [path], 'the window and unknown refusal has one author')
+  for (const sentence of [freezeText, imminentText, demotedText]) {
+    const writers = listYamlFiles('ansible/').filter((file) =>
+      readText(file).includes(sentence)
+    )
+    assertEquals(writers, [path], `"${sentence}" has one author`)
+  }
+})
+
+Deno.test('alpenglow demotion: nodowntime_migrate tells the switch_on plays which source host it demoted', () => {
+  for (const network of validatorNetworks) {
+    const entries = readPlaybook(`ansible/${network}/nodowntime_migrate.yml`)
+    const imports = entries.filter((entry) =>
+      entry.import_playbook !== undefined
+    )
+    assertEquals(imports.length, 4)
+    for (const entry of imports) {
+      const demoted = (entry.vars as Entry).slv_alpenglow_demoted_source
+      if (String(entry.import_playbook).startsWith('switch_on_')) {
+        assertEquals(
+          demoted,
+          '{{ source_host }}',
+          `${network}: ${entry.import_playbook}`,
+        )
+      } else {
+        assertEquals(demoted, undefined, `${network}: ${entry.import_playbook}`)
+      }
+    }
+  }
 })
 
 const identityPlaybooks = [
@@ -615,18 +677,20 @@ Deno.test('alpenglow fdctl: mainnet refuses Firedancer and Frankendancer as an i
   }
 })
 
-Deno.test('addendum 12: init.yml stops on a missing or unknown validator_type and never defaults to Frankendancer', () => {
+Deno.test('addendum 12: init.yml and update_startup_config.yml stop on a missing or unknown validator_type and never default to Frankendancer', () => {
   for (const network of validatorNetworks) {
-    const path = `ansible/${network}/init.yml`
-    assertNoTypeFallback(path)
-    const entries = readPlaybook(path)
-    assertTypeGate(tasksOf(entries[0])[0], path)
+    for (const file of ['init.yml', 'update_startup_config.yml']) {
+      const path = `ansible/${network}/${file}`
+      assertNoTypeFallback(path)
+      const entries = readPlaybook(path)
+      assertTypeGate(tasksOf(entries[0])[0], path)
+      assert(!readText(path).includes('Set validator type fact'), path)
+    }
     assertEquals(
-      entries[0].any_errors_fatal,
+      readPlaybook(`ansible/${network}/init.yml`)[0].any_errors_fatal,
       true,
-      `${path}: one bad host ends the run`,
+      `${network} init.yml: one bad host ends the run`,
     )
-    assert(!readText(path).includes('Set validator type fact'), path)
   }
 })
 

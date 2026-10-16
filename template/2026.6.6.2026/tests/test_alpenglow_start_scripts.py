@@ -295,6 +295,24 @@ class KnownValidators(unittest.TestCase):
                 self.assertEqual(flags(text, "--known-validator"), MAINNET_KNOWN)
                 self.assertNotIn("Certusm1sa411sMpV9FPqU5dXAYhmmhygvxJ23S6hJ24", text)
 
+    def test_the_mainnet_rpc_start_scripts_no_playbook_renders_name_the_four_validators_of_anza(self):
+        scripts = sorted(k for k in _outputs if k.startswith("rpc-script__"))
+        self.assertEqual(len(scripts), 4)
+        for key in scripts:
+            with self.subTest(script=key):
+                self.assertEqual(flags(_outputs[key], "--known-validator"), MAINNET_KNOWN)
+
+    def test_no_template_names_certus_as_a_known_validator(self):
+        found = []
+        for sub in ("jinja", "ansible"):
+            for directory, _, names in os.walk(os.path.join(TEMPLATE, sub)):
+                for name in names:
+                    path = os.path.join(directory, name)
+                    with open(path, encoding="utf-8", errors="replace") as handle:
+                        if "Certusm1sa411sMpV9FPqU5dXAYhmmhygvxJ23S6hJ24" in handle.read():
+                            found.append(os.path.relpath(path, TEMPLATE))
+        self.assertEqual(found, [])
+
     def test_mainnet_firedancer_configs_name_the_four_validators_of_anza(self):
         for path in ("mainnet-validator/firedancer-config.toml.j2", "mainnet-rpc/firedancer-config.toml.j2"):
             with self.subTest(path=path):

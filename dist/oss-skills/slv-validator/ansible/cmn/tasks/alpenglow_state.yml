@@ -1,7 +1,11 @@
 ---
 # Which consensus does the cluster run? This sets slv_alpenglow_state to
 #
-#   towerbft   the Alpenglow feature account is absent or not activated
+#   towerbft   the Alpenglow feature account is absent or not activated, and the
+#              epoch does not end soon
+#   imminent   the feature account exists but is not activated yet (it activates at
+#              the next epoch boundary) and fewer than slv_alpenglow_margin_slots
+#              slots are left in the epoch: the activation is about to start
 #   window     the feature is activated and getAgGenesisCert still returns null:
 #              the cluster is between the feature activation and the genesis certificate
 #   alpenglow  getAgGenesisCert returns a certificate
@@ -12,18 +16,24 @@
 # Import it with ansible.builtin.import_tasks. It asks the cluster RPC from the
 # controller, once, and changes nothing. Variables:
 #
-#   slv_alpenglow_network      mainnet, testnet or devnet (required): picks the public RPC
-#   slv_alpenglow_rpc_url      ask this RPC instead (a URL that carries a key is never printed)
-#   slv_alpenglow_freeze       true: stop the play with one message while the state is
-#                              window or unknown. Every identity change sets it.
-#   slv_alpenglow_rpc_retries  retries of a call whose answer cannot be read (2)
-#   slv_alpenglow_rpc_delay    seconds between the attempts (2)
+#   slv_alpenglow_network         mainnet, testnet or devnet (required): picks the public RPC
+#   slv_alpenglow_rpc_url         ask this RPC instead (a URL that carries a key is never printed)
+#   slv_alpenglow_freeze          true: stop the play while the state is window, unknown or
+#                                 imminent. Every identity change sets it.
+#   slv_alpenglow_margin_slots    slots left in the epoch below which a pending activation
+#                                 counts as imminent (3000, about 11 minutes; 0 turns it off)
+#   slv_alpenglow_demoted_source  set by nodowntime_migrate for the plays that run after the
+#                                 source host was switched to its unstaked identity: the
+#                                 refusal then says what is left to do by hand
+#   slv_alpenglow_rpc_retries     retries of a call whose answer cannot be read (2)
+#   slv_alpenglow_rpc_delay       seconds between the attempts (2)
 
 - name: Check the inputs of the Alpenglow state probe
   ansible.builtin.assert:
     that:
       - slv_alpenglow_network | default('') in ['mainnet', 'testnet', 'devnet']
-    fail_msg: "slv_alpenglow_network must be mainnet, testnet or devnet (it is '{{ slv_alpenglow_network | default('not set') }}'). Nothing was changed."
+      - (slv_alpenglow_margin_slots | default(3000) | string) is match('^[0-9]+$')
+    fail_msg: "slv_alpenglow_network must be mainnet, testnet or devnet (it is '{{ slv_alpenglow_network | default('not set') }}') and slv_alpenglow_margin_slots a whole number of slots (it is '{{ slv_alpenglow_margin_slots | default(3000) }}'). Nothing was changed."
     quiet: true
   run_once: true
 
@@ -122,6 +132,53 @@
       {%- endif -%}
   run_once: true
 
+- name: Ask the cluster how many slots are left in the epoch (getEpochInfo)
+  ansible.builtin.uri:
+    url: "{{ slv_alpenglow_rpc_url | default('', true) or {'mainnet': 'https://api.mainnet-beta.solana.com', 'testnet': 'https://api.testnet.solana.com', 'devnet': 'https://api.devnet.solana.com'}[slv_alpenglow_network] }}"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: getEpochInfo
+      params:
+        - commitment: processed
+    return_content: true
+    timeout: 20
+  register: slv_ag_epoch_reply
+  until: >-
+    (slv_ag_epoch_reply.status | default(0)) == 200 and
+    slv_ag_epoch_reply.json is defined and slv_ag_epoch_reply.json is mapping and
+    'error' not in slv_ag_epoch_reply.json and 'result' in slv_ag_epoch_reply.json
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+  delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  delegate_to: localhost
+  run_once: true
+  become: false
+  when: slv_ag_feature_kind == 'inactive'
+
+- name: Read what the epoch answer says
+  ansible.builtin.set_fact:
+    slv_ag_epoch_kind: >-
+      {%- set reply = slv_ag_epoch_reply -%}
+      {%- set body = reply.json | default(none) -%}
+      {%- set info = body.result if body is mapping and body.result is defined else none -%}
+      {%- if reply is skipped -%}not asked
+      {%- elif (reply.status | default(-1)) == -1 -%}unreadable (no answer)
+      {%- elif reply.status != 200 -%}unreadable (HTTP {{ reply.status }})
+      {%- elif body is not mapping -%}unreadable (no JSON answer)
+      {%- elif 'error' in body -%}unreadable (JSON-RPC error{{ ' ' ~ body.error.code if body.error is mapping and body.error.code is defined and body.error.code is integer else '' }})
+      {%- elif info is not mapping or 'slotIndex' not in info or 'slotsInEpoch' not in info -%}unreadable (unexpected result)
+      {%- elif info.slotIndex is not integer or info.slotIndex is boolean or info.slotsInEpoch is not integer or info.slotsInEpoch is boolean -%}unreadable (unexpected result)
+      {%- elif info.slotIndex < 0 or info.slotsInEpoch <= info.slotIndex -%}unreadable (unexpected result)
+      {%- else -%}{{ info.slotsInEpoch - info.slotIndex }} slots left
+      {%- endif -%}
+  run_once: true
+
 - name: Decide which consensus the cluster runs
   ansible.builtin.set_fact:
     slv_alpenglow_state: >-
@@ -129,16 +186,41 @@
       {%- elif slv_ag_cert_kind == 'certificate' -%}alpenglow
       {%- elif slv_ag_feature_kind.startswith('unreadable') -%}unknown
       {%- elif slv_ag_feature_kind == 'active' -%}window
+      {%- elif slv_ag_feature_kind == 'inactive' -%}
+      {%- if slv_ag_epoch_kind.startswith('unreadable') or slv_ag_epoch_kind == 'not asked' -%}unknown
+      {%- elif (slv_ag_epoch_kind.split(' ')[0] | int) < (slv_alpenglow_margin_slots | default(3000) | int) -%}imminent
       {%- else -%}towerbft
       {%- endif -%}
-    slv_alpenglow_detail: "getAgGenesisCert: {{ slv_ag_cert_kind }}; feature account: {{ slv_ag_feature_kind }}"
+      {%- else -%}towerbft
+      {%- endif -%}
+    slv_alpenglow_detail: "getAgGenesisCert: {{ slv_ag_cert_kind }}; feature account: {{ slv_ag_feature_kind }}{{ '; epoch: ' ~ slv_ag_epoch_kind if slv_ag_epoch_kind != 'not asked' else '' }}"
   run_once: true
+
+- name: Say what a refusal leaves behind
+  ansible.builtin.set_fact:
+    slv_ag_outcome: >-
+      {%- if slv_alpenglow_demoted_source | default('', true) -%}
+      The source host {{ slv_alpenglow_demoted_source }} was already switched to its unstaked identity in this run, so {{ slv_alpenglow_demoted_source }} and {{ inventory_hostname }} are both unstaked now. Wait until getAgGenesisCert returns a certificate, then promote {{ hostvars[inventory_hostname].identity_account | default('its identity') }} on {{ inventory_hostname }} yourself (for example slv v set:identity -p {{ inventory_hostname }}). Nothing is promoted automatically.
+      {%- else -%}
+      Nothing was changed on {{ ansible_play_hosts_all | join(', ') }}.
+      {%- endif -%}
+  run_once: true
+  when: slv_alpenglow_freeze | default(false) | bool
 
 - name: Stop the identity change while the cluster is between the Alpenglow activation and the genesis certificate
   ansible.builtin.assert:
     that:
       - slv_alpenglow_state not in ['window', 'unknown']
-    fail_msg: "The cluster is between the Alpenglow feature activation and the genesis certificate, or its state cannot be read: identity changes wait until getAgGenesisCert returns a certificate. State: {{ slv_alpenglow_state }} ({{ slv_alpenglow_detail }}). Nothing was changed on {{ ansible_play_hosts_all | join(', ') }}."
+    fail_msg: "The cluster is between the Alpenglow feature activation and the genesis certificate, or its state cannot be read: identity changes wait until getAgGenesisCert returns a certificate. State: {{ slv_alpenglow_state }} ({{ slv_alpenglow_detail }}). {{ slv_ag_outcome }}"
+    quiet: true
+  run_once: true
+  when: slv_alpenglow_freeze | default(false) | bool
+
+- name: Stop the identity change while the Alpenglow activation is about to start
+  ansible.builtin.assert:
+    that:
+      - slv_alpenglow_state != 'imminent'
+    fail_msg: "The Alpenglow activation is about to start: the feature is pending and the epoch ends in fewer than {{ slv_alpenglow_margin_slots | default(3000) }} slots. Run the identity change after the genesis certificate: wait until getAgGenesisCert returns a certificate. State: {{ slv_alpenglow_state }} ({{ slv_alpenglow_detail }}). {{ slv_ag_outcome }}"
     quiet: true
   run_once: true
   when: slv_alpenglow_freeze | default(false) | bool
