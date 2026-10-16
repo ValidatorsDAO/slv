@@ -43,7 +43,8 @@ jinja/                      # Jinja2 templates for config generation
 ### Key Concepts
 
 1. **`validator_type`** — Controls the node software stack:
-   - `agave` | `jito` | `firedancer-agave` | `firedancer-jito` | `frankendancer`
+   - `agave` | `jito` | `allnodes-jito` | `firedancer-agave` | `firedancer-jito`
+   - a mainnet voting validator is `agave`, `jito` or `allnodes-jito`: `mainnet-validator/init.yml` refuses the Firedancer types (see 6)
 
 2. **`rpc_type`** — (Mainnet RPC only) Controls RPC features:
    - `Index RPC` | `Geyser gRPC` | `Index RPC + gRPC`
@@ -51,11 +52,13 @@ jinja/                      # Jinja2 templates for config generation
 3. **`geyser_plugin`** — (RPC `init.yml`, inventory variable) The Geyser plugin of `Geyser gRPC` and `Index RPC + gRPC` nodes on agave or jito:
    - `yellowstone` — the default when the variable is absent; built by `geyser_build.yml` at `<network>_rpcs.geyser_version` of `versions.yml`
    - `richat` — richat has no release for agave 4.3 or later yet, so `init.yml` stops, before it changes anything, on a node that is set to run such an agave. The richat playbooks stay for when a release exists.
-   - any other value stops `init.yml`. A node that ran richat gets `richat.service` stopped and disabled when it is initialised with Yellowstone.
+   - any other value stops `init.yml`. A node that ran richat gets `richat.service` stopped and disabled, and its plugin library moved aside (`librichat_plugin_agave.so` becomes `librichat_plugin_agave.so.disabled`; nothing is deleted, and `mv` returns it), when it is initialised with Yellowstone.
 
 4. **All variables can be passed via `extra_vars`** — No need to edit `versions.yml`.
 
 5. **`build_solana.yml` is preferred** over `install_solana.yml` (source build vs pre-built binary). It builds the `agave_version`, `jito_version` or `allnodes_jito_version` of the host or of `-e`, else `version_agave`, `version_jito` or `version_allnodes_jito` of the section of `versions.yml` that the calling playbook passes as `versions_section` (`mainnet_validators`, `testnet_validators`, `mainnet_rpcs`, `testnet_rpcs` or `devnet_rpcs`). With neither it stops, before it builds anything.
+
+6. **`init.yml` of the validator and RPC networks stops, before it changes anything, on a client that Alpenglow does not run on.** `cmn/check_alpenglow_floor.yml` reads the versions that the init builds (the client of `validator_type` as in 5, and for an RPC node that gets the Yellowstone plugin the `geyser_version` of the host or of `-e`, else of the section) and compares them with the floor of the network: 4.3.0 on mainnet, 4.4.0-beta.0 on testnet and devnet. A version is read like the CLI reads it (`tests/alpenglow_floor_vectors.json` lists the cases): `4.2` is 4.2.0, `4.2.1.1` is 4.2.1, `3.1.10-bam` is 3.1.10, a `-jito` or `-allnodes` tag does not change the release, and a Yellowstone tag is read by the solana release it is built for (`+solana.4.4.0.beta.0` is 4.4.0-beta.0). A version with no X.Y in it (`latest`, `main`, a commit hash) stops a mainnet init and is only warned about on testnet and devnet. `mainnet-validator/init.yml` also refuses `firedancer-agave`, `firedancer-jito` and `frankendancer` (Alpenglow starts on mainnet at epoch 1064 and does not support them yet).
 
 ### Agent Assignments
 

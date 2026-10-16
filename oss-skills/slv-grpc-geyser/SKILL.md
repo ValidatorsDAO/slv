@@ -41,7 +41,8 @@ gRPC Geyser nodes are managed via `slv r` (RPC) commands with `rpc_type` set to 
 |---|---|
 | `init.yml` | Full gRPC Geyser node initialization |
 | `init_richat_geyser.yml` | Richat Geyser initialization (only for `geyser_plugin: richat`) |
-| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, after the Yellowstone build of `init.yml` |
+| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, and move its plugin library aside (`librichat_plugin_agave.so.disabled`), after the Yellowstone build of `init.yml` |
+| `cmn/check_alpenglow_floor.yml` | Stop `init.yml`, before it changes anything, on an agave or jito version or a Yellowstone plugin older than Alpenglow runs on (4.3.0 on mainnet) |
 | `geyser_build.yml` | Build Yellowstone gRPC from GitHub source (the default of `init.yml`) |
 | `geyser_richat_build.yml` | Build Richat plugin from GitHub source (only with `geyser_plugin: richat`) |
 | `install_richat.yml` | Install Richat plugin (only with `geyser_plugin: richat`) |

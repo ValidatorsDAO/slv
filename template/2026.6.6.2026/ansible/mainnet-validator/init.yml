@@ -1,4 +1,10 @@
 ---
+# Alpenglow starts on mainnet with epoch 1064, and Firedancer and Frankendancer are not supported during
+# the migration, so a mainnet voting validator is agave, jito or allnodes-jito. The first play stops a
+# Firedancer or Frankendancer host before anything is changed, with the same words as the CLI
+# (cli/lib/fdctlMainnetGuard.ts) and the identity playbooks; cmn/check_alpenglow_floor.yml then stops a
+# client that is older than the floor of mainnet. Both hold for whoever runs this: slv, the AI console or
+# ansible-playbook by hand.
 - name: Load validator type from inventory
   hosts: all
   gather_facts: no
@@ -7,9 +13,19 @@
     - name: Fail unless validator_type is a supported type
       ansible.builtin.assert:
         that:
-          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
-        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito']
+        fail_msg: >-
+          {%- set slv_type = validator_type | default('', true) | string | trim | lower -%}
+          {%- if slv_type in ['firedancer-agave', 'firedancer-jito', 'firedancer', 'frankendancer'] or slv_type.startswith('firedancer') -%}
+          A mainnet voting validator cannot be {{ validator_type }}. Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration. Use agave, jito or allnodes-jito instead, and move a node that already runs Firedancer or Frankendancer to one of them with `slv v switch` before epoch 1064. Nothing was changed on {{ inventory_hostname }}.
+          {%- else -%}
+          validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito. Nothing was changed.
+          {%- endif -%}
         success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: mainnet_validators
 
 # 共通処理
 - import_playbook: ../cmn/fix_permissions.yml
@@ -21,9 +37,6 @@
 
 - import_playbook: ../cmn/install_package.yml
 - import_playbook: ../cmn/setup_node_exporter.yml
-
-- import_playbook: ../cmn/install_rust.yml
-  when: validator_type in ['firedancer-agave', 'firedancer-jito']
 
 - import_playbook: ../cmn/disable_swap.yml
 - import_playbook: ../cmn/mount_disks.yml
@@ -38,9 +51,6 @@
 # - import_playbook: setup_ufw.yml
 - import_playbook: create_overrides.yml
 
-- import_playbook: setup_firedancer.yml
-  when: validator_type in ['firedancer-agave', 'firedancer-jito']
-
 - import_playbook: setup_solv_service.yml
   when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
@@ -51,6 +61,3 @@
 
 - import_playbook: start_solv.yml
   when: validator_type in ['agave', 'jito', 'allnodes-jito']
-
-- import_playbook: start_firedancer.yml
-  when: validator_type in ['firedancer-jito', 'firedancer-agave']

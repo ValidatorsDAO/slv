@@ -5,15 +5,18 @@ installs the Yellowstone plugin of the network (geyser_build.yml). The inventory
 geyser_plugin: richat is the way to richat (geyser_richat_build.yml and install_richat.yml), but richat
 has no release for agave 4.3 or later yet, so it stops the play, before anything is changed, on a node
 that is set to run such an agave. Any other value stops the play too. A node that ran richat has
-richat.service stopped and disabled when it is initialised with Yellowstone. A missing or unknown
-validator_type stops init.yml of the three networks and update_startup_config.yml of testnet-rpc and
-devnet-rpc the same way; none of them turns it into a Firedancer type. The RPC gateway takes the pubsub
-of the node's own agave unless the node runs richat.
+richat.service stopped and disabled, and its plugin library moved aside, when it is initialised with
+Yellowstone. A missing or unknown validator_type stops init.yml of the three networks and
+update_startup_config.yml of testnet-rpc and devnet-rpc the same way; none of them turns it into a
+Firedancer type. The RPC gateway takes the pubsub of the node's own agave unless the node runs richat.
 
 The richat playbooks (geyser_richat_build.yml, install_richat.yml, init_richat_geyser.yml) refuse the
 same way when they are run directly, and the build of the client (cmn/build_solana.yml, which init.yml of
 the validator and RPC networks runs) reads the pins of the section that its caller names, not those of
 mainnet_validators.
+
+test_alpenglow_floor.py, next to this file and using its helpers, tests the check of the Alpenglow floor that these
+init.yml import, the Firedancer refusal of mainnet-validator/init.yml and the geyser_version of geyser_build.yml.
 
 The tests run the real ansible-playbook on this machine over a local connection, without become,
 sudo, a network or a host:
@@ -80,6 +83,7 @@ YELLOWSTONE_PLAYS = ["geyser_build.yml"]
 RICHAT_PLAYS = ["geyser_richat_build.yml", "install_richat.yml"]
 PLUGIN_PLAYS = tuple(YELLOWSTONE_PLAYS + RICHAT_PLAYS)
 STOP_RICHAT = "../cmn/stop_richat.yml"
+RICHAT_LIBRARY = "/home/solv/librichat_plugin_agave.so"
 
 # where the start script of the node looks for the plugin config, and where richat keeps its own
 GEYSER_JSON = "/home/solv/geyser.json"
@@ -338,7 +342,12 @@ BUILD_SCENARIOS = {
 RECORDED_SCENARIOS = {
     "update-valid": lambda: {"update-" + name: {"validator_type": name} for name in SUPPORTED_TYPES},
     "update-invalid-type": invalid_type_hosts,
-    "richat-unit": lambda: {"unit-present": {"slv_stub_exists": True}, "unit-absent": {"slv_stub_exists": False}},
+    "richat-unit": lambda: {
+        "unit-and-lib": {"slv_stub_exists": True},
+        "unit-only": {"slv_stub_exists": True, "slv_stub_exists_richat_lib": False},
+        "lib-only": {"slv_stub_exists": True, "slv_stub_exists_richat_unit": False},
+        "neither": {"slv_stub_exists": False},
+    },
 }
 
 # host -> its variables, and the pubsub the RPC gateway should take (None: whatever it takes, see the test)
@@ -538,9 +547,9 @@ def module_of(task):
 
 def recorded_copy_of(play):
     """The play with every task that is not an assert, fail, set_fact or debug replaced by a record of itself
-    in the fact slv_ran (a template task records its template, a systemd task its arguments), under the same
-    condition. A task that registers a result gets one that says it succeeded; a stat says that the file
-    exists when slv_stub_exists is true."""
+    in the fact slv_ran (a template task records its template, a systemd task its arguments, a command its argv),
+    under the same condition. A task that registers a result gets one that says it succeeded; a stat says that the
+    file exists when slv_stub_exists is true (slv_stub_exists_<register> decides for the stat of that register)."""
     tasks = []
     for task in play["tasks"]:
         module, args = module_of(task)
@@ -552,12 +561,16 @@ def recorded_copy_of(play):
             entry += " " + args["src"]
         elif module == "systemd":
             entry += " " + " ".join("%s=%s" % (key, args[key]) for key in sorted(args))
+        elif module == "command":
+            entry += " " + (" ".join(str(part) for part in args["argv"]) if isinstance(args, dict) else str(args))
         # the record is a string inside an expression: a variable of the task is not expanded in it
         entry = entry.replace("{{", "<<").replace("}}", ">>")
         facts = {"slv_ran": "{{ (slv_ran | default([])) + [%s] }}" % json.dumps(entry)}
         if "register" in task:
             if module == "stat":
-                facts[task["register"]] = {"stat": {"exists": "{{ slv_stub_exists | default(true) | bool }}"}}
+                # slv_stub_exists says for every stat whether the file is there; slv_stub_exists_<register> for one of them
+                exists = "{{ slv_stub_exists_%s | default(slv_stub_exists | default(true)) | bool }}" % task["register"]
+                facts[task["register"]] = {"stat": {"exists": exists}}
             else:
                 facts[task["register"]] = {"rc": 0, "stdout": "4.3.2", "stderr": ""}
         recorded = {"name": task.get("name", module), "ansible.builtin.set_fact": facts}
@@ -1043,7 +1056,7 @@ class InitInstallsTheGeyserPlugin(unittest.TestCase):
             for network in UPDATE_NETWORKS:
                 playbooks["%s-rpc/update_startup_config.yml" % network] = ANSIBLE_DIR / ("%s-rpc" % network) / "update_startup_config.yml"
             for path in ("cmn/stop_richat.yml", "cmn/install_rpc_gateway.yml", "mainnet-rpc/update_startup_config.yml",
-                         "cmn/check_richat_release.yml", "cmn/build_solana.yml", "cmn/build_agave.yml", "cmn/build_jito.yml",
+                         "cmn/check_richat_release.yml", "cmn/check_alpenglow_floor.yml", "cmn/build_solana.yml", "cmn/build_agave.yml", "cmn/build_jito.yml",
                          "cmn/build_allnodes_jito.yml") + RICHAT_PLAYBOOKS:
                 playbooks[path] = ANSIBLE_DIR / path
             # the gateway play uses openssh_keypair, which community.crypto has
@@ -1159,14 +1172,56 @@ class RichatIsStoppedWhereYellowstoneTakesOver(unittest.TestCase):
                     else:
                         self.assertNotIn(STOP_RICHAT, imports)
 
-    def test_g17_stop_richat_stops_and_disables_the_unit_when_there_is_one_and_does_nothing_otherwise(self):
+    def test_g17_stop_richat_stops_the_unit_and_moves_the_library_aside_when_they_are_there_and_does_nothing_otherwise(self):
         playbook = ANSIBLE_DIR / "cmn" / "stop_richat.yml"
         self.assertTrue(playbook.is_file(), "%s is not there" % playbook)
         result = run_recorded("cmn/stop_richat.yml", "richat-unit")
-        self.assertEqual(
-            result["unit-present"].imports, ["stat", "systemd enabled=False name=richat.service state=stopped"],
-        )
-        self.assertEqual(result["unit-absent"].imports, ["stat"])
+        stop = "systemd enabled=False name=richat.service state=stopped"
+        move = "command mv -f -- %s %s.disabled" % (RICHAT_LIBRARY, RICHAT_LIBRARY)
+        # the unit and the library are looked for one after the other, and each is dealt with on its own account
+        self.assertEqual(result["unit-and-lib"].imports, ["stat", stop, "stat", move])
+        self.assertEqual(result["unit-only"].imports, ["stat", stop, "stat"])
+        self.assertEqual(result["lib-only"].imports, ["stat", "stat", move])
+        self.assertEqual(result["neither"].imports, ["stat", "stat"])
+
+    def test_g17b_the_library_is_renamed_not_deleted_a_link_that_points_nowhere_goes_too_and_nothing_is_left_at_the_old_name(self):
+        (play,) = yaml.safe_load((ANSIBLE_DIR / "cmn" / "stop_richat.yml").read_text())
+        tasks = {task["name"]: task for task in play["tasks"]}
+        argv = tasks["Move the richat plugin library aside"]["command"]["argv"]
+        stat = tasks["Look for the richat plugin library"]["stat"]
+        # the link itself is looked for: update_startup_config.yml follows links, so a dangling one is no library to it,
+        # and the move has to deal with it all the same
+        self.assertEqual(stat["path"], RICHAT_LIBRARY)
+        self.assertFalse(stat["follow"])
+        self.assertNotIn("rm", argv)
+        for kind in ("link", "dangling-link", "file", "disabled-before"):
+            with tempfile.TemporaryDirectory(prefix="slv-richat-lib-") as tmp:
+                home = Path(tmp)
+                release = home / "richat-geyser" / "releases" / "v1"
+                release.mkdir(parents=True)
+                library = release / "librichat_plugin_agave.so"
+                if kind != "dangling-link":
+                    library.write_text("plugin")
+                old = home / "librichat_plugin_agave.so"
+                if kind == "file":
+                    old.write_text("plugin")
+                else:
+                    old.symlink_to(library)
+                if kind == "disabled-before":
+                    (home / "librichat_plugin_agave.so.disabled").symlink_to(home / "gone")
+                command = [part.replace("/home/solv", str(home)) for part in argv]
+                process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                with self.subTest(kind):
+                    self.assertEqual(process.returncode, 0, process.stdout)
+                    self.assertFalse(old.exists() or old.is_symlink(), "the old name is free")
+                    moved = home / "librichat_plugin_agave.so.disabled"
+                    self.assertTrue(moved.exists() or moved.is_symlink())
+                    if kind != "dangling-link":
+                        self.assertEqual(library.read_text(), "plugin", "the library itself is untouched")
+                    # reversible: mv it back and it is the same library
+                    subprocess.run(["mv", "--", str(moved), str(old)], check=True)
+                    if kind != "dangling-link":
+                        self.assertEqual(old.read_text(), "plugin")
 
 
 class RpcGatewayFollowsThePlugin(unittest.TestCase):

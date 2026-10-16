@@ -36,6 +36,13 @@
         fail_msg: "geyser_plugin must be yellowstone or richat (or left out for yellowstone), not '{{ geyser_plugin }}'. Nothing was changed on {{ inventory_hostname }}."
         success_msg: "Geyser plugin is {{ geyser_plugin }}"
 
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, a client or a Yellowstone plugin that is
+# older than the floor of devnet: the agave_version or jito_version of the host, else the version_* pin of
+# devnet_rpcs, and the geyser_version of the host, else the geyser_version of devnet_rpcs.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: devnet_rpcs
+
 - import_playbook: ../cmn/check_richat_release.yml
   vars:
     versions_section: devnet_rpcs

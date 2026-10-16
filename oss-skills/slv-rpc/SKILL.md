@@ -113,7 +113,8 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `install_of1_service.yml` | Setup Old Faithful systemd service |
 | `cmn/of1_index_cache_sync.yml` | Install rolling-cache sync script + daily timer |
 | `geyser_build.yml` | Build Yellowstone gRPC from source (the Geyser plugin of `init.yml` by default) |
-| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, after the Yellowstone build of `init.yml` |
+| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, and move its plugin library aside (`librichat_plugin_agave.so.disabled`), after the Yellowstone build of `init.yml` |
+| `cmn/check_alpenglow_floor.yml` | Stop `init.yml`, before it changes anything, on an agave, jito or allnodes version or a Yellowstone plugin older than Alpenglow runs on (4.3.0 on mainnet, 4.4.0-beta.0 on testnet and devnet) |
 | `geyser_richat_build.yml` | Build Richat gRPC plugin from source (only with `geyser_plugin: richat`) |
 | `update_geyser.yml` | Update Geyser plugin |
 | `update_startup_config.yml` | Update start-validator.sh from template |

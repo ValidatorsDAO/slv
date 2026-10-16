@@ -10,11 +10,13 @@ the output is read back:
 
   - the known validators of the mainnet validator script and of both mainnet
     Firedancer configs are the four of Anza; the testnet validator scripts hold the
-    five of testnet, and the generic one also pins the genesis hash and says
-    --only-known-rpc like its siblings
+    five of testnet and pin the genesis hash, and the agave and jito ones also say
+    --only-known-rpc (only one of the five known validators of testnet serves RPC,
+    so the generic one leaves it out, as it did before)
   - votor_peer_overrides renders --votor-peer-overrides once per identity from
     agave 4.3.0, with the version the XDP flags use, and stops the render for the
-    node's own identity_account and for anything that is not a base58 public key
+    node's own identity_account and for anything that is not a base58 public key,
+    which includes a key with a newline or any other whitespace in it, or after it
   - nothing passes --tpu-connection-pool-size, which agave 4.3 removed
 """
 import json
@@ -74,6 +76,16 @@ BAD_LISTS = {
     "too-short": ([PEER_A[:31]], OWN, "not a base58 public key"),
     "too-long": ([PEER_A + "x"], OWN, "not a base58 public key"),
     "empty-entry": ([PEER_A, ""], OWN, "not a base58 public key"),
+    # $ also matches in front of a final newline, so a key that ends with one used to get through
+    "trailing-newline": ([PEER_A + "\n"], OWN, "not a base58 public key"),
+    "trailing-crlf": ([PEER_A + "\r\n"], OWN, "not a base58 public key"),
+    "newline-between-keys": ([PEER_A, PEER_B + "\n"], OWN, "not a base58 public key"),
+    "leading-newline": (["\n" + PEER_A], OWN, "not a base58 public key"),
+    "inner-newline": ([PEER_A[:20] + "\n" + PEER_A[20:]], OWN, "not a base58 public key"),
+    "trailing-space": ([PEER_A + " "], OWN, "not a base58 public key"),
+    "leading-space": ([" " + PEER_A], OWN, "not a base58 public key"),
+    "trailing-tab": ([PEER_A + "\t"], OWN, "not a base58 public key"),
+    "own-with-newline": ([OWN + "\n"], OWN, "not a base58 public key"),
     "number": ([42], OWN, "not a base58 public key"),
     "nested-list": ([[PEER_A]], OWN, "not a base58 public key"),
     "one-string": (PEER_A, OWN, "must be a list"),
@@ -325,13 +337,21 @@ class KnownValidators(unittest.TestCase):
             with self.subTest(script=name):
                 self.assertEqual(flags(text, "--known-validator"), TESTNET_KNOWN)
 
-    def test_every_testnet_validator_script_pins_the_genesis_hash_and_the_known_rpc(self):
+    def test_every_testnet_validator_script_pins_the_genesis_hash(self):
         for name in ("testnet", "testnet-agave", "testnet-jito"):
             for client in VALIDATORS[name][2]:
                 text = _outputs[f"base__{name}__{client}__4.4.0-beta.1{SUFFIX[client]}"]
                 with self.subTest(script=name, client=client):
                     self.assertEqual(flags(text, "--expected-genesis-hash"), [TESTNET_GENESIS])
-                    self.assertEqual(len(re.findall(r"^--only-known-rpc \\$", text, re.M)), 1)
+
+    def test_only_the_agave_and_jito_testnet_scripts_say_only_known_rpc(self):
+        # one of the five known validators of testnet serves RPC: with --only-known-rpc a node that downloads its snapshot
+        # depends on that one, which the agave and jito scripts already did before the Alpenglow update
+        for name, expected in (("testnet", 0), ("testnet-agave", 1), ("testnet-jito", 1)):
+            for client in VALIDATORS[name][2]:
+                text = _outputs[f"base__{name}__{client}__4.4.0-beta.1{SUFFIX[client]}"]
+                with self.subTest(script=name, client=client):
+                    self.assertEqual(len(re.findall(r"^--only-known-rpc \\$", text, re.M)), expected)
 
 
 class VotorPeerOverrides(unittest.TestCase):
