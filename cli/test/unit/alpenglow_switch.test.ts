@@ -165,7 +165,7 @@ Deno.test('slv v switch under TowerBFT and under Alpenglow switches the two name
   }
 })
 
-Deno.test('slv v switch switches nothing when the confirmation is declined or a host name is missing, and does not call a failed switch a success', async () => {
+Deno.test('slv v switch switches nothing and exits 1 when the confirmation is declined', async () => {
   const declined = harness({ accepted: false })
   assertEquals(
     await runSwitchCommand(
@@ -176,7 +176,10 @@ Deno.test('slv v switch switches nothing when the confirmation is declined or a 
   )
   assertEquals(declined.switches, [])
   assertStringIncludes(declined.errors.join('\n'), 'Switch Cancelled')
+  assertEquals(declined.exitCodes, [1])
+})
 
+Deno.test('slv v switch switches nothing and exits 1 when a host name is missing', async () => {
   const missing = harness({ names: ['val-a', ''] })
   assertEquals(
     await runSwitchCommand({ network: 'testnet' }, missing.deps),
@@ -187,7 +190,10 @@ Deno.test('slv v switch switches nothing when the confirmation is declined or a 
     missing.warnings.join('\n'),
     'From and To Validators are required',
   )
+  assertEquals(missing.exitCodes, [1])
+})
 
+Deno.test('slv v switch exits 1 and does not call it a success when the switch itself fails', async () => {
   const failed = harness({ switched: false })
   assertEquals(
     await runSwitchCommand(
@@ -196,7 +202,9 @@ Deno.test('slv v switch switches nothing when the confirmation is declined or a 
     ),
     false,
   )
+  assertEquals(failed.switches, [['testnet_validators', 'val-a', 'val-b']])
   assertEquals(failed.successes, [])
+  assertEquals(failed.exitCodes, [1])
 })
 
 Deno.test('slv v switch is the action of runSwitchCommand', async () => {

@@ -109,7 +109,7 @@ Deno.test('precheck still stops when the peer named as down answers and runs the
   assertStringIncludes(result.failures.join('\n'), 'is running identity')
 })
 
-Deno.test('precheck stops the dead-primary failover when the identity is in gossip at the old primary address', async () => {
+Deno.test('precheck stops the dead-primary failover when the identity is in gossip at the old primary address and the vote account has no vote on record to show it quiet', async () => {
   const result = await runIdentityPrecheck(
     input({ downPeer: 'val-primary' }),
     stub({
@@ -122,6 +122,8 @@ Deno.test('precheck stops the dead-primary failover when the identity is in goss
     result.failures.join('\n'),
     'already in gossip at 203.0.113.10',
   )
+  assertStringIncludes(result.failures.join('\n'), 'has no vote on record')
+  assertEquals('staleAddress' in result, false)
 })
 
 // --- the vote window, by consensus ---------------------------------------------

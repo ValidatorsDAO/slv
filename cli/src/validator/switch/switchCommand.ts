@@ -124,18 +124,25 @@ const runSwitchCommand = async (
   )
   if (!accepted) {
     deps.error('❌ Switch Cancelled')
+    deps.setExitCode(1)
     return false
   }
   if (!from || !to) {
     deps.warn('⚠️ From and To Validators are required')
+    deps.setExitCode(1)
     return false
   }
   deps.info(
     `✨ Switching ${networkString} Validator Identity from ${from} to ${to}...`,
   )
   const switched = await deps.switchValidator(inventoryType, from, to)
-  if (switched) deps.success('✅ Successfully Switched Validator Identity')
-  return switched
+  if (!switched) {
+    // switchValidator has said why; a script has to be able to tell.
+    deps.setExitCode(1)
+    return false
+  }
+  deps.success('✅ Successfully Switched Validator Identity')
+  return true
 }
 
 export { runSwitchCommand }
