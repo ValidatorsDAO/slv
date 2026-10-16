@@ -75,13 +75,13 @@ A node that ran Richat gets `richat.service` stopped and disabled when it is ini
 
 ### Step 4: Validator Type (underlying client)
 - `agave` — Standard Agave
-- `jito` — Jito MEV client
-- `jito-bam` — Jito with Block Awareness Module (recommended for gRPC Geyser)
+- `jito` — Jito MEV client (recommended for gRPC Geyser)
+- `allnodes-jito` — Allnodes-Jito (jito fork with extra patches)
 - `firedancer-agave` — Firedancer with Agave consensus
 
 ### Step 5: Versions
 - `solana_version` — Solana/Agave version (required, default: `4.3.2`)
-- `jito_version` — **Required** if jito/jito-bam selected
+- `jito_version` — **Required** if jito/allnodes-jito selected
 - `firedancer_version` — **Required** if firedancer selected
 
 ### Step 6: Keys & Identity
@@ -103,7 +103,7 @@ A node that ran Richat gets `richat.service` stopped and disabled when it is ini
 - `allowed_ssh_ips` — IPs allowed SSH access (strongly recommended)
 - `allowed_ips` — Additional firewall rules (optional)
 
-### Step 10: Jito-specific (if jito/jito-bam)
+### Step 10: Jito-specific (if jito/allnodes-jito)
 - `shred_receiver_address` — Jito shred receiver (auto-select by region)
 - `block_engine_url` — Jito block engine URL (auto-select by region)
 

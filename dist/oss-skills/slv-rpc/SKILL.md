@@ -2,16 +2,6 @@
 
 Ansible playbooks and Jinja2 templates for deploying and managing Solana RPC nodes (mainnet, testnet, devnet).
 
-## Recommended RAM
-
-| Configuration | Minimum RAM |
-|---|---|
-| gRPC Geyser only | 384 GB |
-| Index RPC (without gRPC) | 768 GB |
-| Index RPC + gRPC | 1 TB |
-
-These are recommended minimums. Higher specs improve performance and stability.
-
 ## Supported RPC Types
 
 | Type | Description |
@@ -36,6 +26,49 @@ jinja/
   cmn/           — Shared templates
 ```
 
+## Benchmarking Notes
+
+### Planned CLI shape
+A natural future command shape is:
+
+```bash
+slv check geyserbench <options>
+```
+
+This would mirror the existing `slv check grpc` / `slv check shreds` style by passing arguments through to the installed benchmark binary.
+
+### `geyserbench` config generation
+For `shredstream` and `grpc` benchmark flows, the agent should be able to generate `config.toml` from:
+- benchmark type
+- two endpoint URLs
+- ERPC API key from `~/.slv/api.yml`
+
+If `~/.slv/api.yml` does not contain the required ERPC API key, instruct the user to get a free key and configure it first.
+
+Example config:
+
+```toml
+[config]
+region = "frankfurt"
+erpc_url = "https://edge.erpc.global"
+erpc_api_key = "api-key"
+transactions = 10000
+account = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+commitment = "processed"
+
+[[endpoint]]
+name = "http://shreds-fra6-1.erpc.global"
+url = "http://shreds-fra6-1.erpc.global"
+kind = "shredstream"
+
+[[endpoint]]
+name = "http://shreds-turbo-fra-1.erpc.global"
+url = "http://shreds-turbo-fra-1.erpc.global"
+kind = "shredstream"
+```
+
+For gRPC benchmarks, use the same structure but set the endpoint `kind` to the appropriate gRPC-compatible type.
+
 ## CLI Command ↔ Playbook Mapping
 
 The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc`, `testnet-rpc`, or `devnet-rpc`.
@@ -54,6 +87,7 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `slv r update:geyser` | `{net}/update_geyser.yml` | Update Geyser plugin |
 | `slv r get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv r cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |
+| `slv disable pwd-login` | `cmn/disable_pwd_login.yml` | Disable SSH password authentication |
 | `slv r list` | *(no playbook)* | List RPC nodes (CLI only) |
 | `slv r update:allowed-ips` | *(no playbook)* | Update allowed IPs (CLI only) |
 | `slv r init` | *(no playbook)* | Interactive wizard (CLI only) |
@@ -77,8 +111,10 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `install_richat.yml` | Install Richat gRPC plugin (only with `geyser_plugin: richat`) |
 | `install_of1.yml` | Install Old Faithful (yellowstone-faithful) |
 | `install_of1_service.yml` | Setup Old Faithful systemd service |
+| `cmn/of1_index_cache_sync.yml` | Install rolling-cache sync script + daily timer |
 | `geyser_build.yml` | Build Yellowstone gRPC from source (the Geyser plugin of `init.yml` by default) |
-| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, after the Yellowstone build of `init.yml` |
+| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, and move its plugin library aside (`librichat_plugin_agave.so.disabled`), after the Yellowstone build of `init.yml` |
+| `cmn/check_alpenglow_floor.yml` | Stop `init.yml`, before it changes anything, on an agave, jito or allnodes version or a Yellowstone plugin older than Alpenglow runs on (4.3.0 on mainnet, 4.4.0-beta.0 on testnet and devnet) |
 | `geyser_richat_build.yml` | Build Richat gRPC plugin from source (only with `geyser_plugin: richat`) |
 | `update_geyser.yml` | Update Geyser plugin |
 | `update_startup_config.yml` | Update start-validator.sh from template |
@@ -153,6 +189,7 @@ The `slv r` CLI commands map directly to these playbooks. `{net}` = `mainnet-rpc
 | `mount_disks.yml` / `mount-disks.yml` | Mount and format disks |
 | `optimize_system.yml` | Optimize system settings |
 | `disable_swap.yml` | Disable swap |
+| `disable_pwd_login.yml` | Disable SSH password authentication and restart sshd |
 | `setup_logrotate.yml` | Configure log rotation |
 | `setup_node_exporter.yml` | Setup Prometheus node exporter |
 | `setup_norestart.yml` | Disable auto-restart |
@@ -215,7 +252,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `network` | "mainnet, testnet, or devnet?" | `mainnet`, `testnet`, `devnet` |
 | `region` | "Server region?" | String |
 | `rpc_type` | "RPC type?" | `RPC`, `Index RPC`, `Geyser gRPC`, `Index RPC + gRPC` |
-| `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+| `validator_type` | "Underlying client?" | `agave`, `jito`, `allnodes-jito`, `firedancer-agave` |
 | `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
@@ -224,13 +261,16 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 
 | Variable | Default | When Required |
 |---|---|---|
-| `jito_version` | Matches solana_version | jito/jito-bam types |
+| `jito_version` | Matches solana_version | jito/allnodes-jito types |
 | `firedancer_version` | — | firedancer types |
 | `geyser_version` | `geyser_version` of the network in `~/.slv/versions.yml` | Yellowstone gRPC plugin (the default) |
 | `richat_version` | — | Richat plugin (`geyser_plugin: richat`) |
 | `of1_version` | — | Index RPC (Old Faithful) |
 | `epoch` | — | Index RPC (faithful service) |
 | `faithful_proxy_target_url` | — | Index RPC |
+| `index_rpc_window_epochs` | `30` | Index RPC (rolling cache window) |
+| `of1_index_cache_dir` | `/mnt/ledger/car/indexes` | Index RPC (rolling cache disk) |
+| `of1_run_initial_sync` | `true` | Index RPC (foreground first-time fill) |
 
 ### Optional Variables
 
@@ -254,23 +294,11 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 
 ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
 
-### Pre-flight: Fresh Server Setup (MANDATORY before deploy)
+### Pre-flight: Fresh Server Setup
 
-**1. Test SSH connectivity first:**
-```bash
-ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <ssh_user>@<server_ip> 'echo SSH_OK'
-```
-If this fails, report the error. Do NOT proceed.
-
-**2. Create solv user:**
 ```bash
 ansible-playbook -i inventory.yml cmn/add_solv.yml \
-  -e '{"ansible_user":"<ssh_user>"}' -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"' --become
-```
-
-**3. Verify solv user works:**
-```bash
-ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 solv@<server_ip> 'echo SOLV_OK'
+  -e '{"ansible_user":"ubuntu"}' --become
 ```
 
 ### Deployment Command
@@ -284,41 +312,99 @@ ansible-playbook -i inventory.yml {network}-rpc/init.yml \
 
 ## Performance Tuning
 
-The `init.yml` playbook automatically applies performance tuning during first deployment:
+`slv r init` automatically applies node-level performance tuning **after the
+SSH connection check** and **before** `slv r deploy`. The orchestrator
+playbook `cmn/optimize_node.yml` chains three sub-skills and reboots the node
+once when GRUB / kernel changes require it.
 
-| Tuning | Description |
-|---|---|
-| SMT Disable | Disables Hyper-Threading via GRUB `nosmt` for better single-thread performance |
-| IRQ Tuning | NIC IRQ 1:1 pinning + RPS/XPS optimization for balanced network interrupt distribution |
-| CPU Boost | HWE kernel + AMD performance governor + boost + C-state optimization |
-
-### Inventory Fields (auto-managed)
-
-| Field | Type | Default | Description |
+| Sub-skill | Playbook | Description | Reboot |
 |---|---|---|---|
-| `smt_disable` | bool | `false` | Set to `true` after SMT disable is applied |
-| `irq_tuning` | bool | `false` | Set to `true` after IRQ tuning is applied |
-| `cpu_boost` | bool | `false` | Set to `true` after CPU boost is applied |
-| `need_reboot` | bool | `false` | Set to `true` when reboot is required |
+| `slv-smt-disable` | `cmn/smt_disable.yml` | Disables Hyper-Threading via GRUB `nosmt=force` | **Yes** (first run) |
+| `slv-irq-tuning` | `cmn/irq_tune.yml` | NIC IRQ 1:1 pin + RPS/XPS + ring 8192 + sysctl + ulimit + THP off + NVMe queue=ncores | Only if NVMe GRUB changed |
+| `slv-performance-boost` | `cmn/boost_performance.yml` | HWE kernel install + amd_pstate=active + governor=performance + EPP + boost + cpuidle disable + scaling_max_freq | **Yes** if AMD < 6.14 or AMD GRUB updated |
 
-### Reboot Flow
+Idempotency markers: `/var/lib/slv/.smt_disabled`, `.irq_tuned`, `.boost_applied`.
+The orchestrator reboots once if any sub-skill requested it and waits for the
+host to come back.
 
-If performance tuning requires a reboot (kernel update, GRUB changes):
-1. Deployment pauses with a message: "Reboot required"
-2. User reboots the server
-3. User re-runs `slv r deploy` (or `slv v deploy`)
-4. Tuning steps are skipped (already applied), deployment continues
+### SHA256 patch (RPC only)
+
+After `slv r deploy` completes successfully, the optimized SHA256 binary is
+**automatically built and deployed** by calling `runSha256Patch` with the
+Solana version pulled from `~/.slv/versions.yml`. This replaces the
+`agave-validator` binary with one that uses `solana-sha256-hasher-optimized`
+in PoH hashing. Restart the RPC manually when ready (the patch step does not
+restart on its own).
 
 ### Standalone Usage
 
-Performance tuning can also be run independently:
 ```bash
-ansible-playbook -i inventory.yml cmn/performance_tune.yml
+# Run full optimization stack
+ansible-playbook -i inventory.yml cmn/optimize_node.yml --limit <host>
+
+# Run a single sub-skill
+ansible-playbook -i inventory.yml cmn/smt_disable.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/irq_tune.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/boost_performance.yml --limit <host>
+
+# Apply SHA256 patch manually
+slv r patch:sha256 -n <network> -p <pubkey>
 ```
 
 ### CLI Command Mapping
 
-| CLI Command | Playbook |
+| CLI Command | Behaviour |
 |---|---|
-| `slv r deploy` | `{net}/init.yml` (includes performance_tune.yml) |
-| *(standalone)* | `cmn/performance_tune.yml` |
+| `slv r init` (after SSH check) | `cmn/optimize_node.yml` (auto-reboot if needed) |
+| `slv r deploy` | `{net}-rpc/init.yml` + auto `runSha256Patch` |
+| `slv r patch:sha256` | `cmn/patch_sha256.yml` (standalone) |
+
+## Index RPC: Rolling Index Cache
+
+`Index RPC` and `Index RPC + gRPC` deploys add a rolling cache of
+yellowstone-faithful indexes for the most recent N epochs (default 30) so
+historical RPC queries answer locally instead of round-tripping to
+`files.old-faithful.net` on every lookup.
+
+### How it works
+
+The index files (cid-to-offset, slot-to-cid, sig-to-cid, sig-exists,
+slot-to-blocktime) are kept on local disk; CAR files stay remote and are
+fetched via HTTP Range requests as needed. A daily systemd timer
+(`of1-index-sync.timer`) calls `/usr/local/bin/of1-index-sync.sh`, which:
+
+1. Discovers the latest available epoch on Old Faithful.
+2. Downloads any missing indexes for the last `index_rpc_window_epochs` epochs (parallel `aria2c`).
+3. Regenerates per-epoch config YAMLs in `/home/solv/configs/` with `file://` URIs for indexes + `https://` URI for CAR.
+4. Evicts caches older than the window.
+5. Restarts `faithful.service` only if anything changed.
+
+`faithful.service` runs through `/usr/local/bin/start-faithful.sh`, which
+globs `config-epoch*.yaml` so the timer can add or remove epochs without
+editing the systemd unit.
+
+### Disk budget
+
+A recent epoch is ~30 GB of indexes (CAR is excluded — it would be
+500-800 GB per epoch). 30 epochs ≈ ~1 TB on local disk and covers ~63
+days of mainnet history.
+
+### Measured impact (representative production RPC node)
+
+| Method | Before (all-remote URIs) | After (local indexes) | Improvement |
+|---|---:|---:|---|
+| `getTransaction` | 313 ms p50 / 481 ms p95 | 73 ms p50 / 96 ms p95 | **~6× faster** |
+| `getBlockTime` | 34 ms p50 | 34 ms p50 | unchanged (already fast) |
+| `getBlock` | 141 ms p50 | 161-194 ms p50 | CAR-fetch dominated |
+
+`getTransaction` is the win because it traverses three indexes; with all
+of them remote each query becomes an HTTP-Range chain. Localizing
+collapses that to a single CAR roundtrip.
+
+### Standalone control
+
+```bash
+sudo systemctl start of1-index-sync.service        # ad-hoc sync
+WINDOW=10 sudo /usr/local/bin/of1-index-sync.sh    # smaller window
+DRY_RUN=1 sudo /usr/local/bin/of1-index-sync.sh    # show plan without DL
+```

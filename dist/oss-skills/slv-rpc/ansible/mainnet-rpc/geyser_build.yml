@@ -14,9 +14,9 @@
     geyser_config_template: "~/.slv/mainnet-rpc/geyser.json.j2"
     geyser_config_path: "/home/solv/geyser.json"
   tasks:
-    - name: Resolve geyser version (overridable via -e geyser_version=)
+    - name: Resolve geyser version (overridable via -e geyser_version= or the host)
       set_fact:
-        geyser_version_resolved: "{{ geyser_version | default(mainnet_rpcs.geyser_version) }}"
+        geyser_version_resolved: "{{ geyser_version | default(mainnet_rpcs.geyser_version, true) }}"
 
     - name: Clone or update the Yellowstone gRPC repository with specific tag
       git:

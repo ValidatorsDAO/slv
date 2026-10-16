@@ -1,0 +1,49 @@
+# Managed by slv — nftables base ruleset
+#
+# Fragment layout:
+#   /etc/nftables.sets.d/*.nft   — set + counter definitions (table-scope)
+#   /etc/nftables.d/*.nft        — chain rules (loaded inside `input`)
+#
+# Re-running the playbook clears these directories before re-rendering, so
+# manual edits to fragment files will not survive a re-deploy.  Use the
+# `slv firewall add-ip` / `slv firewall remove-ip` runtime commands (or
+# raw `nft add/delete element`) for ad-hoc IP changes; they persist via
+# `tasks/persist_nftables_ruleset.yml` which exports the live ruleset
+# back into this file on every deploy.
+
+# `flush ruleset` is the only safe way to re-apply: without it, `nft -f`
+# merges the new table into the existing one, accumulating duplicate
+# rules on every deploy.  The flush is atomic with the subsequent table
+# definition (nft -f loads the whole file as a single transaction), so
+# there's no observable window where the chain is empty.
+flush ruleset
+
+table inet filter {
+  include "/etc/nftables.sets.d/*.nft";
+
+  chain input {
+    type filter hook input priority 0;
+    policy drop;
+
+    iif "lo" accept;
+    ct state established,related accept;
+
+    # ICMP / ICMPv6 — allow ping + path MTU discovery.  Without this,
+    # connections through routers that need to send Fragmentation Needed
+    # silently stall instead of erroring.
+    ip protocol icmp accept;
+    ip6 nexthdr ipv6-icmp accept;
+
+    include "/etc/nftables.d/*.nft";
+  }
+
+  chain forward {
+    type filter hook forward priority 0;
+    policy drop;
+  }
+
+  chain output {
+    type filter hook output priority 0;
+    policy accept;
+  }
+}

@@ -1,0 +1,42 @@
+---
+# Stops a node that is set to use richat while richat has no release for the agave of the node. It
+# changes nothing on the host. The RPC init.yml imports it for a host with geyser_plugin: richat, and
+# geyser_richat_build.yml, install_richat.yml and init_richat_geyser.yml import it, so that a direct
+# run of them refuses too.
+#
+# The caller passes versions_section, the section of ~/.slv/versions.yml that holds the pins of the
+# node (mainnet_rpcs, testnet_rpcs or devnet_rpcs). The client of the node is its agave_version
+# (jito_version when validator_type is jito), from the host or from -e, else version_agave
+# (version_jito) of that section. A node whose client version is not known is refused too.
+- name: Check that a richat release supports the client of this node
+  hosts: all
+  gather_facts: no
+  any_errors_fatal: true
+  vars_files:
+    - ["~/.slv/versions.yml", "/dev/null"]
+  vars:
+    # The first agave release that no richat release supports: richat-v8.2.2 is built for agave
+    # 3.1 and the newest richat for 4.0. Raise it when a richat release for a newer agave comes,
+    # and point richat_version at that release.
+    richat_first_unsupported_agave: [4, 3, 0]
+  tasks:
+    - name: Read the version of the client that this node is set to run
+      set_fact:
+        slv_client_version: >-
+          {{ jito_version | default(slv_pins.version_jito | default('', true), true)
+             if (validator_type | default('')) == 'jito'
+             else agave_version | default(slv_pins.version_agave | default('', true), true) }}
+      vars:
+        slv_pins: "{{ lookup('ansible.builtin.vars', versions_section, default={}) if (versions_section | default('')) != '' else {} }}"
+
+    - name: Fail unless the version of the client is known
+      ansible.builtin.assert:
+        that:
+          - (slv_client_version | string | regex_findall('[0-9]+') | length) > 0
+        fail_msg: "richat cannot be used on {{ inventory_hostname }}: no version of agave or jito is set for it (agave_version, jito_version, or version_agave and version_jito in {{ versions_section | default('the section that the playbook passes as versions_section') }} of ~/.slv/versions.yml), and richat has no release for agave 4.3 or later yet. Use the Yellowstone plugin, the default of init.yml: remove geyser_plugin from the inventory. Nothing was changed."
+
+    - name: Fail when richat has no release for the agave of this node
+      ansible.builtin.assert:
+        that:
+          - ((slv_client_version | string).split('-')[0] | regex_findall('[0-9]+') | map('int') | list + [0, 0, 0])[:3] < richat_first_unsupported_agave
+        fail_msg: "richat cannot be used on {{ inventory_hostname }}: richat has no release for agave 4.3 or later yet, and this node is set to run {{ slv_client_version }}. Use the Yellowstone plugin, the default of init.yml: remove geyser_plugin from the inventory. Nothing was changed."

@@ -52,6 +52,15 @@
         version: '{{ jito_version }}'
         force: yes
 
+    - name: Remove stale cargo-build-sbf/cargo-test-sbf (avoid cargo-install conflict)
+      become: no
+      file:
+        path: '{{ jito_install_dir }}/bin/{{ item }}'
+        state: absent
+      loop:
+        - cargo-build-sbf
+        - cargo-test-sbf
+
     - name: Build Jito Solana (cargo-install-all)
       become: no
       shell: |

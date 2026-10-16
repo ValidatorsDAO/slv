@@ -1,0 +1,42 @@
+---
+# Stop and disable richat.service on a node that ran richat and now runs the Yellowstone plugin
+# (init.yml of the RPC networks imports this after the Yellowstone build), so that the richat
+# daemon, which serves gRPC on port 10000 as well, does not keep the port from the plugin. The
+# richat plugin library is moved aside too, to the same name with the suffix .disabled, so that
+# the node has one geyser plugin library and not two (mainnet-rpc/update_startup_config.yml
+# stops on a node that has both). Nothing is deleted: mv the .disabled file back to return to
+# richat. A node that never had richat has no unit file and no library, and nothing happens.
+- name: Stop and disable richat on a node that ran it
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Look for the richat service unit
+      stat:
+        path: /etc/systemd/system/richat.service
+      register: richat_unit
+
+    - name: Stop and disable richat.service
+      systemd:
+        name: richat.service
+        state: stopped
+        enabled: false
+      when: richat_unit.stat.exists
+
+    # The library is the link that geyser_richat_build.yml makes. A link that points nowhere is a
+    # library for update_startup_config.yml too, so the link itself is looked for, not its target.
+    - name: Look for the richat plugin library
+      stat:
+        path: /home/solv/librichat_plugin_agave.so
+        follow: false
+      register: richat_lib
+
+    - name: Move the richat plugin library aside
+      command:
+        argv:
+          - mv
+          - -f
+          - --
+          - /home/solv/librichat_plugin_agave.so
+          - /home/solv/librichat_plugin_agave.so.disabled
+      when: richat_lib.stat.exists

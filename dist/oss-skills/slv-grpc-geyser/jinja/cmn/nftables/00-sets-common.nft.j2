@@ -1,0 +1,27 @@
+{# Set + counter definitions for slv-nftables.
+
+   `set_slug` derives a stable nft identifier (only [0-9_]) from each
+   restricted_port's `port` value — 8899 → "8899", "8000-8020" → "8000_8020".
+   This lets a single inventory describe both single ports and ranges
+   without the operator having to invent set names by hand.
+#}
+{% macro set_slug(port) -%}
+{{ port | string | regex_replace('[^0-9]+', '_') }}
+{%- endmacro %}
+
+# Ban list — highest priority, evaluated before any allow.
+set banAll_v4   { type ipv4_addr; flags interval; }
+
+# Global allow-all (matches every dport).
+set allowAll_v4 { type ipv4_addr; flags interval; }
+
+{% for rp in (restricted_ports | default([])) %}
+set allow_{{ set_slug(rp.port) }}_v4 { type ipv4_addr; flags interval; }
+{% endfor %}
+
+counter c_allowall { }
+counter c_ban_drop { }
+{% for rp in (restricted_ports | default([])) %}
+counter c_{{ set_slug(rp.port) }}_allow { }
+counter c_{{ set_slug(rp.port) }}_drop  { }
+{% endfor %}

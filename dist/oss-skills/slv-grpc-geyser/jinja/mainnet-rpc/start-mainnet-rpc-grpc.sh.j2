@@ -15,12 +15,12 @@ exec agave-validator \
 --known-validator DE1bawNcRJB9rVm3buyMVfr8mBEoyyu73NBovf2oXJsJ \
 --known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
 --expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
---expected-shred-version 50093 \
+--expected-shred-version {{ expected_shred_version | default("50093") }} \
 --only-known-rpc \
 --no-voting \
 --private-rpc \
 --no-skip-initial-accounts-db-clean \
---dynamic-port-range 8000-8020 \
+--dynamic-port-range 8000-8030 \
 --rpc-bind-address 0.0.0.0 \
 --rpc-port {{ port_rpc }} \
 --no-port-check \

@@ -43,6 +43,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `slv v update:script` | `{net}/update_startup_config.yml` | Re-render start-validator.sh from template |
 | `slv v set:identity -p <host>` | `{net}/set_identity_key.yml` | Set validator identity key on one host |
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
+| `slv v register:bls` | *(no playbook — solana CLI)* | Register the BLS pubkey on each vote account (SIMD-0387). Also auto-runs at the end of `slv v deploy` |
 | `slv v get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv v cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |
 | `slv disable pwd-login` | `cmn/disable_pwd_login.yml` | Disable SSH password authentication |
@@ -174,13 +175,18 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `vote_account` | Vote account pubkey | — |
 | `block_engine_url` | Jito block engine URL | `https://frankfurt.mainnet.block-engine.jito.wtf` |
 | `shred_receiver_address` | Jito shred receiver. **Accepts a single string or a YAML list** — a list emits one `--shred-receiver-address` flag per entry | `64.130.50.14:1002` |
-| `bam_url` | *Optional.* When set, the validator starts with `--bam-url <value>` and joins the BAM pipeline. Applies to both `jito` and `allnodes-jito`. Replaces the removed `jito-bam` validator_type | — |
+| `bam_url` | BAM scheduler URL — the validator starts with `--bam-url <value>` and joins the BAM pipeline. Applies to `jito` / `allnodes-jito` and must be paired with `block_engine_url` + `shred_receiver_address` (and the tip/merkle MEV flags). Can also be toggled at runtime without a restart: `agave-validator -l <ledger> set-bam-config --bam-url <url>` (empty to disable). Replaces the removed `jito-bam` validator_type | — |
 | `commission_bps` | Commission in basis points | `0` |
 | `dynamic_port_range` | Validator port range | `8000-8025` |
 | `limit_ledger_size` | Ledger size limit | `200000000` |
 | `expected_shred_version` | Expected shred version (testnet, epoch-dependent) | — |
-| `expected_bank_hash` | Expected bank hash (testnet, optional) | — |
-| `wait_for_supermajority` | Wait for supermajority slot (testnet, optional) | — |
+| `expected_bank_hash` | **Cluster-restart only.** Emitted only when explicitly set (gated `is defined`). Do NOT set for normal operation — a stale value triggers a bank-hash-mismatch panic on restart | — |
+| `wait_for_supermajority` | **Cluster-restart only.** Emitted only when explicitly set (gated `is defined`). Do NOT set for normal operation — a stale slot makes the validator hang/fail at startup | — |
+| `xdp_enabled` | Enable XDP (eXpress Data Path) Turbine-retransmit acceleration. `agave` / `jito` only (Firedancer uses XDP natively). Gates the `--experimental-retransmit-xdp-*` flags and the systemd `CAP_NET_RAW/NET_ADMIN/BPF/PERFMON` capabilities. Per-host (NIC-/CPU-dependent) | `false` |
+| `xdp_interface` | XDP NIC (bond member, e.g. the active data interface). Required when `xdp_enabled`; the flag block is skipped if blank | — |
+| `xdp_cpu_cores` | XDP retransmit CPU core count | `1` |
+| `xdp_zero_copy` | Enable `--experimental-retransmit-xdp-zero-copy`. Do NOT enable on `bnxt_en` / `ice` drivers | `false` |
+| `xdp_poh_pinned_cpu_core` | Optional PoH pinned CPU core (`--experimental-poh-pinned-cpu-core`) | — |
 | `source_host` | Source host for nodowntime migration | — |
 | `target_host` | Target host for nodowntime migration | — |
 
@@ -225,6 +231,51 @@ Runs `{net}-validator/nodowntime_migrate.yml`:
 (`agave`, `jito`, or `allnodes-jito`), the local key file at
 `~/.slv/keys/<identity_account>.json`, and `unstaked-identity.json` on each
 remote box.
+
+## Validator Requirements: BLS (SIMD-0387), XDP, BAM
+
+### BLS public key (SIMD-0387)
+
+Voting validators must register the BLS public key derived from their authorized
+voter keypair. Without it the vote account behaves as **unstaked** once SIMD-0357
+(Alpenglow voting) activates. The authorized voter defaults to the validator
+identity, so the identity keypair signs and fills the derived BLS key:
+
+```bash
+slv v register:bls -n <network> -p <host>   # all hosts if -p omitted
+```
+
+- Runs `solana vote-authorize-voter-checked <vote> <identity> <identity> --use-v2-instruction`.
+  Forcing the v2 instruction means that while the feature gate is still inactive
+  the tx fails cleanly at simulation **without mutating state** (no wasted
+  voter re-authorization). The authorized voter is unchanged.
+- Idempotent: skips hosts whose on-chain `blsPubkeyCompressed` is already set and
+  re-reads it to confirm success.
+- Auto-runs (non-fatal) at the end of `slv v deploy`. Re-run manually after the
+  feature activates on the target cluster.
+- Requires a solana/agave CLI new enough to expose `vote-authorize-voter-checked
+  --use-v2-instruction` and `solana-keygen bls_pubkey` (v4.x).
+
+### XDP retransmit acceleration
+
+`agave` / `jito` only — Firedancer uses XDP natively. Set the per-host
+`xdp_*` inventory vars (see Key Variables); `slv v init` prompts for them. When
+`xdp_enabled` + a non-empty `xdp_interface` are present, the start script gains
+`--experimental-retransmit-xdp-*` flags and the systemd unit gets
+`CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON`. Needs kernel 6.8+ (igb: 6.14+).
+Do not enable `xdp_zero_copy` on `bnxt_en` / `ice` drivers. Flags are
+`--experimental-` in current Agave and may be renamed upstream.
+
+### BAM (jito)
+
+Joining BAM needs `bam_url` **plus** `block_engine_url` and
+`shred_receiver_address` (BAM runs alongside the block engine, it does not
+replace it), and the MEV flags (`--tip-payment-program-pubkey`,
+`--tip-distribution-program-pubkey`, `--merkle-root-upload-authority`,
+`--commission-bps`) — all already emitted by the jito start template. A relayer
+URL is not used with BAM. BAM can be enabled/disabled at runtime without a
+restart via `agave-validator -l <ledger> set-bam-config --bam-url [<url>]`.
+A validator only connects to BAM while it is in the leader schedule.
 
 ## Direct ansible invocation
 
@@ -271,9 +322,11 @@ for the generated output format.
 | `allowed_ips` | — | Optional (UFW) |
 | `block_engine_url` | Auto by region | Jito types only |
 | `shred_receiver_address` | Auto by region | Jito types only |
+| `bam_url` | — | Jito types joining BAM |
 | `expected_shred_version` | Epoch-dependent | Testnet only |
-| `expected_bank_hash` | Epoch-dependent | Testnet (optional) |
-| `wait_for_supermajority` | Epoch-dependent | Testnet (optional) |
+| `expected_bank_hash` | — | Cluster restart only (leave unset normally) |
+| `wait_for_supermajority` | — | Cluster restart only (leave unset normally) |
+| `xdp_enabled` (+ `xdp_interface`, `xdp_cpu_cores`, `xdp_zero_copy`, `xdp_poh_pinned_cpu_core`) | `false` | agave/jito, per-host |
 
 ### Optional: Reference RPC
 
@@ -310,41 +363,50 @@ ansible-playbook -i inventory.yml {network}-validator/init.yml \
 
 ## Performance Tuning
 
-The `init.yml` playbook automatically applies performance tuning during first deployment:
+`slv v init` automatically applies node-level performance tuning **after the SSH
+connection check** and **before** `slv v deploy`. The orchestrator playbook
+(`cmn/optimize_node.yml`) chains three sub-skills and reboots the node once
+when GRUB / kernel changes require it.
 
-| Tuning | Description |
-|---|---|
-| SMT Disable | Disables Hyper-Threading via GRUB `nosmt` for better single-thread performance |
-| IRQ Tuning | NIC IRQ 1:1 pinning + RPS/XPS optimization for balanced network interrupt distribution |
-| CPU Boost | HWE kernel + AMD performance governor + boost + C-state optimization |
-
-### Inventory Fields (auto-managed)
-
-| Field | Type | Default | Description |
+| Sub-skill | Playbook | Description | Reboot |
 |---|---|---|---|
-| `smt_disable` | bool | `false` | Set to `true` after SMT disable is applied |
-| `irq_tuning` | bool | `false` | Set to `true` after IRQ tuning is applied |
-| `cpu_boost` | bool | `false` | Set to `true` after CPU boost is applied |
-| `need_reboot` | bool | `false` | Set to `true` when reboot is required |
+| `slv-smt-disable` | `cmn/smt_disable.yml` | Disables Hyper-Threading via GRUB `nosmt=force` | **Yes** (first run) |
+| `slv-irq-tuning` | `cmn/irq_tune.yml` | NIC IRQ 1:1 pin + RPS/XPS + ring 8192 + sysctl + ulimit + THP off + NVMe queue=ncores | Only if NVMe GRUB changed |
+| `slv-performance-boost` | `cmn/boost_performance.yml` | HWE kernel install + amd_pstate=active + governor=performance + EPP + boost + cpuidle disable + scaling_max_freq | **Yes** if AMD < 6.14 or AMD GRUB updated |
+
+### Idempotency markers
+
+Each sub-skill writes a marker file so subsequent runs no-op safely:
+
+| Marker | Skill |
+|---|---|
+| `/var/lib/slv/.smt_disabled` | smt_disable |
+| `/var/lib/slv/.irq_tuned` | irq_tune |
+| `/var/lib/slv/.boost_applied` | boost_performance |
 
 ### Reboot Flow
 
-If performance tuning requires a reboot (kernel update, GRUB changes):
-1. Deployment pauses with a message: "Reboot required"
-2. User reboots the server
-3. User re-runs `slv v deploy`
-4. Tuning steps are skipped (already applied), deployment continues
+`cmn/optimize_node.yml` runs the three sub-playbooks, collects each one's
+`need_reboot` fact, then calls `ansible.builtin.reboot` once if any of them
+requested it (waits up to 15 min for the host to come back). No manual user
+intervention is required.
 
 ### Standalone Usage
 
-Performance tuning can also be run independently:
 ```bash
-ansible-playbook -i inventory.yml cmn/performance_tune.yml
+# Run full optimization stack
+ansible-playbook -i inventory.yml cmn/optimize_node.yml --limit <host>
+
+# Or run a single sub-skill
+ansible-playbook -i inventory.yml cmn/smt_disable.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/irq_tune.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/boost_performance.yml --limit <host> -e amd_pstate_mode=active
 ```
 
 ### CLI Command Mapping
 
 | CLI Command | Playbook |
 |---|---|
-| `slv v deploy` | `{net}/init.yml` (includes performance_tune.yml) |
-| *(standalone)* | `cmn/performance_tune.yml` |
+| `slv v init` (after SSH check) | `cmn/optimize_node.yml` (auto-reboot if needed) |
+| `slv v deploy` | `{net}/init.yml` |
+| *(standalone optimization)* | `cmn/optimize_node.yml` |

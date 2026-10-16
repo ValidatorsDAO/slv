@@ -1,0 +1,164 @@
+---
+# Stops a node that is set to build a client that Alpenglow does not run on, before anything is changed.
+#
+# Alpenglow starts on mainnet with epoch 1064, and testnet and devnet already run it. An agave, jito or
+# allnodes release older than the floor of its network cannot follow it (4.3.0 on mainnet, 4.4.0-beta.0 on
+# testnet and devnet), and neither can a Yellowstone plugin built for one. The init.yml of the validator
+# and RPC networks import this play right after their type gate, so that a run of them stops here whoever
+# started it: slv, the AI console or ansible-playbook by hand.
+#
+# The caller passes versions_section, the section of ~/.slv/versions.yml of the network and role of the node
+# (mainnet_validators, testnet_validators, mainnet_rpcs, testnet_rpcs or devnet_rpcs). The play reads the
+# versions that cmn/build_solana.yml and geyser_build.yml build, from the same places:
+#   - the client of validator_type: agave_version, jito_version or allnodes_jito_version of the host (or
+#     -e), else version_agave, version_jito or version_allnodes_jito of that section. An empty value is none.
+#   - for an RPC node that gets the Yellowstone plugin (rpc_type Geyser gRPC or Index RPC + gRPC, agave
+#     or jito, geyser_plugin yellowstone): geyser_version of the host (or -e), else geyser_version of that
+#     section. The release the plugin is built for is what follows +solana. in the tag, with 4.4.0.beta.0
+#     read as 4.4.0-beta.0; a tag that does not say is not checked.
+#
+# A version older than the floor stops the run. No version at all stops it too, as the build would. A version
+# with no X.Y in it (latest, main, a commit hash) cannot be compared: it stops the run in a mainnet section
+# and is only said in the others.
+#
+# A version is read the way cli/lib/versionFloor.ts reads it: an optional v, X.Y with an optional .Z (4.2 is
+# 4.2.0), further numeric components ignored (4.2.1.1 is 4.2.1), an optional -alpha, -beta or -rc with an
+# optional dot and number (a missing number is 0), and whatever follows ignored, so that -jito, -allnodes.1
+# and an unknown tag such as -bam do not change the release (3.1.10-bam is 3.1.10, 4.3.0-beta.3-bam is
+# 4.3.0-beta.3). tests/alpenglow_floor_vectors.json lists the cases that this play and the CLI both answer.
+- name: Check that the clients of this node are not older than Alpenglow runs on
+  hosts: all
+  gather_facts: no
+  any_errors_fatal: true
+  vars_files:
+    - ["~/.slv/versions.yml", "/dev/null"]
+  vars:
+    # The oldest release Alpenglow runs on, per network (ALPENGLOW_FLOORS of cli/lib/versionFloor.ts)
+    slv_alpenglow_floor_of:
+      mainnet: '4.3.0'
+      testnet: '4.4.0-beta.0'
+      devnet: '4.4.0-beta.0'
+    slv_alpenglow_network_of_section:
+      mainnet_validators: mainnet
+      testnet_validators: testnet
+      mainnet_rpcs: mainnet
+      testnet_rpcs: testnet
+      devnet_rpcs: devnet
+  tasks:
+    - name: Stop unless the caller says which section of versions.yml holds the pins of this node
+      ansible.builtin.assert:
+        that:
+          - (versions_section | default('')) in slv_alpenglow_network_of_section
+        fail_msg: "cmn/check_alpenglow_floor.yml needs versions_section, the section of ~/.slv/versions.yml of the network and role of the node (mainnet_validators, testnet_validators, mainnet_rpcs, testnet_rpcs or devnet_rpcs), and got '{{ versions_section | default('') }}'. Nothing was changed."
+
+    # What this node is going to build: each entry has the label of the client, the text to read, and where
+    # the text comes from (for the messages).
+    - name: Work out the versions that this node is going to build
+      ansible.builtin.set_fact:
+        slv_alpenglow_subjects: "{{ slv_alpenglow_subjects_json | from_json }}"
+      vars:
+        slv_alpenglow_network: "{{ slv_alpenglow_network_of_section[versions_section] }}"
+        slv_alpenglow_pins: "{{ lookup('ansible.builtin.vars', versions_section, default={}) }}"
+        slv_alpenglow_subjects_json: |-
+          {%- set vt = validator_type | default('', true) | string -%}
+          {%- set clients = {
+                'agave': ['agave', 'agave_version', 'version_agave'],
+                'firedancer-agave': ['agave', 'agave_version', 'version_agave'],
+                'jito': ['jito', 'jito_version', 'version_jito'],
+                'firedancer-jito': ['jito', 'jito_version', 'version_jito'],
+                'firedancer': ['jito', 'jito_version', 'version_jito'],
+                'allnodes-jito': ['allnodes-jito', 'allnodes_jito_version', 'version_allnodes_jito']
+              } -%}
+          {%- set subjects = [] -%}
+          {%- if vt in clients -%}
+          {%- set c = clients[vt] -%}
+          {%- set own = lookup('ansible.builtin.vars', c[1], default='') | default('', true) | string | trim -%}
+          {%- set pinned = slv_alpenglow_pins.get(c[2], '') | default('', true) | string | trim -%}
+          {%- set _ = subjects.append({
+                'kind': 'client',
+                'label': c[0],
+                'text': own if own != '' else pinned,
+                'own_key': c[1],
+                'pin_key': c[2],
+                'where': (c[1] ~ ' of the host or -e') if own != '' else (c[2] ~ ' in ' ~ versions_section ~ ' of ~/.slv/versions.yml')
+              }) -%}
+          {%- else -%}
+          {%- set _ = subjects.append({'kind': 'type', 'label': 'validator_type', 'text': vt}) -%}
+          {%- endif -%}
+          {%- set rpc_kind = rpc_type | default('Geyser gRPC' if slv_alpenglow_network != 'mainnet' else '', true) -%}
+          {%- if versions_section.endswith('_rpcs') and rpc_kind in ['Geyser gRPC', 'Index RPC + gRPC'] and vt in ['agave', 'jito'] and (geyser_plugin | default('yellowstone', true)) == 'yellowstone' -%}
+          {%- set tag_own = lookup('ansible.builtin.vars', 'geyser_version', default='') | default('', true) | string | trim -%}
+          {%- set tag = tag_own if tag_own != '' else (slv_alpenglow_pins.get('geyser_version', '') | default('', true) | string | trim) -%}
+          {%- set built = tag | regex_search('[+]solana[.]([^+ ]+)', '\\1') -%}
+          {%- if built -%}
+          {%- set _ = subjects.append({
+                'kind': 'geyser',
+                'label': 'Yellowstone geyser_version',
+                'tag': tag,
+                'text': built[0] | regex_replace('^([0-9]+[.][0-9]+[.][0-9]+)[.]', '\\1-'),
+                'where': ('geyser_version of the host or -e') if tag_own != '' else ('geyser_version in ' ~ versions_section ~ ' of ~/.slv/versions.yml')
+              }) -%}
+          {%- endif -%}
+          {%- endif -%}
+          {{ subjects | to_json }}
+
+    # level is stop, warn or none; verdict is below, ok, unreadable or missing; reads is [major, minor, patch,
+    # rank, number] (rank 0 alpha, 1 beta, 2 rc, 3 release) or null.
+    - name: Compare them with the floor of the network
+      ansible.builtin.set_fact:
+        slv_alpenglow_findings: "{{ slv_alpenglow_findings_json | from_json }}"
+      vars:
+        slv_alpenglow_network: "{{ slv_alpenglow_network_of_section[versions_section] }}"
+        slv_alpenglow_findings_json: |-
+          {%- set pattern = '^v?([0-9]+)[.]([0-9]+)(?:[.]([0-9]+))?(?:[.][0-9]+)*(?:-(alpha|beta|rc)[.]?([0-9]+)?)?' -%}
+          {%- set ranks = {'alpha': 0, 'beta': 1, 'rc': 2} -%}
+          {%- set floor_text = slv_alpenglow_floor_of[slv_alpenglow_network] -%}
+          {%- set f = floor_text | regex_search(pattern, '\\1', '\\2', '\\3', '\\4', '\\5') -%}
+          {%- set floor = [f[0] | int, f[1] | int, (f[2] or 0) | int, ranks[f[3]] if f[3] else 3, (f[4] or 0) | int] -%}
+          {%- set why = ('Alpenglow starts on mainnet at epoch 1064 and needs ' ~ floor_text ~ ' or later') if slv_alpenglow_network == 'mainnet' else (slv_alpenglow_network ~ ' already runs Alpenglow and needs ' ~ floor_text ~ ' or later') -%}
+          {%- set findings = [] -%}
+          {%- for s in slv_alpenglow_subjects -%}
+          {%- if s.kind == 'type' -%}
+          {%- set _ = findings.append({'kind': 'type', 'text': s.text, 'reads': none, 'verdict': 'missing', 'level': 'stop',
+                'message': "validator_type '" ~ s.text ~ "' is not one that cmn/build_solana.yml builds, so the version to check on " ~ inventory_hostname ~ " is not known. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."}) -%}
+          {%- elif s.text == '' -%}
+          {%- set _ = findings.append({'kind': s.kind, 'text': '', 'reads': none, 'verdict': 'missing', 'level': 'stop',
+                'message': 'No ' ~ s.label ~ ' version for ' ~ inventory_hostname ~ ': set ' ~ s.own_key ~ ' (-e or the host), or ' ~ s.pin_key ~ ' in ' ~ versions_section ~ ' of ~/.slv/versions.yml. Nothing was changed.'}) -%}
+          {%- else -%}
+          {%- set g = s.text | regex_search(pattern, '\\1', '\\2', '\\3', '\\4', '\\5') -%}
+          {%- set what = s.label ~ ' ' ~ (s.tag if s.kind == 'geyser' else s.text) -%}
+          {%- if g is none -%}
+          {%- if s.kind == 'geyser' -%}
+          {%- set _ = findings.append({'kind': s.kind, 'text': s.text, 'reads': none, 'verdict': 'unchecked', 'level': 'none', 'message': ''}) -%}
+          {%- elif slv_alpenglow_network == 'mainnet' -%}
+          {%- set _ = findings.append({'kind': s.kind, 'text': s.text, 'reads': none, 'verdict': 'unreadable', 'level': 'stop',
+                'message': what ~ ' on ' ~ inventory_hostname ~ ' (' ~ s.where ~ ') is not a version (X.Y.Z), and mainnet takes no value that cannot be checked against ' ~ floor_text ~ ', the oldest release Alpenglow runs on. Set it to ' ~ floor_text ~ ' or later. Nothing was changed.'}) -%}
+          {%- else -%}
+          {%- set _ = findings.append({'kind': s.kind, 'text': s.text, 'reads': none, 'verdict': 'unreadable', 'level': 'warn',
+                'message': 'WARNING ' ~ inventory_hostname ~ ': ' ~ what ~ ' (' ~ s.where ~ ') is not a version (X.Y.Z), so it is not checked against ' ~ floor_text ~ ', the oldest release Alpenglow runs on ' ~ slv_alpenglow_network ~ '. The play goes on.'}) -%}
+          {%- endif -%}
+          {%- else -%}
+          {%- set read = [g[0] | int, g[1] | int, (g[2] or 0) | int, ranks[g[3]] if g[3] else 3, (g[4] or 0) | int] -%}
+          {%- set shown = read[0] ~ '.' ~ read[1] ~ '.' ~ read[2] ~ ('' if read[3] == 3 else '-' ~ ['alpha', 'beta', 'rc'][read[3]] ~ '.' ~ read[4]) -%}
+          {%- if read < floor -%}
+          {%- set note = (' (built for solana ' ~ shown ~ ')') if s.kind == 'geyser' else ((' (read as ' ~ shown ~ ')') if shown != s.text else '') -%}
+          {%- set fix = ('Set geyser_version to a Yellowstone release built for solana ' ~ floor_text ~ ' or later.') if s.kind == 'geyser' else ('Set it to ' ~ floor_text ~ ' or later.') -%}
+          {%- set _ = findings.append({'kind': s.kind, 'text': s.text, 'reads': read, 'verdict': 'below', 'level': 'stop',
+                'message': what ~ note ~ ' on ' ~ inventory_hostname ~ ' (' ~ s.where ~ ') is older than Alpenglow runs on: ' ~ why ~ '. ' ~ fix ~ ' Nothing was changed.'}) -%}
+          {%- else -%}
+          {%- set _ = findings.append({'kind': s.kind, 'text': s.text, 'reads': read, 'verdict': 'ok', 'level': 'none', 'message': ''}) -%}
+          {%- endif -%}
+          {%- endif -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ findings | to_json }}
+
+    - name: Say which versions cannot be checked against the floor
+      ansible.builtin.debug:
+        msg: "{{ slv_alpenglow_findings | selectattr('level', 'eq', 'warn') | map(attribute='message') | join('\\n') }}"
+      when: slv_alpenglow_findings | selectattr('level', 'eq', 'warn') | list | length > 0
+
+    - name: Stop on a version that Alpenglow does not run on
+      ansible.builtin.fail:
+        msg: "{{ slv_alpenglow_findings | selectattr('level', 'eq', 'stop') | map(attribute='message') | join('\\n') }}"
+      when: slv_alpenglow_findings | selectattr('level', 'eq', 'stop') | list | length > 0

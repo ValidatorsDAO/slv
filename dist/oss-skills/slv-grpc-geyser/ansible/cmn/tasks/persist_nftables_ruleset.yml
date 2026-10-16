@@ -1,0 +1,52 @@
+---
+# Export the live nftables ruleset (including set elements added after
+# deploy) into /etc/nftables.conf so the same ruleset is restored on
+# reboot by nftables.service.
+#
+# Designed to be `import_tasks`'d from playbooks, not run standalone.
+
+- name: Resolve nftables.conf path
+  ansible.builtin.set_fact:
+    nft_conf_path_effective: "{{ nft_conf_path | default('/etc/nftables.conf') }}"
+
+- name: Export live nftables ruleset
+  ansible.builtin.command: nft list ruleset
+  register: nft_live_ruleset
+  changed_when: false
+
+- name: Write generated persistent nftables.conf (temp)
+  ansible.builtin.copy:
+    dest: "{{ nft_conf_path_effective }}.generated"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by slv (generated from live ruleset on {{ ansible_date_time.iso8601 | default('deploy') }})
+      flush ruleset
+
+      {{ nft_live_ruleset.stdout | regex_replace('packets \\d+ bytes \\d+', '') }}
+
+- name: Validate generated persistent config
+  ansible.builtin.command: "nft -c -f {{ nft_conf_path_effective }}.generated"
+  changed_when: false
+
+- name: Install generated nftables.conf
+  ansible.builtin.copy:
+    src: "{{ nft_conf_path_effective }}.generated"
+    dest: "{{ nft_conf_path_effective }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Remove generated temp file
+  ansible.builtin.file:
+    path: "{{ nft_conf_path_effective }}.generated"
+    state: absent
+  changed_when: false
+
+- name: Enable + start nftables service (boot restore)
+  ansible.builtin.service:
+    name: nftables
+    enabled: true
+    state: started

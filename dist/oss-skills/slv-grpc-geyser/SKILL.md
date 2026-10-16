@@ -2,16 +2,6 @@
 
 Ansible playbooks and Jinja2 templates for deploying and managing Solana gRPC Geyser streaming nodes.
 
-## Recommended RAM
-
-| Configuration | Minimum RAM |
-|---|---|
-| gRPC Geyser only | 384 GB |
-| Index RPC (without gRPC) | 768 GB |
-| Index RPC + gRPC | 1 TB |
-
-These are recommended minimums. Higher specs improve performance and stability.
-
 ## Supported Configurations
 
 | Config | Description |
@@ -51,7 +41,8 @@ gRPC Geyser nodes are managed via `slv r` (RPC) commands with `rpc_type` set to 
 |---|---|
 | `init.yml` | Full gRPC Geyser node initialization |
 | `init_richat_geyser.yml` | Richat Geyser initialization (only for `geyser_plugin: richat`) |
-| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, after the Yellowstone build of `init.yml` |
+| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, and move its plugin library aside (`librichat_plugin_agave.so.disabled`), after the Yellowstone build of `init.yml` |
+| `cmn/check_alpenglow_floor.yml` | Stop `init.yml`, before it changes anything, on an agave or jito version or a Yellowstone plugin older than Alpenglow runs on (4.3.0 on mainnet) |
 | `geyser_build.yml` | Build Yellowstone gRPC from GitHub source (the default of `init.yml`) |
 | `geyser_richat_build.yml` | Build Richat plugin from GitHub source (only with `geyser_plugin: richat`) |
 | `install_richat.yml` | Install Richat plugin (only with `geyser_plugin: richat`) |
@@ -142,7 +133,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `server_ip` | "Target server IP?" | Valid IPv4 |
 | `region` | "Server region?" | String |
 | `rpc_type` | "Geyser gRPC or Index RPC + gRPC?" | `Geyser gRPC`, `Index RPC + gRPC` |
-| `validator_type` | "Underlying client?" | `agave`, `jito`, `jito-bam`, `firedancer-agave` |
+| `validator_type` | "Underlying client?" | `agave`, `jito`, `allnodes-jito`, `firedancer-agave` |
 | `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
@@ -161,10 +152,10 @@ Both are built from source (no pre-built binaries). Build time: ~15-30 min.
 
 | Variable | When Required |
 |---|---|
-| `jito_version` | jito/jito-bam types |
+| `jito_version` | jito/allnodes-jito types |
 | `firedancer_version` | firedancer types |
-| `shred_receiver_address` | jito/jito-bam (auto by region) |
-| `block_engine_url` | jito/jito-bam (auto by region) |
+| `shred_receiver_address` | jito/allnodes-jito (auto by region) |
+| `block_engine_url` | jito/allnodes-jito (auto by region) |
 
 ### Optional Variables
 
