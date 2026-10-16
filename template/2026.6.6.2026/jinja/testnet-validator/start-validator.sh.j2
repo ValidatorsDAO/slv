@@ -9,6 +9,12 @@ exec agave-validator \
 --entrypoint entrypoint2.testnet.solana.com:8001 \
 --entrypoint entrypoint3.testnet.solana.com:8001 \
 --known-validator 5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on \
+--known-validator dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs \
+--known-validator Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN \
+--known-validator eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ \
+--known-validator 9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv \
+--only-known-rpc \
+--expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
 --dynamic-port-range {{ dynamic_port_range | default("8000-8030") }} \
 --rpc-port {{ port_rpc | default(8899, true) }} \
 --wal-recovery-mode skip_any_corrupted_record \
@@ -56,6 +62,28 @@ exec agave-validator \
 {% endif %}
 {% elif _agave_version >= 4002000 and not (xdp_enabled | default(false)) %}
 --no-xdp \
+{% endif %}
+{# votor_peer_overrides: identities of unstaked RPC nodes that this validator also sends its Alpenglow votes and certificates to (agave 4.3.0 and later, read only when the validator starts). Give the primary and the standby the same list. #}
+{% set _votor_peers = votor_peer_overrides | default([], true) %}
+{% if _votor_peers %}
+{% if _votor_peers is string or _votor_peers is mapping or _votor_peers is not sequence %}
+{{ votor_peer_overrides_not_a_list | mandatory("votor_peer_overrides must be a list of identity public keys") }}
+{% endif %}
+{% for _peer in _votor_peers %}
+{% if _peer is not string or not (_peer | regex_search('^[1-9A-HJ-NP-Za-km-z]{32,44}$')) %}
+{{ votor_peer_overrides_not_a_public_key | mandatory("votor_peer_overrides holds " ~ (_peer | string) ~ ", which is not a base58 public key") }}
+{% endif %}
+{% endfor %}
+{% if not (identity_account | default('', true)) %}
+{{ identity_account_not_found | mandatory("identity_account is not set, so votor_peer_overrides cannot be checked against this node's own identity") }}
+{% elif identity_account in _votor_peers %}
+{{ votor_peer_overrides_holds_this_node | mandatory("votor_peer_overrides holds this node's own identity_account " ~ identity_account ~ ", which agave refuses at start-up") }}
+{% endif %}
+{% if _agave_version >= 4003000 %}
+{% for _peer in _votor_peers | unique %}
+--votor-peer-overrides {{ _peer }} \
+{% endfor %}
+{% endif %}
 {% endif %}
 {% if validator_type in ['jito', 'allnodes-jito'] %}
 --tip-payment-program-pubkey GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy \
