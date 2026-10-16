@@ -175,7 +175,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `agave_version` | Agave version that `init.yml` builds for `validator_type` `agave` (and `firedancer-agave`): the git tag without its leading `v`, which the build adds. The host or `-e` first, else `version_agave` of the `mainnet_validators` or `testnet_validators` section of `~/.slv/versions.yml`; with neither the run stops before it builds. `init.yml` also stops, before it changes anything, on a client older than the floor of the network (mainnet 4.3.0, testnet 4.4.0-beta.0) | `version_agave` of `versions.yml` |
 | `jito_version` | The same for `validator_type` `jito` (and `firedancer-jito`): the tag without its leading `v`, with its `-jito` suffix. Else `version_jito` of the section | `version_jito` of `versions.yml` |
 | `allnodes_jito_version` | The same for `validator_type` `allnodes-jito`; the build adds the leading `v` and, to a version that does not contain it, `-allnodes`, to form the git tag. Else `version_allnodes_jito` of the section | `version_allnodes_jito` of `versions.yml` |
-| `solana_version` | Not read by `init.yml` or by the builds. Read by `cmn/patch_sha256.yml` (the git ref it clones) and, on testnet, by the snapshot finder (`--version` in `setup_snapshot_finder.yml`, `restart_agave_with_rm_ledger.yml` and `restart_firedancer_with_rm_ledger.yml`, from the variable of the host) | `v3.1.10-jito` in `patch_sha256.yml`, none otherwise |
+| `solana_version` | Not read by `init.yml` or by the builds. Read by `cmn/patch_sha256.yml` (the git ref it clones) and, on testnet, by the snapshot finder (`--version` in `setup_snapshot_finder.yml`, `restart_agave_with_rm_ledger.yml` and `restart_firedancer_with_rm_ledger.yml`, from the variable of the host) | none — `slv v patch:sha256` asks for it; a direct run of `cmn/patch_sha256.yml` stops without it |
 | `firedancer_version` | Firedancer version | — |
 | `snapshot_url` | Snapshot download URL | — |
 | `identity_account` | Validator identity pubkey | — |
@@ -310,9 +310,9 @@ for the generated output format.
 | `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
 | `region` | "Server region? (amsterdam, frankfurt, tokyo, ny, ...)" | String |
 | `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`; `firedancer-agave` and `firedancer-jito` on testnet only (mainnet refuses them) |
-| `agave_version` | "Agave version?" (if agave; default: `version_agave` in `~/.slv/versions.yml`) | Semver, no leading `v` |
-| `jito_version` | "Jito version?" (if jito; default: `version_jito` in `~/.slv/versions.yml`) | Semver with the `-jito` suffix, no leading `v` |
-| `allnodes_jito_version` | "Allnodes-Jito version?" (if allnodes-jito; default: `version_allnodes_jito` in `~/.slv/versions.yml`) | Semver, with or without `-allnodes`, no leading `v` |
+| `agave_version` | "Solana version?" (if agave; default: 4.3.2 on mainnet, the `version_agave` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver, no leading `v` |
+| `jito_version` | "Jito version?" (if jito; default: 4.3.2-jito on mainnet, the `version_jito` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver with the `-jito` suffix, no leading `v` |
+| `allnodes_jito_version` | "Allnodes-Jito version?" (if allnodes-jito; default: 4.3.2-allnodes on mainnet, the `version_allnodes_jito` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver, with or without `-allnodes`, no leading `v` |
 | `firedancer_version` | "Firedancer version?" (testnet, if firedancer) | String |
 | `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
 | `vote_account` | "Vote account pubkey? (or generate)" | Base58 pubkey or `generate` |
