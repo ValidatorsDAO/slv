@@ -154,7 +154,8 @@ Both are built from source (no pre-built binaries). Build time: ~15-30 min.
 
 | Variable | When Required |
 |---|---|
-| `jito_version` | jito/allnodes-jito types |
+| `jito_version` | `jito` type, in place of `agave_version` |
+| `allnodes_jito_version` | `allnodes-jito` type, in place of `agave_version` (the RPC sections of `versions.yml` hold no pin for it) |
 | `firedancer_version` | firedancer types |
 | `shred_receiver_address` | jito/allnodes-jito (auto by region) |
 | `block_engine_url` | jito/allnodes-jito (auto by region) |

@@ -9,6 +9,7 @@ run cmn/optimize_node.yml has to find it in the package.
               and overrides.yml, which create_overrides.yml writes on the host
   assets      a shared playbook of a package that copies files/<name> has that file next to it
   skill.json  each package has its skill.json: the installer and `slv skills sync` fetch it, and no source under oss-skills/ writes it
+  README.md   dist/oss-skills/README.md is a copy of oss-skills/README.md: the build script writes the packages, not this file
 
 The files are read; nothing is run. Run from the repository root:
 
@@ -119,6 +120,9 @@ class PackagesHoldWhatTheirDocsName(unittest.TestCase):
                 self.assertEqual(skill["files"], {"skill": "SKILL.md", "agent": "AGENT.md"})
                 self.assertTrue((DIST / package / "SKILL.md").is_file())
                 self.assertTrue((DIST / package / "AGENT.md").is_file())
+
+    def test_d05_the_readme_over_the_packages_is_a_copy_of_the_one_of_oss_skills(self):
+        self.assertEqual((DIST / "README.md").read_text(), (REPOSITORY / "oss-skills" / "README.md").read_text())
 
 
 if __name__ == "__main__":
