@@ -5296,11 +5296,19 @@ async function runCurrentSupervisor(
   completionFault = false,
   releaseFault = false,
   lateStop = false,
-): Promise<{ code: number; elapsed: number; child: number; stdout: string }> {
+  psDelay?: number,
+): Promise<{
+  code: number
+  elapsed: number
+  child: number
+  ps?: number
+  stdout: string
+}> {
   const helpers = await lifecycleHelpers()
   await Deno.mkdir(root, { recursive: true })
   const worker = `${root}/worker.sh`
   const childPath = `${root}/child.pid`
+  const psPidPath = `${root}/ps.pid`
   await Deno.writeTextFile(worker, `#!/usr/bin/env bash\n${workerBody}\n`)
   await Deno.chmod(worker, 0o700)
   const signal = cancellation
@@ -5309,7 +5317,19 @@ for _ in $(seq 1 100); do [[ -f "$child_path" ]] && break; sleep .01; done
 kill -${cancellation} "$supervisor_pid"
 `
     : ''
-  const injector = completionFault || releaseFault || lateStop
+  const psShim = psDelay === undefined ? undefined : `${root}/ps-shim.sh`
+  if (psShim) {
+    await Deno.writeTextFile(
+      psShim,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$$" > "$PS_PID"
+sleep "$PS_DELAY"
+exec /bin/ps "$@"
+`,
+    )
+    await Deno.chmod(psShim, 0o700)
+  }
+  const injector = completionFault || releaseFault || lateStop || psShim
     ? `"$PYTHON" - "$supervisor" <<'PYEOF'
 import pathlib
 import sys
@@ -5336,6 +5356,13 @@ assert needle in source
 source = source.replace(needle, 'os.kill(os.getpid(), signal.SIGTERM)\\n    ' + needle, 1)`
         : ''
     }
+${
+      psShim
+        ? `needle = "['/bin/ps', '-axo', 'pid=,pgid=']"
+assert needle in source
+source = source.replace(needle, "[os.environ['SLV_TEST_PS'], '-axo', 'pid=,pgid=']", 1)`
+        : ''
+    }
 path.write_text(source)
 PYEOF`
     : ''
@@ -5359,7 +5386,15 @@ printf '%s\\n' "$status" > "$root/status"
   const result = await new Deno.Command('/usr/bin/bash', {
     args: ['-u', '-o', 'pipefail', '-c', script],
     clearEnv: true,
-    env: { PATH: '/usr/bin:/bin', root, child_path: childPath, worker },
+    env: {
+      PATH: '/usr/bin:/bin',
+      root,
+      child_path: childPath,
+      PS_DELAY: String(psDelay ?? 0),
+      PS_PID: psPidPath,
+      SLV_TEST_PS: psShim ?? '/bin/ps',
+      worker,
+    },
     stdout: 'piped',
     stderr: 'piped',
   }).output()
@@ -5381,6 +5416,8 @@ printf '%s\\n' "$status" > "$root/status"
     code: Number((await Deno.readTextFile(`${root}/status`)).trim()),
     elapsed,
     child: Number(childText.trim()),
+    ps: await Deno.readTextFile(psPidPath).then((value) => Number(value.trim()))
+      .catch(() => undefined),
     stdout: new TextDecoder().decode(result.stdout),
   }
 }
@@ -5506,6 +5543,102 @@ Deno.test('current macOS supervisor preserves worker status and reaps only its h
       sibling.kill('SIGKILL')
     } catch { /* already gone */ }
     await sibling.status.catch(() => undefined)
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor accepts a complete delayed census inside its unchanged cleanup cap', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-delayed-census-',
+  })
+  try {
+    const result = await runCurrentSupervisor(
+      root,
+      'sleep 30 &\nprintf "%s\\n" "$!" > "$CHILD_PID"\nexit 0',
+      undefined,
+      false,
+      false,
+      false,
+      0.3,
+    )
+    requireFixture(
+      result.code === 0 && result.elapsed >= 300 && result.elapsed < 2000 &&
+        result.ps !== undefined && await waitForProcessGone(result.child) &&
+        await waitForProcessGone(result.ps),
+      'complete delayed census was not accepted inside the unchanged two-second cleanup cap',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor kills a delayed-census TERM-resistant owned descendant before retaining zero', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-delayed-resistant-',
+  })
+  let child = 0
+  try {
+    const resistant = `${root}/resistant.py`
+    await Deno.writeTextFile(
+      resistant,
+      `import os
+import pathlib
+import signal
+import time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+pathlib.Path(os.environ['CHILD_PID']).write_text(str(os.getpid()))
+os.close(1)
+os.close(2)
+time.sleep(30)
+`,
+    )
+    const result = await runCurrentSupervisor(
+      root,
+      `/usr/bin/python3 ${JSON.stringify(resistant)} &\nexit 0`,
+      undefined,
+      false,
+      false,
+      false,
+      0.65,
+    )
+    child = result.child
+    requireFixture(
+      result.code === 0 && result.elapsed >= 650 && result.elapsed < 2000 &&
+        result.ps !== undefined && await waitForProcessGone(result.child) &&
+        await waitForProcessGone(result.ps),
+      'TERM-resistant owned descendant was not observed gone before supervisor retained zero',
+    )
+  } finally {
+    if (child > 0 && !(await processIsGone(child))) {
+      try {
+        Deno.kill(child, 'SIGKILL')
+      } catch { /* fixture cleanup */ }
+    }
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('current macOS supervisor rejects a hung census without accepting empty residue', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-macos-supervisor-hung-census-',
+  })
+  try {
+    const result = await runCurrentSupervisor(
+      root,
+      'sleep 30 &\nprintf "%s\\n" "$!" > "$CHILD_PID"\nexit 0',
+      undefined,
+      false,
+      false,
+      false,
+      3,
+    )
+    requireFixture(
+      result.code === 125 && result.elapsed < 2300 &&
+        result.ps !== undefined && await waitForProcessGone(result.child) &&
+        await waitForProcessGone(result.ps),
+      'hung census was treated as empty residue or exceeded the cleanup deadline',
+    )
+  } finally {
     await Deno.remove(root, { recursive: true })
   }
 })

@@ -1639,7 +1639,7 @@ import time
 
 FINAL_SECONDS = 3.0
 BUILD_CLEANUP_SECONDS = 2.0
-PS_SECONDS = 0.25
+FINAL_KILL_REAP_RESERVE = 0.5
 MAX_PS_BYTES = 64 * 1024
 MAX_PS_ROWS = 4096
 MAX_RESIDUE = 32
@@ -1808,7 +1808,6 @@ def cleanup_anchor(anchor, anchor_pid, deadline, incoming=None):
     if incoming is not None and not signal_group(anchor, anchor_pid, incoming):
         outcome.update(complete=False, reason='forward-signal')
     term_at = min(deadline, now() + 0.25)
-    kill_at = min(deadline, now() + 0.75)
     # Anchor deliberately holds its own signal dispositions; TERM clears worker
     # descendants while preserving the group token for the required observation.
     if not signal_group(anchor, anchor_pid, signal.SIGTERM):
@@ -1817,7 +1816,11 @@ def cleanup_anchor(anchor, anchor_pid, deadline, incoming=None):
     if anchor.poll() is not None:
         outcome.update(complete=False, reason='anchor-reaped-before-observation')
         return outcome
-    observed = snapshot(anchor_pid, anchor_pid, min(deadline, now() + PS_SECONDS))
+    observed = snapshot(
+        anchor_pid,
+        anchor_pid,
+        max(now(), deadline - FINAL_KILL_REAP_RESERVE),
+    )
     outcome['residue'] = observed['rows'][:MAX_RESIDUE]
     outcome['residue_total'] = observed['residue_total']
     outcome['residue_truncated'] = observed['residue_truncated']
@@ -1825,7 +1828,7 @@ def cleanup_anchor(anchor, anchor_pid, deadline, incoming=None):
         outcome.update(complete=False, reason=observed.get('reason') or 'session-residue')
     # The held leader is expected until explicit release. Any remaining members
     # in the owned original group require the bounded final group kill.
-    if observed['owned'] and now() < kill_at:
+    if observed['owned'] and now() < deadline:
         if not signal_group(anchor, anchor_pid, signal.SIGKILL):
             outcome.update(complete=False, reason='kill-signal')
         bounded_wait(anchor, deadline)
