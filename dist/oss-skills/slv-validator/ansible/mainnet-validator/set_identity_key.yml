@@ -14,6 +14,13 @@
         fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
         success_msg: "Validator type is {{ validator_type | default('undefined') }}"
 
+    - name: Refuse an identity_account that is not a base58 public key, it names files on the controller
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the key file on the controller. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
       ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
       vars:
