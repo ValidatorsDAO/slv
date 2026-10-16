@@ -238,7 +238,7 @@ Deno.test('workflow persists one test-produced notice binding and makes every co
       workflow,
       'artifact-ids: ${{ needs.test.outputs.license_artifact_id }}',
     ),
-    13,
+    15,
   )
   assertEquals(
     count(
@@ -251,7 +251,7 @@ Deno.test('workflow persists one test-produced notice binding and makes every co
   const verifyLines = workflow.split('\n').filter((line) =>
     line.includes('release.ts verify-licenses')
   )
-  assertEquals(verifyLines.length, 13)
+  assertEquals(verifyLines.length, 15)
   for (const line of verifyLines) {
     assert(line.includes('${{ needs.test.outputs.license_producer_attempt }}'))
     assert(line.includes('${{ needs.test.outputs.license_notice_sha256 }}'))
@@ -518,7 +518,7 @@ Deno.test('workflow keeps CI-only pull-request builds and permissions narrow', a
     "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'"
 
   assert(workflow.includes('permissions: {}'))
-  assertEquals(count(workflow, ciCondition), 13)
+  assertEquals(count(workflow, ciCondition), 15)
   assertEquals(count(workflow, 'id-token: write'), 1)
   assert(jobSection(workflow, 'attest').includes('id-token: write'))
   const legacyBootstrap = jobSection(workflow, 'legacy-bootstrap')
@@ -679,7 +679,6 @@ Deno.test('workflow freezes source materials and uses exact identities for four 
   )
 
   const nativeJobs = [
-    ['source-native-linux-x64', 'ubuntu-26.04', 'x86_64-unknown-linux-gnu'],
     ['source-native-macos-arm64', 'macos-15', 'aarch64-apple-darwin'],
   ] as const
   for (const [job, runner, target] of nativeJobs) {
@@ -804,6 +803,7 @@ Deno.test('split native producers preserve the required facades and fail them cl
       'aarch64-unknown-linux-gnu',
       'x86_64-unknown-linux-gnu',
       'baseline',
+      320,
     ],
     [
       'source-arm-modified',
@@ -811,6 +811,7 @@ Deno.test('split native producers preserve the required facades and fail them cl
       'aarch64-unknown-linux-gnu',
       'x86_64-unknown-linux-gnu',
       'modified',
+      320,
     ],
     [
       'source-macos-x64-baseline',
@@ -818,6 +819,7 @@ Deno.test('split native producers preserve the required facades and fail them cl
       'x86_64-apple-darwin',
       'x86_64-apple-darwin',
       'baseline',
+      340,
     ],
     [
       'source-macos-x64-modified',
@@ -825,9 +827,12 @@ Deno.test('split native producers preserve the required facades and fail them cl
       'x86_64-apple-darwin',
       'x86_64-apple-darwin',
       'modified',
+      340,
     ],
   ] as const
-  for (const [job, runner, target, buildHost, variant] of producerSpecs) {
+  for (
+    const [job, runner, target, buildHost, variant, timeout] of producerSpecs
+  ) {
     const section = jobSection(workflow, job)
     assert(section.includes('needs: [resolve, test, source-materials]'))
     assert(section.includes(`runs-on: ${runner}`))
@@ -836,7 +841,7 @@ Deno.test('split native producers preserve the required facades and fail them cl
     assert(section.includes(`TARGET: ${target}`))
     assert(section.includes(`BUILD_HOST: ${buildHost}`))
     assert(section.includes(`VARIANT: ${variant}`))
-    assert(section.includes('id: variant\n        timeout-minutes: 320'))
+    assert(section.includes(`id: variant\n        timeout-minutes: ${timeout}`))
     assert(section.includes('--phase build-variant'))
     assert(section.includes('--variant "$VARIANT" --jobs 4'))
     assert(section.includes('--purpose build'))
@@ -982,37 +987,262 @@ Deno.test('split native producers preserve the required facades and fail them cl
   assert(mac.includes('if: ${{ always() && !cancelled() }}'))
 })
 
+Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds both variants', async () => {
+  const workflow = await releaseWorkflow()
+  const target = 'x86_64-unknown-linux-gnu'
+  const producerSpecs = [
+    ['source-linux-x64-baseline', 'baseline'],
+    ['source-linux-x64-modified', 'modified'],
+  ] as const
+
+  for (const [job, variant] of producerSpecs) {
+    const section = jobSection(workflow, job)
+    assert(section.includes('needs: [resolve, test, source-materials]'))
+    assert(
+      section.includes(
+        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}",
+      ),
+    )
+    assert(section.includes('runs-on: ubuntu-26.04'))
+    assert(section.includes('timeout-minutes: 350'))
+    assert(section.includes('contents: read'))
+    assert(section.includes(`TARGET: ${target}`))
+    assert(section.includes(`BUILD_HOST: ${target}`))
+    assert(section.includes(`VARIANT: ${variant}`))
+    assert(section.includes('id: variant\n        timeout-minutes: 320'))
+    assert(section.includes('--phase build-variant'))
+    assert(section.includes('--variant "$VARIANT" --jobs 2'))
+    assert(section.includes('test ! -e "$variant_out"'))
+    assert(section.includes('producer-context.json'))
+    assert(section.includes('variant_receipt_sha256'))
+    assert(
+      section.includes(
+        `name: source-native-variant-${target}-${variant}-${'${{ github.run_id }}'}-${'${{ github.run_attempt }}'}`,
+      ),
+    )
+    assert(
+      section.includes(
+        `name: source-native-variant-diagnostics-${target}-${variant}-${'${{ github.run_id }}'}-${'${{ github.run_attempt }}'}`,
+      ),
+    )
+    assert(section.includes(`source-variants/${target}/${variant}/transport`))
+    assert(section.includes('id: upload-variant'))
+    assert(section.includes('timeout-minutes: 10'))
+    assert(section.includes('if-no-files-found: error'))
+    assert(section.includes('if: ${{ always() && !cancelled() }}'))
+    assert(section.includes('timeout-minutes: 5'))
+    assert(!section.includes('--allow-net source-rebuild/verify-native.ts'))
+  }
+
+  const facade = jobSection(workflow, 'source-native-linux-x64')
+  const needs = [
+    'resolve',
+    'test',
+    'source-materials',
+    'source-linux-x64-baseline',
+    'source-linux-x64-modified',
+  ]
+  assert(
+    facade.includes(
+      "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}",
+    ),
+  )
+  assert(facade.includes('timeout-minutes: 350'))
+  assert(facade.includes(`--argjson expected '${JSON.stringify(needs)}'`))
+  assert(facade.includes('source-linux-x64-baseline.outputs.artifact_id'))
+  assert(facade.includes('source-linux-x64-modified.outputs.artifact_id'))
+  assert(facade.includes('source-linux-x64-baseline.outputs.artifact_digest'))
+  assert(facade.includes('source-linux-x64-modified.outputs.artifact_digest'))
+  assert(facade.includes('source-linux-x64-baseline.outputs.producer_job_id'))
+  assert(facade.includes('source-linux-x64-modified.outputs.producer_job_id'))
+  assert(facade.includes('test "$BASELINE_JOB_ID" = source-linux-x64-baseline'))
+  assert(facade.includes('test "$MODIFIED_JOB_ID" = source-linux-x64-modified'))
+  assert(facade.includes('--phase join-build'))
+  assert(facade.includes('id: join\n        timeout-minutes: 60'))
+  assert(facade.includes('id: proof\n        timeout-minutes: 60'))
+  assert(facade.includes('--phase execute'))
+  assert(facade.includes('--phase merge'))
+  const diagnostics = facade.slice(
+    facade.lastIndexOf(
+      '      - name: Preserve failed native proof diagnostics separately',
+    ),
+  )
+  assert(diagnostics.includes('if: failure()'))
+  assert(diagnostics.includes('timeout-minutes: 5'))
+  for (
+    const output of [
+      'artifact_id',
+      'artifact_digest',
+      'runtime_artifact_id',
+      'runtime_artifact_digest',
+      'producer_run_id',
+      'producer_attempt',
+      'proof_sha256',
+      'baseline_runtime_sha256',
+      'baseline_derived_lock_sha256',
+      'build_receipt_sha256',
+    ]
+  ) assert(facade.includes(`${output}:`))
+  assert(facade.includes(`source-proofs/${target}`))
+  assert(facade.includes(`tool-pins/${target}.json`))
+  assert(
+    facade.includes(
+      `name: slv-source-proof-${target}-${'${{ github.run_id }}'}`,
+    ),
+  )
+  assert(
+    facade.includes(
+      `name: slv-source-runtime-${target}-${'${{ github.run_id }}'}-${'${{ github.run_attempt }}'}`,
+    ),
+  )
+
+  const prerequisite = stepShell(
+    facade,
+    'Require every source prerequisite to succeed',
+  )
+  const valid = Object.fromEntries(
+    needs.map((need) => [need, { result: 'success', outputs: { x: '1' } }]),
+  )
+  assert(
+    (await runPrerequisiteShell(prerequisite, JSON.stringify(valid))).success,
+  )
+  for (
+    const invalid of [
+      JSON.stringify({ ...valid, extra: { result: 'success' } }),
+      JSON.stringify({
+        ...valid,
+        'source-linux-x64-baseline': { result: 'failure' },
+      }),
+      JSON.stringify(Object.fromEntries(
+        Object.entries(valid).filter(([job]) =>
+          job !== 'source-linux-x64-modified'
+        ),
+      )),
+    ]
+  ) assert(!(await runPrerequisiteShell(prerequisite, invalid)).success)
+
+  const producerMetadata = stepShell(
+    facade,
+    'Validate trusted Linux variant producer metadata',
+  )
+  const producerMetadataEnv = {
+    BASELINE_ARTIFACT_ID: '1',
+    BASELINE_ARTIFACT_DIGEST: 'a'.repeat(64),
+    BASELINE_RECEIPT_SHA256: 'b'.repeat(64),
+    BASELINE_REPOSITORY: 'ValidatorsDAO/slv',
+    BASELINE_WORKFLOW:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
+    BASELINE_RUN_ID: '1',
+    BASELINE_RUN_ATTEMPT: '1',
+    BASELINE_JOB_ID: 'source-linux-x64-baseline',
+    MODIFIED_ARTIFACT_ID: '2',
+    MODIFIED_ARTIFACT_DIGEST: 'c'.repeat(64),
+    MODIFIED_RECEIPT_SHA256: 'd'.repeat(64),
+    MODIFIED_REPOSITORY: 'ValidatorsDAO/slv',
+    MODIFIED_WORKFLOW:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
+    MODIFIED_RUN_ID: '2',
+    MODIFIED_RUN_ATTEMPT: '1',
+    MODIFIED_JOB_ID: 'source-linux-x64-modified',
+    CURRENT_ATTEMPT: '1',
+  }
+  assert(
+    (await runDiagnosticGuard(producerMetadata, producerMetadataEnv)).success,
+  )
+  for (
+    const [label, invalid] of [
+      ['zero artifact ID', {
+        ...producerMetadataEnv,
+        BASELINE_ARTIFACT_ID: '0',
+      }],
+      ['wrong digest', {
+        ...producerMetadataEnv,
+        MODIFIED_ARTIFACT_DIGEST: 'wrong',
+      }],
+      ['missing repository', {
+        ...producerMetadataEnv,
+        BASELINE_REPOSITORY: '',
+      }],
+      ['future attempt', { ...producerMetadataEnv, MODIFIED_RUN_ATTEMPT: '2' }],
+      [
+        'wrong job ID',
+        {
+          ...producerMetadataEnv,
+          BASELINE_JOB_ID: 'source-linux-x64-modified',
+        },
+      ],
+    ] as const
+  ) {
+    assert(
+      !(await runDiagnosticGuard(producerMetadata, invalid)).success,
+      `accepted invalid producer metadata: ${label}`,
+    )
+  }
+
+  for (
+    const job of ['source-macos-x64-baseline', 'source-macos-x64-modified']
+  ) {
+    const section = jobSection(workflow, job)
+    assert(section.includes('id: variant\n        timeout-minutes: 340'))
+    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(section.includes('timeout-minutes: 350'))
+  }
+  for (const job of ['source-arm-baseline', 'source-arm-modified']) {
+    const section = jobSection(workflow, job)
+    assert(section.includes('id: variant\n        timeout-minutes: 320'))
+    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+  }
+})
+
 Deno.test('split producers carry source-owned evidence through existing diagnostic logs', async () => {
   const workflow = await releaseWorkflow()
   const producerSpecs = [
+    [
+      'source-linux-x64-baseline',
+      'x86_64-unknown-linux-gnu',
+      'x86_64-unknown-linux-gnu',
+      'baseline',
+      '2',
+    ],
+    [
+      'source-linux-x64-modified',
+      'x86_64-unknown-linux-gnu',
+      'x86_64-unknown-linux-gnu',
+      'modified',
+      '2',
+    ],
     [
       'source-arm-baseline',
       'aarch64-unknown-linux-gnu',
       'x86_64-unknown-linux-gnu',
       'baseline',
+      '4',
     ],
     [
       'source-arm-modified',
       'aarch64-unknown-linux-gnu',
       'x86_64-unknown-linux-gnu',
       'modified',
+      '4',
     ],
     [
       'source-macos-x64-baseline',
       'x86_64-apple-darwin',
       'x86_64-apple-darwin',
       'baseline',
+      '4',
     ],
     [
       'source-macos-x64-modified',
       'x86_64-apple-darwin',
       'x86_64-apple-darwin',
       'modified',
+      '4',
     ],
   ] as const
   const decoder = new TextDecoder()
 
-  for (const [job, target, buildHost, variant] of producerSpecs) {
+  for (const [job, target, buildHost, variant, jobs] of producerSpecs) {
     const section = jobSection(workflow, job)
     const shell = stepShell(section, 'Build cold source variant')
     const preamble = shell.split('\n').find((line) => line.trim())
@@ -1095,7 +1325,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
       '--variant',
       variant,
       '--jobs',
-      '4',
+      jobs,
       '--source-root',
       `${runnerTemp}/build-source-root`,
       '--work-dir',
@@ -1208,6 +1438,8 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     'test',
     'build',
     'source-materials',
+    'source-linux-x64-baseline',
+    'source-linux-x64-modified',
     'source-native-linux-x64',
     'source-arm-baseline',
     'source-arm-modified',
@@ -1254,8 +1486,16 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
       "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
     ],
     [
-      'source-native-linux-x64',
+      'source-linux-x64-baseline',
       "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-linux-x64-modified',
+      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
+    ],
+    [
+      'source-native-linux-x64',
+      "!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')",
     ],
     [
       'source-arm-baseline',

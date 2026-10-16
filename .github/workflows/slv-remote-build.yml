@@ -1770,7 +1770,7 @@ jobs:
   # These are deliberately individual jobs, not a matrix. GitHub collapses
   # matrix outputs to a last writer; each target must expose its own immutable
   # artifact ID, archive digest, producer identity, and proof checksum.
-  source-native-linux-x64:
+  source-linux-x64-baseline:
     needs: [resolve, test, source-materials]
     if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
     runs-on: ubuntu-26.04
@@ -1778,20 +1778,19 @@ jobs:
     permissions:
       contents: read
     outputs:
-      artifact_id: ${{ steps.upload-proof.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload-proof.outputs.artifact-digest }}
-      runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}
-      runtime_artifact_digest: ${{ steps.upload-runtime.outputs.artifact-digest }}
+      artifact_id: ${{ steps.upload-variant.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-variant.outputs.artifact-digest }}
+      variant_receipt_sha256: ${{ steps.variant.outputs.variant_receipt_sha256 }}
       producer_run_id: ${{ github.run_id }}
       producer_attempt: ${{ github.run_attempt }}
-      proof_sha256: ${{ steps.proof.outputs.proof_sha256 }}
-      baseline_runtime_sha256: ${{ steps.proof.outputs.baseline_runtime_sha256 }}
-      baseline_derived_lock_sha256: ${{ steps.proof.outputs.baseline_derived_lock_sha256 }}
-      build_receipt_sha256: ${{ steps.proof.outputs.build_receipt_sha256 }}
+      producer_repository: ${{ github.repository }}
+      producer_workflow: ${{ github.workflow_ref }}
+      producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
       TARGET: x86_64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
+      VARIANT: baseline
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -1816,8 +1815,358 @@ jobs:
           if [ -d /usr/local/lib/android ]; then sudo rm -rf /usr/local/lib/android; fi
           if [ -d /usr/share/dotnet ]; then sudo rm -rf /usr/share/dotnet; fi
           df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
-      - name: Build, execute, and merge the native source proof
+      - name: Create producer context
+        env:
+          PRODUCER_REPOSITORY: ${{ github.repository }}
+          PRODUCER_WORKFLOW: ${{ github.workflow_ref }}
+          PRODUCER_RUN_ID: ${{ github.run_id }}
+          PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
+          PRODUCER_JOB_ID: ${{ github.job }}
+        run: |
+          set -euo pipefail
+          jq -n --arg repository "$PRODUCER_REPOSITORY" --arg workflow "$PRODUCER_WORKFLOW" --arg run_id "$PRODUCER_RUN_ID" --arg run_attempt "$PRODUCER_RUN_ATTEMPT" --arg job_id "$PRODUCER_JOB_ID" \
+            '{schema_version: 1, kind: "slv-native-producer-context", repository: $repository, workflow: $workflow, run_id: $run_id, run_attempt: $run_attempt, job_id: $job_id}' > "$RUNNER_TEMP/producer-context.json"
+      - name: Build cold source variant
+        id: variant
+        timeout-minutes: 320
+        run: |
+          set -euo pipefail
+          resolve_host_python() {
+            for candidate in "$(command -v python3 || true)" /usr/local/bin/python3 /usr/bin/python3; do
+              test -n "$candidate" && test -x "$candidate" || continue
+              "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || continue
+              "$candidate" -c 'import os, sys; print(os.path.realpath(sys.executable))'
+              return 0
+            done
+            return 1
+          }
+          SLV_HOST_PYTHON="$(resolve_host_python)"
+          test "${SLV_HOST_PYTHON#/}" != "$SLV_HOST_PYTHON"
+          export SLV_HOST_PYTHON
+          sha256_file() { sha256sum "$1" | awk '{print $1}'; }
+          mkdir -p "$RUNNER_TEMP/source-logs" "$RUNNER_TEMP/source-tools" dist/release-inputs/tool-pins
+          date -u +%FT%TZ | tee "$RUNNER_TEMP/source-logs/variant-started-at.txt"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/variant-capacity.txt"
+          getconf _NPROCESSORS_ONLN | tee "$RUNNER_TEMP/source-logs/variant-cpu-count.txt"
+          free -m | tee "$RUNNER_TEMP/source-logs/variant-memory.txt"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose build --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/build" --receipt "$RUNNER_TEMP/build-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-build.log"
+          variant_out="dist/release-inputs/source-variants/$TARGET/$VARIANT"
+          test ! -e "$variant_out"
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "$variant_out" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" --jobs 2 --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
+          cp "dist/release-inputs/tool-pins/$TARGET.json" "$variant_out/tool-pin.json"
+          test "$(sha256_file "$variant_out/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$variant_out/variant-receipt.json")"
+          test "$(sha256_file "$variant_out/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$variant_out/variant-receipt.json")"
+          variant_receipt_sha256="$(sha256_file "$variant_out/variant-receipt.json")"
+          [[ "$variant_receipt_sha256" =~ ^[a-f0-9]{64}$ ]]
+          echo "variant_receipt_sha256=$variant_receipt_sha256" >> "$GITHUB_OUTPUT"
+          date -u +%FT%TZ | tee "$RUNNER_TEMP/source-logs/variant-finished-at.txt"
+      - name: Persist the cold Linux x64 baseline variant
+        id: upload-variant
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        timeout-minutes: 10
+        with:
+          name: source-native-variant-x86_64-unknown-linux-gnu-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/baseline/variant-receipt.json
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/baseline/build-tools-receipt.json
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/baseline/tool-pin.json
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/baseline/transport
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve Linux x64 baseline variant diagnostics
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        timeout-minutes: 5
+        with:
+          name: source-native-variant-diagnostics-x86_64-unknown-linux-gnu-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-linux-x64-modified:
+    needs: [resolve, test, source-materials]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-variant.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-variant.outputs.artifact-digest }}
+      variant_receipt_sha256: ${{ steps.variant.outputs.variant_receipt_sha256 }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      producer_repository: ${{ github.repository }}
+      producer_workflow: ${{ github.workflow_ref }}
+      producer_job_id: ${{ github.job }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: x86_64-unknown-linux-gnu
+      BUILD_HOST: x86_64-unknown-linux-gnu
+      VARIANT: modified
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download exact notice and source-material artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Reclaim only measured unused Linux runner SDKs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-before-cleanup.txt"
+          du -sk /usr/local/lib/android /usr/share/dotnet 2>/dev/null | tee "$RUNNER_TEMP/source-logs/unused-sdk-before.txt" || true
+          if [ -d /usr/local/lib/android ]; then sudo rm -rf /usr/local/lib/android; fi
+          if [ -d /usr/share/dotnet ]; then sudo rm -rf /usr/share/dotnet; fi
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
+      - name: Create producer context
+        env:
+          PRODUCER_REPOSITORY: ${{ github.repository }}
+          PRODUCER_WORKFLOW: ${{ github.workflow_ref }}
+          PRODUCER_RUN_ID: ${{ github.run_id }}
+          PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
+          PRODUCER_JOB_ID: ${{ github.job }}
+        run: |
+          set -euo pipefail
+          jq -n --arg repository "$PRODUCER_REPOSITORY" --arg workflow "$PRODUCER_WORKFLOW" --arg run_id "$PRODUCER_RUN_ID" --arg run_attempt "$PRODUCER_RUN_ATTEMPT" --arg job_id "$PRODUCER_JOB_ID" \
+            '{schema_version: 1, kind: "slv-native-producer-context", repository: $repository, workflow: $workflow, run_id: $run_id, run_attempt: $run_attempt, job_id: $job_id}' > "$RUNNER_TEMP/producer-context.json"
+      - name: Build cold source variant
+        id: variant
+        timeout-minutes: 320
+        run: |
+          set -euo pipefail
+          resolve_host_python() {
+            for candidate in "$(command -v python3 || true)" /usr/local/bin/python3 /usr/bin/python3; do
+              test -n "$candidate" && test -x "$candidate" || continue
+              "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' || continue
+              "$candidate" -c 'import os, sys; print(os.path.realpath(sys.executable))'
+              return 0
+            done
+            return 1
+          }
+          SLV_HOST_PYTHON="$(resolve_host_python)"
+          test "${SLV_HOST_PYTHON#/}" != "$SLV_HOST_PYTHON"
+          export SLV_HOST_PYTHON
+          sha256_file() { sha256sum "$1" | awk '{print $1}'; }
+          mkdir -p "$RUNNER_TEMP/source-logs" "$RUNNER_TEMP/source-tools" dist/release-inputs/tool-pins
+          date -u +%FT%TZ | tee "$RUNNER_TEMP/source-logs/variant-started-at.txt"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/variant-capacity.txt"
+          getconf _NPROCESSORS_ONLN | tee "$RUNNER_TEMP/source-logs/variant-cpu-count.txt"
+          free -m | tee "$RUNNER_TEMP/source-logs/variant-memory.txt"
+          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
+          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
+          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
+          test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose build --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/build" --receipt "$RUNNER_TEMP/build-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-build.log"
+          variant_out="dist/release-inputs/source-variants/$TARGET/$VARIANT"
+          test ! -e "$variant_out"
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "$variant_out" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" --jobs 2 --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
+          cp "dist/release-inputs/tool-pins/$TARGET.json" "$variant_out/tool-pin.json"
+          test "$(sha256_file "$variant_out/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$variant_out/variant-receipt.json")"
+          test "$(sha256_file "$variant_out/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$variant_out/variant-receipt.json")"
+          variant_receipt_sha256="$(sha256_file "$variant_out/variant-receipt.json")"
+          [[ "$variant_receipt_sha256" =~ ^[a-f0-9]{64}$ ]]
+          echo "variant_receipt_sha256=$variant_receipt_sha256" >> "$GITHUB_OUTPUT"
+          date -u +%FT%TZ | tee "$RUNNER_TEMP/source-logs/variant-finished-at.txt"
+      - name: Persist the cold Linux x64 modified variant
+        id: upload-variant
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        timeout-minutes: 10
+        with:
+          name: source-native-variant-x86_64-unknown-linux-gnu-modified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/modified/variant-receipt.json
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/modified/build-tools-receipt.json
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/modified/tool-pin.json
+            dist/release-inputs/source-variants/x86_64-unknown-linux-gnu/modified/transport
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve Linux x64 modified variant diagnostics
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        timeout-minutes: 5
+        with:
+          name: source-native-variant-diagnostics-x86_64-unknown-linux-gnu-modified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-native-linux-x64:
+    needs: [
+      resolve,
+      test,
+      source-materials,
+      source-linux-x64-baseline,
+      source-linux-x64-modified,
+    ]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-proof.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-proof.outputs.artifact-digest }}
+      runtime_artifact_id: ${{ steps.upload-runtime.outputs.artifact-id }}
+      runtime_artifact_digest: ${{ steps.upload-runtime.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      proof_sha256: ${{ steps.proof.outputs.proof_sha256 }}
+      baseline_runtime_sha256: ${{ steps.proof.outputs.baseline_runtime_sha256 }}
+      baseline_derived_lock_sha256: ${{ steps.proof.outputs.baseline_derived_lock_sha256 }}
+      build_receipt_sha256: ${{ steps.proof.outputs.build_receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      TARGET: x86_64-unknown-linux-gnu
+      BUILD_HOST: x86_64-unknown-linux-gnu
+    steps:
+      - name: Require every source prerequisite to succeed
+        id: prerequisites
+        timeout-minutes: 1
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          jq -e --slurp --argjson expected '["resolve","test","source-materials","source-linux-x64-baseline","source-linux-x64-modified"]' \
+            'length == 1 and (.[0] | type == "object" and (keys == ($expected | sort)) and all(.[]; type == "object" and .result == "success"))' \
+            <<< "$NEEDS_JSON" > /dev/null
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download exact notice and source-material artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Reclaim only measured unused Linux runner SDKs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-logs"
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-before-cleanup.txt"
+          du -sk /usr/local/lib/android /usr/share/dotnet 2>/dev/null | tee "$RUNNER_TEMP/source-logs/unused-sdk-before.txt" || true
+          if [ -d /usr/local/lib/android ]; then sudo rm -rf /usr/local/lib/android; fi
+          if [ -d /usr/share/dotnet ]; then sudo rm -rf /usr/share/dotnet; fi
+          df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP" | tee "$RUNNER_TEMP/source-logs/capacity-after-cleanup.txt"
+      - name: Validate trusted Linux variant producer metadata
+        env:
+          BASELINE_ARTIFACT_ID: ${{ needs.source-linux-x64-baseline.outputs.artifact_id }}
+          BASELINE_ARTIFACT_DIGEST: ${{ needs.source-linux-x64-baseline.outputs.artifact_digest }}
+          BASELINE_RECEIPT_SHA256: ${{ needs.source-linux-x64-baseline.outputs.variant_receipt_sha256 }}
+          BASELINE_REPOSITORY: ${{ needs.source-linux-x64-baseline.outputs.producer_repository }}
+          BASELINE_WORKFLOW: ${{ needs.source-linux-x64-baseline.outputs.producer_workflow }}
+          BASELINE_RUN_ID: ${{ needs.source-linux-x64-baseline.outputs.producer_run_id }}
+          BASELINE_RUN_ATTEMPT: ${{ needs.source-linux-x64-baseline.outputs.producer_attempt }}
+          BASELINE_JOB_ID: ${{ needs.source-linux-x64-baseline.outputs.producer_job_id }}
+          MODIFIED_ARTIFACT_ID: ${{ needs.source-linux-x64-modified.outputs.artifact_id }}
+          MODIFIED_ARTIFACT_DIGEST: ${{ needs.source-linux-x64-modified.outputs.artifact_digest }}
+          MODIFIED_RECEIPT_SHA256: ${{ needs.source-linux-x64-modified.outputs.variant_receipt_sha256 }}
+          MODIFIED_REPOSITORY: ${{ needs.source-linux-x64-modified.outputs.producer_repository }}
+          MODIFIED_WORKFLOW: ${{ needs.source-linux-x64-modified.outputs.producer_workflow }}
+          MODIFIED_RUN_ID: ${{ needs.source-linux-x64-modified.outputs.producer_run_id }}
+          MODIFIED_RUN_ATTEMPT: ${{ needs.source-linux-x64-modified.outputs.producer_attempt }}
+          MODIFIED_JOB_ID: ${{ needs.source-linux-x64-modified.outputs.producer_job_id }}
+          CURRENT_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          for role in BASELINE MODIFIED; do
+            id_var="${role}_ARTIFACT_ID"; digest_var="${role}_ARTIFACT_DIGEST"; receipt_var="${role}_RECEIPT_SHA256"
+            repository_var="${role}_REPOSITORY"; workflow_var="${role}_WORKFLOW"; run_id_var="${role}_RUN_ID"; attempt_var="${role}_RUN_ATTEMPT"
+            id="${!id_var}"; digest="${!digest_var}"; receipt="${!receipt_var}"; repository="${!repository_var}"; workflow="${!workflow_var}"; run_id="${!run_id_var}"; attempt="${!attempt_var}"
+            [[ "$id" =~ ^[1-9][0-9]*$ ]]
+            [[ "$receipt" =~ ^[a-f0-9]{64}$ ]]
+            [[ "$digest" =~ ^([a-f0-9]{64}|sha256:[a-f0-9]{64})$ ]]
+            [[ -n "$repository" && -n "$workflow" && "$run_id" =~ ^[1-9][0-9]*$ && "$attempt" =~ ^[1-9][0-9]*$ ]]
+            test "$attempt" -le "$CURRENT_ATTEMPT"
+          done
+          test "$BASELINE_JOB_ID" = source-linux-x64-baseline
+          test "$MODIFIED_JOB_ID" = source-linux-x64-modified
+      - name: Download exact Linux baseline variant
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-linux-x64-baseline.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/source-variants/baseline
+      - name: Download exact Linux modified variant
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.source-linux-x64-modified.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/source-variants/modified
+      - name: Join the two verified Linux source variants
+        id: join
+        timeout-minutes: 60
+        env:
+          BASELINE_ARTIFACT_ID: ${{ needs.source-linux-x64-baseline.outputs.artifact_id }}
+          BASELINE_ARTIFACT_DIGEST: ${{ needs.source-linux-x64-baseline.outputs.artifact_digest }}
+          BASELINE_RECEIPT_SHA256: ${{ needs.source-linux-x64-baseline.outputs.variant_receipt_sha256 }}
+          BASELINE_REPOSITORY: ${{ needs.source-linux-x64-baseline.outputs.producer_repository }}
+          BASELINE_WORKFLOW: ${{ needs.source-linux-x64-baseline.outputs.producer_workflow }}
+          BASELINE_RUN_ID: ${{ needs.source-linux-x64-baseline.outputs.producer_run_id }}
+          BASELINE_RUN_ATTEMPT: ${{ needs.source-linux-x64-baseline.outputs.producer_attempt }}
+          BASELINE_JOB_ID: ${{ needs.source-linux-x64-baseline.outputs.producer_job_id }}
+          MODIFIED_ARTIFACT_ID: ${{ needs.source-linux-x64-modified.outputs.artifact_id }}
+          MODIFIED_ARTIFACT_DIGEST: ${{ needs.source-linux-x64-modified.outputs.artifact_digest }}
+          MODIFIED_RECEIPT_SHA256: ${{ needs.source-linux-x64-modified.outputs.variant_receipt_sha256 }}
+          MODIFIED_REPOSITORY: ${{ needs.source-linux-x64-modified.outputs.producer_repository }}
+          MODIFIED_WORKFLOW: ${{ needs.source-linux-x64-modified.outputs.producer_workflow }}
+          MODIFIED_RUN_ID: ${{ needs.source-linux-x64-modified.outputs.producer_run_id }}
+          MODIFIED_RUN_ATTEMPT: ${{ needs.source-linux-x64-modified.outputs.producer_attempt }}
+          MODIFIED_JOB_ID: ${{ needs.source-linux-x64-modified.outputs.producer_job_id }}
+        run: |
+          set -euo pipefail
+          sha256_file() { sha256sum "$1" | awk '{print $1}'; }
+          baseline_root="$RUNNER_TEMP/source-variants/baseline"
+          modified_root="$RUNNER_TEMP/source-variants/modified"
+          test -f "$baseline_root/variant-receipt.json" && test -f "$baseline_root/build-tools-receipt.json" && test -f "$baseline_root/tool-pin.json" && test -d "$baseline_root/transport"
+          test -f "$modified_root/variant-receipt.json" && test -f "$modified_root/build-tools-receipt.json" && test -f "$modified_root/tool-pin.json" && test -d "$modified_root/transport"
+          test "$(sha256_file "$baseline_root/variant-receipt.json")" = "$BASELINE_RECEIPT_SHA256"
+          test "$(sha256_file "$modified_root/variant-receipt.json")" = "$MODIFIED_RECEIPT_SHA256"
+          test "$(sha256_file "$baseline_root/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$baseline_root/variant-receipt.json")"
+          test "$(sha256_file "$modified_root/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$modified_root/variant-receipt.json")"
+          test "$(sha256_file "$baseline_root/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$baseline_root/variant-receipt.json")"
+          test "$(sha256_file "$modified_root/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$modified_root/variant-receipt.json")"
+          cmp "$baseline_root/tool-pin.json" "$modified_root/tool-pin.json"
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg workflow "$GITHUB_WORKFLOW_REF" --arg run_id "$GITHUB_RUN_ID" --arg run_attempt "$GITHUB_RUN_ATTEMPT" --arg job_id "$GITHUB_JOB" \
+            '{schema_version: 1, kind: "slv-native-producer-context", repository: $repository, workflow: $workflow, run_id: $run_id, run_attempt: $run_attempt, job_id: $job_id}' > "$RUNNER_TEMP/producer-context.json"
+          jq -n \
+            --arg baseline_receipt "$baseline_root/variant-receipt.json" --arg baseline_materials "$baseline_root" --arg baseline_receipt_sha256 "$BASELINE_RECEIPT_SHA256" --arg baseline_artifact_id "$BASELINE_ARTIFACT_ID" --arg baseline_artifact_digest "$BASELINE_ARTIFACT_DIGEST" --arg baseline_repository "$BASELINE_REPOSITORY" --arg baseline_workflow "$BASELINE_WORKFLOW" --arg baseline_run_id "$BASELINE_RUN_ID" --arg baseline_run_attempt "$BASELINE_RUN_ATTEMPT" --arg baseline_job_id "$BASELINE_JOB_ID" \
+            --arg modified_receipt "$modified_root/variant-receipt.json" --arg modified_materials "$modified_root" --arg modified_receipt_sha256 "$MODIFIED_RECEIPT_SHA256" --arg modified_artifact_id "$MODIFIED_ARTIFACT_ID" --arg modified_artifact_digest "$MODIFIED_ARTIFACT_DIGEST" --arg modified_repository "$MODIFIED_REPOSITORY" --arg modified_workflow "$MODIFIED_WORKFLOW" --arg modified_run_id "$MODIFIED_RUN_ID" --arg modified_run_attempt "$MODIFIED_RUN_ATTEMPT" --arg modified_job_id "$MODIFIED_JOB_ID" \
+            '{schema_version: 1, kind: "slv-native-variant-dependencies", baseline: {receipt: $baseline_receipt, materials: $baseline_materials, receipt_sha256: $baseline_receipt_sha256, artifact_id: $baseline_artifact_id, artifact_digest: $baseline_artifact_digest, producer: {schema_version: 1, kind: "slv-native-producer-context", repository: $baseline_repository, workflow: $baseline_workflow, run_id: $baseline_run_id, run_attempt: $baseline_run_attempt, job_id: $baseline_job_id}}, modified: {receipt: $modified_receipt, materials: $modified_materials, receipt_sha256: $modified_receipt_sha256, artifact_id: $modified_artifact_id, artifact_digest: $modified_artifact_digest, producer: {schema_version: 1, kind: "slv-native-producer-context", repository: $modified_repository, workflow: $modified_workflow, run_id: $modified_run_id, run_attempt: $modified_run_attempt, job_id: $modified_job_id}}}' > "$RUNNER_TEMP/variant-dependencies.json"
+          mkdir -p "dist/release-inputs/source-proofs/$TARGET" dist/release-inputs/tool-pins
+          common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase join-build "${common[@]}" --source-root "$RUNNER_TEMP/join-source-root" --work-dir "$RUNNER_TEMP/join-work" --producer-context "$RUNNER_TEMP/producer-context.json" --variant-dependencies "$RUNNER_TEMP/variant-dependencies.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/join.log"
+          cp "$baseline_root/build-tools-receipt.json" "dist/release-inputs/source-proofs/$TARGET/build-tools-receipt.json"
+          cp "$baseline_root/tool-pin.json" "dist/release-inputs/tool-pins/$TARGET.json"
+          test "$(sha256_file "dist/release-inputs/tool-pins/$TARGET.json")" = "$(jq -er '.tool_pin_sha256' "dist/release-inputs/source-proofs/$TARGET/build-receipt.json")"
+      - name: Execute and merge the native source proof
         id: proof
+        timeout-minutes: 60
         run: |
           set -euo pipefail
           resolve_host_python() {
@@ -1839,11 +2188,9 @@ jobs:
           test -n '${{ needs.source-materials.outputs.producer_attempt }}'
           test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
           deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
-          deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose build --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/build" --receipt "$RUNNER_TEMP/build-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-build.log"
           deno run --frozen --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target "$TARGET" --build-host "$BUILD_HOST" --purpose execution --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/source-tools/execution" --receipt "$RUNNER_TEMP/execution-tools.json" --descriptor "dist/release-inputs/tool-pins/$TARGET.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/prepare-execution.log"
           mkdir -p "dist/release-inputs/source-proofs/$TARGET"
           common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "dist/release-inputs/source-proofs/$TARGET" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
-          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build "${common[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/build.log"
           deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase execute "${common[@]}" --source-root "$RUNNER_TEMP/execute-source-root" --work-dir "$RUNNER_TEMP/execute-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --build-materials "dist/release-inputs/source-proofs/$TARGET/transport" --execution-tools-receipt "$RUNNER_TEMP/execution-tools.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/execute.log"
           deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase merge "${common[@]}" --source-root "$RUNNER_TEMP/merge-source-root" --work-dir "$RUNNER_TEMP/merge-work" --build-receipt "dist/release-inputs/source-proofs/$TARGET/build-receipt.json" --execution-receipt "dist/release-inputs/source-proofs/$TARGET/execution-receipt.json" 2>&1 | tee "$RUNNER_TEMP/source-logs/merge.log"
           proof_sha256="$(sha256_file "dist/release-inputs/source-proofs/$TARGET/native-proof.json")"
@@ -1891,6 +2238,7 @@ jobs:
       - name: Preserve failed native proof diagnostics separately
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        timeout-minutes: 5
         with:
           name: source-proof-diagnostics-x86_64-unknown-linux-gnu-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/source-logs
@@ -2211,7 +2559,7 @@ jobs:
             '{schema_version: 1, kind: "slv-native-producer-context", repository: $repository, workflow: $workflow, run_id: $run_id, run_attempt: $run_attempt, job_id: $job_id}' > "$RUNNER_TEMP/producer-context.json"
       - name: Build cold source variant
         id: variant
-        timeout-minutes: 320
+        timeout-minutes: 340
         run: |
           set -euo pipefail
           resolve_host_python() {
@@ -2345,7 +2693,7 @@ jobs:
             '{schema_version: 1, kind: "slv-native-producer-context", repository: $repository, workflow: $workflow, run_id: $run_id, run_attempt: $run_attempt, job_id: $job_id}' > "$RUNNER_TEMP/producer-context.json"
       - name: Build cold source variant
         id: variant
-        timeout-minutes: 320
+        timeout-minutes: 340
         run: |
           set -euo pipefail
           resolve_host_python() {
