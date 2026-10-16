@@ -9,7 +9,8 @@ import { runAnsilbe } from '/lib/runAnsible.ts'
 import { parseDeployNetwork } from '/lib/targetGuard.ts'
 import { runSetIdentity } from '/lib/identityPrecheck.ts'
 import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
-import { switchValidator } from '/src/validator/switch/switchValidator.ts'
+import { runSwitchCommand } from '/src/validator/switch/switchCommand.ts'
+import { runCheckAlpenglow } from '/src/validator/checkAlpenglow.ts'
 import { updateDefaultVersion } from '/lib/config/updateDefaultVersion.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
 // import { updateAllowedIps } from '/lib/config/updateAllowedIps.ts'
@@ -94,6 +95,35 @@ validatorCmd.command('register:bls')
     await registerBlsPubkey(network, options.pubkey)
   })
 
+validatorCmd.command('check:alpenglow')
+  .description(
+    [
+      '🔎 Check that each validator of the inventory is ready for Alpenglow, before and after the activation (mainnet epoch 1064).',
+      'Read-only: it reads the inventory, ~/.slv/versions.yml and the public RPC of the network. No host is contacted and no transaction is made.',
+      'One line per check, OK, WARN or FAIL, with the fix. Exit code 1 when any check FAILs.',
+      '  cluster   TowerBFT, activation about to start, migration window, Alpenglow, or unreadable, and what that means for identity changes',
+      '  client    validator_type (mainnet: agave, jito or allnodes-jito) and the version pinned in versions.yml against the floor of the network',
+      '  running   the version the node of the host advertises in gossip, against the floor and the pin (a standby on its unstaked key is not visible)',
+      '  bls       the vote account has a BLS public key (fix: slv v register:bls)',
+      '  vat       the vote account holds the Validator Admission Ticket, 0.8 SOL per epoch, above its rent-exempt minimum (WARN below 3 epochs)',
+      '  identity  the identity pays the vote fees of TowerBFT, about 1 SOL per epoch (WARN below 3 SOL); under Alpenglow it does not',
+      '  voter     the authorized voter of the vote account is the identity slv adds to the validator',
+    ].join('\n'),
+  )
+  .option('-n, --network <network>', 'Solana Network (mainnet or testnet)', {
+    default: 'mainnet',
+  })
+  .option(
+    '-p, --pubkey <pubkey>',
+    'Inventory host name, or several separated by commas (default: every validator of the inventory)',
+  )
+  .action(async (options) => {
+    await runCheckAlpenglow({
+      network: options.network,
+      pubkey: options.pubkey,
+    })
+  })
+
 validatorCmd.command('list')
   .description('📋 List validators')
   .option('-n, --network <network>', 'Solana Network', {
@@ -120,12 +150,17 @@ validatorCmd.command('set:identity')
     '--peer-down-confirmed',
     'Go ahead although a peer host holding the same identity could not be read; use only after confirming it is not running the identity.',
   )
+  .option(
+    '--primary-down',
+    'The old primary (the other host holding this identity) is stopped, powered off if needed, and cannot vote. Needs a terminal: you type its inventory name. For Alpenglow, where its vote history file may be lost with it.',
+  )
   .action(async (options) => {
     const result = await runSetIdentity({
       network: options.network,
       pubkey: options.pubkey,
       firstActivation: options.firstActivation,
       peerDownConfirmed: options.peerDownConfirmed,
+      primaryDown: options.primaryDown,
     })
     if (result) {
       console.log(colors.white('✅ Successfully Set Validator Identity'))
@@ -477,80 +512,11 @@ validatorCmd.command('switch')
   .option('-t, --to <to>', 'To Validator Identity')
   .option('-n, --network <network>', 'Solana Network')
   .action(async (options) => {
-    let from = options.from
-    let to = options.to
-    let network = options.network
-    if (!options.network) {
-      const validator = await prompt([
-        {
-          name: 'network',
-          message: 'Select Solana Network',
-          type: Select,
-          options: ['testnet', 'mainnet'],
-          default: 'testnet',
-        },
-      ])
-      network = validator.network || 'testnet'
-    }
-    const inventoryType: InventoryType = network === 'mainnet'
-      ? 'mainnet_validators'
-      : 'testnet_validators'
-    const networkString = network === 'mainnet' ? 'Mainnet' : 'Testnet'
-    console.log(
-      colors.blue(`✨ Switching ${networkString} Validator Identity...`),
-    )
-    if (!options.from) {
-      const fromValidator = await prompt([
-        {
-          name: 'from',
-          message: 'From Validator Name',
-          type: Input,
-        },
-      ])
-      from = fromValidator.from
-    }
-    if (!options.to) {
-      const toValidator = await prompt([
-        {
-          name: 'to',
-          message: 'To Validator Name',
-          type: Input,
-        },
-      ])
-      to = toValidator.to
-    }
-    const confirm = await prompt([
-      {
-        name: 'confirm',
-        message:
-          `Are you sure you want to switch ${networkString} Validator Identity from ${from} to ${to}?`,
-        type: Select,
-        options: ['yes', 'no'],
-        default: 'no',
-      },
-    ])
-    if (confirm.confirm === 'no') {
-      console.log(colors.red('❌ Switch Cancelled'))
-      return
-    }
-    if (!from || !to) {
-      console.log(colors.yellow('⚠️ From and To Validators are required'))
-      return
-    }
-    console.log(
-      colors.blue(
-        `✨ Switching ${networkString} Validator Identity from ${from} to ${to}...`,
-      ),
-    )
-    const result = await switchValidator(
-      inventoryType,
-      from,
-      to,
-    )
-    if (result) {
-      console.log(colors.white('✅ Successfully Switched Validator Identity'))
-      return
-    }
+    await runSwitchCommand({
+      from: options.from,
+      to: options.to,
+      network: options.network,
+    })
   })
 
 registerDoubleZeroCommands(validatorCmd, 'validator', 'testnet')

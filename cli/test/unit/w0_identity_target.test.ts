@@ -156,6 +156,10 @@ const harness = (
     info: (line) => h.info.push(line),
     error: (line) => h.errors.push(line),
     setExitCode: (code) => h.exitCodes.push(code),
+    // The cluster runs TowerBFT, as it does on mainnet until the activation.
+    readState: () =>
+      Promise.resolve({ state: 'towerbft', detail: '', marginSlots: 3000 }),
+    ask: () => Promise.reject(new Error('no question expected in this test')),
   }
   return h
 }

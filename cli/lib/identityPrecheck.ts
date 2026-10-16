@@ -1,5 +1,12 @@
 import { colors } from '@cliffy/colors'
+import { Input } from '@cliffy/prompt'
 import type { InventoryType } from '@cmn/types/config.ts'
+import {
+  type AlpenglowReading,
+  checkAlpenglowState,
+  type Consensus,
+  readAlpenglowState,
+} from '/lib/alpenglowState.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import {
   type ExtraVars,
@@ -27,8 +34,30 @@ const RPC_URLS: Record<IdentityNetwork, string> = {
 }
 
 const RPC_TIMEOUT_MS = 20_000
-const RECENT_VOTE_WINDOW_SLOTS = 150
 const RUNNING_IDENTITY_PLAYBOOK = 'cmn/read_running_identity.yml'
+
+// A vote of the vote account this recent means that someone is voting with the
+// identity. Only the vote counts: the root slot of a vote account is no sign of
+// life under Alpenglow (on testnet, 3 of 459 active validators did not move
+// their root in 400 s while their last vote advanced by 1,798 slots).
+//
+// towerbft: 150 slots, the age at which a vote transaction signed before its
+//   sender stopped can no longer land (MAX_PROCESSING_AGE).
+// alpenglow: a vote is not a transaction, so MAX_PROCESSING_AGE bounds nothing.
+//   On testnet (4.4.0-beta.1, 2026-10-16) the lastVote of an active validator
+//   was within -2 to +9 slots of the confirmed slot in 9,639 readings of 459
+//   validators over 400 s, and a delinquent one was at least 45,409 slots
+//   behind, so any window above 10 slots tells a voting identity from a stopped
+//   one. 270 slots is one minute at the 4.5 slots/s measured there, as 150
+//   slots were at 400 ms per slot.
+const TOWERBFT_VOTE_WINDOW_SLOTS = 150
+const ALPENGLOW_VOTE_WINDOW_SLOTS = 270
+const RECENT_VOTE_WINDOW_SLOTS = TOWERBFT_VOTE_WINDOW_SLOTS
+
+const voteWindowSlots = (consensus: Consensus): number =>
+  consensus === 'alpenglow'
+    ? ALPENGLOW_VOTE_WINDOW_SLOTS
+    : TOWERBFT_VOTE_WINDOW_SLOTS
 
 type PrecheckInput = {
   network: IdentityNetwork
@@ -37,6 +66,10 @@ type PrecheckInput = {
   /** Every host of the inventory group, the target included. */
   hosts: readonly InventoryHost[]
   peerDownConfirmed: boolean
+  /** The consensus of the cluster; towerbft when absent. */
+  consensus?: Consensus
+  /** The inventory name of the peer the operator confirmed to be stopped. */
+  downPeer?: string
 }
 
 type PrecheckResult = {
@@ -155,6 +188,15 @@ const parseRunningIdentityLines = (output: string): Map<string, string[]> => {
 
 // --- the checks ---------------------------------------------------------------
 
+/** The other hosts of the inventory that hold the target's identity. */
+const peersHoldingIdentity = (
+  target: InventoryHost,
+  hosts: readonly InventoryHost[],
+): InventoryHost[] =>
+  hosts.filter((host) =>
+    host.name !== target.name && host.identityAccount === target.identityAccount
+  )
+
 type Collected = { failures: string[]; notes: string[] }
 
 const checkClusterView = async (
@@ -261,7 +303,7 @@ const checkClusterView = async (
     const age = Math.max(0, slot - lastVote)
     if (lastVote === 0) {
       out.notes.push(`vote account ${target.voteAccount} has no vote on record`)
-    } else if (age > RECENT_VOTE_WINDOW_SLOTS) {
+    } else if (age > voteWindowSlots(input.consensus ?? 'towerbft')) {
       out.notes.push(
         `vote account ${target.voteAccount} last voted ${age} slots ago`,
       )
@@ -321,17 +363,28 @@ const checkPeers = async (
       out.notes.push(`peer ${peer.name} runs a different identity`)
     }
   }
-  if (unread.length === 0) return
+  // The peer the operator named as stopped may stay unread; one that answers
+  // and runs the identity was caught above.
+  const confirmedDown = unread.filter((name) => name === input.downPeer)
+  if (confirmedDown.length > 0) {
+    out.notes.push(
+      `could not read ${
+        confirmedDown.join(', ')
+      }; continuing because you confirmed it is stopped`,
+    )
+  }
+  const stillUnread = unread.filter((name) => name !== input.downPeer)
+  if (stillUnread.length === 0) return
   if (input.peerDownConfirmed) {
     out.notes.push(
       `could not read ${
-        unread.join(', ')
+        stillUnread.join(', ')
       }; continuing because --peer-down-confirmed was given`,
     )
   } else {
     out.failures.push(
       `could not read the running identity of ${
-        unread.join(', ')
+        stillUnread.join(', ')
       } (reported unknown or printed nothing). If that host is confirmed not to be running ${identity}, run again with --peer-down-confirmed`,
     )
   }
@@ -361,9 +414,7 @@ const runIdentityPrecheck = async (
     out.failures.push(`${target.name} has no identity_account in the inventory`)
     return { ok: false, ...out }
   }
-  const peers = input.hosts.filter((host) =>
-    host.name !== target.name && host.identityAccount === target.identityAccount
-  )
+  const peers = peersHoldingIdentity(target, input.hosts)
   await checkClusterView(input, deps, out)
   await checkPeers(input, peers, deps, out)
   return { ok: out.failures.length === 0, ...out }
@@ -376,6 +427,8 @@ type SetIdentityOptions = {
   pubkey?: string
   firstActivation?: boolean
   peerDownConfirmed?: boolean
+  /** The other host that holds this identity is stopped and cannot vote. */
+  primaryDown?: boolean
 }
 
 type SetIdentityDeps = {
@@ -393,6 +446,10 @@ type SetIdentityDeps = {
   info: (line: string) => void
   error: (line: string) => void
   setExitCode: (code: number) => void
+  /** The consensus the cluster runs, read the way alpenglow_state.yml reads it. */
+  readState: (network: IdentityNetwork) => Promise<AlpenglowReading>
+  /** Asks for one line of text on the terminal. */
+  ask: (message: string) => Promise<string>
 }
 
 const defaultSetIdentityDeps = (): SetIdentityDeps => ({
@@ -408,12 +465,16 @@ const defaultSetIdentityDeps = (): SetIdentityDeps => ({
   setExitCode: (code) => {
     Deno.exitCode = code
   },
+  readState: (network) => readAlpenglowState(network),
+  ask: (message) => Input.prompt({ message }),
 })
 
 /**
- * `slv v set:identity`: promotes exactly one named host, after the precheck,
- * and after a confirmation (default no) on mainnet. Returns true when the
- * playbook ran and succeeded.
+ * `slv v set:identity`: promotes exactly one named host, after the state of the
+ * cluster, the precheck, and a confirmation (default no) on mainnet. With
+ * `primaryDown` the operator also types the name of the old primary, which
+ * stays unread by the precheck, and the playbook is told so with
+ * primary_down_confirmed. Returns true when the playbook ran and succeeded.
  */
 const runSetIdentity = async (
   options: SetIdentityOptions,
@@ -438,6 +499,19 @@ const runSetIdentity = async (
     ? 'mainnet_validators'
     : 'testnet_validators'
 
+  if (options.primaryDown) {
+    if (options.firstActivation) {
+      return refuse(
+        '--primary-down and --first-activation exclude each other: an identity that has never voted has no primary to be down.',
+      )
+    }
+    if (!deps.isTty()) {
+      return refuse(
+        'set:identity --primary-down needs an interactive terminal to confirm that the old primary is stopped; it will not run without one.',
+      )
+    }
+  }
+
   let hosts: InventoryHost[]
   try {
     hosts = await deps.readHosts(inventoryType)
@@ -457,12 +531,49 @@ const runSetIdentity = async (
     )
   }
 
+  // The old primary is the other host of the inventory that holds this identity.
+  const peers = peersHoldingIdentity(target, hosts)
+  if (options.primaryDown && peers.length === 0) {
+    return refuse(
+      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down the identity is set from the tower or vote history file on ${target.name}.`,
+    )
+  }
+
+  // Before any check or playbook: identity changes wait in the migration
+  // window and when the state cannot be read.
+  const reading = await checkAlpenglowState(network, {
+    read: deps.readState,
+    info: deps.info,
+    error: deps.error,
+    setExitCode: deps.setExitCode,
+  })
+  if (reading === null) return false
+
+  let downPeer: string | undefined
+  if (options.primaryDown) {
+    const named = (await deps.ask(
+      `The old primary holds the same identity as ${target.name}: ${
+        peers.map((peer) => `${peer.name} (${peer.ansibleHost})`).join(', ')
+      }. Type the inventory name of the old primary to confirm that it is stopped, powered off if needed, and cannot vote:`,
+    )).trim()
+    if (!peers.some((peer) => peer.name === named)) {
+      return refuse(
+        `"${named}" is not the inventory name of a host that holds identity ${target.identityAccount} (${
+          peers.map((peer) => peer.name).join(', ')
+        }). Nothing was changed.`,
+      )
+    }
+    downPeer = named
+  }
+
   const check = await deps.precheck({
     network,
     inventoryType,
     target,
     hosts,
     peerDownConfirmed: options.peerDownConfirmed === true,
+    consensus: reading.state,
+    downPeer,
   })
   for (const note of check.notes) deps.info(`   ${note}`)
   if (!check.ok) {
@@ -486,15 +597,19 @@ const runSetIdentity = async (
   const networkPath = network === 'mainnet'
     ? 'mainnet-validator'
     : 'testnet-validator'
+  const extraVars: ExtraVars = {}
+  if (options.firstActivation) extraVars.first_activation = true
+  if (options.primaryDown) extraVars.primary_down_confirmed = true
   return await deps.runPlaybook(
     `${deps.templateRoot()}/ansible/${networkPath}/set_identity_key.yml`,
     inventoryType,
     target.name,
-    options.firstActivation ? { first_activation: true } : undefined,
+    Object.keys(extraVars).length > 0 ? extraVars : undefined,
   )
 }
 
 export {
+  ALPENGLOW_VOTE_WINDOW_SLOTS,
   defaultPrecheckDeps,
   parseGossipIp,
   parseRunningIdentityLines,
@@ -503,8 +618,11 @@ export {
   runIdentityPrecheck,
   RUNNING_IDENTITY_PLAYBOOK,
   runSetIdentity,
+  TOWERBFT_VOTE_WINDOW_SLOTS,
+  voteWindowSlots,
 }
 export type {
+  Consensus,
   PrecheckDeps,
   PrecheckInput,
   PrecheckResult,
