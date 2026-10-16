@@ -172,9 +172,10 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | Variable | Description | Default |
 |---|---|---|
 | `validator_type` | Validator type (`jito`, `allnodes-jito`, `agave`; `firedancer-agave` and `firedancer-jito` on testnet only, mainnet refuses them) | `jito` |
-| `solana_version` | Solana/Agave version to build (used when `validator_type == 'agave'`) | — |
-| `jito_version` | Jito version to build (used when `validator_type == 'jito'`) | — |
-| `allnodes_jito_version` | Allnodes-Jito version (used when `validator_type == 'allnodes-jito'`); template appends `-allnodes` to form the git tag | — |
+| `agave_version` | Agave version that `init.yml` builds for `validator_type` `agave` (and `firedancer-agave`): the git tag without its leading `v`, which the build adds. The host or `-e` first, else `version_agave` of the `mainnet_validators` or `testnet_validators` section of `~/.slv/versions.yml`; with neither the run stops before it builds. `init.yml` also stops, before it changes anything, on a client older than the floor of the network (mainnet 4.3.0, testnet 4.4.0-beta.0) | `version_agave` of `versions.yml` |
+| `jito_version` | The same for `validator_type` `jito` (and `firedancer-jito`): the tag without its leading `v`, with its `-jito` suffix. Else `version_jito` of the section | `version_jito` of `versions.yml` |
+| `allnodes_jito_version` | The same for `validator_type` `allnodes-jito`; the build adds the leading `v` and, to a version that does not contain it, `-allnodes`, to form the git tag. Else `version_allnodes_jito` of the section | `version_allnodes_jito` of `versions.yml` |
+| `solana_version` | Not read by `init.yml` or by the builds. Read by `cmn/patch_sha256.yml` (the git ref it clones) and, on testnet, by the snapshot finder (`--version` in `setup_snapshot_finder.yml`, `restart_agave_with_rm_ledger.yml` and `restart_firedancer_with_rm_ledger.yml`, from the variable of the host) | `v3.1.10-jito` in `patch_sha256.yml`, none otherwise |
 | `firedancer_version` | Firedancer version | — |
 | `snapshot_url` | Snapshot download URL | — |
 | `identity_account` | Validator identity pubkey | — |
@@ -309,8 +310,9 @@ for the generated output format.
 | `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
 | `region` | "Server region? (amsterdam, frankfurt, tokyo, ny, ...)" | String |
 | `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`; `firedancer-agave` and `firedancer-jito` on testnet only (mainnet refuses them) |
-| `solana_version` | "Solana version? (default: 4.3.2)" | Semver |
-| `jito_version` | "Jito version?" (if jito/allnodes-jito) | Semver |
+| `agave_version` | "Agave version?" (if agave; default: `version_agave` in `~/.slv/versions.yml`) | Semver, no leading `v` |
+| `jito_version` | "Jito version?" (if jito; default: `version_jito` in `~/.slv/versions.yml`) | Semver with the `-jito` suffix, no leading `v` |
+| `allnodes_jito_version` | "Allnodes-Jito version?" (if allnodes-jito; default: `version_allnodes_jito` in `~/.slv/versions.yml`) | Semver, with or without `-allnodes`, no leading `v` |
 | `firedancer_version` | "Firedancer version?" (testnet, if firedancer) | String |
 | `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
 | `vote_account` | "Vote account pubkey? (or generate)" | Base58 pubkey or `generate` |
@@ -356,15 +358,20 @@ All paths relative to skill's `ansible/` directory:
 ```bash
 cd /path/to/slv-validator/ansible/
 ansible-playbook -i inventory.yml {network}-validator/init.yml \
-  -e '{"validator_type":"<type>","solana_version":"<version>","snapshot_url":"<url>"}'
+  -e '{"validator_type":"<type>","<version variable>":"<version>","snapshot_url":"<url>"}'
 ```
+`<version variable>` is `agave_version` for `agave`, `jito_version` for `jito` and
+`allnodes_jito_version` for `allnodes-jito`. Write `<version>` without a leading `v` (the
+build adds it), at or above the floor of the network (mainnet 4.3.0, testnet 4.4.0-beta.0):
+`init.yml` stops before it changes anything on an older one. Leave the variable out to build
+the pin of `~/.slv/versions.yml`.
 
 ### Dry-Run First
 
 Always offer `--check` mode before actual deployment:
 ```bash
-ansible-playbook -i inventory.yml {network}-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"4.3.2"}' --check
+ansible-playbook -i inventory.yml mainnet-validator/init.yml \
+  -e '{"validator_type":"jito","jito_version":"4.3.2-jito"}' --check
 ```
 
 ## Performance Tuning
