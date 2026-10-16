@@ -27,7 +27,8 @@ SKILL="${1:?Usage: $0 <validator|rpc|grpc-geyser> [version]}"
 if [[ -n "${2:-}" ]]; then
   VERSION="$2"
 else
-  VERSION=$(sed -n "s/.*VERSION\s*=\s*['\"]\\([0-9]*\\.[0-9]*\\.[0-9]*\\).*/\\1/p" "$SCRIPT_DIR/cmn/constants/version.ts" 2>/dev/null | head -1)
+  # export const VERSION = '2026.6.6.2026': every number and dot between the quotes, however many parts it has
+  VERSION=$(sed -n "s/.*[^A-Za-z0-9_]VERSION[[:space:]]*=[[:space:]]*['\"]\\([0-9][0-9.]*[0-9]\\)['\"].*/\\1/p" "$SCRIPT_DIR/cmn/constants/version.ts" 2>/dev/null | head -1)
   if [[ -z "$VERSION" ]]; then
     echo "ERROR: Could not detect version from version.ts. Pass version as second arg." >&2
     exit 1
@@ -68,6 +69,43 @@ case "$SKILL" in
     ;;
 esac
 
+# A shared playbook is named by a path under ansible/cmn: directories of letters, digits, _ and -, and a file name of
+# those and dots that ends in .yml or .yaml. A name with .., an absolute path or anything else is not one, and
+# neither is a file that resolves outside ansible/cmn once its links are followed.
+valid_cmn_ref() {
+  local ref="$1"
+  [[ "$ref" =~ ^([A-Za-z0-9_-]+/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.ya?ml$ ]] || return 1
+  [[ "$ref" != *..* ]] || return 1
+}
+
+inside_cmn() {
+  local resolved cmn_root
+  cmn_root="$(realpath "$ANSIBLE_DIR/cmn")" || return 1
+  resolved="$(realpath "$1")" || return 1
+  [[ "$resolved" == "$cmn_root"/* ]]
+}
+
+# The shared playbooks that the docs of the skill name (cmn/<name>.yml in SKILL.md, AGENT.md, README.md, examples/
+# and scripts/) belong to its package (see resolve_cmn_deps). The names come from text, so they are checked here,
+# before dist is touched: a name that is not a path under ansible/cmn stops the build.
+DOC_REFS=()
+if [[ -d "$OSS_SKILL_DIR" ]]; then
+  while IFS= read -r hit; do
+    [[ -n "$hit" ]] || continue
+    doc="${hit%%:*}"
+    name="${hit#*:}"
+    if ! valid_cmn_ref "${name#cmn/}"; then
+      echo "ERROR: $doc names the shared playbook '$name', which is not a path under ansible/cmn (no .., no absolute path, no other directory). Nothing was built." >&2
+      exit 1
+    fi
+    if [[ -e "$ANSIBLE_DIR/cmn/${name#cmn/}" ]] && ! inside_cmn "$ANSIBLE_DIR/cmn/${name#cmn/}"; then
+      echo "ERROR: $doc names the shared playbook '$name', which resolves outside ansible/cmn. Nothing was built." >&2
+      exit 1
+    fi
+    DOC_REFS+=("${name#cmn/}")
+  done < <(grep -rHoE 'cmn/[A-Za-z0-9_./-]+\.ya?ml' "$OSS_SKILL_DIR" 2>/dev/null | sort -u || true)
+fi
+
 # Not every skill has a skill.json under oss-skills/. The skill.json that dist already has for such a
 # skill is kept (the installer and `slv skills sync` fetch it), so it is put aside while dist is cleaned.
 KEPT_SKILL_JSON=""
@@ -99,18 +137,17 @@ resolve_cmn_deps() {
     done < <(grep -rh '\.\./cmn/' "$ANSIBLE_DIR/$dir" 2>/dev/null || true)
   done
 
-  # The shared playbooks that the docs of the skill name (cmn/<name>.yml in SKILL.md, AGENT.md, README.md,
-  # examples/ and scripts/) belong to the package as well, with what they import: a package whose docs
-  # tell the reader to run a playbook has to hold it.
-  if [[ -d "$OSS_SKILL_DIR" ]]; then
-    while IFS= read -r ref; do
-      [[ -n "$ref" ]] && queue+=("$ref")
-    done < <(grep -rhoE 'cmn/[A-Za-z0-9_./-]+\.ya?ml' "$OSS_SKILL_DIR" 2>/dev/null | sed 's|^cmn/||' | sort -u || true)
-  fi
+  # The shared playbooks that the docs of the skill name belong to the package as well, with what they import: a
+  # package whose docs tell the reader to run a playbook has to hold it.
+  queue+=("${DOC_REFS[@]+"${DOC_REFS[@]}"}")
 
   while [[ ${#queue[@]} -gt 0 ]]; do
     local current="${queue[0]}"
     queue=("${queue[@]:1}")
+
+    # What the playbooks of the template say can hold anything (a comment, a path with a variable): only a path under
+    # ansible/cmn is a shared playbook.
+    valid_cmn_ref "$current" || continue
 
     local found=0
     for s in "${seen[@]+"${seen[@]}"}"; do
@@ -121,6 +158,11 @@ resolve_cmn_deps() {
     seen+=("$current")
 
     if [[ -f "$ANSIBLE_DIR/cmn/$current" ]]; then
+      if ! inside_cmn "$ANSIBLE_DIR/cmn/$current"; then
+        echo "ERROR: ansible/cmn/$current resolves outside ansible/cmn. Nothing is copied from there." >&2
+        rm -rf "$DIST_DIR"
+        exit 1
+      fi
       mkdir -p "$(dirname "$DIST_DIR/ansible/cmn/$current")"
       cp "$ANSIBLE_DIR/cmn/$current" "$DIST_DIR/ansible/cmn/$current"
 
@@ -142,6 +184,11 @@ resolve_cmn_deps() {
   # in cmn/files next to it.
   while IFS= read -r asset; do
     if [[ -f "$ANSIBLE_DIR/cmn/files/$asset" ]]; then
+      if ! inside_cmn "$ANSIBLE_DIR/cmn/files/$asset"; then
+        echo "ERROR: ansible/cmn/files/$asset resolves outside ansible/cmn. Nothing is copied from there." >&2
+        rm -rf "$DIST_DIR"
+        exit 1
+      fi
       mkdir -p "$DIST_DIR/ansible/cmn/files"
       cp "$ANSIBLE_DIR/cmn/files/$asset" "$DIST_DIR/ansible/cmn/files/$asset"
     fi

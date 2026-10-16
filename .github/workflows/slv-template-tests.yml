@@ -7,6 +7,8 @@ on:
       - "template/**"
       - "oss-skills/**"
       - "dist/oss-skills/**"
+      - "build-skill-oss.sh"
+      - "cli/lib/fdctlMainnetGuard.ts"
       - ".github/workflows/slv-template-tests.yml"
   push:
     branches: ["main"]
@@ -14,6 +16,8 @@ on:
       - "template/**"
       - "oss-skills/**"
       - "dist/oss-skills/**"
+      - "build-skill-oss.sh"
+      - "cli/lib/fdctlMainnetGuard.ts"
       - ".github/workflows/slv-template-tests.yml"
 
 permissions:

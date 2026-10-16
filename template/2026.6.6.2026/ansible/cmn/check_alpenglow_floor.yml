@@ -23,6 +23,10 @@
 # plugin of any geyser_plugin and validator_type. They also pass the variable that their installer sets as a play
 # variable (jito_version, agave_version or allnodes_jito_version) as the pin of the section, so that the version of
 # the host, which the installer does not read, does not count and -e, which it does read, does.
+# The install_*.yml that a CLI command runs (install_solana.yml, install_agave.yml, install_jito.yml of each
+# network) import the check the same way, and pass floor_plugin: false where they build no plugin, so that only the
+# client is checked. cmn/install_solana.yml, which keeps the version of the host or -e in `version`, passes
+# floor_version_var: version, and the section and the client that it works out from the host.
 #
 # A version older than the floor stops the run. No version at all stops it too, as the build would. A version
 # with no X.Y in it (latest, main, a commit hash) cannot be compared: it stops the run in a mainnet section
@@ -88,21 +92,22 @@
           {%- set subjects = [] -%}
           {%- if pick -%}
           {%- set c = pick -%}
-          {%- set own = lookup('ansible.builtin.vars', c[1], default='') | default('', true) | string | trim -%}
+          {%- set var_name = (floor_version_var | default('', true) | string) if (floor_version_var | default('', true) | string) != '' else c[1] -%}
+          {%- set own = lookup('ansible.builtin.vars', var_name, default='') | default('', true) | string | trim -%}
           {%- set pinned = slv_alpenglow_pins.get(c[2], '') | default('', true) | string | trim -%}
           {%- set _ = subjects.append({
                 'kind': 'client',
                 'label': c[0],
                 'text': own if own != '' else pinned,
-                'own_key': c[1],
+                'own_key': var_name,
                 'pin_key': c[2],
-                'where': (c[1] ~ ' of the host or -e') if own != '' else (c[2] ~ ' in ' ~ versions_section ~ ' of ~/.slv/versions.yml')
+                'where': (var_name ~ ' of the host or -e') if own != '' else (c[2] ~ ' in ' ~ versions_section ~ ' of ~/.slv/versions.yml')
               }) -%}
           {%- else -%}
           {%- set _ = subjects.append({'kind': 'type', 'label': 'validator_type', 'text': vt}) -%}
           {%- endif -%}
           {%- set rpc_kind = rpc_type | default('Geyser gRPC' if slv_alpenglow_network != 'mainnet' else '', true) -%}
-          {%- if versions_section.endswith('_rpcs') and rpc_kind in ['Geyser gRPC', 'Index RPC + gRPC'] and (fixed != '' or (vt in ['agave', 'jito'] and (geyser_plugin | default('yellowstone', true)) == 'yellowstone')) -%}
+          {%- if (floor_plugin | default(true) | bool) and versions_section.endswith('_rpcs') and rpc_kind in ['Geyser gRPC', 'Index RPC + gRPC'] and (fixed != '' or (vt in ['agave', 'jito'] and (geyser_plugin | default('yellowstone', true)) == 'yellowstone')) -%}
           {%- set tag_own = lookup('ansible.builtin.vars', 'geyser_version', default='') | default('', true) | string | trim -%}
           {%- set tag = tag_own if tag_own != '' else (slv_alpenglow_pins.get('geyser_version', '') | default('', true) | string | trim) -%}
           {%- set built = tag | regex_search('[+]solana[.]([^+ ]+)', '\\1') -%}

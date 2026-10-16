@@ -8,7 +8,7 @@ Each skill includes Ansible playbooks, Jinja2 templates, interactive deployment 
 
 | Skill | Description | Use Case |
 |---|---|---|
-| [**slv-validator**](slv-validator/) | Solana validator deployment & management | Mainnet/testnet validators (Jito, Agave, Firedancer) |
+| [**slv-validator**](slv-validator/) | Solana validator deployment & management | Mainnet/testnet validators (Jito, Agave, Allnodes-Jito; Firedancer on testnet only) |
 | [**slv-rpc**](slv-rpc/) | Solana RPC node deployment & management | Standard RPC, Index RPC, Geyser gRPC, Index+gRPC |
 | [**slv-grpc-geyser**](slv-grpc-geyser/) | gRPC Geyser streaming node specialist | Yellowstone gRPC streaming (richat once a release supports agave 4.3 or later) |
 
@@ -35,7 +35,7 @@ openclaw skill install slv-validator
 # Use the Ansible playbooks directly
 cd slv-validator/ansible/
 ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"4.3.2","snapshot_url":"https://..."}'
+  -e '{"validator_type":"jito","jito_version":"4.3.2-jito","snapshot_url":"https://..."}'
 ```
 
 ## Prerequisites

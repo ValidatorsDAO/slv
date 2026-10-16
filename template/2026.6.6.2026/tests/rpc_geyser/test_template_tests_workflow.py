@@ -93,7 +93,8 @@ class TemplateTestsWorkflowRunsThePinnedAnsible(unittest.TestCase):
         triggers = workflow()[True]
         for event in ("pull_request", "push"):
             with self.subTest(event):
-                for path in ("template/**", "oss-skills/**", "dist/oss-skills/**", ".github/workflows/slv-template-tests.yml"):
+                for path in ("template/**", "oss-skills/**", "dist/oss-skills/**", "build-skill-oss.sh",
+                             "cli/lib/fdctlMainnetGuard.ts", ".github/workflows/slv-template-tests.yml"):
                     self.assertIn(path, triggers[event]["paths"])
 
 

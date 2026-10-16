@@ -8,6 +8,7 @@ install one client each and begin without any of it:
   testnet-validator/init-agave.yml, init-firedancer.yml        the type gate of testnet init.yml and the floor check
   mainnet-rpc/init-old.yml                                     the type gate of mainnet-rpc init.yml and the floor check
   mainnet-validator/init-firedancer.yml                        sets up Firedancer, which mainnet does not take: it refuses
+  mainnet-validator/setup_firedancer.yml, update_firedancer.yml  the same refusal, for the playbooks that a CLI command runs on its own
 
 The floor check reads the client that the flow installs (floor_client), not the one of validator_type, and the version that
 the installer installs: install_jito.yml, install_agave.yml and install_allnodes_jito.yml of the validator networks set the
@@ -72,7 +73,13 @@ LEGACY = {
     "testnet-validator/init-firedancer.yml": {"section": "testnet_validators", "client": "jito", "init": "testnet-validator/init.yml", "installer": "-e"},
     "mainnet-rpc/init-old.yml": {"section": "mainnet_rpcs", "client": "jito", "init": "mainnet-rpc/init.yml", "installer": "host"},
 }
-MAINNET_FIREDANCER = "mainnet-validator/init-firedancer.yml"
+# the playbooks of mainnet-validator that set up or update Firedancer, which mainnet does not take: each begins with the
+# refusal, and says what it does (the word of its message)
+MAINNET_FIREDANCER = {
+    "mainnet-validator/init-firedancer.yml": "sets up",
+    "mainnet-validator/setup_firedancer.yml": "sets up",
+    "mainnet-validator/update_firedancer.yml": "updates",
+}
 # the validator_type of a host that the flow is meant for, and one of another family
 NATURAL = {"jito": "jito", "allnodes": "allnodes-jito", "agave": "agave"}
 OTHER = {"jito": "agave", "allnodes": "agave", "agave": "jito"}
@@ -247,10 +254,10 @@ class LegacyEntriesBeginAsInitDoes(unittest.TestCase):
         # install_jito.yml of mainnet-rpc resolves the host, then the pin, in a task
         for installer, variable in (("mainnet-validator/install_jito.yml", "jito_version"), ("testnet-validator/install_jito.yml", "jito_version"),
                                     ("testnet-validator/install_agave.yml", "agave_version"), ("mainnet-validator/install_allnodes_jito.yml", "allnodes_jito_version")):
-            (play,) = entries_of(installer)
+            play = entries_of(installer)[-1]  # the installer follows the import of the check, when it has one
             with self.subTest(installer):
                 self.assertIn(variable, play["vars"])
-        (play,) = entries_of("mainnet-rpc/install_jito.yml")
+        play = entries_of("mainnet-rpc/install_jito.yml")[-1]
         self.assertNotIn("jito_version", play["vars"])
         self.assertIn("jito_version | default(", yaml.safe_dump(play["tasks"][0]))
 
@@ -333,35 +340,37 @@ class LegacyEntriesCheckTheFloor(unittest.TestCase):
                         self.assertIn("Yellowstone geyser_version %s" % OLD_GEYSER["mainnet"], result.messages[name])
 
 
-class MainnetInitFiredancerRefuses(unittest.TestCase):
-    def test_l07_it_stops_every_host_before_anything_is_changed_with_the_words_of_the_cli(self):
+class MainnetFiredancerPlaybooksRefuse(unittest.TestCase):
+    def test_l07_each_playbook_that_sets_up_or_updates_firedancer_on_mainnet_stops_every_host_before_anything_is_changed_with_the_words_of_the_cli(self):
         guard = (REPOSITORY / "cli" / "lib" / "fdctlMainnetGuard.ts").read_text()
         note = re.search(r"const ALPENGLOW_NOTE =\s*'([^']+)'", guard).group(1)
         way_out = re.search(r"const WAY_OUT =\s*'([^']+)'", guard).group(1)
-        entries = entries_of(MAINNET_FIREDANCER)
-        self.assertEqual(entries[0]["name"], "Refuse Firedancer on mainnet")
-        self.assertTrue(entries[0]["any_errors_fatal"])
         hosts = {}
         for number, value in enumerate(["firedancer-agave", "firedancer-jito", "frankendancer", "firedancer", "agave", "jito", "allnodes-jito", "bogus", "", None, MISSING]):
             variables = {} if value is MISSING else {"validator_type": value}
             hosts["f%02d" % number] = variables
-        with tempfile.TemporaryDirectory(prefix="slv-legacy-firedancer-") as tmp:
-            root = Path(tmp)
-            home = make_home(root, make_floor_versions("mainnet_validators", pins_of_set("mainnet_validators", "good")))
-            directory = root / "mainnet-validator"
-            directory.mkdir()
-            playbook = directory / "legacy.yml"
-            # only the first play: the rest of the file imports playbooks that its directory does not hold
-            playbook.write_text(yaml.safe_dump(entries[:1], sort_keys=False))
-            write_inventory(root / "inventory.json", hosts)
-            result = LegacyResult(run_ansible(["-i", "inventory.json", playbook], root, home), hosts)
-        self.assertNotEqual(result.returncode, 0)
-        for name in hosts:
-            with self.subTest(name):
-                self.assertEqual(
-                    result.messages[name],
-                    "A mainnet voting validator cannot be Firedancer or Frankendancer, and this playbook sets up Firedancer. %s %s Nothing was changed on %s." % (note, way_out, name),
-                )
+        for path, verb in MAINNET_FIREDANCER.items():
+            entries = entries_of(path)
+            with self.subTest(path):
+                self.assertEqual(entries[0]["name"], "Refuse Firedancer on mainnet")
+                self.assertTrue(entries[0]["any_errors_fatal"])
+                with tempfile.TemporaryDirectory(prefix="slv-legacy-firedancer-") as tmp:
+                    root = Path(tmp)
+                    home = make_home(root, make_floor_versions("mainnet_validators", pins_of_set("mainnet_validators", "good")))
+                    directory = root / "mainnet-validator"
+                    directory.mkdir()
+                    playbook = directory / "legacy.yml"
+                    # only the first play: the rest of the file imports playbooks that its directory does not hold
+                    playbook.write_text(yaml.safe_dump(entries[:1], sort_keys=False))
+                    write_inventory(root / "inventory.json", hosts)
+                    result = LegacyResult(run_ansible(["-i", "inventory.json", playbook], root, home), hosts)
+                self.assertNotEqual(result.returncode, 0)
+                for name in hosts:
+                    with self.subTest("%s %s" % (path, name)):
+                        self.assertEqual(
+                            result.messages[name],
+                            "A mainnet voting validator cannot be Firedancer or Frankendancer, and this playbook %s Firedancer. %s %s Nothing was changed on %s." % (verb, note, way_out, name),
+                        )
 
 
 if __name__ == "__main__":

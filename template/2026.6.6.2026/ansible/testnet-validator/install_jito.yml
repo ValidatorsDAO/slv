@@ -1,4 +1,12 @@
 ---
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, a jito older than 4.4.0-beta.0, the floor of Alpenglow
+# on testnet. This play installs jito_version of -e, else v<testnet_validators.version_jito>, whatever the host sets, and the check reads the same.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: testnet_validators
+    floor_client: jito
+    jito_version: "{{ (testnet_validators | default({})).get('version_jito', '') }}"
+
 - name: Install Jito Solana (agave + solana bins from target/release)
   hosts: all
   become: true

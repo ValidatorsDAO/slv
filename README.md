@@ -70,7 +70,7 @@ Agent: I'll set up a mainnet Jito validator. Let me walk you through:
 
 ### Supported Node Types
 
-- **Validators** — Jito, Agave, Firedancer (mainnet & testnet)
+- **Validators** — Jito, Agave and Allnodes-Jito (mainnet & testnet); Firedancer on testnet only, because a mainnet voting validator cannot be Firedancer or Frankendancer during the Alpenglow migration
 - **RPC Nodes** — Standard, Index, Geyser gRPC, Index+gRPC
 - **gRPC Geyser Streaming** — Yellowstone (richat once a release supports agave 4.3 or later)
 
@@ -80,7 +80,7 @@ The AI Console (`slv c`) includes specialist agents for different tasks:
 
 | Agent | Role |
 |---|---|
-| **Cecil** | Validator deployments (Jito, Agave, Firedancer) |
+| **Cecil** | Validator deployments (Jito, Agave, Allnodes-Jito; Firedancer on testnet) |
 | **Tina** | RPC & gRPC Geyser deployments |
 | **Figaro** | Server procurement and pricing |
 | **Setzer** | Solana app development |
@@ -132,7 +132,7 @@ cd dist/oss-skills/slv-validator/ansible/
 
 # Deploy a mainnet Jito validator
 ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"v3.1.8-jito"}'
+  -e '{"validator_type":"jito","jito_version":"4.3.2-jito"}'
 
 # Restart a validator
 ansible-playbook -i inventory.yml mainnet-validator/restart_node.yml

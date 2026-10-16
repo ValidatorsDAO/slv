@@ -95,11 +95,13 @@ Present options:
 - `firedancer-agave` — Firedancer with Agave consensus
 
 ### Step 4: Versions
-- `solana_version` — Solana/Agave version (required, default: `4.3.2`)
-- `jito_version` — **Required** if jito/allnodes-jito selected (typically matches solana_version)
+- `agave_version` — Solana version of an `agave` node, without the leading `v` (default: `4.3.2` on mainnet, `4.4.0-beta.0` on testnet and devnet; when it is not passed the build takes `version_agave` of the `mainnet_rpcs`, `testnet_rpcs` or `devnet_rpcs` section of `~/.slv/versions.yml`)
+- `jito_version` — Version of a `jito` node, with the `-jito` suffix (e.g. `4.3.2-jito`; when it is not passed the build takes `version_jito` of the same section)
+- `allnodes_jito_version` — **Required** for an `allnodes-jito` node (e.g. `4.3.2-allnodes`): the RPC sections of `versions.yml` hold no pin for it
 - `firedancer_version` — **Required** if firedancer selected
 - `geyser_version` — Yellowstone plugin release tag (optional; the default is `<network>_rpcs.geyser_version` of `versions.yml`)
 - `richat_version` — Only with `geyser_plugin: richat` (e.g., `richat-v8.1.0`)
+- Do not pass `solana_version`: `init.yml` does not read it
 
 ### Step 5: Keys & Identity
 - `identity_account` — Node identity pubkey (required for init)
