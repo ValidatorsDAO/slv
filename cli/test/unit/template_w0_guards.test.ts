@@ -264,13 +264,12 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
       importVars.slv_alpenglow_network,
       network.replace('-validator', ''),
     )
-    // gossip is read when the run names an old primary: confirmed down, or an address named down
-    assert(
-      normalized(importVars.slv_dp_check_gossip).includes(primaryDown) &&
-        normalized(importVars.slv_dp_check_gossip).includes(
-          'primary_down_address',
-        ),
-      `${path}: gossip is read for a confirmed dead primary and for an address named down`,
+    // gossip is read on every run that gets the checks: no switch turns it off, and the address named down
+    // is the only address besides the one of the host that the identity may be listed at
+    assertEquals(
+      importVars.slv_dp_check_gossip,
+      undefined,
+      `${path}: gossip is read on every run`,
     )
     assert(
       normalized(importVars.slv_dp_down_address).includes(
@@ -858,9 +857,11 @@ Deno.test('base58 identity: an identity_account that is not a base58 public key 
         mode >= 0 && guard > mode && guard < wait && wait < demotion,
         `${path}: the identity is checked before the source waits or is demoted`,
       )
-      assertEquals(conditionsOf(tasks[guard]), [
-        "slv_switch_mode == 'alpenglow'",
-      ])
+      assertEquals(
+        conditionsOf(tasks[guard]),
+        [],
+        `${path}: the identity is checked in every mode`,
+      )
       assert(
         normalized(tasks[guard]).includes(
           'hostvars[inventory_hostname].identity_account',
@@ -895,9 +896,11 @@ Deno.test('base58 identity: an identity_account that is not a base58 public key 
         mode >= 0 && guard > mode && guard < slurp && slurp < block,
         `${path}: the identity is checked before the controller paths are built`,
       )
-      assertEquals(conditionsOf(tasks[guard]), [
-        "slv_switch_mode == 'alpenglow'",
-      ])
+      assertEquals(
+        conditionsOf(tasks[guard]),
+        [],
+        `${path}: the identity is checked in every mode`,
+      )
     }
   }
   // the take: the first task, before the copy path is built from the identity

@@ -21,13 +21,12 @@
       ansible.builtin.set_fact:
         slv_switch_mode: "{{ slv_ag_resume_mode if (slv_ag_resume | default(false) | bool) else slv_alpenglow_state }}"
 
-    - name: Refuse an identity_account that is not a base58 public key, it names the vote history file on the controller
+    - name: Refuse an identity_account that is not a base58 public key, it names the tower, key and vote history files on the controller
       ansible.builtin.assert:
         that:
           - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
-        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the vote history file on the controller. Nothing was changed on {{ inventory_hostname }}."
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the tower, key or vote history file on the controller. Nothing was changed on {{ inventory_hostname }}."
         quiet: true
-      when: slv_switch_mode == 'alpenglow'
 
     - name: Upload Tower File
       ansible.builtin.copy:

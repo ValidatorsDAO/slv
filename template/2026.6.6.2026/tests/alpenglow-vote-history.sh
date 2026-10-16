@@ -24,10 +24,9 @@
 #      is not a first activation, file or no file, asks first whether anything votes with the
 #      identity (the last vote of the vote account is more than 270 slots before the current
 #      slot of the cluster) and whether the host has caught up (its finalized slot is at least
-#      270 slots past that last vote); with primary_down_confirmed or a primary_down_address
-#      it also reads gossip (the identity is at no address but the one of the host and the
-#      address named down); --do-not-require-vote-history only for a confirmed dead primary
-#      and no file
+#      270 slots past that last vote), and reads gossip (the identity is at no address but the
+#      one of the host and primary_down_address); --do-not-require-vote-history only for a
+#      confirmed dead primary and no file
 #   4. nodowntime_migrate: one run end to end, and the refusals before anything is demoted
 #   5. TowerBFT is unchanged
 #   6. after a demotion in a migrate run the cluster is asked patiently; when it stays out of
@@ -306,20 +305,30 @@ case_off_fdctl() {
   check $? "nothing was run on the host"
 }
 
+# identity_account values that are not a base58 public key (32 to 44 characters of the base58 alphabet)
+BAD_IDENTITIES=(
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  StakedKeyForTheRigs0AAAAAAAAAAAAAAAAAA StakedKeyForTheRigsOAAAAAAAAAAAAAAAAAA
+  StakedKeyForTheRigsIAAAAAAAAAAAAAAAAAA StakedKeyForTheRigslAAAAAAAAAAAAAAAAAA
+  '../../../../tmp/x' '"StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA\n"'
+)
+
 case_off_bad_identity() {
-  local n=0 bad
-  for bad in aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa StakedKeyForTheRigs0AAAAAAAAAAAAAAAAAA \
-    StakedKeyForTheRigsOAAAAAAAAAAAAAAAAAA StakedKeyForTheRigsIAAAAAAAAAAAAAAAAAA StakedKeyForTheRigslAAAAAAAAAAAAAAAAAA \
-    '../../../../tmp/x' '"StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA\n"'; do
-    n=$((n + 1))
-    begin "off_bad_identity_$n" "$1"
-    inventory agave agave "$STAKED" 10.9.9.9 "$bad"
-    box src src
-    printf 'vote-history-initial\n' >"$(vote_file src)"
-    play src switch_off_identity "-e off_host=src" -e "slv_alpenglow_rpc_url=$(alp)"
-    refused src switch_off_identity "is not a base58 public key" "switch_off refuses the identity_account $bad before it demotes anything"
-    [[ $(count_calls src .) -eq 0 && ! -e $S/home/.slv/vote_history ]]
-    check $? "nothing was waited for, demoted or copied ($bad)"
+  local n=0 bad mode url
+  for mode in alpenglow towerbft; do
+    for bad in "${BAD_IDENTITIES[@]}"; do
+      n=$((n + 1))
+      begin "off_bad_identity_$n" "$1"
+      inventory agave agave "$STAKED" 10.9.9.9 "$bad"
+      box src src
+      printf 'vote-history-initial\n' >"$(vote_file src)"
+      printf 'tower-of-the-source\n' >"$(tower_file src)"
+      if [[ $mode == alpenglow ]]; then url=$(alp); else url=$(tower); fi
+      play src switch_off_identity "-e off_host=src" -e "slv_alpenglow_rpc_url=$url"
+      refused src switch_off_identity "(32 to 44 characters of the base58 alphabet)" "switch_off refuses the identity_account $bad on $mode before it demotes anything"
+      [[ $(count_calls src .) -eq 0 && ! -e $S/home/.slv/vote_history && ! -e $S/home/.slv/tower ]]
+      check $? "nothing was waited for, demoted or copied ($mode, $bad)"
+    done
   done
 }
 
@@ -410,17 +419,20 @@ case_on_other_identity() {
 }
 
 case_on_bad_identity() {
-  local n=0 bad
-  for bad in aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '../../../../tmp/x' '"StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA\n"'; do
-    n=$((n + 1))
-    begin "on_bad_identity_$n" "$1"
-    inventory agave agave "$bad"
-    box dst dst
-    prepare_copy "$SOURCE_FILE_TEXT"
-    play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
-    refused dst switch_on_identity "is not a base58 public key" "switch_on refuses the identity_account $bad"
-    [[ $(count_calls dst .) -eq 0 && -e "$(copy_file)" ]]
-    check $? "nothing was uploaded or set, and the copy is untouched ($bad)"
+  local n=0 bad mode url
+  for mode in alpenglow towerbft; do
+    for bad in "${BAD_IDENTITIES[@]}"; do
+      n=$((n + 1))
+      begin "on_bad_identity_$n" "$1"
+      inventory agave agave "$bad"
+      box dst dst
+      prepare_copy "$SOURCE_FILE_TEXT"
+      if [[ $mode == alpenglow ]]; then url=$(alp); else url=$(tower); fi
+      play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$url"
+      refused dst switch_on_identity "(32 to 44 characters of the base58 alphabet)" "switch_on refuses the identity_account $bad on $mode"
+      [[ $(count_calls dst .) -eq 0 && -e "$(copy_file)" ]]
+      check $? "nothing was uploaded or set, and the copy is untouched ($mode, $bad)"
+    done
   done
 }
 
@@ -634,7 +646,8 @@ case_key_dead_with_file_ok() {
   ok dst set_identity_key "with the file there, a confirmed dead primary needs the same checks and then goes on with the file"
   [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst do-not-require-vote-history) -eq 0 ]]
   check $? "set-identity has no --do-not-require-vote-history"
-  grep "case=$ID" "$work/stub.log" | grep -q getClusterNodes
+  grep "case=$ID" "$work/stub.log" >"$S/stub-requests" || true
+  grep -q getClusterNodes "$S/stub-requests"
   check $? "gossip was read"
 }
 
@@ -704,6 +717,23 @@ case_key_file_down_address_ok() {
   ok dst set_identity_key "the entry of a stopped node at the address named down does not stop set:identity when nothing votes"
   [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst do-not-require-vote-history) -eq 0 ]]
   check $? "set-identity has no vote history flag: the file is there and nobody confirmed the old primary down"
+}
+# gossip is read on a plain run too: the host's own address and primary_down_address are the only ones allowed
+case_key_file_foreign_entry() { file_refused key_file_foreign_entry /nodes=other/vote=current:1000:25/now=2000 2000 "is in gossip at 10.1.1.1" "an entry of the identity at another address stops a plain set:identity, with the file there and nothing voting"; }
+case_key_file_gossip_own_address() {
+  file_run key_file_gossip_own_address /nodes=target/vote=current:1000:25/now=2000 2000
+  ok dst set_identity_key "an entry of the identity at the address of the host itself is fine"
+  [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst do-not-require-vote-history) -eq 0 ]]
+  check $? "set-identity has no vote history flag"
+  grep "case=$ID" "$work/stub.log" >"$S/stub-requests" || true
+  grep -q getClusterNodes "$S/stub-requests"
+  check $? "gossip was read on a run without primary_down_confirmed and without primary_down_address"
+}
+# the host already runs the identity and votes with it: the refusal says what the operator sees
+case_key_file_self_voting() {
+  file_refused key_file_self_voting /nodes=target/vote=current:1900:25/now=2000 2300 "If dst already runs it (ask its own RPC with getIdentity), there is nothing to set: check that before you run this again" "a host that already votes with the identity is refused, and the message tells to look at the identity it runs"
+  log_has dst set_identity_key "the identity voted 100 slots ago"
+  check $? "the message says how long ago the identity voted"
 }
 case_key_file_down_address_voting() { file_refused key_file_down_address_voting /nodes=other/vote=current:1900:25/now=2000 2300 "may still be voting with the identity" "the entry at the address named down is allowed only while nothing votes" -e primary_down_address=10.1.1.1; }
 case_key_file_third_address() { file_refused key_file_third_address /nodes=other/other=10.2.2.2/vote=current:1000:25/now=2000 2000 "is in gossip at 10.2.2.2" "an entry at an address that is not the one named down stops the run" -e primary_down_address=10.1.1.1; }
@@ -947,6 +977,7 @@ cases=(
   key_dead_third_address key_dead_down_and_third
   key_file_voting key_file_behind key_file_slot_error key_file_votes_error key_file_now_error key_file_edge_now
   key_file_edge_slot key_file_edge_ok key_file_down_address_ok key_file_down_address_voting key_file_third_address
+  key_file_foreign_entry key_file_gossip_own_address key_file_self_voting
   key_voter_error key_voter_present key_not_voting key_fdctl key_towerbft
   mig_happy mig_identity mig_fdctl_source mig_fdctl_target mig_unknown_after_take
   mig_hiccup_clears mig_hiccup_before mig_down_after_demotion mig_down_after_demotion_pending mig_down_too_long
