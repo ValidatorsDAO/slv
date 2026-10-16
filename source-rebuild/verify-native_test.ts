@@ -1764,7 +1764,7 @@ Deno.test('relative source archives are resolved before scanners change extracti
   }
 })
 
-Deno.test('split native CLI requires explicit role, jobs, context, and join dependencies', () => {
+Deno.test('split native CLI requires explicit role, target-fixed jobs, context, and join dependencies', () => {
   const common = [
     '--target',
     'x86_64-apple-darwin',
@@ -1787,24 +1787,36 @@ Deno.test('split native CLI requires explicit role, jobs, context, and join depe
     '--notice-file',
     'THIRD_PARTY_NOTICES',
   ]
-  const producer = [
+  const producer = (target: string, jobs: string) => [
     '--phase',
     'build-variant',
-    ...common,
+    ...common.map((value) => value === 'x86_64-apple-darwin' ? target : value),
     '--variant',
     'baseline',
     '--build-host',
-    'x86_64-apple-darwin',
+    target === 'aarch64-unknown-linux-gnu'
+      ? 'x86_64-unknown-linux-gnu'
+      : target,
     '--jobs',
-    '4',
+    jobs,
     '--tools-receipt',
     'tools.json',
     '--producer-context',
     'producer.json',
   ]
-  const parsed = parseNativeArgs(producer)
-  if (parsed['--variant'] !== 'baseline' || parsed['--jobs'] !== '4') {
-    throw new Error('valid split producer arguments were not retained')
+  for (
+    const [target, jobs] of [
+      ['x86_64-unknown-linux-gnu', '2'],
+      ['aarch64-unknown-linux-gnu', '4'],
+      ['x86_64-apple-darwin', '4'],
+    ] as const
+  ) {
+    const parsed = parseNativeArgs(producer(target, jobs))
+    if (parsed['--variant'] !== 'baseline' || parsed['--jobs'] !== jobs) {
+      throw new Error(
+        `valid ${target} split producer arguments were not retained`,
+      )
+    }
   }
   const rejected = (argv: string[], expected: string) => {
     try {
@@ -1815,12 +1827,20 @@ Deno.test('split native CLI requires explicit role, jobs, context, and join depe
     throw new Error(`expected split CLI rejection containing: ${expected}`)
   }
   rejected(
-    producer.map((value) => value === '4' ? '2' : value),
+    producer('x86_64-apple-darwin', '2'),
     'requires --jobs 4',
   )
   rejected(
-    producer.filter((_, index) =>
-      index < producer.indexOf('--producer-context')
+    producer('aarch64-unknown-linux-gnu', '2'),
+    'requires --jobs 4',
+  )
+  rejected(
+    producer('x86_64-unknown-linux-gnu', '4'),
+    'requires --jobs 2',
+  )
+  rejected(
+    producer('x86_64-apple-darwin', '4').filter((_, index, argv) =>
+      index < argv.indexOf('--producer-context')
     ),
     'requires --producer-context',
   )
@@ -1839,7 +1859,11 @@ Deno.test('split native CLI requires explicit role, jobs, context, and join depe
     '--jobs is permitted only',
   )
   rejected(
-    [...producer, '--variant-dependencies', 'dependencies.json'],
+    [
+      ...producer('x86_64-apple-darwin', '4'),
+      '--variant-dependencies',
+      'dependencies.json',
+    ],
     'does not accept --variant-dependencies',
   )
 })
@@ -2171,8 +2195,16 @@ type NativeJoinFixture = {
  */
 async function createNativeJoinFixture(
   root: string,
+  target: 'x86_64-apple-darwin' | 'x86_64-unknown-linux-gnu' =
+    'x86_64-apple-darwin',
 ): Promise<NativeJoinFixture> {
-  const target = 'x86_64-apple-darwin'
+  const linux = target === 'x86_64-unknown-linux-gnu'
+  const jobs = linux ? '2' : '4'
+  const buildHost = linux ? { os: 'linux', arch: 'x64' } : {
+    os: 'darwin',
+    arch: 'x64',
+  }
+  const producerPrefix = linux ? 'source-linux-x64' : 'source-macos-x64'
   const stage = `${root}/source-stage`
   const input = `${root}/input`
   const notice = `${input}/THIRD_PARTY_NOTICES`
@@ -2421,7 +2453,7 @@ async function createNativeJoinFixture(
       'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@fixture',
     run_id: '42',
     run_attempt: '3',
-    job_id: 'source-native-macos-x64',
+    job_id: `source-native-${linux ? 'linux-x64' : 'macos-x64'}`,
   }
   const makeRole = async (variant: 'baseline' | 'modified') => {
     const materials = `${root}/${variant}`
@@ -2514,14 +2546,24 @@ async function createNativeJoinFixture(
       command: command(variant, 'build'),
       probe_compile: command(variant, 'probe'),
       derived_relink_cargo_lock_sha256: derived,
-      runtime_abi: {
-        schema_version: 1,
-        kind: 'slv-macos-denort-abi',
-        denort_sha256: runtime,
-        minimum_os: '12.0',
-        load_commands_sha256: fixtureSha256(`${variant} load commands`),
-        status: 'passed',
-      },
+      runtime_abi: linux
+        ? {
+          schema_version: 1,
+          kind: 'slv-linux-denort-abi',
+          denort_sha256: runtime,
+          glibc_private: 'absent',
+          rpath_or_runpath: 'absent',
+          glibc_versions: [],
+          status: 'passed',
+        }
+        : {
+          schema_version: 1,
+          kind: 'slv-macos-denort-abi',
+          denort_sha256: runtime,
+          minimum_os: '12.0',
+          load_commands_sha256: fixtureSha256(`${variant} load commands`),
+          status: 'passed',
+        },
       runtime_abi_receipt_sha256: fixtureSha256(`${variant} ABI`),
       cargo_fingerprints: {
         schema_version: 1,
@@ -2530,12 +2572,22 @@ async function createNativeJoinFixture(
         target,
         runtime_sha256: runtime,
         derived_relink_cargo_lock_sha256: derived,
-        records: [{
-          context: 'host-release',
-          path: `${variant}/host-release.json`,
-          sha256: fixtureSha256(fingerprintContent),
-          content_base64: btoa(fingerprintContent),
-        }],
+        records: [
+          {
+            context: 'host-release',
+            path: `${variant}/host-release.json`,
+            sha256: fixtureSha256(fingerprintContent),
+            content_base64: btoa(fingerprintContent),
+          },
+          ...(linux
+            ? [{
+              context: 'target-release',
+              path: `${variant}/target-release.json`,
+              sha256: fixtureSha256(fingerprintContent),
+              content_base64: btoa(fingerprintContent),
+            }]
+            : []),
+        ],
       },
     }
     const receipt = {
@@ -2544,12 +2596,12 @@ async function createNativeJoinFixture(
       variant,
       producer: {
         ...producerContext,
-        job_id: `source-macos-x64-${variant}`,
+        job_id: `${producerPrefix}-${variant}`,
         run_attempt: variant === 'baseline' ? '2' : '3',
       },
       target,
       build_mode: 'native',
-      build_host: { os: 'darwin', arch: 'x64' },
+      build_host: buildHost,
       source_commit: sourceReceiptValue.source.commit,
       source_receipt_sha256: sourceReceiptSha256,
       source_assets: sourceAssets,
@@ -2560,7 +2612,7 @@ async function createNativeJoinFixture(
       toolchain: { pins_sha256: toolPinsSha256, identities },
       tool_archives: archives,
       tools_receipt_sha256: toolsReceiptSha256,
-      jobs: '4',
+      jobs,
       resources: { capacity_preflight: { available_bytes: 1 } },
       extraction: {
         slv_scan: command(variant, 'slv-scan'),
@@ -2799,6 +2851,134 @@ Deno.test('join-build production entrypoint preserves raw variants and passes me
     })
     verifyNativeSourceRebuildProof(
       JSON.parse(await Deno.readTextFile(`${mergeOut}/native-proof.json`)),
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('join-build production entrypoint preserves Linux x86_64 native split receipts with fixed jobs 2', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-native-join-linux-' })
+  try {
+    const fixture = await createNativeJoinFixture(
+      root,
+      'x86_64-unknown-linux-gnu',
+    )
+    await verifyNative(fixture.args)
+    const build = JSON.parse(
+      await Deno.readTextFile(`${fixture.out}/build-receipt.json`),
+    ) as Record<string, unknown>
+    const split = build.split_build as Record<
+      string,
+      Record<string, Record<string, unknown>>
+    >
+    const baseline = split.baseline.receipt
+    const modified = split.modified.receipt
+    requireFixture(
+      build.jobs === '2' && build.build_mode === 'native' &&
+        JSON.stringify(build.build_host) ===
+          JSON.stringify({ os: 'linux', arch: 'x64' }) &&
+        baseline.jobs === '2' && modified.jobs === '2' &&
+        (baseline.producer as Record<string, unknown>).job_id ===
+          'source-linux-x64-baseline' &&
+        (modified.producer as Record<string, unknown>).job_id ===
+          'source-linux-x64-modified',
+      'Linux split receipts did not retain native host, producer, and fixed jobs 2',
+    )
+    const sourceReceipt = JSON.parse(
+      await Deno.readTextFile(fixture.sourceReceipt),
+    ) as Record<string, unknown>
+    const manifest = JSON.parse(
+      await Deno.readTextFile(`${fixture.out}/transport/manifest.json`),
+    ) as Record<string, Record<string, unknown>>
+    const inputs = {
+      assembly: sourceReceipt,
+      assemblyReceiptSha256: await fixtureFileSha256(fixture.sourceReceipt),
+      pinsSha256: await fixtureFileSha256(fixture.pins),
+      noticeSha256: await fixtureFileSha256(fixture.notice),
+      sourceAssets: (sourceReceipt.assets as Array<Record<string, unknown>>)
+        .map(
+          ({ name, sha256, size }) => ({ name, sha256, size }),
+        ),
+    }
+    const changedCombinedJobs = structuredClone(build)
+    changedCombinedJobs.jobs = '4'
+    await expectLayoutRejection(
+      () =>
+        verifySplitBuildEvidence(
+          changedCombinedJobs.split_build,
+          changedCombinedJobs,
+          inputs as never,
+          fixture.target,
+          changedCombinedJobs.artifacts as never,
+          manifest.entries as never,
+        ),
+      'fixed jobs',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('join-build rejects Linux x86_64 split receipts with changed jobs, producer, host, or mode', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'slv-native-join-linux-negative-',
+  })
+  try {
+    const caseFixture = async (
+      name: string,
+      mutate: (fixture: NativeJoinFixture) => Promise<void>,
+    ) => {
+      const fixture = await createNativeJoinFixture(
+        `${root}/${name}`,
+        'x86_64-unknown-linux-gnu',
+      )
+      await mutate(fixture)
+      await expectJoinFixtureRejection(fixture)
+    }
+    await caseFixture(
+      'changed-baseline-jobs',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+          receipt.jobs = '4'
+        }),
+    )
+    await caseFixture(
+      'mismatched-variant-jobs',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          receipt.jobs = '4'
+        }),
+    )
+    await caseFixture('wrong-producer-job', async (fixture) => {
+      await rewriteFixtureRole(fixture, 'baseline', (receipt) => {
+        ;(receipt.producer as Record<string, unknown>).job_id =
+          'source-linux-x64-wrong'
+      })
+      const dependencies = JSON.parse(
+        await Deno.readTextFile(fixture.dependenciesPath),
+      ) as Record<string, Record<string, unknown>>
+      dependencies.baseline.producer = (
+        JSON.parse(await Deno.readTextFile(fixture.baselineReceipt)) as Record<
+          string,
+          unknown
+        >
+      ).producer
+      await writeFixtureJson(fixture.dependenciesPath, dependencies)
+    })
+    await caseFixture(
+      'wrong-build-host',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          receipt.build_host = { os: 'darwin', arch: 'x64' }
+        }),
+    )
+    await caseFixture(
+      'wrong-build-mode',
+      (fixture) =>
+        rewriteFixtureRole(fixture, 'modified', (receipt) => {
+          receipt.build_mode = 'cross'
+        }),
     )
   } finally {
     await Deno.remove(root, { recursive: true })
@@ -3857,6 +4037,143 @@ Deno.test('ARM observation validates full Cargo roles and ELF/Ninja semantics wi
       ))?.status === 'incomplete',
       'competing V8 library role was accepted',
     )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ARM observation admits only the captured consumer duplicate literal use_sysroot declarations', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-arm-captured-args-' })
+  const capturedHostArgs = `is_debug = false
+use_custom_libcxx = true
+v8_enable_sandbox = false
+v8_enable_pointer_compression = false
+v8_enable_v8_checks = false
+rusty_v8_enable_simdutf = true
+clang_base_path = "/home/runner/work/_temp/source-tools/build/clang"
+treat_warnings_as_errors = false
+use_glib = false
+use_sysroot = true
+v8_target_cpu = "arm64"
+v8_monolithic_for_shared_library = true
+use_lld = true
+`
+  const capturedConsumerArgs = `is_debug = false
+use_custom_libcxx = true
+v8_enable_sandbox = false
+v8_enable_pointer_compression = false
+v8_enable_v8_checks = false
+rusty_v8_enable_simdutf = true
+clang_base_path = "/home/runner/work/_temp/source-tools/build/clang"
+treat_warnings_as_errors = false
+use_glib = false
+use_sysroot = true
+v8_target_cpu = "arm64"
+v8_monolithic_for_shared_library = true
+target_cpu = "arm64"
+use_sysroot = true
+use_lld = true
+`
+  try {
+    requireFixture(
+      fixtureSha256(capturedHostArgs) ===
+          '0cb4671b306c481787792790e0765f9b75f3c9d849201b61ea03f486ce0c1467' &&
+        fixtureSha256(capturedConsumerArgs) ===
+          '2f552c228ed1d4d5a844cceb4183ea186007e4be33b76f2d986a46179fe46952',
+      'captured ARM argument fixtures no longer match the original raw hashes',
+    )
+    const capture = async (
+      name: string,
+      hostArgs = capturedHostArgs,
+      consumerArgs = capturedConsumerArgs,
+    ) => {
+      const stage = `${root}/${name}-stage`
+      const evidence = `${root}/${name}-evidence`
+      const fingerprints = await armObservationFixture(stage, evidence)
+      await Deno.writeTextFile(`${evidence}/host-args.gn`, hostArgs)
+      await Deno.writeTextFile(`${evidence}/consumer-args.gn`, consumerArgs)
+      const before = await Promise.all([
+        fixtureFileSha256(`${evidence}/host-args.gn`),
+        fixtureFileSha256(`${evidence}/consumer-args.gn`),
+      ])
+      const observed = await captureArmObservation(
+        stage,
+        'aarch64-unknown-linux-gnu',
+        evidence,
+        fingerprints,
+      )
+      const after = await Promise.all([
+        fixtureFileSha256(`${evidence}/host-args.gn`),
+        fixtureFileSha256(`${evidence}/consumer-args.gn`),
+      ])
+      requireFixture(
+        JSON.stringify(before) === JSON.stringify(after),
+        `${name} observation changed captured raw arguments`,
+      )
+      return observed?.status
+    }
+    for (const variant of ['baseline', 'modified']) {
+      requireFixture(
+        await capture(variant) === 'complete',
+        `${variant} captured consumer duplicate literal true was not accepted`,
+      )
+    }
+    const uniqueConsumer = capturedConsumerArgs.replace(
+      'target_cpu = "arm64"\nuse_sysroot = true\n',
+      'target_cpu = "arm64"\n',
+    )
+    requireFixture(
+      await capture('unique', capturedHostArgs, uniqueConsumer) === 'complete',
+      'ordinary unique use_sysroot declaration was rejected',
+    )
+    const rejected = async (
+      name: string,
+      hostArgs = capturedHostArgs,
+      consumerArgs = capturedConsumerArgs,
+    ) => {
+      requireFixture(
+        await capture(name, hostArgs, consumerArgs) === 'incomplete',
+        `${name} invalid declaration was accepted`,
+      )
+    }
+    await rejected(
+      'true-false',
+      capturedHostArgs,
+      capturedConsumerArgs.replace(
+        'target_cpu = "arm64"\nuse_sysroot = true\n',
+        'target_cpu = "arm64"\nuse_sysroot = false\n',
+      ),
+    )
+    await rejected(
+      'false-true',
+      capturedHostArgs,
+      capturedConsumerArgs.replace(
+        'use_sysroot = true\nv8_target_cpu',
+        'use_sysroot = false\nv8_target_cpu',
+      ),
+    )
+    await rejected(
+      'expression',
+      capturedHostArgs,
+      capturedConsumerArgs.replace(
+        'target_cpu = "arm64"\nuse_sysroot = true\n',
+        'target_cpu = "arm64"\nuse_sysroot = target_cpu == "arm64"\n',
+      ),
+    )
+    await rejected(
+      'extra-repeat',
+      capturedHostArgs,
+      `${capturedConsumerArgs}use_sysroot = true\n`,
+    )
+    await rejected(
+      'other-key',
+      capturedHostArgs,
+      capturedConsumerArgs.replace(
+        'use_lld = true\n',
+        'use_lld = true\nuse_lld = true\n',
+      ),
+    )
+    await rejected('host-context', `${capturedHostArgs}use_sysroot = true\n`)
   } finally {
     await Deno.remove(root, { recursive: true })
   }

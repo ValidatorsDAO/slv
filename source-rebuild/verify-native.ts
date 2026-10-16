@@ -314,8 +314,9 @@ export function parseNativeArgs(argv: string[]): Args {
         throw new Error(`build-variant requires ${required}`)
       }
     }
-    if (values['--jobs'] !== '4') {
-      throw new Error('build-variant requires --jobs 4')
+    const fixedJobs = splitBuildJobs(values['--target'])
+    if (values['--jobs'] !== fixedJobs) {
+      throw new Error(`build-variant requires --jobs ${fixedJobs}`)
     }
     if (values['--variant-dependencies'] !== undefined) {
       throw new Error('build-variant does not accept --variant-dependencies')
@@ -1114,6 +1115,34 @@ function approvedBuildHostTarget(
     throw new Error('only Linux x64 to Linux ARM cross-build is permitted')
   }
   return actual
+}
+
+function splitBuildJobs(target: string): string {
+  if (target === 'x86_64-unknown-linux-gnu') return '2'
+  if (
+    target === 'aarch64-unknown-linux-gnu' ||
+    target === 'x86_64-apple-darwin'
+  ) {
+    return '4'
+  }
+  throw new Error(
+    'split source build is limited to Linux x86_64, Linux ARM64, and macOS x86_64',
+  )
+}
+
+function splitBuildHostTarget(target: string): string {
+  if (target === 'aarch64-unknown-linux-gnu') {
+    return 'x86_64-unknown-linux-gnu'
+  }
+  if (
+    target === 'x86_64-unknown-linux-gnu' ||
+    target === 'x86_64-apple-darwin'
+  ) {
+    return target
+  }
+  throw new Error(
+    'split source build is limited to Linux x86_64, Linux ARM64, and macOS x86_64',
+  )
 }
 
 function sourceAssets(assembly: SourceMaterialsReceipt): Array<{
@@ -2269,12 +2298,22 @@ async function captureSnapshotBundle(
 function declaredGnValues(
   bytes: Uint8Array,
   label: string,
+  allowConsumerUseSysrootDuplicate = false,
 ): Record<string, string> {
   const values: Record<string, string> = {}
+  const counts: Record<string, number> = {}
   for (const line of decoder.decode(bytes).split('\n')) {
     const match = /^([a-z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line)
     if (!match) continue
+    counts[match[1]] = (counts[match[1]] ?? 0) + 1
     if (values[match[1]] !== undefined) {
+      if (
+        allowConsumerUseSysrootDuplicate && match[1] === 'use_sysroot' &&
+        counts[match[1]] === 2 && values[match[1]] === 'true' &&
+        match[2] === 'true'
+      ) {
+        continue
+      }
       throw new Error(`${label} has duplicate declared ${match[1]}`)
     }
     values[match[1]] = match[2]
@@ -2341,6 +2380,7 @@ export async function captureArmObservation(
       const declared = declaredGnValues(
         await Deno.readFile(raw.args),
         `${context} args.gn`,
+        context === 'consumer',
       )
       const defines = ninjaDefines(
         await Deno.readFile(raw.ninja),
@@ -3597,13 +3637,14 @@ function parseVariantReceipt(value: unknown, label: string): VariantReceipt {
     'checks',
     'timing',
   ], label)
+  const target = text(receipt.target, `${label} target`)
   if (
     receipt.schema_version !== 1 ||
     receipt.kind !== 'slv-source-build-variant-receipt' ||
     (receipt.variant !== 'baseline' && receipt.variant !== 'modified') ||
     (receipt.build_mode !== 'native' && receipt.build_mode !== 'cross') ||
-    !TARGETS.has(text(receipt.target, `${label} target`)) ||
-    receipt.jobs !== '4'
+    !TARGETS.has(target) ||
+    receipt.jobs !== splitBuildJobs(target)
   ) {
     throw new Error(`${label} has invalid schema, role, mode, or jobs`)
   }
@@ -4125,13 +4166,17 @@ function buildModeFor(target: string, buildHost: string): 'native' | 'cross' {
 async function buildVariantPhase(args: Args): Promise<void> {
   const target = args['--target']
   if (
+    target !== 'x86_64-unknown-linux-gnu' &&
     target !== 'aarch64-unknown-linux-gnu' &&
     target !== 'x86_64-apple-darwin'
   ) {
-    throw new Error('build-variant is limited to Linux ARM64 and macOS x86_64')
+    throw new Error(
+      'build-variant is limited to Linux x86_64, Linux ARM64, and macOS x86_64',
+    )
   }
   const variant = args['--variant'] as Variant
   const buildHostTarget = approvedBuildHostTarget(target, args['--build-host'])
+  const jobs = splitBuildJobs(target)
   if (!equalHost(currentHost(), targetHost(buildHostTarget))) {
     throw new Error(`build host must execute on ${buildHostTarget}`)
   }
@@ -4179,7 +4224,7 @@ async function buildVariantPhase(args: Args): Promise<void> {
       target,
       buildHostTarget,
       'baseline',
-      '4',
+      jobs,
       args['--evidence-out'],
       armObservationBinding(
         inputs,
@@ -4308,7 +4353,7 @@ async function buildVariantPhase(args: Args): Promise<void> {
       target,
       buildHostTarget,
       'modified',
-      '4',
+      jobs,
       args['--evidence-out'],
       armObservationBinding(
         inputs,
@@ -4419,7 +4464,7 @@ async function buildVariantPhase(args: Args): Promise<void> {
     toolchain: { pins_sha256: tools.pins_sha256, identities: tools.identities },
     tool_archives: tools.archives,
     tools_receipt_sha256: await sha256(toolsReceiptCopy),
-    jobs: '4',
+    jobs,
     resources: { capacity_preflight: capacity },
     extraction: inputs.extraction,
     recipe_sha256: await sha256(recipe),
@@ -4571,6 +4616,9 @@ function parseBuildToolReceiptMetadata(
 }
 
 function expectedProducerJob(target: string, variant: Variant): string {
+  if (target === 'x86_64-unknown-linux-gnu') {
+    return `source-linux-x64-${variant}`
+  }
   if (target === 'aarch64-unknown-linux-gnu') {
     return `source-arm-${variant}`
   }
@@ -4578,7 +4626,7 @@ function expectedProducerJob(target: string, variant: Variant): string {
     return `source-macos-x64-${variant}`
   }
   throw new Error(
-    'split source join is limited to Linux ARM64 and macOS x86_64',
+    'split source join is limited to Linux x86_64, Linux ARM64, and macOS x86_64',
   )
 }
 
@@ -4722,20 +4770,10 @@ async function readValidatedVariant(
   if (
     receipt.variant !== variant || receipt.target !== target ||
     !equalJson(receipt.producer, dependency.producer) ||
-    receipt.buildMode !==
-      buildModeFor(
-        target,
-        receipt.producer.job_id.startsWith('source-arm-')
-          ? 'x86_64-unknown-linux-gnu'
-          : 'x86_64-apple-darwin',
-      ) ||
+    receipt.buildMode !== buildModeFor(target, splitBuildHostTarget(target)) ||
     !equalJson(
       receipt.buildHost,
-      targetHost(
-        receipt.producer.job_id.startsWith('source-arm-')
-          ? 'x86_64-unknown-linux-gnu'
-          : 'x86_64-apple-darwin',
-      ),
+      targetHost(splitBuildHostTarget(target)),
     ) ||
     receipt.value.source_commit !== inputs.assembly.source.commit ||
     receipt.value.source_receipt_sha256 !== inputs.assemblyReceiptSha256 ||
@@ -4769,9 +4807,7 @@ async function readValidatedVariant(
       `${variant} target descriptor sidecar differs from canonical pins`,
     )
   }
-  const expectedBuildHost = target === 'aarch64-unknown-linux-gnu'
-    ? 'x86_64-unknown-linux-gnu'
-    : 'x86_64-apple-darwin'
+  const expectedBuildHost = splitBuildHostTarget(target)
   const tools = parseBuildToolReceiptMetadata(
     JSON.parse(await Deno.readTextFile(toolReceiptPath)),
     target,
@@ -4814,9 +4850,13 @@ async function readValidatedVariant(
 async function joinBuildPhase(args: Args): Promise<void> {
   const target = args['--target']
   if (
-    target !== 'aarch64-unknown-linux-gnu' && target !== 'x86_64-apple-darwin'
+    target !== 'x86_64-unknown-linux-gnu' &&
+    target !== 'aarch64-unknown-linux-gnu' &&
+    target !== 'x86_64-apple-darwin'
   ) {
-    throw new Error('join-build is limited to Linux ARM64 and macOS x86_64')
+    throw new Error(
+      'join-build is limited to Linux x86_64, Linux ARM64, and macOS x86_64',
+    )
   }
   const out = await ensureEmptyDirectory(args['--out'], 'join proof output')
   const work = await ensureEmptyDirectory(
@@ -4960,7 +5000,7 @@ async function joinBuildPhase(args: Args): Promise<void> {
       identities: object(baseline.receipt.value.toolchain, 'baseline toolchain')
         .identities,
     },
-    jobs: '4',
+    jobs: splitBuildJobs(target),
     resources: {
       capacity_preflight: object(
         baseline.receipt.value.resources,
@@ -5126,7 +5166,7 @@ export async function verifySplitBuildEvidence(
   const recipe = object(build.recipe_sha256, 'build receipt recipe SHA-256')
   exactKeys(recipe, ['baseline', 'modified'], 'build receipt recipe SHA-256')
   if (
-    build.jobs !== '4' ||
+    build.jobs !== splitBuildJobs(target) ||
     build.patch_sha256 !== baseline.receipt.value.patch_sha256 ||
     build.patch_sha256 !== modified.receipt.value.patch_sha256
   ) {
@@ -5153,9 +5193,7 @@ export async function verifySplitBuildEvidence(
     ] as const
   ) {
     const receipt = role.receipt
-    const expectedHost = target === 'aarch64-unknown-linux-gnu'
-      ? 'x86_64-unknown-linux-gnu'
-      : 'x86_64-apple-darwin'
+    const expectedHost = splitBuildHostTarget(target)
     if (
       receipt.target !== target ||
       receipt.buildMode !== buildModeFor(target, expectedHost) ||
