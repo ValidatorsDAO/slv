@@ -373,6 +373,51 @@ Deno.test('a command given a version of its own checks that version against the 
   }
 })
 
+Deno.test('a version typed at the patch:sha256 prompt is held to the floor like one given with --solana-version, and an accepted default is checked as a pin', async () => {
+  // answer: what is typed at the prompt; null means there is no terminal.
+  const patch = async (answer: string | null, refuseVersion: boolean) => {
+    const h = harness()
+    const versions: string[] = []
+    const pins: string[] = []
+    h.deps.refuseVersionBelowFloor = (network, role, version, flag) => {
+      versions.push(`${network} ${role} ${version} ${flag}`)
+      return Promise.resolve(refuseVersion)
+    }
+    h.deps.refuseBelowFloor = (network, role) => {
+      pins.push(`${network} ${role}`)
+      return Promise.resolve(true)
+    }
+    const cmd = new Command().throwErrors()
+    registerSha256PatchCommands(cmd, 'validator', 'testnet', h.deps, {
+      isTerminal: () => answer !== null,
+      defaultVersion: () => Promise.resolve('v4.3.2'),
+      prompt: () => Promise.resolve(answer ?? ''),
+    })
+    await cmd.parse(['patch:sha256', '-n', 'mainnet', '-p', 'val-a'])
+    return { versions, pins, calls: h.calls }
+  }
+
+  // Typed in place of the default: that version is checked, and the pins are
+  // not asked about.
+  const typed = await patch('3.1.10', true)
+  assertEquals(typed.versions, [
+    'mainnet validator v3.1.10 patch:sha256 source tag',
+  ])
+  assertEquals(typed.pins, [])
+  assertEquals(typed.calls, [])
+  // A typed version at or above the floor runs, whatever the pins say.
+  const fine = await patch('4.3.2-jito', false)
+  assertEquals(fine.pins, [])
+  assertEquals(fine.calls.length, 2)
+  // Accepting the default, or having no terminal: the default is a pin.
+  for (const answer of ['v4.3.2', '4.3.2', null]) {
+    const kept = await patch(answer, true)
+    assertEquals(kept.versions, [], String(answer))
+    assertEquals(kept.pins, ['mainnet validator'], String(answer))
+    assertEquals(kept.calls, [], String(answer))
+  }
+})
+
 Deno.test('a network the node role does not have runs nothing and exits non-zero', async () => {
   const cases: [Registration, string[]][] = [
     [validatorBinary, ['build:solana', '-n', 'devnet']],

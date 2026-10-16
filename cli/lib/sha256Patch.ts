@@ -134,19 +134,44 @@ const getDefaultSha256Version = async (
   return normalizeVersionTag(rawVersion)
 }
 
+/** What the version prompt of patch:sha256 needs from the terminal and the pins. */
+export type Sha256VersionDeps = {
+  isTerminal: () => boolean
+  prompt: (options: { message: string; default?: string }) => Promise<string>
+  defaultVersion: (
+    role: Sha256PatchRole,
+    network: NetworkType,
+    pubkey?: string,
+  ) => Promise<string | undefined>
+}
+
+const defaultSha256VersionDeps = (): Sha256VersionDeps => ({
+  isTerminal: () => Deno.stdin.isTerminal(),
+  prompt: (options) => Input.prompt(options),
+  defaultVersion: getDefaultSha256Version,
+})
+
+/**
+ * The source tag to build from. `typed` is true for a version the operator
+ * typed at the prompt in place of the default it offered (or for any version
+ * when it offered none): that is a version of the operator's own, as much as
+ * one given with --solana-version.
+ */
 const resolveSha256Version = async (
   role: Sha256PatchRole,
   network: NetworkType,
   inventoryType: InventoryType,
   pubkey?: string,
   providedVersion?: string,
-) => {
+  overrides: Partial<Sha256VersionDeps> = {},
+): Promise<{ version: string; typed: boolean }> => {
   if (providedVersion) {
-    return normalizeVersionTag(providedVersion)
+    return { version: normalizeVersionTag(providedVersion), typed: false }
   }
 
-  const defaultVersion = await getDefaultSha256Version(role, network, pubkey)
-  if (!Deno.stdin.isTerminal()) {
+  const deps = { ...defaultSha256VersionDeps(), ...overrides }
+  const defaultVersion = await deps.defaultVersion(role, network, pubkey)
+  if (!deps.isTerminal()) {
     if (!defaultVersion) {
       throw new Error(
         `Could not infer a default Solana version for ${inventoryType}. Specify --pubkey or --solana-version.`,
@@ -157,10 +182,10 @@ const resolveSha256Version = async (
         `Using default Solana version from ~/.slv/versions.yml: ${defaultVersion}`,
       ),
     )
-    return defaultVersion
+    return { version: defaultVersion, typed: false }
   }
 
-  const version = await Input.prompt(
+  const answer = await deps.prompt(
     defaultVersion
       ? {
         message: 'Solana source tag to build from:',
@@ -172,11 +197,12 @@ const resolveSha256Version = async (
       },
   )
 
-  if (!version.trim()) {
+  if (!answer.trim()) {
     throw new Error('Solana source tag is required.')
   }
 
-  return normalizeVersionTag(version)
+  const version = normalizeVersionTag(answer)
+  return { version, typed: version !== defaultVersion }
 }
 
 /**
@@ -243,6 +269,7 @@ export const registerSha256PatchCommands = (
   role: Sha256PatchRole,
   defaultNetwork: NetworkType,
   deps: Partial<StartScriptDeps> = {},
+  versionDeps: Partial<Sha256VersionDeps> = {},
 ) => {
   const label = role === 'validator' ? 'Validator' : 'RPC'
 
@@ -262,25 +289,32 @@ export const registerSha256PatchCommands = (
       try {
         const network = options.network as NetworkType
         const inventoryType = getSha256PatchInventoryType(role, network)
-        const solanaVersion = await resolveSha256Version(
+        const resolved = await resolveSha256Version(
           role,
           network,
           inventoryType,
           options.pubkey,
           options.solanaVersion,
+          versionDeps,
         )
+        // A version of the operator's own, from the flag or typed at the
+        // prompt, is what the floor is checked on; a default from the pins is
+        // checked as a pin.
+        const explicitVersion = options.solanaVersion
+          ? {
+            version: options.solanaVersion,
+            flag: 'patch:sha256 --solana-version',
+          }
+          : resolved.typed
+          ? { version: resolved.version, flag: 'patch:sha256 source tag' }
+          : undefined
         const result = await installAgaveBinary({
           role,
           network,
           play: () => 'cmn/patch_sha256.yml',
           limit: options.pubkey,
-          extraVars: { solana_version: solanaVersion },
-          explicitVersion: options.solanaVersion
-            ? {
-              version: options.solanaVersion,
-              flag: 'patch:sha256 --solana-version',
-            }
-            : undefined,
+          extraVars: { solana_version: resolved.version },
+          explicitVersion,
         }, deps)
 
         if (result) {
