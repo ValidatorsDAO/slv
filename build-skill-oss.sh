@@ -8,6 +8,10 @@
 #
 # NO internal API info, NO master-api references, NO private infrastructure details.
 #
+# The shared playbooks (ansible/cmn) of a package are the ones that its playbooks import and the ones that its
+# docs name (cmn/<name>.yml in SKILL.md, AGENT.md, README.md, examples/ and scripts/), with what they import
+# (siblings, cmn/tasks) and copy (cmn/files). A skill.json that dist has and oss-skills/ has no source for is kept.
+#
 # Usage: ./build-skill-oss.sh <skill> [version]
 #   skill:   validator | rpc | grpc-geyser
 #   version: template version (default: detect from version.ts)
@@ -64,6 +68,14 @@ case "$SKILL" in
     ;;
 esac
 
+# Not every skill has a skill.json under oss-skills/. The skill.json that dist already has for such a
+# skill is kept (the installer and `slv skills sync` fetch it), so it is put aside while dist is cleaned.
+KEPT_SKILL_JSON=""
+if [[ ! -f "$OSS_SKILL_DIR/skill.json" && -f "$DIST_DIR/skill.json" ]]; then
+  KEPT_SKILL_JSON="$(mktemp)"
+  cp "$DIST_DIR/skill.json" "$KEPT_SKILL_JSON"
+fi
+
 # Clean and create output
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR/ansible/cmn" "$DIST_DIR/jinja"
@@ -86,6 +98,15 @@ resolve_cmn_deps() {
       [[ -n "$ref" ]] && queue+=("$ref")
     done < <(grep -rh '\.\./cmn/' "$ANSIBLE_DIR/$dir" 2>/dev/null || true)
   done
+
+  # The shared playbooks that the docs of the skill name (cmn/<name>.yml in SKILL.md, AGENT.md, README.md,
+  # examples/ and scripts/) belong to the package as well, with what they import: a package whose docs
+  # tell the reader to run a playbook has to hold it.
+  if [[ -d "$OSS_SKILL_DIR" ]]; then
+    while IFS= read -r ref; do
+      [[ -n "$ref" ]] && queue+=("$ref")
+    done < <(grep -rhoE 'cmn/[A-Za-z0-9_./-]+\.ya?ml' "$OSS_SKILL_DIR" 2>/dev/null | sed 's|^cmn/||' | sort -u || true)
+  fi
 
   while [[ ${#queue[@]} -gt 0 ]]; do
     local current="${queue[0]}"
@@ -116,6 +137,15 @@ resolve_cmn_deps() {
       cp -r "$ANSIBLE_DIR/cmn/tasks/." "$DIST_DIR/ansible/cmn/tasks/"
     fi
   fi
+
+  # A shared playbook that copies files/<name> (irq_tune.yml, of1_index_cache_sync.yml, ...) needs that file
+  # in cmn/files next to it.
+  while IFS= read -r asset; do
+    if [[ -f "$ANSIBLE_DIR/cmn/files/$asset" ]]; then
+      mkdir -p "$DIST_DIR/ansible/cmn/files"
+      cp "$ANSIBLE_DIR/cmn/files/$asset" "$DIST_DIR/ansible/cmn/files/$asset"
+    fi
+  done < <(grep -rhoE 'src:[[:space:]]*files/[A-Za-z0-9_.-]+' "$DIST_DIR/ansible/cmn/" 2>/dev/null | sed -E 's|src:[[:space:]]*files/||' | sort -u || true)
 }
 
 resolve_cmn_deps
@@ -143,6 +173,11 @@ done
 # --- Copy and version-stamp skill.json ---
 if [[ -f "$OSS_SKILL_DIR/skill.json" ]]; then
   sed "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$OSS_SKILL_DIR/skill.json" > "$DIST_DIR/skill.json"
+fi
+
+if [[ -n "$KEPT_SKILL_JSON" ]]; then
+  cp "$KEPT_SKILL_JSON" "$DIST_DIR/skill.json"
+  rm -f "$KEPT_SKILL_JSON"
 fi
 
 # Copy examples/

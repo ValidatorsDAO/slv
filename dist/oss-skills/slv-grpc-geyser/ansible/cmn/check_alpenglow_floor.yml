@@ -17,6 +17,13 @@
 #     section. The release the plugin is built for is what follows +solana. in the tag, with 4.4.0.beta.0
 #     read as 4.4.0-beta.0; a tag that does not say is not checked.
 #
+# The legacy init-*.yml (init-jito.yml, init-allnodes-jito.yml, init-agave.yml, init-firedancer.yml of the validator
+# networks and init-old.yml of mainnet-rpc) install one client whatever validator_type says. They pass floor_client
+# (agave, jito or allnodes) to name it, and the check then reads that client, and for an RPC node the Yellowstone
+# plugin of any geyser_plugin and validator_type. They also pass the variable that their installer sets as a play
+# variable (jito_version, agave_version or allnodes_jito_version) as the pin of the section, so that the version of
+# the host, which the installer does not read, does not count and -e, which it does read, does.
+#
 # A version older than the floor stops the run. No version at all stops it too, as the build would. A version
 # with no X.Y in it (latest, main, a commit hash) cannot be compared: it stops the run in a mainnet section
 # and is only said in the others.
@@ -51,6 +58,12 @@
           - (versions_section | default('')) in slv_alpenglow_network_of_section
         fail_msg: "cmn/check_alpenglow_floor.yml needs versions_section, the section of ~/.slv/versions.yml of the network and role of the node (mainnet_validators, testnet_validators, mainnet_rpcs, testnet_rpcs or devnet_rpcs), and got '{{ versions_section | default('') }}'. Nothing was changed."
 
+    - name: Stop unless floor_client, when the caller passes it, names a client
+      ansible.builtin.assert:
+        that:
+          - (floor_client | default('', true) | string) in ['', 'agave', 'jito', 'allnodes']
+        fail_msg: "cmn/check_alpenglow_floor.yml takes agave, jito or allnodes as floor_client, and got '{{ floor_client | default('') }}'. Nothing was changed."
+
     # What this node is going to build: each entry has the label of the client, the text to read, and where
     # the text comes from (for the messages).
     - name: Work out the versions that this node is going to build
@@ -69,9 +82,12 @@
                 'firedancer': ['jito', 'jito_version', 'version_jito'],
                 'allnodes-jito': ['allnodes-jito', 'allnodes_jito_version', 'version_allnodes_jito']
               } -%}
+          {%- set named = {'agave': clients['agave'], 'jito': clients['jito'], 'allnodes': clients['allnodes-jito']} -%}
+          {%- set fixed = floor_client | default('', true) | string -%}
+          {%- set pick = named[fixed] if fixed != '' else clients.get(vt) -%}
           {%- set subjects = [] -%}
-          {%- if vt in clients -%}
-          {%- set c = clients[vt] -%}
+          {%- if pick -%}
+          {%- set c = pick -%}
           {%- set own = lookup('ansible.builtin.vars', c[1], default='') | default('', true) | string | trim -%}
           {%- set pinned = slv_alpenglow_pins.get(c[2], '') | default('', true) | string | trim -%}
           {%- set _ = subjects.append({
@@ -86,7 +102,7 @@
           {%- set _ = subjects.append({'kind': 'type', 'label': 'validator_type', 'text': vt}) -%}
           {%- endif -%}
           {%- set rpc_kind = rpc_type | default('Geyser gRPC' if slv_alpenglow_network != 'mainnet' else '', true) -%}
-          {%- if versions_section.endswith('_rpcs') and rpc_kind in ['Geyser gRPC', 'Index RPC + gRPC'] and vt in ['agave', 'jito'] and (geyser_plugin | default('yellowstone', true)) == 'yellowstone' -%}
+          {%- if versions_section.endswith('_rpcs') and rpc_kind in ['Geyser gRPC', 'Index RPC + gRPC'] and (fixed != '' or (vt in ['agave', 'jito'] and (geyser_plugin | default('yellowstone', true)) == 'yellowstone')) -%}
           {%- set tag_own = lookup('ansible.builtin.vars', 'geyser_version', default='') | default('', true) | string | trim -%}
           {%- set tag = tag_own if tag_own != '' else (slv_alpenglow_pins.get('geyser_version', '') | default('', true) | string | trim) -%}
           {%- set built = tag | regex_search('[+]solana[.]([^+ ]+)', '\\1') -%}
