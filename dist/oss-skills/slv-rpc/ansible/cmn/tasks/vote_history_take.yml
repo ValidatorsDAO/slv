@@ -1,0 +1,143 @@
+---
+# Takes the vote history file of a staked identity off the host that has just been
+# switched to its unstaked identity, and brings it to the controller. Import it from the
+# play of that host, right after set-identity to the unstaked key. Variables:
+#
+#   slv_vh_identity                the staked identity (a base58 public key)
+#   slv_vh_log_offset              size of the validator log in bytes before the identity changed
+#   slv_validator_log              the validator log (/home/solv/solana-validator.log)
+#   slv_vote_history_wait_seconds  how long to wait for each step below (60)
+#   slv_vote_history_gap_seconds   seconds between the two reads of the file (5)
+#   slv_vote_poll_seconds          seconds between two looks at the log (2)
+#
+# The admin RPC returns before Votor has handled the identity change, so the host can
+# still vote, and write the file, with the staked key for a moment. The file is taken
+# when (1) the validator log shows Votor's line "set-identity: from <staked> to <other>"
+# and (2) two reads of the file a few seconds apart give the same sha256. The file lands
+# in ~/.slv/vote_history on the controller, readable by its owner only.
+
+- name: Work out the file, the log and the waits of the vote history hand-over
+  ansible.builtin.set_fact:
+    slv_vh_file: "/mnt/ledger/vote_history-{{ slv_vh_identity }}.bin"
+    slv_vh_log: "{{ slv_validator_log | default('/home/solv/solana-validator.log', true) }}"
+    slv_vh_copy: "~/.slv/vote_history/vote_history-{{ slv_vh_identity }}.bin"
+    slv_vh_poll: "{{ [slv_vote_poll_seconds | default(2) | int, 1] | max }}"
+    slv_vh_gap: "{{ [slv_vote_history_gap_seconds | default(5) | int, 1] | max }}"
+    slv_vh_log_polls: "{{ [((slv_vote_history_wait_seconds | default(60) | int) / ([slv_vote_poll_seconds | default(2) | int, 1] | max)) | round(0, 'ceil') | int, 1] | max }}"
+    slv_vh_stable_polls: "{{ [((slv_vote_history_wait_seconds | default(60) | int) / (([slv_vote_history_gap_seconds | default(5) | int, 1] | max) + 1)) | round(0, 'ceil') | int, 1] | max }}"
+    slv_vh_left: "The host {{ inventory_hostname }} is on its unstaked identity now and nothing was promoted. Its vote history file is /mnt/ledger/vote_history-{{ slv_vh_identity }}.bin: once it no longer changes, copy it to /mnt/ledger on the host that takes the identity and run slv v set:identity -p <that host>, or put the staked identity back here with agave-validator -l /mnt/ledger set-identity <the staked identity file>."
+
+- name: Remove an older copy from the controller, so that no copy of another moment is left behind
+  ansible.builtin.file:
+    path: "{{ slv_vh_copy }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  check_mode: false
+
+- name: Wait until Votor reports that the identity left the staked key
+  ansible.builtin.shell: |
+    log={{ slv_vh_log | quote }}
+    from={{ slv_vh_log_offset | default(0) | int }}
+    size=$(stat -c %s "$log" 2>/dev/null || echo 0)
+    if [ "$size" -lt "$from" ]; then from=0; fi
+    tail -c +"$((from + 1))" "$log" 2>/dev/null | grep -F -- {{ ('set-identity: from ' ~ slv_vh_identity ~ ' to ') | quote }} | tail -n 1
+  args:
+    executable: /bin/bash
+  register: slv_vh_votor_line
+  until: slv_vh_votor_line.stdout | trim | length > 0
+  retries: "{{ slv_vh_log_polls }}"
+  delay: "{{ slv_vh_poll }}"
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Stop when Votor did not report the identity change
+  ansible.builtin.fail:
+    msg: "Votor did not report 'set-identity: from {{ slv_vh_identity }} to ...' in {{ slv_vh_log }} within {{ slv_vote_history_wait_seconds | default(60) }} seconds, so it may still be voting with the staked identity and the vote history file was not copied."
+  when: slv_vh_votor_line.stdout | trim | length == 0
+
+- name: Wait until the vote history file stops changing
+  ansible.builtin.shell: |
+    f={{ slv_vh_file | quote }}
+    a=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+    sleep {{ slv_vh_gap }}
+    b=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$a" ] && [ "$a" = "$b" ]; then echo "$a"; fi
+  args:
+    executable: /bin/bash
+  register: slv_vh_stable
+  until: slv_vh_stable.stdout | trim | length > 0
+  retries: "{{ slv_vh_stable_polls }}"
+  delay: 1
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Stop when the vote history file keeps changing
+  ansible.builtin.fail:
+    msg: "{{ slv_vh_file }} on {{ inventory_hostname }} did not stay the same for {{ slv_vh_gap }} seconds within {{ slv_vote_history_wait_seconds | default(60) }} seconds (or is missing), so it was not copied."
+  when: slv_vh_stable.stdout | trim | length == 0
+
+- name: Copy the vote history file to the controller and check the copy
+  block:
+    - name: Make the folder for vote history files on the controller private
+      ansible.builtin.file:
+        path: ~/.slv/vote_history
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+      check_mode: false
+
+    - name: Copy the vote history file to the controller
+      ansible.builtin.fetch:
+        src: "{{ slv_vh_file }}"
+        dest: "{{ slv_vh_copy }}"
+        flat: true
+
+    - name: Keep the copy readable by its owner only
+      ansible.builtin.file:
+        path: "{{ slv_vh_copy }}"
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+      check_mode: false
+
+    - name: Read the checksum of the copy
+      ansible.builtin.stat:
+        path: "{{ slv_vh_copy }}"
+        checksum_algorithm: sha256
+      register: slv_vh_copy_stat
+      delegate_to: localhost
+      become: false
+      check_mode: false
+
+    - name: Read the checksum of the file on the host again
+      ansible.builtin.stat:
+        path: "{{ slv_vh_file }}"
+        checksum_algorithm: sha256
+      register: slv_vh_file_stat
+      check_mode: false
+
+    - name: Stop when the copy is not the file that stopped changing
+      ansible.builtin.fail:
+        msg: "The copy on the controller (sha256 {{ slv_vh_copy_stat.stat.checksum | default('missing') }}) is not the file {{ slv_vh_file }} had when it stopped changing (sha256 {{ slv_vh_stable.stdout | trim }}; now {{ slv_vh_file_stat.stat.checksum | default('missing') }})."
+      when: slv_vh_copy_stat.stat.checksum | default('') != slv_vh_stable.stdout | trim or slv_vh_file_stat.stat.checksum | default('') != slv_vh_stable.stdout | trim
+
+  rescue:
+    - name: Remove the copy, it is not the file that stopped changing
+      ansible.builtin.file:
+        path: "{{ slv_vh_copy }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      check_mode: false
+
+    - name: Stop with the reason
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('A step failed') }} (step: {{ ansible_failed_task.name }}). The copy on the controller was removed."
+
+- name: Remember the sha256 of the file that was taken
+  ansible.builtin.set_fact:
+    slv_vh_taken_sha256: "{{ slv_vh_stable.stdout | trim }}"

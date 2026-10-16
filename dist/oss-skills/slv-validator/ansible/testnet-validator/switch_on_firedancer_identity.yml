@@ -11,6 +11,8 @@
       vars:
         slv_alpenglow_network: testnet
         slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ validator_type | default('') }}"
 
     - name: Upload Tower File
       ansible.builtin.copy:
