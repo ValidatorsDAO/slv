@@ -24,7 +24,6 @@ import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
 import { refuseFdctlMainnetCommand } from '/lib/fdctlMainnetGuard.ts'
-import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 export const validatorCmd = new Command()
   .description('🛠️ Manage Solana Validator Nodes 🛠️')
@@ -493,8 +492,6 @@ validatorCmd.command('switch')
       ])
       network = validator.network || 'testnet'
     }
-    // A client pinned below what Alpenglow runs on is not switched to.
-    if (await refuseBelowFloorPins(network, 'validator')) return
     const inventoryType: InventoryType = network === 'mainnet'
       ? 'mainnet_validators'
       : 'testnet_validators'

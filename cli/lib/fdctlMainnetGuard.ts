@@ -185,6 +185,20 @@ const warnFdctlMainnetRpcDeploy = async (
   return hosts
 }
 
+/**
+ * The warning of the RPC init and deploy for `slv rpc setup:firedancer` and
+ * `slv rpc update:firedancer`: only `-n mainnet` is looked at, and it never
+ * refuses.
+ */
+const warnFdctlMainnetRpcCommand = (
+  network: string | undefined,
+  limit?: string,
+  overrides: Partial<FdctlGuardDeps> = {},
+): Promise<FdctlHost[]> =>
+  network === 'mainnet'
+    ? warnFdctlMainnetRpcDeploy(limit, overrides)
+    : Promise.resolve([])
+
 export {
   isFdctlValidatorType,
   mainnetRpcFdctlWarning,
@@ -192,6 +206,7 @@ export {
   refuseFdctlMainnetCommand,
   refuseFdctlMainnetValidatorDeploy,
   refuseMainnetValidatorType,
+  warnFdctlMainnetRpcCommand,
   warnFdctlMainnetRpcDeploy,
 }
 export type { FdctlGuardDeps, FdctlHost }

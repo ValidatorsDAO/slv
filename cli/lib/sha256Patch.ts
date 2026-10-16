@@ -223,6 +223,9 @@ export const runSha256Patch = async (
     play: () => 'cmn/patch_sha256.yml',
     limit: pubkey,
     extraVars: { solana_version: resolvedVersion },
+    explicitVersion: solanaVersion
+      ? { version: solanaVersion, flag: 'patch:sha256 --solana-version' }
+      : undefined,
   }, deps)
 
   if (result) {
@@ -272,6 +275,12 @@ export const registerSha256PatchCommands = (
           play: () => 'cmn/patch_sha256.yml',
           limit: options.pubkey,
           extraVars: { solana_version: solanaVersion },
+          explicitVersion: options.solanaVersion
+            ? {
+              version: options.solanaVersion,
+              flag: 'patch:sha256 --solana-version',
+            }
+            : undefined,
         }, deps)
 
         if (result) {

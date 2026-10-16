@@ -14,6 +14,7 @@ import {
   refuseFdctlMainnetCommand,
   refuseFdctlMainnetValidatorDeploy,
   refuseMainnetValidatorType,
+  warnFdctlMainnetRpcCommand,
   warnFdctlMainnetRpcDeploy,
 } from '/lib/fdctlMainnetGuard.ts'
 import { updateMainnetInventory } from '/lib/updateMainnetInventory.ts'
@@ -335,6 +336,66 @@ Deno.test('slv rpc deploy on mainnet warns about the Frankendancer hosts it reac
   assertEquals(rec.info.length, 1)
   assertStringIncludes(rec.info[0], 'rpc-b')
   assertStringIncludes(rec.info[0], 'not supported')
+})
+
+Deno.test('slv rpc setup:firedancer and slv rpc update:firedancer on mainnet warn like the RPC init and deploy, and never refuse', async () => {
+  const inventories = {
+    mainnet_rpcs: inventoryText('mainnet_rpcs', {
+      'rpc-a': 'jito',
+      'rpc-b': 'firedancer-agave',
+    }),
+  }
+  const command = recorder(inventories)
+  const hosts = await warnFdctlMainnetRpcCommand(
+    'mainnet',
+    undefined,
+    command.deps,
+  )
+  assertEquals(hosts.map((host) => host.name), ['rpc-b'])
+  assertEquals(command.read, ['mainnet_rpcs'])
+  assertEquals([command.errors, command.exitCodes], [[], []])
+  assertEquals(command.info.length, 1)
+  assertStringIncludes(command.info[0], 'rpc-b')
+  assertStringIncludes(command.info[0], 'not supported')
+  // The text of the deploy, and -p names the hosts as it does there.
+  const deploy = recorder(inventories)
+  await warnFdctlMainnetRpcDeploy(undefined, deploy.deps)
+  assertEquals(command.info, deploy.info)
+  const scoped = recorder(inventories)
+  assertEquals(
+    await warnFdctlMainnetRpcCommand('mainnet', 'rpc-a', scoped.deps),
+    [],
+  )
+  assertEquals([scoped.info, scoped.errors, scoped.exitCodes], [[], [], []])
+  // Any other network is not looked at.
+  for (const network of ['testnet', 'devnet', 'Mainnet', undefined]) {
+    const rec = recorder(inventories)
+    assertEquals(
+      await warnFdctlMainnetRpcCommand(network, undefined, rec.deps),
+      [],
+      String(network),
+    )
+    assertEquals([rec.read, rec.info, rec.errors], [[], [], []])
+  }
+})
+
+Deno.test('slv rpc setup:firedancer and slv rpc update:firedancer call the warning before they run ansible and only warn', async () => {
+  const index = await read('src/rpc/index.ts')
+  for (const command of ['setup:firedancer', 'update:firedancer']) {
+    const start = index.indexOf(`rpcCmd.command('${command}')`)
+    assert(start > 0, command)
+    const ends = [
+      index.indexOf('rpcCmd.command(', start + 1),
+      index.indexOf('registerSolanaBinaryCommands(', start + 1),
+    ].filter((end) => end > 0)
+    const block = index.slice(start, Math.min(...ends))
+    const warn = block.indexOf(
+      '\n    await warnFdctlMainnetRpcCommand(options.network, options.pubkey)\n',
+    )
+    assert(warn > 0, `${command} does not call the warning as a statement`)
+    assert(warn < block.indexOf('runAnsilbe('), `${command}: after ansible`)
+    assertEquals(block.includes('refuseFdctl'), false, command)
+  }
 })
 
 Deno.test('slv v init and slv v deploy call the refusal before they generate a key, list, ask or run ansible', async () => {

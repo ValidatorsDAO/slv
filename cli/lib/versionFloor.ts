@@ -6,10 +6,12 @@ import { defaultVersionsObject } from '/lib/config/defaultVersionsYml.ts'
 
 // Alpenglow starts on mainnet with epoch 1064, and testnet and devnet already
 // run it. An agave, jito or allnodes release older than the floor of its network
-// cannot follow it. `slv upgrade` keeps the versions an operator pinned in
-// ~/.slv/versions.yml, so a pin from before this update can sit below the floor:
-// the commands that install a client stop on such a pin, and `slv upgrade` says
-// which pins to change.
+// cannot follow it, and neither can a Yellowstone plugin built for one.
+// `slv upgrade` keeps the versions an operator pinned in ~/.slv/versions.yml, so
+// a pin from before this update can sit below the floor: the commands that
+// install a client stop on such a pin, and `slv upgrade` says which pins to
+// change. A command given a version of its own (install:solana -v,
+// patch:sha256 --solana-version) is checked on that version instead.
 
 /** The oldest agave, jito or allnodes release Alpenglow runs on, per network. */
 const ALPENGLOW_FLOORS: Record<NetworkType, string> = {
@@ -48,11 +50,12 @@ const sectionOf = (
 const PRERELEASE_RANK = { alpha: 0, beta: 1, rc: 2 } as const
 const RELEASE_RANK = 3
 
-// 4.3.2, 4.3.0-jito.1, 4.3.2-allnodes, 4.4.0-beta.1, 4.4.0-beta.1-jito: the base
-// release, an optional pre-release, and the jito or allnodes build tag, which
-// does not change the release the build is made on.
+// 4.3.2, 4.3.0-jito.1, 4.3.2-allnodes, 4.4.0-beta.1, 4.4.0-beta.1-jito, 3.1.1-rc:
+// the base release, an optional pre-release (a missing number is 0), and the
+// jito or allnodes build tag, which does not change the release the build is
+// made on.
 const CLIENT_VERSION =
-  /^v?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.?(\d+))?(?:-(?:jito|allnodes)(?:\.\d+)?)?$/
+  /^v?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.?(\d+)?)?(?:-(?:jito|allnodes)(?:\.\d+)?)?$/
 
 type ParsedVersion = readonly [number, number, number, number, number]
 
@@ -65,7 +68,7 @@ const parseClientVersion = (version: string): ParsedVersion | null => {
     Number(minor),
     Number(patch),
     pre ? PRERELEASE_RANK[pre as keyof typeof PRERELEASE_RANK] : RELEASE_RANK,
-    pre ? Number(preNumber) : 0,
+    pre && preNumber ? Number(preNumber) : 0,
   ]
 }
 
@@ -94,11 +97,25 @@ type BelowFloorPin = {
   floor: string
   /** The default for this key, which is at or above the floor. */
   suggested: string
+  /** For a Yellowstone tag: the solana release it is built for. */
+  builtFor?: string
+}
+
+/**
+ * The solana release a Yellowstone tag is built for, read the way the floor
+ * reads a client version: v17.0.0-rc5+solana.4.4.0.beta.0 is 4.4.0-beta.0. Null
+ * when the tag does not say (a richat tag, for one).
+ */
+const yellowstoneBuiltFor = (tag: string): string | null => {
+  const built = /\+solana\.([^+\s]+)/.exec(tag)?.[1]
+  return built ? built.replace(/^(\d+\.\d+\.\d+)\./, '$1-') : null
 }
 
 /**
  * The agave, jito and allnodes pins of `sections` (all of them by default) that
- * are below the floor of their network, each with the default to set instead.
+ * are below the floor of their network, and the Yellowstone geyser_version of
+ * an RPC section built for a release below it, each with the default to set
+ * instead.
  */
 const findBelowFloorPins = (
   versions: unknown,
@@ -128,18 +145,36 @@ const findBelowFloorPins = (
         pins.push({ section, key, network, pinned, floor, suggested })
       }
     }
+    const geyserDefault = defaultSections[section]?.geyser_version
+    const geyserPin = (pinnedSection as Record<string, unknown>).geyser_version
+    if (typeof geyserDefault === 'string' && typeof geyserPin === 'string') {
+      const builtFor = yellowstoneBuiltFor(geyserPin)
+      if (builtFor !== null && isBelowFloor(builtFor, floor)) {
+        pins.push({
+          section,
+          key: 'geyser_version',
+          network,
+          pinned: geyserPin,
+          floor,
+          suggested: geyserDefault,
+          builtFor,
+        })
+      }
+    }
   }
   return pins
 }
 
-const whyFloor = (pin: BelowFloorPin): string =>
-  pin.network === 'mainnet'
-    ? `Alpenglow starts on mainnet at epoch 1064 and needs ${pin.floor} or later`
-    : `${pin.network} already runs Alpenglow and needs ${pin.floor} or later`
+const whyFloor = (network: NetworkType, floor: string): string =>
+  network === 'mainnet'
+    ? `Alpenglow starts on mainnet at epoch 1064 and needs ${floor} or later`
+    : `${network} already runs Alpenglow and needs ${floor} or later`
 
 /** One line for `slv upgrade`: the pin, the floor and the value to set. */
 const belowFloorNotice = (pin: BelowFloorPin): string =>
-  `${pin.section}.${pin.key} is ${pin.pinned} in ~/.slv/versions.yml, below ${pin.floor}, the oldest release Alpenglow runs on ${pin.network}. Set it to ${pin.suggested}.`
+  `${pin.section}.${pin.key} is ${pin.pinned} in ~/.slv/versions.yml${
+    pin.builtFor ? `, built for solana ${pin.builtFor}` : ''
+  }, below ${pin.floor}, the oldest release Alpenglow runs on ${pin.network}. Set it to ${pin.suggested}.`
 
 // --- commands -----------------------------------------------------------------
 
@@ -191,8 +226,10 @@ const refuseBelowFloorPins = async (
   if (pins.length === 0) return false
   deps.error(
     `❌ ~/.slv/versions.yml pins ${
-      pins.length === 1 ? 'a client' : 'clients'
-    } older than Alpenglow runs on: ${whyFloor(pins[0])}.`,
+      pins.length === 1 ? 'a version' : 'versions'
+    } older than Alpenglow runs on: ${
+      whyFloor(pins[0].network, pins[0].floor)
+    }.`,
   )
   deps.error(
     `   Change ${
@@ -207,6 +244,44 @@ const refuseBelowFloorPins = async (
   deps.error('   Nothing was changed.')
   deps.setExitCode(1)
   return true
+}
+
+/**
+ * Stops a command given a client version of its own (install:solana -v,
+ * patch:sha256 --solana-version) when that version is below the floor of its
+ * network. The pins are not read: this command does not use them. A version it
+ * cannot read is not refused.
+ */
+const refuseVersionBelowFloor = (
+  network: string | undefined,
+  role: NodeRole,
+  version: string,
+  flag: string,
+  overrides: Partial<FloorDeps> = {},
+): Promise<boolean> => {
+  const section = sectionOf(network, role)
+  if (!section) return Promise.resolve(false)
+  const floorNetwork = SECTION_NETWORKS[section]
+  const floor = ALPENGLOW_FLOORS[floorNetwork]
+  if (!isBelowFloor(version, floor)) return Promise.resolve(false)
+  const deps = { ...defaultFloorDeps(), ...overrides }
+  const defaults = deps.defaults() as unknown as Record<
+    string,
+    Record<string, unknown>
+  >
+  deps.error(
+    `❌ ${flag} ${version} is older than Alpenglow runs on: ${
+      whyFloor(floorNetwork, floor)
+    }.`,
+  )
+  deps.error(
+    `   Use ${floor} or later, such as ${
+      defaults[section]?.version_agave
+    } for agave or ${defaults[section]?.version_jito} for jito.`,
+  )
+  deps.error('   Nothing was changed.')
+  deps.setExitCode(1)
+  return Promise.resolve(true)
 }
 
 /**
@@ -236,5 +311,7 @@ export {
   isBelowFloor,
   noticeBelowFloorPins,
   refuseBelowFloorPins,
+  refuseVersionBelowFloor,
+  yellowstoneBuiltFor,
 }
 export type { BelowFloorPin, FloorDeps, NodeRole }

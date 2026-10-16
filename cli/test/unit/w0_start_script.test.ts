@@ -30,6 +30,7 @@ const harness = (results: boolean[] = []) => {
     },
     // The version floor reads ~/.slv/versions.yml; these tests do not.
     refuseBelowFloor: () => Promise.resolve(false),
+    refuseVersionBelowFloor: () => Promise.resolve(false),
     templateRoot: () => '/t',
     info: (line) => info.push(line),
     error: (line) => errors.push(line),
@@ -284,24 +285,91 @@ Deno.test('the start-script play does not run when the install play did not succ
   }
 })
 
-Deno.test('every command that installs, builds or patches the agave binary stops before any play when the pins of its network and role are below what Alpenglow runs on', async () => {
-  for (const row of ROWS) {
+// The flag a row names its own version with, and that version.
+const explicitVersionOf = (
+  row: Row,
+): { flag: string; version: string } | undefined => {
+  for (
+    const [option, flag] of [
+      ['-v', 'install:solana -v'],
+      ['--solana-version', 'patch:sha256 --solana-version'],
+    ]
+  ) {
+    const at = row.argv.indexOf(option)
+    if (at >= 0) return { flag, version: row.argv[at + 1] }
+  }
+  return undefined
+}
+
+const kindOf = (row: Row): string => {
+  const [network, kind] = row.inventory.split('_')
+  return `${network} ${kind === 'validators' ? 'validator' : 'rpc'}`
+}
+
+Deno.test('every command that installs, builds or patches the agave binary without a version of its own stops before any play when the pins of its network and role are below what Alpenglow runs on', async () => {
+  const rows = ROWS.filter((row) => !explicitVersionOf(row))
+  assert(rows.length > 0)
+  for (const row of rows) {
     const h = harness()
     const asked: string[] = []
+    const askedVersion: string[] = []
     h.deps.refuseBelowFloor = (network, role) => {
       asked.push(`${network} ${role}`)
+      return Promise.resolve(true)
+    }
+    h.deps.refuseVersionBelowFloor = (network, role, version, flag) => {
+      askedVersion.push(`${network} ${role} ${version} ${flag}`)
       return Promise.resolve(true)
     }
     const cmd = new Command().throwErrors()
     row.register(cmd, h.deps)
     await cmd.parse(row.argv)
-    const [network, kind] = row.inventory.split('_')
+    assertEquals(asked, [kindOf(row)], row.label)
+    assertEquals(askedVersion, [], row.label)
+    assertEquals(h.calls, [], row.label)
+  }
+})
+
+Deno.test('a command given a version of its own checks that version against the floor and not the pins', async () => {
+  const rows = ROWS.filter((row) => explicitVersionOf(row))
+  assertEquals(rows.length, 4)
+  for (const row of rows) {
+    const named = explicitVersionOf(row)!
+    // The version is refused: no play runs, and the pins are not asked about.
+    const refused = harness()
+    const asked: string[] = []
+    const pins: string[] = []
+    refused.deps.refuseVersionBelowFloor = (network, role, version, flag) => {
+      asked.push(`${network} ${role} ${version} ${flag}`)
+      return Promise.resolve(true)
+    }
+    refused.deps.refuseBelowFloor = (network, role) => {
+      pins.push(`${network} ${role}`)
+      return Promise.resolve(false)
+    }
+    const cmd = new Command().throwErrors()
+    row.register(cmd, refused.deps)
+    await cmd.parse(row.argv)
     assertEquals(
       asked,
-      [`${network} ${kind === 'validators' ? 'validator' : 'rpc'}`],
+      [`${kindOf(row)} ${named.version} ${named.flag}`],
       row.label,
     )
-    assertEquals(h.calls, [], row.label)
+    assertEquals(pins, [], row.label)
+    assertEquals(refused.calls, [], row.label)
+
+    // The version is fine: the plays run even though the pins are stale.
+    const allowed = harness()
+    const stale: string[] = []
+    allowed.deps.refuseBelowFloor = (network, role) => {
+      stale.push(`${network} ${role}`)
+      return Promise.resolve(true)
+    }
+    const again = new Command().throwErrors()
+    row.register(again, allowed.deps)
+    await again.parse(row.argv)
+    assertEquals(stale, [], row.label)
+    assertEquals(allowed.calls.length, 2, row.label)
   }
 })
 

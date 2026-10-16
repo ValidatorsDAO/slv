@@ -9,6 +9,8 @@ import {
   isBelowFloor,
   noticeBelowFloorPins,
   refuseBelowFloorPins,
+  refuseVersionBelowFloor,
+  yellowstoneBuiltFor,
 } from '/lib/versionFloor.ts'
 
 // slv overhaul: Alpenglow. Alpenglow starts on mainnet with epoch 1064, and
@@ -84,10 +86,28 @@ const OLD_PINS_BELOW_FLOOR = [
   ],
   ['mainnet_rpcs', 'version_agave', '3.1.10', '4.3.2'],
   ['mainnet_rpcs', 'version_jito', '3.1.10-jito', '4.3.2-jito'],
+  [
+    'mainnet_rpcs',
+    'geyser_version',
+    'v10.1.2-rc3+solana.3.1.10',
+    'v16.1.1+solana.4.3.0',
+  ],
   ['testnet_rpcs', 'version_agave', '4.0.0-beta.2', '4.4.0-beta.0'],
   ['testnet_rpcs', 'version_jito', '4.0.0-beta.2-jito', '4.4.0-beta.0-jito'],
+  [
+    'testnet_rpcs',
+    'geyser_version',
+    'v10.1.1+solana.3.1.1-rc',
+    'v17.0.0-rc5+solana.4.4.0.beta.0',
+  ],
   ['devnet_rpcs', 'version_agave', '3.1.10', '4.4.0-beta.0'],
   ['devnet_rpcs', 'version_jito', '3.1.10-jito', '4.4.0-beta.0-jito'],
+  [
+    'devnet_rpcs',
+    'geyser_version',
+    'v10.0.1+solana.3.0.6',
+    'v17.0.0-rc5+solana.4.4.0.beta.0',
+  ],
 ]
 
 type Recorded = {
@@ -129,6 +149,7 @@ Deno.test('the floors are 4.3.0 on mainnet and 4.4.0-beta.0 on testnet and devne
 
 Deno.test('a version is compared by its release and pre-release; the jito and allnodes tags do not change the release', () => {
   const belowMainnet = [
+    '3.1.1-rc',
     '3.1.10',
     '3.1.10-jito',
     '3.1.14',
@@ -217,6 +238,74 @@ Deno.test('a version this cannot read is never reported as below the floor', () 
     testnet_rpcs: { version_agave: undefined },
   }
   assertEquals(findBelowFloorPins(odd), [])
+  // A geyser_version that does not say which solana it is built for: a richat
+  // tag, a tag built for a branch, text, nothing.
+  for (
+    const tag of [
+      'richat-v8.2.2',
+      'plugin-agave-v9.0.0',
+      'v13.1.0-triton-ext+solana.alpenglow.rc.1',
+      'v10.1.2',
+      'main',
+      '',
+    ]
+  ) {
+    for (const section of ['mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs']) {
+      assertEquals(
+        findBelowFloorPins({ [section]: { geyser_version: tag } }),
+        [],
+        `${section} ${tag}`,
+      )
+    }
+  }
+})
+
+Deno.test('a Yellowstone geyser_version is compared by the solana release it is built for, and 4.4.0.beta.0 reads as 4.4.0-beta.0', () => {
+  const readings: Array<[string, string | null]> = [
+    ['v16.1.1+solana.4.3.0', '4.3.0'],
+    ['v17.0.0-rc5+solana.4.4.0.beta.0', '4.4.0-beta.0'],
+    ['v16.0.0-rc9+solana.4.3.0.rc.1', '4.3.0-rc.1'],
+    ['v10.1.1+solana.3.1.1-rc', '3.1.1-rc'],
+    ['v10.1.2-rc3+solana.3.1.10', '3.1.10'],
+    ['v13.0.0-triton-ext+solana.4.0.0-rc.0+rust-1.93', '4.0.0-rc.0'],
+    ['richat-v8.2.2', null],
+    ['', null],
+  ]
+  for (const [tag, built] of readings) {
+    assertEquals(yellowstoneBuiltFor(tag), built, tag)
+  }
+  const belowFloor = (section: string, tag: string) =>
+    findBelowFloorPins({ [section]: { geyser_version: tag } }).length === 1
+  for (
+    const tag of [
+      'v10.1.2-rc3+solana.3.1.10',
+      'v10.1.1+solana.3.1.1-rc',
+      'v15.2.1+solana.4.2.2',
+      'v16.0.0-rc9+solana.4.3.0.rc.1',
+    ]
+  ) {
+    assert(belowFloor('mainnet_rpcs', tag), `mainnet ${tag}`)
+  }
+  for (
+    const tag of [
+      'v16.1.1+solana.4.3.0',
+      'v16.0.0+solana.4.3.0',
+      'v17.0.0-rc5+solana.4.4.0.beta.0',
+      'v13.0.0-triton-ext+solana.4.3.0+rust-1.93',
+    ]
+  ) {
+    assertEquals(belowFloor('mainnet_rpcs', tag), false, `mainnet ${tag}`)
+  }
+  // The floor of testnet and devnet is 4.4.0-beta.0.
+  for (const section of ['testnet_rpcs', 'devnet_rpcs']) {
+    assert(belowFloor(section, 'v16.1.1+solana.4.3.0'), section)
+    assert(belowFloor(section, 'v17.0.0-rc2+solana.4.4.0.alpha.5'), section)
+    assertEquals(
+      belowFloor(section, 'v17.0.0-rc5+solana.4.4.0.beta.0'),
+      false,
+      section,
+    )
+  }
 })
 
 Deno.test('the defaults are not below the floor of their network', () => {
@@ -248,6 +337,10 @@ Deno.test('a command that installs a client is refused on a pin below the floor,
   assertStringIncludes(
     message,
     'mainnet_rpcs.version_jito: 3.1.10-jito -> 4.3.2-jito',
+  )
+  assertStringIncludes(
+    message,
+    'mainnet_rpcs.geyser_version: v10.1.2-rc3+solana.3.1.10 -> v16.1.1+solana.4.3.0',
   )
   assertStringIncludes(message, 'Nothing was changed')
   // Only the keys of its own section.
@@ -316,6 +409,97 @@ Deno.test('nothing is refused without a versions.yml, for pins at or above the f
   assertEquals([none.read, none.errors, none.exitCodes], [0, [], []])
 })
 
+Deno.test('a version named on the command line is checked against the floor, and the pins are not read', async () => {
+  const stale = recorder(OLD_DEFAULTS)
+  // At or above the floor: not refused, however stale the pins are.
+  for (
+    const [network, role, version] of [
+      ['mainnet', 'rpc', '4.3.2'],
+      ['mainnet', 'validator', 'v4.3.0-jito.0'],
+      ['testnet', 'validator', '4.4.0-beta.1-allnodes'],
+      ['devnet', 'rpc', '4.4.0-beta.0'],
+    ] as const
+  ) {
+    assertEquals(
+      await refuseVersionBelowFloor(
+        network,
+        role,
+        version,
+        'install:solana -v',
+        stale.deps,
+      ),
+      false,
+      `${network} ${role} ${version}`,
+    )
+  }
+  assertEquals([stale.read, stale.errors, stale.exitCodes], [0, [], []])
+
+  const below = recorder(OLD_DEFAULTS)
+  assertEquals(
+    await refuseVersionBelowFloor(
+      'mainnet',
+      'rpc',
+      '3.1.10',
+      'install:solana -v',
+      below.deps,
+    ),
+    true,
+  )
+  assertEquals(below.exitCodes, [1])
+  assertEquals(below.read, 0)
+  const message = below.errors.join('\n')
+  assertStringIncludes(message, 'install:solana -v 3.1.10')
+  assertStringIncludes(message, 'epoch 1064')
+  assertStringIncludes(message, '4.3.0')
+  assertStringIncludes(
+    message,
+    'such as 4.3.2 for agave or 4.3.2-jito for jito',
+  )
+  assertStringIncludes(message, 'Nothing was changed')
+})
+
+Deno.test('an explicit version is held to the floor of its own network and role, and one this cannot read is not refused', async () => {
+  const rec = recorder(null)
+  const refused = async (network: string | undefined, version: string) =>
+    await refuseVersionBelowFloor(
+      network,
+      'rpc',
+      version,
+      'patch:sha256 --solana-version',
+      rec.deps,
+    )
+  // Mainnet 4.3.2 is below the 4.4.0-beta.0 floor of testnet and devnet.
+  assertEquals(await refused('mainnet', '4.3.2'), false)
+  assertEquals(await refused('testnet', '4.3.2'), true)
+  assertEquals(await refused('devnet', 'v4.3.2-jito'), true)
+  assertEquals(await refused('testnet', '4.4.0-beta.0-jito'), false)
+  assertStringIncludes(
+    rec.errors.join('\n'),
+    'testnet already runs Alpenglow and needs 4.4.0-beta.0 or later',
+  )
+  assertStringIncludes(
+    rec.errors.join('\n'),
+    'such as 4.4.0-beta.0 for agave or 4.4.0-beta.0-jito for jito',
+  )
+  assertEquals(rec.exitCodes, [1, 1])
+  // A version it cannot read, a network the role does not have.
+  for (const version of ['latest', 'main', '4.3', 'a1b2c3d']) {
+    assertEquals(await refused('mainnet', version), false, version)
+  }
+  assertEquals(
+    await refuseVersionBelowFloor(
+      'devnet',
+      'validator',
+      '3.1.10',
+      'x',
+      rec.deps,
+    ),
+    false,
+  )
+  assertEquals(await refused(undefined, '3.1.10'), false)
+  assertEquals(rec.exitCodes, [1, 1])
+})
+
 Deno.test('slv upgrade prints one line for every pin below the floor and fails nothing', async () => {
   const rec = recorder(OLD_DEFAULTS)
   const pins = await noticeBelowFloorPins(rec.deps)
@@ -333,6 +517,7 @@ Deno.test('slv upgrade prints one line for every pin below the floor and fails n
   }
   assertStringIncludes(rec.info[3], 'below 4.3.0')
   assertStringIncludes(rec.info[0], 'below 4.4.0-beta.0')
+  assertStringIncludes(rec.info[5], 'built for solana 3.1.10')
   assertEquals([rec.errors, rec.exitCodes], [[], []])
 
   const quiet = recorder(defaultVersionsObject())
@@ -351,7 +536,7 @@ const indexOfCall = (source: string, call: string, label: string): number => {
   return index
 }
 
-Deno.test('every deploy, init and switch entry calls the version floor before it does anything else', async () => {
+Deno.test('every deploy, init and update:geyser entry calls the version floor before it does anything else', async () => {
   const entries: Array<[string, string, string[]]> = [
     [
       'src/validator/deploy/deployValidatorMainnet.ts',
@@ -399,21 +584,31 @@ Deno.test('every deploy, init and switch entry calls the version floor before it
       )
     }
   }
+  const rpcIndex = await read('src/rpc/index.ts')
+  const geyser = rpcIndex.slice(
+    rpcIndex.indexOf("rpcCmd.command('update:geyser')"),
+  )
+  const geyserAt = indexOfCall(
+    geyser,
+    "refuseBelowFloorPins(options.network, 'rpc')",
+    'update:geyser',
+  )
+  assert(
+    geyserAt < indexOfCall(geyser, 'runAnsilbe(', 'update:geyser'),
+    'update:geyser: the floor comes after ansible',
+  )
+})
+
+Deno.test('slv v switch does not read the version floor: it installs nothing, and a failover is not held up by a stale pin', async () => {
   const index = await read('src/validator/index.ts')
-  const switchBlock = index.slice(
-    index.indexOf("validatorCmd.command('switch')"),
-  )
-  const at = indexOfCall(
-    switchBlock,
-    "refuseBelowFloorPins(network, 'validator')",
-    'switch',
-  )
-  for (const call of ['From Validator Name', 'switchValidator(']) {
-    assert(
-      at < indexOfCall(switchBlock, call, 'switch'),
-      `switch: after ${call}`,
-    )
-  }
+  const start = index.indexOf("validatorCmd.command('switch')")
+  assert(start > 0, 'no switch command')
+  const end = index.indexOf('registerDoubleZeroCommands(', start)
+  const switchBlock = index.slice(start, end)
+  assertStringIncludes(switchBlock, 'switchValidator(')
+  assertEquals(switchBlock.includes('Floor'), false)
+  const switchModule = await read('src/validator/switch/switchValidator.ts')
+  assertEquals(switchModule.includes('versionFloor'), false)
 })
 
 Deno.test('slv upgrade:settings prints the notice after it migrates versions.yml and copies the templates', async () => {
