@@ -332,6 +332,93 @@ case_off_bad_identity() {
   done
 }
 
+# the playbooks that build a path on the controller from identity_account refuse a value that is not a
+# base58 public key before they build it: each family below, with every bad value
+bad_identity_refused() { # playbook description-of-the-run: the play on dst stopped on the check and nothing ran on the host
+  refused dst "$1" "(32 to 44 characters of the base58 alphabet)" "$2"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host ($2)"
+}
+
+case_key_bad_identity() {
+  local n=0 bad mode url
+  for mode in alpenglow towerbft; do
+    for bad in "${BAD_IDENTITIES[@]}"; do
+      n=$((n + 1))
+      begin "key_bad_identity_$n" "$1"
+      inventory agave agave "$bad"
+      box dst dst
+      printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+      if [[ $mode == alpenglow ]]; then url=$(alp); else url=$(tower); fi
+      play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$url" -e "slv_target_rpc_url=$(local_rpc 2000)"
+      bad_identity_refused set_identity_key "set_identity_key refuses the identity_account $bad on $mode"
+    done
+  done
+}
+
+case_active_bad_identity() {
+  local n=0 bad
+  for bad in "${BAD_IDENTITIES[@]}"; do
+    n=$((n + 1))
+    begin "active_bad_identity_$n" "$1"
+    inventory agave agave "$bad"
+    box dst dst
+    play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
+    bad_identity_refused set_identity_to_active "set_identity_to_active refuses the identity_account $bad"
+  done
+}
+
+case_off_fdctl_bad_identity() {
+  local n=0 bad
+  for bad in "${BAD_IDENTITIES[@]}"; do
+    n=$((n + 1))
+    begin "off_fdctl_bad_identity_$n" "$1"
+    inventory firedancer-jito firedancer-jito "$STAKED" 10.9.9.9 "$bad"
+    box src src
+    printf 'tower-of-the-source\n' >"$(tower_file src)"
+    play src switch_off_firedancer_identity "-e off_host=src" -e "slv_alpenglow_rpc_url=$(tower)"
+    refused src switch_off_firedancer_identity "(32 to 44 characters of the base58 alphabet)" "switch_off_firedancer_identity refuses the identity_account $bad"
+    [[ $(count_calls src .) -eq 0 && ! -e $S/home/.slv/tower ]]
+    check $? "nothing was waited for, demoted or fetched ($bad)"
+  done
+}
+
+case_on_fdctl_bad_identity() {
+  local n=0 bad
+  for bad in "${BAD_IDENTITIES[@]}"; do
+    n=$((n + 1))
+    begin "on_fdctl_bad_identity_$n" "$1"
+    inventory firedancer-jito firedancer-jito "$bad"
+    box dst dst
+    play dst switch_on_firedancer_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
+    bad_identity_refused switch_on_firedancer_identity "switch_on_firedancer_identity refuses the identity_account $bad"
+  done
+}
+
+case_copy_keys_bad_identity() {
+  local n=0 bad
+  for bad in "${BAD_IDENTITIES[@]}"; do
+    n=$((n + 1))
+    begin "copy_keys_bad_identity_$n" "$1"
+    inventory agave agave "$bad"
+    box dst dst
+    play dst copy_keys "-l dst"
+    refused dst copy_keys "(32 to 44 characters of the base58 alphabet)" "copy_keys refuses the identity_account $bad"
+    [[ ! -e $S/dst/solv/$NET-validator-keypair.json ]]
+    check $? "no key file was copied ($bad)"
+  done
+}
+
+case_copy_keys_ok() {
+  begin copy_keys_ok "$1"
+  inventory agave agave
+  box dst dst
+  play dst copy_keys "-l dst"
+  ok dst copy_keys "copy_keys copies the key of a base58 identity_account"
+  [[ $(cat "$S/dst/solv/$NET-validator-keypair.json" 2>/dev/null) == "[1,2,3]" && $(stat -c %a "$S/dst/solv/$NET-validator-keypair.json" 2>/dev/null) == 600 ]]
+  check $? "the key file is on the host with the mode 0600"
+}
+
 case_off_towerbft() {
   begin off_towerbft "$1"
   inventory agave agave
@@ -969,6 +1056,7 @@ cases=(
   off_happy off_no_file off_silent_votor off_churning off_mode_changes off_window_opens off_fdctl off_towerbft off_bad_identity
   on_happy on_cluster_stuck on_cluster_unread on_no_copy on_other_identity on_voter_present on_voter_error on_not_voting
   on_fdctl on_towerbft on_bad_identity
+  key_bad_identity active_bad_identity off_fdctl_bad_identity on_fdctl_bad_identity copy_keys_bad_identity copy_keys_ok
   key_file_present key_cluster_stuck key_file_absent key_tower_only key_first_activation key_dead_ok key_dead_ok_string
   key_dead_target_address key_dead_delinquent key_dead_gossip key_dead_gossip_both key_dead_slot_equal
   key_dead_slot_behind key_dead_slot_short key_dead_vote_missing key_dead_nodes_error key_dead_votes_error key_dead_slot_error

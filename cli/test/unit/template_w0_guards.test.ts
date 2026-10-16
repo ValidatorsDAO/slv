@@ -828,11 +828,12 @@ const listYamlFiles = (directory: string): string[] =>
       : []
   )
 
-Deno.test('base58 identity: an identity_account that is not a base58 public key stops the vote history paths before they name a file on the controller', () => {
-  const base58 = '[1-9A-HJ-NP-Za-km-z]{32,44}'
-  const isBase58Guard = (task: Entry) =>
-    hasModule(task, 'assert') && normalized(task).includes(base58) &&
-    normalized(task).includes('is match(')
+const base58Alphabet = '[1-9A-HJ-NP-Za-km-z]{32,44}'
+const isBase58Guard = (task: Entry) =>
+  hasModule(task, 'assert') && normalized(task).includes(base58Alphabet) &&
+  normalized(task).includes('is match(')
+
+Deno.test('base58 identity: an identity_account that is not a base58 public key stops the switch playbooks and the vote history take before they name a file on the controller', () => {
   for (const network of validatorNetworks) {
     // switch_off: before the file is looked for, the cluster is asked again and the source is demoted
     {
@@ -920,6 +921,62 @@ Deno.test('base58 identity: an identity_account that is not a base58 public key 
       normalized(take[1]).includes('slv_vh_copy'),
     'vote_history_take.yml: the copy path is built right after the check',
   )
+})
+
+Deno.test('base58 identity: every other playbook that builds a controller path from identity_account refuses a value that is not a base58 public key first, in every mode', () => {
+  const files = [
+    ...validatorNetworks.flatMap((network) =>
+      [
+        'set_identity_key',
+        'set_identity_to_active',
+        'switch_on_firedancer_identity',
+        'switch_off_firedancer_identity',
+        'copy_keys',
+      ].map((file) => `ansible/${network}/${file}.yml`)
+    ),
+    'ansible/mainnet-rpc/copy_keys.yml',
+    'ansible/cmn/copy_rpc_keys.yml',
+  ]
+  for (const path of files) {
+    const tasks = tasksOf(readPlaybook(path)[0])
+    const guard = firstIndex(tasks, isBase58Guard)
+    assert(guard >= 0, `${path}: no base58 guard`)
+    assertEquals(
+      conditionsOf(tasks[guard]),
+      [],
+      `${path}: the identity is checked in every mode`,
+    )
+    assert(
+      normalized(tasks[guard]).includes(
+        'hostvars[inventory_hostname].identity_account',
+      ),
+      `${path}: the guard reads the identity_account of the host`,
+    )
+    // before the guard nothing is changed and no controller path is built: the gate on the validator
+    // type, a fact, or another guard
+    for (const before of tasks.slice(0, guard)) {
+      assert(
+        hasModule(before, 'assert') || hasModule(before, 'fail') ||
+          hasModule(before, 'set_fact'),
+        `${path}: "${before.name}" runs before the identity is checked`,
+      )
+      assert(
+        !/identity_account|local_key_path|key_name/.test(normalized(before)),
+        `${path}: "${before.name}" uses the identity before it is checked`,
+      )
+    }
+    // and every task that builds a path from the identity comes after it
+    const firstUse = firstIndex(
+      tasks,
+      (task) =>
+        task !== tasks[guard] &&
+        /identity_account|local_key_path/.test(normalized(task)),
+    )
+    assert(
+      firstUse < 0 || guard < firstUse,
+      `${path}: a path is built from the identity before it is checked`,
+    )
+  }
 })
 
 Deno.test('alpenglow state: the probe asks the cluster from the controller and the freeze is written once', () => {
