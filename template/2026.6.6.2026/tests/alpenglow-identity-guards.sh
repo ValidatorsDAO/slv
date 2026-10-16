@@ -446,11 +446,21 @@ for net in mainnet testnet; do
     IFS='|' read -r label value outcome <<<"$entry"
     dir="$work/init/$net-$label"
     rc=$(cat "$dir/rc" 2>/dev/null || echo missing)
+    # mainnet init.yml stops the four Firedancer and Frankendancer types with their own words
+    stop_text='is not supported on rig'
+    if [[ $net == mainnet ]]; then
+      case $value in
+        firedancer | firedancer-agave | firedancer-jito | frankendancer)
+          outcome=stop
+          stop_text='A mainnet voting validator cannot be'
+          ;;
+      esac
+    fi
     if [[ $outcome == pass ]]; then
       [[ $rc == 0 ]] && grep -q "Validator type is $value" "$dir/log"
       check $? "$net init.yml: validator_type $label goes on (rc $rc)"
     else
-      [[ $rc != 0 && $rc != missing ]] && grep -q 'is not supported on rig' "$dir/log" && grep -q 'Nothing was changed' "$dir/log"
+      [[ $rc != 0 && $rc != missing ]] && grep -q "$stop_text" "$dir/log" && grep -q 'Nothing was changed' "$dir/log"
       check $? "$net init.yml: validator_type $label stops the run (rc $rc) $(tail -n 3 "$dir/log" | tr '\n' ' ')"
     fi
   done
