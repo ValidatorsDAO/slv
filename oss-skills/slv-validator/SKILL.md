@@ -73,8 +73,8 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `install_agave.yml` | Build Agave from source |
 | `install_jito.yml` | Build Jito from source |
 | `install_rust.yml` | Install Rust toolchain |
-| `setup_firedancer.yml` | Setup Firedancer binary and config. Refused on mainnet (Alpenglow): `slv v setup:firedancer -n mainnet` stops before the playbook runs |
-| `update_firedancer.yml` | Update Firedancer binary. Refused on mainnet (Alpenglow): `slv v update:firedancer -n mainnet` stops before the playbook runs |
+| `setup_firedancer.yml` | Setup Firedancer binary and config. Refuses every host on mainnet, before anything is changed (Alpenglow); `slv v setup:firedancer -n mainnet` stops before the playbook runs |
+| `update_firedancer.yml` | Update Firedancer binary. Refuses every host on mainnet, before anything is changed (Alpenglow); `slv v update:firedancer -n mainnet` stops before the playbook runs |
 | `update_startup_config.yml` | Update start-validator.sh from Jinja template |
 | `deploy-start-validator-sh.yml` | Deploy start script to remote |
 | `create-start-validator-sh.yml` | Generate start script from template |
@@ -84,8 +84,8 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `set_unstaked_key.yml` | Switch to unstaked identity |
 | `switch_on_identity.yml` | Enable identity (tower copy + key deploy) |
 | `switch_off_identity.yml` | Disable identity (tower backup) |
-| `switch_on_firedancer_identity.yml` | Enable Firedancer identity |
-| `switch_off_firedancer_identity.yml` | Disable Firedancer identity |
+| `switch_on_firedancer_identity.yml` | Enable Firedancer identity. Refused on mainnet in every state (Alpenglow): a Firedancer or Frankendancer host cannot take a mainnet identity |
+| `switch_off_firedancer_identity.yml` | Disable Firedancer identity. On mainnet only while the cluster runs TowerBFT, to move a node off Firedancer before the activation; it stops before it changes anything in the migration window, shortly before the activation, when the cluster cannot be read, and on Alpenglow |
 | `copy_keys.yml` | Copy validator keys to node |
 | `copy_restart_sh.yml` | Copy restarter script |
 | `create_overrides.yml` | Generate overrides.yml from template |
