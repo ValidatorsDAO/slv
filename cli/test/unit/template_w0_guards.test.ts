@@ -789,9 +789,11 @@ Deno.test('behavior 7: the allnodes tag keeps an upstream suffix and adds -allno
     .map((task) => moduleArgs(task, 'set_fact') as Entry | undefined)
     .map((facts) => facts?.allnodes_jito_version_resolved)
     .find((value) => value !== undefined)
-  const installVars = readPlaybook(
+  const installPlay = readPlaybook(
     'ansible/mainnet-validator/install_allnodes_jito.yml',
-  )[0].vars as Entry
+  ).find((play) => play.import_playbook === undefined)
+  assert(installPlay, 'the install play is not in install_allnodes_jito.yml')
+  const installVars = installPlay.vars as Entry
   const installTag = installVars.allnodes_jito_version
   for (
     const [source, template] of [['build', buildTag], ['install', installTag]]
@@ -803,7 +805,11 @@ Deno.test('behavior 7: the allnodes tag keeps an upstream suffix and adds -allno
 })
 
 Deno.test('behavior 8: patch_sha256 clones a fixed commit and never overwrites an earlier backup', () => {
-  const tasks = tasksOf(readPlaybook('ansible/cmn/patch_sha256.yml')[0])
+  const patchPlay = readPlaybook('ansible/cmn/patch_sha256.yml').find((play) =>
+    play.name === 'Patch Solana Validator with optimized SHA256 (no restart)'
+  )
+  assert(patchPlay, 'the patch play is not in patch_sha256.yml')
+  const tasks = tasksOf(patchPlay)
   const clone = tasks.find((task) =>
     hasModule(task, 'git') &&
     String((moduleArgs(task, 'git') as Entry).repo).includes(
