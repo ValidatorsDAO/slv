@@ -11,6 +11,7 @@ import {
   type FdctlGuardDeps,
   mainnetRpcFdctlWarning,
   mainnetValidatorTypeRefusal,
+  mainnetValidatorTypes,
   refuseFdctlMainnetCommand,
   refuseFdctlMainnetValidatorDeploy,
   refuseMainnetValidatorType,
@@ -18,6 +19,8 @@ import {
   warnFdctlMainnetRpcDeploy,
 } from '/lib/fdctlMainnetGuard.ts'
 import { updateMainnetInventory } from '/lib/updateMainnetInventory.ts'
+import { DEFAULT_MAINNET_VALIDATOR_TYPE } from '/lib/addMainnetInventory.ts'
+import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 
 // slv overhaul: Alpenglow. Alpenglow starts on mainnet with epoch 1064, and
 // Firedancer and Frankendancer are not supported during the migration.
@@ -107,6 +110,30 @@ Deno.test('a mainnet voting validator cannot be Firedancer or Frankendancer: the
   for (const type of [...ALLOWED_TYPES, '']) {
     assertEquals(mainnetValidatorTypeRefusal(type), null, type)
   }
+})
+
+Deno.test('slv v init on mainnet does not offer the Firedancer types at all', async () => {
+  assertEquals(mainnetValidatorTypes(SolanaNodeTypes), ALLOWED_TYPES)
+  assertEquals(
+    mainnetValidatorTypes([
+      'jito',
+      'frankendancer',
+      'firedancer',
+      'firedancer-agave',
+      'agave',
+    ]),
+    ['jito', 'agave'],
+  )
+  const init = await read('src/validator/init/initMainnetConfig.ts')
+  assertStringIncludes(init, 'options: mainnetValidatorTypes(SolanaNodeTypes)')
+  assertEquals(init.includes('...SolanaNodeTypes'), false)
+  // The default is one of the types on offer, and the refusal after the prompt stays.
+  assert(
+    mainnetValidatorTypes(SolanaNodeTypes).includes(
+      DEFAULT_MAINNET_VALIDATOR_TYPE,
+    ),
+  )
+  assertStringIncludes(init, 'refuseMainnetValidatorType(validatorType)')
 })
 
 Deno.test('slv v init stops on a refused type: an error, exit code 1, and no word for an allowed type', () => {

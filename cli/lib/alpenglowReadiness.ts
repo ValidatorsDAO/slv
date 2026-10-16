@@ -436,6 +436,8 @@ const pinOf = (
   if (typeof pinned === 'string' || typeof pinned === 'number') {
     return { value: String(pinned), fromFile: true }
   }
+  // A key with nothing in it is a pin that cannot be read, as the floor reads it.
+  if (pinned === null) return { value: '', fromFile: true }
   const fallback =
     (defaults as unknown as Record<string, Record<string, unknown>>)[
       section
@@ -500,7 +502,9 @@ const clientLine = (
   }
   const floor = ALPENGLOW_FLOORS[network]
   const where = pin.fromFile
-    ? `${section}.${key} is ${pin.value} in ~/.slv/versions.yml`
+    ? `${section}.${key} is ${
+      pin.value === '' ? '(empty)' : pin.value
+    } in ~/.slv/versions.yml`
     : `no ${section}.${key} in ~/.slv/versions.yml, so the default ${pin.value} applies`
   const suggested = pinOf({}, defaults, section, key)?.value ?? floor
   const upgrade = upgradeCommands(network, host)

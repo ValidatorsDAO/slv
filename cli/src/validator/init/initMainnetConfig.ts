@@ -18,7 +18,10 @@ import {
   addMainnetInventory,
   DEFAULT_MAINNET_VALIDATOR_TYPE,
 } from '/lib/addMainnetInventory.ts'
-import { refuseMainnetValidatorType } from '/lib/fdctlMainnetGuard.ts'
+import {
+  mainnetValidatorTypes,
+  refuseMainnetValidatorType,
+} from '/lib/fdctlMainnetGuard.ts'
 import { updateMainnetInventory } from '/lib/updateMainnetInventory.ts'
 import {
   findNearestJitoRegion,
@@ -40,7 +43,7 @@ const initMainnetConfig = async (
       name: 'validatorType',
       message: 'Select Validator Type',
       type: Select,
-      options: [...SolanaNodeTypes],
+      options: mainnetValidatorTypes(SolanaNodeTypes),
       default: DEFAULT_MAINNET_VALIDATOR_TYPE,
     },
   ])

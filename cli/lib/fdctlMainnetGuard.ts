@@ -22,6 +22,10 @@ const isFdctlValidatorType = (validatorType: unknown): boolean => {
   return type === 'frankendancer' || type.startsWith('firedancer')
 }
 
+/** The types of `types` that a mainnet voting validator can be of: the fdctl ones are left out. */
+const mainnetValidatorTypes = <T extends string>(types: readonly T[]): T[] =>
+  types.filter((type) => !isFdctlValidatorType(type))
+
 /** Why a mainnet voting validator cannot be of this type, or null when it can. */
 const mainnetValidatorTypeRefusal = (validatorType: string): string | null =>
   isFdctlValidatorType(validatorType)
@@ -260,6 +264,7 @@ export {
   isFdctlValidatorType,
   mainnetRpcFdctlWarning,
   mainnetValidatorTypeRefusal,
+  mainnetValidatorTypes,
   refuseFdctlMainnetCommand,
   refuseFdctlMainnetValidatorDeploy,
   refuseMainnetValidatorType,

@@ -406,6 +406,26 @@ Deno.test('a node that advertises no version, or none that reads as X.Y.Z, WARNs
   }
 })
 
+Deno.test('a pin set to nothing is a pin that cannot be read: FAIL on mainnet and WARN on testnet', async () => {
+  const mainnet = lineOf(
+    await run({ versions: { mainnet_validators: { version_jito: null } } }),
+    'client',
+  )
+  assertEquals(mainnet.level, 'FAIL')
+  assertStringIncludes(
+    mainnet.message,
+    'mainnet_validators.version_jito is (empty) in ~/.slv/versions.yml',
+  )
+  const testnet = lineOf(
+    await run({
+      network: 'testnet',
+      versions: { testnet_validators: { version_jito: null } },
+    }),
+    'client',
+  )
+  assertEquals(testnet.level, 'WARN')
+})
+
 // --- 3. the BLS public key ------------------------------------------------------
 
 Deno.test('a vote account with a BLS public key is OK, and one without FAILs with slv v register:bls', async () => {
