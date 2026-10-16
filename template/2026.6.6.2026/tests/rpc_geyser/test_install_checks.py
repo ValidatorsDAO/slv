@@ -444,6 +444,11 @@ PATCH_PLAY = "Patch Solana Validator with optimized SHA256 (no restart)"
 # the version of the source tag, with -e: none, empty, the default that the playbook used to have (below every floor), a
 # release at the floor of mainnet only, a release at every floor, and a value that is no version
 PATCH_VERSIONS = (None, "", "v3.1.10-jito", "v4.3.2-jito", "v4.4.0-beta.1-jito", "latest")
+# values that are not the form of a release tag (an optional v, then letters, digits, '.', '+' and '-'; no '/', no '..', no
+# whitespace) although the floor reads a version out of most of them, and values that are
+BAD_TAGS = ("4.3.2-jito/../x", "4.3.2;x", "v4.3.2-jito junk", "$(id)", "v4.3.2-jito\n", " v4.3.2-jito", "v4.3..2-jito",
+            "../v4.3.2-jito", "v4.3.2_jito", "v4.3.2-jito'x", "-v4.3.2", "v4.3.2-jito/")
+GOOD_TAGS = ("v4.3.2-jito", "4.3.2", "v4.4.0-beta.1-jito+build.5", "v4.3.0-allnodes.1")
 
 
 def make_patch_flow(root):
@@ -486,10 +491,11 @@ def patch_hosts(section):
 
 
 @functools.lru_cache(maxsize=None)
-def run_patch(section, version=None):
+def run_patch(section, version=None, as_json=False):
     """cmn/patch_sha256.yml cut as make_patch_flow says, for the hosts of patch_hosts, with versions.yml pins at the floor
-    (so that a pin that the playbook took in place of -e would show) and -e solana_version=<version> (none when None);
-    the result maps each host to a FlowResult, and the process is the second item."""
+    (so that a pin that the playbook took in place of -e would show) and -e solana_version=<version> (none when None; as a
+    JSON object when as_json, for a value with a space or a newline in it); the result maps each host to a FlowResult, and
+    the process is the second item."""
     with tempfile.TemporaryDirectory(prefix="slv-patch-") as tmp:
         root = Path(tmp)
         home = make_home(root, make_floor_versions(section, pins_of_set(section, "good")))
@@ -500,7 +506,7 @@ def run_patch(section, version=None):
         write_grouped_inventory(root / "inventory.json", hosts)
         args = ["-i", "inventory.json", playbook, "-e", "slv_log_dir=%s" % logs]
         if version is not None:
-            args += ["-e", "solana_version=%s" % version]
+            args += ["-e", json.dumps({"solana_version": version}) if as_json else "solana_version=%s" % version]
         process = run_ansible(args, root, home)
         return read_logs(logs, {name: None for name in hosts}, process), process
 
@@ -568,6 +574,29 @@ class PatchSha256HasNoDefaultVersionAndChecksTheFloor(unittest.TestCase):
                             # the host reached the first task of the patch
                             self.assertEqual(results[name].imports[:1], ["apt"], process.stdout[-1500:])
                             self.assertEqual("WARNING %s:" % name in process.stdout, want[0] == "warn")
+
+    def test_p04_a_value_that_is_not_the_form_of_a_release_tag_stops_every_host_before_anything_is_changed(self):
+        sections = ("mainnet_validators", "testnet_rpcs")
+        prefetch(run_patch, [(section, tag, True) for section in sections for tag in BAD_TAGS + GOOD_TAGS])
+        for section in sections:
+            for tag in BAD_TAGS:
+                results, process = run_patch(section, tag, True)
+                messages = stop_messages(process.stdout)
+                for name in patch_hosts(section):
+                    with self.subTest("%s %r %s" % (section, tag, name)):
+                        # the host got nowhere: not one task of the patch was written down
+                        self.assertEqual(results[name].imports, [], process.stdout[-1500:])
+                        self.assertIn("is not a release tag", messages[name])
+                        self.assertIn("Nothing was changed", messages[name])
+
+    def test_p05_a_release_tag_goes_on_to_the_floor_and_the_patch(self):
+        # a tag at the floor of mainnet or above it, in the forms that releases and builds are tagged with
+        for tag in GOOD_TAGS:
+            results, process = run_patch("mainnet_validators", tag, True)
+            for name in patch_hosts("mainnet_validators"):
+                with self.subTest("%r %s" % (tag, name)):
+                    self.assertNotIn(name, stop_messages(process.stdout))
+                    self.assertEqual(results[name].imports[:1], ["apt"], process.stdout[-1500:])
 
     def test_p03_a_host_that_is_in_no_section_or_in_two_stops_the_run_before_anything_is_changed(self):
         for name, groups in (("nowhere", []), ("two-sections", ["mainnet_validators", "mainnet_rpcs"])):

@@ -28,6 +28,14 @@
           - (solana_version | default('', true) | string | trim) != ''
         fail_msg: "cmn/patch_sha256.yml needs solana_version, the Solana source tag to build from, given with -e (for example -e solana_version=v4.3.2-jito). It has no default, and the solana_version of the inventory is not used. Nothing was changed on {{ inventory_hostname }}."
 
+    # the tag is the git ref of the clone and a part of the name of the backup: only the form of a release tag is taken (the floor check below also reads a tag that has text after the version)
+    - name: Stop unless solana_version is a release tag
+      ansible.builtin.assert:
+        that:
+          - (solana_version | string | regex_replace('^v?[0-9A-Za-z][0-9A-Za-z.+-]*', '')) == ''
+          - "'..' not in (solana_version | string)"
+        fail_msg: "solana_version '{{ solana_version }}' on {{ inventory_hostname }} is not a release tag: cmn/patch_sha256.yml takes an optional v, then letters, digits, '.', '+' and '-' only (for example v4.3.2-jito), with no '/', no '..' and no whitespace. Nothing was changed."
+
     - name: Stop unless the host is in exactly one section of versions.yml
       ansible.builtin.assert:
         that:
