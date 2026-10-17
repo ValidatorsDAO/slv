@@ -2,8 +2,9 @@
 
 SLV release installation consumes only immutable GitHub Releases from
 `ValidatorsDAO/slv`. This document describes the consumer implemented in
-`sh/install`, `slv upgrade`, and `slv skills sync`; it does not authorize or
-describe a release publication.
+`sh/install`, `slv upgrade`, and `slv skills sync`, and the release acceptance
+requirements. It does not authorize publication or the legacy-bootstrap
+transition.
 
 ## Initial installation
 
@@ -133,21 +134,25 @@ source and verification procedure.
 
 ## Current activation state and evidence limits
 
-As observed on 2026-10-12, the repository's immutable-release setting is false.
-The intended publisher runs only in the protected `release` environment when
-`SLV_RELEASE_ACTIVATED` is exactly `true`; otherwise it produces an
-activation-pending failure. That gate, the release environment, and main/tag
-review protections still require administrator configuration. The flag alone
-does not prove that GitHub has made a release immutable.
+Publication requires immutable releases to be enabled, the protected `release`
+environment and main/tag review protections to be in force, and
+`SLV_RELEASE_ACTIVATED` to be exactly `true`. Recheck those requirements for the
+release being reviewed. Repository configuration and the activation flag do not
+prove that a release was published, made immutable, or accepted by a consumer.
 
-When configured, publication is intended to bind a strict CalVer advance to a
-main push SHA or a version-matched tag's peeled commit, create an annotated tag,
-attest every payload and release metadata subject, and check the resulting
-release API record for `immutable: true`. Draft recovery is limited to rerunning
+The normal first-release path is a reviewed version PR with a strict CalVer
+advance, followed by its merge to `main`. A main push that leaves `VERSION`
+unchanged is CI-only and does not publish. The publisher binds the release to
+that main push SHA or a version-matched tag's peeled commit, creates an annotated
+tag when absent, attests every payload and release metadata subject, and checks
+the resulting release API record for `immutable: true`. A manual
+`operation=release` dispatch must select the exact existing `refs/tags/v<version>`
+ref with a matching version and source commit; dispatching from `main` cannot
+start an initial release. Draft recovery is limited to rerunning
 the failed publisher with its retained original package artifact; those
 artifacts are retained for seven days. A dispatch from a tag may verify an
-immutable release or publish a previously absent tag, but it cannot rebuild or
-overwrite an existing draft. A whole-workflow rebuild can change a payload or
+immutable release or publish a release absent for that tag, but it cannot rebuild
+or overwrite an existing draft. A whole-workflow rebuild can change a payload or
 manifest and is therefore refused for an existing draft; expiry requires
 maintainer review and is never overwritten automatically.
 
@@ -205,22 +210,43 @@ is materialized. Source-vendor coverage is a separate source-distribution
 closure: the source-material receipt records the complete locked vendor
 population and blocks an absent required text or receipt. Historical grant-scope
 uncertainty is retained for review rather than represented as zero uncertainty
-or silently omitted from the population. These are planned controls, not live
-evidence: the intended workflow is resolve, test, source package, three native
+or silently omitted from the population. These implemented controls are not live
+acceptance evidence. The workflow is resolve, test, source package, three native
 target builds plus Linux arm cross-build/execution, package, attest, activation
-guard, then publish; no live release has been published or tested with this
-consumer. Its attestation job is intended to have only
+guard, then publish. First publication and public consumer acceptance remain
+pending until their evidence is recorded. The attestation job has only
 attestation/artifact-metadata/ID-token permissions, separate from the
 publisher's release-content authority.
 
-Before activating a first release, the live acceptance record must include the
-existing-installation migration case above for a standard `/usr/local/bin/slv`
-target, alongside the clean-install, upgrade, skill-sync, proof, and rollback
-results. A failed migration prompt is an expected safe outcome until the user
-runs the explicit reviewed command; it is not authorization to replace an
-arbitrary PATH binary.
+The first release and legacy-bootstrap transition have separate acceptance
+stages:
 
-Activation also requires a review of unresolved legal and license coverage. The
+1. **Before publication**, review the exact source, build and provenance inputs,
+   source/license evidence, repository protections, and fixture/CI rehearsals of
+   installation, migration, verification failures, and recovery. Rehearse the
+   legacy STOP response without changing the public bootstrap. Fixture and
+   unsigned PR results do not establish public consumer acceptance.
+2. **Publish the first immutable release** through the reviewed release workflow
+   and its protected-environment approval. Verify its published source identity,
+   payloads, provenance, and `immutable: true` record. The consumer requires this
+   published immutable release before public installation can be tested.
+3. **After publication, before the legacy transition**, record public
+   clean-install, upgrade, skill-sync, proof, existing-installation migration,
+   and rollback/recovery results in controlled test installations. Include the
+   explicit reviewed bootstrap migration for a standard `/usr/local/bin/slv`
+   target and preservation of existing keys, configuration, inventories, and
+   backups. A real upgrade record identifies the predecessor and newer target
+   versions and proves replacement; a same-version `slv upgrade` no-op is not
+   that proof. If no suitable predecessor has been exercised, keep upgrade
+   acceptance pending rather than treating a clean install or fixture as a pass.
+4. **Only after that acceptance is complete**, separately review and authorize
+   the legacy-bootstrap preflight/apply operation. Review the exact source and
+   expected object/payload hashes before applying, then verify the public STOP
+   response. Its nonzero migration prompt must name the reviewed commit-pinned
+   installer and explicit target without replacing a binary or downloading an
+   unverified bridge. It does not authorize replacing an arbitrary PATH binary.
+
+Publication also requires a review of unresolved legal and license coverage. The
 SBOM records Deno runtime and lock identities. An SPDX `NOASSERTION` value does
 not itself supply license text or prove a coverage gap; canonical notice
 material and source-distribution closure are the corresponding release evidence.
@@ -228,5 +254,5 @@ ELSOUL LABO B.V. is the confirmed responsible legal entity for SLV distribution
 and security, and SLV code, binaries, updates, and security fixes are free
 without Enterprise; optional Enterprise services operate around the same public
 OSS. This work does not retroactively secure legacy installations or settle the
-applicable statutory role, support duration, or activation of release-service
-controls.
+applicable statutory role or support duration, or prove operation of
+release-service controls.

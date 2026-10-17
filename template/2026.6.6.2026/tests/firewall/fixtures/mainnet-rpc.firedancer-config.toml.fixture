@@ -28,7 +28,7 @@ dynamic_port_range = "8000-8030"
     pubsub_enable_vote_subscription  = true
     bigtable_ledger_storage = false
 
-    
+
 [reporting]
     solana_metrics_config = "host=https://metrics.solana.com:8086,db=mainnet-beta,u=mainnet-beta_write,p=password"
 
@@ -88,4 +88,3 @@ dynamic_port_range = "8000-8030"
 [tiles.metric]
     prometheus_listen_address = "0.0.0.0"
     prometheus_listen_port = 7999
-

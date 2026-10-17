@@ -1,0 +1,108 @@
+---
+- name: Set Authoried Key to Identity
+  hosts: all
+  become: true
+  become_user: solv
+  vars:
+    key_name: "{{ hostvars[inventory_hostname].identity_account }}.json"
+    local_key_path: "~/.slv/keys/{{ key_name }}"
+  tasks:
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_alpenglow_freeze: true
+
+    - name: Refuse a Firedancer or Frankendancer host as a mainnet identity target
+      ansible.builtin.assert:
+        that:
+          - validator_type not in ['firedancer-agave', 'firedancer-jito', 'frankendancer']
+        fail_msg: "Firedancer and Frankendancer cannot take a mainnet identity: the Alpenglow migration (mainnet epoch 1064) does not support them. Move the identity to an agave, jito or allnodes-jito host. Nothing was changed."
+        quiet: true
+
+    - name: Check the tower file of the identity on the target
+      ansible.builtin.stat:
+        path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"
+      register: tower_file
+
+    - name: Check the vote history file of the identity on the target
+      ansible.builtin.stat:
+        path: "/mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin"
+      register: vote_history_file
+
+    - name: Refuse to set the identity without its tower or vote history file
+      ansible.builtin.fail:
+        msg: >-
+          Neither /mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin
+          nor /mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+          exists on {{ inventory_hostname }}, so the identity was not set. Copy the file from the
+          validator that last ran this identity. Only when this identity has never voted, pass
+          -e '{"first_activation": true}'.
+      when:
+        - not vote_history_file.stat.exists
+        - not tower_file.stat.exists
+        - first_activation | default(false) is not sameas true
+
+    - name: Require the tower when only the tower file exists
+      ansible.builtin.set_fact:
+        require_tower_flag: "{{ '--require-tower' if (tower_file.stat.exists and not vote_history_file.stat.exists) else '' }}"
+
+    - name: Read local validator key file securely (base64)
+      become: false
+      delegate_to: localhost
+      slurp:
+        src: "{{ local_key_path }}"
+      register: key_file
+
+    - name: Stop if key file not found
+      fail:
+        msg: "Key file not found: {{ local_key_path }}"
+      when: key_file is not defined
+
+    - name: Set Identity to Validator Key via stdin (agave family)
+      shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity {{ require_tower_flag }}
+      args:
+        stdin: "{{ key_file.content | b64decode }}"
+        executable: /bin/bash
+      register: set_identity_agave_result
+      timeout: 20
+      when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Set Identity to Active Validator Key (Frankendancer family)
+      shell: |
+        . ~/.profile
+        sudo fdctl set-identity --config /home/solv/firedancer-config.toml {{ require_tower_flag }} /home/solv/mainnet-validator-keypair.json
+      args:
+        executable: /bin/bash
+      register: set_identity_frankendancer_result
+      when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
+    - name: Add Authorized Voter via stdin (agave family)
+      shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add
+      args:
+        stdin: "{{ key_file.content | b64decode }}"
+        executable: /bin/bash
+      failed_when: false
+      when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Add Authorized Voter (Frankendancer family)
+      shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/mainnet-validator-keypair.json
+      args:
+        executable: /bin/bash
+      failed_when: false
+      when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
+    - name: Fail when no identity branch ran
+      ansible.builtin.fail:
+        msg: "No set-identity branch ran for validator_type '{{ validator_type | default('undefined') }}' on {{ inventory_hostname }}; the identity was not changed."
+      when:
+        - not ansible_check_mode
+        - set_identity_agave_result is skipped
+        - set_identity_frankendancer_result is skipped

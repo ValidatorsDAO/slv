@@ -1,0 +1,42 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/jinja/mainnet-validator/start-validator.sh.j2
+# source-sha256: abcea3a5575692e516f5acb148b7e40bc823564d5a9239a05308c3a49c586f4b
+# source-state: unmodified (identical to HEAD d9dea6c89024e705d4012c918ce7755bd76e99a8)
+# vars: {"dynamic_port_range": "8900-8930", "jito_version": "4.3.0-jito.0", "port_rpc": 7211, "shred_receiver_address": "192.0.2.50:1002", "validator_type": "jito", "vote_account": "YOUR_VOTE_ACCOUNT"}
+# render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
+# slv-fixture: body
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--vote-account YOUR_VOTE_ACCOUNT \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--snapshots /mnt/snapshot \
+--entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint3.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint4.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint5.mainnet-beta.solana.com:8001 \
+--known-validator Certusm1sa411sMpV9FPqU5dXAYhmmhygvxJ23S6hJ24 \
+--known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+--known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ \
+--known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
+--only-known-rpc \
+--expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
+--expected-shred-version 50093 \
+--dynamic-port-range 8900-8930 \
+--rpc-port 7211 \
+--wal-recovery-mode skip_any_corrupted_record \
+--use-snapshot-archives-at-startup when-newest \
+--limit-ledger-size 200000000 \
+--no-port-check \
+--no-xdp \
+--staked-nodes-overrides overrides.yml \
+--rpc-bind-address 0.0.0.0 \
+--tip-payment-program-pubkey T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt \
+--tip-distribution-program-pubkey 4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7 \
+--merkle-root-upload-authority 8F4jGUmxF36vQ6yabnsxX6AQVXdKBhs8kGSUuRKSg8Xt \
+--commission-bps 0 \
+--block-engine-url https://frankfurt.mainnet.block-engine.jito.wtf \
+--shred-receiver-address 192.0.2.50:1002 \
