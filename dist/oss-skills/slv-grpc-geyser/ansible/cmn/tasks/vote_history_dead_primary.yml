@@ -28,7 +28,9 @@
 # (getSlot with commitment processed). Both are asked of the cluster from the controller, the slot
 # first, so that a vote cast between the two calls counts against the identity. The last vote is asked
 # of the RPC of this host as well, and the larger of the two counts: a public RPC behind a load balancer
-# can answer from a backend that is far behind, and then a voting identity looks quiet. The check cannot
+# can answer from a backend that is far behind, and then a voting identity looks quiet. A running validator
+# answers getVoteAccounts on its RPC port, so an answer of this host that cannot be read, or that does not
+# list the vote account, fails the check: the value of the cluster alone is not enough. The check cannot
 # tell which node votes: when this host already runs the identity it fails too, and its message says so.
 # Check 2, this host has caught up: the finalized slot of this host (getSlot with commitment finalized,
 # asked of its own RPC) is at least slv_dp_window slots past that last vote, so that a vote still on its
@@ -202,10 +204,17 @@
   ansible.builtin.set_fact:
     slv_dp_quiet_reason: >-
       {%- set now = slv_dp_now_reply.json | default(none) -%}
+      {%- set own = slv_dp_own_votes_reply.json | default(none) -%}
       {%- set last = slv_dp_last | int(-1) -%}
       {%- set window = [slv_dp_window | default(270, true) | int(270), 1] | max -%}
       {%- if last < 0 -%}
       {{ slv_lv_detail }}
+      {%- elif (slv_dp_own_last | int(-1)) < 0 -%}
+      {%- if slv_dp_own_votes_reply is skipped or (slv_dp_own_votes_reply.status | default(-1)) != 200 or own is not mapping or own.result is not defined or own.result is not mapping -%}
+      the RPC of this host did not give a readable answer to getVoteAccounts, and the last vote that the cluster shows is not enough on its own (a public RPC behind a load balancer can answer from a backend that is far behind). Check that the validator runs on {{ inventory_hostname }} and answers on its RPC port
+      {%- else -%}
+      the RPC of this host does not list the vote account {{ slv_dp_vote_account }}, although the cluster does, so what this host shows of its last vote cannot be set against the cluster: this host has not caught up with the vote account, or it follows another cluster
+      {%- endif -%}
       {%- elif now is not mapping or now.result is not defined or now.result is not integer or now.result is boolean -%}
       the cluster did not answer getSlot, so the age of the last vote cannot be told
       {%- elif now.result - last <= window -%}

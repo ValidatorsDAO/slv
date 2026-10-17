@@ -260,8 +260,9 @@ file. Votor needs it to keep from voting twice in a slot.
 1. Before the demotion: `from_host` must hold that file, or the switch stops with
    nothing changed. `from_host` and `to_host` must carry the same
    `identity_account` in the inventory, and the `vote_account` of `from_host` must
-   belong to it (the cluster names that identity as its `nodePubkey`), or the switch
-   stops there too.
+   belong to it (the cluster names that identity as its `nodePubkey`). The switch
+   stops there too, with nothing changed, when the cluster cannot be read or does not
+   list the vote account.
 2. `set-identity` to unstaked on `from_host`. The admin RPC returns before Votor
    has handled the change, so the switch waits (60 seconds at most) for Votor's
    log line `set-identity: from <identity> to ...` in the validator log and for
@@ -316,7 +317,7 @@ local key file at `~/.slv/keys/<identity_account>.json`, and
 
 ```bash
 slv v set:identity -n <network> -p <host>                  # needs the vote history file on <host> (Alpenglow) or the tower (TowerBFT)
-slv v set:identity -n <network> -p <host> --first-activation  # an identity that has never voted
+slv v set:identity -n <network> -p <host> --first-activation  # a vote account that has not voted since the Alpenglow genesis
 slv v set:identity -n <network> -p <host> --primary-down      # the old primary is stopped and cannot vote
 ```
 On Alpenglow `set_identity_key.yml` needs `/mnt/ledger/vote_history-<identity>.bin`
@@ -325,8 +326,8 @@ on the host (unless `--first-activation` or `--primary-down`) and never passes
 does that).
 
 The file does not show that nobody else votes with the identity: it can be older
-than the last vote of the node that held the identity. So on every Alpenglow run
-that is not a first activation, with the file or without it, the playbook asks
+than the last vote of the node that held the identity. So on every Alpenglow run,
+with the file or without it and a first activation included, the playbook asks
 the cluster before it sets anything, and stops with nothing changed when one of
 these fails or cannot be read (the vote account has to belong to the identity as well:
 its `nodePubkey` in `getVoteAccounts` is the `identity_account`, or the play stops):
@@ -334,7 +335,10 @@ its `nodePubkey` in `getVoteAccounts` is the `identity_account`, or the play sto
    (`getVoteAccounts`, `lastVote`) is more than 270 slots before the current slot
    of the cluster (`getSlot`). The last vote is also asked of the RPC of `<host>`, and
    the larger of the two counts, because a public RPC behind a load balancer can
-   answer from a backend that is far behind. The check cannot tell which node votes. If `<host>`
+   answer from a backend that is far behind. A running validator answers
+   `getVoteAccounts`, so the check fails when `<host>` gives no readable answer or does
+   not list the vote account, instead of going on with the value of the cluster alone.
+   The check cannot tell which node votes. If `<host>`
    already runs the identity it fails too, and the message says so: look at the
    identity `<host>` runs (its own RPC, `getIdentity`) before you run the command
    again, because then there is nothing to set.
@@ -352,11 +356,19 @@ about one minute (270 slots at about 0.22 seconds a slot) before you run the com
 
 A play that holds more than one host with the same `identity_account` stops on
 Alpenglow: each host would pass the checks before any host sets the identity. Run it
-for one host at a time. `--first-activation` skips the checks, and so the playbook
-asks the cluster for the vote account with `keepUnstakedDelinquents` and refuses
-it when the last vote is above 0 (the identity has voted), when the answer cannot
-be read, or when the vote account is not on the cluster. A vote account that exists
-and has never voted is listed with a last vote of 0, and the first activation goes on.
+for one host at a time.
+
+`--first-activation` is for a vote account that has not voted since the Alpenglow
+genesis: a new one, or one that voted only under TowerBFT, so that no vote history
+file exists to copy (a single host that restarted unstaked before the activation is
+the usual case). agave asks for the file only when the last vote of the vote account is
+after the slot of the genesis certificate (`should_require_vote_history_file`, which
+also needs the vote account to name this identity), and the playbook mirrors it: it
+reads that slot from `getAgGenesisCert` and the last vote from `getVoteAccounts`
+(with `keepUnstakedDelinquents`), and refuses the first activation when the last
+vote is after the genesis slot, when either cannot be read, or when the vote account is
+not on the cluster. A vote account that exists and has never voted is listed with a
+last vote of 0. The three checks above run for a first activation too.
 
 A staked node can stay in the gossip table for a long time after it stops, so an
 entry of the identity at the address of the old primary does not show that it runs;
