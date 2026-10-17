@@ -1,0 +1,2 @@
+# The first-generation Python runtime supplies the function entrypoint.
+# All application dependencies are from the Python standard library.

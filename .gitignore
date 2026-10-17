@@ -98,3 +98,12 @@ cli/dist/
 # Python bytecode caches
 __pycache__/
 *.pyc
+# Local runner infrastructure state and account-specific configuration.
+infra/github-runners/.terraform/
+infra/github-runners/terraform.tfstate*
+infra/github-runners/*.tfvars
+infra/github-runners/*.tfvars.json
+infra/github-runners/backend.local.tf
+infra/github-runners/*.tfplan
+infra/github-runners/budget-handler/__pycache__/
+scripts/ci/__pycache__/

@@ -1,0 +1,39 @@
+name: Reclaim expired GCE runners
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+permissions: {}
+
+concurrency:
+  group: slv-gce-runner-janitor
+  cancel-in-progress: false
+
+jobs:
+  reclaim:
+    if: github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    environment: slv-gce-runners
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reclaim expired runner leases
+        uses: ./.github/actions/gce-control
+        with:
+          onepassword-token: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          operation: janitor
+          project-id: ${{ vars.GCP_PROJECT_ID }}
+          zone: ${{ vars.GCP_RUNNER_ZONE }}
+          template: ${{ vars.GCP_RUNNER_TEMPLATE }}
+          service-account: ${{ vars.GCP_RUNNER_SERVICE_ACCOUNT }}
+          workload-identity-provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          app-id: ${{ vars.SLV_RUNNER_APP_ID }}
+          app-key-ref: ${{ vars.SLV_RUNNER_APP_KEY_REF }}
