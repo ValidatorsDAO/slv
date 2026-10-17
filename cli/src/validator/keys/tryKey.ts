@@ -18,7 +18,11 @@ import {
 import { defaultTty, type Tty } from '/lib/secret/tty.ts'
 import { type UnusedDeps, whyNotUnused } from '/lib/secret/unusedPubkey.ts'
 import { checkRefVault, PolicyError } from '/lib/secret/vaultPolicy.ts'
-import { SshRefusal, type SshSession } from '/lib/ssh/hardenedSsh.ts'
+import {
+  classifySetIdentity,
+  SshRefusal,
+  type SshSession,
+} from '/lib/ssh/hardenedSsh.ts'
 import {
   defaultInventoryReader,
   type InventoryReader,
@@ -316,10 +320,14 @@ const tryKey = async (
           stdin: key.canonical,
           flag: 'none',
         })
-        report.set = set.outcome
-        if (set.outcome !== 'ok') {
+        // It is set when the node said so: exit code 0 and the line with this public key.
+        const outcome = classifySetIdentity(set, pubkey)
+        report.set = outcome === 'set' ? 'ok' : outcome
+        if (outcome !== 'set') {
           report.problem = withStderr(
-            `set-identity ${set.outcome}`,
+            set.outcome === 'ok'
+              ? 'set-identity did not report the new identity'
+              : `set-identity ${outcome}`,
             set.stderrLine,
           )
         }

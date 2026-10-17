@@ -2,6 +2,7 @@ import { join } from '@std/path'
 import { firstLine } from '/lib/secret/opCli.ts'
 import {
   remoteCommands,
+  setIdentityConfirmation,
   type SetIdentityFlag,
 } from '/lib/ssh/remoteCommands.ts'
 import type { SshTarget } from '/lib/ssh/sshTarget.ts'
@@ -277,6 +278,23 @@ type SshRunResult = {
   stderrLine: string
 }
 
+/**
+ * How a set-identity ended: `set` when the command exited with 0 and printed
+ * exactly `New validator identity: <expected>` (a line more, a line less, or
+ * another identity is not that), `timeout` when it gave no answer in time, and
+ * `failed` otherwise.
+ */
+const classifySetIdentity = (
+  result: SshRunResult,
+  expected: string,
+): 'set' | 'timeout' | 'failed' => {
+  if (result.outcome === 'timeout') return 'timeout'
+  return result.code === 0 &&
+      result.stdout.replace(/\n+$/, '') === setIdentityConfirmation(expected)
+    ? 'set'
+    : 'failed'
+}
+
 type SshSession = {
   target: SshTarget
   /**
@@ -422,6 +440,7 @@ const openSshSession = async (
 
 export {
   buildSshConfig,
+  classifySetIdentity,
   defaultSshSpawn,
   openSshSession,
   parseEffectiveConfig,

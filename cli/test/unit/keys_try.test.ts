@@ -54,7 +54,16 @@ type Node = {
   unstakedFile?: string | null
   aliveFails?: boolean
   /** What set-identity with the key comes to: it is applied unless it fails. */
-  set?: 'ok' | 'failed' | 'failed-applied' | 'timeout-applied' | 'throws'
+  set?:
+    | 'ok'
+    | 'failed'
+    | 'failed-applied'
+    | 'timeout-applied'
+    | 'throws'
+    /** Exit code 0 and the identity applied, but a line before the one that says so. */
+    | 'extra-line'
+    /** Exit code 0 and the identity applied, but the line names another identity. */
+    | 'other-identity'
   /** The first contact-info after the key was set fails. */
   contactInfoFailsAfterSet?: boolean
   /** The node runs this identity from the second reading on. */
@@ -129,6 +138,16 @@ const fakeNode = (node: Node, events: string[]) => {
             case 'ok':
               identity = sent
               return Promise.resolve(ok(`New validator identity: ${sent}\n`))
+            case 'extra-line':
+              identity = sent
+              return Promise.resolve(
+                ok(`Last login: today\nNew validator identity: ${sent}\n`),
+              )
+            case 'other-identity':
+              identity = sent
+              return Promise.resolve(
+                ok(`New validator identity: ${STAKED}\n`),
+              )
             case 'failed':
               return Promise.resolve(failed('set-identity failed'))
             case 'failed-applied':
@@ -505,6 +524,16 @@ Deno.test('whatever set-identity comes to, and whatever is seen afterwards, the 
     ['set-identity times out after it changed the identity', {
       set: 'timeout-applied',
     }, 'set-identity timeout'],
+    [
+      'it exits with 0 and prints a line more than the one that says the identity is set',
+      { set: 'extra-line' },
+      'set-identity did not report the new identity',
+    ],
+    [
+      'it exits with 0 and prints the line for another identity',
+      { set: 'other-identity' },
+      'set-identity did not report the new identity',
+    ],
     [
       'ssh cannot even be started for it',
       { set: 'throws' },

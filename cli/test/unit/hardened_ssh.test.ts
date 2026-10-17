@@ -7,6 +7,7 @@ import {
 import { findExecutable } from '/lib/secret/opCli.ts'
 import {
   buildSshConfig,
+  classifySetIdentity,
   defaultSshSpawn,
   openSshSession,
   parseEffectiveConfig,
@@ -507,5 +508,35 @@ Deno.test('a session opens for a host whose name or IPv6 address has capitals in
         assertEquals(real.spawned.length, 0)
       },
     )
+  }
+})
+
+Deno.test('set-identity is set only when it exited with 0 and printed exactly `New validator identity: <the public key>`; any other output, another key, another code or no answer in time is failed or timeout', () => {
+  const PUBKEY = '586Z7H2vpX9qNhN2T4e9Utugie3ogjbxzGaMtM3E6HR5'
+  const OTHER = 'FVen3X669xLzsi6N2V91DoiyzHzg1uAgqiT8jZ9nS96Z'
+  const result = (
+    outcome: 'ok' | 'failed' | 'timeout',
+    code: number | null,
+    stdout: string,
+  ) => ({ outcome, code, stdout, stderrLine: '' })
+  const line = `New validator identity: ${PUBKEY}`
+  const cases: [string, ReturnType<typeof result>, string][] = [
+    ['the line', result('ok', 0, line), 'set'],
+    ['the line and a line break', result('ok', 0, `${line}\n`), 'set'],
+    ['a line before it', result('ok', 0, `Last login\n${line}\n`), 'failed'],
+    ['a line after it', result('ok', 0, `${line}\nmore\n`), 'failed'],
+    ['text before it on its line', result('ok', 0, `> ${line}`), 'failed'],
+    [
+      'the line of another key',
+      result('ok', 0, `New validator identity: ${OTHER}`),
+      'failed',
+    ],
+    ['no output', result('ok', 0, ''), 'failed'],
+    ['the line with a code of failure', result('failed', 1, line), 'failed'],
+    ['the line with no code', result('failed', null, line), 'failed'],
+    ['no answer in time', result('timeout', null, ''), 'timeout'],
+  ]
+  for (const [name, input, expected] of cases) {
+    assertEquals(classifySetIdentity(input, PUBKEY), expected, name)
   }
 })
