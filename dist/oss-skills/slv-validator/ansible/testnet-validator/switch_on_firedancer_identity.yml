@@ -1,9 +1,10 @@
 ---
-# This playbook took the staked key from a file on the node (/home/solv/testnet-validator-keypair.json) and gave it to
-# fdctl. Deploy puts no staked key on a node any more: the key stays on the controller (~/.slv/keys/<identity>.json)
-# and reaches the node on stdin during slv v set:identity and slv v switch. So there is nothing to switch the identity
-# on from on the node, and this play only refuses: its first task fails and nothing else runs.
-- name: Switch On Firedancer Identity (refused, the node has no staked key)
+# This playbook is retired. It took the staked key from a file on the node (/home/solv/testnet-validator-keypair.json)
+# and gave it to fdctl. Deploy never copies that key to a node (a node that an earlier slv deployed may still hold it):
+# the staked key stays on the controller (~/.slv/keys/<identity>.json) and reaches an agave, jito or allnodes-jito node
+# on stdin during slv v set:identity and slv v switch, which refuse a Firedancer host of testnet. So this play only
+# refuses: its first task fails and nothing else runs.
+- name: Switch On Firedancer Identity (retired)
   hosts: "{{ on_host | default('all') }}"
   gather_facts: no
   any_errors_fatal: true
@@ -11,7 +12,10 @@
     - name: Refuse to switch the identity on from a key on the node
       ansible.builtin.fail:
         msg: >-
-          SLV_KEYLESS_REFUSED: switch_on_firedancer_identity.yml sets the identity from a staked key on the node, and
-          slv does not put the staked key on a node: it stays on the controller and reaches the node on stdin. Nothing
-          was changed on {{ inventory_hostname }}. Use slv v set:identity -n testnet -p {{ inventory_hostname }}, or
-          slv v switch -n testnet to move the identity from one host to another.
+          SLV_KEYLESS_REFUSED: switch_on_firedancer_identity.yml is retired. It took the staked key from a file on the
+          node (/home/solv/testnet-validator-keypair.json), and deploy never copies the staked key to a node: it stays
+          on the controller and reaches an agave, jito or allnodes-jito node on stdin. Nothing was changed on
+          {{ inventory_hostname }}. Use
+          slv v set:identity -n testnet -p <host>, or
+          slv v switch -n testnet to move the identity from one agave, jito or allnodes-jito host to another; both
+          refuse a Firedancer host of testnet, which takes the staked key from a file on the node.

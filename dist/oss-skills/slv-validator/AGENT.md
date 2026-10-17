@@ -198,7 +198,7 @@ Ask if user has existing keys or needs to generate:
 - `identity_account` — Validator identity pubkey (required)
 - `vote_account` — Vote account pubkey (required)
 - If generating: the keys are generated on the operator's machine with `slv v init`, into `~/.slv/keys/`. Keys are never generated on a remote host, and the agent does not run `solana-keygen`.
-- The staked key stays in `~/.slv/keys/<identity_account>.json` on the operator's machine. `slv v deploy` copies it to no host; it reaches a node on stdin, during `slv v set:identity` and `slv v switch`, and a node that restarts comes back on its unstaked identity. A Firedancer host of testnet (`firedancer-agave`, `firedancer-jito`) takes the staked key from a file on the node, so `slv v set:identity` and `slv v switch` refuse it with `SLV_KEYLESS_REFUSED` before anything is changed; the identity moves between `agave`, `jito` and `allnodes-jito` hosts.
+- The staked key stays in `~/.slv/keys/<identity_account>.json` on the operator's machine. `slv v deploy` copies it to no host; it reaches a node on stdin, during `slv v set:identity` and `slv v switch`, and a node that restarts comes back on its unstaked identity. Deploy does not remove a staked key either: a node that an earlier slv deployed may still hold `/home/solv/<network>-validator-keypair.json`. A Firedancer host of testnet (`firedancer-agave`, `firedancer-jito`) takes the staked key from a file on the node, so `slv v set:identity` and `slv v switch` refuse it with `SLV_KEYLESS_REFUSED` before anything is changed; the identity moves between `agave`, `jito` and `allnodes-jito` hosts.
 
 ### Step 5: Snapshot
 - `snapshot_url` — Snapshot download URL

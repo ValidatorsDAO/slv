@@ -15,14 +15,14 @@
         success_msg: "Source validator type is {{ hostvars[source_host].validator_type | default('undefined') }} and Target validator type is {{ hostvars[target_host].validator_type | default('undefined') }}"
       run_once: true
 
-    # A Firedancer host takes the staked key from a file on the node (fdctl set-identity), and a deploy puts none there:
+    # A Firedancer host takes the staked key from a file on the node (fdctl set-identity), and a deploy never copies one there:
     # the run is refused here, before the source is demoted, so that no node is left unstaked
-    - name: Refuse a Firedancer source or target, which has no staked key on the node to take
+    - name: Refuse a Firedancer source or target, which takes the staked key from a file on the node
       ansible.builtin.assert:
         that:
           - hostvars[source_host].validator_type | default('') not in ['firedancer-agave', 'firedancer-jito']
           - hostvars[target_host].validator_type | default('') not in ['firedancer-agave', 'firedancer-jito']
-        fail_msg: "SLV_KEYLESS_REFUSED: the source ({{ source_host }}: '{{ hostvars[source_host].validator_type | default('undefined') }}') or the target ({{ target_host }}: '{{ hostvars[target_host].validator_type | default('undefined') }}') is a Firedancer host. A Firedancer host takes the staked key from a file on the node, and slv does not put the staked key on a node: it stays on the controller and reaches an agave, jito or allnodes-jito node on stdin. Nothing was changed. Move the identity between agave, jito or allnodes-jito hosts."
+        fail_msg: "SLV_KEYLESS_REFUSED: the source ({{ source_host }}: '{{ hostvars[source_host].validator_type | default('undefined') }}') or the target ({{ target_host }}: '{{ hostvars[target_host].validator_type | default('undefined') }}') is a Firedancer host. A Firedancer host takes the staked key from a file on the node, and deploy never copies the staked key to a node: it stays on the controller and reaches an agave, jito or allnodes-jito node on stdin. Nothing was changed. Move the identity between agave, jito or allnodes-jito hosts."
         quiet: true
       run_once: true
 

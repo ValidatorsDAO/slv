@@ -14,12 +14,12 @@
         fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
         success_msg: "Validator type is {{ validator_type | default('undefined') }}"
 
-    # A Firedancer host takes the staked key from a file on the node (fdctl set-identity), and a deploy puts none there
-    - name: Refuse a Firedancer host, which has no staked key on the node to take
+    # A Firedancer host takes the staked key from a file on the node (fdctl set-identity), and a deploy never copies one there
+    - name: Refuse a Firedancer host, which takes the staked key from a file on the node
       ansible.builtin.assert:
         that:
           - validator_type | default('') not in ['firedancer-agave', 'firedancer-jito']
-        fail_msg: "SLV_KEYLESS_REFUSED: set_identity_key.yml cannot set the identity of {{ inventory_hostname }} ({{ validator_type | default('undefined') }}): a Firedancer host takes the staked key from a file on the node, and slv does not put the staked key on a node: it stays on the controller and reaches an agave, jito or allnodes-jito node on stdin. Nothing was changed on {{ inventory_hostname }}. Run the identity on an agave, jito or allnodes-jito host: slv v set:identity -n testnet -p <host>."
+        fail_msg: "SLV_KEYLESS_REFUSED: set_identity_key.yml cannot set the identity of {{ inventory_hostname }} ({{ validator_type | default('undefined') }}): a Firedancer host takes the staked key from a file on the node, and deploy never copies the staked key to a node: it stays on the controller and reaches an agave, jito or allnodes-jito node on stdin. Nothing was changed on {{ inventory_hostname }}. Run the identity on an agave, jito or allnodes-jito host: slv v set:identity -n testnet -p <host>."
         quiet: true
 
     - name: Refuse an identity_account that is not a base58 public key, it names files on the controller

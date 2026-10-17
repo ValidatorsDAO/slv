@@ -1,7 +1,7 @@
 ---
 # The start script of the node starts it with --identity /home/solv/identity.json, so what that path resolves to is the
-# identity the node comes up with, on a first start and on every restart. Deploy puts no staked key on a node: the staked
-# key stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. So identity.json
+# identity the node comes up with, on a first start and on every restart. Deploy never copies a staked key to a node: the
+# staked key stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. So identity.json
 # has to resolve to unstaked-identity.json (cmn/setup_unstaked_identity.yml makes that link), and this play stops the
 # deploy before the node is started when it does not. The path of the unstaked identity is resolved through /home/solv,
 # so a link of identity.json to a file that unstaked-identity.json itself links to is not taken for the unstaked identity.

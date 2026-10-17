@@ -1,17 +1,22 @@
 ---
-# This playbook linked /home/solv/identity.json to the staked key on the node (/home/solv/testnet-validator-keypair.json)
-# and restarted firedancer.service. Deploy puts no staked key on a node any more: the key stays on the controller
-# (~/.slv/keys/<identity>.json) and reaches the node on stdin during slv v set:identity and slv v switch, and a restarted
-# node comes back on its unstaked identity. So there is no staked key to link, and this play only refuses: its first task
-# fails and nothing else runs.
-- name: Change Identity and Restart firedancer.service (refused, the node has no staked key)
+# This playbook is retired. It linked /home/solv/identity.json to the staked key on the node
+# (/home/solv/testnet-validator-keypair.json) and restarted firedancer.service, so that every restart of the node
+# started with the staked identity. Deploy never copies that key to a node (a node that an earlier slv deployed may
+# still hold it): the staked key stays on the controller (~/.slv/keys/<identity>.json) and reaches an agave, jito or
+# allnodes-jito node on stdin during slv v set:identity and slv v switch, which refuse a Firedancer host of testnet, and
+# a restarted node comes back on its unstaked identity. So this play only refuses: its first task fails and nothing
+# else runs.
+- name: Change Identity and Restart firedancer.service (retired)
   hosts: all
   gather_facts: no
   tasks:
     - name: Refuse to link the identity to a key on the node
       ansible.builtin.fail:
         msg: >-
-          SLV_KEYLESS_REFUSED: change_identity_and_restart.yml links the identity of the node to a staked key on the
-          node, and slv does not put the staked key on a node: it stays on the controller and reaches the node on
-          stdin. Nothing was changed on {{ inventory_hostname }}. Use slv v set:identity -n testnet -p
-          {{ inventory_hostname }}, or slv v switch -n testnet to move the identity from one host to another.
+          SLV_KEYLESS_REFUSED: change_identity_and_restart.yml is retired. It linked the identity of the node to a
+          staked key on the node and restarted firedancer.service, so that every restart started with the staked
+          identity, and deploy never copies the staked key to a node: it stays on the controller and reaches an agave,
+          jito or allnodes-jito node on stdin. Nothing was changed on {{ inventory_hostname }}. Use
+          slv v set:identity -n testnet -p <host>, or
+          slv v switch -n testnet to move the identity from one agave, jito or allnodes-jito host to another; both
+          refuse a Firedancer host of testnet, which takes the staked key from a file on the node.
