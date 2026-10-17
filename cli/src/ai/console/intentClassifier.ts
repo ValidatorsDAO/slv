@@ -1,5 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk'
-import OpenAI from 'openai'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 import { readUserApiError } from '/lib/userApi/httpError.ts'
 
@@ -57,8 +55,7 @@ export type IntentClassification = {
 }
 
 type ClassifierConfig = {
-  provider: 'openai' | 'anthropic' | 'slv'
-  apiKey: string
+  provider?: 'slv'
   model: string
   /** ERPC login for the `slv` provider (user-api). */
   slvAuth?: UserApiAuth
@@ -230,44 +227,6 @@ function buildClassifierUserPrompt(input: ClassifierInput): string {
   })
 }
 
-async function callOpenAiClassifier(
-  config: ClassifierConfig,
-  input: ClassifierInput,
-): Promise<Record<string, unknown> | null> {
-  const client = new OpenAI({ apiKey: config.apiKey })
-  const response = await client.chat.completions.create({
-    model: config.model,
-    temperature: 0,
-    max_tokens: 250,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: buildClassifierSystemPrompt() },
-      { role: 'user', content: buildClassifierUserPrompt(input) },
-    ],
-  })
-  const raw = response.choices[0]?.message?.content || '{}'
-  return parseJsonObject(raw)
-}
-
-async function callAnthropicClassifier(
-  config: ClassifierConfig,
-  input: ClassifierInput,
-): Promise<Record<string, unknown> | null> {
-  const client = new Anthropic({ apiKey: config.apiKey })
-  const response = await client.messages.create({
-    model: config.model,
-    max_tokens: 250,
-    temperature: 0,
-    system: buildClassifierSystemPrompt(),
-    messages: [{ role: 'user', content: buildClassifierUserPrompt(input) }],
-  })
-  const raw = response.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
-  return parseJsonObject(raw)
-}
-
 async function callSlvClassifier(
   config: ClassifierConfig,
   input: ClassifierInput,
@@ -310,11 +269,21 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
   // Keep generic "plan" / "subscription" programming terms out of this rule.
   const accountQuestion = (
     has(
-      'サブスク', '契約', '請求', '支払', '課金', '利用枠',
-      '残高', '残りのトークン', 'アカウント', '加入中',
+      'サブスク',
+      '契約',
+      '請求',
+      '支払',
+      '課金',
+      '利用枠',
+      '残高',
+      '残りのトークン',
+      'アカウント',
+      '加入中',
     ) ||
-    /\b(?:my|our|current|active)\s+(?:(?:rpc|ai|erpc)\s+)?(?:subscriptions?|plans?|accounts?|balance|credits?)\b/.test(text) ||
-    /\b(?:billing|invoices?|payment history|token balance|remaining tokens)\b/.test(text)
+    /\b(?:my|our|current|active)\s+(?:(?:rpc|ai|erpc)\s+)?(?:subscriptions?|plans?|accounts?|balance|credits?)\b/
+      .test(text) ||
+    /\b(?:billing|invoices?|payment history|token balance|remaining tokens)\b/
+      .test(text)
   ) && !has('実装', '機能を', 'アプリを', 'build ', 'implement ', 'develop ')
   if (accountQuestion) {
     return buildPlan({
@@ -382,7 +351,9 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
 
   if (mentionsServerDomain) {
     return buildPlan({
-      intent: mentionsProcurement ? 'server_procurement' : 'server_availability',
+      intent: mentionsProcurement
+        ? 'server_procurement'
+        : 'server_availability',
       confidence: 0.48,
       language: detectLanguageFallback(input.message),
       toolsToEnable: [],
@@ -393,7 +364,9 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
     }, input)
   }
 
-  if (has('rpc', 'geyser', 'grpc', 'index', 'cloud', 'ジーザー', 'インデックス')) {
+  if (
+    has('rpc', 'geyser', 'grpc', 'index', 'cloud', 'ジーザー', 'インデックス')
+  ) {
     return buildPlan({
       intent: has(
           'deploy',
@@ -416,7 +389,18 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
     }, input)
   }
 
-  if (has('benchmark', 'latency', 'throughput', 'grpc_test', 'geyserbench', 'shreds_test', 'ベンチ', '速度計測')) {
+  if (
+    has(
+      'benchmark',
+      'latency',
+      'throughput',
+      'grpc_test',
+      'geyserbench',
+      'shreds_test',
+      'ベンチ',
+      '速度計測',
+    )
+  ) {
     return buildPlan({
       intent: 'benchmark',
       confidence: 0.45,
@@ -461,11 +445,13 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
     }, input)
   }
 
-  const continuationPrefix = /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i
+  const continuationPrefix =
+    /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i
   if (
     input.currentIntent &&
     input.currentSpecialist &&
-    (input.message.trim().length <= 80 || continuationPrefix.test(input.message.trim()))
+    (input.message.trim().length <= 80 ||
+      continuationPrefix.test(input.message.trim()))
   ) {
     return buildPlan({
       intent: input.currentIntent,
@@ -474,7 +460,9 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
       toolsToEnable: [],
       contextModulesToLoad: [],
       userContextKindsToHydrate: [],
-      delegateAgent: canDelegate(input.currentSpecialist) ? input.currentSpecialist : null,
+      delegateAgent: canDelegate(input.currentSpecialist)
+        ? input.currentSpecialist
+        : null,
       askClarify: null,
     }, input)
   }
@@ -601,7 +589,9 @@ function buildPlan(
       break
   }
 
-  const preferredDelegateByIntent: Partial<Record<IntentType, SpecialistAgent>> = {
+  const preferredDelegateByIntent: Partial<
+    Record<IntentType, SpecialistAgent>
+  > = {
     server_availability: 'Figaro',
     server_procurement: 'Figaro',
     validator_deploy: 'Cecil',
@@ -612,9 +602,10 @@ function buildPlan(
     app_builder: 'Setzer',
   }
   const preferredDelegate = preferredDelegateByIntent[intent]
-  const resolvedDelegateAgent = preferredDelegate && enabledSpecialists.has(preferredDelegate)
-    ? preferredDelegate
-    : delegateAgent
+  const resolvedDelegateAgent =
+    preferredDelegate && enabledSpecialists.has(preferredDelegate)
+      ? preferredDelegate
+      : delegateAgent
 
   const plan: IntentClassification = {
     intent,
@@ -677,13 +668,7 @@ export async function classifyIntent(
   let failure: Error | null = null
 
   try {
-    if (config.provider === 'openai') {
-      raw = await callOpenAiClassifier(config, input)
-    } else if (config.provider === 'slv') {
-      raw = await callSlvClassifier(config, input)
-    } else {
-      raw = await callAnthropicClassifier(config, input)
-    }
+    raw = await callSlvClassifier(config, input)
   } catch (error) {
     failure = error instanceof Error
       ? error

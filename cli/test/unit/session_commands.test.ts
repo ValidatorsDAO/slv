@@ -811,11 +811,10 @@ Deno.test('credential shapes match what the servers issue', () => {
 })
 
 // The only place that turns a credential into an Authorization header for
-// user-api is lib/userApi/auth.ts; the one other `Bearer` in the CLI is the
-// model-list check against the OpenAI API in `slv auth`.
+// user-api is lib/userApi/auth.ts. Personal AI-provider keys are not supported.
 Deno.test('f1: no source file builds a Bearer header by hand outside lib/userApi/auth.ts', async () => {
   const root = new URL('../../', import.meta.url)
-  const allowed = new Set(['lib/userApi/auth.ts', 'src/auth/index.ts'])
+  const allowed = new Set(['lib/userApi/auth.ts'])
   const offenders: string[] = []
   const walk = async (dir: URL) => {
     for await (const entry of Deno.readDir(dir)) {

@@ -409,7 +409,7 @@ Deno.test('quick onboard saves settings but does not claim chat readiness when b
   }
 })
 
-Deno.test('onboard keeps an explicitly configured alternative AI provider', async () => {
+Deno.test('onboard migrates a personal AI provider to SLV and requires ERPC OAuth', async () => {
   const ai = {
     provider: 'openai',
     api_key: 'test-only-provider-key',
@@ -417,11 +417,14 @@ Deno.test('onboard keeps an explicitly configured alternative AI provider', asyn
   }
   await runOnboard({}, { apiExtra: { ai } }, async (home, result) => {
     assertEquals(result.error, undefined)
-    assertEquals(result.setupResult.ready, true)
+    assertEquals(result.setupResult.ready, false)
     const api = parse(
       await Deno.readTextFile(`${home}/.slv/api.yml`),
     ) as Record<string, unknown>
-    assertEquals(api.ai, ai)
+    assertEquals(api.ai, { provider: 'slv', model: 'SLV AI' })
+    assertStringIncludes(result.output, 'ERPC OAuth only')
+    assertStringIncludes(result.output, 'slv login')
+    assertFalse(result.output.includes(ai.api_key))
     assertEquals(result.requests, [])
   })
 })

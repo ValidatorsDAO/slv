@@ -3,10 +3,11 @@ import { colors } from '@cliffy/colors'
 import { parse, stringify } from '@std/yaml'
 import denoJson from '/deno.json' with { type: 'json' }
 import {
-  // ANTHROPIC_MODELS and OPENAI_MODELS available via manual ~/.slv/api.yml config
+  DEFAULT_AI_CONFIG,
   hasLangSet,
   readAiConfig,
   readLang,
+  SLV_OAUTH_MIGRATION_MESSAGE,
   writeAiConfig,
   writeLang,
   writeSudoersInstalledAt,
@@ -358,16 +359,15 @@ export const onboardAction = async (
     await mergeSlvCredentials({ api_key: configApiKey }, home)
   }
   const previousAi = await readAiConfig()
-  const aiConfig = previousAi ??
-    { provider: 'slv' as const, api_key: '', model: 'SLV AI' }
+  const aiConfig = DEFAULT_AI_CONFIG
+  if (previousAi?.migratedFromLegacy) console.log(SLV_OAUTH_MIGRATION_MESSAGE)
   // Refresh while checking readiness so a temporary OAuth outage is reported
   // accurately instead of being treated as a missing login.
-  let auth = aiConfig.provider === 'slv' &&
-      hasStoredLogin(await readSlvSection(home))
+  let auth = hasStoredLogin(await readSlvSection(home))
     ? userApiAuthFromSession(home)
     : null
   let accountName: string | undefined
-  if (aiConfig.provider === 'slv' && !auth && !fromConfigFile) {
+  if (!auth && !fromConfigFile) {
     const signIn = await Confirm.prompt({
       message: t('Sign in to ERPC now?'),
       default: true,
@@ -385,7 +385,7 @@ export const onboardAction = async (
   }
   await writeAiConfig(aiConfig)
 
-  let ready = aiConfig.provider !== 'slv' && aiConfig.api_key.trim().length > 0
+  let ready = false
   if (auth) {
     const check = await checkOnboardReadiness(auth)
     if (check.kind === 'ready') {
@@ -419,17 +419,10 @@ export const onboardAction = async (
       )
       console.log(colors.yellow(`  ${check.message}`))
     }
-  } else if (aiConfig.provider === 'slv') {
+  } else {
     console.log(
       colors.yellow(
         t('Settings can be saved now. Run `slv login` before starting SLV AI.'),
-      ),
-    )
-  } else {
-    console.log(
-      t('Keeping your existing AI provider: {provider}.').replace(
-        '{provider}',
-        aiConfig.provider,
       ),
     )
   }

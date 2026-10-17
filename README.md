@@ -51,6 +51,12 @@ opening the console. It keeps existing profiles and memory. Use
 and browser access later. An ERPC browser sign-in is required for SLV AI; an RPC
 API key alone does not authorize account or AI requests.
 
+SLV AI uses ERPC OAuth exclusively. Personal Claude or OpenAI API keys are no
+longer supported. Legacy AI settings are migrated to SLV AI without sending
+those keys to any service; profiles, memory, ERPC login and unrelated settings
+are preserved. Run `slv login`, then `slv ai`. `slv auth` also opens ERPC sign-in;
+the old `--anthropic` and `--openai` flags have been removed.
+
 Describe what you want to do. Commands that change your environment require
 confirmation:
 

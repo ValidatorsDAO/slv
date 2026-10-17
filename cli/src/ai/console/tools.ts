@@ -1,8 +1,11 @@
 import { resolveHome, resolveUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
-import Anthropic from '@anthropic-ai/sdk'
-import OpenAI from 'openai'
-import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
+import {
+  DEFAULT_AI_CONFIG,
+  DEFAULT_MAX_TOKENS,
+  readAiConfig,
+  readLang,
+} from '@/ai/config.ts'
 import { parse } from '@std/yaml'
 import { normalize } from '@std/path'
 import type { TUI } from '@mariozechner/pi-tui'
@@ -110,7 +113,7 @@ const extractProgressHint = (line: string): string | null => {
 
 // Abort infrastructure. Ctrl+C aborts the AbortController, which:
 //   (a) cancels any in-flight LLM streaming HTTP request (provider.chat
-//       passes `signal` to the SDK), so a stalled Anthropic/OpenAI
+//       passes `signal` to fetch), so a stalled SLV AI
 //       stream unblocks immediately instead of waiting for timeout;
 //   (b) fires SIGTERM at the active child process;
 //   (c) flips `signal.aborted` so the provider tool-use loop (via
@@ -147,8 +150,7 @@ export function isAborted(): boolean {
 }
 
 /**
- * AbortSignal to pass into LLM SDK calls (Anthropic `messages.stream`,
- * OpenAI `chat.completions.create`). Aborting this signal cancels the
+ * AbortSignal to pass into SLV AI requests. Aborting this signal cancels the
  * in-flight HTTP stream so Ctrl+C is immediate even while the model is
  * still generating its first token.
  */
@@ -1376,108 +1378,14 @@ When running ansible-playbook or slv commands that connect to servers:
 - The user will see command output in real-time. Long-running commands are expected.
 `
 
-  // Read AI config
-  const config = await readAiConfig()
-  if (!config) {
-    return 'Error: AI not configured. Run `slv onboard` first.'
-  }
-
+  const config = await readAiConfig() ?? DEFAULT_AI_CONFIG
   try {
-    if (config.provider === 'anthropic') {
-      return await runAnthropicSubAgent(
-        config.api_key,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
-    } else if (config.provider === 'slv') {
-      const login = await resolveUserApiAuth()
-      if (!login.ok) return `Error: ${login.lines.join('\n')}`
-      return await runSlvSubAgent(
-        login.auth,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
-    } else {
-      return await runOpenAISubAgent(
-        config.api_key,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
-    }
+    const login = await resolveUserApiAuth()
+    if (!login.ok) return `Error: ${login.lines.join('\n')}`
+    return await runSlvSubAgent(login.auth, config.model, subSystemPrompt, task)
   } catch (error) {
     return `Sub-agent ${agentName} error: ${(error as Error).message}`
   }
-}
-
-// --- Sub-agent Anthropic implementation ---
-async function runAnthropicSubAgent(
-  apiKey: string,
-  model: string,
-  systemPrompt: string,
-  task: string,
-): Promise<string> {
-  const client = new Anthropic({ apiKey })
-  const tools: Anthropic.Tool[] = SUB_AGENT_TOOL_DEFINITIONS.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters as Anthropic.Tool['input_schema'],
-  }))
-
-  type MessageParam = Anthropic.MessageParam
-  const messages: MessageParam[] = [{ role: 'user', content: task }]
-
-  const MAX_ITERATIONS = 20
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create({
-      model,
-      max_tokens: DEFAULT_MAX_TOKENS,
-      system: systemPrompt,
-      messages,
-      tools,
-    })
-
-    // Collect text and tool_use blocks
-    let textContent = ''
-    const toolUseBlocks: {
-      id: string
-      name: string
-      input: Record<string, unknown>
-    }[] = []
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        textContent += block.text
-      } else if (block.type === 'tool_use') {
-        toolUseBlocks.push({
-          id: block.id,
-          name: block.name,
-          input: block.input as Record<string, unknown>,
-        })
-      }
-    }
-
-    messages.push({ role: 'assistant', content: response.content })
-
-    if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
-      return textContent || '(no response from sub-agent)'
-    }
-
-    // Execute tools
-    const toolResults: Anthropic.ToolResultBlockParam[] = []
-    for (const tb of toolUseBlocks) {
-      const result = await executeSubAgentTool(tb.name, tb.input)
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: tb.id,
-        content: result,
-      })
-    }
-    messages.push({ role: 'user', content: toolResults })
-  }
-
-  return '(sub-agent reached maximum iteration limit)'
 }
 
 // --- Sub-agent SLV AI implementation (fetch-based Anthropic proxy) ---
@@ -1507,7 +1415,7 @@ async function runSlvSubAgent(
         'Authorization': await userApiAuthHeader(auth),
       },
       body: JSON.stringify({
-        model,
+        model: model === 'SLV AI' ? 'slv-ai-default' : model,
         max_tokens: DEFAULT_MAX_TOKENS,
         system: systemPrompt,
         messages,
@@ -1566,76 +1474,6 @@ async function runSlvSubAgent(
       })
     }
     messages.push({ role: 'user', content: toolResults })
-  }
-
-  return '(sub-agent reached maximum iteration limit)'
-}
-
-// --- Sub-agent OpenAI implementation ---
-async function runOpenAISubAgent(
-  apiKey: string,
-  model: string,
-  systemPrompt: string,
-  task: string,
-): Promise<string> {
-  const client = new OpenAI({ apiKey })
-  const tools: OpenAI.ChatCompletionTool[] = SUB_AGENT_TOOL_DEFINITIONS.map((
-    t,
-  ) => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    },
-  }))
-
-  type Message = OpenAI.ChatCompletionMessageParam
-  const messages: Message[] = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: task },
-  ]
-
-  const MAX_ITERATIONS = 20
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.chat.completions.create({
-      model,
-      messages,
-      tools,
-    })
-
-    const choice = response.choices[0]
-    if (!choice) return '(no response from sub-agent)'
-
-    const assistantMessage = choice.message
-    messages.push(assistantMessage as Message)
-
-    if (
-      !assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0
-    ) {
-      return assistantMessage.content || '(no response from sub-agent)'
-    }
-
-    // Execute tools
-    for (const tc of assistantMessage.tool_calls) {
-      let args: Record<string, unknown>
-      try {
-        args = JSON.parse(tc.function.arguments)
-      } catch (e) {
-        messages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: `Failed to parse arguments: ${(e as Error).message}`,
-        })
-        continue
-      }
-      const result = await executeSubAgentTool(tc.function.name, args)
-      messages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: result,
-      })
-    }
   }
 
   return '(sub-agent reached maximum iteration limit)'

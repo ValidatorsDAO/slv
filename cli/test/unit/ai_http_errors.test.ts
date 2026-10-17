@@ -224,7 +224,6 @@ Deno.test('failed classifier retains its diagnostic and lets the caller stop the
     await withFetch(edgeResponse, async (requests) => {
       const config = {
         provider: 'slv' as const,
-        apiKey: '',
         model: 'SLV AI',
         slvAuth: userApiAuthFromSession(home),
       }
@@ -303,7 +302,6 @@ Deno.test('failed classifier still identifies Japanese subscription questions as
       ) {
         const plan = await classifyIntent({
           provider: 'slv',
-          apiKey: '',
           model: 'SLV AI',
           slvAuth: userApiAuthFromSession(home),
         }, {
@@ -334,7 +332,6 @@ Deno.test('local account fallback does not turn subscription feature development
   ) {
     const plan = await classifyIntent({
       provider: 'slv',
-      apiKey: '',
       model: 'SLV AI',
     }, {
       message,

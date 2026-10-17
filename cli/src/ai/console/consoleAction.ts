@@ -15,7 +15,11 @@ import {
 } from '@mariozechner/pi-tui'
 import { getTerminalWidth } from '@/ai/rendering.ts'
 import chalk from 'chalk'
-import { readAiConfig } from '@/ai/config.ts'
+import {
+  DEFAULT_AI_CONFIG,
+  readAiConfig,
+  SLV_OAUTH_MIGRATION_MESSAGE,
+} from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
 import {
   clearFocusOverride,
@@ -24,8 +28,6 @@ import {
   type PrimaryFocus,
   writeFocusOverride,
 } from '@/ai/console/profile.ts'
-import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
-import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import {
   buildSystemPrompt,
@@ -59,7 +61,6 @@ import {
   type UserContextKind,
 } from '@/ai/console/intentClassifier.ts'
 import {
-  findUserApiAuth,
   printCredentialProblem,
   resolveHome,
   resolveUserApiAuth,
@@ -76,7 +77,7 @@ export type ChatCallbacks = {
   // GatewaySessionProvider, tool execution happens in the daemon
   // process and progress arrives over WS as events. These fire the
   // same TUI progress UI that in-process tool execution does.
-  // Direct providers (Anthropic/OpenAI/SLV) do not call them.
+  // The in-process SLV provider does not call them.
   onToolStdout?: (line: string) => void
   onToolProgress?: (label: string) => void
 }
@@ -275,32 +276,22 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   resetContextModules()
   resetSessionCaches()
 
-  let config = await readAiConfig()
-  if (!config) {
-    // Default to SLV AI, authenticated by the ERPC OAuth login.
-    config = { provider: 'slv', api_key: '', model: 'SLV AI' }
-  }
+  const config = await readAiConfig() ?? DEFAULT_AI_CONFIG
+  if (config.migratedFromLegacy) console.log(SLV_OAUTH_MIGRATION_MESSAGE)
 
-  // Resolve OAuth before translation, TUI setup or
-  // gateway startup. Keep provider API keys separate from ERPC credentials.
-  let slvAuth: UserApiAuth | null = null
-  if (config.provider === 'slv') {
-    const login = await resolveUserApiAuth()
-    if (!login.ok) {
-      printCredentialProblem(login)
-      Deno.exitCode = 1
-      return
-    }
-    slvAuth = login.auth
+  // Every console path requires ERPC OAuth before translation, UI or gateway
+  // startup, including installations with a legacy provider configuration.
+  const login = await resolveUserApiAuth()
+  if (!login.ok) {
+    printCredentialProblem(login)
+    Deno.exitCode = 1
+    return
   }
+  let slvAuth: UserApiAuth = login.auth
   await initI18n()
 
   let currentSystemPrompt = await buildSystemPrompt()
-  const providerLabel = config.provider === 'openai'
-    ? 'OpenAI'
-    : config.provider === 'slv'
-    ? 'SLV AI'
-    : 'Anthropic'
+  const providerLabel = 'SLV AI'
 
   // TUI init
   const terminal = new ProcessTerminal()
@@ -321,11 +312,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   chatLog.addChild(
     new Text(
       white(
-        config.provider === 'slv'
-          ? `  ${t('Provider:')} ${providerLabel}`
-          : `  ${t('Provider:')} ${providerLabel} | ${
-            t('Model:')
-          } ${config.model}`,
+        `  ${t('Provider:')} ${providerLabel}`,
       ),
       1,
     ),
@@ -607,7 +594,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   }
 
   // Provider init with callbacks
-  let provider: OpenAIProvider | AnthropicProvider | SLVProvider
+  let provider: SLVProvider
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -821,25 +808,10 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       config.model,
       currentSystemPrompt,
       callbacks,
-    ) as unknown as SLVProvider // structurally compatible with the union
-  } else if (config.provider === 'openai') {
-    provider = new OpenAIProvider(
-      config.api_key,
-      config.model,
-      currentSystemPrompt,
-      callbacks,
-    )
-  } else if (config.provider === 'slv') {
-    // Checked before starting the UI above.
-    provider = new SLVProvider(
-      slvAuth!,
-      config.model,
-      currentSystemPrompt,
-      callbacks,
-    )
+    ) as unknown as SLVProvider // same console-facing interface
   } else {
-    provider = new AnthropicProvider(
-      config.api_key,
+    provider = new SLVProvider(
+      slvAuth,
       config.model,
       currentSystemPrompt,
       callbacks,
@@ -911,9 +883,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
         ),
       )
       try {
-        if (!slvAuth) {
-          slvAuth = await findUserApiAuth()
-        }
         if (slvAuth) {
           const text = await callReadTool(
             slvAuth,
@@ -1041,10 +1010,8 @@ RULES:
     await delay(150)
     let plan = await classifyIntent(
       {
-        provider: config.provider,
-        apiKey: config.api_key,
         model: config.model,
-        slvAuth: slvAuth ?? undefined,
+        slvAuth,
         onFallback: stopOnDefinitiveApiError,
       },
       {
@@ -1197,32 +1164,19 @@ RULES:
       currentIntent = null
       currentSpecialist = null
       currentSystemPrompt = await buildSystemPrompt()
-      if (config.provider === 'openai') {
-        provider = new OpenAIProvider(
-          config.api_key,
-          config.model,
-          currentSystemPrompt,
-          callbacks,
-        )
-      } else if (config.provider === 'slv') {
-        const freshAuth = await findUserApiAuth()
-        if (freshAuth) {
-          slvAuth = freshAuth
-          provider = new SLVProvider(
-            freshAuth,
-            config.model,
-            currentSystemPrompt,
-            callbacks,
-          )
-        }
-      } else {
-        provider = new AnthropicProvider(
-          config.api_key,
-          config.model,
-          currentSystemPrompt,
-          callbacks,
-        )
+      const login = await resolveUserApiAuth()
+      if (!login.ok) {
+        chatLog.addSystem(login.lines.join('\n'))
+        tui.requestRender()
+        return
       }
+      slvAuth = login.auth
+      provider = new SLVProvider(
+        slvAuth,
+        config.model,
+        currentSystemPrompt,
+        callbacks,
+      )
       userMessageCount = 0
       completedTurnCount = 0
       chatLog.addSystem(`  ${t('Conversation cleared.')}`)

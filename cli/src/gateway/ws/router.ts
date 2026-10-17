@@ -7,7 +7,7 @@ import {
 import { PROTOCOL_VERSION } from '/src/gateway/ws/frames.ts'
 import { echoDriver, Session } from '/src/ai/core/session.ts'
 import { providerDriver } from '/src/ai/core/drivers/provider.ts'
-import { readAiConfig } from '/src/ai/config.ts'
+import { DEFAULT_AI_CONFIG, readAiConfig } from '/src/ai/config.ts'
 import { resolveUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
@@ -155,7 +155,7 @@ const methods: Record<string, MethodHandler> = {
   'session.info': async (req, state) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
     const ctx = await applyAgentConfig()
-    const aiCfg = await readAiConfig().catch(() => null)
+    const aiCfg = await readAiConfig().catch(() => null) ?? DEFAULT_AI_CONFIG
     return resOk(req, {
       agentName: ctx.soul?.name ?? 'Assistant',
       provider: aiCfg?.provider ?? null,
@@ -238,31 +238,27 @@ const methods: Record<string, MethodHandler> = {
 
     let aiCfg
     try {
-      aiCfg = await readAiConfig()
+      aiCfg = await readAiConfig() ?? DEFAULT_AI_CONFIG
     } catch (err) {
-      return resErr(req, `failed to read AI config: ${err instanceof Error ? err.message : String(err)}`)
-    }
-    if (!aiCfg) {
       return resErr(
         req,
-        'no AI provider configured — run `slv onboard` first',
+        `failed to read AI config: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       )
     }
-    // SLV provider uses the ERPC login saved in ~/.slv/api.yml by
-    // `slv login` (not the ai.api_key field, which is used by
-    // anthropic/openai for their own API keys).
-    let slvAuth: UserApiAuth | null = null
-    if (aiCfg.provider === 'slv') {
-      try {
-        const login = await resolveUserApiAuth()
-        if (!login.ok) return resErr(req, login.lines.join('\n'))
-        slvAuth = login.auth
-      } catch (err) {
-        return resErr(
-          req,
-          `failed to read the ERPC login: ${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
+    let slvAuth: UserApiAuth
+    try {
+      const login = await resolveUserApiAuth()
+      if (!login.ok) return resErr(req, login.lines.join('\n'))
+      slvAuth = login.auth
+    } catch (err) {
+      return resErr(
+        req,
+        `failed to read the ERPC login: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      )
     }
 
     // Invalidate the cached agent context so MEMORY.md / USER.md /
@@ -283,7 +279,9 @@ const methods: Record<string, MethodHandler> = {
     } catch (err) {
       return resErr(
         req,
-        `failed to build system prompt: ${err instanceof Error ? err.message : String(err)}`,
+        `failed to build system prompt: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       )
     }
 
@@ -298,23 +296,19 @@ const methods: Record<string, MethodHandler> = {
     const stale = !entry || now - entry.lastActiveMs > SESSION_TTL_MS
 
     if (stale || state.sessionKind === 'echo') {
-      const driver = providerDriver(
-        slvAuth
-          ? {
-            kind: 'slv',
-            auth: slvAuth,
-            model: aiCfg.model,
-            systemPrompt,
-          }
-          : {
-            kind: aiCfg.provider === 'openai' ? 'openai' : 'anthropic',
-            apiKey: aiCfg.api_key,
-            model: aiCfg.model,
-            systemPrompt,
-          },
-      )
+      const driver = providerDriver({
+        kind: 'slv',
+        auth: slvAuth,
+        model: aiCfg.model,
+        systemPrompt,
+      })
       const session = new Session(driver)
-      entry = { session, kind: 'provider', unsubscribe: null, lastActiveMs: now }
+      entry = {
+        session,
+        kind: 'provider',
+        unsubscribe: null,
+        lastActiveMs: now,
+      }
       sessionStore.set(storeKey, entry)
     }
 
@@ -376,7 +370,9 @@ const methods: Record<string, MethodHandler> = {
       upgradeInFlight = true
       // Reset after a generous window so a failed upgrade isn't
       // locked forever — the user can click Update again.
-      setTimeout(() => { upgradeInFlight = false }, 5 * 60 * 1000)
+      setTimeout(() => {
+        upgradeInFlight = false
+      }, 5 * 60 * 1000)
       const cmdLine =
         'sleep 2; (slv upgrade && slv gateway restart) >/tmp/slv-upgrade.log 2>&1'
       const cmd = new Deno.Command('systemd-run', {
@@ -401,7 +397,9 @@ const methods: Record<string, MethodHandler> = {
       upgradeInFlight = false
       return resErr(
         req,
-        `upgrade spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+        `upgrade spawn failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       )
     }
   },
@@ -440,5 +438,4 @@ export const dispatchRequest = async (
 }
 
 /** Introspection helper for tests — keeps the keys in one place. */
-export const getSupportedMethods = (): readonly string[] =>
-  Object.keys(methods)
+export const getSupportedMethods = (): readonly string[] => Object.keys(methods)

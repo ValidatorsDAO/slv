@@ -216,7 +216,6 @@ Deno.test('console classifier stops after definitive edge, login, provider, acti
       await assertRejects(() =>
         classifyIntent({
           provider: 'slv',
-          apiKey: '',
           model: 'SLV AI',
           slvAuth: userApiAuthFromAccessToken(ACCESS_TOKEN),
           onFallback: stopOnDefinitiveApiError,
@@ -236,7 +235,6 @@ Deno.test('console allows local intent fallback after a temporary classifier fai
     async (requests) => {
       const plan = await classifyIntent({
         provider: 'slv',
-        apiKey: '',
         model: 'SLV AI',
         slvAuth: userApiAuthFromAccessToken(ACCESS_TOKEN),
         onFallback: stopOnDefinitiveApiError,

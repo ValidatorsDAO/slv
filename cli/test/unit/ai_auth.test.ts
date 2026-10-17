@@ -400,7 +400,6 @@ Deno.test('OAuth login feeds chat, refreshed chat, usage, products, classifier a
         }
         await classifyIntent({
           provider: 'slv',
-          apiKey: API_KEY,
           model: 'SLV AI',
           slvAuth: auth,
         }, {
