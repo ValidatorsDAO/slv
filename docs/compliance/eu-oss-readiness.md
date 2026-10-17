@@ -233,3 +233,50 @@ and publication receipts with their release record. The earlier
 [erpc-sdk runbook](https://github.com/elsoul/erpc-sdk/blob/fdc3ea3/.codex/docs/eu-oss-compliance.md)
 informed this procedure; its product facts and internal role names are not SLV
 evidence.
+
+## Disposable runner review (2026-10-17)
+
+The source-build integration was reviewed against `44cf822b4c8815833417a72c601358389f0d5678`
+with a separate infrastructure change. Applicability, statutory role,
+classification, support commitments, and existing human assignments remain
+unchanged or **UNDETERMINED**. This is implementation evidence, not release
+approval or compliance certification.
+
+Configured controls include main-only hosted management jobs, restricted OIDC
+federation, a repository-scoped GitHub App, dedicated read-only secret access,
+service-account-free build VMs, one-job runners, owned-resource cleanup, and an
+absolute cloud deletion deadline. Linux split builds accept 2, 4, 8, or 16 jobs
+and retain matching producer/combined receipt checks. macOS, native ARM runtime
+execution, signing, and publication retain their existing runners.
+
+Local evidence: 27 workflow regression tests and eight targeted source tests
+passed in Linux; 21 controller tests, five budget tests, and six Terraform mock
+tests passed. The live bootstrap check found an explicit gcloud boot-disk flag
+replacing the inherited image. The correction removes the override and checks
+the actual image, disk size/type, machine type, and deadline before handoff.
+
+The corrected live infrastructure smoke reached runner-online with the pinned
+Ubuntu image, 16-vCPU machine, no attached cloud identity, and JIT metadata
+removed. A synthetic monthly-budget notification disabled provisioning, denied
+the disabled identity's API access, and deleted that VM and its boot disk. The
+function completed successfully; subsequent cleanup removed the runner
+registration. The administrator restored the identity after this synthetic test
+and removed the temporary test impersonation grant. No GCP private key was
+created. Account-specific identifiers and logs are retained outside this public
+repository.
+
+The monthly budget uses net cost after credits, US Pacific calendar months, and
+a latched stop requiring explicit recovery. Billing notifications are delayed;
+this is not an invoice cap, and persistent storage can continue to incur costs.
+Random runner labels are routing identifiers, not authorization credentials.
+After a budget stop, GitHub registration cleanup can require later recovery,
+while cloud deletion remains independently protected.
+
+Outstanding activation evidence: the hosted OIDC/secret-loading path, actual
+single-job completion, per-job cleanup, cancellation/orphan recovery, and a
+source-build performance comparison. Release opt-in remains disabled pending
+that evidence. The bounded reviewer participated in implementation; normal PR
+review remains required. No potentially reportable incident was established by
+this review. The next review is the final PR revision and first hosted smoke / GCE
+source-build evidence. Implementation lead owns that follow-up; human ownership
+and due dates otherwise remain as recorded above.

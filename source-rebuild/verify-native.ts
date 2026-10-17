@@ -314,10 +314,7 @@ export function parseNativeArgs(argv: string[]): Args {
         throw new Error(`build-variant requires ${required}`)
       }
     }
-    const fixedJobs = splitBuildJobs(values['--target'])
-    if (values['--jobs'] !== fixedJobs) {
-      throw new Error(`build-variant requires --jobs ${fixedJobs}`)
-    }
+    splitBuildJobs(values['--target'], values['--jobs'])
     if (values['--variant-dependencies'] !== undefined) {
       throw new Error('build-variant does not accept --variant-dependencies')
     }
@@ -1117,12 +1114,18 @@ function approvedBuildHostTarget(
   return actual
 }
 
-function splitBuildJobs(target: string): string {
-  if (target === 'x86_64-unknown-linux-gnu') return '2'
+function splitBuildJobs(target: string, value: unknown): string {
   if (
-    target === 'aarch64-unknown-linux-gnu' ||
-    target === 'x86_64-apple-darwin'
+    target === 'x86_64-unknown-linux-gnu' ||
+    target === 'aarch64-unknown-linux-gnu'
   ) {
+    if (typeof value !== 'string' || !['2', '4', '8', '16'].includes(value)) {
+      throw new Error('Linux split build requires --jobs 2, 4, 8, or 16')
+    }
+    return value
+  }
+  if (target === 'x86_64-apple-darwin') {
+    if (value !== '4') throw new Error('macOS split build requires --jobs 4')
     return '4'
   }
   throw new Error(
@@ -3597,6 +3600,7 @@ type VariantReceipt = {
   target: string
   buildMode: 'native' | 'cross'
   buildHost: Host
+  jobs: string
   entries: Record<string, TransportEntry>
   checks: Record<string, unknown>
   toolchain: { pinsSha256: string; identities: Record<string, string> }
@@ -3643,11 +3647,11 @@ function parseVariantReceipt(value: unknown, label: string): VariantReceipt {
     receipt.kind !== 'slv-source-build-variant-receipt' ||
     (receipt.variant !== 'baseline' && receipt.variant !== 'modified') ||
     (receipt.build_mode !== 'native' && receipt.build_mode !== 'cross') ||
-    !TARGETS.has(target) ||
-    receipt.jobs !== splitBuildJobs(target)
+    !TARGETS.has(target)
   ) {
     throw new Error(`${label} has invalid schema, role, mode, or jobs`)
   }
+  const jobs = splitBuildJobs(target, receipt.jobs)
   const variant = receipt.variant
   const sourceAssetsValue = receipt.source_assets
   if (
@@ -3776,6 +3780,7 @@ function parseVariantReceipt(value: unknown, label: string): VariantReceipt {
     target: text(receipt.target, `${label} target`),
     buildMode: receipt.build_mode,
     buildHost: parseHost(receipt.build_host, `${label} build host`),
+    jobs,
     entries,
     checks,
     toolchain: {
@@ -4176,7 +4181,7 @@ async function buildVariantPhase(args: Args): Promise<void> {
   }
   const variant = args['--variant'] as Variant
   const buildHostTarget = approvedBuildHostTarget(target, args['--build-host'])
-  const jobs = splitBuildJobs(target)
+  const jobs = splitBuildJobs(target, args['--jobs'])
   if (!equalHost(currentHost(), targetHost(buildHostTarget))) {
     throw new Error(`build host must execute on ${buildHostTarget}`)
   }
@@ -4927,6 +4932,9 @@ async function joinBuildPhase(args: Args): Promise<void> {
     recipeSha256,
     patchSha256,
   )
+  if (baseline.receipt.jobs !== modified.receipt.jobs) {
+    throw new Error('split variants have mismatched build jobs')
+  }
   if (
     baseline.receipt.value.derived_relink_cargo_lock_sha256 !==
       modified.receipt.value.derived_relink_cargo_lock_sha256 ||
@@ -5000,7 +5008,7 @@ async function joinBuildPhase(args: Args): Promise<void> {
       identities: object(baseline.receipt.value.toolchain, 'baseline toolchain')
         .identities,
     },
-    jobs: splitBuildJobs(target),
+    jobs: baseline.receipt.jobs,
     resources: {
       capacity_preflight: object(
         baseline.receipt.value.resources,
@@ -5166,12 +5174,13 @@ export async function verifySplitBuildEvidence(
   const recipe = object(build.recipe_sha256, 'build receipt recipe SHA-256')
   exactKeys(recipe, ['baseline', 'modified'], 'build receipt recipe SHA-256')
   if (
-    build.jobs !== splitBuildJobs(target) ||
+    build.jobs !== baseline.receipt.jobs ||
+    build.jobs !== modified.receipt.jobs ||
     build.patch_sha256 !== baseline.receipt.value.patch_sha256 ||
     build.patch_sha256 !== modified.receipt.value.patch_sha256
   ) {
     throw new Error(
-      'combined split build does not preserve its fixed jobs and patch',
+      'combined split build does not preserve its producer jobs and patch',
     )
   }
   if (
