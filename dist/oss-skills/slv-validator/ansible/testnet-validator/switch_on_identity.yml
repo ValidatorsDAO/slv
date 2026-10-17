@@ -120,9 +120,18 @@
       args:
         stdin: "{{ key_file.content | b64decode }}"
         executable: /bin/bash
+      register: add_voter_result
       no_log: true
       failed_when: false
+      ignore_errors: true
       when: slv_switch_mode == 'towerbft'
+
+    - name: Stop when authorized-voter add did not run to its end
+      ansible.builtin.fail:
+        msg: >-
+          agave-validator authorized-voter add did not run to its end on {{ inventory_hostname }} ({{ add_voter_result.msg | default('no answer') }}).
+          The identity was set on {{ inventory_hostname }} before this step.
+      when: add_voter_result is failed
 
     - name: Move the vote history file to this host and put the staked identity on it
       when: slv_switch_mode == 'alpenglow'
