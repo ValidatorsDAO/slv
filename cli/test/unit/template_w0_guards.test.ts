@@ -1460,6 +1460,35 @@ Deno.test('no_log: the WireGuard tasks that handle the private key keep it out o
   )
 })
 
+// copy masks `content` in its arguments, but --diff prints it: a copy that writes a private key returns no diff
+Deno.test('no_log: every copy that writes a private key from its content returns no diff', () => {
+  const writesKey = /private key|origin_key|wg_private_key_value|PrivateKey/i
+  const found: string[] = []
+  const files = listAnsibleFiles('ansible/').filter((file) =>
+    !file.startsWith('ansible/cmn/firewall/')
+  )
+  for (const file of files) {
+    for (const list of taskLists(parse(readText(file)))) {
+      for (const task of list) {
+        const copy = moduleArgs(task, 'copy') as Entry | undefined
+        if (copy?.content === undefined) continue
+        if (!writesKey.test(JSON.stringify(task))) continue
+        found.push(`${file}: ${task.name}`)
+        assertEquals(
+          task.diff,
+          false,
+          `${file}: "${task.name}" writes a private key and must not return a diff`,
+        )
+      }
+    }
+  }
+  assertEquals(found.sort(), [
+    'ansible/cmn/software/install-nginx.yaml: Write caller-supplied origin private key',
+    'ansible/cmn/software/install-wireguard.yaml: Create WireGuard config',
+    'ansible/cmn/software/install-wireguard.yaml: Save private key',
+  ])
+})
+
 Deno.test('the last vote reader refuses a vote account of another identity, and every caller says whose it is', () => {
   const reader = readText('ansible/cmn/tasks/vote_history_last_vote.yml')
   const tasks = parse(reader) as Entry[]
