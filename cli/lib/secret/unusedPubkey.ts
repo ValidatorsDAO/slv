@@ -1,6 +1,7 @@
 // A key that is to be tried on a node has to be new: not running anywhere, with
 // no vote account, and not an account of the inventory. Anything that cannot be
-// shown is a refusal.
+// shown is a refusal. Mainnet is looked at whatever the network of the node is:
+// a key of mainnet is not new on testnet.
 
 type UnusedDeps = {
   fetch: (url: string, init: RequestInit) => Promise<Response>
@@ -9,6 +10,7 @@ type UnusedDeps = {
 const RPC_URLS: Record<string, string> = {
   testnet: 'https://api.testnet.solana.com',
   devnet: 'https://api.devnet.solana.com',
+  mainnet: 'https://api.mainnet-beta.solana.com',
 }
 
 const rpc = async (
@@ -45,23 +47,13 @@ const records = (value: unknown): Record<string, unknown>[] =>
     )
     : []
 
-/**
- * Why `pubkey` is not new, or cannot be shown to be, or null when it is new:
- * it is an account of the inventory, it is in the gossip table, or a vote
- * account names it (the vote accounts are asked for with the unstaked delinquent
- * ones, which are left out by default).
- */
-const whyNotUnused = async (
+/** Why `pubkey` is in the cluster of `network`, or cannot be shown not to be, or null when it is not. */
+const whyInCluster = async (
   network: string,
+  url: string,
   pubkey: string,
-  inventoryAccounts: readonly string[],
   deps: UnusedDeps,
 ): Promise<string | null> => {
-  if (inventoryAccounts.includes(pubkey)) {
-    return `${pubkey} is an identity_account or vote_account of the inventory`
-  }
-  const url = RPC_URLS[network]
-  if (url === undefined) return `there is no cluster to ask for ${network}`
   try {
     const nodes = await rpc(deps, url, 'getClusterNodes', [])
     if (!Array.isArray(nodes)) {
@@ -88,9 +80,40 @@ const whyNotUnused = async (
       return `a vote account of ${network} names ${pubkey}`
     }
   } catch (error) {
-    return `it could not be shown that ${pubkey} is unused: ${
+    return `it could not be shown that ${pubkey} is unused on ${network}: ${
       error instanceof Error ? error.message : String(error)
     }`
+  }
+  return null
+}
+
+/**
+ * Why `pubkey` is not new, or cannot be shown to be, or null when it is new:
+ * it is an account of the inventory (of `network`, or of mainnet), it is in the
+ * gossip table, or a vote account names it (the vote accounts are asked for with
+ * the unstaked delinquent ones, which are left out by default). The clusters
+ * asked are that of `network` and, for any other network, that of mainnet.
+ */
+const whyNotUnused = async (
+  network: string,
+  pubkey: string,
+  inventoryAccounts: readonly string[],
+  deps: UnusedDeps,
+  mainnetAccounts: readonly string[] = [],
+): Promise<string | null> => {
+  if (inventoryAccounts.includes(pubkey)) {
+    return `${pubkey} is an identity_account or vote_account of the inventory`
+  }
+  if (mainnetAccounts.includes(pubkey)) {
+    return `${pubkey} is an identity_account or vote_account of the mainnet inventory`
+  }
+  for (
+    const cluster of network === 'mainnet' ? [network] : [network, 'mainnet']
+  ) {
+    const url = RPC_URLS[cluster]
+    if (url === undefined) return `there is no cluster to ask for ${cluster}`
+    const why = await whyInCluster(cluster, url, pubkey, deps)
+    if (why !== null) return why
   }
   return null
 }

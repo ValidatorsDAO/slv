@@ -69,6 +69,19 @@ const readSshTarget = async (
   }
 }
 
+/**
+ * The accounts that an inventory file names, or none when the file is not
+ * there. A file that cannot be read or is not valid is an error: what it names
+ * is not known then.
+ */
+const readInventoryAccounts = async (
+  group: InventoryType,
+  reader: InventoryReader,
+): Promise<string[]> => {
+  const text = await reader.readText(getInventoryPath(group))
+  return text === null ? [] : inventoryAccounts(text, group)
+}
+
 /** Every identity_account and vote_account that the hosts of a group name. */
 const inventoryAccounts = (text: string, group: InventoryType): string[] => {
   const document = parse(text) as
@@ -89,6 +102,7 @@ const inventoryAccounts = (text: string, group: InventoryType): string[] => {
 export {
   defaultInventoryReader,
   inventoryAccounts,
+  readInventoryAccounts,
   readSshTarget,
   validatorGroup,
 }

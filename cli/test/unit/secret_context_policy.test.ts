@@ -365,3 +365,67 @@ Deno.test('the vault id is written into keyless.yml with mode 0600, keeps what i
     await Deno.remove(dir, { recursive: true })
   }
 })
+
+Deno.test('the vault of mainnet is a vault of its own: a testnet or devnet vault_id that is the vault_id of mainnet is refused, in either order, and writeVaultId writes nothing for it; testnet and devnet may share one', async () => {
+  const together = (first: string, second: string) =>
+    `networks:\n  ${first}:\n    vault_id: ${VAULT}\n  ${second}:\n    vault_id: ${VAULT}\n`
+  for (
+    const [first, second, name] of [
+      ['testnet', 'mainnet', 'testnet before mainnet'],
+      ['mainnet', 'testnet', 'mainnet before testnet'],
+      ['devnet', 'mainnet', 'devnet before mainnet'],
+      ['mainnet', 'devnet', 'mainnet before devnet'],
+    ]
+  ) {
+    const error = assertThrows(
+      () => parseKeylessConfig(together(first, second)),
+      PolicyError,
+      undefined,
+      name,
+    )
+    assertStringIncludes(
+      error.message,
+      'is the vault of networks.mainnet',
+      name,
+    )
+  }
+  // Two vaults, or one network alone, or testnet and devnet together, are fine.
+  parseKeylessConfig(
+    `networks:\n  testnet:\n    vault_id: ${VAULT}\n  mainnet:\n    vault_id: ${OTHER_VAULT}\n`,
+  )
+  parseKeylessConfig(`networks:\n  mainnet:\n    vault_id: ${VAULT}\n`)
+  parseKeylessConfig(together('testnet', 'devnet'))
+
+  const dir = await Deno.makeTempDir({ prefix: 'slv-keyless-' })
+  try {
+    const path = `${dir}/.slv/keyless.yml`
+    await writeVaultId('mainnet', VAULT, path)
+    const before = await Deno.readTextFile(path)
+    for (const network of ['testnet', 'devnet'] as const) {
+      await assertRejects(
+        () => writeVaultId(network, VAULT, path),
+        PolicyError,
+        'is the vault of networks.mainnet',
+      )
+      assertEquals(await Deno.readTextFile(path), before, network)
+    }
+    // And the other way round: mainnet does not take the vault that testnet has.
+    await Deno.remove(path)
+    await writeVaultId('testnet', VAULT, path)
+    const testnetOnly = await Deno.readTextFile(path)
+    await assertRejects(
+      () => writeVaultId('mainnet', VAULT, path),
+      PolicyError,
+      'is the vault of networks.mainnet',
+    )
+    assertEquals(await Deno.readTextFile(path), testnetOnly)
+    // Another vault is written.
+    await writeVaultId('mainnet', OTHER_VAULT, path)
+    assertEquals(
+      (await readKeylessConfig(path)).networks.mainnet?.vaultId,
+      OTHER_VAULT,
+    )
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})

@@ -66,6 +66,24 @@ const onlyKeys = (
   }
 }
 
+/**
+ * The vault of mainnet is a vault of its own. With one vault for the keys of
+ * every network, a mainnet key could be tried on a testnet node, or be read
+ * with the service account of testnet, because the checks follow the network
+ * that is named and not the item that is read.
+ */
+const checkVaultsApart = (networks: KeylessConfig['networks']): void => {
+  const mainnet = networks.mainnet?.vaultId
+  if (mainnet === null || mainnet === undefined) return
+  for (const name of ['testnet', 'devnet'] as const) {
+    if (networks[name]?.vaultId === mainnet) {
+      throw new PolicyError(
+        `keyless.yml: networks.${name}.vault_id is the vault of networks.mainnet. The keys of mainnet are in a vault of their own, so ${name} needs another one`,
+      )
+    }
+  }
+}
+
 /** The settings in the text of keyless.yml; whatever is not as above is refused, by its name. */
 const parseKeylessConfig = (text: string): KeylessConfig => {
   let document: unknown
@@ -118,6 +136,7 @@ const parseKeylessConfig = (text: string): KeylessConfig => {
       }
       config.networks[name as KeylessNetwork] = { vaultId, tokenFile }
     }
+    checkVaultsApart(config.networks)
   }
   if (document.ssh !== undefined) {
     if (!isMapping(document.ssh)) {
@@ -286,7 +305,11 @@ const writeVaultId = async (
     : {}
   networks[network] = { ...entry, vault_id: vaultId }
   document.networks = networks
-  await deps.writeText(path, stringify(document))
+  const written = stringify(document)
+  // What is written is read back by the parser that reads it everywhere, so a
+  // vault that it would refuse is not written.
+  parseKeylessConfig(written)
+  await deps.writeText(path, written)
 }
 
 export {

@@ -106,7 +106,7 @@ const chooseVault = async (
   if (setup.policy.vaultId !== null) {
     return { vaultId: setup.policy.vaultId, confirmed: false }
   }
-  const vaults = (await listOrRefuse(
+  const listed = (await listOrRefuse(
     setup,
     ['vault', 'list', '--format', 'json'],
     'list the vaults',
@@ -115,8 +115,23 @@ const chooseVault = async (
       ? [{ id: vault.id, name: printable(String(vault.name ?? '')) }]
       : []
   )
+  // The vault of mainnet is for mainnet alone, and mainnet takes none of the others.
+  const apart = new Map<string, string>()
+  for (
+    const other of network === 'mainnet'
+      ? (['testnet', 'devnet'] as const)
+      : (['mainnet'] as const)
+  ) {
+    const vaultId = setup.config.networks[other]?.vaultId
+    if (vaultId != null) apart.set(vaultId, other)
+  }
+  const vaults = listed.filter((vault) => !apart.has(vault.id))
   if (vaults.length === 0) {
-    throw new OpRefusal('op lists no vault that this sign-in can use')
+    throw new OpRefusal(
+      listed.length === 0
+        ? 'op lists no vault that this sign-in can use'
+        : `op lists no vault for ${network} besides the vaults of the other networks`,
+    )
   }
   await tty.say(
     `No vault is set for ${network} in keyless.yml. The vaults that op lists:\n${
@@ -126,6 +141,12 @@ const chooseVault = async (
   const typed = (await tty.ask(
     `Type the id of the vault that is to hold the ${network} keys (anything else stops here): `,
   )).trim()
+  const taken = apart.get(typed)
+  if (taken !== undefined) {
+    throw new OpRefusal(
+      `that is the vault of ${taken}, and the keys of mainnet and of the other networks are not kept together. Nothing was made.`,
+    )
+  }
   if (!vaults.some((vault) => vault.id === typed)) {
     throw new OpRefusal(
       'that is not the id of a listed vault. Nothing was made.',

@@ -22,6 +22,7 @@ import { SshRefusal, type SshSession } from '/lib/ssh/hardenedSsh.ts'
 import {
   defaultInventoryReader,
   type InventoryReader,
+  readInventoryAccounts,
   readSshTarget,
 } from '/lib/ssh/inventoryTarget.ts'
 import {
@@ -170,6 +171,20 @@ const tryKey = async (
     if (error instanceof TargetError) return refuse(error.message)
     return refuse(`cannot read the inventory: ${describe(error)}`)
   }
+  // The key is not new on testnet if mainnet has it: the accounts of the mainnet inventory count too.
+  let mainnetAccounts: string[]
+  try {
+    mainnetAccounts = await readInventoryAccounts(
+      'mainnet_validators',
+      deps.reader,
+    )
+  } catch (error) {
+    return refuse(
+      `cannot read the mainnet inventory: ${
+        describe(error)
+      }. Nothing was changed.`,
+    )
+  }
   if (!AGAVE_FAMILY.includes(target.validatorType)) {
     return refuse(
       `${target.name} has validator_type "${target.validatorType}": keys:try sets the identity with agave-validator and handles ${
@@ -214,7 +229,7 @@ const tryKey = async (
         `${target.name} runs ${running.id}, not its unstaked identity ${unstaked}. Nothing was changed.`,
       )
     }
-    if (accounts.includes(unstaked)) {
+    if (accounts.includes(unstaked) || mainnetAccounts.includes(unstaked)) {
       return refuse(
         `/home/solv/unstaked-identity.json on ${target.name} holds ${unstaked}, which the inventory names as an identity or vote account. Nothing was changed.`,
       )
@@ -229,7 +244,13 @@ const tryKey = async (
       if (error instanceof ResolveError) return refuse(error.message)
       throw error
     }
-    const used = await whyNotUnused(network, pubkey, accounts, deps.unused)
+    const used = await whyNotUnused(
+      network,
+      pubkey,
+      accounts,
+      deps.unused,
+      mainnetAccounts,
+    )
     if (used !== null) return refuse(`${used}. Nothing was changed.`)
 
     // 3. A person says which node.

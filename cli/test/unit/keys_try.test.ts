@@ -181,7 +181,12 @@ type Scenario = {
   answers?: string[]
   nodes?: unknown[]
   votes?: { current: unknown[]; delinquent: unknown[] }
+  /** What the cluster of mainnet says; it is an empty cluster when these are absent. */
+  mainnetNodes?: unknown[]
+  mainnetVotes?: { current: unknown[]; delinquent: unknown[] }
   inventoryText?: string
+  /** The mainnet inventory file; there is none when this is absent. */
+  mainnetInventoryText?: string
   openSession?: TryDeps['openSession']
   setupOverrides?: Parameters<typeof setupDeps>[1]
   pubkeyField?: string
@@ -210,16 +215,23 @@ const run = async (
   const deps: Partial<TryDeps> = {
     setup: setupDeps(op.op, scenario.setupOverrides),
     reader: {
-      readText: () => Promise.resolve(scenario.inventoryText ?? inventory()),
+      readText: (path) =>
+        Promise.resolve(
+          path.includes('mainnet')
+            ? scenario.mainnetInventoryText ?? null
+            : scenario.inventoryText ?? inventory(),
+        ),
       homeDir: '/home/op',
     },
     unused: {
-      fetch: (_url, init) => {
+      fetch: (url, init) => {
         const method = JSON.parse(String(init.body)).method as string
-        events.push(`rpc:${method}`)
+        const mainnet = url.includes('mainnet')
+        events.push(`rpc:${mainnet ? 'mainnet:' : ''}${method}`)
         const result = method === 'getClusterNodes'
-          ? scenario.nodes ?? []
-          : scenario.votes ?? { current: [], delinquent: [] }
+          ? (mainnet ? scenario.mainnetNodes : scenario.nodes) ?? []
+          : (mainnet ? scenario.mainnetVotes : scenario.votes) ??
+            { current: [], delinquent: [] }
         return Promise.resolve(
           new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result })),
         )
@@ -381,6 +393,73 @@ Deno.test('a key whose public key is in the gossip table, a vote account or the 
   const { result, captured } = await run(TRY, { pubkeyField: 'not a key' })
   assertEquals(result, false)
   assertStringIncludes(captured.error[0], 'is not a public key')
+})
+
+Deno.test('a key that mainnet has is not new on testnet: an account of the mainnet inventory, the gossip table of mainnet or a vote account of mainnet names it, or mainnet cannot be looked up, and then nothing is sent, the person is not asked and the key is not read', async () => {
+  const mainnetInventory = (account: string): string =>
+    inventory().replace('testnet_validators', 'mainnet_validators').replace(
+      STAKED,
+      account,
+    )
+  const cases: [string, Scenario, string][] = [
+    [
+      'the identity_account of a mainnet host',
+      { mainnetInventoryText: mainnetInventory(TRIED) },
+      'of the mainnet inventory',
+    ],
+    [
+      'the vote_account of a mainnet host',
+      {
+        mainnetInventoryText: mainnetInventory(STAKED).replace(VOTE, TRIED),
+      },
+      'of the mainnet inventory',
+    ],
+    [
+      'the gossip table of mainnet',
+      { mainnetNodes: [{ pubkey: TRIED }] },
+      'in the gossip table of mainnet',
+    ],
+    [
+      'a vote account of mainnet',
+      {
+        mainnetVotes: { current: [{ votePubkey: TRIED }], delinquent: [] },
+      },
+      'a vote account of mainnet names',
+    ],
+    [
+      'a mainnet inventory that is not valid',
+      { mainnetInventoryText: 'mainnet_validators: [' },
+      'cannot read the mainnet inventory',
+    ],
+  ]
+  for (const [name, scenario, expected] of cases) {
+    const { result, node, op, captured, terminal, events } = await run(
+      TRY,
+      scenario,
+    )
+    assertEquals(result, false, name)
+    assertEquals(node.names().includes('setIdentity'), false, name)
+    assertEquals(terminal.asked, [], name)
+    assertEquals(events.includes('tty:ask'), false, name)
+    // The key was not read: the pubkey field is the most that was.
+    assertEquals(
+      op.calls.map((c) => c.args[2].split('/').pop()).filter((f) =>
+        f === 'keypair'
+      ),
+      [],
+      name,
+    )
+    assertEquals(captured.exitCode(), 1, name)
+    assertStringIncludes(captured.error[0], expected)
+    assertStringIncludes(captured.error[0], 'Nothing was changed')
+  }
+  // The positive control: with a mainnet that knows nothing of the key, it goes through, and mainnet was asked.
+  const control = await run(TRY, {
+    mainnetInventoryText: mainnetInventory(STAKED),
+  })
+  assertEquals(control.result, true)
+  assert(control.events.includes('rpc:mainnet:getClusterNodes'))
+  assert(control.events.includes('rpc:mainnet:getVoteAccounts'))
 })
 
 Deno.test('anything but the name of the host at the prompt stops with nothing sent and the key not read', async () => {
