@@ -68,6 +68,7 @@
       timeout: 20
       no_log: true
       failed_when: false
+      ignore_errors: true
       when: validator_type == 'jito'
 
     - name: Stop when set-identity failed, with what agave said
