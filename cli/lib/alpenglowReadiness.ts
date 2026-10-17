@@ -352,14 +352,22 @@ const readGossip = async (
 
 // --- the checks ---------------------------------------------------------------
 
+/**
+ * check:alpenglow reads mainnet unless -n says otherwise, so the advice to run
+ * it again names the network of this run.
+ */
+const checkAgain = (network: ReadinessNetwork): string =>
+  `run slv v check:alpenglow -n ${network} again`
+
 /** 1. What the cluster runs, and what that means for identity changes. */
 const clusterLine = (
   network: ReadinessNetwork,
   reading: AlpenglowReading,
   epoch: number | null,
 ): CheckLine => {
-  const again =
-    'run slv v check:alpenglow again after getAgGenesisCert returns a certificate'
+  const again = `${
+    checkAgain(network)
+  } after getAgGenesisCert returns a certificate`
   switch (reading.state) {
     case 'towerbft': {
       const until = network === 'mainnet' && epoch !== null &&
@@ -396,7 +404,7 @@ const clusterLine = (
         check: 'cluster',
         level: 'OK',
         message:
-          `Alpenglow: the genesis certificate exists on ${network}. Identity changes move the vote history file (vote_history-<identity>.bin) instead of the tower; with the old primary down use slv v set:identity -p <host> --primary-down.`,
+          `Alpenglow: the genesis certificate exists on ${network}. Identity changes move the vote history file (vote_history-<identity>.bin) instead of the tower; with the old primary down use slv v set:identity -n ${network} -p <host> --primary-down.`,
       }
     case 'unknown':
       return {
@@ -404,8 +412,7 @@ const clusterLine = (
         level: 'WARN',
         message:
           `the state of ${network} cannot be read (${reading.detail}). Identity changes are refused while it cannot be read.`,
-        fix:
-          'run slv v check:alpenglow again; the public RPC may be rate limiting',
+        fix: `${checkAgain(network)}; the public RPC may be rate limiting`,
       }
   }
 }
@@ -466,7 +473,7 @@ const clientLine = (
           message:
             `validator_type ${type} (Firedancer or Frankendancer): slv does not move the identity of such a node while testnet runs Alpenglow, because where it keeps the vote history file is unconfirmed. Mainnet does not support it at all during the migration.`,
           fix:
-            'use agave, jito or allnodes-jito for a node that has to move its identity, and move it with slv v switch',
+            `use agave, jito or allnodes-jito for a node that has to move its identity, and move it with slv v switch -n ${network}`,
         }
       }
       return {
@@ -475,7 +482,7 @@ const clientLine = (
         message:
           `validator_type ${type} cannot be a mainnet voting validator: Alpenglow starts on mainnet at epoch ${MAINNET_ACTIVATION_EPOCH}, and Firedancer and Frankendancer are not supported during the migration.`,
         fix:
-          `set validator_type to agave, jito or allnodes-jito in the inventory, and move the node to one of them with slv v switch before epoch ${MAINNET_ACTIVATION_EPOCH}`,
+          `set validator_type to agave, jito or allnodes-jito in the inventory, and move the node to one of them with slv v switch -n ${network} before epoch ${MAINNET_ACTIVATION_EPOCH}`,
       }
     }
     return {
@@ -564,7 +571,7 @@ const runningLine = (
       level: 'WARN',
       message:
         `the gossip table of ${network} cannot be read (${gossip.reason}), so the version the node runs was not checked.`,
-      fix: 'run slv v check:alpenglow again',
+      fix: checkAgain(network),
     }
   }
   const entries = gossip.value.filter((node) =>
@@ -671,7 +678,7 @@ const resolveVote = (
         level: 'FAIL',
         message: 'the inventory has no vote_account for this host.',
         fix:
-          'set vote_account in the inventory (slv v gen:vote-account creates a vote account)',
+          `set vote_account in the inventory (slv v gen:vote-account -n ${network} creates a vote account)`,
       },
     }
   }
@@ -681,7 +688,7 @@ const resolveVote = (
         level: 'FAIL',
         message:
           `the vote account ${host.voteAccount} cannot be read (${vote.reason}), so the BLS key, the VAT and the authorized voter cannot be checked.`,
-        fix: 'run slv v check:alpenglow again',
+        fix: checkAgain(network),
       },
     }
   }
@@ -692,7 +699,7 @@ const resolveVote = (
         message:
           `the vote account ${host.voteAccount} does not exist on ${network}.`,
         fix:
-          'correct vote_account in the inventory, or create the vote account (slv v gen:vote-account)',
+          `correct vote_account in the inventory, or create the vote account (slv v gen:vote-account -n ${network})`,
       },
     }
   }
@@ -755,7 +762,7 @@ const vatLine = (
       message: `the rent-exempt minimum of the vote account cannot be read (${
         rentExempt === null ? 'no size' : rentExempt.reason
       }), so the VAT surplus cannot be worked out.`,
-      fix: 'run slv v check:alpenglow again',
+      fix: checkAgain(network),
     }
   }
   const { account } = resolved
@@ -806,6 +813,7 @@ const vatLine = (
 /** 5. The identity can pay what it still pays for. */
 const identityLine = (
   host: ReadinessHost,
+  network: ReadinessNetwork,
   balance: Read<number> | null,
   state: AlpenglowReading['state'],
 ): CheckLine => {
@@ -823,7 +831,7 @@ const identityLine = (
       level: 'WARN',
       message:
         `the balance of the identity ${host.identityAccount} cannot be read (${balance.reason}).`,
-      fix: 'run slv v check:alpenglow again',
+      fix: checkAgain(network),
     }
   }
   const held = `the identity holds ${sol(balance.value)} SOL.`
@@ -1030,7 +1038,7 @@ const checkReadiness = async (
         runningLine(host, network, gossip, addresses, pin),
         blsLine(host, network, vote, voter.level === 'OK'),
         vatLine(host, network, vote, rentExempt, reading.state, epoch),
-        identityLine(host, balance, reading.state),
+        identityLine(host, network, balance, reading.state),
         voter,
       ],
     })

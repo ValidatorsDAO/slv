@@ -854,6 +854,7 @@ const runSetIdentity = async (
     })
     if (!accepted) {
       deps.info('Cancelled...🌝')
+      deps.setExitCode(1)
       return false
     }
   }
@@ -867,12 +868,15 @@ const runSetIdentity = async (
   if (check.staleAddress !== undefined) {
     extraVars.primary_down_address = check.staleAddress
   }
-  return await deps.runPlaybook(
+  const ran = await deps.runPlaybook(
     `${deps.templateRoot()}/ansible/${networkPath}/set_identity_key.yml`,
     inventoryType,
     target.name,
     Object.keys(extraVars).length > 0 ? extraVars : undefined,
   )
+  // The runner has said why; a script has to be able to tell.
+  if (!ran) deps.setExitCode(1)
+  return ran
 }
 
 export {

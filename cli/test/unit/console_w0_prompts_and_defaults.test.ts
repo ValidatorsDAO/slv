@@ -239,6 +239,28 @@ Deno.test('the sub-agent prompt no longer teaches an identity switch by symlink 
   )
 })
 
+Deno.test('the mainnet sentences of the sub-agent prompt name -n mainnet, because a bare slv v set:identity or slv v switch takes testnet', async () => {
+  const text = await source(`${SRC}/ai/console/tools.ts`)
+  const layout = text.match(
+    /\*\*Mainnet:\*\*[\s\S]*?\*\*Why unstaked by default/,
+  )
+  const completion = text.match(/- For mainnet: [^\n]*/)
+  assert(layout !== null, 'the mainnet key layout is not where the test looks')
+  assert(
+    completion !== null,
+    'the mainnet sentence is not where the test looks',
+  )
+  for (
+    const [label, sentence] of [
+      ['key layout', layout[0]],
+      ['completion message', completion[0]],
+    ]
+  ) {
+    includes(sentence, 'slv v set:identity -p <host> -n mainnet', label)
+    includes(sentence, 'slv v switch -n mainnet', label)
+  }
+})
+
 Deno.test('the release notes under template/ promote one node with slv v set:identity -p <host>', async () => {
   for (const name of ['mainnet.md', 'testnet.md']) {
     const text = await source(`${ROOT}/template/${name}`)

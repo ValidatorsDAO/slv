@@ -267,6 +267,29 @@ Deno.test('set:identity on mainnet does nothing when the user answers no', async
   assertEquals(h.prechecks.length, 1)
 })
 
+Deno.test('set:identity on mainnet exits 1 when the user answers no', async () => {
+  const h = harness({ answer: false })
+  const ok = await runSetIdentity(
+    { network: 'mainnet', pubkey: 'val-a' },
+    h.deps,
+  )
+  assertEquals(ok, false)
+  assertEquals(h.runs, [])
+  assertStringIncludes(h.info.join('\n'), 'Cancelled')
+  assertEquals(h.exitCodes, [1])
+})
+
+Deno.test('set:identity exits 1 when the playbook fails', async () => {
+  const h = harness({ runResult: false })
+  const ok = await runSetIdentity(
+    { network: 'testnet', pubkey: 'val-a' },
+    h.deps,
+  )
+  assertEquals(ok, false)
+  assertEquals(h.runs.length, 1)
+  assertEquals(h.exitCodes, [1])
+})
+
 Deno.test('set:identity passes first_activation and the peer-down flag through', async () => {
   const h = harness()
   const ok = await runSetIdentity({

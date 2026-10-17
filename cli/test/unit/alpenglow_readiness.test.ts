@@ -83,7 +83,10 @@ Deno.test('the cluster line says what each state means for identity changes', as
       'refused until the genesis certificate',
     ]],
     ['window', 'WARN', ['migration window', 'Identity changes are refused']],
-    ['alpenglow', 'OK', ['vote_history', '--primary-down']],
+    ['alpenglow', 'OK', [
+      'vote_history',
+      'slv v set:identity -n mainnet -p <host> --primary-down',
+    ]],
     ['unknown', 'WARN', [
       'cannot be read',
       'getAgGenesisCert: unknown',
@@ -823,4 +826,62 @@ Deno.test('the hosts of an inventory file are read with their identity, vote acc
     ),
     [],
   )
+})
+
+// --- the advice names the network of the run ----------------------------------
+
+type RunOptions = NonNullable<Parameters<typeof run>[0]>
+
+Deno.test('every slv command the report advises names the network of the run, because a bare command takes the default network of that command', async () => {
+  // check:alpenglow reads mainnet, and set:identity and gen:vote-account read
+  // testnet, unless -n says otherwise.
+  const advised =
+    /slv v (set:identity|check:alpenglow|switch|gen:vote-account|register:bls)[^.;)]*/g
+  const scenarios: [string, RunOptions][] = [
+    ['Alpenglow', { state: 'alpenglow' }],
+    ['migration window', { state: 'window' }],
+    ['state unreadable', { state: 'unknown' }],
+    ['Frankendancer', { hosts: [{ ...HOST, validatorType: 'frankendancer' }] }],
+    ['gossip unreadable', { cluster: { fail: { getClusterNodes: 503 } } }],
+    ['no vote_account', { hosts: [{ ...HOST, voteAccount: '' }] }],
+    ['vote account missing', { cluster: { votes: { [VOTE]: null } } }],
+    ['vote account unreadable', { cluster: { fail: { getAccountInfo: 503 } } }],
+    ['rent-exempt unreadable', {
+      cluster: { fail: { getMinimumBalanceForRentExemption: 503 } },
+    }],
+    ['balance unreadable', { cluster: { fail: { getBalance: 503 } } }],
+  ]
+  const bare: string[] = []
+  const seen = new Set<string>()
+  for (const network of ['mainnet', 'testnet'] as const) {
+    for (const [name, options] of scenarios) {
+      const report = await run({ ...options, network })
+      const texts = [
+        report.cluster.fix,
+        // The other states only name the commands, they do not advise one.
+        ...(options.state === 'alpenglow' ? [report.cluster.message] : []),
+        ...report.hosts.flatMap((entry) => entry.lines.map((line) => line.fix)),
+      ]
+      for (const text of texts) {
+        for (const match of (text ?? '').matchAll(advised)) {
+          seen.add(match[1])
+          if (!match[0].includes(`-n ${network}`)) {
+            bare.push(`${network}, ${name}: ${match[0]}`)
+          }
+        }
+      }
+    }
+  }
+  assertEquals(bare, [])
+  // The scenarios do reach the commands that were advised without -n.
+  for (
+    const command of [
+      'check:alpenglow',
+      'gen:vote-account',
+      'set:identity',
+      'switch',
+    ]
+  ) {
+    assert(seen.has(command), `no scenario advises ${command}`)
+  }
 })

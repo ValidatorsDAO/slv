@@ -1336,14 +1336,14 @@ The deploy playbook creates this key layout on the target node:
 - \`/home/solv/mainnet-validator-keypair.json\` — the validator's staked identity key (copied from ~/.slv/keys/)
 - \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
 - \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`
-- To activate the staked identity: \`slv v set:identity -p <host>\` (a staked/unstaked pair switches with \`slv v switch\`)
+- To activate the staked identity: \`slv v set:identity -p <host> -n mainnet\` (a staked/unstaked pair switches with \`slv v switch -n mainnet\`)
 
 **Why unstaked by default:** Prevents double-voting if the same identity runs on two nodes simultaneously (e.g. during migration). The validator starts with the unstaked key and catches up with the cluster safely. The user switches to staked identity only when ready.
 
 In your completion message, say:
 - "The validator is running with the unstaked identity by default (to prevent double-voting)."
 - For testnet: "Your staked identity is at /home/solv/testnet-validator-keypair.json. Promote this node with \`slv v set:identity -p <host>\`, or switch a staked/unstaked pair with \`slv v switch\`."
-- For mainnet: "Your staked identity is ready. Promote this node with \`slv v set:identity -p <host>\` when you're ready, or switch a staked/unstaked pair with \`slv v switch\`."
+- For mainnet: "Your staked identity is ready. Promote this node with \`slv v set:identity -p <host> -n mainnet\` when you're ready, or switch a staked/unstaked pair with \`slv v switch -n mainnet\`."
 - Do NOT say "staked-identity.json" — that file does not exist.
 
 ### Validator types (for user selection)

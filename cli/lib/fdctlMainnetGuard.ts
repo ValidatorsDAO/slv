@@ -13,7 +13,7 @@ const ALPENGLOW_NOTE =
   'Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration.'
 
 const WAY_OUT =
-  'Use agave, jito or allnodes-jito instead, and move a node that already runs Firedancer or Frankendancer to one of them with `slv v switch` before epoch 1064.'
+  'Use agave, jito or allnodes-jito instead, and move a node that already runs Firedancer or Frankendancer to one of them with `slv v switch -n mainnet` before epoch 1064.'
 
 /** A validator_type that runs fdctl: Frankendancer (firedancer-agave, firedancer-jito) or Firedancer. */
 const isFdctlValidatorType = (validatorType: unknown): boolean => {

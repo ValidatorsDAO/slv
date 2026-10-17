@@ -44,7 +44,7 @@ const REFUSAL_FACTS = [
   'agave',
   'jito',
   'allnodes-jito',
-  'slv v switch',
+  'slv v switch -n mainnet',
 ]
 
 type Recorded = {
