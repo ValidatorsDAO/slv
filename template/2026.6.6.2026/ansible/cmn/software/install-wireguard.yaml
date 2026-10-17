@@ -136,6 +136,17 @@
       args:
         stdin: '{{ wg_private_key_value }}'
       register: wg_public_key
+      no_log: true
+      failed_when: false
+
+    - name: Stop when the public key could not be generated
+      ansible.builtin.fail:
+        msg: >-
+          wg pubkey failed on {{ inventory_hostname }} ({{ ("rc " ~ wg_public_key.rc) if wg_public_key.rc is defined else (wg_public_key.msg | default("no answer")) }}):
+          {{ ((wg_public_key.stdout | default('')) ~ ' ' ~ (wg_public_key.stderr | default(''))) | trim }}
+      when:
+        - wg_public_key is not skipped
+        - (wg_public_key.rc | default(1)) != 0
 
     - name: Save public key (root-only copy)
       copy:

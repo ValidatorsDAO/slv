@@ -33,6 +33,13 @@
         slv_lv_identity: "{{ hostvars[inventory_hostname].identity_account }}"
       when: slv_switch_mode == 'alpenglow'
 
+    - name: Refuse to demote the source when the cluster does not show its vote account
+      ansible.builtin.fail:
+        msg: "{{ slv_lv_detail }}, so the vote account cannot be checked against the identity_account {{ hostvars[inventory_hostname].identity_account }} and the switch does not start. Nothing was changed on {{ inventory_hostname }}. Fix vote_account in the inventory, or run it again when the cluster answers."
+      when:
+        - slv_switch_mode == 'alpenglow'
+        - slv_lv_last | int(-1) < 0
+
     - name: Check that the source holds the tower file of the identity
       ansible.builtin.stat:
         path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"

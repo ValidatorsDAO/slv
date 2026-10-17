@@ -241,9 +241,9 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
       `${path}: the refusal names the way out for a dead primary`,
     )
 
-    // the checks (nothing votes with the identity, the host has caught up, gossip when an old primary
-    // is named): every Alpenglow run that is not a first activation, with the vote history file or without it
-    const checkConditions = [alpenglow, firstActivation]
+    // the checks (nothing votes with the identity, the host has caught up, gossip): every Alpenglow run,
+    // a first activation included, with the vote history file or without it
+    const checkConditions = [alpenglow]
     // the one host and the vote history flag: a confirmed dead primary and no file
     const deadConditions = [alpenglow, noFile, firstActivation, primaryDown]
     const deadImport = tasks.findIndex((task) =>
@@ -257,7 +257,7 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assertEquals(
       new Set(conditionsOf(tasks[deadImport])),
       new Set(checkConditions),
-      `${path}: the checks run on every Alpenglow set that is not a first activation, whatever the vote history file`,
+      `${path}: the checks run on every Alpenglow set, a first activation included, whatever the vote history file`,
     )
     const importVars = tasks[deadImport].vars as Entry
     assertEquals(
@@ -310,10 +310,29 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
         normalized(sameHosts).includes('identity_account'),
       `${path}: the hosts of the whole play are counted by identity_account`,
     )
-    // a first activation is refused when the vote account has voted, or when that cannot be shown
+    // a first activation is for a vote account that has not voted since the Alpenglow genesis: agave asks for the
+    // vote history file only when the last vote is after the slot of the genesis certificate, and the play mirrors it
+    const firstActivationIs = 'first_activation | default(false) is sameas true'
+    const genesisSlot = tasks.findIndex((task) =>
+      hasModule(task, 'set_fact') &&
+      (moduleArgs(task, 'set_fact') as Entry).slv_sik_genesis_slot !== undefined
+    )
+    assert(
+      genesisSlot >= 0 && genesisSlot < deadImport,
+      `${path}: the slot of the genesis certificate is read`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[genesisSlot])),
+      new Set([alpenglow, firstActivationIs]),
+    )
+    assert(
+      normalized(tasks[genesisSlot]).includes('slv_ag_cert_reply') &&
+        normalized(tasks[genesisSlot]).includes('block.slot'),
+      `${path}: the slot comes from the answer of getAgGenesisCert`,
+    )
     const voted = tasks.findIndex((task) =>
       hasModule(task, 'fail') &&
-      normalized(task).includes('first_activation says that the identity')
+      normalized(task).includes('first_activation is for a vote account')
     )
     assert(
       voted > deadImport && voted < firstSetIdentity,
@@ -323,10 +342,19 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
       new Set(conditionsOf(tasks[voted])),
       new Set([
         alpenglow,
-        'first_activation | default(false) is sameas true',
-        "validator_type in ['agave', 'jito', 'allnodes-jito']",
-        'slv_lv_last | int(-1) != 0',
+        firstActivationIs,
+        '(slv_sik_genesis_slot | int(-1)) < 0 or (slv_dp_last | int(-1)) < 0 or (slv_dp_last | int(-1)) > (slv_sik_genesis_slot | int(-1))',
       ]),
+    )
+    for (const exit of ['--primary-down', 'vote history file']) {
+      assert(
+        normalized(tasks[voted]).includes(exit),
+        `${path}: the refusal of a first activation names the exits: ${exit}`,
+      )
+    }
+    assert(
+      normalized(tasks[alpenglowRefusal]).includes('--first-activation'),
+      `${path}: the refusal without a file names --first-activation`,
     )
     const readers = tasks.filter((task) =>
       moduleArgs(task, 'import_tasks') ===
@@ -337,10 +365,6 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
       (readers[0].vars as Entry).slv_lv_identity,
       '{{ hostvars[inventory_hostname].identity_account }}',
       `${path}: the vote account has to belong to the identity`,
-    )
-    assert(
-      tasks.indexOf(readers[0]) < voted,
-      `${path}: the last vote is read before a first activation is judged`,
     )
     const deadRefusal = tasks.findIndex((task, index) =>
       index > deadImport && hasModule(task, 'fail') &&
@@ -432,13 +456,24 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     )
     assert(addVoter, `${path}: agave authorized-voter add`)
     assertEquals(
-      new Set(conditionsOf({ when: addVoter.failed_when } as Entry)),
+      addVoter.failed_when,
+      false,
+      `${path}: the authorized-voter add reports through the task after it, so its own output stays out of the log`,
+    )
+    const addVoterStop = tasks[tasks.indexOf(addVoter) + 1]
+    assert(
+      hasModule(addVoterStop, 'fail'),
+      `${path}: a failed authorized-voter add stops the play on Alpenglow`,
+    )
+    assertEquals(
+      new Set(conditionsOf(addVoterStop)),
       new Set([
         alpenglow,
-        'add_voter_agave_result.rc != 0',
-        "'Authorized voter already present' not in (add_voter_agave_result.stdout ~ add_voter_agave_result.stderr)",
+        'add_voter_agave_result is not skipped',
+        '(add_voter_agave_result.rc | default(1)) != 0',
+        "'Authorized voter already present' not in ((add_voter_agave_result.stdout | default('')) ~ (add_voter_agave_result.stderr | default('')))",
       ]),
-      `${path}: a failed authorized-voter add stops the play on Alpenglow`,
+      `${path}: a failed authorized-voter add stops the play on Alpenglow, and an authorized voter that is already there is not a failure`,
     )
   }
 })
@@ -692,6 +727,27 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         '{{ hostvars[inventory_hostname].identity_account }}',
         `${path}: the vote account has to belong to the identity`,
       )
+      // and the cluster has to show it: unreadable or not listed, the source is not touched
+      const voteAccountShown = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'fail') &&
+          conditionsOf(task).includes('slv_lv_last | int(-1) < 0'),
+      )
+      assert(
+        voteAccountShown > voteAccount && voteAccountShown < wait,
+        `${path}: a vote account the cluster does not show stops the switch before the source waits or is demoted`,
+      )
+      assertEquals(conditionsOf(tasks[voteAccountShown]), [
+        "slv_switch_mode == 'alpenglow'",
+        'slv_lv_last | int(-1) < 0',
+      ])
+      for (const text of ['slv_lv_detail', 'Nothing was changed on']) {
+        assert(
+          normalized(tasks[voteAccountShown]).includes(text),
+          `${path}: the refusal says why and that nothing was changed: ${text}`,
+        )
+      }
 
       // the file to carry is checked before the wait and before the demotion
       for (
@@ -931,14 +987,21 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         ['solv', 'solv', '0644'],
         `${path}: the file gets the owner and mode agave gives it`,
       )
+      assertEquals(
+        inner[voter].failed_when,
+        false,
+        `${path}: the authorized-voter add reports through the task after it, so its own output stays out of the log`,
+      )
+      const voterStop = inner[voter + 1]
       assert(
-        Array.isArray(inner[voter].failed_when),
+        hasModule(voterStop, 'fail') &&
+          conditionsOf(voterStop).includes(
+            '(add_voter_result.rc | default(1)) != 0',
+          ),
         `${path}: a failed authorized-voter add stops the play on Alpenglow`,
       )
       assert(
-        normalized(inner[voter].failed_when).includes(
-          'Authorized voter already present',
-        ),
+        normalized(voterStop).includes('Authorized voter already present'),
         `${path}: an authorized voter that is already there is not a failure`,
       )
       assertEquals(
@@ -1199,6 +1262,78 @@ Deno.test('no_log: every task that reads a key file from the controller has it, 
   assertEquals(seen, 10, 'the tasks that read a key file')
 })
 
+// a task that passes a key on stdin keeps its arguments out of the log (ansible-core 2.16 prints them at -vvv, and
+// stdin is the key), does not fail by itself, and the task after it fails when the return code is not 0 and says
+// what the command printed, so that what agave said stays visible and the key does not
+const listAnsibleFiles = (directory: string): string[] =>
+  [...Deno.readDirSync(new URL(directory, templateRoot))].flatMap((entry) =>
+    entry.isDirectory
+      ? listAnsibleFiles(`${directory}${entry.name}/`)
+      : /\.ya?ml$/.test(entry.name)
+      ? [`${directory}${entry.name}`]
+      : []
+  )
+const stdinOf = (task: Entry): unknown => {
+  for (const value of Object.values(task)) {
+    if (
+      value !== null && typeof value === 'object' && !Array.isArray(value) &&
+      'stdin' in value
+    ) {
+      return (value as Entry).stdin
+    }
+  }
+  return undefined
+}
+
+Deno.test('no_log: every task that passes a key on stdin has it and does not fail by itself, and the task after it fails with what the command printed', () => {
+  const seen: string[] = []
+  const unreported: string[] = []
+  const files = listAnsibleFiles('ansible/').filter((file) =>
+    !file.startsWith('ansible/cmn/firewall/')
+  )
+  for (const file of files) {
+    for (const list of taskLists(parse(readText(file)))) {
+      list.forEach((task, index) => {
+        if (stdinOf(task) === undefined) return
+        const label = `${file}: ${task.name}`
+        seen.push(label)
+        assertEquals(
+          task.no_log,
+          true,
+          `${label} passes a key on stdin and must not log its arguments`,
+        )
+        assertEquals(
+          task.failed_when,
+          false,
+          `${label} must not fail by itself, its failure would show nothing`,
+        )
+        const register = String(task.register ?? '')
+        const next = list[index + 1]
+        const text = next === undefined ? '' : normalized(next)
+        const reports = register.length > 0 && next !== undefined &&
+          hasModule(next, 'fail') &&
+          conditionsOf(next).includes(`(${register}.rc | default(1)) != 0`) &&
+          [`${register}.stdout`, `${register}.stderr`].every((part) =>
+            text.includes(part)
+          )
+        if (!reports) unreported.push(label)
+      })
+    }
+  }
+  // set_identity_key (2) and set_identity_to_active (2) of both networks, switch_on_identity (4) of both networks,
+  // and the public key of WireGuard
+  assertEquals(seen.length, 17, 'the tasks that pass a key on stdin')
+  // the authorized-voter add of the TowerBFT paths never stopped a run, it still does not
+  assertEquals(
+    unreported.sort(),
+    validatorNetworks.flatMap((network) => [
+      `ansible/${network}/set_identity_to_active.yml: Add Authorized Voter via stdin`,
+      `ansible/${network}/switch_on_identity.yml: Add Authorized Voter via stdin`,
+    ]).sort(),
+    'the tasks whose failure no task reports',
+  )
+})
+
 Deno.test('the last vote reader refuses a vote account of another identity, and every caller says whose it is', () => {
   const reader = readText('ansible/cmn/tasks/vote_history_last_vote.yml')
   const tasks = parse(reader) as Entry[]
@@ -1261,6 +1396,25 @@ Deno.test('the dead primary checks read the last vote from the RPC of the host a
         !normalized(check).includes('slv_lv_last'),
       `${name}: judged on the larger last vote`,
     )
+  }
+  // the host is the second opinion, not an extra: an answer of the host that cannot be read, or that does not list the
+  // vote account, fails check 1 and is not made up for by the value of the cluster
+  const quiet = normalized(
+    tasks.find((task) =>
+      task.name === 'Check that nothing votes with the identity'
+    ),
+  )
+  assert(
+    quiet.includes('(slv_dp_own_last | int(-1)) < 0'),
+    'check 1 fails when the host shows no last vote',
+  )
+  for (
+    const text of [
+      'the RPC of this host did not give a readable answer to getVoteAccounts',
+      'the RPC of this host does not list the vote account',
+    ]
+  ) {
+    assert(quiet.includes(text), `check 1 says what the host did: ${text}`)
   }
 })
 

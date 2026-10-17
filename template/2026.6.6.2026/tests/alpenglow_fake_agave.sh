@@ -20,7 +20,11 @@
 #   wait-for-restart-window, contact-info --output json
 #
 # Knobs: VOTOR_DELAY (2) NO_VOTOR_LINE (0) CHURN_FOREVER (0) GATE (1: the cluster runs
-#        Alpenglow, 0: it runs TowerBFT) TARGET_VOTES (1) VOTE_AFTER (1) ADD_VOTER (ok)
+#        Alpenglow, 0: it runs TowerBFT) NO_ALPENGLOW_VOTES (0; 1: the vote account has not voted
+#        since the genesis certificate, so the gate needs no vote history file, as
+#        should_require_vote_history_file in core/src/validator.rs) TARGET_VOTES (1)
+#        VOTE_AFTER (1) ADD_VOTER (ok) SET_IDENTITY (ok; error: the admin RPC answers with an
+#        error and changes nothing; slow: the identity changes and the command takes 25 seconds)
 set -u
 box=${FAKE_BOX:?FAKE_BOX names the box}
 # shellcheck disable=SC1091
@@ -32,6 +36,8 @@ GATE=${GATE:-1}
 TARGET_VOTES=${TARGET_VOTES:-1}
 VOTE_AFTER=${VOTE_AFTER:-1}
 ADD_VOTER=${ADD_VOTER:-ok}
+NO_ALPENGLOW_VOTES=${NO_ALPENGLOW_VOTES:-0}
+SET_IDENTITY=${SET_IDENTITY:-ok}
 
 ledger=
 if [ "${1:-}" = "-l" ]; then
@@ -98,13 +104,17 @@ set-identity)
     new=$STAKED
   fi
   record "$@"
+  if [ "$SET_IDENTITY" = error ]; then
+    echo "Validator command failed: admin rpc error: JSON-RPC error: Error { code: InternalError, message: \"Failed to apply new identity to the network layer\", data: None }"
+    exit 1
+  fi
   current=$(cat "$box/identity")
   if [ "$new" = "$STAKED" ]; then
     if [ "$require_tower" = 1 ] && [ ! -e "$ledger/tower-1_9-$STAKED.bin" ]; then
       echo "Validator command failed: admin rpc error: Unable to load tower file for identity $STAKED"
       exit 1
     fi
-    if [ "$require_vote_history" = 1 ] && [ "$GATE" = 1 ] && [ ! -e "$(vote_file)" ]; then
+    if [ "$require_vote_history" = 1 ] && [ "$GATE" = 1 ] && [ "$NO_ALPENGLOW_VOTES" != 1 ] && [ ! -e "$(vote_file)" ]; then
       echo "Validator command failed: admin rpc error: Unable to load vote history file for identity $STAKED: IO Error. The vote account has prior Alpenglow votes. Ensure the vote history file is present or (dangerous) use --do-not-require-vote-history if you know what you're doing"
       exit 1
     fi
@@ -156,6 +166,7 @@ set-identity)
     ) >/dev/null 2>&1 </dev/null &
     echo $! >>"$box/pids"
   fi
+  [ "$SET_IDENTITY" = slow ] && sleep 25
   ;;
 *)
   record "$@"
