@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "scope": "Byte-identity evidence for the data file retained in the exact Cargo source-vendor archive; it does not assert a denort binary target.",
+  "archive": {
+    "url": "https://static.crates.io/crates/deno_core_icudata/deno_core_icudata-0.77.0.crate",
+    "sha256": "a9efff8990a82c1ae664292507e1a5c6749ddd2312898cdf9cd7cb1fd4bc64c6"
+  },
+  "archive_data_path": "src/icudtl.dat",
+  "archive_data": {
+    "bytes": 10822192,
+    "sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612"
+  },
+  "pinned_upstream_data": {
+    "icu_version": "77.1",
+    "commit": "f2765f39298a73f0c8023109242c33dae4c71b30",
+    "url": "https://chromium.googlesource.com/chromium/deps/icu/+/f2765f39298a73f0c8023109242c33dae4c71b30/common/icudtl.dat?format=TEXT",
+    "bytes": 10822192,
+    "sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612"
+  },
+  "result": "The complete archive data bytes and fixed upstream ICU data bytes have the same size and SHA-256.",
+  "qualification": "This identifies the ICU data provenance only. It does not assert an exact RustyV8 release route or that every code-only item in the upstream ICU distribution ships."
+}

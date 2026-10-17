@@ -1,0 +1,285 @@
+[
+  {
+    "path": "extensions/ANGLE_instanced_arrays/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "213f7e7636e8df0c390a18ad1339618335d7744970837998a191c275f7d1a95c"
+  },
+  {
+    "path": "extensions/EXT_blend_minmax/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "d1798c0faf13dfa7930032994f5a47c07b6f2f44b45d033059bfcffb7c1d579c"
+  },
+  {
+    "path": "extensions/EXT_color_buffer_float/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "48dacbcce0e0e96c206fc6dd2050266680ba24c2f6b254c3a6871c8715639d36"
+  },
+  {
+    "path": "extensions/EXT_color_buffer_half_float/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "1900351880046b495af97e6d38e9f3213538b133f74625a4dd73165d43e7710c"
+  },
+  {
+    "path": "extensions/EXT_disjoint_timer_query/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "5f3502d9359932bb19cb866ad01a35f774851e7290ef7cbafcaa0d67175a29d5"
+  },
+  {
+    "path": "extensions/EXT_disjoint_timer_query_webgl2/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "81f643d90164e86c2a98b4053d7f8db233dc3c3339422f3f575df7da9ba8a518"
+  },
+  {
+    "path": "extensions/EXT_float_blend/extension.xml",
+    "byte_equal": false,
+    "upstream_sha256": "92584a0635dc740612bc672a638affc9558b5b08a2fe20b8f8ba139365ffb3aa"
+  },
+  {
+    "path": "extensions/EXT_frag_depth/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "d19cf823811272352972ac4cb1d37405dcf63a91c48c1dd046e475487fecf9ea"
+  },
+  {
+    "path": "extensions/EXT_sRGB/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "7688ba25fa05558fbae72b21661e5bece2c36e899fe78da83bc8a172db9622fd"
+  },
+  {
+    "path": "extensions/EXT_shader_texture_lod/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "f1e5741d5d12d6e9a6bbc95049da2ec62ee55a4d1b6ec7b03e87e9f91282c6cb"
+  },
+  {
+    "path": "extensions/EXT_texture_compression_bptc/extension.xml",
+    "byte_equal": false,
+    "upstream_sha256": "8ba3acee68719e60cbf260bd7b54792c3e17e43e2b313e3e93cbd486578aa7c6"
+  },
+  {
+    "path": "extensions/EXT_texture_compression_rgtc/extension.xml",
+    "byte_equal": false,
+    "upstream_sha256": "c30181b6f6fd939e488e18a594517a4881f84b940010994ddc46c0d12c309ebb"
+  },
+  {
+    "path": "extensions/EXT_texture_filter_anisotropic/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "131ed0429a9951c05ae5c30859179f47c99b9bd6f47ca2825bdecf791f0188b6"
+  },
+  {
+    "path": "extensions/KHR_parallel_shader_compile/extension.xml",
+    "byte_equal": false,
+    "upstream_sha256": "11b9a681a10a3a3419b3a71ec03d2468b0895b808d62e732332fda29cca7bc1e"
+  },
+  {
+    "path": "extensions/OES_element_index_uint/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "734f7a90af440ea559fa0fe777144aaef8acc7de94a8c3ce153a75ff85cb1f6b"
+  },
+  {
+    "path": "extensions/OES_fbo_render_mipmap/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "43bede667b814b80e15b5af463620c53f6fa9e1a610c2e9756ad2fa55b9f7589"
+  },
+  {
+    "path": "extensions/OES_standard_derivatives/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "2fa53259457d9f6042194bfb13c0db4b3c63d2d99d9e44f057d8fe4d5b28fe69"
+  },
+  {
+    "path": "extensions/OES_texture_float/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "42a782fcc2cafd3df9ea33c9259343c66b3fbd2ebfc216dc20ee6be53481f042"
+  },
+  {
+    "path": "extensions/OES_texture_float_linear/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "98041c4427f5abf741eb2c34e23f9b8c84090d4d5b4e2e0f1b04f9b53c73259a"
+  },
+  {
+    "path": "extensions/OES_texture_half_float/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "14cb4ce4e6f259fcb6ce0d988c4e81880299f28343cdcba4f7abbf8956207529"
+  },
+  {
+    "path": "extensions/OES_texture_half_float_linear/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "d2f29c9a9bf31e757fc8c6da277cdb813350a1504be773c3bd105bfa92e45502"
+  },
+  {
+    "path": "extensions/OES_vertex_array_object/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "8262ec860c2af3b23daacc27a17bcf29054bcc03baf59f90779c4e53fc469f41"
+  },
+  {
+    "path": "extensions/WEBGL_color_buffer_float/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "d68800fe416384a951fe45fdbcb324494d848cbecdecbdcacf7bbafe8a2aae93"
+  },
+  {
+    "path": "extensions/WEBGL_compressed_texture_astc/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "9ba9c29e7e09aa8ec950ec70c79eae42c6f844d354b49fc88d9f048318a9c400"
+  },
+  {
+    "path": "extensions/WEBGL_compressed_texture_etc/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "d926f0a7f533ea6ce43215a7e90f35064e1a51df539e04c49a2e918f69943aad"
+  },
+  {
+    "path": "extensions/WEBGL_compressed_texture_etc1/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "02a008b04a5b40e274023defe3a2fb94f06a2150c059ae703c282faa6b6b4b0e"
+  },
+  {
+    "path": "extensions/WEBGL_compressed_texture_pvrtc/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "1570f8ebb56480908e46706683182a097928e8e0a2e992e3eab8f1a2c16124c9"
+  },
+  {
+    "path": "extensions/WEBGL_compressed_texture_s3tc/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "87585ba713ad1a8dd5c04fd24a7068a0cf88799ea697e940752c68698de0c707"
+  },
+  {
+    "path": "extensions/WEBGL_compressed_texture_s3tc_srgb/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "e22e01bd35b437adabfc7592f5eb6d750fdaabac61b0f79561fe58e860843993"
+  },
+  {
+    "path": "extensions/WEBGL_debug_renderer_info/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "af71073e0031b0296b7e5b609cdd272458cbae434a7fa31649054be0969a72e0"
+  },
+  {
+    "path": "extensions/WEBGL_debug_shaders/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "fc8c59747ee8cc289aa269c6ac5b6a45f7dc036d509209ace8db7062481a1abe"
+  },
+  {
+    "path": "extensions/WEBGL_depth_texture/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "5d91c9b8252b9f3a19f3f6a2f861a660d200446cfcaf09fa2a337e6f6b2dd5bd"
+  },
+  {
+    "path": "extensions/WEBGL_draw_buffers/extension.xml",
+    "byte_equal": false,
+    "upstream_sha256": "898735bc95fd00172b687e03ff43ca429c724f7724951bbcb88893fd6f49a1d8"
+  },
+  {
+    "path": "extensions/WEBGL_lose_context/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "71defc6045fefdf7b14cd2d1fe4a432d504b2567e7acb1e77b8737aea7ba1bb0"
+  },
+  {
+    "path": "extensions/WEBGL_multiview/extension.xml",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "path": "extensions/WEBGL_security_sensitive_resources/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "99634c2e0117d7abb9b44bbd64d8c4e8c8ebbcfe6342222dfc624b05e8532249"
+  },
+  {
+    "path": "extensions/proposals/EXT_clip_cull_distance/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "a4f9b465b1e1efa0367a8fbbada7a6156ffb3e4ee1c677a0d220a7ea1402a260"
+  },
+  {
+    "path": "extensions/proposals/EXT_multi_draw_arrays/extension.xml",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "path": "extensions/proposals/WEBGL_blend_equation_advanced_coherent/extension.xml",
+    "byte_equal": false,
+    "upstream_sha256": "6498d19325425245341fbf3344de31be70599c5abeb532f5455d795ef756a9fe"
+  },
+  {
+    "path": "extensions/proposals/WEBGL_debug/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "c8cdbb65c17dfe4851e7a56094c492b835f76f06a9cdb1b3fd273584357864b1"
+  },
+  {
+    "path": "extensions/proposals/WEBGL_dynamic_texture/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "7f5bc906ba61037befd4acd9fc39209d2e4bd8eea20ba01f34ebe4700bfd1806"
+  },
+  {
+    "path": "extensions/proposals/WEBGL_subarray_uploads/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "87cde732f220d4b54faaef1e6d5efc6174849c1b54983908084659f525c7f40f"
+  },
+  {
+    "path": "extensions/proposals/WEBGL_texture_multisample/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "338f0fc6f62bf875a0f7b19e4c284ed48e5a76e791e55414843659cf402636da"
+  },
+  {
+    "path": "extensions/proposals/WEBGL_texture_source_iframe/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "378beada6abe201a0ebdb68a3935e8bf27f620ae2653d696a38df9e499808eda"
+  },
+  {
+    "path": "extensions/proposals/WEBGL_video_texture/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "b9e0ffa1cf37c827b9be82d71adcd40ce44d05e434a87d174b289c7a5b9d30b0"
+  },
+  {
+    "path": "extensions/rejected/EXT_texture_storage/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "9fb3883d1b6d73e09b03129a30845031e0b27c9003b9fb0e2f2b2b2d5a9dbb1e"
+  },
+  {
+    "path": "extensions/rejected/OES_depth24/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "159c541fc025c3d454887cdedd1ff5c19ed17e9356c63d95510d70c586502af7"
+  },
+  {
+    "path": "extensions/rejected/WEBGL_compressed_texture_atc/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "43eab8d74ffb5799f2410a884d79bd4574531070a53947c334d71910c5a9bdee"
+  },
+  {
+    "path": "extensions/rejected/WEBGL_debug_shader_precision/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "f618d6f82e21cf78146e86c396a3d7b3dd51cf778ab2dc7a504834d835abc5c8"
+  },
+  {
+    "path": "extensions/rejected/WEBGL_draw_elements_no_range_check/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "a3a616760a9cca44ecca27e8a8afd49679974f1bf0dfd4624231bcffaf4aec54"
+  },
+  {
+    "path": "extensions/rejected/WEBGL_get_buffer_sub_data_async/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "188b33f4972e400550bbd1be58f29d9a0bc24a8da09203edc2f3e6f1a595679b"
+  },
+  {
+    "path": "extensions/rejected/WEBGL_shared_resources/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "cab1d86d6c853c11acf42044c4caea97103c70440c87688979c9f1cc18d622a6"
+  },
+  {
+    "path": "extensions/rejected/WEBGL_subscribe_uniform/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "7ec77103308177cdfa0efbc995f62151622c30bab46a4ee191e04520c51965ae"
+  },
+  {
+    "path": "extensions/rejected/WEBGL_texture_from_depth_video/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "eabf2a9003050f8ef5ceb4d5cc0fafc98977aef407fb4060d08d704884a3d462"
+  },
+  {
+    "path": "extensions/template/extension.xml",
+    "byte_equal": true,
+    "upstream_sha256": "8da65e0a5d053bf36373c6fcfdf7d8fa2738c48345671cf61b62e30ba9cce117"
+  },
+  {
+    "path": "specs/latest/1.0/webgl.idl",
+    "byte_equal": false,
+    "upstream_sha256": "823d8f551140cdb867ce25abf17d2c705bbc99d2f2ed6fe7b14cf489791f61c3"
+  },
+  {
+    "path": "specs/latest/2.0/webgl2.idl",
+    "byte_equal": true,
+    "upstream_sha256": "4e9ba68c298e76e85f312f86d474975da4ce656e35c2ad4a8c706437d50253a1"
+  }
+]

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "fqdn@0.5.2",
+    "archive": {
+      "url": "https://static.crates.io/crates/fqdn/fqdn-0.5.2.crate",
+      "sha256": "886ac788f62d16d6b0f26b2fa762b34ef16ebfb4b624c2c15fbcadc9173c0f72"
+    },
+    "license_declared": "MIT",
+    "license_selected": "MIT",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "mit_standard_body"
+    ],
+    "original_authors": [
+      "Xophe <christophe.dousson@orange.com>"
+    ],
+    "notes": [
+      "Preserve actually published attribution/notices; no synthetic copyright holder/year. An absent copyright notice remains recorded as absent, not invented. Source declaration plus full authentic standard terms and original notices constitutes this narrow proposed resolution."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "MIT",
+    "authors": [
+      "Xophe <christophe.dousson@orange.com>"
+    ],
+    "repository": "https://github.com/Orange-OpenSource/fqdn",
+    "homepage": null,
+    "description": "FQDN (Fully Qualified Domain Name)",
+    "license-file": null,
+    "package": "fqdn@0.5.2",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"Xophe <christophe.dousson@orange.com>\"]",
+          "license = \"MIT\""
+        ]
+      ],
+      [
+        "README.md",
+        [
+          "[![License](https://img.shields.io/badge/license-MIT-blue?style=flat)](https://crates.io/crates/fqdn)"
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "mit_standard_body",
+      "path": "evidence/cargo-resolution/fqdn@0.5.2/terms-mit_standard_body.txt",
+      "sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+      "source": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+        "source_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+        "body_sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+        "transform": "Keep bytes from Permission is hereby granted through EOF; omit standard template title/unfilled copyright placeholder. Attribute as standard terms supplement. Preserve original package attribution/notices separately."
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

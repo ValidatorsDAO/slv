@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "lazy-regex-proc_macros@3.1.0",
+    "archive": {
+      "url": "https://static.crates.io/crates/lazy-regex-proc_macros/lazy-regex-proc_macros-3.1.0.crate",
+      "sha256": "44bcd58e6c97a7fcbaffcdc95728b393b8d98933bfadad49ed4097845b57ef0b"
+    },
+    "license_declared": "MIT",
+    "license_selected": "MIT",
+    "resolution_kind": "recovered-pinned-upstream-license",
+    "text_refs": [
+      "lazy_regex"
+    ],
+    "original_authors": [
+      "Canop <cano.petrole@gmail.com>"
+    ],
+    "notes": [
+      "All 3 Rust files and Cargo.toml.orig byte-equal under src/proc_macros."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "MIT",
+    "authors": [
+      "Canop <cano.petrole@gmail.com>"
+    ],
+    "repository": null,
+    "homepage": null,
+    "description": "proc macros for the lazy_regex crate",
+    "license-file": null,
+    "package": "lazy-regex-proc_macros@3.1.0",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"Canop <cano.petrole@gmail.com>\"]",
+          "license = \"MIT\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "lazy_regex",
+      "path": "evidence/cargo-resolution/lazy-regex-proc_macros@3.1.0/terms-lazy_regex.txt",
+      "sha256": "89461664ce2aee7d80ea8fba7118fe7abd490d76ba435cf1d81d3128e060711f",
+      "source": {
+        "url": "https://raw.githubusercontent.com/Canop/lazy-regex/cc1e0888ba501509b4d38ba4c30142625c651343/LICENSE",
+        "sha256": "89461664ce2aee7d80ea8fba7118fe7abd490d76ba435cf1d81d3128e060711f"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

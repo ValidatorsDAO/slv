@@ -1,0 +1,778 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/external/github.com/fastfloat/fast_float.git",
+  "commit": "05087a303dad9c98768b33c829d398223a649bc6",
+  "tree": "d4eae0d5654ec3b4dd8414ea16fcf48480035a00",
+  "files": [
+    {
+      "path": ".bazelrc",
+      "mode": "100644",
+      "blob": "f33ebf5f766ed22d9c727d8e1ef82ac50fbb375f",
+      "sha256": "8c34885bbcabc87c6a7c3eb183a62e86e10699166c42c7ea5880751a4abf6f99",
+      "size": 29
+    },
+    {
+      "path": ".cirrus.yml",
+      "mode": "100644",
+      "blob": "ad6c3458b4cad6b86b6c3273931ae36705b8adff",
+      "sha256": "f6c7e476e16818cc8b1a9b86536c02f15cf9e10fbe04767cbbffefda9016b232",
+      "size": 410
+    },
+    {
+      "path": ".clang-format",
+      "mode": "100644",
+      "blob": "58108c414c4c7128d6cab14d2ec1af31b4cdf69f",
+      "sha256": "b64fcac190cdf7bfc53cf858e51cec3c9c653672299486ed9403643128903190",
+      "size": 95
+    },
+    {
+      "path": ".github/dependabot.yml",
+      "mode": "100644",
+      "blob": "be006de9a1ae3b9628e796c74277cd6d61e0a34a",
+      "sha256": "2ab843b48c3aaa76f083b45d309e3554806afc07833cbe71ae1d9c546ebcc18f",
+      "size": 579
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug_report.md",
+      "mode": "100644",
+      "blob": "8a5ba71cdc112c1f843c4a36940bab439e94238e",
+      "sha256": "55173df1ed776fada7f7ba556256069e2fc75416fcc82123c210f36211de3cfd",
+      "size": 740
+    },
+    {
+      "path": ".github/pull_request_template.md",
+      "mode": "100644",
+      "blob": "2620e2c4ead3050c9e2676683b31d47ab61c2932",
+      "sha256": "77a89bdff2c5369dc02ecac210b4cab8f951d5112a0f085fd000f847ed22cbfa",
+      "size": 845
+    },
+    {
+      "path": ".github/workflows/alpine.yml",
+      "mode": "100644",
+      "blob": "7917a051e35c903780973095f04c3fec879ed9b0",
+      "sha256": "a2d65a5f6d22b79ee10c2687bbe0bb8693562f772686c80485d3e2256539bb0f",
+      "size": 1082
+    },
+    {
+      "path": ".github/workflows/amalgamate-ubuntu24.yml",
+      "mode": "100644",
+      "blob": "6d2d29e9924a70bbaa4ede5b3ab92cfe638d97ba",
+      "sha256": "6609c3ce3d32a65a1bcdc916c8f5eb263edea07b345cc07d98b37f0f668e5f3c",
+      "size": 446
+    },
+    {
+      "path": ".github/workflows/cifuzz.yml",
+      "mode": "100644",
+      "blob": "704d5f16859f363be402fd29a62244cfd50883e5",
+      "sha256": "93587811fec11930d705a549768fce28e313cabcc19efa4766b40236c1db8434",
+      "size": 1013
+    },
+    {
+      "path": ".github/workflows/emscripten.yml",
+      "mode": "100644",
+      "blob": "d991a2c6b103d8e475eb4154382004badb491aa2",
+      "sha256": "2461cb202f002c3ce76d3a15b0fd63464b56c17dbc46f4e40da106a9b320d72e",
+      "size": 614
+    },
+    {
+      "path": ".github/workflows/lint_and_format_check.yml",
+      "mode": "100644",
+      "blob": "df040cea507b5c8e22310eb79ae3685243c46b45",
+      "sha256": "dc7e018d4ec062d837cb3de92dab55ff394c81cc7ec66079f9df8d51c066b0f1",
+      "size": 688
+    },
+    {
+      "path": ".github/workflows/msys2-clang.yml",
+      "mode": "100644",
+      "blob": "c6f8747d1df55030945cc1b2f4a80126863b581c",
+      "sha256": "432342935f1b3266c6cf3d47d0274423894b08fc1cceff67a39e91904c72b27d",
+      "size": 1012
+    },
+    {
+      "path": ".github/workflows/msys2.yml",
+      "mode": "100644",
+      "blob": "6274913541f32dc0f2113d870ab0e5f6b09b1c36",
+      "sha256": "55a3453be37f4b5630a9c55651d7c30afcbc6842ade2af0ce71bbafdbebfc006",
+      "size": 1093
+    },
+    {
+      "path": ".github/workflows/on-release.yml",
+      "mode": "100644",
+      "blob": "a68df4edde0ffe0b7ba2822450c3ff66f85cadb6",
+      "sha256": "067dd41f9c15e7c1ca8d64e550ea817efc0db53c5c9a47468e927ffde2556f76",
+      "size": 997
+    },
+    {
+      "path": ".github/workflows/risc.yml",
+      "mode": "100644",
+      "blob": "6609cffd47c7079cc2cfd689776b97b5e26358e5",
+      "sha256": "9ff552d6f11125b9f05941b47f6e6eb685528baad938ec50189776e438847a28",
+      "size": 832
+    },
+    {
+      "path": ".github/workflows/s390x.yml",
+      "mode": "100644",
+      "blob": "db7a03d30aa8a495e2340c03778b3378c6886bea",
+      "sha256": "49ba89c2d3d04e1922a86ad48deade88f5be3e6d8ab87c709fbd91212ddfefcb",
+      "size": 684
+    },
+    {
+      "path": ".github/workflows/ubuntu22-clang.yml",
+      "mode": "100644",
+      "blob": "4d7f49fdca8d96e46d6d7ed44e4e78315d353a16",
+      "sha256": "e9bc3309a97a782a57349aa402048f1f6dfbd165470af8119b5e32fb66dde901",
+      "size": 730
+    },
+    {
+      "path": ".github/workflows/ubuntu22-gcc12.yml",
+      "mode": "100644",
+      "blob": "a32033c60d132733dff8f0f2c0bf69bd24414510",
+      "sha256": "9869a502b774dd69fe0ed238a23906168ca92d66d6acfe5e1fc925ca9bc27ae2",
+      "size": 673
+    },
+    {
+      "path": ".github/workflows/ubuntu22-sanitize.yml",
+      "mode": "100644",
+      "blob": "b7f96602887f584ba27f9745f86800a777288ade",
+      "sha256": "d81115531ecce156892e7f773adc438b3ec2450988ed07ef981ba8a9adb6f2c7",
+      "size": 386
+    },
+    {
+      "path": ".github/workflows/ubuntu22.yml",
+      "mode": "100644",
+      "blob": "09dac2b5cfccc6d634ec20b47f6f12fc08007212",
+      "sha256": "293d92ffb96d2ce554c37409aa014c5c1b7ee8590bff2eab04a0a1b56ca5597f",
+      "size": 351
+    },
+    {
+      "path": ".github/workflows/ubuntu24-cxx20.yml",
+      "mode": "100644",
+      "blob": "1d451c98e58505b98e9b38930d3d772057a15f5d",
+      "sha256": "30c6c29d0f0ca46e6e16e500381e331cdf494050fe5495ef7988c0273c1f14cd",
+      "size": 479
+    },
+    {
+      "path": ".github/workflows/ubuntu24.yml",
+      "mode": "100644",
+      "blob": "09c82c8f95959a91ee813b64a3574faf6edc4623",
+      "sha256": "c2dd167f455fd3847793fa7de1e328677c198a2b7cef3fe27ff955b14d0036ad",
+      "size": 868
+    },
+    {
+      "path": ".github/workflows/vs17-arm-ci.yml",
+      "mode": "100644",
+      "blob": "9eef0129eac58d6be718f20159b470c8f08280e5",
+      "sha256": "ede0a5826c026df2a8f8bc7625f6532b0ad0ddec3a5aa87ec0865b750b00cfc3",
+      "size": 837
+    },
+    {
+      "path": ".github/workflows/vs17-ci.yml",
+      "mode": "100644",
+      "blob": "39a5bd40555cbd166ba09feecea48504d4880a01",
+      "sha256": "70be2a7b16fab10a90cfd7af58ae889ee26b35f12c6933aa0d393998b5e0512f",
+      "size": 1662
+    },
+    {
+      "path": ".github/workflows/vs17-clang-ci.yml",
+      "mode": "100644",
+      "blob": "25a54b867ef83a565620935738b875a321fa85cf",
+      "sha256": "4f3d50bfdfb4179e56628efd603fcaa5517c52b60844174e0351893f26e5a629",
+      "size": 937
+    },
+    {
+      "path": ".github/workflows/vs17-cxx20.yml",
+      "mode": "100644",
+      "blob": "dda7afc160b1daf95895f9d1bf942fa9fe4f8bbf",
+      "sha256": "22e902d15193b55b14e4d85346f9dc1366cae93759f00ddf41de6501b8ed39ce",
+      "size": 1031
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "blob": "17a55c1df263e16db7e410f269cdf9c4b9b2c02a",
+      "sha256": "c7951ca7824749bb82bc4b0b90762a77352825a0eec6f15ff2752775c8f22af8",
+      "size": 229
+    },
+    {
+      "path": ".travis.yml",
+      "mode": "100644",
+      "blob": "ae854aed89d49c68885caaed3e13c260cb833952",
+      "sha256": "a020c7fbc1d329bc167d50e274587bbd63dfeb26a73c66cd8f82bbe91f098655",
+      "size": 5396
+    },
+    {
+      "path": "AUTHORS",
+      "mode": "100644",
+      "blob": "60c9425823208d8fe9400445ffcd648cc03480fe",
+      "sha256": "ed249424bce4e318fa190dd6d8becf60cfc37287132ad3f89e16e0f28d878dcf",
+      "size": 36
+    },
+    {
+      "path": "benchmarks/bench_ip.cpp",
+      "mode": "100644",
+      "blob": "825a6b0a1913ff0d9b8c19da559d976ae3575b7b",
+      "sha256": "2cac7ca0622bb9bea20e136ec3771be99f3db2443d5e2df386b4033bade66282",
+      "size": 5487
+    },
+    {
+      "path": "benchmarks/bench_uint16.cpp",
+      "mode": "100644",
+      "blob": "c4cef81b5b22220aa7dfe9e70a866665ec9d758b",
+      "sha256": "7d9364b2e24814e8c5c4f3762a64585fc4f5eebe65b006b348dabafbe57f6d5c",
+      "size": 4361
+    },
+    {
+      "path": "benchmarks/benchmark.cpp",
+      "mode": "100644",
+      "blob": "d90038ed36846cbb04d85f023f6e7da1ff0e0370",
+      "sha256": "7006b02cd110eada69a3a44111130d60603aa700fda65df2143cccf774f24134",
+      "size": 7976
+    },
+    {
+      "path": "benchmarks/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "81ea92a6b41b291c571d0d93e3a13f93b678c444",
+      "sha256": "61f4158d334b9f30fd8bc94d2373bac1af593ac8b84a38cf10dd1631ba29b02d",
+      "size": 1680
+    },
+    {
+      "path": "BUILD.bazel",
+      "mode": "100644",
+      "blob": "b08e90908221939ca75024410cef6a465f21d018",
+      "sha256": "6821289891d7818be2404087654e022935e41c243476ab0a229e4110f72c2d43",
+      "size": 216
+    },
+    {
+      "path": "ci/script.sh",
+      "mode": "100755",
+      "blob": "c9894c7a26454b0d75fe33ecbf13efce5c9435a5",
+      "sha256": "a7dfcf1da762322eed38ebdfea5b6dc3344a384bd7c1e03ee663eb1ab248db0f",
+      "size": 342
+    },
+    {
+      "path": "clang-format-ignore.txt",
+      "mode": "100644",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "cmake/config.cmake.in",
+      "mode": "100644",
+      "blob": "035dc0fa0b54c0628ac9b546c8e6e6ad89cd5868",
+      "sha256": "73b9705f76279c3879dcdb03b408a3ae81fa0aa8b2befcc7e4bfb027a609c960",
+      "size": 126
+    },
+    {
+      "path": "cmake/toolchains-ci/riscv64-linux-gnu.cmake",
+      "mode": "100644",
+      "blob": "ed58a2dba203088df95a28af7a416fcc70c47911",
+      "sha256": "2116f00c18f9d20e500f882e817899feaf6371d8b9d28c0ec6f83535e1200b64",
+      "size": 123
+    },
+    {
+      "path": "CMakeLists.txt",
+      "mode": "100644",
+      "blob": "e7cedc2a4677de803e535dee31b2427a791a160d",
+      "sha256": "8286712f18bf8afbe7198d17f239119e4cf5f6f5e8c7e7e9583d3e1420949a5d",
+      "size": 3507
+    },
+    {
+      "path": "CONTRIBUTORS",
+      "mode": "100644",
+      "blob": "4b705554c064299c99452484cf2ea332a0b9e28e",
+      "sha256": "32fadf79865946e5decc1ed89dd6aa509bd922ff54f85a47a0c94667dc282d17",
+      "size": 158
+    },
+    {
+      "path": "fuzz/build.sh",
+      "mode": "100644",
+      "blob": "cce114d8ff55fe96416b7bdf2a957951f7e6539f",
+      "sha256": "bacf112f41fe6348c85f3ab35f1ad2310de07c13f56d42f55462f91761ce8c4b",
+      "size": 302
+    },
+    {
+      "path": "fuzz/from_chars.cc",
+      "mode": "100644",
+      "blob": "35fe9fe630846ee69ca0e4b17271aac339115207",
+      "sha256": "c4465b9c2bcfcbe903beb2b4f7f51289857d8ec877986b3b9f2e1de4969cf89f",
+      "size": 1258
+    },
+    {
+      "path": "include/fast_float/ascii_number.h",
+      "mode": "100644",
+      "blob": "12c2fddcd3bced1364176daeb3b08b85c73f4595",
+      "sha256": "1b3e0b915a91e94999a8f735131895db6114b540834786636943210e21cef77a",
+      "size": 24067
+    },
+    {
+      "path": "include/fast_float/bigint.h",
+      "mode": "100644",
+      "blob": "74901e3956f2ee87ebd3d1db43b4dc358a6818bc",
+      "sha256": "1ed0b598da0b522613399897ddc748792dee6f804debf9fee131359252f80763",
+      "size": 18631
+    },
+    {
+      "path": "include/fast_float/constexpr_feature_detect.h",
+      "mode": "100644",
+      "blob": "6751afecd6bbea2819b8d5b4eb012642c41da670",
+      "sha256": "2dd2dc5f98a8f1a78813e62d47e82a19ebe42af726356723d60f6eb387c6dd38",
+      "size": 1629
+    },
+    {
+      "path": "include/fast_float/decimal_to_binary.h",
+      "mode": "100644",
+      "blob": "948768265eb3d0e513d1d5e0d11ace75f2be44c9",
+      "sha256": "82fad8134c272a3f1bc545b3ef367a2e9e3c7464b9dcef75640c37e325dfb973",
+      "size": 8333
+    },
+    {
+      "path": "include/fast_float/digit_comparison.h",
+      "mode": "100644",
+      "blob": "c2c83b0cf5fbb25543e7aad41f77a43a55fa1d38",
+      "sha256": "0e2e0a4aad20c0a3a647d3d5adea57ee7a843750ea989594b3ca801bd66f8264",
+      "size": 15545
+    },
+    {
+      "path": "include/fast_float/fast_float.h",
+      "mode": "100644",
+      "blob": "eb822f58ed43c0683eb43a8bc7c48cdc5b6b7beb",
+      "sha256": "d2e07ef3ef8c2ccbd23c407d06dbce70883d32d17efd05ea9e1aca30417bde67",
+      "size": 3929
+    },
+    {
+      "path": "include/fast_float/fast_table.h",
+      "mode": "100644",
+      "blob": "69f9b2c9245f63dc57884807391377e754b2bf99",
+      "sha256": "c18e0a0a2513215730557cc1dd53541cacd72855ddc0287934e78b364f989edb",
+      "size": 31278
+    },
+    {
+      "path": "include/fast_float/float_common.h",
+      "mode": "100644",
+      "blob": "403eea1f2085c2e99c826e3bac9294cc373885a2",
+      "sha256": "76ef9197271076b25c2b1272dcd5ab4ca211dfff12fbd281c51d59f9e256afe4",
+      "size": 45011
+    },
+    {
+      "path": "include/fast_float/parse_number.h",
+      "mode": "100644",
+      "blob": "ff9c53d09fae21664460e53aa9623a2002b196cc",
+      "sha256": "b6250b11d136e42f699755e756db94b643bae894c5157b78d341d5f81f221bdd",
+      "size": 17642
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "mode": "100644",
+      "blob": "26f4398f24999c3908a11653e3b5ba6f9d681123",
+      "sha256": "097a889aa954d04e088b790b10a4014d6189561d0a6013935a73ce3d4ddaaf06",
+      "size": 10767
+    },
+    {
+      "path": "LICENSE-BOOST",
+      "mode": "100644",
+      "blob": "127a5bc39ba030c7cb99cc0aedc4f280ffe27310",
+      "sha256": "8d8291caf1cee26d23acf3eb67c9f9a2d58f1c681b16a4fbe8cbfb9e3c0b5a9b",
+      "size": 1337
+    },
+    {
+      "path": "LICENSE-MIT",
+      "mode": "100644",
+      "blob": "2fb2a37ad7fda521092c8b7b16911176c3f8a81b",
+      "sha256": "e562f3f974ced7e69dd1db77b820b36bcf8f30377f1aa105723fba449c53c4e6",
+      "size": 1079
+    },
+    {
+      "path": "MODULE.bazel",
+      "mode": "100644",
+      "blob": "9f63ac4ef58a5fd0aee3c820c51dfb7868da6a19",
+      "sha256": "3354e6986778354fc8c8677a85b09f668d13e0cd4c7f9c96e3ababd69fa4e885",
+      "size": 273
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "blob": "be0f1f56c51ea088c80b93776813acf2f79a1b7c",
+      "sha256": "d7ebabbf7f49d512a1a71082e4473df90c95a078e9d76088d241f8988205a20b",
+      "size": 23889
+    },
+    {
+      "path": "script/amalgamate.py",
+      "mode": "100644",
+      "blob": "78e9961ba55d323bc9223f1228ea04097885a8e7",
+      "sha256": "ade0944e10dda117b34a21a4837c7725d85c5c047069499455147eb93a776882",
+      "size": 3758
+    },
+    {
+      "path": "script/analysis.py",
+      "mode": "100644",
+      "blob": "08f5c495c2b6686ba12c3e20d8b26c7a2cb97648",
+      "sha256": "0c3b5f687692f8a56449cf5ec66c41f79874d3e76eb73a67423a5d0ecf37e57b",
+      "size": 715
+    },
+    {
+      "path": "script/mushtak_lemire.py",
+      "mode": "100644",
+      "blob": "f03715cdc94a7090553fbc2cfeb37fcc4452216b",
+      "sha256": "01fba68acfcdc49cf90e38035c741d067a2ae36f6a64192848965c10d8e68fc6",
+      "size": 2357
+    },
+    {
+      "path": "script/release.py",
+      "mode": "100755",
+      "blob": "4bcf6c8000eda8c4717654a9910738e0bf8bc119",
+      "sha256": "19227895279475a641e86c7ed29c606813169deefa5ae03f709244af807eb8c8",
+      "size": 5415
+    },
+    {
+      "path": "script/run-clangcldocker.sh",
+      "mode": "100755",
+      "blob": "62a1df5bb468d205803cdea1570661c92882eab5",
+      "sha256": "75d13106aa8dcc2af06be2c65b00157c18d192a6ecea9ee7badb3c8312e135ae",
+      "size": 1151
+    },
+    {
+      "path": "script/table_generation.py",
+      "mode": "100644",
+      "blob": "223240f30abc2372a3a7be31ed68d976956b052a",
+      "sha256": "30917ac220e01fda1e15de8f0d969ed351cb82aade521ca51aec6d0aa3155e8e",
+      "size": 720
+    },
+    {
+      "path": "SECURITY.md",
+      "mode": "100644",
+      "blob": "87c4c9b35e31765c7a8b89f3ace62974d9301064",
+      "sha256": "84ad9681fb6615e1e8a168c488d7987ff18be69667e0bc3b636c7fd30150f3d7",
+      "size": 190
+    },
+    {
+      "path": "tests/basictest.cpp",
+      "mode": "100644",
+      "blob": "dba36e8ad1942a714930532505dd883633b63130",
+      "sha256": "9d7da40aba6707652044b1a947706149df79f6a56f47d34fe42edd7acaf9c1ee",
+      "size": 118576
+    },
+    {
+      "path": "tests/bloat_analysis/a1.cpp",
+      "mode": "100644",
+      "blob": "281f1aa3005c4eaa56599af99fe09bed1213e9aa",
+      "sha256": "07ddcc7eda89c63d321c8d94d0ae1e345a6bf826b77a2d4c0f82a3d7a3738ffb",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a10.cpp",
+      "mode": "100644",
+      "blob": "0838d53ae9324e0e5969185a61f56aa18a678829",
+      "sha256": "f4757eb96e47cc29d22d1e2d60b33ef010a53582646964cda7d3565dbeb86a87",
+      "size": 260
+    },
+    {
+      "path": "tests/bloat_analysis/a2.cpp",
+      "mode": "100644",
+      "blob": "60d8274d9352095b66b1d9f3342f458694dd09b3",
+      "sha256": "a05fec15c489a8fee61e07f033231aac4633f587562bd2ac46b236330cad36ca",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a3.cpp",
+      "mode": "100644",
+      "blob": "f99361b3c100030f9eeeef64a463c8a095240a4a",
+      "sha256": "75cf39d8afbec79815b6b597469181c3b7e55d0f720852f8c18cd4f937bc9652",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a4.cpp",
+      "mode": "100644",
+      "blob": "acfbc9f46e6bfdd6804f38fc936be127d30bc2e0",
+      "sha256": "2fc2776aad67456e93fbabd4680ca6b33fd07a476e02b604bbbaad7c68f6de51",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a5.cpp",
+      "mode": "100644",
+      "blob": "67dae636d3f7c0d839ab9da4310530393bb3983c",
+      "sha256": "7caf6ae067ecc3c951cdf6539ca0e092261b37c81d9e066e8ac6af1ef8ab1c7d",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a6.cpp",
+      "mode": "100644",
+      "blob": "b92dc109a3d083b8c6c6fd4d6f2a0fcdf55e172c",
+      "sha256": "c22ea6a82c1581ca10f0ea01fdb8cf3eb2163ebcc9bc131d3bcebf767b436dd3",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a7.cpp",
+      "mode": "100644",
+      "blob": "be8154ad5b81ce6630990d95b0261f11aaea028c",
+      "sha256": "702b7e71fc60cc37ff01ec9daf7e95116f8a5498826880624e11ae03b6d45c32",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a8.cpp",
+      "mode": "100644",
+      "blob": "79bffeb9e08577a45bce37c28680225ff854f65e",
+      "sha256": "3aa56cf85925924477b32fe4ed008c44ff398b0f48e9b005493c7a1496195d75",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/a9.cpp",
+      "mode": "100644",
+      "blob": "966732b0e9bd96d0fc1c9caa11bc59c7f0c3ddce",
+      "sha256": "1356f4598c07a0a7a811bbeea45a665b051641251bbb2a9bcf7bada0f4381dfb",
+      "size": 258
+    },
+    {
+      "path": "tests/bloat_analysis/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "435f48573b854ad7a1112f27b0c524b10dfa9a03",
+      "sha256": "fab0c0c00aa6eaa2eb0fbaf343a15986f3d565254751d23d1f574ef863007924",
+      "size": 248
+    },
+    {
+      "path": "tests/bloat_analysis/main_ref.cpp",
+      "mode": "100644",
+      "blob": "0ac21a82e5433983ca302f5b6381f0237659dca6",
+      "sha256": "475c30402aa5947b0ce5bf7455ec4825b1d35418a653698664643e412f7eda74",
+      "size": 338
+    },
+    {
+      "path": "tests/bloat_analysis/main.cpp",
+      "mode": "100644",
+      "blob": "ee07ae73106ce2b20a5ee7d49588bc1b24fcc46f",
+      "sha256": "d262cc634095cfe10ff5c9b3fe0755e96c4c4b0bcec50e3a91792af87e1934b6",
+      "size": 575
+    },
+    {
+      "path": "tests/build_tests/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "da762eb418d26d0a40508f3fe28fffeb1692a6a8",
+      "sha256": "3a0a0d3a124a91eaebf57d38d977e6171f4218784b3328156813618dfaee3f9c",
+      "size": 25
+    },
+    {
+      "path": "tests/build_tests/issue72/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "efe39a26e11b2ebca80ddc9bc9d878d8cb37e606",
+      "sha256": "be6305d5fb05233e467a740efb6ec2b05d8d6248f1914aba1f40c64742d1241c",
+      "size": 89
+    },
+    {
+      "path": "tests/build_tests/issue72/foo.cpp",
+      "mode": "100644",
+      "blob": "c24e0c00e3f658b9bc1d1e1184e1933bc60bb977",
+      "sha256": "8156324bf351da0f59878dc786b7269e682c9dcc6e725d697fbd28bef222c89f",
+      "size": 32
+    },
+    {
+      "path": "tests/build_tests/issue72/main.cpp",
+      "mode": "100644",
+      "blob": "68d7f8f655358fe167980b146463b096f45ff571",
+      "sha256": "1ddc672a73d2ff61c684313eb8f529804878d1dbfdd16de63f52e80ff43f2ae0",
+      "size": 43
+    },
+    {
+      "path": "tests/build_tests/issue72/test.h",
+      "mode": "100644",
+      "blob": "550a31b5a2783e5794817446437d9d100416e8ef",
+      "sha256": "e525776a325d75a85bade9fa413b06746ebc273998a307545ec9a042f64c7690",
+      "size": 47
+    },
+    {
+      "path": "tests/BUILD.bazel",
+      "mode": "100644",
+      "blob": "57d8c3425cba3c422ffc207f9b8669d4bece3d17",
+      "sha256": "51c9d1a299efe9b5af963d58984d52d0dd345efa525887dd86a3c3a30213c392",
+      "size": 1925
+    },
+    {
+      "path": "tests/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "a053581c35830227e3eb253635dd06b306aacf8d",
+      "sha256": "129e3a27e50c57633b292aef029d381248543cc5152c354875ec4dc6285327c1",
+      "size": 4307
+    },
+    {
+      "path": "tests/example_comma_test.cpp",
+      "mode": "100644",
+      "blob": "79a8e1d044e7fed0e7acd362650d627fb77aee6d",
+      "sha256": "db389edf2df1173efde3134ce979264b816cde615cd0435a26d9e65b8cce7c1c",
+      "size": 577
+    },
+    {
+      "path": "tests/example_integer_times_pow10.cpp",
+      "mode": "100644",
+      "blob": "0205c275d10fd935ba1e071843df1c0f75337632",
+      "sha256": "794add6a1dababb0ee5dc6a18fe9be96a390e5e127754d2bb0ec52d7fd96f694",
+      "size": 1175
+    },
+    {
+      "path": "tests/example_test.cpp",
+      "mode": "100644",
+      "blob": "cefaf29a017aa213bcfe0c7a5bd0dcbdff0e73c4",
+      "sha256": "a8289393f05fb25214433d3d3fc5c1be6cd87421dc862ac86a5ac5f2bc465f6c",
+      "size": 4084
+    },
+    {
+      "path": "tests/exhaustive32_64.cpp",
+      "mode": "100644",
+      "blob": "c453f284533616aca11b41a35ae5b5cb7d1019b1",
+      "sha256": "c61b921c4fb9159ac028d11a62e12e70d070112657dc112061295af1269ff9ea",
+      "size": 2099
+    },
+    {
+      "path": "tests/exhaustive32_midpoint.cpp",
+      "mode": "100644",
+      "blob": "0b97e2eb816b0d271a5a870e36962ac3bb749407",
+      "sha256": "60d19f08c824bc31300d47c0dbd4d24b6777debdc242989ec1bed2ca091528ef",
+      "size": 5823
+    },
+    {
+      "path": "tests/exhaustive32.cpp",
+      "mode": "100644",
+      "blob": "5e7de2d9955dc12c94484d86e577ec3feed80ac8",
+      "sha256": "8d621da502ea6d22d4b31ec4f20fe1fad1b626e30a85bdc2305384c3a6759df9",
+      "size": 2081
+    },
+    {
+      "path": "tests/fast_int.cpp",
+      "mode": "100644",
+      "blob": "94e76fdb7c53aafc6bffc137989e4dff5df27b95",
+      "sha256": "939f11d590207856ce0538ab7d0be26099a7d26e6c26f5742748489828ac0057",
+      "size": 45473
+    },
+    {
+      "path": "tests/fixedwidthtest.cpp",
+      "mode": "100644",
+      "blob": "35c5231add58ca1f675508e7928be85eadd2a19d",
+      "sha256": "e8b1d91d93a0668ca0a30cd9d28be014223400a7a07724c3b26e5abe628079c0",
+      "size": 2569
+    },
+    {
+      "path": "tests/fortran.cpp",
+      "mode": "100644",
+      "blob": "9167593e22f773c9754f7bb994611f5f2ea6cc22",
+      "sha256": "0690aca2d169fdcdb347b4c44422cfef4ca07aaac7bd4a3f3294ef97d780cd56",
+      "size": 2733
+    },
+    {
+      "path": "tests/installation_tests/find/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "080570373309d4ed32b4c53753919099e7f6195c",
+      "sha256": "0ec8bd29133eeef97f0dd99706efa27e354520c9954e17c9917b6316be1cd3c8",
+      "size": 915
+    },
+    {
+      "path": "tests/installation_tests/issue72_installation/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "e8234f952e64b29ac362314ef914bd15db4d69e1",
+      "sha256": "5ac477559e7febd35d08e99dd9628b2bf836e600cf77163c40ca055b14d89963",
+      "size": 595
+    },
+    {
+      "path": "tests/ipv4_test.cpp",
+      "mode": "100644",
+      "blob": "f3055dcbe22dd81e8b06c8a0e232252931cbd1d7",
+      "sha256": "2dedf4fc52eda7c6f43eec7bdd82374ab8801f5df22f22e693414e62b22efeee",
+      "size": 2405
+    },
+    {
+      "path": "tests/json_fmt.cpp",
+      "mode": "100644",
+      "blob": "1ba0d5ae7d6968c3a962bd765ec90161201880dd",
+      "sha256": "3245055a4f9a60df47297d565e8adf717e11930e1039c32598391bc56dcf8727",
+      "size": 5801
+    },
+    {
+      "path": "tests/long_exhaustive32_64.cpp",
+      "mode": "100644",
+      "blob": "840958815ad0faafe1e1da2ee7de9ea17931f4f1",
+      "sha256": "62b97070f2394844739383840bd434cfe055286c7ea77a3810cef884475618a3",
+      "size": 2173
+    },
+    {
+      "path": "tests/long_exhaustive32.cpp",
+      "mode": "100644",
+      "blob": "ef7d5be937afc1102dafb0e3e0c132676dd413bd",
+      "sha256": "714bfab13ca0d6af39726565b26258f481430d1e29a640bbfddc80ea027ab834",
+      "size": 2104
+    },
+    {
+      "path": "tests/long_random64.cpp",
+      "mode": "100644",
+      "blob": "86164160549c1f2f84caef22be63082340f1903a",
+      "sha256": "5cdfb7a83fde0aa659a99bc9cf38abc8bd94fe16ef45e8f5a953f1eb3c4b1c71",
+      "size": 3394
+    },
+    {
+      "path": "tests/long_test.cpp",
+      "mode": "100644",
+      "blob": "feab4d02c2712c443150123d2d280176230981aa",
+      "sha256": "a55a21b5413461f0f82ebd1b45bdd95f4000e384d921834e619a8a55b35512a4",
+      "size": 1810
+    },
+    {
+      "path": "tests/p2497.cpp",
+      "mode": "100644",
+      "blob": "fec5133ca49671b5e7cc55b9bb6bfa52f98779d2",
+      "sha256": "540be038976b3c274d67e9a27cf5d44ce90e48822f41f73f6b093d2ac21e019d",
+      "size": 423
+    },
+    {
+      "path": "tests/powersoffive_hardround.cpp",
+      "mode": "100644",
+      "blob": "5e2ec96f2c65c4a342b4d29a4c8f67d3a9973568",
+      "sha256": "bf9eee8e1bb440207f41de5d0cbd74c83d34026552e5f5cef3acc95f3a0748b8",
+      "size": 4100
+    },
+    {
+      "path": "tests/random_string.cpp",
+      "mode": "100644",
+      "blob": "940cd7a9ab46d5b2b3ccf31f6375b866498a5486",
+      "sha256": "0437a6af9770ea2b1a0b55339543c594f4aebc70a41942351ea5de4fd4e0921f",
+      "size": 8231
+    },
+    {
+      "path": "tests/random64.cpp",
+      "mode": "100644",
+      "blob": "d02735c5b85d35986a9812a2921d586eb722295c",
+      "sha256": "cef7131457fc2374b396e808f7615164f343982be8c2518e24930311bd4134ce",
+      "size": 3501
+    },
+    {
+      "path": "tests/rcppfastfloat_test.cpp",
+      "mode": "100644",
+      "blob": "0c939ca43b04daa9f0b03cc65d87c5ceb751314d",
+      "sha256": "688af37134b401e3081f0f7923673b21fd496bdb9a8cf1229d462f82070a4503",
+      "size": 3935
+    },
+    {
+      "path": "tests/short_random_string.cpp",
+      "mode": "100644",
+      "blob": "9008bf3abfc9de089997afbb30ef41b309d3fe1d",
+      "sha256": "956676c79ee3cdd412b30fbe07f71d329492b2295269959b681855c1c4d07ba8",
+      "size": 8151
+    },
+    {
+      "path": "tests/string_test.cpp",
+      "mode": "100644",
+      "blob": "69d2a31d2bf1797ad5f281a3f99d7a4913bf4f88",
+      "sha256": "df32f6a01084c26ef476449e9aff9dc28c2710e437c252e03f9c4c94a1331b41",
+      "size": 22294
+    },
+    {
+      "path": "tests/supported_chars_test.cpp",
+      "mode": "100644",
+      "blob": "3660f8184670d302c1f5642528f31764578f42d6",
+      "sha256": "71114dc9ea7787a5547c87490ee4355d564ac1ab16aea6c39bdda9f0067fe536",
+      "size": 1412
+    },
+    {
+      "path": "tests/wide_char_test.cpp",
+      "mode": "100644",
+      "blob": "3b6ccd69b98daf2b1a016dcff9f38ec773049929",
+      "sha256": "04663beea4badc244c681cc540d057e5ebd2080cfbaf2fd55889d4954fc69e8a",
+      "size": 1704
+    }
+  ]
+}

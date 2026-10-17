@@ -60,8 +60,9 @@ This script:
 5. Creates and pushes a release branch
 6. Opens the release Pull Request
 
-After running this script, GitHub Actions will automatically build and publish
-the release after the PR is merged.
+The command creates a release PR from the reviewed `main` commit. Configure CI
+release publishing before merging that PR; this script does not publish a
+release or rely on a tag trigger by itself.
 
 ## Release Process
 
@@ -75,20 +76,37 @@ The recommended release process is:
    Do not update only `cmn/constants/version.ts` by hand — the release flow must
    also run `update-version.ts` so the CLI version, installer, template archive,
    versioned shell installer, and `template/latest` all stay in sync.
-3. GitHub Actions will automatically:
-   - Run tests
-   - Build the Linux binary and upload the staged macOS binary
-   - Upload artifacts to storage
-   - Create a GitHub release
+3. After review, merge the release PR when the hosted delivery workflow is ready
+   to build and package the final same-SHA release.
 
-For heavy compilation tasks, you can use the remote build workflow:
+If generation, commit, push, or Pull Request creation fails, the command reports
+the last completed stage and preserves the local branch. It never resets or
+deletes the branch. The command always starts from a clean, reviewed `main`; do
+not rerun it on a partial release branch.
 
-1. Set up a Ubuntu 24.04 LTS server
-2. Configure the server in `ansible/inventory.yml`
-3. Use the remote build workflow:
-   ```bash
-   # Manually trigger the workflow
-   gh workflow run slv-remote-build.yml -f version=2026.4.5.0314
-   ```
+For a branch, generation, or commit failure, inspect `git status --short`,
+`git diff`, and `git diff --cached`, then correct the issue manually without a
+reset, branch deletion, or force-push. For a push failure, inspect the release
+commit and `git ls-remote --heads origin <release-branch>` before an authorized
+maintainer pushes the reviewed branch manually.
 
-See the `ansible/README.md` file for more details on remote builds.
+After a Pull Request HTTP or transport failure, run this before any PR-only
+create:
+
+```bash
+gh pr list --repo ValidatorsDAO/slv --head <release-branch> --state all
+```
+
+Inspect that result and the remote branch first. Do not retry a Pull Request
+POST manually until you confirm that no Pull Request exists.
+
+After a reviewed PR with a strict `VERSION` CalVer advance is merged, the
+main-push delivery workflow creates the initial release automatically.
+`workflow_dispatch` has only a version input and is limited to recovery or
+verification on an exact existing `refs/tags/v<version>` ref; it must not create
+an initial release. If publishing fails, rerun the failed publish job with its
+original artifacts, retained for seven days. A whole-workflow rebuild can
+produce different bytes and intentionally refuses a differing existing draft.
+Protected-environment activation remains pending until the required review and
+environment approval are complete. See [secure delivery](../docs/secure-delivery.md)
+for the delivery and protected-publish procedure.

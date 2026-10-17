@@ -1,5 +1,15 @@
 # AGENTS.md — SLV Repository (OSS)
 
+## EU OSS readiness review
+
+For licensing, dependencies, SBOMs, vulnerability handling, release delivery, or
+support-policy changes, use the `eu-oss-compliance` agent from
+[agents/eu-oss-compliance.toml](agents/eu-oss-compliance.toml). Its shared evidence
+procedure and unresolved decisions are in
+[docs/compliance/eu-oss-readiness.md](../docs/compliance/eu-oss-readiness.md).
+The agent reports evidence and gaps to the project lead; it does not establish a
+legal role, certify compliance, or authorize a release.
+
 ## ⚠️ THIS IS AN OPEN-SOURCE REPOSITORY
 
 **Every file, commit, PR, and comment is publicly visible.**

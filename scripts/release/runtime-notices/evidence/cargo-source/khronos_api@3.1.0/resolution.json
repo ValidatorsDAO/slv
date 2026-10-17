@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS data-crate adjudication 2026-10-13",
+  "packet_sha256": "e5a62868d8a6fc7ee468946aee046bde27131aaceac38af2922598c2a77ca3e2",
+  "package": "khronos_api@3.1.0",
+  "classification": "source-vendor",
+  "scope": "Exact Cargo source archive retained for full source-vendor coverage only; this record makes no denort binary-target inclusion assertion.",
+  "archive": {
+    "url": "https://static.crates.io/crates/khronos_api/khronos_api-3.1.0.crate",
+    "sha256": "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+  },
+  "archive_vcs": {
+    "commit": "f150967b1c44ae888e6676f93f639ebc82771bdc",
+    "path_in_vcs": ""
+  },
+  "repository": "https://github.com/brendanzab/gl-rs/",
+  "declared_wrapper_license": "Apache-2.0",
+  "submodules": {
+    "api": {
+      "repo": "KhronosGroup/OpenGL-Registry",
+      "commit": "85d924a5165e7206f4c73c8c10307658dc2bbe10"
+    },
+    "api_angle": {
+      "repo": "google/angle",
+      "commit": "7403dd2cd3764fe96660fe09892e764e9ae1dbca"
+    },
+    "api_egl": {
+      "repo": "KhronosGroup/EGL-Registry",
+      "commit": "b6b558e7042d67fc7543383bb0e13a075f21d8ab"
+    },
+    "api_webgl": {
+      "repo": "KhronosGroup/WebGL",
+      "commit": "c987f075bfdca44119175c41f547d849c08983a3"
+    }
+  },
+  "notice_texts": [
+    {
+      "kind": "Apache-2.0 full terms",
+      "path": "terms-Apache-2.0.txt",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "kind": "ANGLE BSD full terms",
+      "path": "terms-ANGLE-BSD.txt",
+      "url": "https://raw.githubusercontent.com/google/angle/7403dd2cd3764fe96660fe09892e764e9ae1dbca/LICENSE",
+      "sha256": "bf4da21bd20bcfb5b60b7ecc67fa864a79be049e21d6178076887f178dd6c71a"
+    },
+    {
+      "kind": "WebGL later Materials supplement",
+      "path": "terms-WebGL-2019-supplement.txt",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/WebGL/ca07c9628d207b5cc560ee6eac32ceeb1c39a2ed/LICENSE.txt",
+      "sha256": "631caf35cb7a21e2fa4e36617551d72566cc272619003857fe79b82399e8e8fa"
+    }
+  ],
+  "disposition": "Full source-distribution notice coverage is materialized with a separate historical-scope qualification for eight WebGL XML files. A notice text is not treated as unconditional retrospective permission proof."
+}

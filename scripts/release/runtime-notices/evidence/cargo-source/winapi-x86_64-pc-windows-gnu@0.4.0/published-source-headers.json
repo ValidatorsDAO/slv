@@ -1,0 +1,15 @@
+{
+  "purpose": "verbatim leading source-header record from the checksum-verified published crate; source material only",
+  "files": [
+    {
+      "archive_path": "winapi-x86_64-pc-windows-gnu-0.4.0/build.rs",
+      "archive_file_sha256": "b4ab421e1dc98159dd4440813cdaf7d9ea98278324bc6118d0f7cf378933f371",
+      "leading_header": "// Copyright \u00a9 2016-2018 winapi-rs developers\n// Licensed under the Apache License, Version 2.0\n// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT license\n// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.\n// All files in the project carrying such notice may not be copied, modified, or distributed\n// except according to those terms.\nfn main() {\n    use std::env::var;\n    use std::path::Path;\n    println!(\"cargo:rerun-if-env-changed=WINAPI_NO_BUNDLED_LIBRARIES\");\n    if var(\"WINAPI_NO_BUNDLED_LIBRARIES\").is_ok() {\n        return;\n    }\n    if var(\"TARGET\").map(|target| target == \"x86_64-pc-windows-gnu\").unwrap_or(false) {\n        let dir = var(\"CARGO_MANIFEST_DIR\").unwrap();\n        println!(\"cargo:rustc-link-search=native={}\", Path::new(&dir).join(\"lib\").display());\n    }\n}\n"
+    },
+    {
+      "archive_path": "winapi-x86_64-pc-windows-gnu-0.4.0/src/lib.rs",
+      "archive_file_sha256": "79212a91f610f8a77aa6ed4cc77212c2531eeb35630388bf07323cc328fcca42",
+      "leading_header": "// Copyright \u00a9 2016 winapi-rs developers\n// Licensed under the Apache License, Version 2.0\n// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT license\n// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.\n// All files in the project carrying such notice may not be copied, modified, or distributed\n// except according to those terms.\n#![no_std]\n"
+    }
+  ]
+}

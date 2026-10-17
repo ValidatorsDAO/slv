@@ -20,6 +20,7 @@ import {
   buildMainnetHostEntry,
   DEFAULT_MAINNET_VALIDATOR_TYPE,
 } from '/lib/addMainnetInventory.ts'
+import { mainnetValidatorTypeRefusal } from '/lib/fdctlMainnetGuard.ts'
 
 // The defaults after the Alpenglow update (slv overhaul: Alpenglow). Mainnet
 // activates Alpenglow at the start of epoch 1064 and needs agave or jito built
@@ -151,6 +152,37 @@ Deno.test('the mainnet init prompt defaults to jito', async () => {
   )
   assertStringIncludes(source, 'default: DEFAULT_MAINNET_VALIDATOR_TYPE')
   assertEquals(source.includes("default: 'firedancer-jito'"), false)
+  assertStringIncludes(source, 'refuseMainnetValidatorType(')
+})
+
+Deno.test('the mainnet validator type refusal explains unsupported types and replacements', () => {
+  for (const type of ['agave', 'jito', 'allnodes-jito', '']) {
+    assertEquals(mainnetValidatorTypeRefusal(type), null, type)
+  }
+  for (
+    const type of [
+      'firedancer-agave',
+      'firedancer-jito',
+      'firedancer',
+      'frankendancer',
+    ]
+  ) {
+    const refusal = mainnetValidatorTypeRefusal(type)
+    assert(refusal !== null, type)
+    for (
+      const fact of [
+        type,
+        'Alpenglow',
+        'epoch 1064',
+        'mainnet',
+        'not supported',
+        'agave',
+        'jito',
+        'allnodes-jito',
+        'slv v switch',
+      ]
+    ) assertStringIncludes(refusal, fact, type)
+  }
 })
 
 // The keys updateDefaultVersion overwrites, per section.

@@ -1,0 +1,10 @@
+{
+  "file": "Cargo.toml",
+  "before_sha256": "cb99850e81c208583ee183046b8830304ba32c3cc44c43858a1fb4c0b5b568d2",
+  "after_sha256": "4a05547b2394aae4b748d94eabe9fa0561c55ebb3accab644e8ec98dd89dc9bf",
+  "replace": {
+    "from": "rustls = { version = \"=0.23.40\",",
+    "to": "rustls = { version = \"=0.23.45\","
+  },
+  "purpose": "approved narrow Cargo security transform; not a compile or native-rebuild proof"
+}

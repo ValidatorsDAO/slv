@@ -1,0 +1,47 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: winapi-i686-pc-windows-gnu@0.4.0
+Exact archive: https://static.crates.io/crates/winapi-i686-pc-windows-gnu/winapi-i686-pc-windows-gnu-0.4.0.crate
+Archive SHA-256: ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6
+Declared license: MIT/Apache-2.0
+Selected license branch for this distribution: Apache-2.0
+
+Published authors (author metadata is not restated as copyright ownership):
+- Peter Atashian <retep998@gmail.com>
+
+Published source headers:
+Path: winapi-i686-pc-windows-gnu-0.4.0/build.rs
+Archive-file SHA-256: 4344ce95f51197e1377429cd9ef7a8e3f97d39546776705857991f2f9416f545
+// Copyright © 2016-2018 winapi-rs developers
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.
+// All files in the project carrying such notice may not be copied, modified, or distributed
+// except according to those terms.
+fn main() {
+    use std::env::var;
+    use std::path::Path;
+    println!("cargo:rerun-if-env-changed=WINAPI_NO_BUNDLED_LIBRARIES");
+    if var("WINAPI_NO_BUNDLED_LIBRARIES").is_ok() {
+        return;
+    }
+    if var("TARGET").map(|target| target == "i686-pc-windows-gnu").unwrap_or(false) {
+        let dir = var("CARGO_MANIFEST_DIR").unwrap();
+        println!("cargo:rustc-link-search=native={}", Path::new(&dir).join("lib").display());
+    }
+}
+
+Path: winapi-i686-pc-windows-gnu-0.4.0/src/lib.rs
+Archive-file SHA-256: 79212a91f610f8a77aa6ed4cc77212c2531eeb35630388bf07323cc328fcca42
+// Copyright © 2016 winapi-rs developers
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.
+// All files in the project carrying such notice may not be copied, modified, or distributed
+// except according to those terms.
+#![no_std]
+
+The complete selected license terms follow as separate evidence in this component.

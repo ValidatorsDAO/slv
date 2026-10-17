@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "swc_common@17.0.1",
+    "archive": {
+      "url": "https://static.crates.io/crates/swc_common/swc_common-17.0.1.crate",
+      "sha256": "259b675d633a26d24efe3802a9d88858c918e6e8f062d3222d3aa02d56a2cf4c"
+    },
+    "license_declared": "Apache-2.0",
+    "license_selected": "Apache-2.0",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "apache"
+    ],
+    "original_authors": [
+      "강동윤 <kdy1997.dev@gmail.com>"
+    ],
+    "notes": [
+      "Unreachable source commit is not represented as recovered. Exact published archive is grant/notice source.",
+      "Preserve complete headers in 11 source files: Rust Project copyright 2012; 2012-2014; 2012-2015; 2016; 2017; 2018, their COPYRIGHT links, and original dual-license declarations. Select Apache alternative."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "Apache-2.0",
+    "authors": [
+      "강동윤 <kdy1997.dev@gmail.com>"
+    ],
+    "repository": "https://github.com/swc-project/swc.git",
+    "homepage": null,
+    "description": "Common utilities for the swc project.",
+    "license-file": null,
+    "package": "swc_common@17.0.1",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"강동윤 <kdy1997.dev@gmail.com>\"]",
+          "license = \"Apache-2.0\""
+        ]
+      ]
+    ],
+    "source_notices": [
+      [
+        "src/errors/diagnostic.rs",
+        [
+          "// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT",
+          "// http://rust-lang.org/COPYRIGHT.",
+          "// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or",
+          "// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license"
+        ]
+      ],
+      [
+        "src/errors/diagnostic_builder.rs",
+        [
+          "// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT",
+          "// http://rust-lang.org/COPYRIGHT.",
+          "// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or",
+          "// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license"
+        ]
+      ],
+      [
+        "src/errors/emitter.rs",
+        [
+          "// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT",
+          "// http://rust-lang.org/COPYRIGHT.",
+          "// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or",
+          "// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license"
+        ]
+      ],
+      [
+        "src/errors/lock.rs",
+        [
+          "// Copyright 2016 The Rust Project Developers. See the COPYRIGHT",
+          "// http://rust-lang.org/COPYRIGHT.",
+          "// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or",
+          "// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license"
+        ]
+      ],
+      [
+        "src/errors/mod.rs",
+        [
+          "// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT",
+          "// http://rust-lang.org/COPYRIGHT.",
+          "// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or",
+          "// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license"
+        ]
+      ],
+      [
+        "src/errors/snippet.rs",
+        [
+          "// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT",
+          "// http://rust-lang.org/COPYRIGHT.",
+          "// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or",
+          "// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license"
+        ]
+      ],
+      [
+        "src/errors/styled_buffer.rs",
+        [
+          "// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT",
+          "// http://rust-lang.org/COPYRIGHT.",
+          "// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or",
+          "// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license"
+        ]
+      ],
+      [
+        "src/plugin/serialized.rs",
+        [
+          "    /// plugin_macro, normally plugin author should not raise this manually."
+        ]
+      ]
+    ]
+  },
+  "terms": [
+    {
+      "reference": "apache",
+      "path": "evidence/cargo-resolution/swc_common@17.0.1/terms-apache.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": {
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

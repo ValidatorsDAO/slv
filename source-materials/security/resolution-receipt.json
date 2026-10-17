@@ -1,0 +1,324 @@
+{
+  "purpose": "audited Cargo security-resolution evidence; not a compile or native-rebuild proof",
+  "measured_at": "2026-10-13T17:39:43.468854+00:00",
+  "original_lock": {
+    "path": "deno/Cargo.lock",
+    "sha256": "4e86cc7eca855b5ab589a6c735294677b10937ced61114347c6ba2bebb8d14d8",
+    "packages": 1125
+  },
+  "security_lock": {
+    "path": "security/selected-Cargo.lock",
+    "sha256": "09afc50a2481cea2e77e0d27eff26db844362067bfbc51357f3927d49cbf815d",
+    "packages": 1126
+  },
+  "manifest_patch": {
+    "file": "Cargo.toml",
+    "before_sha256": "cb99850e81c208583ee183046b8830304ba32c3cc44c43858a1fb4c0b5b568d2",
+    "after_sha256": "4a05547b2394aae4b748d94eabe9fa0561c55ebb3accab644e8ec98dd89dc9bf",
+    "replace": {
+      "from": "rustls = { version = \"=0.23.40\",",
+      "to": "rustls = { version = \"=0.23.45\","
+    },
+    "purpose": "isolated resolution diagnostic; source repository and baseline unchanged"
+  },
+  "removed": [
+    {
+      "name": "aws-lc-rs",
+      "version": "1.16.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "0ec6fb3fe69024a75fa7e1bfb48aa6cf59706a101658ea01bfd33b2b248a038f",
+      "dependencies": [
+        "aws-lc-sys",
+        "untrusted 0.7.1",
+        "zeroize"
+      ]
+    },
+    {
+      "name": "h2",
+      "version": "0.4.7",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "ccae279728d634d083c00f6099cb58f01cc99c145b84b8be2f6c74618d79922e",
+      "dependencies": [
+        "atomic-waker",
+        "bytes",
+        "fnv",
+        "futures-core",
+        "futures-sink",
+        "http",
+        "indexmap",
+        "slab",
+        "tokio",
+        "tokio-util",
+        "tracing"
+      ]
+    },
+    {
+      "name": "pkg-config",
+      "version": "0.3.30",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "d231b230927b5e4ad203db57bbcbee2802f6bce620b1e4a9024a07d94e2907ec"
+    },
+    {
+      "name": "rustls",
+      "version": "0.23.40",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b",
+      "dependencies": [
+        "aws-lc-rs",
+        "log",
+        "once_cell",
+        "ring",
+        "rustls-pki-types",
+        "rustls-webpki",
+        "subtle",
+        "zeroize"
+      ]
+    },
+    {
+      "name": "rustls-webpki",
+      "version": "0.103.13",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e",
+      "dependencies": [
+        "aws-lc-rs",
+        "ring",
+        "rustls-pki-types",
+        "untrusted 0.9.0"
+      ]
+    }
+  ],
+  "added": [
+    {
+      "name": "aws-lc-rs",
+      "version": "1.18.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "faac5829c2b74c28f830747e7818ccfb684261b5f48a1118b1e2a13d36dfab13",
+      "dependencies": [
+        "aws-lc-sys 0.46.0",
+        "untrusted 0.7.1",
+        "zeroize"
+      ]
+    },
+    {
+      "name": "aws-lc-sys",
+      "version": "0.46.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "f1622d8446a2d4b2ce0c7eefc73dd43a99779028d5ee5c2dd8073a658ba8a2bc",
+      "dependencies": [
+        "cc",
+        "cmake",
+        "dunce",
+        "fs_extra",
+        "pkg-config"
+      ]
+    },
+    {
+      "name": "h2",
+      "version": "0.4.16",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "a9f37a958b41b3b19ee2707c06439c0e9e547e847223eb791ecb0cb821c65e27",
+      "dependencies": [
+        "atomic-waker",
+        "bytes",
+        "fnv",
+        "futures-core",
+        "futures-sink",
+        "http",
+        "indexmap",
+        "slab",
+        "tokio",
+        "tokio-util",
+        "tracing"
+      ]
+    },
+    {
+      "name": "pkg-config",
+      "version": "0.3.34",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+    },
+    {
+      "name": "rustls",
+      "version": "0.23.45",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634",
+      "dependencies": [
+        "aws-lc-rs",
+        "log",
+        "once_cell",
+        "ring",
+        "rustls-pki-types",
+        "rustls-webpki",
+        "subtle",
+        "zeroize"
+      ]
+    },
+    {
+      "name": "rustls-webpki",
+      "version": "0.103.15",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2",
+      "dependencies": [
+        "aws-lc-rs",
+        "ring",
+        "rustls-pki-types",
+        "untrusted 0.9.0"
+      ]
+    }
+  ],
+  "changed_same_identity": [
+    {
+      "identity": [
+        "deno_crypto_provider",
+        "0.49.0",
+        ""
+      ],
+      "before": {
+        "name": "deno_crypto_provider",
+        "version": "0.49.0",
+        "dependencies": [
+          "aws-lc-sys"
+        ]
+      },
+      "after": {
+        "name": "deno_crypto_provider",
+        "version": "0.49.0",
+        "dependencies": [
+          "aws-lc-sys 0.40.0"
+        ]
+      }
+    },
+    {
+      "identity": [
+        "deno_node_crypto",
+        "0.25.0",
+        ""
+      ],
+      "before": {
+        "name": "deno_node_crypto",
+        "version": "0.25.0",
+        "dependencies": [
+          "aead-gcm-stream",
+          "aes",
+          "aws-lc-rs",
+          "aws-lc-sys",
+          "base64 0.22.1",
+          "blake2 0.10.6",
+          "cbc",
+          "const-oid 0.9.6",
+          "ctr",
+          "data-encoding",
+          "deno_core",
+          "deno_crypto_provider",
+          "deno_error",
+          "der 0.7.9",
+          "des",
+          "digest 0.10.7",
+          "dsa",
+          "ecb",
+          "ecdsa",
+          "ed25519-dalek",
+          "ed448-goldilocks",
+          "elliptic-curve 0.13.8",
+          "faster-hex",
+          "hkdf",
+          "hmac",
+          "k256",
+          "md-5",
+          "md4",
+          "num-bigint",
+          "num-bigint-dig",
+          "num-integer",
+          "num-traits",
+          "p12",
+          "p224",
+          "p256",
+          "p384",
+          "p521",
+          "pbkdf2",
+          "pkcs8 0.10.2",
+          "rand 0.8.5",
+          "ripemd",
+          "rsa",
+          "sec1 0.7.3",
+          "serde",
+          "sha1",
+          "sha2",
+          "sha3 0.10.8",
+          "sm3",
+          "spki 0.7.3",
+          "subtle",
+          "thiserror 2.0.12",
+          "tokio",
+          "x25519-dalek",
+          "x509-parser",
+          "yasna",
+          "yoke 0.7.4"
+        ]
+      },
+      "after": {
+        "name": "deno_node_crypto",
+        "version": "0.25.0",
+        "dependencies": [
+          "aead-gcm-stream",
+          "aes",
+          "aws-lc-rs",
+          "aws-lc-sys 0.40.0",
+          "base64 0.22.1",
+          "blake2 0.10.6",
+          "cbc",
+          "const-oid 0.9.6",
+          "ctr",
+          "data-encoding",
+          "deno_core",
+          "deno_crypto_provider",
+          "deno_error",
+          "der 0.7.9",
+          "des",
+          "digest 0.10.7",
+          "dsa",
+          "ecb",
+          "ecdsa",
+          "ed25519-dalek",
+          "ed448-goldilocks",
+          "elliptic-curve 0.13.8",
+          "faster-hex",
+          "hkdf",
+          "hmac",
+          "k256",
+          "md-5",
+          "md4",
+          "num-bigint",
+          "num-bigint-dig",
+          "num-integer",
+          "num-traits",
+          "p12",
+          "p224",
+          "p256",
+          "p384",
+          "p521",
+          "pbkdf2",
+          "pkcs8 0.10.2",
+          "rand 0.8.5",
+          "ripemd",
+          "rsa",
+          "sec1 0.7.3",
+          "serde",
+          "sha1",
+          "sha2",
+          "sha3 0.10.8",
+          "sm3",
+          "spki 0.7.3",
+          "subtle",
+          "thiserror 2.0.12",
+          "tokio",
+          "x25519-dalek",
+          "x509-parser",
+          "yasna",
+          "yoke 0.7.4"
+        ]
+      }
+    }
+  ],
+  "path_context": "source-package-relative"
+}

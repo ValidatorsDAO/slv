@@ -1,0 +1,776 @@
+{
+  "khronos_archive_sha256": "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc",
+  "file_count": 72,
+  "files": [
+    {
+      "path": "Cargo.toml.orig",
+      "bytes": 944,
+      "sha256": "4a1ac66b226935a2ce69cca4c1c56be36cea83a5da382514db5ea967568e3ca9",
+      "classification": "crate-wrapper",
+      "notice_refs": [
+        "Apache-2.0"
+      ],
+      "notes": "Preserve original wrapper manifests/README and BrendanZabarauskas/gl-rs2015 source headers."
+    },
+    {
+      "path": "Cargo.toml",
+      "bytes": 1300,
+      "sha256": "490cb629224597d30ed4f13789d4cfd0d94ffd84ac95472fa308e724245a54af",
+      "classification": "crate-wrapper",
+      "notice_refs": [
+        "Apache-2.0"
+      ],
+      "notes": "Preserve original wrapper manifests/README and BrendanZabarauskas/gl-rs2015 source headers."
+    },
+    {
+      "path": "README.md",
+      "bytes": 1374,
+      "sha256": "45772358ebfb8a7554056ce7faab27c3dc73d881ba4be66891d39e4830657877",
+      "classification": "crate-wrapper",
+      "notice_refs": [
+        "Apache-2.0"
+      ],
+      "notes": "Preserve original wrapper manifests/README and BrendanZabarauskas/gl-rs2015 source headers."
+    },
+    {
+      "path": "api/xml/gl.xml",
+      "bytes": 2745540,
+      "sha256": "7dae830ddacefd2af92aef2b438ff89f90fb5496f596dec8282b212eb4fc51e3",
+      "classification": "khronos-apache",
+      "notice_refs": [
+        "Apache-2.0",
+        "inline-apache-header"
+      ],
+      "notes": "Preserve Khronos2013-2018 header."
+    },
+    {
+      "path": "api/xml/glx.xml",
+      "bytes": 113895,
+      "sha256": "338cee03c97e78aa167dd667407ab973f4bc656c58cf9002aa54fa78b2f9ff32",
+      "classification": "khronos-apache",
+      "notice_refs": [
+        "Apache-2.0",
+        "inline-apache-header"
+      ],
+      "notes": "Preserve Khronos2013-2018 header."
+    },
+    {
+      "path": "api/xml/wgl.xml",
+      "bytes": 104058,
+      "sha256": "41e0a2182217b099b1628757956cb103cea9660e830f4d2f9fa07bf3a3679feb",
+      "classification": "khronos-apache",
+      "notice_refs": [
+        "Apache-2.0",
+        "inline-apache-header"
+      ],
+      "notes": "Preserve Khronos2013-2018 header."
+    },
+    {
+      "path": "api_angle/scripts/egl.xml",
+      "bytes": 167957,
+      "sha256": "523fc17745545daca85c5b107b4a4c1a23dd3de39f70e499c77249e3dd6569ec",
+      "classification": "egl-materials",
+      "notice_refs": [
+        "inline-full-materials-notice"
+      ],
+      "notes": "Preserve Khronos2013-2017 and full Materials permission/disclaimer."
+    },
+    {
+      "path": "api_angle/scripts/egl_angle_ext.xml",
+      "bytes": 5004,
+      "sha256": "98c60fa9fe46f50dd4e101c2262b4293adeeae48a18c39ad63dc085e639b6096",
+      "classification": "angle-bsd",
+      "notice_refs": [
+        "angle_license"
+      ],
+      "notes": "Preserve original2018ANGLE header plus pinned parentLICENSE."
+    },
+    {
+      "path": "api_angle/scripts/gl.xml",
+      "bytes": 2708708,
+      "sha256": "baac3f2e27b4949773f4ee2e6ed8e43a2ae96a428b9d73ae9d1e9c0c404cae1f",
+      "classification": "khronos-apache",
+      "notice_refs": [
+        "Apache-2.0",
+        "inline-apache-header"
+      ],
+      "notes": "Preserve Khronos2013-2018 header."
+    },
+    {
+      "path": "api_angle/scripts/gl_angle_ext.xml",
+      "bytes": 66409,
+      "sha256": "dcf1ca2ce9536bd2ea6cab6e93ce0a37821793a9ed12f280f005a3459e2905e8",
+      "classification": "angle-bsd",
+      "notice_refs": [
+        "angle_license"
+      ],
+      "notes": "Preserve original2018ANGLE header plus pinned parentLICENSE."
+    },
+    {
+      "path": "api_angle/scripts/wgl.xml",
+      "bytes": 104058,
+      "sha256": "41e0a2182217b099b1628757956cb103cea9660e830f4d2f9fa07bf3a3679feb",
+      "classification": "khronos-apache",
+      "notice_refs": [
+        "Apache-2.0",
+        "inline-apache-header"
+      ],
+      "notes": "Preserve Khronos2013-2018 header."
+    },
+    {
+      "path": "api_egl/api/egl.xml",
+      "bytes": 167957,
+      "sha256": "523fc17745545daca85c5b107b4a4c1a23dd3de39f70e499c77249e3dd6569ec",
+      "classification": "egl-materials",
+      "notice_refs": [
+        "inline-full-materials-notice"
+      ],
+      "notes": "Preserve Khronos2013-2017 and full Materials permission/disclaimer."
+    },
+    {
+      "path": "api_webgl/extensions/ANGLE_instanced_arrays/extension.xml",
+      "bytes": 3181,
+      "sha256": "213f7e7636e8df0c390a18ad1339618335d7744970837998a191c275f7d1a95c",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_blend_minmax/extension.xml",
+      "bytes": 2110,
+      "sha256": "d1798c0faf13dfa7930032994f5a47c07b6f2f44b45d033059bfcffb7c1d579c",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_color_buffer_float/extension.xml",
+      "bytes": 4077,
+      "sha256": "48dacbcce0e0e96c206fc6dd2050266680ba24c2f6b254c3a6871c8715639d36",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_color_buffer_half_float/extension.xml",
+      "bytes": 5063,
+      "sha256": "1900351880046b495af97e6d38e9f3213538b133f74625a4dd73165d43e7710c",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_disjoint_timer_query/extension.xml",
+      "bytes": 14422,
+      "sha256": "5f3502d9359932bb19cb866ad01a35f774851e7290ef7cbafcaa0d67175a29d5",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_disjoint_timer_query_webgl2/extension.xml",
+      "bytes": 9103,
+      "sha256": "81f643d90164e86c2a98b4053d7f8db233dc3c3339422f3f575df7da9ba8a518",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_float_blend/extension.xml",
+      "bytes": 1566,
+      "sha256": "5a298482adee7bb1fcc8f613a8aa9b61bb71bf5523fac56da45bb68136e451b8",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_frag_depth/extension.xml",
+      "bytes": 1923,
+      "sha256": "d19cf823811272352972ac4cb1d37405dcf63a91c48c1dd046e475487fecf9ea",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_sRGB/extension.xml",
+      "bytes": 2970,
+      "sha256": "7688ba25fa05558fbae72b21661e5bece2c36e899fe78da83bc8a172db9622fd",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_shader_texture_lod/extension.xml",
+      "bytes": 4341,
+      "sha256": "f1e5741d5d12d6e9a6bbc95049da2ec62ee55a4d1b6ec7b03e87e9f91282c6cb",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_texture_compression_bptc/extension.xml",
+      "bytes": 4518,
+      "sha256": "823b0280845da20a584b3ad6e85052bb158c4e69add38c3f80899facdf9fda90",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_texture_compression_rgtc/extension.xml",
+      "bytes": 5338,
+      "sha256": "6b95c30aa46b81a4bcde2a07df0c89cded028387ee1cc3a7e5d0aabf5f0d219e",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/EXT_texture_filter_anisotropic/extension.xml",
+      "bytes": 2015,
+      "sha256": "131ed0429a9951c05ae5c30859179f47c99b9bd6f47ca2825bdecf791f0188b6",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/KHR_parallel_shader_compile/extension.xml",
+      "bytes": 3412,
+      "sha256": "6e13b581cae0c8a6f41a484d98e55bb805b599081f54cfe737253238fe797395",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_element_index_uint/extension.xml",
+      "bytes": 1809,
+      "sha256": "734f7a90af440ea559fa0fe777144aaef8acc7de94a8c3ce153a75ff85cb1f6b",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_fbo_render_mipmap/extension.xml",
+      "bytes": 2335,
+      "sha256": "43bede667b814b80e15b5af463620c53f6fa9e1a610c2e9756ad2fa55b9f7589",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_standard_derivatives/extension.xml",
+      "bytes": 2102,
+      "sha256": "2fa53259457d9f6042194bfb13c0db4b3c63d2d99d9e44f057d8fe4d5b28fe69",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_texture_float/extension.xml",
+      "bytes": 3095,
+      "sha256": "42a782fcc2cafd3df9ea33c9259343c66b3fbd2ebfc216dc20ee6be53481f042",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_texture_float_linear/extension.xml",
+      "bytes": 1565,
+      "sha256": "98041c4427f5abf741eb2c34e23f9b8c84090d4d5b4e2e0f1b04f9b53c73259a",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_texture_half_float/extension.xml",
+      "bytes": 3236,
+      "sha256": "14cb4ce4e6f259fcb6ce0d988c4e81880299f28343cdcba4f7abbf8956207529",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_texture_half_float_linear/extension.xml",
+      "bytes": 1620,
+      "sha256": "d2f29c9a9bf31e757fc8c6da277cdb813350a1504be773c3bd105bfa92e45502",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/OES_vertex_array_object/extension.xml",
+      "bytes": 5596,
+      "sha256": "8262ec860c2af3b23daacc27a17bcf29054bcc03baf59f90779c4e53fc469f41",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_color_buffer_float/extension.xml",
+      "bytes": 5343,
+      "sha256": "d68800fe416384a951fe45fdbcb324494d848cbecdecbdcacf7bbafe8a2aae93",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_compressed_texture_astc/extension.xml",
+      "bytes": 27827,
+      "sha256": "9ba9c29e7e09aa8ec950ec70c79eae42c6f844d354b49fc88d9f048318a9c400",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_compressed_texture_etc/extension.xml",
+      "bytes": 8512,
+      "sha256": "d926f0a7f533ea6ce43215a7e90f35064e1a51df539e04c49a2e918f69943aad",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_compressed_texture_etc1/extension.xml",
+      "bytes": 3409,
+      "sha256": "02a008b04a5b40e274023defe3a2fb94f06a2150c059ae703c282faa6b6b4b0e",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_compressed_texture_pvrtc/extension.xml",
+      "bytes": 4245,
+      "sha256": "1570f8ebb56480908e46706683182a097928e8e0a2e992e3eab8f1a2c16124c9",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_compressed_texture_s3tc/extension.xml",
+      "bytes": 5300,
+      "sha256": "87585ba713ad1a8dd5c04fd24a7068a0cf88799ea697e940752c68698de0c707",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_compressed_texture_s3tc_srgb/extension.xml",
+      "bytes": 5147,
+      "sha256": "e22e01bd35b437adabfc7592f5eb6d750fdaabac61b0f79561fe58e860843993",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_debug_renderer_info/extension.xml",
+      "bytes": 4559,
+      "sha256": "af71073e0031b0296b7e5b609cdd272458cbae434a7fa31649054be0969a72e0",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_debug_shaders/extension.xml",
+      "bytes": 3330,
+      "sha256": "fc8c59747ee8cc289aa269c6ac5b6a45f7dc036d509209ace8db7062481a1abe",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_depth_texture/extension.xml",
+      "bytes": 11272,
+      "sha256": "5d91c9b8252b9f3a19f3f6a2f861a660d200446cfcaf09fa2a337e6f6b2dd5bd",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_draw_buffers/extension.xml",
+      "bytes": 9791,
+      "sha256": "9b465aa066d86ba044ad1604f6a3ce9f9e9a3afe3b4d36750a60870a67697fa1",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_lose_context/extension.xml",
+      "bytes": 5408,
+      "sha256": "71defc6045fefdf7b14cd2d1fe4a432d504b2567e7acb1e77b8737aea7ba1bb0",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_multiview/extension.xml",
+      "bytes": 16084,
+      "sha256": "474fa0ccaa7150e32060fa9ff5357b43d08cfe34930118525a2e4bee698fda0a",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/WEBGL_security_sensitive_resources/extension.xml",
+      "bytes": 12125,
+      "sha256": "99634c2e0117d7abb9b44bbd64d8c4e8c8ebbcfe6342222dfc624b05e8532249",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/EXT_clip_cull_distance/extension.xml",
+      "bytes": 2783,
+      "sha256": "a4f9b465b1e1efa0367a8fbbada7a6156ffb3e4ee1c677a0d220a7ea1402a260",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/EXT_multi_draw_arrays/extension.xml",
+      "bytes": 3550,
+      "sha256": "47f3ab7d17e28152b7873db5da9afbee058a61caacebba6b7fd9df4a569683a3",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/WEBGL_blend_equation_advanced_coherent/extension.xml",
+      "bytes": 4261,
+      "sha256": "4c8d195e8cc21207e372ef596cfb58ada985289c6b1212fad912d8f0ad0563a8",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/WEBGL_debug/extension.xml",
+      "bytes": 12102,
+      "sha256": "c8cdbb65c17dfe4851e7a56094c492b835f76f06a9cdb1b3fd273584357864b1",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/WEBGL_dynamic_texture/extension.xml",
+      "bytes": 56649,
+      "sha256": "7f5bc906ba61037befd4acd9fc39209d2e4bd8eea20ba01f34ebe4700bfd1806",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/WEBGL_subarray_uploads/extension.xml",
+      "bytes": 3544,
+      "sha256": "87cde732f220d4b54faaef1e6d5efc6174849c1b54983908084659f525c7f40f",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/WEBGL_texture_multisample/extension.xml",
+      "bytes": 1384,
+      "sha256": "338f0fc6f62bf875a0f7b19e4c284ed48e5a76e791e55414843659cf402636da",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/WEBGL_texture_source_iframe/extension.xml",
+      "bytes": 5780,
+      "sha256": "378beada6abe201a0ebdb68a3935e8bf27f620ae2653d696a38df9e499808eda",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/proposals/WEBGL_video_texture/extension.xml",
+      "bytes": 4532,
+      "sha256": "b9e0ffa1cf37c827b9be82d71adcd40ce44d05e434a87d174b289c7a5b9d30b0",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/EXT_texture_storage/extension.xml",
+      "bytes": 2392,
+      "sha256": "9fb3883d1b6d73e09b03129a30845031e0b27c9003b9fb0e2f2b2b2d5a9dbb1e",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/OES_depth24/extension.xml",
+      "bytes": 2214,
+      "sha256": "159c541fc025c3d454887cdedd1ff5c19ed17e9356c63d95510d70c586502af7",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/WEBGL_compressed_texture_atc/extension.xml",
+      "bytes": 4539,
+      "sha256": "43eab8d74ffb5799f2410a884d79bd4574531070a53947c334d71910c5a9bdee",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/WEBGL_debug_shader_precision/extension.xml",
+      "bytes": 5597,
+      "sha256": "f618d6f82e21cf78146e86c396a3d7b3dd51cf778ab2dc7a504834d835abc5c8",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/WEBGL_draw_elements_no_range_check/extension.xml",
+      "bytes": 3447,
+      "sha256": "a3a616760a9cca44ecca27e8a8afd49679974f1bf0dfd4624231bcffaf4aec54",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/WEBGL_get_buffer_sub_data_async/extension.xml",
+      "bytes": 6643,
+      "sha256": "188b33f4972e400550bbd1be58f29d9a0bc24a8da09203edc2f3e6f1a595679b",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/WEBGL_shared_resources/extension.xml",
+      "bytes": 14535,
+      "sha256": "cab1d86d6c853c11acf42044c4caea97103c70440c87688979c9f1cc18d622a6",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/WEBGL_subscribe_uniform/extension.xml",
+      "bytes": 8366,
+      "sha256": "7ec77103308177cdfa0efbc995f62151622c30bab46a4ee191e04520c51965ae",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/rejected/WEBGL_texture_from_depth_video/extension.xml",
+      "bytes": 3130,
+      "sha256": "eabf2a9003050f8ef5ceb4d5cc0fafc98977aef407fb4060d08d704884a3d462",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/extensions/template/extension.xml",
+      "bytes": 6894,
+      "sha256": "8da65e0a5d053bf36373c6fcfdf7d8fa2738c48345671cf61b62e30ba9cce117",
+      "classification": "webgl-extension-xml",
+      "notice_refs": [
+        "webgl2019license"
+      ],
+      "notes": "No inline license found; preserve contributor/author fields and exact source. Later upstream repository-wide Materials/MIT notice supplied with accurate provenance."
+    },
+    {
+      "path": "api_webgl/specs/latest/1.0/webgl.idl",
+      "bytes": 33828,
+      "sha256": "9bd8707845fb68ff349f95b320582160423ee4cdf47294cbd980933b3b25dae9",
+      "classification": "webgl-idl-materials",
+      "notice_refs": [
+        "inline-full-materials-notice"
+      ],
+      "notes": "Preserve copyright 2018 and full original permission/disclaimer."
+    },
+    {
+      "path": "api_webgl/specs/latest/2.0/webgl2.idl",
+      "bytes": 38280,
+      "sha256": "4e9ba68c298e76e85f312f86d474975da4ce656e35c2ad4a8c706437d50253a1",
+      "classification": "webgl-idl-materials",
+      "notice_refs": [
+        "inline-full-materials-notice"
+      ],
+      "notes": "Preserve copyright 2018 and full original permission/disclaimer."
+    },
+    {
+      "path": "build.rs",
+      "bytes": 2596,
+      "sha256": "88b55daa5f6f0c90e1ab906c08b74834671316bdadc88d7cc25adfa19fc57e62",
+      "classification": "crate-wrapper",
+      "notice_refs": [
+        "Apache-2.0"
+      ],
+      "notes": "Preserve original wrapper manifests/README and BrendanZabarauskas/gl-rs2015 source headers."
+    },
+    {
+      "path": "src/lib.rs",
+      "bytes": 2635,
+      "sha256": "befbc0e187097e6c9da1ecbd79e0e1af462b6f6466108247745f6aa38abe0673",
+      "classification": "crate-wrapper",
+      "notice_refs": [
+        "Apache-2.0"
+      ],
+      "notes": "Preserve original wrapper manifests/README and BrendanZabarauskas/gl-rs2015 source headers."
+    },
+    {
+      "path": ".cargo_vcs_info.json",
+      "bytes": 74,
+      "sha256": "09de2fe5ad503839def621c48b94a7d74f29393acd482b49c0cccf2fe0664da1",
+      "classification": "crate-wrapper",
+      "notice_refs": [
+        "Apache-2.0"
+      ],
+      "notes": "Preserve original wrapper manifests/README and BrendanZabarauskas/gl-rs2015 source headers."
+    }
+  ],
+  "headers": {
+    "egl-materials": {
+      "source_path": "api_egl/api/egl.xml",
+      "sha256": "eb3e21cfe1e6d8d8702381336180735a3ebf6aceb55e027ec5286364e41ef810",
+      "bytes": 1164
+    },
+    "webgl-idl-materials": {
+      "source_path": "api_webgl/specs/latest/1.0/webgl.idl",
+      "sha256": "0976403647ef6c51ad03594182c7b72588a167fd56feb1fc530f55534a597b20",
+      "bytes": 1315
+    },
+    "khronos-apache": {
+      "source_path": "api/xml/gl.xml",
+      "sha256": "9b16895aa2e8bfa3d3a7404294316874f8720c85af1285f18cee3ed543cb9c43",
+      "bytes": 995
+    },
+    "angle-header": {
+      "source_path": "api_angle/scripts/gl_angle_ext.xml",
+      "sha256": "06669a758d91bf0e165d400261b09f633f608a129117347ab818280c131e39bd",
+      "bytes": 278
+    },
+    "wrapper-apache": {
+      "source_path": "src/lib.rs",
+      "sha256": "5f662e07664a0dd69a303aaaa84a8f609c4bd4513004b14aba8069d10e605b76",
+      "bytes": 921
+    }
+  },
+  "upstream_submodules": {
+    "api": [
+      "KhronosGroup/OpenGL-Registry",
+      "85d924a5165e7206f4c73c8c10307658dc2bbe10"
+    ],
+    "api_angle": [
+      "google/angle",
+      "7403dd2cd3764fe96660fe09892e764e9ae1dbca"
+    ],
+    "api_egl": [
+      "KhronosGroup/EGL-Registry",
+      "b6b558e7042d67fc7543383bb0e13a075f21d8ab"
+    ],
+    "api_webgl": [
+      "KhronosGroup/WebGL",
+      "c987f075bfdca44119175c41f547d849c08983a3"
+    ]
+  }
+}

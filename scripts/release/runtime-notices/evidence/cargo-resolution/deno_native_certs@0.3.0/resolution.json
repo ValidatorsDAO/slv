@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "deno_native_certs@0.3.0",
+    "archive": {
+      "url": "https://static.crates.io/crates/deno_native_certs/deno_native_certs-0.3.0.crate",
+      "sha256": "c867603d2a5dfea31f55cecebb572554caa395437786d058faa9a2814c8d6eb9"
+    },
+    "license_declared": "MIT",
+    "license_selected": "MIT",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "mit_standard_body"
+    ],
+    "original_authors": [
+      "Divy Srivastava <dj.srivastava23@gmail.com>"
+    ],
+    "notes": [
+      "Preserve actually published attribution/notices; no synthetic copyright holder/year. An absent copyright notice remains recorded as absent, not invented. Source declaration plus full authentic standard terms and original notices constitutes this narrow proposed resolution."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "MIT",
+    "authors": [
+      "Divy Srivastava <dj.srivastava23@gmail.com>"
+    ],
+    "repository": "https://github.com/denoland/deno_native_certs",
+    "homepage": null,
+    "description": "deno-native-certs loads native certificate store into rustls",
+    "license-file": null,
+    "package": "deno_native_certs@0.3.0",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"Divy Srivastava <dj.srivastava23@gmail.com>\"]",
+          "license = \"MIT\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "mit_standard_body",
+      "path": "evidence/cargo-resolution/deno_native_certs@0.3.0/terms-mit_standard_body.txt",
+      "sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+      "source": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+        "source_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+        "body_sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+        "transform": "Keep bytes from Permission is hereby granted through EOF; omit standard template title/unfilled copyright placeholder. Attribute as standard terms supplement. Preserve original package attribution/notices separately."
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

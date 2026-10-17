@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "package": "valuable@0.1.0",
+  "classification": "source-vendor",
+  "scope": "Exact Cargo source archive retained for full source-vendor coverage only; this record makes no denort binary-target inclusion assertion.",
+  "archive": {
+    "url": "https://static.crates.io/crates/valuable/valuable-0.1.0.crate",
+    "sha256": "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
+  },
+  "archive_vcs": null,
+  "repository": "https://github.com/tokio-rs/valuable",
+  "declared_license": "MIT",
+  "selected_license_branch": "MIT",
+  "resolution_kind": "declared-standard-license-supplement",
+  "terms": [
+    {
+      "kind": "standard-MIT-permission-and-warranty",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+      "source_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+      "body_sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+      "transform": "Omit only the unfilled SPDX template copyright placeholder; retain the permission, conditions, and warranty body. Package attribution remains separate."
+    }
+  ],
+  "caveat": "The packaged archive lacks a full conventional license document for this selected branch except where stated above. The exact manifest declaration, archive attribution, and full authentic selected terms are retained together. No copyright holder or year is invented."
+}

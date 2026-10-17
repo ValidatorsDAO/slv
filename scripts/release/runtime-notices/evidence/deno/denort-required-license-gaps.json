@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "closure_sha256": "6a204c2818ba5b7b1b6ed7b7403427a358c72ad224be1ff1e27d68fe37a50a70",
+  "scope": "denort normal dependency closure only",
+  "gaps": [],
+  "resolved": [
+    {
+      "package": "aead-gcm-stream@0.4.0",
+      "notice_component": "cargo:aead-gcm-stream@0.4.0",
+      "resolution_path": "evidence/cargo-resolution/aead-gcm-stream@0.4.0/resolution.json"
+    },
+    {
+      "package": "ast_node@5.0.0",
+      "notice_component": "cargo:ast_node@5.0.0",
+      "resolution_path": "evidence/cargo-resolution/ast_node@5.0.0/resolution.json"
+    },
+    {
+      "package": "better_scoped_tls@1.0.1",
+      "notice_component": "cargo:better_scoped_tls@1.0.1",
+      "resolution_path": "evidence/cargo-resolution/better_scoped_tls@1.0.1/resolution.json"
+    },
+    {
+      "package": "cranelift-assembler-x64@0.117.2",
+      "notice_component": "cargo:cranelift-assembler-x64@0.117.2",
+      "resolution_path": "evidence/cargo-resolution/cranelift-assembler-x64@0.117.2/resolution.json"
+    },
+    {
+      "package": "deno_native_certs@0.3.0",
+      "notice_component": "cargo:deno_native_certs@0.3.0",
+      "resolution_path": "evidence/cargo-resolution/deno_native_certs@0.3.0/resolution.json"
+    },
+    {
+      "package": "deno_tunnel@0.8.1",
+      "notice_component": "cargo:deno_tunnel@0.8.1",
+      "resolution_path": "evidence/cargo-resolution/deno_tunnel@0.8.1/resolution.json"
+    },
+    {
+      "package": "derive-io-macros@0.4.1",
+      "notice_component": "cargo:derive-io-macros@0.4.1",
+      "resolution_path": "evidence/cargo-resolution/derive-io-macros@0.4.1/resolution.json"
+    },
+    {
+      "package": "derive-io@0.4.1",
+      "notice_component": "cargo:derive-io@0.4.1",
+      "resolution_path": "evidence/cargo-resolution/derive-io@0.4.1/resolution.json"
+    },
+    {
+      "package": "dlopen2_derive@0.4.0",
+      "notice_component": "cargo:dlopen2_derive@0.4.0",
+      "resolution_path": "evidence/cargo-resolution/dlopen2_derive@0.4.0/resolution.json"
+    },
+    {
+      "package": "dlopen2@0.6.1",
+      "notice_component": "cargo:dlopen2@0.6.1",
+      "resolution_path": "evidence/cargo-resolution/dlopen2@0.6.1/resolution.json"
+    },
+    {
+      "package": "fqdn@0.5.2",
+      "notice_component": "cargo:fqdn@0.5.2",
+      "resolution_path": "evidence/cargo-resolution/fqdn@0.5.2/resolution.json"
+    },
+    {
+      "package": "from_variant@3.0.0",
+      "notice_component": "cargo:from_variant@3.0.0",
+      "resolution_path": "evidence/cargo-resolution/from_variant@3.0.0/resolution.json"
+    },
+    {
+      "package": "hexf-parse@0.2.1",
+      "notice_component": "cargo:hexf-parse@0.2.1",
+      "resolution_path": "evidence/cargo-resolution/hexf-parse@0.2.1/resolution.json"
+    },
+    {
+      "package": "lazy-regex-proc_macros@3.1.0",
+      "notice_component": "cargo:lazy-regex-proc_macros@3.1.0",
+      "resolution_path": "evidence/cargo-resolution/lazy-regex-proc_macros@3.1.0/resolution.json"
+    },
+    {
+      "package": "rustls-tokio-stream@0.8.0",
+      "notice_component": "cargo:rustls-tokio-stream@0.8.0",
+      "resolution_path": "evidence/cargo-resolution/rustls-tokio-stream@0.8.0/resolution.json"
+    },
+    {
+      "package": "sacabase@2.0.0",
+      "notice_component": "cargo:sacabase@2.0.0",
+      "resolution_path": "evidence/cargo-resolution/sacabase@2.0.0/resolution.json"
+    },
+    {
+      "package": "sptr@0.3.2",
+      "notice_component": "cargo:sptr@0.3.2",
+      "resolution_path": "evidence/cargo-resolution/sptr@0.3.2/resolution.json"
+    },
+    {
+      "package": "string_enum@1.0.2",
+      "notice_component": "cargo:string_enum@1.0.2",
+      "resolution_path": "evidence/cargo-resolution/string_enum@1.0.2/resolution.json"
+    },
+    {
+      "package": "swc_allocator@4.0.1",
+      "notice_component": "cargo:swc_allocator@4.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_allocator@4.0.1/resolution.json"
+    },
+    {
+      "package": "swc_atoms@9.0.0",
+      "notice_component": "cargo:swc_atoms@9.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_atoms@9.0.0/resolution.json"
+    },
+    {
+      "package": "swc_common@17.0.1",
+      "notice_component": "cargo:swc_common@17.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_common@17.0.1/resolution.json"
+    },
+    {
+      "package": "swc_config_macro@1.0.1",
+      "notice_component": "cargo:swc_config_macro@1.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_config_macro@1.0.1/resolution.json"
+    },
+    {
+      "package": "swc_config@3.1.2",
+      "notice_component": "cargo:swc_config@3.1.2",
+      "resolution_path": "evidence/cargo-resolution/swc_config@3.1.2/resolution.json"
+    },
+    {
+      "package": "swc_ecma_ast@18.0.0",
+      "notice_component": "cargo:swc_ecma_ast@18.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_ast@18.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_codegen_macros@2.0.2",
+      "notice_component": "cargo:swc_ecma_codegen_macros@2.0.2",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_codegen_macros@2.0.2/resolution.json"
+    },
+    {
+      "package": "swc_ecma_codegen@20.0.2",
+      "notice_component": "cargo:swc_ecma_codegen@20.0.2",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_codegen@20.0.2/resolution.json"
+    },
+    {
+      "package": "swc_ecma_lexer@26.0.0",
+      "notice_component": "cargo:swc_ecma_lexer@26.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_lexer@26.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_loader@17.0.0",
+      "notice_component": "cargo:swc_ecma_loader@17.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_loader@17.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_parser@27.0.7",
+      "notice_component": "cargo:swc_ecma_parser@27.0.7",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_parser@27.0.7/resolution.json"
+    },
+    {
+      "package": "swc_ecma_transforms_base@30.0.1",
+      "notice_component": "cargo:swc_ecma_transforms_base@30.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_transforms_base@30.0.1/resolution.json"
+    },
+    {
+      "package": "swc_ecma_transforms_classes@30.0.0",
+      "notice_component": "cargo:swc_ecma_transforms_classes@30.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_transforms_classes@30.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_transforms_macros@1.0.1",
+      "notice_component": "cargo:swc_ecma_transforms_macros@1.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_transforms_macros@1.0.1/resolution.json"
+    },
+    {
+      "package": "swc_ecma_transforms_proposal@30.0.0",
+      "notice_component": "cargo:swc_ecma_transforms_proposal@30.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_transforms_proposal@30.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_transforms_react@33.0.0",
+      "notice_component": "cargo:swc_ecma_transforms_react@33.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_transforms_react@33.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_transforms_typescript@33.0.0",
+      "notice_component": "cargo:swc_ecma_transforms_typescript@33.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_transforms_typescript@33.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_utils@24.0.0",
+      "notice_component": "cargo:swc_ecma_utils@24.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_utils@24.0.0/resolution.json"
+    },
+    {
+      "package": "swc_ecma_visit@18.0.1",
+      "notice_component": "cargo:swc_ecma_visit@18.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_ecma_visit@18.0.1/resolution.json"
+    },
+    {
+      "package": "swc_eq_ignore_macros@1.0.1",
+      "notice_component": "cargo:swc_eq_ignore_macros@1.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_eq_ignore_macros@1.0.1/resolution.json"
+    },
+    {
+      "package": "swc_macros_common@1.0.1",
+      "notice_component": "cargo:swc_macros_common@1.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_macros_common@1.0.1/resolution.json"
+    },
+    {
+      "package": "swc_ts_fast_strip@36.0.0",
+      "notice_component": "cargo:swc_ts_fast_strip@36.0.0",
+      "resolution_path": "evidence/cargo-resolution/swc_ts_fast_strip@36.0.0/resolution.json"
+    },
+    {
+      "package": "swc_visit@2.0.1",
+      "notice_component": "cargo:swc_visit@2.0.1",
+      "resolution_path": "evidence/cargo-resolution/swc_visit@2.0.1/resolution.json"
+    },
+    {
+      "package": "sys_traits_macros@0.1.0",
+      "notice_component": "cargo:sys_traits_macros@0.1.0",
+      "resolution_path": "evidence/cargo-resolution/sys_traits_macros@0.1.0/resolution.json"
+    },
+    {
+      "package": "sys_traits@0.1.28",
+      "notice_component": "cargo:sys_traits@0.1.28",
+      "resolution_path": "evidence/cargo-resolution/sys_traits@0.1.28/resolution.json"
+    },
+    {
+      "package": "zune-core@0.4.12",
+      "notice_component": "cargo:zune-core@0.4.12",
+      "resolution_path": "evidence/cargo-resolution/zune-core@0.4.12/resolution.json"
+    }
+  ]
+}

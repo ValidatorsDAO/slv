@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "kind": "rusty-v8-gitlink-closure",
+  "root": {
+    "repository": "https://github.com/denoland/rusty_v8.git",
+    "commit": "dd1b4e9c743b7a11dbeb99d4d0dc55979218b905",
+    "tree": "f0308197a5ebf0d58efa435e8d6a26d70e674b90",
+    "inventory_path": "source-materials/rusty-v8-gitlink-inventories/rusty_v8.json",
+    "inventory_sha256": "1bfdcf64e4b88e6088a0ea3746385326ffc4467cc886feae4777fc1beeb0457f"
+  },
+  "gitlinks": [
+    {
+      "path": "build",
+      "repository": "https://github.com/denoland/chromium_build.git",
+      "commit": "fffa45f2e9df48c0230a4c799b7d12e7f83d8219",
+      "tree": "0b816500740427b46cb5d450e4be3fef3dfec774",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/build.json",
+      "inventory_sha256": "722155a23fb2042207abd25d557c6bf6bbe3d03007f075ab102a440ea5d5fb78"
+    },
+    {
+      "path": "buildtools",
+      "repository": "https://chromium.googlesource.com/chromium/src/buildtools.git",
+      "commit": "c9110ba7150d93134b1c85ea392033b4a82d28f7",
+      "tree": "c25193c54a960a3ed719032c6fb5d734767649a0",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/buildtools.json",
+      "inventory_sha256": "65570ebd4a3666f78e37a800556fad6024e0c550af4b5a44efd04221dde78ed0"
+    },
+    {
+      "path": "third_party/abseil-cpp",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp.git",
+      "commit": "5e42a36a85a252d8cdee6c39661d2bfd9883fd5c",
+      "tree": "8ec47e33aa935ca4d3ccd7cc67191a9d34937981",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--abseil-cpp.json",
+      "inventory_sha256": "c5f09665182bf6fc590feb8ed5414b32a327b393c463df19ab59ef2263477056"
+    },
+    {
+      "path": "third_party/dragonbox/src",
+      "repository": "https://chromium.googlesource.com/external/github.com/jk-jeon/dragonbox.git",
+      "commit": "beeeef91cf6fef89a4d4ba5e95d47ca64ccb3a44",
+      "tree": "176383f02746d0248e7b04409367f691cc231cef",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--dragonbox--src.json",
+      "inventory_sha256": "0b8aad4869eea05a919baac7829809e7d39144118052901b4b4f2ebf6b0edbf9"
+    },
+    {
+      "path": "third_party/fast_float/src",
+      "repository": "https://chromium.googlesource.com/external/github.com/fastfloat/fast_float.git",
+      "commit": "05087a303dad9c98768b33c829d398223a649bc6",
+      "tree": "d4eae0d5654ec3b4dd8414ea16fcf48480035a00",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--fast_float--src.json",
+      "inventory_sha256": "3f9de699077321ce5004e225cc437b3609d88432fd29ce836645f2f9d6fbdf34"
+    },
+    {
+      "path": "third_party/fp16/src",
+      "repository": "https://github.com/Maratyszcza/FP16.git",
+      "commit": "3d2de1816307bac63c16a297e8c4dc501b4076df",
+      "tree": "052b1ec2fb66e4f709ecbdc11dd43c2bfb979f32",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--fp16--src.json",
+      "inventory_sha256": "8ba7d5a928f43813679167a084d56b9c4320854edc03ca9ed762315da807887b"
+    },
+    {
+      "path": "third_party/highway/src",
+      "repository": "https://chromium.googlesource.com/external/github.com/google/highway.git",
+      "commit": "2607d3b5b0113992fe84d3848859eae13b3b52c1",
+      "tree": "e240dc0bc54afd953256adbe67eb2f267beb9d86",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--highway--src.json",
+      "inventory_sha256": "9aa1208398277490eb2535f62fb4d5c74a62a725c8e4e5a4c39a3870219fbfa5"
+    },
+    {
+      "path": "third_party/icu",
+      "repository": "https://chromium.googlesource.com/chromium/deps/icu.git",
+      "commit": "ee5f27adc28bd3f15b2c293f726d14d2e336cbd5",
+      "tree": "91ad4eed896c4db6f09da1fce2025722ebeb2bcf",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--icu.json",
+      "inventory_sha256": "c743f2c47fea9f31e17297749e60741eac461a5adcf8f02cb90caa4c36683975"
+    },
+    {
+      "path": "third_party/jinja2",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/jinja2.git",
+      "commit": "c3027d884967773057bf74b957e3fea87e5df4d7",
+      "tree": "b1ced381d7e8c813f62afc3be3026da78800409c",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--jinja2.json",
+      "inventory_sha256": "97fbaa2fbc77476bc5ab1a35e1c0b14a2b9be61bfb77750b33d11bdca1dd7b15"
+    },
+    {
+      "path": "third_party/libc++/src",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxx.git",
+      "commit": "99457fa555797f8c5ac3c076ca288d8481d3b23a",
+      "tree": "7e3036fded823f9581ddfdf064676641b2511464",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--libc++--src.json",
+      "inventory_sha256": "0df8dd67ece47535d6c864d87a7ff4658152670326a593c43923155c714775c9"
+    },
+    {
+      "path": "third_party/libc++abi/src",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxxabi.git",
+      "commit": "8f11bb1d4438d0239d0dfc1bd9456a9f31629dda",
+      "tree": "63eed58f0937ba832a2195cd848f9f53ef8ecea9",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--libc++abi--src.json",
+      "inventory_sha256": "4672ada5f95cc25c8745044e9804282e181efb8b25df1c123fc676f415811df5"
+    },
+    {
+      "path": "third_party/libunwind/src",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libunwind.git",
+      "commit": "a2530baf3d11013afd0f1c1941ab6bef5ba71d0a",
+      "tree": "a8ae85b36d572e04549be9fcb5707b583cff94a3",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--libunwind--src.json",
+      "inventory_sha256": "39405b0c1dd8d5b33ff74dd90ce2126104ca2e8db4acd2d17f150c98eb24d1e6"
+    },
+    {
+      "path": "third_party/llvm-libc/src",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git",
+      "commit": "cb952785ccee13811f293f3c419958d1e3ddafbf",
+      "tree": "206cf37749b18ee998d893c3ae41473467c5a5df",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--llvm-libc--src.json",
+      "inventory_sha256": "6adc0769243122c3d3a0b84952d59160ac36f9c42f68398d0131a42ef00dfe99"
+    },
+    {
+      "path": "third_party/markupsafe",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/markupsafe.git",
+      "commit": "4256084ae14175d38a3ff7d739dca83ae49ccec6",
+      "tree": "8c1f275c5022de6417bf43377c671b44d7a474d6",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--markupsafe.json",
+      "inventory_sha256": "135a28437f0f01455ad1120b6a299f33ed2c5078053887e6fa58d2df7b06d23d"
+    },
+    {
+      "path": "third_party/partition_alloc",
+      "repository": "https://chromium.googlesource.com/chromium/src/base/allocator/partition_allocator.git",
+      "commit": "fafdd4c9f559c6d0cfdf2ed3170ce370b59bfdbf",
+      "tree": "a91752b31a555a7c5cb2a6c97a7165af5fec785d",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--partition_alloc.json",
+      "inventory_sha256": "0e2c2563694225c7a93d49b53d6211ee5ba0330fc58e6192e633b44e5ff95726"
+    },
+    {
+      "path": "third_party/rust",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/rust",
+      "commit": "2b055f4ecac78bbf34a0d34217c699b7b09b44dd",
+      "tree": "f26a191faf7ebb89a6c3552265f391b8a12519b7",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--rust.json",
+      "inventory_sha256": "da85ecacf1fb03ae05ccec96c538468413201920a9ff7bae0e499dc86ef84d78"
+    },
+    {
+      "path": "third_party/simdutf",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/simdutf",
+      "commit": "f7356eed293f8208c40b3c1b344a50bd70971983",
+      "tree": "6123564324038cf176c37fbd3dfac2bbee1deb32",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/third_party--simdutf.json",
+      "inventory_sha256": "3d67964459d7a06ab604f8c27805021ec89d024936371ad586e2ea5938cf87b4"
+    },
+    {
+      "path": "tools/clang",
+      "repository": "https://chromium.googlesource.com/chromium/src/tools/clang.git",
+      "commit": "61150a5f1ddf6460bad3d896c1502c6a56e15311",
+      "tree": "c0663c77beadeb12a1fead269777499fc3640251",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/tools--clang.json",
+      "inventory_sha256": "d591926e2b4fb98aba66708cbf230698583a216bbaefda4e312667085fff35a8"
+    },
+    {
+      "path": "tools/win",
+      "repository": "https://chromium.googlesource.com/chromium/src/tools/win",
+      "commit": "d16e6b55b2bd699735919d8a13a55ff284086603",
+      "tree": "e5a247c1dcca47367f144b59afba24b7197aecf6",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/tools--win.json",
+      "inventory_sha256": "8118994679a69cc5dbdfb4a9aad746c213bde675f6c3473f58008c553d822273"
+    },
+    {
+      "path": "v8",
+      "repository": "https://github.com/denoland/v8.git",
+      "commit": "73d19698991616a34a00ca691a6e697dbb69e2ef",
+      "tree": "82fff5d94316ce0bdff6deb38bdf664f5fbe4506",
+      "inventory_path": "source-materials/rusty-v8-gitlink-inventories/v8.json",
+      "inventory_sha256": "90fe0b1c1e02538c1e4fe603b9434cb8f46adf4505f49d90240165e3271bb747"
+    }
+  ]
+}

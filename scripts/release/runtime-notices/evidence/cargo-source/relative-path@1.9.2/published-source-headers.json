@@ -1,0 +1,10 @@
+{
+  "purpose": "verbatim leading source-header record from the checksum-verified published crate; source material only, never rendered as a license notice",
+  "files": [
+    {
+      "archive_path": "relative-path-1.9.2/src/path_ext.rs",
+      "archive_file_sha256": "41f7f8b7b4edcac6646095f9024d1e2fb29ee75cd823143efd61c2feaa37b337",
+      "leading_header": "// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT\n// file at the top-level directory of this distribution and at\n// http://rust-lang.org/COPYRIGHT.\n//\n// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or\n// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license\n// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your\n// option. This file may not be copied, modified, or distributed\n// except according to those terms.\n"
+    }
+  ]
+}

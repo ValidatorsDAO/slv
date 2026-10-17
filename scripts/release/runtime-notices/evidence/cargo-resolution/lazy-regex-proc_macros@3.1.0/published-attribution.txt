@@ -1,0 +1,21 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: lazy-regex-proc_macros@3.1.0
+Exact archive: https://static.crates.io/crates/lazy-regex-proc_macros/lazy-regex-proc_macros-3.1.0.crate
+Archive SHA-256: 44bcd58e6c97a7fcbaffcdc95728b393b8d98933bfadad49ed4097845b57ef0b
+Declared license: MIT
+Selected license branch for this distribution: MIT
+Published authors:
+- Canop <cano.petrole@gmail.com>
+
+Resolution kind:
+recovered-pinned-upstream-license
+
+Resolution notes from the evidence review:
+- All 3 Rust files and Cargo.toml.orig byte-equal under src/proc_macros.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

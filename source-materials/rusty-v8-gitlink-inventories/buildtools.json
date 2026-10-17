@@ -1,0 +1,589 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/chromium/src/buildtools.git",
+  "commit": "c9110ba7150d93134b1c85ea392033b4a82d28f7",
+  "tree": "c25193c54a960a3ed719032c6fb5d734767649a0",
+  "files": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "blob": "28e37f6ea9d61fadc7014519eac26c3a8640e522",
+      "sha256": "fde06cb59e9cf4bce05b802e843555228058c64cd439d4e33e7717782c5503df",
+      "size": 382
+    },
+    {
+      "path": "checkdeps/builddeps.py",
+      "mode": "100755",
+      "blob": "9e1747da62e48bd454f92ff38538b49b0635ebb5",
+      "sha256": "407de5a6e14ce039a142b972fb0f8f7f1c58faf166371f8704f259851390c788",
+      "size": 17306
+    },
+    {
+      "path": "checkdeps/checkdeps_test.py",
+      "mode": "100755",
+      "blob": "42af8614b2ece4cb82d39c52eb8406564d9ec836",
+      "sha256": "b3def08cf11a55755a6503fee33fdfe6b02e9b74329d4010030ff58ae2183877",
+      "size": 12787
+    },
+    {
+      "path": "checkdeps/checkdeps.py",
+      "mode": "100755",
+      "blob": "201f0a5436709d18d6974caf94f219b01332b56e",
+      "sha256": "cbf8b0719f2ef1ccc39e26eb658a7df711161824e935cbf40bde7a53e305b8c5",
+      "size": 11461
+    },
+    {
+      "path": "checkdeps/cpp_checker.py",
+      "mode": "100644",
+      "blob": "58afbabdc38b105bc8edcf5e1c9908367d7979b3",
+      "sha256": "66ca00a46a76da5bd7b9271334a1eaf6c3a2328875df1d1f22b0159248006299",
+      "size": 4001
+    },
+    {
+      "path": "checkdeps/DEPS",
+      "mode": "100644",
+      "blob": "7a57b0bcc8ea8cce899d05344fce157fe756bda8",
+      "sha256": "1460786d7715d87fc0290dd2b094e84e0e6d19046711553001670df451e168e8",
+      "size": 40
+    },
+    {
+      "path": "checkdeps/graphdeps.py",
+      "mode": "100755",
+      "blob": "8031417997f39293b111cb20185dfdd39b290ad6",
+      "sha256": "825c84c932eb5e6fe871e50bdd2ec49148e85bd15e4b415b5efe628229a31f02",
+      "size": 15935
+    },
+    {
+      "path": "checkdeps/java_checker.py",
+      "mode": "100644",
+      "blob": "f9050aa767a8ba0f83c8a9d2b98d174836f41a69",
+      "sha256": "a0f8ba85fcb7496f7a354a12d5f39db865537e5163828c04b8e7ba623ce7e151",
+      "size": 8201
+    },
+    {
+      "path": "checkdeps/PRESUBMIT.py",
+      "mode": "100644",
+      "blob": "c8255a59ae72507bb84b13d2acdb36332d7b9fda",
+      "sha256": "693d87b2d0cdd825069283cb3b5dcd683da3817dc84c8372518db51257ff874c",
+      "size": 653
+    },
+    {
+      "path": "checkdeps/proto_checker.py",
+      "mode": "100644",
+      "blob": "2ac02e7cd46d97e418aa501848ced2a7dd9ab604",
+      "sha256": "4a050f85de437f08d87e25bda49e815f14e933708ed6802acce7e1242dfda892",
+      "size": 3851
+    },
+    {
+      "path": "checkdeps/README.md",
+      "mode": "100644",
+      "blob": "65fbcfdebafb98c55729d0c677307acef0a573a4",
+      "sha256": "df3f388cdb09b83bc7966be38e297a9ecace39575add5ba1b551b11c1496560a",
+      "size": 3997
+    },
+    {
+      "path": "checkdeps/results.py",
+      "mode": "100644",
+      "blob": "7b14ab1b51d186ac9827190617d271d41af4b5bd",
+      "sha256": "b057a312f6b2ebb2912797ef4fbf9dbc85788a487c6998b33981513e6528c5ab",
+      "size": 4936
+    },
+    {
+      "path": "checkdeps/rules.py",
+      "mode": "100644",
+      "blob": "de346c454e9b2c671b790450ed9b40c1aa44eb69",
+      "sha256": "fc156f049b6546ae2398de22e9351a898d8a990fdeb3ac933633543f138ecd8a",
+      "size": 7867
+    },
+    {
+      "path": "checkdeps/testdata/allowed/DEPS",
+      "mode": "100644",
+      "blob": "1e44d162ff089c08a58e5fe1747f79f3b7f00eec",
+      "sha256": "3f021a2ef278f2521f8fa19adc065e1ca31e9dadb11ee8677532c0f8a01889ff",
+      "size": 364
+    },
+    {
+      "path": "checkdeps/testdata/allowed/foo_unittest.cc",
+      "mode": "100644",
+      "blob": "7a888b77f7917c7c3204c2d302acbd83cf030830",
+      "sha256": "116bb058e406a0637335092b69d085739518bd5bac4967065a0b85a0d942ae9f",
+      "size": 213
+    },
+    {
+      "path": "checkdeps/testdata/allowed/not_a_test.cc",
+      "mode": "100644",
+      "blob": "07cacabc06c62e3cfa3e454e9daf92a2199f0f43",
+      "sha256": "bf4c5acd751dfeb6b1f939c14b29241a43dc2869b104748e2d9fd0ff6deb63cf",
+      "size": 314
+    },
+    {
+      "path": "checkdeps/testdata/allowed/test.h",
+      "mode": "100644",
+      "blob": "9561316359f8cbad79ef1ecf63b75f883a0c9db9",
+      "sha256": "5dc324318cce9a707d5f6460b9d481dacd654b81946b5b98888e3c84f10cec8f",
+      "size": 533
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/allowed/DEPS",
+      "mode": "100644",
+      "blob": "a6340815d10aea6ad1a528dcae9a0855f4fbc565",
+      "sha256": "06e3f87cdb97600b635ff471cc77c3122e346a479a2a8551341f1f400c55fe6e",
+      "size": 205
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/allowed/foo_unittest.cc",
+      "mode": "100644",
+      "blob": "d651b8305eb61d3cb4293424f4be99c70495f723",
+      "sha256": "f4aaf4f7b32417ae98c5518832516e25ac665a0a0d660886d13deb786f9e4543",
+      "size": 183
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/allowed/not_a_test.cc",
+      "mode": "100644",
+      "blob": "34459e48e657ff6875a1cfb25a5386504c2d34b0",
+      "sha256": "4a85a51277855569cfb1218c589c64796f1bd42def2dc22c9605fbd19559802e",
+      "size": 182
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/allowed/test.h",
+      "mode": "100644",
+      "blob": "6cfaf630ea5f52accff3b92f1cc139fb6c734141",
+      "sha256": "a659bdce74635408fdcaab19c514b607417cdc04e50c2081bf1d6776f5e8b86a",
+      "size": 413
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/DEPS",
+      "mode": "100644",
+      "blob": "91a9b990c32ab0ce1bd0326681db0262212d0af8",
+      "sha256": "e4b9a24c9e8c645d9ccbb0adbf92da4ab66dce99756af7a026bc8fe9d501b48d",
+      "size": 91
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/disallowed/allowed/DEPS",
+      "mode": "100644",
+      "blob": "2be72b801885779e5e1c22680067240d0247ad30",
+      "sha256": "2c25b6203830ec88885c4fad6cacff8d2c12a16ed619279af5c6850831a5fa3f",
+      "size": 39
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/disallowed/allowed/skipped/test.h",
+      "mode": "100644",
+      "blob": "a4c8c91faa24e7e7588206881ba06464c2cadc0f",
+      "sha256": "442faf888dd14c447b6cf3e34f2d81368f9f57ddcd792c0659ef52eeb6099508",
+      "size": 178
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/disallowed/allowed/test.h",
+      "mode": "100644",
+      "blob": "3d69f52d8656b188787d0ef6c398c1412e538a8a",
+      "sha256": "e72e5ecfacae92ae3e10c6c431cdaaa47a568ee5f70317a5a299f2dceb3d174e",
+      "size": 416
+    },
+    {
+      "path": "checkdeps/testdata/checkdeps_test/disallowed/test.h",
+      "mode": "100644",
+      "blob": "5913a2fb3fa49c4fd5a0ff654991c2bcf83c8979",
+      "sha256": "9d623f1334a7c67303868e03cd230b841a59bc47ff656b59d2042749c396a1b1",
+      "size": 445
+    },
+    {
+      "path": "checkdeps/testdata/DEPS",
+      "mode": "100644",
+      "blob": "2220b5785999557b6828c41b590a88b38b9199ae",
+      "sha256": "41824df5a5f76b7ee93a08e7fcd4f3d660ff8ea9325402a4e921302a73c7139c",
+      "size": 197
+    },
+    {
+      "path": "checkdeps/testdata/disallowed/allowed/DEPS",
+      "mode": "100644",
+      "blob": "2be72b801885779e5e1c22680067240d0247ad30",
+      "sha256": "2c25b6203830ec88885c4fad6cacff8d2c12a16ed619279af5c6850831a5fa3f",
+      "size": 39
+    },
+    {
+      "path": "checkdeps/testdata/disallowed/allowed/skipped/test.h",
+      "mode": "100644",
+      "blob": "a4c8c91faa24e7e7588206881ba06464c2cadc0f",
+      "sha256": "442faf888dd14c447b6cf3e34f2d81368f9f57ddcd792c0659ef52eeb6099508",
+      "size": 178
+    },
+    {
+      "path": "checkdeps/testdata/disallowed/allowed/test.h",
+      "mode": "100644",
+      "blob": "f5d61507edac831f1db6ae47bd044aced8a46f05",
+      "sha256": "367fbe6e15022200e6d0a3f2e598488b8a38c7d9108666d25e79f6fb11bd922a",
+      "size": 506
+    },
+    {
+      "path": "checkdeps/testdata/disallowed/foo_unittest.cc",
+      "mode": "100644",
+      "blob": "b1faa3575965efddc8cd824152c0cfa0e0691990",
+      "sha256": "50b5c2e6c8c03b05b93851f98c519cd5424dcd7081f70bf6609f968996d8adbe",
+      "size": 531
+    },
+    {
+      "path": "checkdeps/testdata/disallowed/test.h",
+      "mode": "100644",
+      "blob": "916a7185dd34453dc32e576f5434007a11c420f7",
+      "sha256": "52abac5741eaf911528cbcd7dc7d665477e4b9c38efd2808455a0cd1f3a23e46",
+      "size": 535
+    },
+    {
+      "path": "checkdeps/testdata/noparent/DEPS",
+      "mode": "100644",
+      "blob": "3e0f1370afaa5a0cf4c0a56ab121add30adf2aec",
+      "sha256": "bada4e3c3271e3495b92fbc2c2b165e08b193206d181cdfe84478777a3435fdd",
+      "size": 126
+    },
+    {
+      "path": "checkdeps/testdata/noparent/test.h",
+      "mode": "100644",
+      "blob": "65258368a0533264c55eb2181e79596ea53fb3d6",
+      "sha256": "6e4268df7c5ac2cf33713e4cd3a60ca1166ba7e35ebef00e75180c50b1b33405",
+      "size": 376
+    },
+    {
+      "path": "checkdeps/testdata/requires_review_users/DEPS",
+      "mode": "100644",
+      "blob": "619f4a542bc78a3eccf8cd0cc9d46ae31082d7ff",
+      "sha256": "e85abb621d17efeb608264da6d5a62613634380d9d78cdefba9c8d31c2d7f867",
+      "size": 72
+    },
+    {
+      "path": "checkdeps/testdata/requires_review_users/sub/includes_okay/DEPS",
+      "mode": "100644",
+      "blob": "67db8c2e10bdf730a309bfc30675f2f29e1d074d",
+      "sha256": "976811d72573cb5ec4197ab3f9417ce8a8e73486e2f637241df1fbfa7f7854eb",
+      "size": 188
+    },
+    {
+      "path": "checkdeps/testdata/requires_review_users/sub/includes_okay/usage.cc",
+      "mode": "100644",
+      "blob": "d06da1dcc884429a77a0e748952381cd9783ed9c",
+      "sha256": "74a60aa83097d323c2f73cebf016bc388ac56b951eee4dafa83d1a72c93ecc50",
+      "size": 792
+    },
+    {
+      "path": "checkdeps/testdata/requires_review_users/sub/includes_only_sub/DEPS",
+      "mode": "100644",
+      "blob": "15dd896786eb932ff165ea110f59d438072c3946",
+      "sha256": "8ba4dac82b3353b73db87d3f0d4cca640135539b3bd1845c1d535c0f5e969e29",
+      "size": 138
+    },
+    {
+      "path": "checkdeps/testdata/requires_review_users/sub/includes_only_sub/usage.cc",
+      "mode": "100644",
+      "blob": "204d44563187181e4eeedbc17d90a9163c0f2fd8",
+      "sha256": "046f7315fb2dbfa849ca249b32a5a63f904d29cc294b20f8d61e35e7e05eef45",
+      "size": 856
+    },
+    {
+      "path": "checkdeps/testdata/requires_review_users/usage.cc",
+      "mode": "100644",
+      "blob": "8b4f86a05b633116211586b9d60d48191ed6a1d8",
+      "sha256": "b8891de23464b0ac5798444c34b6a4c53ce26163eab19731118bcc382abeed57",
+      "size": 577
+    },
+    {
+      "path": "checkdeps/testdata/requires_review/sub/DEPS",
+      "mode": "100644",
+      "blob": "607bd204758390444d49f0706c173c68e77ea9be",
+      "sha256": "4ddb7cd813c189975c4833ca77504cb57bfa00203b0d42f087b2060c8fbd4d90",
+      "size": 33
+    },
+    {
+      "path": "checkdeps/testdata/requires_review/sub/sub/DEPS",
+      "mode": "100644",
+      "blob": "607bd204758390444d49f0706c173c68e77ea9be",
+      "sha256": "4ddb7cd813c189975c4833ca77504cb57bfa00203b0d42f087b2060c8fbd4d90",
+      "size": 33
+    },
+    {
+      "path": "checkdeps/testdata/requires_review/sub/sub/no_review/DEPS",
+      "mode": "100644",
+      "blob": "8573169b606ef56cc78003ec8d3b8838ab1ce182",
+      "sha256": "e031efd2526b14b414bbf2a6d3df030d4eb2ecece9df942b6565af09199683ae",
+      "size": 34
+    },
+    {
+      "path": "clang_format/OWNERS",
+      "mode": "100644",
+      "blob": "8717e15ac44658eb798f936b6bd1ca6299b13299",
+      "sha256": "573ddb890a54e33a0c0117440e69ecb63fafe72ab1c1cb9a63a1fc5df0f971d0",
+      "size": 38
+    },
+    {
+      "path": "clang_format/README.chromium",
+      "mode": "100644",
+      "blob": "7908059d7c62ef9522b417ace1d7fa15bea9d619",
+      "sha256": "1fc36bf94326f3f41f7b7cb25ab46537ddf8b17dff03f8ceeb5143d8aef98ad4",
+      "size": 364
+    },
+    {
+      "path": "clang_format/README.txt",
+      "mode": "100644",
+      "blob": "20e72c32254b92d4e32ddf5f2ef081729e95afea",
+      "sha256": "d17ce8d442c202f3405ddd54bea2002b3acc240eab7117577540afc1aacaf4e7",
+      "size": 1482
+    },
+    {
+      "path": "codereview.settings",
+      "mode": "100644",
+      "blob": "ac1510a34370bc3b0573ffc5cf349f259ae1996a",
+      "sha256": "a5e81f5ef26b670f9d0d01387fd0b0033718d1347d9318cdfbbb5a5a06804091",
+      "size": 152
+    },
+    {
+      "path": "DEPS",
+      "mode": "100644",
+      "blob": "373b526bae915b1aad8248983d45ff22d3f9a20b",
+      "sha256": "72317f8d247e4a40a8629efaf0d267302258715ddc38b4d28448f1fecb4bb9b4",
+      "size": 2000
+    },
+    {
+      "path": "deps_revisions.gni",
+      "mode": "100644",
+      "blob": "8bc2078ff5cae3181c37219b32dc284ca44747ea",
+      "sha256": "589513136b68c306271fde07ac56e6a36e1e4888be517b95be242467a42ae489",
+      "size": 344
+    },
+    {
+      "path": "DIR_METADATA",
+      "mode": "100644",
+      "blob": "544842aca124b45e2a00ba63a28a91aee0d3d763",
+      "sha256": "d876b1a09cfd0cdd33d8f1cc1d477f220311a095d912be7aad4b57e600590fbb",
+      "size": 114
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "blob": "513e8a6a0a1d9a42818b02fd46b31fe88c653400",
+      "sha256": "ff11d445fb41a1087c7630e120ab15f1a2cb67c1b707173cb494141805fca35e",
+      "size": 1537
+    },
+    {
+      "path": "OWNERS",
+      "mode": "100644",
+      "blob": "0a6469a7fe82cf3c235587a4f2d5110dd2eb2398",
+      "sha256": "b9d05892ca256c4bc77a140f61cbe72d83b189d8003c6a6023c0317414ab2b58",
+      "size": 459
+    },
+    {
+      "path": "README.txt",
+      "mode": "100644",
+      "blob": "1a2d5863f78ae990116116d62f8c53adef376fe3",
+      "sha256": "fab95b508905e375c614ed34f8265afc4f52c028ee08b5b225657cb1e9bcb7ed",
+      "size": 1025
+    },
+    {
+      "path": "reclient_cfgs/.gitignore",
+      "mode": "100644",
+      "blob": "17103061c4752e6fcac07413dbf574e0c6fd6d39",
+      "sha256": "c230e7a9506e2f8325b82854720c31b8891fa1efeaa7f59f2f80d73060c4df9e",
+      "size": 58
+    },
+    {
+      "path": "reclient_cfgs/.style.yapf",
+      "mode": "100644",
+      "blob": "1d02278eff8a049b41f751e26d5d91e4f2051460",
+      "sha256": "3ca2382aac2382afc6660b1d2f4b01831dd4181c449f0ed5dd7ac44d13f48bbb",
+      "size": 31
+    },
+    {
+      "path": "reclient_cfgs/configure_reclient_cfgs.py",
+      "mode": "100755",
+      "blob": "8779d4609c9eed155c414a1c97d3598906857b22",
+      "sha256": "6ab0bfb84822b4e1815aacc99bf5db95b4e3be2080f845a366bf18ece077d5fc",
+      "size": 11056
+    },
+    {
+      "path": "reclient_cfgs/linux_chroot/chromium-browser-clang/rewrapper_linux.cfg",
+      "mode": "100644",
+      "blob": "c6c29e29031f38ef172468ade17fde29d648d85d",
+      "sha256": "7079f8763afc215310b610c902102fdb5e631e55bc11b4fd5e24bd47790d22ff",
+      "size": 590
+    },
+    {
+      "path": "reclient_cfgs/linux_chroot/python/rewrapper_linux.cfg",
+      "mode": "100644",
+      "blob": "41279923537cc42505e9e47301afe0dec7095c05",
+      "sha256": "469f70888d3c75be225bc4490bcf4953698796b7dca3b0f190713a833759a0ce",
+      "size": 451
+    },
+    {
+      "path": "reclient_cfgs/linux_cros/chromium-browser-clang/rewrapper_linux.cfg",
+      "mode": "100644",
+      "blob": "237af4b723b7b269a97cdf57ecdf4a1cfcd0d76a",
+      "sha256": "7d6e37d28a5954b0f4bafab5e84f9165dc0ac500a756f22b59c31541d487009b",
+      "size": 539
+    },
+    {
+      "path": "reclient_cfgs/linux_cros/python/rewrapper_linux.cfg",
+      "mode": "100644",
+      "blob": "b2579800ff1ae44737c1aa8034923e060999c944",
+      "sha256": "3c1cf66bdf19e05b89b73a97a3368f30fac55ad6c1c2d78aac989d528dc8b896",
+      "size": 502
+    },
+    {
+      "path": "reclient_cfgs/linux/chromium-browser-clang/rewrapper_linux.cfg",
+      "mode": "100644",
+      "blob": "ca8e84948679c7892534fbf793afcec887009c30",
+      "sha256": "9b7e7f629ce00d9ed30db05e7ee6042d09741ac90ea1e441d0c990f3eeeeedab",
+      "size": 373
+    },
+    {
+      "path": "reclient_cfgs/linux/python/rewrapper_linux.cfg",
+      "mode": "100644",
+      "blob": "d1ed4fe108a4b954e0f933d12e5308170f357548",
+      "sha256": "69ee437659c9bfd3165da27ccfa266001dfcfae20e0408fb3b3daa45924af1df",
+      "size": 361
+    },
+    {
+      "path": "reclient_cfgs/OWNERS",
+      "mode": "100644",
+      "blob": "e43d152b54694806bdfeb5cd0f8861120bf34eb8",
+      "sha256": "114c01ed5846242f83c9cb1cd37a767807c103adefddedf04f2079cb8cf48631",
+      "size": 105
+    },
+    {
+      "path": "reclient_cfgs/README.md",
+      "mode": "100644",
+      "blob": "ecab8824a124eb57e48c2704057b1936a01df4b2",
+      "sha256": "af774c60dcf28128277589f2c5fa3b0ad7c2bc8b1e89dc0909c5227bbf07a5f6",
+      "size": 109
+    },
+    {
+      "path": "reclient_cfgs/reproxy_cfg_templates/reproxy.cfg.template",
+      "mode": "100644",
+      "blob": "8d579cfe0e82b0ac1fd51045cd8edb38288ebe4e",
+      "sha256": "9596a5f8ab86eaf471e926a3044e743a997fa3e8376072ebe41fc9055934dedc",
+      "size": 647
+    },
+    {
+      "path": "reclient_cfgs/rewrapper_linux.cfg",
+      "mode": "100644",
+      "blob": "f66d02dcbf9dff7ede07cc946cd2764ce155ba07",
+      "sha256": "5008bf6ebb9509acbe663088c3e43287cca66c4b36ddeec88496db1ae109c486",
+      "size": 611
+    },
+    {
+      "path": "third_party/libc++/__assertion_handler",
+      "mode": "100644",
+      "blob": "0f60c0290a3135ac613103e99f77c7e66e24ba2e",
+      "sha256": "6f9934bea04c9e23f264a82725925354274af6ca2651a1056a737f96a73d0193",
+      "size": 1200
+    },
+    {
+      "path": "third_party/libc++/__config_site",
+      "mode": "100644",
+      "blob": "a9ab1614b67e2df7b379c1d8a4147265a15747db",
+      "sha256": "fcac9dc8ea709997ab8b43af6c4e4e2a3674531c6f6303ca42eaf1e3fe189064",
+      "size": 4119
+    },
+    {
+      "path": "third_party/libc++/BUILD.gn",
+      "mode": "100644",
+      "blob": "3cde8c66bdc533e8090513f83da2964a2c149bec",
+      "sha256": "cb7ffbb4b1175e1b76fb313b81151889f0910012f8536244e84cb77d61cafbc3",
+      "size": 20923
+    },
+    {
+      "path": "third_party/libc++/generate_libcxx_headers.py",
+      "mode": "100755",
+      "blob": "244ccf5b91ccce0730df66d0738eaba988817b0a",
+      "sha256": "5a18d310312d38effba7431075d26eb01a39d8cf1f744cd4dd7589d69011e0e3",
+      "size": 2517
+    },
+    {
+      "path": "third_party/libc++/libcxx_headers.gni",
+      "mode": "100644",
+      "blob": "b92e917171e867695cf9356de8c257d3722b1026",
+      "sha256": "6cf80e9816f5bcac3d53d08d657cca4b1b623b4f14335ffe02f684e85c45ee55",
+      "size": 70753
+    },
+    {
+      "path": "third_party/libc++/modules.gni",
+      "mode": "100644",
+      "blob": "4d8d9b02e4fab6059f1817dc872216be8bff39c9",
+      "sha256": "5dcb0619be9d0ec046943d2b664b6ea617625e2b121f8644ec48538291e4ca50",
+      "size": 9568
+    },
+    {
+      "path": "third_party/libc++/OWNERS",
+      "mode": "100644",
+      "blob": "9a192b4b65ec1127a08e7d2b19ca6593017accbc",
+      "sha256": "23086a68cebb1d4c1df4bb085b4da7acdee8182ee8e1dccd625eba7cc77cc369",
+      "size": 66
+    },
+    {
+      "path": "third_party/libc++abi/BUILD.gn",
+      "mode": "100644",
+      "blob": "7fc8e56bc404512ddb0919b59c9cb856da12be09",
+      "sha256": "f5f647c26fb67f51ff7eb48094e2caaa15f92f6412b7e2ab15c3808f48c21826",
+      "size": 4239
+    },
+    {
+      "path": "third_party/libc++abi/cxa_demangle_stub.cc",
+      "mode": "100644",
+      "blob": "ba6a781bd96f8d6dc14ed476a33bb5640c7b48e0",
+      "sha256": "659ada454257d4e7cdd6406d52b25f91c44160ae9165d7fd06a1f2ceb57912e5",
+      "size": 947
+    },
+    {
+      "path": "third_party/libc++abi/OWNERS",
+      "mode": "100644",
+      "blob": "52faa91a969f98b499c26776ebdb156a9b29e5ea",
+      "sha256": "136b857515c61bd2e448d395a8a794e6b5934fb0a43e4fe810d279e9e2fdfc52",
+      "size": 48
+    },
+    {
+      "path": "third_party/libunwind/BUILD.gn",
+      "mode": "100644",
+      "blob": "83adb80e69306af9c8bf3651a28510954d5d796f",
+      "sha256": "db84813cb76d87feb6e9858ea60d581cc5a96042997999122ed14dfc613848ad",
+      "size": 1940
+    },
+    {
+      "path": "third_party/libunwind/OWNERS",
+      "mode": "100644",
+      "blob": "dfaca8011341139e03757b1fa2d2cfc1be281d04",
+      "sha256": "40600762023feddf086a4d3616ce5d744b2a67e1ca18f5df47078c2d40ada675",
+      "size": 123
+    },
+    {
+      "path": "third_party/mold/3pp/3pp.pb",
+      "mode": "100644",
+      "blob": "99eb09478147e0193384d02dedbc2c08313cd56f",
+      "sha256": "97b2259762798fee534c9463267177b840c66f4e9e27e8a59d96d45a87990df7",
+      "size": 306
+    },
+    {
+      "path": "third_party/mold/3pp/fetch.py",
+      "mode": "100755",
+      "blob": "b900bd3c27dc9e9ed3e98e36917363f9500e4b6a",
+      "sha256": "6b33e9f94cec5714c473710abd2830f85429a649a5fd9a3cdcd1f2c3d1bd2f02",
+      "size": 590
+    },
+    {
+      "path": "third_party/mold/LICENSE",
+      "mode": "100644",
+      "blob": "ae2ecfbef6975cc671e7de0fccf839755176b3d5",
+      "sha256": "c98a2858469bd3b231c8865c5b65f80f6ffbf25e850d5d575967e3d9ee080755",
+      "size": 1067
+    },
+    {
+      "path": "third_party/mold/OWNERS",
+      "mode": "100644",
+      "blob": "39f58e9eb6976420b10a09c70102a4bcad70cdfc",
+      "sha256": "d44905117babdb02c0ed16ff4055609cc7f4e10bbc06e3a95e94b889f17418e3",
+      "size": 21
+    },
+    {
+      "path": "third_party/mold/README.chromium",
+      "mode": "100644",
+      "blob": "e759205f3526c1d959a22a8e696f3cc83646d5f8",
+      "sha256": "746c724e9e775cd7c26940238a267e13f8a6b9b40d04ec0e26d2163efe440efa",
+      "size": 258
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "wasip3@0.4.0+wasi-0.3.0-rc-2026-01-06",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/wasip3/wasip3-0.4.0+wasi-0.3.0-rc-2026-01-06.crate",
+    "sha256": "5428f8bf88ea5ddc08faddef2ac4a67e390b88186c703ce6dbd955e1c145aca5"
+  },
+  "archive_vcs": {
+    "commit": "06ce201370fcde0d1b0d47cac8ecb1b0b312c9f9",
+    "path_in_vcs": "crates/wasip3"
+  },
+  "declared_license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+  "repository": "https://github.com/bytecodealliance/wasi-rs",
+  "published_manifest": {
+    "path": "wasip3-0.4.0+wasi-0.3.0-rc-2026-01-06/Cargo.toml",
+    "sha256": "8c68ba791448b5727fb665a4faf8d344494f5dee1f099cd1df8300bd08f48b50"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/bytecodealliance/wasi-rs/06ce201370fcde0d1b0d47cac8ecb1b0b312c9f9/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "bytes": 1023
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/bytecodealliance/wasi-rs/06ce201370fcde0d1b0d47cac8ecb1b0b312c9f9/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

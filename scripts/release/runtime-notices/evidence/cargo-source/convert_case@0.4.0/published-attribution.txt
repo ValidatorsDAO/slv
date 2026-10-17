@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: convert_case@0.4.0
+Exact archive: https://static.crates.io/crates/convert_case/convert_case-0.4.0.crate
+Archive SHA-256: 6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e
+Declared license: MIT
+Selected license branch for this distribution: MIT
+
+Published authors (author metadata is not restated as copyright ownership):
+- David Purdum <purdum41@gmail.com>
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

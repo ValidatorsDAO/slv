@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "hexf-parse@0.2.1",
+    "archive": {
+      "url": "https://static.crates.io/crates/hexf-parse/hexf-parse-0.2.1.crate",
+      "sha256": "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
+    },
+    "license_declared": "CC0-1.0",
+    "license_selected": "CC0-1.0",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "cc0"
+    ],
+    "original_authors": [
+      "Kang Seonghoon <public+rust@mearie.org>"
+    ],
+    "notes": [
+      "Exact package declares CC0-1.0. Current upstream LICENSE is 0BSD; do not substitute it."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "CC0-1.0",
+    "authors": [
+      "Kang Seonghoon <public+rust@mearie.org>"
+    ],
+    "repository": "https://github.com/lifthrasiir/hexf",
+    "homepage": "https://github.com/lifthrasiir/hexf",
+    "description": "Parses hexadecimal floats (see also hexf)",
+    "license-file": null,
+    "package": "hexf-parse@0.2.1",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"Kang Seonghoon <public+rust@mearie.org>\"]",
+          "license = \"CC0-1.0\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "cc0",
+      "path": "evidence/cargo-resolution/hexf-parse@0.2.1/terms-cc0.txt",
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "source": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/CC0-1.0.txt",
+        "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

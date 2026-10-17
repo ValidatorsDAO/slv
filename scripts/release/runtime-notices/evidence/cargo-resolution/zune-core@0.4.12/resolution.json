@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "zune-core@0.4.12",
+    "archive": {
+      "url": "https://static.crates.io/crates/zune-core/zune-core-0.4.12.crate",
+      "sha256": "3f423a2c17029964870cfaabb1f13dfab7d092a62a29a89264f4d36990ca414a"
+    },
+    "license_declared": "MIT OR Apache-2.0 OR Zlib",
+    "license_selected": "Zlib",
+    "resolution_kind": "recovered-pinned-upstream-license",
+    "text_refs": [
+      "zune_zlib",
+      "zune_declaration"
+    ],
+    "original_authors": null,
+    "notes": [
+      "All 13 Rust files and Cargo.toml.orig byte-equal. Preserve original bare-year headers and actual upstream zune-image developers notice; do not invent a year/owner combination."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "MIT OR Apache-2.0 OR Zlib",
+    "authors": null,
+    "repository": null,
+    "homepage": "https://github.com/etemesi254/zune-image/tree/dev/zune-core",
+    "description": "Core utilities for image processing in the zune family of crates",
+    "license-file": null,
+    "package": "zune-core@0.4.12",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "license = \"MIT OR Apache-2.0 OR Zlib\""
+        ]
+      ]
+    ],
+    "source_notices": [
+      [
+        "src/bit_depth.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ],
+      [
+        "src/bytestream/reader.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ],
+      [
+        "src/bytestream/traits.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ],
+      [
+        "src/bytestream/writer.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ],
+      [
+        "src/bytestream.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ],
+      [
+        "src/colorspace.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ],
+      [
+        "src/lib.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * This software is free software; You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ],
+      [
+        "src/log.rs",
+        [
+          " * Copyright (c) 2023.",
+          " * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license"
+        ]
+      ]
+    ]
+  },
+  "terms": [
+    {
+      "reference": "zune_zlib",
+      "path": "evidence/cargo-resolution/zune-core@0.4.12/terms-zune_zlib.txt",
+      "sha256": "7fa429541e55b1509909e058f2d21a37467e4958ec713b357f6e0cf9dc4ee352",
+      "source": {
+        "url": "https://raw.githubusercontent.com/etemesi254/zune-image/f8fbb123d5ed04441e8324a555bfcda0cb1bd28f/LICENSE-ZLIB",
+        "sha256": "7fa429541e55b1509909e058f2d21a37467e4958ec713b357f6e0cf9dc4ee352"
+      }
+    },
+    {
+      "reference": "zune_declaration",
+      "path": "evidence/cargo-resolution/zune-core@0.4.12/terms-zune_declaration.txt",
+      "sha256": "c6dff146a9f31848ac296faa5a08a4253caf2c384c86f906dc99e7fc0a39cc8c",
+      "source": {
+        "url": "https://raw.githubusercontent.com/etemesi254/zune-image/f8fbb123d5ed04441e8324a555bfcda0cb1bd28f/LICENSE.md",
+        "sha256": "c6dff146a9f31848ac296faa5a08a4253caf2c384c86f906dc99e7fc0a39cc8c"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

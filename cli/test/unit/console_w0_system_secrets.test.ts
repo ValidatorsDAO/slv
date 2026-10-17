@@ -8,7 +8,8 @@ import {
 import { classifyCommand, decideCommandGate } from '@/ai/console/commandGate.ts'
 import { keyMaterialInWord } from '@/ai/console/keyMaterial.ts'
 import { isReadOnlyLine } from '@/ai/console/readOnly.ts'
-import { fileToolRefusal } from '@/ai/console/toolSafety.ts'
+import { fileToolRefusal, isAgentMemoryFile } from '@/ai/console/toolSafety.ts'
+import { withHome } from '/test/unit/_credentialFixtures.ts'
 import * as tools from '@/ai/console/tools.ts'
 
 /** What run_command decides for a line with auto-execute on. */
@@ -34,6 +35,40 @@ const runsAlone = (line: string): void => {
 
 const reasonsOf = (line: string): string =>
   classifyCommand(line).reasons.join(' | ')
+
+/** A benign path is open only when it resolves, or is genuinely absent. */
+const assertOpenWhenResolvable = async (path: string): Promise<void> => {
+  const canonicalized = await Deno.realPath(path).then(
+    () => true,
+    () => false,
+  )
+  const absent = await Deno.lstat(path).then(
+    () => false,
+    (error) => error instanceof Deno.errors.NotFound,
+  )
+  for (const tool of ['read_file', 'list_files'] as const) {
+    const refusal = await fileToolRefusal(tool, path)
+    if (canonicalized || absent) {
+      assertEquals(refusal, null, `${tool} ${path}`)
+    } else {
+      assertStringIncludes(
+        refusal ?? '',
+        'destination the AI console cannot safely resolve',
+        `${tool} ${path}`,
+      )
+    }
+  }
+}
+
+const assertMissing = async (path: string, message: string): Promise<void> => {
+  try {
+    await Deno.lstat(path)
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return
+    throw error
+  }
+  assert(false, message)
+}
 
 const PASSWORD_FILES = [
   '/etc/shadow',
@@ -283,14 +318,14 @@ Deno.test('read_file, list_files and write_file refuse those paths and handle th
       '/etc/ssh',
       '/etc/ssh/sshd_config',
       '/etc/ssh/ssh_host_ed25519_key.pub',
-      '/proc/cpuinfo',
-      '/proc/self/status',
       '/dev/null',
-      '/dev',
     ]
   ) {
     assertEquals(await fileToolRefusal('read_file', path), null, path)
     assertEquals(await fileToolRefusal('list_files', path), null, path)
+  }
+  for (const path of ['/proc/cpuinfo', '/proc/self/status', '/dev']) {
+    await assertOpenWhenResolvable(path)
   }
   // the tool itself refuses before it opens the file
   for (const path of ['/etc/shadow', '/etc/ssh/ssh_host_ed25519_key']) {
@@ -309,12 +344,82 @@ Deno.test('read_file follows a link to those paths', {
   assert(through !== null, 'read_file through /proc/self/root')
   const dir = await Deno.makeTempDir({ prefix: 'console-w0-system-' })
   try {
+    await Deno.symlink('/proc/self/root/etc/shadow', `${dir}/root-shadow`)
+    const rootLinked = await fileToolRefusal(
+      'read_file',
+      `${dir}/root-shadow`,
+    )
+    assert(
+      rootLinked !== null,
+      'read_file through a link to /proc/self/root/etc/shadow',
+    )
     await Deno.symlink('/proc/kcore', `${dir}/innocent.txt`)
     const linked = await fileToolRefusal('read_file', `${dir}/innocent.txt`)
     assert(linked !== null, 'read_file through a link to /proc/kcore')
+    assertEquals(
+      await fileToolRefusal('read_file', `${dir}/missing.txt`),
+      null,
+      'a missing child of a resolved ordinary directory stays readable',
+    )
+    await assertOpenWhenResolvable('/proc/self/status')
   } finally {
     await Deno.remove(dir, { recursive: true })
   }
+})
+
+Deno.test('a dangling MEMORY.md link and an external directory link never grant an autonomous write', async () => {
+  await withHome(null, async (home) => {
+    const agent = `${home}/.slv/agent`
+    const memory = `${agent}/MEMORY.md`
+    const outside = await Deno.makeTempDir({ prefix: 'console-w0-outside-' })
+    try {
+      await Deno.mkdir(agent, { recursive: true })
+      await Deno.writeTextFile(memory, 'normal memory\n')
+      assert(
+        await isAgentMemoryFile(memory),
+        'a normal MEMORY.md is autonomous',
+      )
+      await Deno.remove(memory)
+      assert(
+        await isAgentMemoryFile(memory),
+        'a genuinely absent MEMORY.md under its verified parent is autonomous',
+      )
+
+      const escaped = `${outside}/new.md`
+      await Deno.symlink(escaped, memory)
+      assertFalse(
+        await isAgentMemoryFile(memory),
+        'a dangling MEMORY.md link is not autonomous',
+      )
+      const danglingRefusal = await fileToolRefusal('write_file', memory)
+      assert(danglingRefusal !== null, 'a dangling MEMORY.md link is refused')
+      await assertMissing(
+        escaped,
+        'the refusal does not create the link destination',
+      )
+
+      const ordinary = `${agent}/notes/new.md`
+      assertEquals(
+        await fileToolRefusal('write_file', ordinary),
+        null,
+        'a genuinely absent nested child of a verified directory stays writable',
+      )
+
+      const directoryLink = `${home}/.slv/outside`
+      await Deno.symlink(outside, directoryLink)
+      const outsideRefusal = await fileToolRefusal(
+        'write_file',
+        `${directoryLink}/escape.md`,
+      )
+      assert(outsideRefusal !== null, 'an external directory link is refused')
+      await assertMissing(
+        `${outside}/escape.md`,
+        'the external directory is not written',
+      )
+    } finally {
+      await Deno.remove(outside, { recursive: true })
+    }
+  })
 })
 
 Deno.test('the command gate and the file tools name the same paths, for the same reason', async () => {
@@ -330,13 +435,14 @@ Deno.test('the command gate and the file tools name the same paths, for the same
       '/etc/passwd',
       '/etc/ssh/sshd_config',
       '/etc/ssh/ssh_host_ed25519_key.pub',
-      '/proc/cpuinfo',
       '/dev/null',
     ]
   ) {
     assertEquals(keyMaterialInWord(path), null, path)
     assertEquals(await fileToolRefusal('read_file', path), null, path)
   }
+  assertEquals(keyMaterialInWord('/proc/cpuinfo'), null)
+  await assertOpenWhenResolvable('/proc/cpuinfo')
   assertFalse(classifyCommand('cat /etc/passwd').gated)
 })
 
@@ -422,6 +528,6 @@ Deno.test('the environment of a process is held in the ways its memory is: a glo
     assertStringIncludes(keyMaterialInWord(path) ?? '', 'the environment')
   }
   for (const path of ['/proc/self/status', '/proc/1234/cmdline']) {
-    assertEquals(await fileToolRefusal('read_file', path), null, path)
+    await assertOpenWhenResolvable(path)
   }
 })
