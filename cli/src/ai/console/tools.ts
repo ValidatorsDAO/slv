@@ -1329,13 +1329,13 @@ The deploy playbook creates this key layout on the target node:
 **Testnet:**
 - \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
 - \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\` to prevent double-voting
-- The staked identity key is NOT on the node. It stays on the controller (this machine) at \`~/.slv/keys/<identity>.json\`: deploy never copies it, and \`slv v set:identity -p <host>\` and \`slv v switch\` send it to the node only on stdin.
+- The staked identity key stays on the controller (this machine) at \`~/.slv/keys/<identity>.json\`: deploy never copies it to the node, and \`slv v set:identity -p <host>\` and \`slv v switch\` send it to the node only on stdin. A node deployed by an older slv may still hold a copy.
 - To activate the staked identity: \`slv v set:identity -p <host>\` (a staked/unstaked pair switches with \`slv v switch\`)
 
 **Mainnet:**
 - \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
 - \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`
-- The staked identity key is NOT on the node. It stays on the controller (this machine) at \`~/.slv/keys/<identity>.json\`: deploy never copies it, and \`slv v set:identity -p <host> -n mainnet\` and \`slv v switch -n mainnet\` send it to the node only on stdin.
+- The staked identity key stays on the controller (this machine) at \`~/.slv/keys/<identity>.json\`: deploy never copies it to the node, and \`slv v set:identity -p <host> -n mainnet\` and \`slv v switch -n mainnet\` send it to the node only on stdin. A node deployed by an older slv may still hold a copy.
 - To activate the staked identity: \`slv v set:identity -p <host> -n mainnet\` (a staked/unstaked pair switches with \`slv v switch -n mainnet\`)
 
 **Why unstaked by default:** Prevents double-voting if the same identity runs on two nodes simultaneously (e.g. during migration). The validator starts with the unstaked key and catches up with the cluster safely. The user switches to staked identity only when ready.

@@ -48,6 +48,7 @@ const defaultEncryptPasswordDeps = (): EncryptPasswordDeps => ({
 })
 
 const INSTALL_OPENSSL = `⚠️ Please install openssl (MacOS: brew install openssl)
+The password is hashed as SHA-512 crypt (openssl passwd -6). The openssl that macOS ships (LibreSSL) cannot make that hash; Homebrew's openssl can.
 brew install openssl
 brew --prefix openssl
 echo 'export PATH="{openssl path}"' >> ~/.zshrc`
@@ -79,5 +80,5 @@ const encryptPassword = async (
   return ''
 }
 
-export { encryptPassword }
+export { encryptPassword, INSTALL_OPENSSL }
 export type { EncryptPasswordDeps, OpensslRun }

@@ -202,6 +202,20 @@ Deno.test('the console prompts and the init flows say that the staked key stays 
     includes(text, 'deploy never copies', path)
     includes(text, 'only on stdin', path)
   }
+  // What a deploy does is said, not what is on every node: a node deployed by
+  // an older slv may still hold a copy.
+  for (const path of ['ai/console/tools.ts', 'ai/console/systemPrompt.ts']) {
+    const text = await source(`${SRC}/${path}`)
+    assertFalse(
+      /\bNOT on the node\b/.test(text),
+      `${path}: says the key is not on the node`,
+    )
+    includes(
+      text,
+      'A node deployed by an older slv may still hold a copy',
+      path,
+    )
+  }
 })
 
 Deno.test('the console context no longer teaches an identity switch by symlink or key generation', () => {
