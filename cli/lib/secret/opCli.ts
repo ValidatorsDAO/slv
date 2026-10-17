@@ -3,6 +3,9 @@
 // what op needs. What the parent has in its environment (a session of
 // 1Password, an ssh agent, a service account token of another run) never goes to
 // the child; the service account token of keyless.yml does, and only there.
+// Caching is off for every call: by default op keeps what it has read in a cache
+// under /tmp/com.agilebits.op.<uid> and in a background process, and a key that
+// was read is not to be left there.
 
 type OpSpawnOptions = {
   env: Record<string, string>
@@ -32,6 +35,12 @@ const OP_ENV_FROM_PARENT = [
   'OP_ACCOUNT',
 ] as const
 
+/**
+ * The variables that slv sets itself, whatever the parent has: op does not cache
+ * (`op --help`: "Can also be set with the OP_CACHE environment variable").
+ */
+const OP_ENV_FIXED: Readonly<Record<string, string>> = { OP_CACHE: 'false' }
+
 const buildOpEnv = (
   parent: (name: string) => string | undefined,
   token: string | null,
@@ -41,6 +50,7 @@ const buildOpEnv = (
     const value = parent(name)
     if (value !== undefined) env[name] = value
   }
+  Object.assign(env, OP_ENV_FIXED)
   if (token !== null) env.OP_SERVICE_ACCOUNT_TOKEN = token
   return env
 }
@@ -117,6 +127,7 @@ export {
   defaultOpSpawn,
   findExecutable,
   firstLine,
+  OP_ENV_FIXED,
   OP_ENV_FROM_PARENT,
 }
 export type { OpSpawn, OpSpawnOptions, OpSpawnResult }

@@ -173,6 +173,11 @@ Deno.test('a key made in memory goes to 1Password on the stdin of `op item creat
     new TextDecoder().decode(create.stdin!).split(KEY_A.canonical).length - 1,
     1,
   )
+  // Every call of op runs with caching off, whatever the parent has.
+  assertEquals(
+    op.calls.map((call) => call.env.OP_CACHE),
+    ['false', 'false', 'false', 'false', 'false'],
+  )
   // Not in any argument or environment of any call, nor in what was written.
   const outside = JSON.stringify(
     op.calls.map((c) => [c.command, c.args, c.env]),
@@ -211,6 +216,9 @@ Deno.test('with no vault in keyless.yml the vaults of op are listed on the termi
   })
   assertEquals(result, true)
   assertEquals(op.calls[0].args, ['vault', 'list', '--format', 'json'])
+  // The listing, the creation and the reads all run with caching off.
+  assertEquals(op.calls.length, 6)
+  assertEquals(op.calls.every((call) => call.env.OP_CACHE === 'false'), true)
   assertStringIncludes(terminal.said[0], VAULT)
   assertStringIncludes(terminal.said[0], 'Testnet lab')
   assertStringIncludes(terminal.said[0], OTHER_VAULT)

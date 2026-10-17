@@ -8,6 +8,7 @@ import { parseIdentityRef } from '/lib/secret/identityRef.ts'
 import { KEYPAIR_BYTES, keypairText } from '/lib/secret/keypairBytes.ts'
 import {
   buildOpEnv,
+  defaultOpSpawn,
   findExecutable,
   firstLine,
   type OpSpawn,
@@ -81,6 +82,8 @@ const PARENT: Record<string, string> = {
   LANG: 'C.UTF-8',
   TMPDIR: '/tmp',
   OP_ACCOUNT: 'my.1password.com',
+  // The parent likes a cache; the child gets none.
+  OP_CACHE: 'true',
   // What the child must never get from the parent.
   OP_SESSION_myaccount: 'session-canary',
   OP_SERVICE_ACCOUNT_TOKEN: 'ops_token_of_the_parent',
@@ -102,7 +105,7 @@ const deps = (
   ...overrides,
 })
 
-Deno.test('op is run as `op read -n <ref>` by its absolute path, with no stdin, and an environment of its own in which the token of the file is the only token', async () => {
+Deno.test('op is run as `op read -n <ref>` by its absolute path, with no stdin, and an environment of its own in which caching is off and the token of the file is the only token', async () => {
   const fake = fakeOp(() => ({ success: true, stdout: keypairText(keypair()) }))
   const resolved = await resolveIdentity(ref, {}, deps(fake.op))
   assertEquals(resolved.pubkey, PUBKEY)
@@ -118,6 +121,7 @@ Deno.test('op is run as `op read -n <ref>` by its absolute path, with no stdin, 
     LANG: 'C.UTF-8',
     TMPDIR: '/tmp',
     OP_ACCOUNT: 'my.1password.com',
+    OP_CACHE: 'false',
     OP_SERVICE_ACCOUNT_TOKEN: TOKEN,
   })
   for (
@@ -136,10 +140,70 @@ Deno.test('op is run as `op read -n <ref>` by its absolute path, with no stdin, 
   const none = fakeOp(() => ({ success: true, stdout: keypairText(keypair()) }))
   await resolveIdentity(ref, {}, deps(none.op, { token: null }))
   assertEquals('OP_SERVICE_ACCOUNT_TOKEN' in none.calls[0].options.env, false)
+  // Nor does the cache come back: with or without a token, whatever the parent says.
+  assertEquals(none.calls[0].options.env.OP_CACHE, 'false')
   assertEquals(
     buildOpEnv(() => undefined, null),
-    {},
+    { OP_CACHE: 'false' },
   )
+  assertEquals(
+    buildOpEnv((name) => name === 'OP_CACHE' ? 'true' : undefined, null),
+    { OP_CACHE: 'false' },
+  )
+})
+
+Deno.test('the real spawner gives the child of op the environment it is given and no other, so it runs with OP_CACHE=false, the token of the file and none of the variables of the parent', async () => {
+  const canaries: Record<string, string> = {
+    SLV_TEST_CANARY: 'canary',
+    SSH_AUTH_SOCK: '/tmp/ssh-agent.sock',
+    OP_SESSION_myaccount: 'session-canary',
+    OP_CACHE: 'true',
+  }
+  const before: Record<string, string | undefined> = {}
+  for (const [name, value] of Object.entries(canaries)) {
+    before[name] = Deno.env.get(name)
+    Deno.env.set(name, value)
+  }
+  try {
+    const result = await defaultOpSpawn(
+      '/usr/bin/env',
+      [],
+      {
+        env: buildOpEnv(
+          (name) => ({ HOME: '/home/op', PATH: '/usr/bin:/bin' })[name],
+          TOKEN,
+        ),
+        stdin: null,
+      },
+    )
+    assertEquals(result.success, true)
+    const lines = new TextDecoder().decode(result.stdout).trim().split('\n')
+    for (
+      const wanted of [
+        'HOME=/home/op',
+        'PATH=/usr/bin:/bin',
+        'OP_CACHE=false',
+        `OP_SERVICE_ACCOUNT_TOKEN=${TOKEN}`,
+      ]
+    ) {
+      assert(lines.includes(wanted), `${wanted} in ${lines}`)
+    }
+    assertEquals(lines.filter((line) => line.startsWith('OP_CACHE=')).length, 1)
+    for (const name of Object.keys(canaries)) {
+      assertEquals(
+        lines.some((line) =>
+          line.startsWith(`${name}=`) && name !== 'OP_CACHE'
+        ),
+        false,
+        name,
+      )
+    }
+  } finally {
+    for (const [name, value] of Object.entries(before)) {
+      if (value === undefined) Deno.env.delete(name)
+      else Deno.env.set(name, value)
+    }
+  }
 })
 
 Deno.test('what op printed is turned into the canonical text, the proved public key is returned, and every buffer that held the key is wiped', async () => {

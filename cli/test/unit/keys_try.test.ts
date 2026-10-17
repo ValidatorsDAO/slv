@@ -292,6 +292,7 @@ Deno.test('the node is looked at, the public key is read from the item and check
     ['read', '-n', refOf(VAULT, ITEM, 'pubkey')],
     ['read', '-n', refOf()],
   ])
+  assertEquals(op.calls.map((call) => call.env.OP_CACHE), ['false', 'false'])
 
   const lines = output(captured, terminal)
   assertEquals(holdsKey(lines, KEY_B), false)

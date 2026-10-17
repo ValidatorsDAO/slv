@@ -68,6 +68,7 @@ Deno.test('keys:check reads the key as `op read -n <ref>`, proves it, and prints
   assertEquals(started, 0)
   assertEquals(op.calls.map((call) => call.args), [['read', '-n', refOf()]])
   assertEquals(op.calls[0].stdinLength, null)
+  assertEquals(op.calls[0].env.OP_CACHE, 'false')
   assertEquals(captured.exitCode(), undefined)
   const lines = captured.info.join('\n')
   assertStringIncludes(lines, KEY_A.pubkey)

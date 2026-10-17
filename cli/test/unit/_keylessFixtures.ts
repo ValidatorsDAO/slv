@@ -77,6 +77,8 @@ export const PARENT_ENV: Record<string, string> = {
   USER: 'op',
   LANG: 'C.UTF-8',
   TMPDIR: '/tmp',
+  // The parent likes a cache; the child of op gets none.
+  OP_CACHE: 'true',
   OP_SESSION_myaccount: 'session-canary',
   OP_SERVICE_ACCOUNT_TOKEN: 'ops_token_of_the_parent',
   SSH_AUTH_SOCK: '/tmp/ssh-agent.sock',
