@@ -1546,7 +1546,7 @@ jobs:
       source-arm-build,
       source-arm-merge,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.source-native-linux-x64.result == 'success' && needs.source-arm-build.result == 'success' && needs.source-arm-merge.result == 'success' && ((needs.resolve.outputs.linux_validation == 'true' && needs.source-native-macos-x64.result == 'skipped' && needs.source-native-macos-arm64.result == 'skipped') || (needs.resolve.outputs.linux_validation != 'true' && needs.source-native-macos-x64.result == 'success' && needs.source-native-macos-arm64.result == 'success')) }}
     name: build-${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -1554,22 +1554,51 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-26.04
-            apple: false
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-26.04-arm
-            apple: false
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-            apple: true
-          - target: aarch64-apple-darwin
-            runner: macos-15
-            apple: true
+        include: ${{ fromJSON(needs.resolve.outputs.linux_validation == 'true' && '[{"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-26.04","apple":false},{"target":"aarch64-unknown-linux-gnu","runner":"ubuntu-26.04-arm","apple":false}]' || '[{"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-26.04","apple":false},{"target":"aarch64-unknown-linux-gnu","runner":"ubuntu-26.04-arm","apple":false},{"target":"x86_64-apple-darwin","runner":"macos-15-intel","apple":true},{"target":"aarch64-apple-darwin","runner":"macos-15","apple":true}]') }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
     steps:
+      - name: Require the exact native product prerequisites
+        timeout-minutes: 1
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          jq -e --slurp --argjson expected '["resolve","test","source-materials","source-native-linux-x64","source-native-macos-x64","source-native-macos-arm64","source-arm-build","source-arm-merge"]' \
+            'length == 1 and (.[0] | . as $needs | type == "object" and (keys == ($expected | sort)) and
+              all(to_entries[]; (.value | type == "object") and .value.result ==
+                (if (.key == "source-native-macos-x64" or .key == "source-native-macos-arm64") and $needs.resolve.outputs.linux_validation == "true" then "skipped" else "success" end)))' \
+            <<< "$NEEDS_JSON" > /dev/null
+      - name: Validate exact Linux validation artifact identities
+        if: needs.resolve.outputs.linux_validation == 'true'
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          TARGET: ${{ matrix.target }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          CURRENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          jq -e --arg target "$TARGET" --arg run "$CURRENT_RUN_ID" --arg attempt "$CURRENT_RUN_ATTEMPT" '
+            def positive: type == "string" and test("^[1-9][0-9]*$");
+            def hash: type == "string" and test("^[0-9a-f]{64}$");
+            def digest: type == "string" and (sub("^sha256:"; "") | hash);
+            def identity($prefix; $id; $digest_key):
+              (.[$id] | positive) and (.[$digest_key] | digest) and
+              (.[$prefix + "producer_run_id"] == $run) and
+              (.[$prefix + "producer_attempt"] | positive and (tonumber <= ($attempt | tonumber)));
+            ($run | positive) and ($attempt | positive) and
+            (.test.outputs | identity("license_"; "license_artifact_id"; "license_artifact_digest") and (.license_notice_sha256 | hash)) and
+            (."source-materials".outputs | identity(""; "artifact_id"; "artifact_digest") and (.receipt_sha256 | hash)) and
+            (."source-native-linux-x64".outputs | identity(""; "artifact_id"; "artifact_digest") and (.proof_sha256 | hash)) and
+            (."source-arm-merge".outputs | identity(""; "artifact_id"; "artifact_digest") and (.proof_sha256 | hash)) and
+            ((if $target == "x86_64-unknown-linux-gnu" then ."source-native-linux-x64".outputs
+              elif $target == "aarch64-unknown-linux-gnu" then ."source-arm-build".outputs
+              else error("unexpected Linux validation target") end) |
+              identity(""; "runtime_artifact_id"; "runtime_artifact_digest") and
+              (.build_receipt_sha256 | hash) and (.baseline_runtime_sha256 | hash) and (.baseline_derived_lock_sha256 | hash))
+          ' <<< "$NEEDS_JSON" > /dev/null
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.resolve.outputs.source_sha }}
@@ -1602,7 +1631,7 @@ jobs:
       - name: Download exact target proof records
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          artifact-ids: ${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-native-linux-x64.outputs.artifact_id }},${{ needs.source-native-macos-x64.outputs.artifact_id }},${{ needs.source-native-macos-arm64.outputs.artifact_id }},${{ needs.source-arm-merge.outputs.artifact_id }}
+          artifact-ids: ${{ needs.resolve.outputs.linux_validation == 'true' && format('{0},{1},{2}', needs.source-materials.outputs.artifact_id, needs.source-native-linux-x64.outputs.artifact_id, needs.source-arm-merge.outputs.artifact_id) || format('{0},{1},{2},{3},{4}', needs.source-materials.outputs.artifact_id, needs.source-native-linux-x64.outputs.artifact_id, needs.source-native-macos-x64.outputs.artifact_id, needs.source-native-macos-arm64.outputs.artifact_id, needs.source-arm-merge.outputs.artifact_id) }}
           merge-multiple: true
           path: dist/release-inputs
       - name: Download Linux x64 baseline runtime by exact artifact ID
@@ -1634,12 +1663,24 @@ jobs:
           merge-multiple: true
           path: dist/release-inputs/runtime-source/aarch64-apple-darwin
       - name: Compile and execute the source-bound native target
+        env:
+          LINUX_VALIDATION: ${{ needs.resolve.outputs.linux_validation }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
           deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
           test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
           deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
-          deno run --frozen --allow-read scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          if [ "$LINUX_VALIDATION" = true ]; then
+            sha256_file() { sha256sum "$1" | cut -d ' ' -f 1; }
+            expected_hash() { jq -er --arg job "$1" --arg field "$2" '.[$job].outputs[$field]' <<< "$NEEDS_JSON"; }
+            test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = "$(expected_hash source-materials receipt_sha256)"
+            test "$(sha256_file dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/native-proof.json)" = "$(expected_hash source-native-linux-x64 proof_sha256)"
+            test "$(sha256_file dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/native-proof.json)" = "$(expected_hash source-arm-merge proof_sha256)"
+            deno run --frozen --allow-read scripts/release/source-materials.ts verify-linux-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          else
+            deno run --frozen --allow-read scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          fi
           deno run --frozen --allow-read scripts/release/workflow.ts verify-baseline-runtime '${{ matrix.target }}' '${{ needs.resolve.outputs.source_sha }}' dist/release-inputs/source-materials-receipt.json "dist/release-inputs/source-proofs/${{ matrix.target }}/native-proof.json" "dist/release-inputs/runtime-source/${{ matrix.target }}" > runtime.env
           runtime_value() { sed -n "s/^$1=//p" runtime.env | head -n 1; }
           runtime_path="$(runtime_value runtime_path)"
@@ -1652,6 +1693,13 @@ jobs:
           native_proof_sha256="$(runtime_value native_proof_sha256)"
           build_receipt_sha256="$(runtime_value build_receipt_sha256)"
           for value in "$runtime_path" "$baseline_denort_sha256" "$bridge_path" "$baseline_bridge_sha256" "$source_selected_cargo_lock_sha256" "$derived_relink_cargo_lock_sha256" "$source_receipt_sha256" "$native_proof_sha256" "$build_receipt_sha256"; do test -n "$value"; done
+          if [ "$LINUX_VALIDATION" = true ]; then
+            runtime_producer=source-native-linux-x64
+            if [ '${{ matrix.target }}' = aarch64-unknown-linux-gnu ]; then runtime_producer=source-arm-build; fi
+            test "$build_receipt_sha256" = "$(expected_hash "$runtime_producer" build_receipt_sha256)"
+            test "$baseline_denort_sha256" = "$(expected_hash "$runtime_producer" baseline_runtime_sha256)"
+            test "$derived_relink_cargo_lock_sha256" = "$(expected_hash "$runtime_producer" baseline_derived_lock_sha256)"
+          fi
           test -f "$runtime_path"
           test -f "$bridge_path"
           if command -v sha256sum >/dev/null; then runtime_sha256="$(sha256sum "$runtime_path" | awk '{print $1}')"; else runtime_sha256="$(shasum -a 256 "$runtime_path" | awk '{print $1}')"; fi
@@ -1667,7 +1715,14 @@ jobs:
           deno check --frozen cli/src/index.ts
           mkdir -p dist "dist/release-inputs/product-runtime/${{ matrix.target }}"
           DENORT_BIN="$runtime_path" deno compile --frozen --cached-only -A --include cli/lib/release/engine.py --include dist/release-inputs/THIRD_PARTY_NOTICES --target '${{ matrix.target }}' --output 'dist/slv-${{ matrix.target }}-exe' cli/src/index.ts
-          'dist/slv-${{ matrix.target }}-exe' --version
+          if [ "$LINUX_VALIDATION" = true ]; then
+            source_version="$(deno run --frozen --allow-read scripts/release/release.ts source-version)"
+            printf 'slv %s\n' "$source_version" > 'dist/slv-${{ matrix.target }}-expected-version'
+            NO_COLOR=1 'dist/slv-${{ matrix.target }}-exe' --version > 'dist/slv-${{ matrix.target }}-version'
+            cmp 'dist/slv-${{ matrix.target }}-expected-version' 'dist/slv-${{ matrix.target }}-version'
+          else
+            'dist/slv-${{ matrix.target }}-exe' --version
+          fi
           private_home="$RUNNER_TEMP/slv-licenses-${{ matrix.target }}"
           mkdir -p "$private_home"
           env -i PATH="$PATH" HOME="$private_home" 'dist/slv-${{ matrix.target }}-exe' licenses > 'dist/slv-${{ matrix.target }}-licenses'
@@ -1690,6 +1745,9 @@ jobs:
           executable_sha256="$(if command -v sha256sum >/dev/null; then sha256sum 'dist/slv-${{ matrix.target }}-exe' | awk '{print $1}'; else shasum -a 256 'dist/slv-${{ matrix.target }}-exe' | awk '{print $1}'; fi)"
           executable_tar_sha256="$(if command -v sha256sum >/dev/null; then sha256sum 'dist/slv-${{ matrix.target }}-exe.tar.gz' | awk '{print $1}'; else shasum -a 256 'dist/slv-${{ matrix.target }}-exe.tar.gz' | awk '{print $1}'; fi)"
           jq -n --arg target '${{ matrix.target }}' --arg executable_sha256 "$executable_sha256" --arg executable_tar_sha256 "$executable_tar_sha256" --arg baseline_denort_sha256 "$baseline_denort_sha256" --arg source_selected_cargo_lock_sha256 "$source_selected_cargo_lock_sha256" --arg derived_relink_cargo_lock_sha256 "$derived_relink_cargo_lock_sha256" --arg source_receipt_sha256 "$source_receipt_sha256" --arg native_proof_sha256 "$native_proof_sha256" --arg build_receipt_sha256 "$build_receipt_sha256" '{schema_version: 1, kind: "slv-product-runtime-receipt", target: $target, executable_sha256: $executable_sha256, executable_tar_sha256: $executable_tar_sha256, baseline_denort_sha256: $baseline_denort_sha256, source_selected_cargo_lock_sha256: $source_selected_cargo_lock_sha256, derived_relink_cargo_lock_sha256: $derived_relink_cargo_lock_sha256, source_receipt_sha256: $source_receipt_sha256, native_proof_sha256: $native_proof_sha256, build_receipt_sha256: $build_receipt_sha256}' > "dist/release-inputs/product-runtime/${{ matrix.target }}/product-runtime-receipt.json"
+          if [ "$LINUX_VALIDATION" = true ]; then
+            deno run --frozen --allow-read --allow-run scripts/release/release.ts verify-linux-validation '${{ matrix.target }}' '${{ needs.resolve.outputs.source_sha }}'
+          fi
       - name: Persist the exact target archive and runtime receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
