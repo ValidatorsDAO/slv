@@ -78,8 +78,10 @@ const hostForms = (host: string, port: number): string[] =>
  */
 const fieldNames = async (
   field: string,
-  forms: readonly string[],
+  askedForms: readonly string[],
 ): Promise<boolean> => {
+  // ssh matches host names without regard to case, and hashes the lower-case name.
+  const forms = askedForms.map((form) => form.toLowerCase())
   if (field.startsWith('|')) {
     const parts = field.split('|')
     if (parts.length !== 4 || parts[1] !== '1') return false
@@ -103,7 +105,7 @@ const fieldNames = async (
   const names = field.split(',')
   // A negation may exclude the very name that is asked for; such a line is not used.
   if (names.some((name) => name.startsWith('!'))) return false
-  return names.some((name) => forms.includes(name))
+  return names.some((name) => forms.includes(name.toLowerCase()))
 }
 
 /**

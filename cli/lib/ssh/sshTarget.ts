@@ -91,12 +91,14 @@ const parseSshTarget = (
       )
     }
   }
-  const host = plain(fields.ansible_host, `ansible_host of ${name}`)
-  if (!isHost(host)) {
+  const hostText = plain(fields.ansible_host, `ansible_host of ${name}`)
+  if (!isHost(hostText)) {
     throw new TargetError(
       `ansible_host of ${name} is not an address or a host name`,
     )
   }
+  // ssh lower-cases a host name and the hex of an IPv6 address, in its configuration and in the alias of the pin, so the text that slv writes is lower case from the start.
+  const host = hostText.toLowerCase()
   const portValue = fields.ansible_port ?? 22
   const port = typeof portValue === 'number'
     ? portValue

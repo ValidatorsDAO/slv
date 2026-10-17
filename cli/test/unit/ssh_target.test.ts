@@ -60,6 +60,20 @@ Deno.test('a host of the inventory becomes the facts ssh needs, with the key pat
   assertEquals(target.validatorType, '')
 })
 
+Deno.test('a host name or an IPv6 address with capitals becomes the lower-case text that ssh uses, in the host and in the alias of the pin', () => {
+  for (
+    const [written, host] of [
+      ['Node-1.Example.com', 'node-1.example.com'],
+      ['2001:DB8::ABCD', '2001:db8::abcd'],
+      ['203.0.113.7', '203.0.113.7'],
+    ]
+  ) {
+    const target = parse({ ...GOOD, ansible_host: written })
+    assertEquals(target.host, host, written)
+    assertEquals(target.alias, `[${host}]:2222`, written)
+  }
+})
+
 Deno.test('a host that could make ssh or ansible run something else is refused, one case for each way in', () => {
   const cases: [string, Record<string, string>, string][] = [
     [

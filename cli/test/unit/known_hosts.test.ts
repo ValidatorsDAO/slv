@@ -162,3 +162,68 @@ Deno.test('ssh-keygen finds the pin lines under the alias, which is how ssh look
     await Deno.remove(dir, { recursive: true })
   }
 })
+
+Deno.test('a name in known_hosts matches without regard to case, and a hashed name is the hash of the lower-case name, as ssh makes it', async () => {
+  const salt = Uint8Array.from([
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+  ])
+  const key = await crypto.subtle.importKey(
+    'raw',
+    salt,
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  )
+  const mac = new Uint8Array(
+    await crypto.subtle.sign(
+      'HMAC',
+      key,
+      new TextEncoder().encode('[node-1.example.com]:2222'),
+    ),
+  )
+  const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
+  const hashed = `|1|${b64(salt)}|${b64(mac)} ssh-ed25519 ${ED_2}`
+  const text = [
+    `Node-1.Example.com ssh-ed25519 ${ED_1}`,
+    `[NODE-2.example.com]:2222 ssh-ed25519 ${ED_2}`,
+    hashed,
+  ].join('\n')
+  // The host name that slv uses is lower case, whatever the line says.
+  assertEquals(
+    (await findHostKeys(text, 'node-1.example.com', 22)).map((k) =>
+      k.fingerprint
+    ),
+    [ED_1_FINGERPRINT],
+  )
+  assertEquals(
+    (await findHostKeys(text, 'node-2.example.com', 2222)).map((k) =>
+      k.fingerprint
+    ),
+    [ED_2_FINGERPRINT],
+  )
+  assertEquals(
+    (await findHostKeys(hashed, 'node-1.example.com', 2222)).map((k) =>
+      k.fingerprint
+    ),
+    [ED_2_FINGERPRINT],
+  )
+})

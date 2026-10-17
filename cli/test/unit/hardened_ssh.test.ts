@@ -17,7 +17,7 @@ import {
   verifyEffectiveConfig,
 } from '/lib/ssh/hardenedSsh.ts'
 import { remoteCommands } from '/lib/ssh/remoteCommands.ts'
-import type { SshTarget } from '/lib/ssh/sshTarget.ts'
+import { parseSshTarget, type SshTarget } from '/lib/ssh/sshTarget.ts'
 
 // These tests run the real `ssh -G`, which prints the settings ssh would use
 // and makes no connection. Everything after that is a stub.
@@ -479,4 +479,33 @@ Deno.test('a path with a character that ssh would read as something else is not 
     buildSshConfig(TARGET, '/home/op/.slv/known_hosts').includes('\n\n'),
     false,
   )
+})
+
+Deno.test('a session opens for a host whose name or IPv6 address has capitals in the inventory: the lower-case text of the target is what the configuration, ssh -G and the pin all say', async () => {
+  for (const written of ['Node-1.Example.com', '2001:DB8::1']) {
+    const target = parseSshTarget(
+      [
+        'testnet_validators:',
+        '  hosts:',
+        '    node-1:',
+        `      ansible_host: ${written}`,
+        '      ansible_user: solv',
+        '      ansible_ssh_private_key_file: /home/op/.ssh/node_ed25519',
+        '      identity_account: 586Z7H2vpX9qNhN2T4e9Utugie3ogjbxzGaMtM3E6HR5',
+        '      validator_type: agave',
+      ].join('\n'),
+      'testnet_validators',
+      'node-1',
+      { homeDir: '/home/op', identityAgent: null },
+    )
+    await withPinsFile(
+      [`${target.alias} ssh-ed25519 ${ED_1}`],
+      async (pins) => {
+        const real = spawnOf(() => answer(0))
+        const session = await open(real.spawn, pins, target)
+        await session.close()
+        assertEquals(real.spawned.length, 0)
+      },
+    )
+  }
 })
