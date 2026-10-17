@@ -385,6 +385,40 @@ Deno.test('the directory of a run is private and holds the inventory, ansible.cf
   }
 })
 
+Deno.test('the environment of a run has no variable of 1Password: OP_SESSION_*, OP_SERVICE_ACCOUNT_TOKEN, OP_CONNECT_* and every other OP_* of the process are left out, and the ssh agent socket and the rest are kept', async () => {
+  const canaries = {
+    OP_SESSION_myaccount: 'session-canary',
+    OP_SERVICE_ACCOUNT_TOKEN: 'ops_token_canary',
+    OP_CONNECT_HOST: 'http://connect:8080',
+    OP_CONNECT_TOKEN: 'connect-token-canary',
+    OP_ACCOUNT: 'my.1password.com',
+    OP_CACHE: 'true',
+    OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
+    op_lower_case: 'canary',
+  }
+  const kept = {
+    PATH: '/usr/bin:/bin',
+    HOME: '/home/op',
+    LANG: 'C.UTF-8',
+    SSH_AUTH_SOCK: '/tmp/agent.sock',
+    // These start with the letters but are not OP_ variables.
+    OPENSSL_CONF: '/etc/ssl/openssl.cnf',
+    OPTIND: '1',
+  }
+  const safe = await prepareSafeInventory(
+    input({}, { parentEnv: { ...kept, ...canaries } }),
+  )
+  try {
+    assertEquals(safe.env, { ...kept, ANSIBLE_CONFIG: safe.configPath })
+    const seen = JSON.stringify(safe.env)
+    for (const canary of Object.values(canaries)) {
+      assertEquals(seen.includes(canary), false, canary)
+    }
+  } finally {
+    await safe.remove()
+  }
+})
+
 Deno.test('when a file of the run cannot be written, or the directory cannot hold ansible.cfg, the directory is removed again and the error is passed on', async () => {
   const removed: string[] = []
   const failing: SafeInventoryDeps = {

@@ -12,8 +12,8 @@ import {
 // The inventory that an identity run of ansible reads. It is generated from the
 // hosts of the run, with the allowlisted variables only, each checked, in a
 // directory of its own: nothing else of the inventory file, of the working
-// directory, of the home directory or of ANSIBLE_* in the environment reaches
-// the run.
+// directory, of the home directory, of ANSIBLE_* or of the OP_* variables of
+// 1Password in the environment reaches the run.
 
 type SafeGroup = 'testnet_validators' | 'mainnet_validators'
 
@@ -213,14 +213,19 @@ const buildAnsibleConfig = (inventoryPath: string): string =>
     '',
   ].join('\n')
 
-/** The environment of the run: that of this process without any ANSIBLE_* variable, and ANSIBLE_CONFIG. */
+/**
+ * The environment of the run: that of this process without any ANSIBLE_* or
+ * OP_* variable (a session or a token of 1Password is nothing a playbook needs
+ * and everything a planted plugin would use), and ANSIBLE_CONFIG. The ssh agent
+ * socket stays: a key held by an agent is how the run reaches the node.
+ */
 const buildAnsibleEnv = (
   parentEnv: Record<string, string>,
   configPath: string,
 ): Record<string, string> => {
   const env: Record<string, string> = {}
   for (const [name, value] of Object.entries(parentEnv)) {
-    if (!/^ansible_/i.test(name)) env[name] = value
+    if (!/^(?:ansible|op)_/i.test(name)) env[name] = value
   }
   env.ANSIBLE_CONFIG = configPath
   return env
