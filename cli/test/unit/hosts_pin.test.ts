@@ -279,3 +279,46 @@ Deno.test('only the ssh-ed25519 key is scanned for, shown and pinned: the other 
     assertStringIncludes(refused.captured.error[0], 'no ssh-ed25519 key')
   }
 })
+
+Deno.test('a key that ~/.ssh/known_hosts revokes is not pinned, from the scan or from anywhere else: the run is refused with the fingerprint named and nothing written', async () => {
+  const REVOKED = `@revoked * ssh-ed25519 ${ED_1}\n`
+  const cases: [string, Setup][] = [
+    [
+      'only the revoked line, and a scan that returns the key',
+      { userKnownHosts: REVOKED, scan: `${ALIAS} ssh-ed25519 ${ED_1}` },
+    ],
+    [
+      'the key with a line of the host, revoked by another line',
+      {
+        userKnownHosts: `${ALIAS} ssh-ed25519 ${ED_1}\n${REVOKED}`,
+        scan: `${ALIAS} ssh-ed25519 ${ED_1}`,
+      },
+    ],
+    [
+      'a revoked line for another host pattern',
+      {
+        userKnownHosts: `@revoked 203.0.113.9 ssh-ed25519 ${ED_1}\n`,
+        scan: `${ALIAS} ssh-ed25519 ${ED_1}`,
+      },
+    ],
+  ]
+  for (const [name, setup] of cases) {
+    const { result, captured, writes } = await run(TESTNET, setup)
+    assertEquals(result, false, name)
+    assertEquals(writes, [], name)
+    assertEquals(captured.exitCode(), 1, name)
+    assertStringIncludes(captured.error[0], 'revokes')
+    assertStringIncludes(captured.error[0], ED_1_FINGERPRINT)
+    assertStringIncludes(captured.error[0], 'Nothing was pinned')
+  }
+  // The positive control: another key of the node is pinned when the revoked one is not what it offers.
+  const other = await run(TESTNET, {
+    userKnownHosts: REVOKED,
+    scan: `${ALIAS} ssh-ed25519 ${ED_2}`,
+  })
+  assertEquals(other.result, true)
+  assertEquals(other.writes, [{
+    path: PINS,
+    text: `${ALIAS} ssh-ed25519 ${ED_2}\n`,
+  }])
+})

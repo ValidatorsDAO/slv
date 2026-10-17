@@ -107,6 +107,20 @@ const fieldNames = async (
 }
 
 /**
+ * The keys that the text of a known_hosts file revokes (`@revoked <hosts> <type>
+ * <key>`), as the base64 text of the key. A revoked key is not used for any
+ * host, whatever the hosts of its line say.
+ */
+const revokedKeys = (text: string): Set<string> => {
+  const revoked = new Set<string>()
+  for (const line of text.split('\n')) {
+    const fields = line.trim().split(/\s+/)
+    if (fields[0] === '@revoked' && fields.length >= 4) revoked.add(fields[3])
+  }
+  return revoked
+}
+
+/**
  * The keys that the text of a known_hosts file holds for a host and port,
  * without any that the file revokes.
  */
@@ -116,15 +130,11 @@ const findHostKeys = async (
   port: number,
 ): Promise<HostKey[]> => {
   const forms = hostForms(host, port)
-  const revoked = new Set<string>()
+  const revoked = revokedKeys(text)
   const found: HostKey[] = []
   for (const line of text.split('\n')) {
     const fields = line.trim().split(/\s+/)
     if (fields.length < 3 || fields[0].startsWith('#')) continue
-    if (fields[0] === '@revoked') {
-      if (fields.length >= 4) revoked.add(fields[3])
-      continue
-    }
     if (fields[0].startsWith('@')) continue
     if (!(await fieldNames(fields[0], forms))) continue
     const key = await parseHostKey(fields[1], fields[2])
@@ -176,6 +186,7 @@ export {
   parseScan,
   pinLines,
   PINS_PATH,
+  revokedKeys,
   withPins,
 }
 export type { HostKey }

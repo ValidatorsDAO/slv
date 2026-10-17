@@ -14,6 +14,7 @@ import {
   parseScan,
   pinLines,
   PINS_PATH,
+  revokedKeys,
   withPins,
 } from '/lib/ssh/knownHosts.ts'
 import { TargetError } from '/lib/ssh/sshTarget.ts'
@@ -176,11 +177,13 @@ const pinHost = async (
   // Where the key comes from.
   let keys: HostKey[] = []
   let source: string
+  let revoked = new Set<string>()
   try {
     const known = await deps.readUserKnownHosts()
-    keys = known === null
-      ? []
-      : await findHostKeys(known, target.host, target.port)
+    if (known !== null) {
+      revoked = revokedKeys(known)
+      keys = await findHostKeys(known, target.host, target.port)
+    }
   } catch (error) {
     return refuse(`cannot read your ~/.ssh/known_hosts: ${describe(error)}`)
   }
@@ -200,6 +203,15 @@ const pinHost = async (
     }
     source =
       `${target.alias} is not in your ~/.ssh/known_hosts. ssh-keyscan returns these keys, and nothing proves they are the keys of the node; compare a fingerprint with the node itself (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub there) or the console of the provider:`
+  }
+  // A key that the person has revoked is not pinned, whichever way it came.
+  const offered = keys.filter((key) => revoked.has(key.base64))
+  if (offered.length > 0) {
+    return refuse(
+      `${target.alias} offers a key that your ~/.ssh/known_hosts revokes: ${
+        offered.map((key) => key.fingerprint).join(', ')
+      }. Nothing was pinned.`,
+    )
   }
 
   let typed: string
