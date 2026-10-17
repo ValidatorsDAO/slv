@@ -11,17 +11,27 @@ const registered = (): Command => {
 const flagsOf = (parent: Command, name: string): string[] =>
   parent.getCommand(name)!.getOptions().flatMap((option) => option.flags)
 
-Deno.test('keys:gen, keys:check, keys:try and hosts:pin are added to a command with the options an operator types, and nothing else is added', () => {
+Deno.test('keys:gen, keys:import, keys:check, keys:try and hosts:pin are added to a command with the options an operator types, and nothing else is added', () => {
   const parent = registered()
   assertEquals(
     parent.getCommands().map((command) => command.getName()).sort(),
-    ['hosts:pin', 'keys:check', 'keys:gen', 'keys:try'],
+    ['hosts:pin', 'keys:check', 'keys:gen', 'keys:import', 'keys:try'],
   )
   assertEquals(flagsOf(parent, 'keys:gen').filter((f) => !f.startsWith('-h')), [
     '-n',
     '--network',
     '--title',
   ])
+  assertEquals(
+    flagsOf(parent, 'keys:import').filter((f) => !f.startsWith('-h')),
+    [
+      '-n',
+      '--network',
+      '-p',
+      '--pubkey',
+      '--file',
+    ],
+  )
   assertEquals(
     flagsOf(parent, 'keys:check').filter((f) => !f.startsWith('-h')),
     [
@@ -48,7 +58,15 @@ Deno.test('keys:gen, keys:check, keys:try and hosts:pin are added to a command w
     ],
   )
   // The network defaults to testnet in every one of them.
-  for (const name of ['keys:gen', 'keys:check', 'keys:try', 'hosts:pin']) {
+  for (
+    const name of [
+      'keys:gen',
+      'keys:import',
+      'keys:check',
+      'keys:try',
+      'hosts:pin',
+    ]
+  ) {
     const network = parent.getCommand(name)!.getOptions().find((option) =>
       option.name === 'network'
     )

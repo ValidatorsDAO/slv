@@ -227,6 +227,7 @@ export {
   itemTemplate,
   listItems,
   OpRefusal,
+  printable,
   verifyStoredKey,
 }
 export type { ItemSummary }

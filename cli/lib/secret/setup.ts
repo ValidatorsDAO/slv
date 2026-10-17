@@ -62,9 +62,15 @@ const defaultSecretSetupDeps = (): SecretSetupDeps => ({
   readFile: (path) => Deno.readFile(path),
 })
 
+type SecretSetupOptions = {
+  /** When the network has a service account in keyless.yml: refuse with this message, before the token file is read. */
+  refuseServiceAccount?: string
+}
+
 const prepareSecretSetup = async (
   network: KeylessNetwork,
   deps: SecretSetupDeps,
+  options: SecretSetupOptions = {},
 ): Promise<SecretSetup> => {
   let config: KeylessConfig
   try {
@@ -76,6 +82,9 @@ const prepareSecretSetup = async (
   const reason = await checkSecretContext(network, config, deps.context)
   if (reason !== null) throw new SecretRefusal(reason)
   const policy = policyOf(config, network)
+  if (options.refuseServiceAccount !== undefined && policy.tokenFile !== null) {
+    throw new SecretRefusal(options.refuseServiceAccount)
+  }
   let token: string | null = null
   if (policy.tokenFile !== null) {
     try {
@@ -107,4 +116,4 @@ const prepareSecretSetup = async (
 }
 
 export { defaultSecretSetupDeps, prepareSecretSetup, SecretRefusal }
-export type { SecretSetup, SecretSetupDeps }
+export type { SecretSetup, SecretSetupDeps, SecretSetupOptions }

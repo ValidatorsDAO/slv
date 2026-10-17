@@ -1,10 +1,11 @@
 import type { Command } from '@cliffy'
 import { checkKey } from '/src/validator/keys/checkKey.ts'
 import { genKey } from '/src/validator/keys/genKey.ts'
+import { importKey } from '/src/validator/keys/importKey.ts'
 import { pinHost } from '/src/validator/keys/pinHost.ts'
 import { tryKey } from '/src/validator/keys/tryKey.ts'
 
-/** Adds keys:gen, keys:check, keys:try and hosts:pin to a command. */
+/** Adds keys:gen, keys:import, keys:check, keys:try and hosts:pin to a command. */
 const registerKeylessCommands = (parentCmd: Command): void => {
   parentCmd.command('keys:gen')
     .description(
@@ -16,6 +17,26 @@ const registerKeylessCommands = (parentCmd: Command): void => {
     .option('--title <title>', 'Title of the 1Password item.')
     .action(async (options) => {
       await genKey({ network: options.network, title: options.title })
+    })
+
+  parentCmd.command('keys:import')
+    .description(
+      '📥 Put the key file of a validator into 1Password and point the inventory at the item (the key file is not removed)',
+    )
+    .option('-n, --network <network>', 'Solana Network (testnet or mainnet)', {
+      default: 'testnet',
+    })
+    .option('-p, --pubkey <pubkey>', 'Inventory name of the node.')
+    .option(
+      '--file <file>',
+      'The key file. Default: ~/.slv/keys/<identity_account>.json',
+    )
+    .action(async (options) => {
+      await importKey({
+        network: options.network,
+        host: options.pubkey,
+        file: options.file,
+      })
     })
 
   parentCmd.command('keys:check')
