@@ -75,9 +75,10 @@ runs:
       uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
     - name: Load the runner App key only into this hosted job
       id: app-key
-      uses: 1password/load-secrets-action@dafbe7cb03502b260e2b2893c753c352eee545bf # v3
+      uses: 1password/load-secrets-action@70062d7a876d3eb6334754fa26efd2fbd90c32f2 # v5
       with:
         export-env: false
+        version: '2.40.0'
       env:
         OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.onepassword-token }}
         SLV_RUNNER_APP_PRIVATE_KEY: ${{ inputs.app-key-ref }}
