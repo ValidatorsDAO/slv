@@ -12,6 +12,7 @@ import {
   pruneDenoEphemeralCache,
   sha256,
   SOURCE_PROOF_TARGETS,
+  validateNativeBuildProfile,
   verifyInventory,
   verifyNativeSourceRebuildProof,
   verifyPinnedArchive,
@@ -1168,7 +1169,7 @@ function testArtifacts() {
 }
 
 Deno.test('four target proofs bind source bytes and reject a transported-artifact mismatch', async () => {
-  const root = await Deno.makeTempDir()
+  const root = await Deno.realPath(await Deno.makeTempDir())
   const commit = 'd'.repeat(40)
   const sha = 'e'.repeat(64)
   const sourceDirectory = `${root}/source-materials`
@@ -1487,6 +1488,35 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
         canonicalNoticePath: noticePath,
         reviewedToolPinsPath,
       })
+    for (const omitBuildProfile of [false, true]) {
+      const build = JSON.parse(originalBuildText)
+      const execution = JSON.parse(originalExecutionText)
+      const proof = JSON.parse(originalProofText)
+      try {
+        build.jobs = proof.jobs = '16'
+        proof.build_profile = 'linux-16'
+        if (!omitBuildProfile) build.build_profile = 'linux-16'
+        await Deno.writeTextFile(buildPath, JSON.stringify(build))
+        execution.build_receipt_sha256 = await sha256(buildPath)
+        await Deno.writeTextFile(executionPath, JSON.stringify(execution))
+        proof.build_receipt_sha256 = await sha256(buildPath)
+        proof.execution_receipt_sha256 = await sha256(executionPath)
+        await Deno.writeTextFile(proofPath, JSON.stringify(proof))
+        if (omitBuildProfile) {
+          await assertRejects(
+            verifyProofSet,
+            Error,
+            'native build receipt does not bind',
+          )
+        } else await verifyProofSet()
+      } finally {
+        await Promise.all([
+          Deno.writeTextFile(buildPath, originalBuildText),
+          Deno.writeTextFile(executionPath, originalExecutionText),
+          Deno.writeTextFile(proofPath, originalProofText),
+        ])
+      }
+    }
     const rejectCoherentFingerprintMutation = async (
       mutate: (
         buildChecks: Record<string, unknown>,
@@ -1676,6 +1706,27 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
       Error,
       'baseline build Linux runtime ABI exceeds GLIBC 2.27',
     )
+    const linux16 = {
+      ...structuredClone(originalProof),
+      jobs: '16',
+      build_profile: 'linux-16',
+    }
+    verifyNativeSourceRebuildProof(linux16)
+    for (
+      const bad of [
+        { ...linux16, build_profile: undefined },
+        { ...linux16, build_profile: 'linux-32' },
+        { ...linux16, jobs: '4' },
+        { ...linux16, build_host: { os: 'linux', arch: 'arm64' } },
+        { ...linux16, target: 'x86_64-apple-darwin' },
+      ]
+    ) {
+      assertThrows(
+        () => verifyNativeSourceRebuildProof(bad),
+        Error,
+        'build profile',
+      )
+    }
     const invalidJobs = structuredClone(originalProof)
     invalidJobs.jobs = '17'
     assertThrows(
@@ -1763,4 +1814,40 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
   } finally {
     await Deno.remove(root, { recursive: true })
   }
+})
+
+Deno.test({
+  name: 'linux-16 profile contract needs no runtime permissions',
+  permissions: 'none',
+  fn() {
+    for (
+      const target of ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu']
+    ) {
+      validateNativeBuildProfile('linux-16', '16', target, {
+        os: 'linux',
+        arch: 'x64',
+      })
+    }
+    for (
+      const [profile, jobs, target, os, arch] of [
+        [undefined, '16', 'x86_64-unknown-linux-gnu', 'linux', 'x64'],
+        ['linux-16', '4', 'x86_64-unknown-linux-gnu', 'linux', 'x64'],
+        ['linux-16', '16', 'aarch64-unknown-linux-gnu', 'linux', 'arm64'],
+        ['linux-16', '16', 'x86_64-apple-darwin', 'darwin', 'x64'],
+        ['invalid', '16', 'x86_64-unknown-linux-gnu', 'linux', 'x64'],
+      ] as const
+    ) {
+      assertThrows(() =>
+        validateNativeBuildProfile(profile, jobs, target, { os, arch })
+      )
+    }
+    validateNativeBuildProfile(undefined, '2', 'x86_64-unknown-linux-gnu', {
+      os: 'linux',
+      arch: 'x64',
+    })
+    validateNativeBuildProfile(undefined, '4', 'x86_64-apple-darwin', {
+      os: 'darwin',
+      arch: 'x64',
+    })
+  },
 })

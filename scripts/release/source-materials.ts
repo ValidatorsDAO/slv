@@ -3860,8 +3860,34 @@ type ParsedTargetProof = {
   buildReceiptSha256: string
   executionReceiptSha256: string
   jobs: string
+  buildProfile: unknown
   artifacts: ProofArtifacts
   checks: Record<string, unknown>
+}
+
+/** The optional profile extends legacy schema 1; jobs 16 always declares it. */
+export function validateNativeBuildProfile(
+  profile: unknown,
+  jobs: unknown,
+  target: string,
+  host: { os: string; arch: string },
+): void {
+  if (profile === undefined) {
+    if (jobs === '16') {
+      throw new Error('jobs 16 requires explicit linux-16 build profile')
+    }
+    return
+  }
+  if (
+    profile !== 'linux-16' || jobs !== '16' || host.os !== 'linux' ||
+    host.arch !== 'x64' ||
+    (target !== 'x86_64-unknown-linux-gnu' &&
+      target !== 'aarch64-unknown-linux-gnu')
+  ) {
+    throw new Error(
+      'linux-16 build profile requires jobs 16 and a Linux x64 build host for a Linux target',
+    )
+  }
 }
 
 function parseTargetProof(value: unknown): ParsedTargetProof {
@@ -3892,6 +3918,7 @@ function parseTargetProof(value: unknown): ParsedTargetProof {
     throw new Error('native target proof has an invalid build mode')
   }
   const buildHost = parseProofHost(proof.build_host, 'native target build host')
+  validateNativeBuildProfile(proof.build_profile, proof.jobs, target, buildHost)
   const executionHost = parseProofHost(
     proof.execution_host,
     'native target execution host',
@@ -3967,6 +3994,7 @@ function parseTargetProof(value: unknown): ParsedTargetProof {
       'native target execution receipt SHA-256',
     ),
     jobs: proof.jobs,
+    buildProfile: proof.build_profile,
     artifacts,
     checks: parseProofChecks(proof.checks, typedTarget, artifacts),
   }
@@ -3997,6 +4025,7 @@ function verifyPhaseReceipts(
     buildReceipt.tool_pin_sha256 !== proof.toolPinSha256 ||
     buildReceipt.patch_sha256 !== proof.patchSha256 ||
     buildReceipt.jobs !== proof.jobs ||
+    buildReceipt.build_profile !== proof.buildProfile ||
     !equalJson(
       parseProofSourceAssets(buildReceipt.source_assets),
       proof.sourceAssets,
