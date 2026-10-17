@@ -83,7 +83,7 @@ Deno.test('a field that op does not give is a failure with the first line of wha
   assertEquals(err[0].includes(CANARY), false)
 })
 
-Deno.test('a wrong command line is refused with a usage line before op is looked for or run, and so is the key field of an item', async () => {
+Deno.test('a wrong command line is refused with a usage line before op is looked for or run, and so is every field of an item but its pubkey field, whatever the case', async () => {
   const cases: [string, string[]][] = [
     ['no argument', []],
     ['two arguments', [REFERENCE, REFERENCE]],
@@ -92,6 +92,18 @@ Deno.test('a wrong command line is refused with a usage line before op is looked
     ['a query', [`${REFERENCE}?attribute=otp`]],
     ['a file', ['file:///home/op/key.json']],
     ['the key field', [refOf(OTHER_VAULT, 'a1b2c3d4e5f6g7h8i9j0k1l2m3')]],
+    // 1Password reads the name of a field without regard to case.
+    ...['KEYPAIR', 'Keypair', 'keyPair'].map((field): [string, string[]] => [
+      `the key field as ${field}`,
+      [refOf(OTHER_VAULT, 'a1b2c3d4e5f6g7h8i9j0k1l2m3', field)],
+    ]),
+    // And any other field is not the one the probe reads.
+    ...['password', 'notesPlain', 'public key', 'pubkeys'].map((
+      field,
+    ): [string, string[]] => [
+      `the field ${field}`,
+      [refOf(OTHER_VAULT, 'a1b2c3d4e5f6g7h8i9j0k1l2m3', field)],
+    ]),
   ]
   for (const [name, args] of cases) {
     const { code, op, out, err } = await probe(
@@ -133,4 +145,17 @@ Deno.test('the probe stops where the verbs stop: from the AI console, and when o
   assertEquals(noOp.op.calls.length, 0)
   assertEquals(noOp.out, [])
   assertStringIncludes(noOp.err[0], 'op (the 1Password CLI) is not in')
+})
+
+Deno.test('the pubkey field is read whatever the case of its name', async () => {
+  for (const field of ['pubkey', 'PUBKEY', 'Pubkey']) {
+    const reference = refOf(OTHER_VAULT, 'a1b2c3d4e5f6g7h8i9j0k1l2m3', field)
+    const { code, op, out } = await probe(
+      [reference],
+      () => ({ success: true, stdout: CANARY }),
+    )
+    assertEquals(code, 0, field)
+    assertEquals(op.calls.map((call) => call.args), [['read', '-n', reference]])
+    assertEquals(out, [String(CANARY_BYTES)])
+  }
 })
