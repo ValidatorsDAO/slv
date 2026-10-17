@@ -922,7 +922,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
   ) {
     const section = jobSection(workflow, job)
     assert(section.includes('needs: [resolve, test, source-materials]'))
-    assert(section.includes(`runs-on: ${runner}`))
+    assert(
+      section.includes(
+        runner === 'ubuntu-26.04'
+          ? "|| 'ubuntu-26.04' }}"
+          : `runs-on: ${runner}`,
+      ),
+    )
     assert(section.includes('timeout-minutes: 350'))
     assert(section.includes('contents: read'))
     assert(section.includes(`TARGET: ${target}`))
@@ -930,7 +936,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
     assert(section.includes(`VARIANT: ${variant}`))
     assert(section.includes(`id: variant\n        timeout-minutes: ${timeout}`))
     assert(section.includes('--phase build-variant'))
-    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(
+      section.includes(
+        target.endsWith('linux-gnu')
+          ? 'build_args=(--jobs 4)'
+          : '--variant "$VARIANT" --jobs 4',
+      ),
+    )
     assert(section.includes('--purpose build'))
     assert(section.includes('producer-context.json'))
     assert(section.includes('variant_receipt_sha256'))
@@ -983,7 +995,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
     const section = jobSection(workflow, job)
     assert(
       section.includes(
-        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}",
+        ("if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}")
+          .replace(
+            " || github.event_name == 'pull_request'",
+            job === 'source-arm-build'
+              ? " || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true'"
+              : " || github.event_name == 'pull_request'",
+          ),
       ),
     )
     assert(section.includes(`timeout-minutes: ${joinTimeout}`))
@@ -1087,10 +1105,10 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
     assert(section.includes('needs: [resolve, test, source-materials]'))
     assert(
       section.includes(
-        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}",
+        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}",
       ),
     )
-    assert(section.includes('runs-on: ubuntu-26.04'))
+    assert(section.includes("|| 'ubuntu-26.04' }}"))
     assert(section.includes('timeout-minutes: 350'))
     assert(section.includes('contents: read'))
     assert(section.includes(`TARGET: ${target}`))
@@ -1098,7 +1116,8 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
     assert(section.includes(`VARIANT: ${variant}`))
     assert(section.includes('id: variant\n        timeout-minutes: 320'))
     assert(section.includes('--phase build-variant'))
-    assert(section.includes('--variant "$VARIANT" --jobs 2'))
+    assert(section.includes('build_args=(--jobs 2)'))
+    assert(section.includes('--variant "$VARIANT" "${build_args[@]}"'))
     assert(section.includes('test ! -e "$variant_out"'))
     assert(section.includes('producer-context.json'))
     assert(section.includes('variant_receipt_sha256'))
@@ -1131,7 +1150,7 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
   ]
   assert(
     facade.includes(
-      "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}",
+      "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true')) }}",
     ),
   )
   assert(facade.includes('timeout-minutes: 350'))
@@ -1277,7 +1296,7 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
   for (const job of ['source-arm-baseline', 'source-arm-modified']) {
     const section = jobSection(workflow, job)
     assert(section.includes('id: variant\n        timeout-minutes: 320'))
-    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(section.includes('build_args=(--jobs 4)'))
   }
 })
 
@@ -1381,7 +1400,8 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
     assert(diagnostic.includes('if-no-files-found: warn'))
     assert(diagnostic.includes('retention-days: 7'))
 
-    const expectedArguments = (runnerTemp: string) => [
+    const profileSetup = shell.match(/^build_args=\(.*?^esac$/ms)?.[0] ?? ''
+    const expectedArguments = (runnerTemp: string, profile: string) => [
       'run',
       '--frozen',
       '--allow-read',
@@ -1411,8 +1431,9 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
       'dist/release-inputs/THIRD_PARTY_NOTICES',
       '--variant',
       variant,
+      ...(profile === 'linux-16' ? ['--build-profile', 'linux-16'] : []),
       '--jobs',
-      jobs,
+      profile === 'linux-16' ? '16' : jobs,
       '--source-root',
       `${runnerTemp}/build-source-root`,
       '--work-dir',
@@ -1428,6 +1449,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
       commandPreamble: string,
       exitCode: number,
       label: string,
+      profile = '',
     ) => {
       const directory = await Deno.makeTempDir({
         prefix: 'slv evidence carrier ',
@@ -1446,7 +1468,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
         const result = await new Deno.Command('bash', {
           args: [
             '-ceu',
-            `${commandPreamble}\n${variantOut}\n${common}\n${command}`,
+            `${commandPreamble}\n${variantOut}\n${common}\n${profileSetup}\n${command}`,
           ],
           cwd: directory,
           clearEnv: true,
@@ -1458,6 +1480,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
             VARIANT: variant,
             ARGV_CAPTURE: argvPath,
             CARRIER_LABEL: label,
+            LINUX_BUILD_PROFILE: profile,
             CARRIER_EXIT: String(exitCode),
           },
           stdout: 'piped',
@@ -1471,11 +1494,17 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
             `${runnerTemp}/source-logs/build-${variant}.log`,
           ),
           argv: (await Deno.readTextFile(argvPath)).split('\0').slice(0, -1),
-          expectedArguments: expectedArguments(runnerTemp),
+          expectedArguments: expectedArguments(runnerTemp, profile),
         }
       } finally {
         await Deno.remove(directory, { recursive: true })
       }
+    }
+
+    if (target.endsWith('linux-gnu')) {
+      const accelerated = await executeCarrier(preamble, 0, job, 'linux-16')
+      assertEquals(accelerated.code, 0)
+      assertEquals(accelerated.argv, accelerated.expectedArguments)
     }
 
     for (const exitCode of [0, 17]) {
@@ -1516,7 +1545,7 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     "!(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic')"
   assert(
     workflow.includes(
-      'source-native-diagnostic,\n        ]\n      reviewed_sha:',
+      'source-native-diagnostic,\n          source-build-validation,\n        ]\n      reviewed_sha:',
     ),
   )
   const expectedOldJobs = [
@@ -1632,7 +1661,24 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     ['verify-existing', "needs.resolve.outputs.publication == 'verify'"],
     ['publish', "needs.resolve.outputs.release_required == 'true'"],
   ]
-  for (const [job, oldCondition] of oldConditions) {
+  const validationJobs = new Set([
+    'source-materials',
+    'source-linux-x64-baseline',
+    'source-linux-x64-modified',
+    'source-native-linux-x64',
+    'source-arm-baseline',
+    'source-arm-modified',
+    'source-arm-build',
+    'source-arm-execute',
+    'source-arm-merge',
+  ])
+  for (const [job, previousCondition] of oldConditions) {
+    const oldCondition = validationJobs.has(job)
+      ? previousCondition?.replace(
+        " || github.event_name == 'pull_request'",
+        " || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true'",
+      )
+      : previousCondition
     const section = jobSection(workflow, job)
     assert(section.includes(diagnosticExclusion))
     assertEquals(
@@ -3666,6 +3712,7 @@ Deno.test('PR resolver binds CI packaging to the checked-out merge commit withou
   )
   assertEquals(result, {
     mode: 'ci',
+    linux_validation: false,
     release_required: false,
     version: '2026.6.6.2026',
     tag: '',
@@ -3772,5 +3819,333 @@ Deno.test('draft recovery only accepts the original manifest artifact attempt', 
     )
   } finally {
     await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('source-build-validation requires exact reviewed workflow and source without publication', async () => {
+  const ref = 'refs/heads/codex/slv-linux-ephemeral-release'
+  const values = {
+    EVENT: 'workflow_dispatch',
+    REF: ref,
+    GITHUB_SHA: SHA,
+    INPUT_OPERATION: 'source-build-validation',
+    INPUT_REVIEWED_SHA: SHA,
+    GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+    GITHUB_WORKFLOW_SHA: SHA,
+    GITHUB_WORKFLOW_REF:
+      `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${ref}`,
+  }
+  const responses = {
+    'git rev-parse HEAD': ok(SHA),
+    [`git show -s --format=%cI ${SHA}`]: ok('2026-10-18T00:00:00Z'),
+  }
+  const resolved = await resolveRelease(runtime(values, responses), 'absent')
+  assertEquals(resolved.mode, 'source-build-validation')
+  assertEquals(resolved.linux_validation, true)
+  assertEquals(resolved.release_required, false)
+  assertEquals(resolved.publication, 'none')
+  assertEquals(resolved.source_sha, SHA)
+  for (
+    const overrides of [
+      { EVENT: 'push' },
+      { EVENT: 'pull_request' },
+      { GITHUB_REPOSITORY: 'other/slv' },
+      { INPUT_REVIEWED_SHA: SHA.slice(0, 12) },
+      { INPUT_REVIEWED_SHA: BEFORE },
+      { GITHUB_SHA: BEFORE },
+      { GITHUB_WORKFLOW_SHA: BEFORE },
+      { GITHUB_WORKFLOW_REF: 'other/workflow' },
+      { REF: 'refs/heads/main' },
+    ]
+  ) {
+    await assertRejects(() =>
+      resolveRelease(runtime({ ...values, ...overrides }, responses), 'absent')
+    )
+  }
+  await assertRejects(() =>
+    resolveRelease(
+      runtime(values, { ...responses, 'git rev-parse HEAD': ok(BEFORE) }),
+      'absent',
+    )
+  )
+})
+
+Deno.test('Linux routing binds each build label and profile to the trusted release or reviewed validation', async () => {
+  const workflow = await releaseWorkflow()
+  assert(
+    workflow.includes(
+      "run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'source-build-validation' && format('SLV Linux source validation {0}', inputs.reviewed_sha) || 'SLV verified release' }}",
+    ),
+  )
+  const heavy = [
+    'source-linux-x64-baseline',
+    'source-linux-x64-modified',
+    'source-arm-baseline',
+    'source-arm-modified',
+  ]
+  assertEquals(count(workflow, "format('slv-build-{0}-{1}-"), 4)
+  const evaluate = (
+    expression: string,
+    event: string,
+    ref: string,
+    enabled: string,
+    validation: string,
+    release: string,
+    repository = 'ValidatorsDAO/slv',
+  ) =>
+    new Function('github', 'vars', 'needs', 'format', `return (${expression})`)(
+      { event_name: event, ref, repository, run_id: '123', run_attempt: '2' },
+      { SLV_LINUX_BUILDERS_ENABLED: enabled },
+      {
+        resolve: {
+          outputs: { linux_validation: validation, release_required: release },
+        },
+      },
+      (value: string, ...args: string[]) =>
+        value.replace(/\{(\d+)\}/g, (_, n) => args[Number(n)]),
+    )
+  for (const job of heavy) {
+    const section = jobSection(workflow, job)
+    const route = section.match(/^    runs-on: \$\{\{ (.+) \}\}$/m)?.[1]
+    const profile = section.match(
+      /^      LINUX_BUILD_PROFILE: \$\{\{ (.+) \}\}$/m,
+    )?.[1]
+    assert(route && profile)
+    for (
+      const [event, ref, enabled, validation, release, repository, admitted]
+        of [
+          [
+            'push',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            true,
+          ],
+          [
+            'workflow_dispatch',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            true,
+          ],
+          [
+            'push',
+            'refs/heads/main',
+            'false',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'pull_request',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'push',
+            'refs/tags/v2026.1.1.0',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'workflow_dispatch',
+            'refs/heads/other',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'push',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'example/fork',
+            false,
+          ],
+          [
+            'push',
+            'refs/heads/main',
+            'true',
+            'false',
+            'false',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'workflow_dispatch',
+            'refs/heads/codex/slv-linux-ephemeral-release',
+            'false',
+            'true',
+            'false',
+            'ValidatorsDAO/slv',
+            true,
+          ],
+        ] as const
+    ) {
+      assertEquals(
+        evaluate(route, event, ref, enabled, validation, release, repository),
+        admitted ? `slv-build-123-2-${job}` : 'ubuntu-26.04',
+      )
+      assertEquals(
+        evaluate(profile, event, ref, enabled, validation, release, repository),
+        admitted ? 'linux-16' : '',
+      )
+    }
+    assert(
+      section.includes(
+        'linux-16) build_args=(--build-profile linux-16 --jobs 16)',
+      ),
+    )
+    assert(section.includes('timeout-minutes: 350'))
+    assert(section.includes('id: variant\n        timeout-minutes: 320'))
+    assert(!section.includes('secrets.'))
+  }
+  const admitted = [
+    'source-materials',
+    ...heavy,
+    'source-native-linux-x64',
+    'source-arm-build',
+    'source-arm-execute',
+    'source-arm-merge',
+  ]
+  for (const job of admitted) {
+    assert(
+      jobIf(jobSection(workflow, job))?.includes(
+        "needs.resolve.outputs.linux_validation == 'true'",
+      ),
+      job,
+    )
+  }
+  for (
+    const job of [
+      'build',
+      'source-macos-x64-baseline',
+      'source-macos-x64-modified',
+      'source-native-macos-x64',
+      'source-native-macos-arm64',
+      'package',
+      'attest',
+      'publish',
+      'activation-required',
+      'verify-existing',
+      'legacy-bootstrap',
+    ]
+  ) {
+    const condition = jobIf(jobSection(workflow, job))
+    assert(condition && !condition.includes('linux_validation'), job)
+  }
+  assert(
+    jobSection(workflow, 'source-arm-execute').includes(
+      'runs-on: ubuntu-26.04-arm',
+    ),
+  )
+  for (
+    const job of [
+      'resolve',
+      'source-native-linux-x64',
+      'source-arm-build',
+      'source-arm-merge',
+      'attest',
+      'publish',
+    ]
+  ) {
+    assert(jobSection(workflow, job).includes('runs-on: ubuntu-26.04'), job)
+  }
+  const resolver = jobSection(workflow, 'resolve')
+  for (
+    const binding of [
+      'INPUT_OPERATION: ${{ inputs.operation }}',
+      'INPUT_REVIEWED_SHA: ${{ inputs.reviewed_sha }}',
+      'GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}',
+      'GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}',
+      'GITHUB_REPOSITORY: ${{ github.repository }}',
+    ]
+  ) assert(resolver.includes(binding))
+  assertEquals(count(workflow, '--deny-self-hosted-runners'), 2)
+})
+
+Deno.test('validation resolver CLI emits no publication and never queries release credentials', async () => {
+  const directory = await Deno.makeTempDir({
+    prefix: 'slv-validation-resolver-',
+  })
+  try {
+    const bin = `${directory}/bin`
+    await Deno.mkdir(bin)
+    await Deno.writeTextFile(
+      `${bin}/git`,
+      `#!/bin/sh\ncase "$*" in\n  'rev-parse HEAD') printf '%s\\n' '${SHA}' ;;\n  'show -s --format=%cI ${SHA}') printf '%s\\n' '2026-10-18T00:00:00+00:00' ;;\n  *) exit 91 ;;\nesac\n`,
+    )
+    await Deno.writeTextFile(
+      `${bin}/gh`,
+      `#!/bin/sh\nprintf forbidden > '${directory}/gh-called'\nexit 92\n`,
+    )
+    await Deno.chmod(`${bin}/git`, 0o755)
+    await Deno.chmod(`${bin}/gh`, 0o755)
+    const outputPath = `${directory}/output`
+    const ref = 'refs/heads/codex/slv-linux-ephemeral-release'
+    const result = await new Deno.Command(Deno.execPath(), {
+      args: [
+        'run',
+        '--frozen',
+        '--allow-read',
+        '--allow-write',
+        '--allow-env',
+        '--allow-run',
+        new URL('./workflow.ts', import.meta.url).pathname,
+        'resolve',
+      ],
+      clearEnv: true,
+      env: {
+        PATH: `${bin}:${Deno.env.get('PATH') ?? ''}`,
+        HOME: Deno.env.get('HOME') ?? '',
+        ...(Deno.env.get('DENO_DIR')
+          ? { DENO_DIR: Deno.env.get('DENO_DIR')! }
+          : {}),
+        EVENT: 'workflow_dispatch',
+        REF: ref,
+        GITHUB_SHA: SHA,
+        INPUT_OPERATION: 'source-build-validation',
+        INPUT_REVIEWED_SHA: SHA,
+        GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+        GITHUB_WORKFLOW_SHA: SHA,
+        GITHUB_WORKFLOW_REF:
+          `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${ref}`,
+        GITHUB_OUTPUT: outputPath,
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    assert(result.success, new TextDecoder().decode(result.stderr))
+    const output = await Deno.readTextFile(outputPath)
+    for (
+      const field of [
+        'mode=source-build-validation',
+        'linux_validation=true',
+        'release_required=false',
+        'publication=none',
+        `source_sha=${SHA}`,
+      ]
+    ) assert(output.split('\n').includes(field))
+    await assertRejects(
+      () => Deno.stat(`${directory}/gh-called`),
+      Deno.errors.NotFound,
+    )
+  } finally {
+    await Deno.remove(directory, { recursive: true })
   }
 })
