@@ -11,6 +11,11 @@ type OpSpawnOptions = {
   env: Record<string, string>
   /** What to write to the stdin of op, or null for no stdin at all. */
   stdin: Uint8Array | null
+  /**
+   * `null` for a call whose output nobody reads (`op item create` prints the
+   * item it made): the output is not collected at all. `piped` is the default.
+   */
+  stdout?: 'piped' | 'null'
 }
 
 type OpSpawnResult = {
@@ -55,13 +60,19 @@ const buildOpEnv = (
   return env
 }
 
+const collect = async (
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> =>
+  new Uint8Array(await new Response(stream).arrayBuffer())
+
 const defaultOpSpawn: OpSpawn = async (command, args, options) => {
+  const discard = options.stdout === 'null'
   const child = new Deno.Command(command, {
     args,
     env: options.env,
     clearEnv: true,
     stdin: options.stdin === null ? 'null' : 'piped',
-    stdout: 'piped',
+    stdout: discard ? 'null' : 'piped',
     stderr: 'piped',
   }).spawn()
   if (options.stdin !== null) {
@@ -75,6 +86,14 @@ const defaultOpSpawn: OpSpawn = async (command, args, options) => {
     } catch (_error) {
       // op stopped before it read its input; its status says so.
     }
+  }
+  if (discard) {
+    // Its output goes nowhere, so nothing of it is held here; its errors are still read.
+    const [status, stderr] = await Promise.all([
+      child.status,
+      collect(child.stderr),
+    ])
+    return { success: status.success, stdout: new Uint8Array(), stderr }
   }
   const { success, stdout, stderr } = await child.output()
   return { success, stdout, stderr }

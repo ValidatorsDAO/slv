@@ -206,6 +206,33 @@ Deno.test('the real spawner gives the child of op the environment it is given an
   }
 })
 
+Deno.test('the real spawner collects the output of a call that asks for it, and with stdout null collects none of it but still reads the errors', async () => {
+  // A child that prints its input, as an op older than 2.30 prints the item it made, and then an error.
+  const run = (stdout?: 'piped' | 'null') =>
+    defaultOpSpawn(
+      '/bin/sh',
+      ['-c', 'cat; echo failed >&2; exit 3'],
+      {
+        env: { PATH: '/usr/bin:/bin' },
+        stdin: new TextEncoder().encode('the item with its secret'),
+        ...(stdout === undefined ? {} : { stdout }),
+      },
+    )
+  // The positive control: by default the output is collected.
+  const piped = await run()
+  assertEquals(
+    new TextDecoder().decode(piped.stdout),
+    'the item with its secret',
+  )
+  assertEquals((await run('piped')).stdout.length, 24)
+
+  const discarded = await run('null')
+  assertEquals(discarded.stdout.length, 0)
+  assertEquals(discarded.success, false)
+  assertEquals(new TextDecoder().decode(discarded.stderr).trim(), 'failed')
+  assertEquals(firstLine(discarded.stderr), 'failed')
+})
+
 Deno.test('what op printed is turned into the canonical text, the proved public key is returned, and every buffer that held the key is wiped', async () => {
   const printed = new TextEncoder().encode(
     `[ ${[...keypair()].join(', ')} ]\n`,

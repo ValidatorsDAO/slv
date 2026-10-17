@@ -92,6 +92,8 @@ export type OpCall = {
   stdinLength: number | null
   /** A copy of the stdin, taken at the call; only when the script asks for it. */
   stdin: Uint8Array | null
+  /** What the call asked for its stdout: piped when it did not say. */
+  stdout: 'piped' | 'null'
 }
 
 export type OpAnswer = {
@@ -119,6 +121,7 @@ export const scriptedOp = (
         stdin: options.recordStdin && spawnOptions.stdin !== null
           ? spawnOptions.stdin.slice()
           : null,
+        stdout: spawnOptions.stdout ?? 'piped',
       }
       calls.push(call)
       const reply = answer(call)

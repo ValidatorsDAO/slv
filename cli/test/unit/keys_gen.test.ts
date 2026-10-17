@@ -178,6 +178,11 @@ Deno.test('a key made in memory goes to 1Password on the stdin of `op item creat
     op.calls.map((call) => call.env.OP_CACHE),
     ['false', 'false', 'false', 'false', 'false'],
   )
+  // op prints the item it made; that output is not collected. The others are read.
+  assertEquals(
+    op.calls.map((call) => call.stdout),
+    ['piped', 'null', 'piped', 'piped', 'piped'],
+  )
   // Not in any argument or environment of any call, nor in what was written.
   const outside = JSON.stringify(
     op.calls.map((c) => [c.command, c.args, c.env]),

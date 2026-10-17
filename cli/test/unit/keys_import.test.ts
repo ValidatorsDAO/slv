@@ -218,6 +218,11 @@ Deno.test('the key file goes to op on the stdin of `op item create` as the one c
     ['read', '-n', REF],
     ['read', '-n', refOf(VAULT, ITEM, 'pubkey')],
   ])
+  // op prints the item it made; that output is not collected. The others are read.
+  assertEquals(
+    op.calls.map((call) => call.stdout),
+    ['piped', 'null', 'piped', 'piped', 'piped'],
+  )
   // The template is on stdin, titled with the public key.
   const create = op.calls[1]
   const stdinText = new TextDecoder().decode(create.stdin!)

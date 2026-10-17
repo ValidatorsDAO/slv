@@ -53,10 +53,12 @@ const runOp = (
   setup: SecretSetup,
   args: string[],
   stdin: Uint8Array | null,
+  stdout: 'piped' | 'null' = 'piped',
 ) =>
   setup.resolve.op(setup.resolve.opPath, args, {
     env: buildOpEnv(setup.resolve.parentEnv, setup.token),
     stdin,
+    stdout,
   })
 
 /** The list that `op ... list --format json` prints, as records. These lists hold ids, names and titles, never a field value. */
@@ -184,12 +186,13 @@ const createItem = async (
   template: Uint8Array,
   before: readonly ItemSummary[],
 ): Promise<string> => {
+  // op prints the item it made; that output is not collected.
   const created = await runOp(
     setup,
     ['item', 'create', '--vault', vaultId, '-'],
     template,
+    'null',
   )
-  zero(created.stdout)
   if (!created.success) {
     const why = firstLine(created.stderr, setup.token ? [setup.token] : [])
     throw new OpRefusal(`op could not create the item${why ? `: ${why}` : ''}`)
