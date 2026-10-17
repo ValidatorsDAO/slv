@@ -7,6 +7,10 @@ import {
 import { encodeBase58 } from '/lib/secret/base58.ts'
 import { zero } from '/lib/secret/keypairBytes.ts'
 import {
+  type ResolvedKeypair,
+  resolveIdentity,
+} from '/lib/secret/resolveIdentity.ts'
+import {
   SshRefusal,
   type SshRunResult,
   type SshSession,
@@ -231,8 +235,15 @@ const run = async (
   const captured = captureIo()
   const terminal = scriptedTty(scenario.answers ?? ['node-1'])
   const opened: string[] = []
+  /** The keys that the verb resolved, to look at when it is over. */
+  const keys: ResolvedKeypair[] = []
   const deps: Partial<TryDeps> = {
     setup: setupDeps(op.op, scenario.setupOverrides),
+    resolveKey: async (...args) => {
+      const key = await resolveIdentity(...args)
+      keys.push(key)
+      return key
+    },
     reader: {
       readText: (path) =>
         Promise.resolve(
@@ -274,7 +285,7 @@ const run = async (
     },
   }
   const result = await tryKey(options, deps)
-  return { result, node, op, captured, terminal, events, opened }
+  return { result, node, op, captured, terminal, events, opened, keys }
 }
 
 const TRY = { network: 'testnet', host: 'node-1', ref: refOf() }
@@ -711,5 +722,22 @@ Deno.test('only testnet, an inventory host, a 1Password reference of the configu
     assertEquals(node.runs.length, 0, name)
     assertEquals(captured.exitCode(), 1, name)
     assertStringIncludes(captured.error[0], expected)
+  }
+})
+
+Deno.test('the key that was resolved is zero when the verb is over, whether it was sent or the node had moved away before it could be', async () => {
+  const scenarios: [string, Scenario][] = [
+    ['it was sent and the node is set back', {}],
+    ['the node moved off its unstaked identity before the key was sent', {
+      node: { movesAway: STAKED },
+    }],
+    ['set-identity failed', { node: { set: 'failed' } }],
+  ]
+  for (const [name, scenario] of scenarios) {
+    const { keys } = await run(TRY, scenario)
+    assertEquals(keys.length, 1, name)
+    // The key was a whole keypair when it was resolved, so there was something to wipe.
+    assertEquals(keys[0].canonical.length, KEY_B.canonical.length, name)
+    assertEquals(keys[0].canonical.every((byte) => byte === 0), true, name)
   }
 })

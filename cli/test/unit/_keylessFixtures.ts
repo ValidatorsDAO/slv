@@ -94,6 +94,8 @@ export type OpCall = {
   stdin: Uint8Array | null
   /** What the call asked for its stdout: piped when it did not say. */
   stdout: 'piped' | 'null'
+  /** The buffer the call was given itself, not a copy, to look at it after the verb has wiped it; only when the script asks for it. */
+  stdinRef: Uint8Array | null
 }
 
 export type OpAnswer = {
@@ -105,7 +107,7 @@ export type OpAnswer = {
 /** An `op` that answers from a script and writes down every call. */
 export const scriptedOp = (
   answer: (call: OpCall) => OpAnswer,
-  options: { recordStdin?: boolean } = {},
+  options: { recordStdin?: boolean; keepStdin?: boolean } = {},
 ): { op: OpSpawn; calls: OpCall[] } => {
   const calls: OpCall[] = []
   return {
@@ -122,10 +124,16 @@ export const scriptedOp = (
           ? spawnOptions.stdin.slice()
           : null,
         stdout: spawnOptions.stdout ?? 'piped',
+        stdinRef: options.keepStdin && spawnOptions.stdin !== null
+          ? spawnOptions.stdin
+          : null,
       }
       calls.push(call)
       const reply = answer(call)
-      const stdout = typeof reply.stdout === 'string'
+      // A call that asked for no stdout gets none, as from the real spawner.
+      const stdout = spawnOptions.stdout === 'null'
+        ? new Uint8Array()
+        : typeof reply.stdout === 'string'
         ? new TextEncoder().encode(reply.stdout)
         : reply.stdout ?? new Uint8Array()
       return Promise.resolve({

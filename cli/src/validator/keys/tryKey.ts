@@ -50,6 +50,8 @@ type TryOptions = { network?: string; host?: string; ref?: string }
 type TryDeps = {
   setup: SecretSetupDeps
   reader: InventoryReader
+  /** Reads the key of a reference and proves it. */
+  resolveKey: typeof resolveIdentity
   unused: UnusedDeps
   openSession: (target: SshTarget, network: string) => Promise<SshSession>
   tty: Tty
@@ -60,6 +62,7 @@ type TryDeps = {
 const defaultTryDeps = (): TryDeps => ({
   setup: defaultSecretSetupDeps(),
   reader: defaultInventoryReader(),
+  resolveKey: resolveIdentity,
   unused: { fetch: (url, init) => fetch(url, init) },
   openSession: defaultOpenSession,
   tty: defaultTty,
@@ -286,7 +289,7 @@ const tryKey = async (
     // is looked at once more, because a person took the time in between.
     let key
     try {
-      key = await resolveIdentity(
+      key = await deps.resolveKey(
         ref,
         { expectedPubkey: pubkey },
         setup.resolve,

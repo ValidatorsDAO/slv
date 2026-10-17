@@ -104,7 +104,7 @@ const vaultOp = (
         { success: true, stdout: stored.fields[field] }
     }
     return { success: false, stderr: 'unexpected' }
-  }, { recordStdin: true })
+  }, { recordStdin: true, keepStdin: true })
   return { ...fake, items }
 }
 
@@ -135,6 +135,8 @@ const run = async (
   const writes: string[] = []
   const vaultWrites: [string, string][] = []
   const keyReads: string[] = []
+  /** The buffers that readKeyFile gave, to look at when the verb is over. */
+  const keyFiles: Uint8Array[] = []
   let inventoryReads = 0
   let tokenFileRead = false
   const result = await importKey(options, {
@@ -182,9 +184,10 @@ const run = async (
     readKeyFile: (path) => {
       keyReads.push(path)
       const file = config.keyFile ?? new TextEncoder().encode(KEY_B.canonical)
-      return file instanceof Error
-        ? Promise.reject(file)
-        : Promise.resolve(file.slice())
+      if (file instanceof Error) return Promise.reject(file)
+      const copy = file.slice()
+      keyFiles.push(copy)
+      return Promise.resolve(copy)
     },
     writeVault: config.writeVault ?? ((network, vaultId) => {
       vaultWrites.push([network, vaultId])
@@ -199,6 +202,7 @@ const run = async (
     writes,
     vaultWrites,
     keyReads,
+    keyFiles,
     inventory: () => inventory,
     tokenFileRead: () => tokenFileRead,
   }
@@ -680,5 +684,50 @@ Deno.test('with the files of the system: the inventory is replaced whole and kee
     assert((await Deno.readTextFile(inventoryFile)) === INVENTORY)
   } finally {
     await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('the buffer of the key file and the template that held the key are zero when the verb is over, on success and on every refusal after the file was read', async () => {
+  const wrongKey = new TextEncoder().encode(KEY_A.canonical)
+  const cases: [string, Parameters<typeof run>[1], boolean][] = [
+    ['success', {}, true],
+    ['a key file of another key', { keyFile: wrongKey }, false],
+    ['text that is no keypair', {
+      keyFile: new TextEncoder().encode('[1,2,3]'),
+    }, false],
+    ['op cannot create the item', {
+      op: vaultOp({ createFails: '[ERROR] read only' }),
+    }, true],
+    [
+      'the item does not read back as the key',
+      {
+        op: vaultOp({
+          readBack: (field, stored) => ({
+            success: true,
+            stdout: field === 'keypair'
+              ? KEY_A.canonical
+              : stored.fields[field],
+          }),
+        }),
+      },
+      true,
+    ],
+    ['a reference that appears in the meantime', {
+      laterInventory: inventoryOf({
+        ams1: host('ams1', IDENTITY),
+        ams2: host('ams2', IDENTITY, { identity_ref: refOf(OTHER_VAULT) }),
+      }),
+    }, true],
+  ]
+  for (const [name, config, createsItem] of cases) {
+    const { keyFiles, op } = await run(TESTNET, config)
+    assertEquals(keyFiles.length, 1, name)
+    assertEquals(keyFiles[0].every((byte) => byte === 0), true, name)
+    const created = op.calls.filter((call) => call.args[1] === 'create')
+    assertEquals(created.length, createsItem ? 1 : 0, name)
+    for (const call of created) {
+      assertEquals(call.stdin!.some((byte) => byte !== 0), true, name)
+      assertEquals(call.stdinRef!.every((byte) => byte === 0), true, name)
+    }
   }
 })

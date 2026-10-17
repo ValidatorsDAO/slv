@@ -74,7 +74,7 @@ const vaultOp = (
         { success: true, stdout: stored.fields[field] }
     }
     return { success: false, stderr: 'unexpected' }
-  }, { recordStdin: true })
+  }, { recordStdin: true, keepStdin: true })
   return { ...fake, items }
 }
 
@@ -194,6 +194,8 @@ Deno.test('a key made in memory goes to 1Password on the stdin of `op item creat
   assertStringIncludes(lines, refOf())
   // The buffers are wiped, and the vault was configured, so nothing is written to keyless.yml.
   assertEquals(made.every((byte) => byte === 0), true)
+  // The template that held the key is wiped too.
+  assertEquals(create.stdinRef!.every((byte) => byte === 0), true)
   assertEquals(written, [])
   assertEquals(
     op.calls.some((call) => call.args[0] === 'vault'),
@@ -362,4 +364,36 @@ Deno.test('a vault that cannot be written to keyless.yml after the key is saved 
   assertStringIncludes(lines, `networks.testnet.vault_id: ${VAULT}`)
   assertStringIncludes(lines, 'disk full')
   assert(!holdsKey(lines, KEY_A))
+})
+
+Deno.test('the keypair that was made and the template that held it are zero when the verb is over, on success and on every refusal after the key was made', async () => {
+  const cases: [string, () => ReturnType<typeof vaultOp>][] = [
+    ['success', () => vaultOp()],
+    [
+      'op cannot create the item',
+      () => vaultOp({ createFails: '[ERROR] read only' }),
+    ],
+    [
+      'the item does not read back as the key',
+      () =>
+        vaultOp({
+          readBack: (field, stored) => ({
+            success: true,
+            stdout: field === 'keypair'
+              ? KEY_B.canonical
+              : stored.fields[field],
+          }),
+        }),
+    ],
+    ['two new items with the title', () => vaultOp({ twoItems: true })],
+  ]
+  for (const [name, makeOp] of cases) {
+    const { op, made } = await run(TESTNET, { op: makeOp() })
+    const created = op.calls.filter((call) => call.args[1] === 'create')
+    assertEquals(created.length, 1, name)
+    // The key was in the template, so there is something to be zero.
+    assertEquals(created[0].stdin!.some((byte) => byte !== 0), true, name)
+    assertEquals(created[0].stdinRef!.every((byte) => byte === 0), true, name)
+    assertEquals(made.every((byte) => byte === 0), true, name)
+  }
 })
