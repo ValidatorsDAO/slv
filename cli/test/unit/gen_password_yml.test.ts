@@ -275,3 +275,190 @@ Deno.test('every init that sets the password stops when it was not saved', async
     assertStringIncludes(source, 'if (!await genPasswordYml()) return', path)
   }
 })
+
+// ---------------------------------------------------------------------------
+// The salt of a hash, and the mode of the file
+// ---------------------------------------------------------------------------
+
+const DIGEST =
+  'Vq8sIeY6PPp7LXVIFvUCxFTP4U5X4Nn9lp3GmBiGHwFLa5tTmD5wpDNRqkSnVMPnV4fMl4G2fuBLhYtVtzFkr0'
+
+/** Hashes that `openssl passwd -6 -stdin` made of the passwords fixture-password-1, -2 and -3. */
+const REAL_HASHES: [string, string, string][] = [
+  [
+    'fixture-password-1',
+    'tevPzUfuOPD9EYnb',
+    '$6$tevPzUfuOPD9EYnb$poD8dOuIWbfquzPKHHk3rZA7rR4hAhKq9ZJcQP/di7CeJDCENCG1se0Jbges34qBwcqMRBFg/sH08eQp2IrvS1',
+  ],
+  [
+    'fixture-password-2',
+    'Kdi5DjzOFjQ6r.0F',
+    '$6$Kdi5DjzOFjQ6r.0F$yyM4jIrx3Pz8K359QDnQdJMZ4cErJnOEtpZVwChiVMuGX198vE.VKltvT8c7U3r0vsfjOO6tyMpmgYFikIokn.',
+  ],
+  [
+    'fixture-password-3',
+    '1dI6Xtg7.KEpZLv3',
+    '$6$1dI6Xtg7.KEpZLv3$L6WleAE.wZE5XeYIb1BIfKb16ZlDEbGc6mkxB4tP4hQ8JJKyFFb7beeIowyT3NaCWajFdBWQNRCSYRG8rqfp61',
+  ],
+]
+
+/** The hash that the openssl of this machine makes of a password, or null when it makes none (the openssl of macOS has no -6). */
+const opensslHash = async (
+  password: string,
+  salt?: string,
+): Promise<string | null> => {
+  try {
+    const child = new Deno.Command('openssl', {
+      args: [
+        'passwd',
+        '-6',
+        ...(salt === undefined ? [] : ['-salt', salt]),
+        '-stdin',
+      ],
+      stdin: 'piped',
+      stdout: 'piped',
+      stderr: 'null',
+    }).spawn()
+    const writer = child.stdin.getWriter()
+    await writer.write(new TextEncoder().encode(password))
+    await writer.close()
+    const out = await child.output()
+    const text = new TextDecoder().decode(out.stdout).trim()
+    return out.success && text.startsWith('$6$') ? text : null
+  } catch (_error) {
+    return null
+  }
+}
+const OPENSSL_MAKES_HASHES = await opensslHash('probe') !== null
+
+const BAD_SALTS: [string, string][] = [
+  ['a colon', 'sa:lt'],
+  ['a newline', 'sa\nlt'],
+  ['a carriage return', 'sa\rlt'],
+  ['a space', 'sa lt'],
+  ['a dollar sign', 'sa$lt'],
+  ['an equals sign (rounds=5000)', 'rounds=5000'],
+  ['a comma', 'sa,lt'],
+  ['17 characters', 'a'.repeat(17)],
+  ['a character that is not ASCII', 'saé'],
+  ['no character', ''],
+]
+
+Deno.test('a hash has a salt of 1 to 16 characters of ./0-9A-Za-z: a colon, a newline or any other character in the salt, or 17 characters, make the text no hash, in the pattern and in a password file, while the hashes that openssl passwd -6 makes still pass', async () => {
+  for (const [name, salt] of BAD_SALTS) {
+    const hash = `$6$${salt}$${DIGEST}`
+    assertEquals(SHA512_CRYPT_HASH.test(hash), false, name)
+    assertEquals(
+      holdsValidHash(`encrypted_password: ${JSON.stringify(hash)}\n`),
+      false,
+      `${name}: in a file`,
+    )
+  }
+  for (
+    const salt of [
+      'a',
+      'saltsalt',
+      'a'.repeat(16),
+      './09AZaz',
+      'Z./z9A0.Z/z9A0.Z',
+    ]
+  ) {
+    const hash = `$6$${salt}$${DIGEST}`
+    assert(SHA512_CRYPT_HASH.test(hash), salt)
+    assert(
+      holdsValidHash(`encrypted_password: ${hash}\n`),
+      `${salt}: in a file`,
+    )
+  }
+  // The hashes that openssl passwd -6 makes: three real ones, and more made now when this openssl can.
+  for (const [, , hash] of REAL_HASHES) {
+    assert(SHA512_CRYPT_HASH.test(hash), hash)
+    assert(holdsValidHash(`encrypted_password: ${hash}\n`), hash)
+  }
+  if (!OPENSSL_MAKES_HASHES) return
+  // The fixtures are what openssl makes of those passwords with those salts.
+  for (const [password, salt, hash] of REAL_HASHES) {
+    assertEquals(await opensslHash(password, salt), hash, password)
+  }
+  // Every salt that openssl makes by itself is 16 characters of the alphabet.
+  for (let i = 0; i < 25; i++) {
+    const hash = (await opensslHash(`password ${i}`))!
+    assert(SHA512_CRYPT_HASH.test(hash), hash)
+  }
+})
+
+Deno.test('a hash with such a salt is not saved when openssl prints it, and a file that holds one counts as missing', async () => {
+  for (const [name, salt] of BAD_SALTS.slice(0, 3)) {
+    const bad = `$6$${salt}$${DIGEST}`
+    const printing = await world(() =>
+      Promise.resolve({ success: true, stdout: `${bad}\n` })
+    )
+    try {
+      assertEquals(await genPasswordYml(printing.deps), false, name)
+      assertEquals(
+        await read(printing.path),
+        null,
+        `${name}: a file was written`,
+      )
+      assertEquals(printing.exitCodes, [1], name)
+      assertStringIncludes(printing.printed.join('\n'), 'was not saved', name)
+    } finally {
+      await Deno.remove(printing.dir, { recursive: true })
+    }
+
+    const existing = await world(works)
+    try {
+      await Deno.writeTextFile(
+        existing.path,
+        `encrypted_password: ${JSON.stringify(bad)}\n`,
+      )
+      assertEquals(await genPasswordYml(existing.deps), true, name)
+      assertEquals(
+        existing.asked(),
+        1,
+        `${name}: the password was not asked again`,
+      )
+      assertStringIncludes(
+        existing.printed.join('\n'),
+        'no valid password hash',
+        name,
+      )
+      assertEquals(
+        (parse(await Deno.readTextFile(existing.path)) as Record<
+          string,
+          string
+        >)
+          .encrypted_password,
+        HASH,
+        name,
+      )
+    } finally {
+      await Deno.remove(existing.dir, { recursive: true })
+    }
+  }
+})
+
+Deno.test('the password file is written with mode 0600, also over a file that had another mode, and no other file is left beside it', async () => {
+  for (const before of [null, 0o644, 0o666]) {
+    const w = await world(works)
+    try {
+      if (before !== null) {
+        // A file without a valid hash counts as missing and is replaced.
+        await Deno.writeTextFile(w.path, "encrypted_password: ''\n")
+        await Deno.chmod(w.path, before)
+      }
+      // The writer of the project, not the one of the test.
+      const { writeText: _writeText, ...withTheDefaultWriter } = w.deps
+      assertEquals(await genPasswordYml(withTheDefaultWriter), true)
+      const mode = (await Deno.stat(w.path)).mode!
+      assertEquals((mode & 0o777).toString(8), '600', String(before))
+      assertEquals(await read(w.path), `encrypted_password: >-\n  ${HASH}\n`)
+      assertEquals(
+        [...Deno.readDirSync(w.dir)].map((entry) => entry.name),
+        ['config.pwd.yml'],
+      )
+    } finally {
+      await Deno.remove(w.dir, { recursive: true })
+    }
+  }
+})
