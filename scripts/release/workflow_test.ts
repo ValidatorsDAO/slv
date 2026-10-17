@@ -461,6 +461,93 @@ Deno.test('workflow compiles each official target only from its exact source-bui
   assert(!packageSection.includes('find downloaded'))
 })
 
+Deno.test('product typecheck executes the workflow argv and rejects invalid TypeScript', async () => {
+  const shell = stepShell(
+    jobSection(await releaseWorkflow(), 'build'),
+    'Compile and execute the source-bound native target',
+  )
+  const commands = shell.match(/^deno check(?:[ \t]+[^\n]+)?$/gm) ?? []
+  assertEquals(commands.length, 1, 'expected exactly one product check command')
+  const command = commands[0]
+  assert(command, 'missing product check command')
+  const words = command.split(/\s+/)
+  assert(
+    words.every((word) => /^[\w./-]+$/.test(word)),
+    'unsupported shell syntax in product check',
+  )
+  assertEquals(words.slice(0, 2), ['deno', 'check'])
+  assertEquals(words.at(-1), 'cli/src/index.ts')
+  assertEquals(words.filter((word) => word === 'cli/src/index.ts').length, 1)
+
+  const directory = await Deno.makeTempDir({ prefix: 'slv-product-check-' })
+  try {
+    await Deno.mkdir(`${directory}/cli/src`, { recursive: true })
+    await Deno.mkdir(`${directory}/home`)
+    await Deno.writeTextFile(`${directory}/deno.json`, '{"lock":"deno.lock"}\n')
+    const lock = '{"version":"5"}\n'
+    const lockPath = `${directory}/deno.lock`
+    await Deno.writeTextFile(lockPath, lock)
+    const lockBytes = await Deno.readFile(lockPath)
+    const entry = `${directory}/cli/src/index.ts`
+    const runCheck = async (args: string[]) => {
+      const result = await new Deno.Command(Deno.execPath(), {
+        args,
+        cwd: directory,
+        clearEnv: true,
+        env: {
+          HOME: `${directory}/home`,
+          DENO_DIR: `${directory}/cache`,
+          DENO_NO_UPDATE_CHECK: '1',
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      assertEquals(
+        await Deno.readFile(lockPath),
+        lockBytes,
+        'fixture lock changed',
+      )
+      return result
+    }
+    const output = (result: Deno.CommandOutput) =>
+      new TextDecoder().decode(result.stdout) +
+      new TextDecoder().decode(result.stderr)
+    const args = words.slice(1)
+    await Deno.writeTextFile(
+      entry,
+      'const value: number = 1\nconsole.log(value)\n',
+    )
+    const valid = await runCheck(args)
+    assertEquals(valid.code, 0, output(valid))
+
+    await Deno.writeTextFile(
+      entry,
+      'const value: number = "wrong"\nconsole.log(value)\n',
+    )
+    const invalid = await runCheck(args)
+    assert(invalid.code !== 0, 'type error unexpectedly passed')
+    assert(output(invalid).includes('TS2322'), output(invalid))
+
+    const old = await runCheck([args[0], '--cached-only', ...args.slice(1)])
+    assert(old.code !== 0, 'obsolete flag unexpectedly passed')
+    assert(
+      output(old).includes("unexpected argument '--cached-only'"),
+      output(old),
+    )
+    assertEquals(words, ['deno', 'check', '--frozen', 'cli/src/index.ts'])
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
+
+  const install = 'deno install --frozen --allow-scripts=npm:protobufjs@7.4.0'
+  const compile =
+    "DENORT_BIN=\"$runtime_path\" deno compile --frozen --cached-only -A --include cli/lib/release/engine.py --include dist/release-inputs/THIRD_PARTY_NOTICES --target '${{ matrix.target }}' --output 'dist/slv-${{ matrix.target }}-exe' cli/src/index.ts"
+  assertEquals(count(shell, install), 1)
+  assertEquals(count(shell, compile), 1)
+  assert(shell.indexOf(install) < shell.indexOf(command))
+  assert(shell.indexOf(command) < shell.indexOf(compile))
+})
+
 Deno.test('all native execution tool acquisitions bind their target descriptors', async () => {
   const workflow = await releaseWorkflow()
   const acquisitions = workflow.split('\n').filter((line) =>

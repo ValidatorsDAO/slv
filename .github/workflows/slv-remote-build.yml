@@ -1656,7 +1656,7 @@ jobs:
           chmod u+x "$runtime_path" "$bridge_path"
           test -x "$runtime_path"
           test -x "$bridge_path"
-          deno check --frozen --cached-only cli/src/index.ts
+          deno check --frozen cli/src/index.ts
           mkdir -p dist "dist/release-inputs/product-runtime/${{ matrix.target }}"
           DENORT_BIN="$runtime_path" deno compile --frozen --cached-only -A --include cli/lib/release/engine.py --include dist/release-inputs/THIRD_PARTY_NOTICES --target '${{ matrix.target }}' --output 'dist/slv-${{ matrix.target }}-exe' cli/src/index.ts
           'dist/slv-${{ matrix.target }}-exe' --version
