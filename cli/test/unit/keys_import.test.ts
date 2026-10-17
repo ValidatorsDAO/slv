@@ -58,14 +58,18 @@ type Stored = { id: string; title: string; fields: Record<string, string> }
 /** An op with a vault and the items that `item create` was given. */
 const vaultOp = (
   options: {
-    existing?: { id: string; title: string }[]
+    existing?: {
+      id: string
+      title: string
+      fields?: Record<string, string>
+    }[]
     readBack?: (field: string, stored: Stored) => OpAnswer
     createFails?: string
   } = {},
 ) => {
   const items: Stored[] = (options.existing ?? []).map((item) => ({
     ...item,
-    fields: {},
+    fields: item.fields ?? {},
   }))
   const fake = scriptedOp((call: OpCall): OpAnswer => {
     const [a, b] = call.args
@@ -730,4 +734,201 @@ Deno.test('the buffer of the key file and the template that held the key are zer
       assertEquals(call.stdinRef!.every((byte) => byte === 0), true, name)
     }
   }
+})
+
+// --- an entry added later: the item is in the vault already ----------------
+
+/** The item of REF as keys:import made it. */
+const STORED = [{
+  id: ITEM,
+  title: IDENTITY,
+  fields: { keypair: KEY_B.canonical, pubkey: IDENTITY },
+}]
+
+/** ams1 points at REF; ams2, which was added later, has the identity_account and no reference. */
+const LATE = inventoryOf({
+  ams1: host('ams1', IDENTITY, { identity_ref: REF }),
+  ams2: host('ams2', IDENTITY),
+  ams3: host('ams3', KEY_A.pubkey),
+})
+
+Deno.test('an entry added after the import gets the reference of the item that is in the vault already: no item is made, the stored key is read back against the key file, and only the entries that lack the reference get it', async () => {
+  const op = vaultOp({ existing: STORED })
+  const { result, captured, writes, inventory, keyReads } = await run(
+    { network: 'testnet', host: 'ams2' },
+    { inventory: LATE, op },
+  )
+  assertEquals(result, true, captured.error.join('\n'))
+  // The vault was asked for its items, and the item was read back; nothing was created.
+  assertEquals(op.calls.some((call) => call.args[1] === 'create'), false)
+  assertEquals(op.calls.map((call) => call.args), [
+    ['item', 'list', '--vault', VAULT, '--format', 'json'],
+    ['read', '-n', REF],
+    ['read', '-n', refOf(VAULT, ITEM, 'pubkey')],
+  ])
+  assertEquals(keyReads, [KEY_PATH])
+  assertEquals(writes.length, 1)
+  const written = parse(inventory()!) as {
+    testnet_validators: { hosts: Record<string, Record<string, unknown>> }
+  }
+  const hosts = written.testnet_validators.hosts
+  assertEquals(hosts.ams1.identity_ref, REF)
+  assertEquals(hosts.ams2.identity_ref, REF)
+  assertEquals(hosts.ams3.identity_ref, undefined)
+  const lines = captured.info.join('\n')
+  assertStringIncludes(lines, `hosts  ams2`)
+  assertEquals(lines.includes('ams1,'), false)
+  assertStringIncludes(lines, 'slv v keys:check -n testnet -p ams2')
+  assertStringIncludes(lines, `The key file ${KEY_PATH} was not removed`)
+  assertEquals(
+    holdsKey([...captured.info, ...captured.error].join('\n'), KEY_B),
+    false,
+  )
+})
+
+Deno.test('when every entry of the identity points at the item already nothing is asked of op, read or written', async () => {
+  const everyone = inventoryOf({
+    ams1: host('ams1', IDENTITY, { identity_ref: REF }),
+    ams2: host('ams2', IDENTITY, { identity_ref: REF }),
+  })
+  const { result, captured, op, writes, keyReads } = await run(
+    { network: 'testnet', host: 'ams1' },
+    { inventory: everyone },
+  )
+  assertEquals(result, true)
+  assertEquals(op.calls.length, 0)
+  assertEquals(writes, [])
+  assertEquals(keyReads, [])
+  assertStringIncludes(captured.info.join('\n'), 'Nothing was changed')
+})
+
+Deno.test('the item that an entry points at has to be there, be titled with the identity_account and hold the key of the file; otherwise nothing is written, and the advice does not say to remove an item', async () => {
+  const cases: [string, ReturnType<typeof vaultOp>, string][] = [
+    ['an item that is not in the vault', vaultOp(), 'has no item with that id'],
+    [
+      'an item with another title',
+      vaultOp({
+        existing: [{ ...STORED[0], title: 'something else' }],
+      }),
+      'is titled "something else"',
+    ],
+    [
+      'an item that holds another key',
+      vaultOp({
+        existing: [{
+          ...STORED[0],
+          fields: { keypair: KEY_A.canonical, pubkey: IDENTITY },
+        }],
+      }),
+      'does not hold the key that was read from the key file',
+    ],
+    [
+      'an item whose pubkey field is another key',
+      vaultOp({
+        existing: [{
+          ...STORED[0],
+          fields: { keypair: KEY_B.canonical, pubkey: KEY_A.pubkey },
+        }],
+      }),
+      'is not the public key of the key that was read from the key file',
+    ],
+  ]
+  for (const [name, op, expected] of cases) {
+    const { result, captured, writes, inventory } = await run(
+      { network: 'testnet', host: 'ams2' },
+      { inventory: LATE, op },
+    )
+    assertEquals(result, false, name)
+    assertEquals(writes, [], name)
+    assertEquals(inventory(), LATE, name)
+    assertEquals(
+      op.calls.some((call) => call.args[1] === 'create'),
+      false,
+      name,
+    )
+    assertEquals(captured.exitCode(), 1, name)
+    assertStringIncludes(captured.error[0], expected)
+    assertEquals(captured.error[0].includes('remove that item'), false, name)
+  }
+})
+
+Deno.test('a reference is shared only when the entries agree on it and it is in the configured vault: different references, a reference of another vault, a file reference and a reference that changes meanwhile are refused, and a different one is never overwritten', async () => {
+  const OTHER_REF = refOf(VAULT, 'z'.repeat(26))
+  const cases: [string, NonNullable<Parameters<typeof run>[1]>, string][] = [
+    [
+      'two entries with two references',
+      {
+        inventory: inventoryOf({
+          ams1: host('ams1', IDENTITY, { identity_ref: REF }),
+          ams2: host('ams2', IDENTITY, { identity_ref: OTHER_REF }),
+          ams3: host('ams3', IDENTITY),
+        }),
+        op: vaultOp({ existing: STORED }),
+      },
+      'do not agree on the reference',
+    ],
+    [
+      'a reference of another vault',
+      {
+        inventory: inventoryOf({
+          ams1: host('ams1', IDENTITY, { identity_ref: refOf(OTHER_VAULT) }),
+          ams2: host('ams2', IDENTITY),
+        }),
+        op: vaultOp({ existing: STORED }),
+      },
+      'not the vault configured for testnet',
+    ],
+    [
+      'a file reference',
+      {
+        inventory: inventoryOf({
+          ams1: host('ams1', IDENTITY, {
+            identity_ref: 'file:///home/op/k.json',
+          }),
+          ams2: host('ams2', IDENTITY),
+        }),
+        op: vaultOp({ existing: STORED }),
+      },
+      'does not overwrite a reference',
+    ],
+    [
+      'a different reference that appears while the item is being checked',
+      {
+        inventory: LATE,
+        laterInventory: inventoryOf({
+          ams1: host('ams1', IDENTITY, { identity_ref: REF }),
+          ams2: host('ams2', IDENTITY, { identity_ref: OTHER_REF }),
+        }),
+        op: vaultOp({ existing: STORED }),
+      },
+      'does not overwrite a reference',
+    ],
+  ]
+  for (const [name, config, expected] of cases) {
+    const op = config.op!
+    const { result, captured, writes, inventory } = await run(
+      { network: 'testnet', host: 'ams2' },
+      config,
+    )
+    assertEquals(result, false, name)
+    assertEquals(writes, [], name)
+    assertEquals(inventory(), config.inventory, name)
+    assertEquals(
+      op.calls.some((call) => call.args[1] === 'create'),
+      false,
+      name,
+    )
+    assertEquals(captured.exitCode(), 1, name)
+    assertStringIncludes(captured.error[0], expected)
+  }
+})
+
+Deno.test('the attach path wipes the key file buffer too', async () => {
+  const { keyFiles, op } = await run(
+    { network: 'testnet', host: 'ams2' },
+    { inventory: LATE, op: vaultOp({ existing: STORED }) },
+  )
+  assertEquals(keyFiles.length, 1)
+  assertEquals(keyFiles[0].every((byte) => byte === 0), true)
+  assertEquals(op.calls.filter((call) => call.args[1] === 'create'), [])
 })

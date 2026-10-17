@@ -3,7 +3,11 @@ import type { InventoryType } from '@cmn/types/config.ts'
 import { parse } from 'https://deno.land/std@0.202.0/yaml/parse.ts'
 import { stringify } from 'https://deno.land/std@0.202.0/yaml/stringify.ts'
 import { BASE58_PUBKEY } from '/lib/secret/base58.ts'
-import { IdentityRefError, parseIdentityRef } from '/lib/secret/identityRef.ts'
+import {
+  type IdentityRef,
+  IdentityRefError,
+  parseIdentityRef,
+} from '/lib/secret/identityRef.ts'
 import {
   KeypairFormatError,
   keypairText,
@@ -29,7 +33,12 @@ import {
   type SecretSetupDeps,
 } from '/lib/secret/setup.ts'
 import { defaultTty, type Tty } from '/lib/secret/tty.ts'
-import { type KeylessNetwork, writeVaultId } from '/lib/secret/vaultPolicy.ts'
+import {
+  checkRefVault,
+  type KeylessNetwork,
+  PolicyError,
+  writeVaultId,
+} from '/lib/secret/vaultPolicy.ts'
 import { validatorGroup } from '/lib/ssh/inventoryTarget.ts'
 import { defaultIo, describe, type Io } from '/src/validator/keys/io.ts'
 
@@ -107,11 +116,13 @@ const defaultImportDeps = (): ImportDeps => ({
   writeVault: (network, vaultId) => writeVaultId(network, vaultId),
 })
 
+type OpReference = Extract<IdentityRef, { kind: 'op' }>
+
 type IdentityEntries = {
   identityAccount: string
   /** Every host of the group that has this identity_account, the named one included. */
   names: string[]
-  /** The hosts among them that have an identity_ref already, with its text. */
+  /** The hosts among them that have an identity_ref already, with its text as it is written. */
   referenced: { name: string; ref: string }[]
 }
 
@@ -152,17 +163,68 @@ const findEntries = (
     names.push(name)
     const ref = entry.identity_ref
     if (ref !== undefined && ref !== null && ref !== '') {
-      referenced.push({ name, ref: printable(String(ref)) })
+      referenced.push({ name, ref: String(ref) })
     }
   }
   return { identityAccount, names, referenced }
 }
 
+const listReferenced = (referenced: IdentityEntries['referenced']): string =>
+  referenced.map((entry) =>
+    `${entry.name} has identity_ref ${printable(entry.ref)}`
+  ).join('; ')
+
 const refusalForReferenced = (referenced: IdentityEntries['referenced']) =>
   `${
-    referenced.map((entry) => `${entry.name} has identity_ref ${entry.ref}`)
-      .join('; ')
+    listReferenced(referenced)
   }: keys:import does not overwrite a reference. Remove the line from the inventory if the key is to be imported again. Nothing was changed.`
+
+/**
+ * The 1Password reference that every entry with the identity_account that has
+ * one shares, when it is in the vault of the network: keys:import then points
+ * the entries that lack it at that item and makes no other. Any other
+ * reference is refused.
+ */
+const sharedReference = (
+  referenced: IdentityEntries['referenced'],
+  setup: SecretSetup,
+  network: KeylessNetwork,
+): OpReference | null => {
+  const texts = [...new Set(referenced.map((entry) => entry.ref))]
+  if (texts.length === 0) return null
+  if (texts.length > 1) {
+    throw new ImportRefusal(
+      `${
+        listReferenced(referenced)
+      }: the entries do not agree on the reference, and keys:import does not choose one. Nothing was changed.`,
+    )
+  }
+  let ref: IdentityRef
+  try {
+    ref = parseIdentityRef(texts[0], { homeDir: '/' }).ref
+  } catch (error) {
+    if (error instanceof IdentityRefError) {
+      throw new ImportRefusal(refusalForReferenced(referenced))
+    }
+    throw error
+  }
+  if (ref.kind !== 'op') {
+    throw new ImportRefusal(refusalForReferenced(referenced))
+  }
+  try {
+    checkRefVault(ref, setup.policy, network)
+  } catch (error) {
+    if (error instanceof PolicyError) {
+      throw new ImportRefusal(
+        `${
+          listReferenced(referenced)
+        }: ${error.message}. keys:import does not overwrite a reference. Nothing was changed.`,
+      )
+    }
+    throw error
+  }
+  return ref
+}
 
 /** What the person does when the vault has an item with the title already: remove it, or check it and point the inventory at it by hand. */
 const refusalForExisting = (
@@ -250,10 +312,21 @@ const importKey = async (
       throw new ImportRefusal(`there is no inventory file ${inventoryFile}`)
     }
     const entries = findEntries(parse(inventoryText), group, host)
-    if (entries.referenced.length > 0) {
-      throw new ImportRefusal(refusalForReferenced(entries.referenced))
-    }
     const { identityAccount } = entries
+    // Entries that point at one item of the vault already: the item is the one to use.
+    const shared = sharedReference(entries.referenced, setup, network)
+    if (
+      shared !== null &&
+      entries.names.every((name) =>
+        entries.referenced.some((entry) => entry.name === name)
+      )
+    ) {
+      deps.io.info(
+        `✅ Every entry of ${identityAccount} points at ${shared.text} already. Nothing was changed.`,
+      )
+      deps.io.info(`   check it: slv v keys:check -n ${network} -p ${host}`)
+      return true
+    }
 
     // The key file: the one named, or the one slv has always kept the key in.
     let keyPath: string
@@ -297,30 +370,72 @@ const importKey = async (
     }
     canonical = keypairText(keypair)
 
-    const { vaultId, confirmed } = await chooseVault(network, setup, deps.tty)
-    const before = await listItems(setup, vaultId)
-    const existing = before.filter((item) => item.title === identityAccount)
-    if (existing.length > 0) {
-      throw new ImportRefusal(
-        refusalForExisting(network, vaultId, identityAccount, existing),
+    let ref: IdentityRef
+    let vaultId: string
+    let confirmed = false
+    if (shared !== null) {
+      // The item is there. It has to be the item of this identity and hold this key.
+      ref = shared
+      vaultId = shared.vaultId
+      const item = (await listItems(setup, vaultId)).find((candidate) =>
+        candidate.id === shared.itemId
+      )
+      if (item === undefined) {
+        throw new ImportRefusal(
+          `${
+            listReferenced(entries.referenced)
+          }, and the vault ${vaultId} has no item with that id. Nothing was changed.`,
+        )
+      }
+      if (item.title !== identityAccount) {
+        throw new ImportRefusal(
+          `the item ${shared.itemId} of ${shared.text} is titled "${
+            printable(item.title)
+          }", not ${identityAccount}. Nothing was changed.`,
+        )
+      }
+      await verifyStoredKey(
+        setup,
+        ref,
+        { pubkey: identityAccount, canonical },
+        {
+          what: 'read from the key file',
+          consequence: 'The inventory was not changed',
+          advice:
+            'the item and the key file are two keys, so find out which of them is the key of the identity',
+        },
+      )
+    } else {
+      ;({ vaultId, confirmed } = await chooseVault(network, setup, deps.tty))
+      const before = await listItems(setup, vaultId)
+      const existing = before.filter((item) => item.title === identityAccount)
+      if (existing.length > 0) {
+        throw new ImportRefusal(
+          refusalForExisting(network, vaultId, identityAccount, existing),
+        )
+      }
+
+      template = itemTemplate(identityAccount, identityAccount, canonical)
+      const itemId = await createItem(
+        setup,
+        vaultId,
+        identityAccount,
+        template,
+        before,
+      )
+      ref = parseIdentityRef(`op://${vaultId}/${itemId}/keypair`, {
+        homeDir: '/',
+      }).ref
+      await verifyStoredKey(
+        setup,
+        ref,
+        { pubkey: identityAccount, canonical },
+        {
+          what: 'imported',
+          consequence: 'The inventory was not changed',
+        },
       )
     }
-
-    template = itemTemplate(identityAccount, identityAccount, canonical)
-    const itemId = await createItem(
-      setup,
-      vaultId,
-      identityAccount,
-      template,
-      before,
-    )
-    const ref = parseIdentityRef(`op://${vaultId}/${itemId}/keypair`, {
-      homeDir: '/',
-    }).ref
-    await verifyStoredKey(setup, ref, { pubkey: identityAccount, canonical }, {
-      what: 'imported',
-      consequence: 'The inventory was not changed',
-    })
 
     // Only now the inventory: read again, since a person took the time in between.
     const latestText = await deps.readText(inventoryFile)
@@ -334,21 +449,30 @@ const importKey = async (
         `${host} has another identity_account now. The inventory was not changed; the item ${ref.text} is in the vault.`,
       )
     }
-    if (latest.referenced.length > 0) {
+    // A reference that is not the item's appeared meanwhile: not overwritten, and not agreed with.
+    const others = latest.referenced.filter((entry) => entry.ref !== ref.text)
+    if (
+      others.length > 0 || (shared === null && latest.referenced.length > 0)
+    ) {
       throw new ImportRefusal(
         `${
-          refusalForReferenced(latest.referenced)
+          refusalForReferenced(shared === null ? latest.referenced : others)
         } The item ${ref.text} is in the vault.`,
       )
     }
     const hosts = hostsOf(document, group)
-    for (const name of latest.names) {
+    const lacking = latest.names.filter((name) =>
+      !latest.referenced.some((entry) => entry.name === name)
+    )
+    for (const name of lacking) {
       ;(hosts[name] as Record<string, unknown>).identity_ref = ref.text
     }
-    await deps.writeInventory(
-      inventoryFile,
-      stringify(document as Record<string, unknown>),
-    )
+    if (lacking.length > 0) {
+      await deps.writeInventory(
+        inventoryFile,
+        stringify(document as Record<string, unknown>),
+      )
+    }
 
     let unsaved: string | null = null
     if (confirmed) {
@@ -360,10 +484,12 @@ const importKey = async (
     }
 
     deps.io.info(
-      `✅ The key of ${identityAccount} is in 1Password, and the inventory points at it.`,
+      shared === null
+        ? `✅ The key of ${identityAccount} is in 1Password, and the inventory points at it.`
+        : `✅ The key of ${identityAccount} is the key in 1Password, and the entries that lacked the reference point at it now.`,
     )
     deps.io.info(`   ref    ${ref.text}`)
-    deps.io.info(`   hosts  ${latest.names.join(', ')}`)
+    deps.io.info(`   hosts  ${lacking.join(', ')}`)
     deps.io.info(
       `   check it: slv v keys:check -n ${network} -p ${host}`,
     )

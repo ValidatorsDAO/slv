@@ -213,14 +213,16 @@ const createItem = async (
  * Reads the item back through the resolver and requires the key to be the one
  * that went in, byte for byte, and the pubkey field to be its public key.
  * `what` says what was done to the key (made, imported) and `consequence`
- * what the verb did not do because of this failure.
+ * what the verb did not do because of this failure; `advice` is what the
+ * person does about it, and by default removes the item that was just made.
  */
 const verifyStoredKey = async (
   setup: SecretSetup,
   ref: IdentityRef,
   stored: { pubkey: string; canonical: Uint8Array },
-  words: { what: string; consequence: string },
+  words: { what: string; consequence: string; advice?: string },
 ): Promise<void> => {
+  const advice = words.advice ?? 'remove that item in 1Password'
   const where = ref.kind === 'op'
     ? `the item ${ref.itemId} in the vault ${ref.vaultId}`
     : ref.text
@@ -231,7 +233,7 @@ const verifyStoredKey = async (
       !sameBytes(back.canonical, stored.canonical)
     ) {
       throw new OpRefusal(
-        `${where} does not hold the key that was ${words.what}. ${words.consequence}; remove that item in 1Password.`,
+        `${where} does not hold the key that was ${words.what}. ${words.consequence}; ${advice}.`,
       )
     }
   } finally {
@@ -240,7 +242,7 @@ const verifyStoredKey = async (
   const field = await readPubkeyField(pubkeyFieldRef(ref)!, setup.resolve)
   if (field !== stored.pubkey) {
     throw new OpRefusal(
-      `the pubkey field of ${where} is not the public key of the key that was ${words.what}. ${words.consequence}; remove that item in 1Password.`,
+      `the pubkey field of ${where} is not the public key of the key that was ${words.what}. ${words.consequence}; ${advice}.`,
     )
   }
 }
