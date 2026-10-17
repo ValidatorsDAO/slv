@@ -25,6 +25,14 @@
         fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the tower or the vote history file on the controller. Nothing was changed."
         quiet: true
 
+    - name: Check that the vote account of the inventory belongs to the identity, before the source waits or is demoted
+      ansible.builtin.import_tasks: ../cmn/tasks/vote_history_last_vote.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_lv_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
+        slv_lv_identity: "{{ hostvars[inventory_hostname].identity_account }}"
+      when: slv_switch_mode == 'alpenglow'
+
     - name: Check that the source holds the tower file of the identity
       ansible.builtin.stat:
         path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"

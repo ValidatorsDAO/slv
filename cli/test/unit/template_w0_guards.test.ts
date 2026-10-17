@@ -673,6 +673,26 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         `${path}: the second probe is followed by the guard that the mode did not change`,
       )
 
+      // the vote account of the inventory has to belong to the identity: asked before the wait and the demotion
+      const voteAccount = firstIndex(
+        tasks,
+        (task) =>
+          moduleArgs(task, 'import_tasks') ===
+            '../cmn/tasks/vote_history_last_vote.yml',
+      )
+      assert(
+        voteAccount > probes[0] && voteAccount < wait,
+        `${path}: the vote account is checked before the source waits or is demoted`,
+      )
+      assertEquals(conditionsOf(tasks[voteAccount]), [
+        "slv_switch_mode == 'alpenglow'",
+      ])
+      assertEquals(
+        (tasks[voteAccount].vars as Entry).slv_lv_identity,
+        '{{ hostvars[inventory_hostname].identity_account }}',
+        `${path}: the vote account has to belong to the identity`,
+      )
+
       // the file to carry is checked before the wait and before the demotion
       for (
         const [fragment, mode] of [

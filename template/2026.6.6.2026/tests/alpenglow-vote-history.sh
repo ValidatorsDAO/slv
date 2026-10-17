@@ -425,6 +425,18 @@ case_copy_keys_ok() {
   check $? "the key file is on the host with the mode 0600"
 }
 
+# the vote account of the inventory belongs to another identity: the switch stops before the source waits or is demoted
+case_off_vote_account_other_identity() {
+  begin off_vote_account_other_identity "$1"
+  inventory agave agave
+  box src src
+  printf 'vote-history-initial\n' >"$(vote_file src)"
+  play src switch_off_identity "-e off_host=src" -e "slv_alpenglow_rpc_url=$(alp /id=AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB)"
+  refused src switch_off_identity "The cluster names the identity AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB for the vote account VOTEACCOUNT" "switch_off refuses a vote account of another identity"
+  [[ $(count_calls src .) -eq 0 && ! -e $S/home/.slv/vote_history ]]
+  check $? "nothing was waited for, demoted or copied"
+}
+
 case_off_towerbft() {
   begin off_towerbft "$1"
   inventory agave agave
@@ -779,7 +791,7 @@ case_key_dead_gossip_both() { dead_refused key_dead_gossip_both both current:100
 case_key_dead_slot_equal() { dead_refused key_dead_slot_equal none current:1000 1000 "slots past the last vote 1000" "a finalized slot equal to the last vote is not past it"; }
 case_key_dead_slot_behind() { dead_refused key_dead_slot_behind none current:1000 900 "slots past the last vote 1000" "a finalized slot behind the last vote is not past it"; }
 case_key_dead_slot_short() { dead_refused key_dead_slot_short none current:1000 1100 "slots past the last vote 1000" "a finalized slot only 100 past the last vote is not 270 slots past it"; }
-case_key_dead_vote_missing() { dead_refused key_dead_vote_missing none missing 1300 "does not list the vote account VOTEACCOUNT" "a vote account the cluster does not list stops dead primary mode"; }
+case_key_dead_vote_missing() { dead_refused key_dead_vote_missing none missing 1300 "is not on the cluster" "a vote account the cluster does not list stops dead primary mode"; }
 case_key_dead_nodes_error() { dead_refused key_dead_nodes_error error current:1000 1300 "did not give a readable list of nodes" "an unreadable list of nodes stops dead primary mode"; }
 case_key_dead_votes_error() { dead_refused key_dead_votes_error none error 1300 "did not give a readable answer to getVoteAccounts" "unreadable vote accounts stop dead primary mode"; }
 case_key_dead_slot_error() { dead_refused key_dead_slot_error none current:1000 error "RPC of this host did not answer getSlot" "an unreadable slot stops dead primary mode"; }
@@ -835,6 +847,19 @@ case_key_first_activation_voted() {
   refused dst set_identity_key "first_activation says that the identity" "a first activation is refused when the vote account has voted"
   log_has dst set_identity_key "is at slot 1000"
   check $? "the message gives the last vote of the vote account"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host"
+}
+
+# a vote account that exists and has never voted is listed with a last vote of 0 (the stub answers delinquent:0): the first activation of
+# case_key_first_activation goes on. One that the cluster does not list is not on the cluster.
+case_key_first_activation_unlisted() {
+  begin key_first_activation_unlisted "$1"
+  key_target GATE=0
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /vote=missing)" -e '{"first_activation": true}'
+  refused dst set_identity_key "first_activation says that the identity" "a first activation is refused when the vote account is not on the cluster"
+  log_has dst set_identity_key "is not on the cluster"
+  check $? "the message says that the vote account is not on the cluster"
   [[ $(count_calls dst .) -eq 0 ]]
   check $? "nothing was run on the host"
 }
@@ -1074,8 +1099,19 @@ case_mig_happy() {
   check $? "the source is demoted, the target gets the identity without a tower flag and the voter is added"
   [[ ! -e "$(copy_file)" && $(cat "$S/both/identity") == "$STAKED" ]]
   check $? "the controller copy is gone and the identity runs"
-  log_has both nodowntime_migrate "moved from 1000 to 1025 after dst took $STAKED"
+  log_has both nodowntime_migrate "moved from 1025 to 1050 after dst took $STAKED"
   check $? "the play says the last vote of the vote account moved on the cluster"
+}
+
+case_mig_vote_account_other_identity() {
+  begin mig_vote_account_other_identity "$1"
+  inventory agave agave
+  box both both
+  printf 'vote-history-initial\n' >"$(vote_file both)"
+  play both nodowntime_migrate "-e source_host=src -e target_host=dst" -e "slv_alpenglow_rpc_url=$(alp /id=AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB)"
+  refused both nodowntime_migrate "The cluster names the identity AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB for the vote account VOTEACCOUNT" "a migrate run stops before the demotion when the vote account belongs to another identity"
+  [[ $(count_calls both .) -eq 0 ]]
+  check $? "no host was waited for or demoted"
 }
 
 case_mig_identity() {
@@ -1246,6 +1282,7 @@ case_mig_down_fdctl() {
 
 cases=(
   off_happy off_no_file off_silent_votor off_churning off_mode_changes off_window_opens off_fdctl off_towerbft off_bad_identity
+  off_vote_account_other_identity mig_vote_account_other_identity key_first_activation_unlisted
   on_happy on_cluster_stuck on_cluster_unread on_no_copy on_other_identity on_voter_present on_voter_error on_not_voting
   on_fdctl on_towerbft on_bad_identity
   key_bad_identity active_bad_identity off_fdctl_bad_identity on_fdctl_bad_identity copy_keys_bad_identity copy_keys_ok
