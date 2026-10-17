@@ -12,10 +12,12 @@
   hosts: all
   become: true
   vars:
-    pythnet_repo: "{{ pythnet_repo | default('https://github.com/pyth-network/pythnet') }}"
-    pythnet_ref: "{{ pythnet_ref | default('pyth-v1.14.17') }}"
-    pythnet_ledger_mount: "{{ pythnet_ledger_mount | default('/mnt/ledger') }}"
-    src_dir: "{{ pythnet_ledger_mount }}/src/pythnet"
+    # Each slv_ variable reads the variable of the same name without the prefix (-e or inventory), with its default:
+    # a play variable that read its own name would loop.
+    slv_pythnet_repo: "{{ pythnet_repo | default('https://github.com/pyth-network/pythnet') }}"
+    slv_pythnet_ref: "{{ pythnet_ref | default('pyth-v1.14.17') }}"
+    slv_pythnet_ledger_mount: "{{ pythnet_ledger_mount | default('/mnt/ledger') }}"
+    src_dir: "{{ slv_pythnet_ledger_mount }}/src/pythnet"
 
   tasks:
     - name: Ensure src dir exists
@@ -29,9 +31,9 @@
     - name: Clone pythnet repo (shallow, pinned branch)
       become_user: solv
       ansible.builtin.git:
-        repo: "{{ pythnet_repo }}"
+        repo: "{{ slv_pythnet_repo }}"
         dest: "{{ src_dir }}"
-        version: "{{ pythnet_ref }}"
+        version: "{{ slv_pythnet_ref }}"
         depth: 1
         force: yes
       register: pythnet_git

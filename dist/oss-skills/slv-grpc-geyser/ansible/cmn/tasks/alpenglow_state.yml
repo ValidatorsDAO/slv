@@ -22,11 +22,45 @@
 #                                 imminent. Every identity change sets it.
 #   slv_alpenglow_margin_slots    slots left in the epoch below which a pending activation
 #                                 counts as imminent (3000, about 11 minutes; 0 turns it off)
+#   slv_alpenglow_min_slot_seconds  the shortest time a slot is assumed to take (0.2; about 0.22
+#                                 measured on mainnet and testnet). The promotion after a demotion goes on
+#                                 without a reading only within slv_alpenglow_margin_slots times this, halved
 #   slv_alpenglow_demoted_source  set by nodowntime_migrate for the plays that run after the
 #                                 source host was switched to its unstaked identity: the
 #                                 refusal then says what is left to do by hand
+#   slv_alpenglow_move_types      the validator_type of every host that takes part in the identity
+#                                 change: while the state is alpenglow the play stops when one of
+#                                 them is firedancer-agave, firedancer-jito or frankendancer
 #   slv_alpenglow_rpc_retries     retries of a call whose answer cannot be read (2)
 #   slv_alpenglow_rpc_delay       seconds between the attempts (2)
+#   slv_alpenglow_patience_seconds  how long a call whose answer cannot be read is retried when
+#                                 slv_alpenglow_demoted_source is set and the reading right
+#                                 before that demotion was towerbft or alpenglow (60). Downtime
+#                                 is already running then, and a refusal would leave both nodes
+#                                 unstaked.
+#
+# The reading right before a demotion (switch_off_identity.yml and switch_off_firedancer_identity.yml)
+# is kept in the host facts slv_pre_demotion_state, slv_pre_demotion_feature (what the feature account
+# was: absent, inactive, active or not asked) and slv_pre_demotion_probe_at (epoch seconds, the
+# controller's clock, taken before the cluster was asked). When the state of a later switch_on is
+# still unknown after the patient retries, and less time has passed since that reading than half of
+# slv_alpenglow_margin_slots slots take at slv_alpenglow_min_slot_seconds (300 seconds for 3000 slots at
+# 0.2 seconds), the probe sets slv_ag_resume to true and slv_ag_resume_mode to what the cluster ran at
+# that reading, and does not stop on unknown. The bound assumes that slots do not run faster than
+# slv_alpenglow_min_slot_seconds: then at most half of the margin has passed, and an activation, which
+# comes with the next epoch, is still at least half of the margin away:
+#
+#   towerbft   the switch_on goes on with the TowerBFT promotion. When the feature account was
+#              pending at that reading, an activation of Alpenglow cannot have started in that time
+#              (the epoch had at least slv_alpenglow_margin_slots slots left, and at the assumed slot
+#              time at most half of them have passed). When it was absent,
+#              one can have been scheduled since, and nothing here rules that out (the known limit
+#              of the probe, which reads an absent account as towerbft however few slots are left)
+#   alpenglow  Alpenglow does not revert: the switch_on goes on with the vote history file (not
+#              when a Firedancer or Frankendancer host takes part, which Alpenglow stops)
+#
+# window, imminent and alpenglow readings still stop the switch_on, and so does unknown once the time is
+# over. agave checks the tower or the vote history file itself when the identity is set.
 
 - name: Check the inputs of the Alpenglow state probe
   ansible.builtin.assert:
@@ -35,6 +69,16 @@
       - (slv_alpenglow_margin_slots | default(3000) | string) is match('^[0-9]+$')
     fail_msg: "slv_alpenglow_network must be mainnet, testnet or devnet (it is '{{ slv_alpenglow_network | default('not set') }}') and slv_alpenglow_margin_slots a whole number of slots (it is '{{ slv_alpenglow_margin_slots | default(3000) }}'). Nothing was changed."
     quiet: true
+  run_once: true
+
+- name: Work out how long a call that cannot be read is retried
+  ansible.builtin.set_fact:
+    slv_ag_give_up_at: >-
+      {%- if (slv_alpenglow_freeze | default(false) | bool) and (slv_alpenglow_demoted_source | default('', true) != '')
+          and (hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) in ['towerbft', 'alpenglow'] -%}
+      {{ (now(utc=true).timestamp() | int) + (slv_alpenglow_patience_seconds | default(60) | int) }}
+      {%- else -%}0{%- endif -%}
+    slv_ag_patient_retries: "{{ [((slv_alpenglow_patience_seconds | default(60) | int) / ([slv_alpenglow_rpc_delay | default(2) | int, 1] | max)) | round(0, 'ceil') | int, 1] | max }}"
   run_once: true
 
 - name: Ask the cluster for the Alpenglow genesis certificate (getAgGenesisCert)
@@ -50,10 +94,11 @@
     timeout: 20
   register: slv_ag_cert_reply
   until: >-
-    (slv_ag_cert_reply.status | default(0)) == 200 and
+    ((slv_ag_cert_reply.status | default(0)) == 200 and
     slv_ag_cert_reply.json is defined and slv_ag_cert_reply.json is mapping and
-    'error' not in slv_ag_cert_reply.json and 'result' in slv_ag_cert_reply.json
-  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+    'error' not in slv_ag_cert_reply.json and 'result' in slv_ag_cert_reply.json) or
+    ((slv_ag_give_up_at | default(0) | int) > 0 and (now(utc=true).timestamp() | int) >= (slv_ag_give_up_at | default(0) | int))
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max if (slv_ag_give_up_at | default(0) | int) == 0 else slv_ag_patient_retries | int }}"
   delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
   failed_when: false
   changed_when: false
@@ -99,10 +144,11 @@
     timeout: 20
   register: slv_ag_feature_reply
   until: >-
-    (slv_ag_feature_reply.status | default(0)) == 200 and
+    ((slv_ag_feature_reply.status | default(0)) == 200 and
     slv_ag_feature_reply.json is defined and slv_ag_feature_reply.json is mapping and
-    'error' not in slv_ag_feature_reply.json and 'result' in slv_ag_feature_reply.json
-  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+    'error' not in slv_ag_feature_reply.json and 'result' in slv_ag_feature_reply.json) or
+    ((slv_ag_give_up_at | default(0) | int) > 0 and (now(utc=true).timestamp() | int) >= (slv_ag_give_up_at | default(0) | int))
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max if (slv_ag_give_up_at | default(0) | int) == 0 else slv_ag_patient_retries | int }}"
   delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
   failed_when: false
   changed_when: false
@@ -147,10 +193,11 @@
     timeout: 20
   register: slv_ag_epoch_reply
   until: >-
-    (slv_ag_epoch_reply.status | default(0)) == 200 and
+    ((slv_ag_epoch_reply.status | default(0)) == 200 and
     slv_ag_epoch_reply.json is defined and slv_ag_epoch_reply.json is mapping and
-    'error' not in slv_ag_epoch_reply.json and 'result' in slv_ag_epoch_reply.json
-  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+    'error' not in slv_ag_epoch_reply.json and 'result' in slv_ag_epoch_reply.json) or
+    ((slv_ag_give_up_at | default(0) | int) > 0 and (now(utc=true).timestamp() | int) >= (slv_ag_give_up_at | default(0) | int))
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max if (slv_ag_give_up_at | default(0) | int) == 0 else slv_ag_patient_retries | int }}"
   delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
   failed_when: false
   changed_when: false
@@ -196,11 +243,43 @@
     slv_alpenglow_detail: "getAgGenesisCert: {{ slv_ag_cert_kind }}; feature account: {{ slv_ag_feature_kind }}{{ '; epoch: ' ~ slv_ag_epoch_kind if slv_ag_epoch_kind != 'not asked' else '' }}"
   run_once: true
 
+- name: Work out whether the promotion goes on although the cluster could not be read
+  ansible.builtin.set_fact:
+    slv_ag_resume_mode: >-
+      {{ (hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) if (slv_ag_give_up_at | default(0) | int) > 0 else '' }}
+    slv_ag_resume: >-
+      {{ slv_alpenglow_state == 'unknown'
+         and (slv_ag_give_up_at | default(0) | int) > 0
+         and (hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) in ['towerbft', 'alpenglow']
+         and (hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_probe_at | default(0) | int) > 0
+         and ((now(utc=true).timestamp() | int) - (hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_probe_at | int))
+             < ((slv_alpenglow_margin_slots | default(3000) | int) * (slv_alpenglow_min_slot_seconds | default(0.2) | float) / 2)
+         and ((hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) == 'towerbft'
+              or (slv_alpenglow_move_types | default([]) | intersect(['firedancer-agave', 'firedancer-jito', 'frankendancer']) | length) == 0) }}
+    slv_ag_resume_elapsed: >-
+      {{ ((now(utc=true).timestamp() | int) - (hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_probe_at | default(0) | int))
+         if (slv_ag_give_up_at | default(0) | int) > 0 else 0 }}
+  run_once: true
+
+- name: Look for the vote history file the demoted source left on the controller
+  ansible.builtin.stat:
+    path: "~/.slv/vote_history/vote_history-{{ hostvars[inventory_hostname].identity_account | default('') }}.bin"
+  register: slv_ag_controller_copy
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+  when:
+    - slv_alpenglow_freeze | default(false) | bool
+    - slv_alpenglow_demoted_source | default('', true) != ''
+
 - name: Say what a refusal leaves behind
   ansible.builtin.set_fact:
     slv_ag_outcome: >-
       {%- if slv_alpenglow_demoted_source | default('', true) -%}
-      The source host {{ slv_alpenglow_demoted_source }} was already switched to its unstaked identity in this run, so {{ slv_alpenglow_demoted_source }} and {{ inventory_hostname }} are both unstaked now. Wait until getAgGenesisCert returns a certificate, then promote {{ hostvars[inventory_hostname].identity_account | default('its identity') }} on {{ inventory_hostname }} yourself (for example slv v set:identity -p {{ inventory_hostname }}). Nothing is promoted automatically.
+      The source host {{ slv_alpenglow_demoted_source }} was already switched to its unstaked identity in this run, so {{ slv_alpenglow_demoted_source }} and {{ inventory_hostname }} are both unstaked now. {{ 'Wait until getAgGenesisCert returns a certificate, then promote' if slv_alpenglow_state in ['window', 'unknown', 'imminent'] else 'Promote' }} {{ hostvars[inventory_hostname].identity_account | default('its identity') }} on {{ inventory_hostname }} yourself. Nothing is promoted automatically.
+      {%- if slv_ag_controller_copy.stat.exists | default(false) %} The vote history file taken from {{ slv_alpenglow_demoted_source }} is at ~/.slv/vote_history/vote_history-{{ hostvars[inventory_hostname].identity_account | default('') }}.bin on the controller: copy it to /mnt/ledger on {{ inventory_hostname }} (owner solv), wait until the vote account has not voted for 270 slots (about one minute after {{ slv_alpenglow_demoted_source }} was switched) and run slv v set:identity -n {{ slv_alpenglow_network }} -p {{ inventory_hostname }}.
+      {%- else %} {{ slv_alpenglow_demoted_source }} left no vote history file on the controller. When the cluster runs Alpenglow, wait until the vote account has not voted for 270 slots (about one minute after {{ slv_alpenglow_demoted_source }} was switched) and run slv v set:identity -n {{ slv_alpenglow_network }} -p {{ inventory_hostname }} --first-activation when the vote account has not voted since the Alpenglow genesis (it voted under TowerBFT only), and --primary-down when it has; while it runs TowerBFT, copy the tower file from ~/.slv/tower on the controller to /mnt/ledger on {{ inventory_hostname }} and run slv v set:identity -n {{ slv_alpenglow_network }} -p {{ inventory_hostname }}.{% endif -%}
       {%- else -%}
       Nothing was changed on {{ ansible_play_hosts_all | join(', ') }}.
       {%- endif -%}
@@ -214,7 +293,9 @@
     fail_msg: "The cluster is between the Alpenglow feature activation and the genesis certificate, or its state cannot be read: identity changes wait until getAgGenesisCert returns a certificate. State: {{ slv_alpenglow_state }} ({{ slv_alpenglow_detail }}). {{ slv_ag_outcome }}"
     quiet: true
   run_once: true
-  when: slv_alpenglow_freeze | default(false) | bool
+  when:
+    - slv_alpenglow_freeze | default(false) | bool
+    - not (slv_ag_resume | default(false) | bool)
 
 - name: Stop the identity change while the Alpenglow activation is about to start
   ansible.builtin.assert:
@@ -224,3 +305,31 @@
     quiet: true
   run_once: true
   when: slv_alpenglow_freeze | default(false) | bool
+
+- name: Stop an identity change that would move the vote history of Firedancer or Frankendancer
+  ansible.builtin.assert:
+    that:
+      - slv_alpenglow_state != 'alpenglow' or (slv_alpenglow_move_types | default([]) | intersect(['firedancer-agave', 'firedancer-jito', 'frankendancer']) | length) == 0
+    fail_msg: "Firedancer and Frankendancer cannot move an identity on a cluster that runs Alpenglow yet: where they keep the vote history file is unconfirmed. Use agave, jito or allnodes-jito hosts. {{ slv_ag_outcome }}"
+    quiet: true
+  run_once: true
+  when: slv_alpenglow_freeze | default(false) | bool
+
+- name: Say that the promotion goes on although the cluster could not be read
+  ansible.builtin.debug:
+    msg: >-
+      The cluster could not be read for {{ slv_alpenglow_patience_seconds | default(60) }} seconds after {{ slv_alpenglow_demoted_source }} was switched to its unstaked identity ({{ slv_alpenglow_detail }}).
+      {% if slv_ag_resume_mode == 'towerbft' -%}
+      {%- set feature = hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_feature | default('') -%}
+      {%- if feature == 'inactive' -%}
+      The reading right before that demotion, {{ slv_ag_resume_elapsed }} seconds ago, was TowerBFT with the Alpenglow feature pending and at least {{ slv_alpenglow_margin_slots | default(3000) }} slots left in the epoch. Slots are assumed to take at least {{ slv_alpenglow_min_slot_seconds | default(0.2) }} seconds, so at most half of those slots have passed since (the promotion goes on within {{ ((slv_alpenglow_margin_slots | default(3000) | int) * (slv_alpenglow_min_slot_seconds | default(0.2) | float) / 2) | int }} seconds of the reading), and the activation, which comes with the next epoch, cannot have started: {{ inventory_hostname }} takes the identity with the tower now. agave still checks the tower file, and on Alpenglow the vote history file, itself.
+      {%- else -%}
+      The reading right before that demotion, {{ slv_ag_resume_elapsed }} seconds ago, was TowerBFT, and {{ 'the cluster had no Alpenglow feature account then' if feature == 'absent' else 'the state of the Alpenglow feature account was not recorded' }}. That does not rule out an activation that was scheduled since, so {{ inventory_hostname }} takes the identity with the tower now without that assurance. agave still checks the tower file, and on Alpenglow the vote history file, itself.
+      {%- endif -%}
+      {%- else -%}
+      The reading right before that demotion, {{ slv_ag_resume_elapsed }} seconds ago, was Alpenglow, which does not revert, so {{ inventory_hostname }} takes the identity with the vote history file now. agave still checks the vote history file itself.
+      {%- endif %}
+  run_once: true
+  when:
+    - slv_alpenglow_freeze | default(false) | bool
+    - slv_ag_resume | default(false) | bool

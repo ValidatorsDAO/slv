@@ -55,7 +55,7 @@ const init = async (options?: { localhost?: boolean }) => {
   }
 
   // Set solv password if not exists
-  await genPasswordYml()
+  if (!await genPasswordYml()) return
   if (validator.network === 'testnet') {
     await initTestnetConfig(ubuntu, options?.localhost)
   } else {

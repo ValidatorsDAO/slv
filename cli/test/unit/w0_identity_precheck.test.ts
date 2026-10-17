@@ -34,7 +34,7 @@ const PEER = makeHost('val-b', '203.0.113.11', IDENTITY)
 const UNRELATED = makeHost('val-c', '203.0.113.12', OTHER_IDENTITY)
 
 type Node = { pubkey: string; gossip: string | null }
-type Vote = { votePubkey: string; lastVote: number }
+type Vote = { votePubkey: string; lastVote: number; nodePubkey?: string }
 
 type Scenario = {
   nodes?: Node[]
@@ -89,7 +89,12 @@ const scenario = (s: Scenario = {}): Recorded => {
       if (body.method === 'getClusterNodes') result = s.nodes ?? []
       else if (body.method === 'getSlot') result = s.slot ?? SLOT
       else if (body.method === 'getVoteAccounts') {
-        result = { current: s.current ?? [], delinquent: s.delinquent ?? [] }
+        // A vote account names the node it belongs to: the identity, unless a row says otherwise.
+        const named = (vote: Vote) => ({ nodePubkey: IDENTITY, ...vote })
+        result = {
+          current: (s.current ?? []).map(named),
+          delinquent: (s.delinquent ?? []).map(named),
+        }
       } else {
         return Promise.resolve(
           Response.json({
