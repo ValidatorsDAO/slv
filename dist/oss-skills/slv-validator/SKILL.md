@@ -317,7 +317,7 @@ local key file at `~/.slv/keys/<identity_account>.json`, and
 
 ```bash
 slv v set:identity -n <network> -p <host>                  # needs the vote history file on <host> (Alpenglow) or the tower (TowerBFT)
-slv v set:identity -n <network> -p <host> --first-activation  # a vote account that has not voted since the Alpenglow genesis
+slv v set:identity -n <network> -p <host> --first-activation  # Alpenglow: the vote account has not voted since the genesis certificate; TowerBFT: the identity has never voted
 slv v set:identity -n <network> -p <host> --primary-down      # the old primary is stopped and cannot vote
 ```
 On Alpenglow `set_identity_key.yml` needs `/mnt/ledger/vote_history-<identity>.bin`
@@ -358,17 +358,24 @@ A play that holds more than one host with the same `identity_account` stops on
 Alpenglow: each host would pass the checks before any host sets the identity. Run it
 for one host at a time.
 
-`--first-activation` is for a vote account that has not voted since the Alpenglow
-genesis: a new one, or one that voted only under TowerBFT, so that no vote history
-file exists to copy (a single host that restarted unstaked before the activation is
-the usual case). agave asks for the file only when the last vote of the vote account is
-after the slot of the genesis certificate (`should_require_vote_history_file`, which
-also needs the vote account to name this identity), and the playbook mirrors it: it
-reads that slot from `getAgGenesisCert` and the last vote from `getVoteAccounts`
-(with `keepUnstakedDelinquents`), and refuses the first activation when the last
-vote is after the genesis slot, when either cannot be read, or when the vote account is
-not on the cluster. A vote account that exists and has never voted is listed with a
-last vote of 0. The three checks above run for a first activation too.
+On Alpenglow, `--first-activation` is for a vote account that has not voted since the
+genesis certificate: a new one, or one that voted only under TowerBFT, so that no vote
+history file exists to copy (a single host that restarted unstaked before the
+activation is the usual case). agave asks for the file only when the last vote of the
+vote account is after the slot of the genesis certificate
+(`should_require_vote_history_file`, which also needs the vote account to name this
+identity), and the playbook mirrors it: it reads that slot from `getAgGenesisCert`
+first and the last vote from `getVoteAccounts` (with `keepUnstakedDelinquents`), and
+refuses the first activation when the last vote is after the genesis slot, when either
+cannot be read, or when the vote account is not on the cluster. A vote account that
+exists and has never voted is listed with a last vote of 0. The three checks above run
+for a first activation too.
+
+On TowerBFT, `--first-activation` only waives the tower file, and it is for an identity
+that has never voted: without it the playbook stops when neither the tower file nor a
+vote history file is on the host, and with it the playbook sets the identity without a
+tower file (no `--require-tower`). There is no genesis certificate on TowerBFT, so
+nothing is compared with one.
 
 A staked node can stay in the gossip table for a long time after it stops, so an
 entry of the identity at the address of the old primary does not show that it runs;
