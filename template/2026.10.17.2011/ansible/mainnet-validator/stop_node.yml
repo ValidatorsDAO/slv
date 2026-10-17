@@ -1,0 +1,17 @@
+---
+- name: Load validator type from inventory
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+- import_playbook: stop_solv.yml
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+- import_playbook: stop_firedancer.yml
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']

@@ -1,0 +1,71 @@
+---
+- name: Switch Off Firedancer Identity
+  hosts: "{{ off_host }}"
+  become: true
+  become_user: solv
+  gather_facts: no
+  any_errors_fatal: true
+  tasks:
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_alpenglow_freeze: true
+
+    - name: Refuse to move a TowerBFT tower file on a cluster that runs Alpenglow
+      ansible.builtin.assert:
+        that:
+          - slv_alpenglow_state == 'towerbft'
+        fail_msg: "This switch moves a TowerBFT tower file, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate). Moving the vote history file between hosts is not part of this version of slv yet. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      run_once: true
+
+    - name: Check that the source holds the tower file of the identity
+      ansible.builtin.stat:
+        path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"
+      register: source_tower_file
+
+    - name: Refuse to demote the source without a tower file to carry
+      ansible.builtin.assert:
+        that:
+          - source_tower_file.stat.exists
+        fail_msg: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin does not exist on {{ inventory_hostname }}, so there is no tower to carry to the target. Nothing was changed."
+        quiet: true
+
+    - name: Wait for Restart Window
+      shell: |
+        . ~/.profile
+        agave-validator -l /mnt/ledger wait-for-restart-window --min-idle-time 2 --skip-new-snapshot-check
+      args:
+        executable: /bin/bash
+
+    - name: Ask the cluster again right before the demotion
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_alpenglow_freeze: true
+
+    - name: Refuse to demote unless the cluster still runs TowerBFT
+      ansible.builtin.assert:
+        that:
+          - slv_alpenglow_state == 'towerbft'
+        fail_msg: "This switch moves a TowerBFT tower file, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate). Moving the vote history file between hosts is not part of this version of slv yet. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      run_once: true
+
+    - name: Set Identity to Unstaked Key
+      shell: |
+        . ~/.profile
+        sudo fdctl set-identity --config /home/solv/firedancer-config.toml /home/solv/unstaked-identity.json
+      args:
+        executable: /bin/bash
+
+    - name: Make sure the ~/.slv/tower directory exists
+      shell: mkdir -p ~/.slv/tower
+      failed_when: false
+
+    - name: Download Tower File - Make Sure it overwrites the existing file if it exists at the destination
+      ansible.builtin.fetch:
+        src: /mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+        dest: ~/.slv/tower/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+        flat: yes
