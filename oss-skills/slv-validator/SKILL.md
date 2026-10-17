@@ -103,9 +103,9 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 |---|---|---|
 | `slv v init` | *(interactive setup, including user/key preparation and remote optimization)* | Prepare inventory and target; operator terminal required |
 | `slv v deploy` | `{net}/init.yml` | Deploy and start unstaked; no staked key is copied to the node |
-| `slv v start` | `{net}/start_node.yml` | Start validator |
+| `slv v start` | `{net}/start_node.yml` | Start validator. Stops first, with nothing started, when the node would start with the staked identity (see Keys) |
 | `slv v stop` | `{net}/stop_node.yml` | Stop validator |
-| `slv v restart` | `{net}/restart_node.yml` | Graceful restart (`agave-validator exit`, then systemd) |
+| `slv v restart` | `{net}/restart_node.yml` | Graceful restart (`agave-validator exit`, then systemd). Stops first, with nothing stopped, when the node would come back with the staked identity (see Keys) |
 | `slv v build:solana` | `{net}/install_solana.yml` then `{net}/update_startup_config.yml` | Build Solana from source and render matching start script |
 | `slv v install:solana` | `cmn/install_solana.yml` then `{net}/update_startup_config.yml` | Install Solana binary and render matching start script |
 | `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer. Testnet only: refused on mainnet (Alpenglow) |
@@ -223,7 +223,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `setup_norestart.yml` | Disable auto-restart |
 | `setup_ufw.yml` | Configure UFW firewall |
 | `setup_unstaked_identity.yml` | Setup unstaked identity keypair |
-| `assert_unstaked_identity.yml` | Stop the deploy, before the node starts, when `/home/solv/identity.json` does not resolve to `/home/solv/unstaked-identity.json` |
+| `assert_unstaked_identity.yml` | Stop a deploy, a start or a restart before anything is stopped or started when `/home/solv/identity.json`, or the `--identity` of the start script (the `identity_path` of the Firedancer config), does not resolve to `/home/solv/unstaked-identity.json` or leads to the key of the `identity_account` of the host |
 | `restart_solv.yml` | Restart solv service |
 | `copy_restart_sh.yml` | Copy restarter script |
 | `update_ubuntu.yml` | Update Ubuntu packages |
@@ -274,6 +274,18 @@ puts the staked identity on it again.
 Deploy does not remove a staked key either: a node that an earlier slv deployed may still hold
 `/home/solv/<network>-validator-keypair.json`, and the DoubleZero deposit and withdrawal playbooks sign with it when it
 is there (they stop without calling the signer when it is not).
+
+A start or a restart does the same check before it stops or starts anything. `slv v start`, `slv v restart`, the
+playbooks that start the node at the end of a deploy, and the other restarts of testnet (`restart_solv.yml`,
+`restart_firedancer.yml`, and the two restarts that remove the ledger, `restart_agave_with_rm_ledger.yml` and
+`restart_firedancer_with_rm_ledger.yml`) first run `cmn/assert_unstaked_identity.yml`, which reads `/home/solv/identity.json` and the `--identity` of
+`/home/solv/start-validator.sh` (the `identity_path` of `/home/solv/firedancer-config.toml` for a Firedancer host), by
+path and by public key (`solana-keygen pubkey` on the node, against the `identity_account` of the host). A node that a
+person laid out by hand, or that an earlier slv deployed with the staked key behind `identity.json`, stops there: the message says the
+node would start with the staked identity and nothing was stopped or started. To move such a node to the unstaked layout,
+link `identity.json` to `unstaked-identity.json`, run `slv v update:script -n <network> -p <host>` so that the start
+script passes `/home/solv/identity.json`, restart the node, and run `slv v set:identity -n <network> -p <host>` once it is
+up. A run over several hosts stops on the hosts that fail the check and goes on with the others.
 
 Three playbooks are retired and refuse now. `set_identity_to_active.yml` (both networks) set the identity without the
 checks that `slv v set:identity` makes first (that nothing votes with the identity, that the host has caught up, where

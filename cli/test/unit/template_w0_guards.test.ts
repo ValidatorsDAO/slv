@@ -1,6 +1,7 @@
 import { VERSION } from '@cmn/constants/version.ts'
 import { assert, assertEquals } from '@std/assert'
 import { parse } from '@std/yaml'
+import { existsSync } from '@std/fs'
 
 const templateRoot = new URL(
   `../../../template/${VERSION}/`,
@@ -1264,6 +1265,102 @@ Deno.test('keyless: no task of the template writes the staked key to a node', ()
   assertEquals(written, [], 'a staked key is written to a node')
 })
 
+// A node must not come back on the staked identity: every playbook of the two validator networks that starts or restarts
+// the validator imports cmn/assert_unstaked_identity.yml before the first task that stops, starts or restarts it, so that
+// a node whose identity.json or start script leads to the staked key stops there, with nothing stopped or started. The
+// census follows the imports (a playbook that starts the validator through another one is found as well), and the list
+// below is the answer to "which playbooks start or restart the validator": a new one has to be added to it, with its check.
+type ServiceEvent = 'assert' | 'stop' | 'start'
+const identityAssert = 'ansible/cmn/assert_unstaked_identity.yml'
+const unitName = /^(?:solv|firedancer)(?:\.service)?$/
+
+const serviceEventOf = (task: Entry): ServiceEvent | undefined => {
+  for (const module of ['systemd', 'service']) {
+    const args = moduleArgs(task, module) as Entry | undefined
+    if (args && unitName.test(String(args.name)) && args.state !== undefined) {
+      return String(args.state) === 'stopped' ? 'stop' : 'start'
+    }
+  }
+  const command = commandOf(task)
+  if (/systemctl\s+stop\s+(?:solv|firedancer)\b/.test(command)) return 'stop'
+  // agave-validator exit ends the process and systemd starts it again
+  if (
+    /systemctl\s+(?:start|restart)\s+(?:solv|firedancer)\b/.test(command) ||
+    /agave-validator\b[^\n]*\sexit\b/.test(command)
+  ) {
+    return 'start'
+  }
+  return undefined
+}
+
+const taskEvents = (tasks: Entry[]): ServiceEvent[] =>
+  tasks.flatMap((task) => {
+    const nested = ['block', 'rescue', 'always'].flatMap((key) =>
+      Array.isArray(task[key]) ? taskEvents(task[key] as Entry[]) : []
+    )
+    const own = serviceEventOf(task)
+    return own ? [own, ...nested] : nested
+  })
+
+const serviceEvents = (path: string, trail: string[] = []): ServiceEvent[] => {
+  // an import of a playbook that is not there (the legacy init-jito.yml and init-allnodes-jito.yml import a
+  // wget_snapshot.yml that their directory does not have) runs nothing
+  if (trail.includes(path) || !existsSync(new URL(path, templateRoot))) return []
+  return readPlaybook(path).flatMap((entry) => {
+    if (entry.import_playbook !== undefined) {
+      const target = new URL(String(entry.import_playbook), new URL(path, templateRoot))
+      const relative = target.href.slice(templateRoot.href.length)
+      return relative === identityAssert
+        ? ['assert' as ServiceEvent]
+        : serviceEvents(relative, [...trail, path])
+    }
+    return ['pre_tasks', 'tasks', 'post_tasks'].flatMap((key) =>
+      Array.isArray(entry[key]) ? taskEvents(entry[key] as Entry[]) : []
+    )
+  })
+}
+
+const startsOrRestartsTheValidator = [
+  'ansible/mainnet-validator/init-allnodes-jito.yml',
+  'ansible/mainnet-validator/init-firedancer.yml',
+  'ansible/mainnet-validator/init-jito.yml',
+  'ansible/mainnet-validator/init.yml',
+  'ansible/mainnet-validator/restart_node.yml',
+  'ansible/mainnet-validator/start-solv-service.yml',
+  'ansible/mainnet-validator/start_firedancer.yml',
+  'ansible/mainnet-validator/start_node.yml',
+  'ansible/mainnet-validator/start_solv.yml',
+  'ansible/testnet-validator/init-agave.yml',
+  'ansible/testnet-validator/init-firedancer.yml',
+  'ansible/testnet-validator/init.yml',
+  'ansible/testnet-validator/restart_agave_with_rm_ledger.yml',
+  'ansible/testnet-validator/restart_firedancer.yml',
+  'ansible/testnet-validator/restart_firedancer_with_rm_ledger.yml',
+  'ansible/testnet-validator/restart_node.yml',
+  'ansible/testnet-validator/restart_solv.yml',
+  'ansible/testnet-validator/start_firedancer.yml',
+  'ansible/testnet-validator/start_node.yml',
+  'ansible/testnet-validator/start_solv.yml',
+]
+
+Deno.test('unstaked identity: a playbook that starts or restarts the validator checks the identity before it stops or starts anything', () => {
+  const found: string[] = []
+  for (const network of validatorNetworks) {
+    for (const file of listYamlFiles(`ansible/${network}/`)) {
+      const events = serviceEvents(file)
+      if (!events.includes('start')) continue
+      found.push(file)
+      const check = events.indexOf('assert')
+      const first = events.findIndex((event) => event !== 'assert')
+      assert(
+        check >= 0 && check < first,
+        `${file}: the identity is not checked before the first stop or start (${events.join(' ')})`,
+      )
+    }
+  }
+  assertEquals(found.sort(), startsOrRestartsTheValidator)
+})
+
 // every task that reads a key file from the controller keeps what it reads out of the log, and a missing key
 // file is still reported by a task of its own
 const taskLists = (value: unknown): Entry[][] => {
@@ -2508,7 +2605,10 @@ Deno.test('addendum 10: the testnet validator wipes and both validator restarter
     ]
   ) {
     const path = `${testnet}/${file}`
-    const tasks = tasksOf(readPlaybook(path)[0])
+    // the first play that has tasks: the restart playbooks start with the import of the identity check
+    const tasks = tasksOf(
+      readPlaybook(path).find((entry) => entry.tasks !== undefined) as Entry,
+    )
     const wipes = tasks.filter((task) =>
       /find \/mnt\/ledger\//.test(commandOf(task))
     )

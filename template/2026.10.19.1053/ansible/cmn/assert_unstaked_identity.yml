@@ -1,30 +1,110 @@
 ---
 # The start script of the node starts it with --identity /home/solv/identity.json, so what that path resolves to is the
 # identity the node comes up with, on a first start and on every restart. Deploy never copies a staked key to a node: the
-# staked key stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. So identity.json
-# has to resolve to unstaked-identity.json (cmn/setup_unstaked_identity.yml makes that link), and this play stops the
-# deploy before the node is started when it does not. The path of the unstaked identity is resolved through /home/solv,
-# so a link of identity.json to a file that unstaked-identity.json itself links to is not taken for the unstaked identity.
+# staked key stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. So
+# identity.json has to resolve to unstaked-identity.json (cmn/setup_unstaked_identity.yml makes that link), and the key it
+# leads to has to differ from the staked identity of the host (identity_account): a copy of the staked key under the name
+# of the unstaked identity is the same danger. This play stops the run before anything is stopped or started when it does
+# not. The path of the unstaked identity is resolved through /home/solv, so a link of identity.json to a file that
+# unstaked-identity.json itself links to is not taken for the unstaked identity.
+#
+# A deploy imports this play as it is. A start or a restart of the node imports it with
+#   slv_network               mainnet or testnet, which the commands of the message name, and
+#   slv_start_identity_source what else is read: 'start-script' (the --identity of /home/solv/start-validator.sh) or
+#                             'firedancer-config' (the identity_path of /home/solv/firedancer-config.toml),
+# so that a node a person laid out by hand, with a start script or an identity.json that leads to the staked key, stops
+# there instead of coming back on the staked identity.
 - name: Check that the node starts with its unstaked identity
   hosts: all
   become: true
+  become_user: solv
   gather_facts: no
+  vars:
+    slv_identity_source: "{{ slv_start_identity_source | default('') }}"
+    slv_identity_network: "{{ slv_network | default('<network>') }}"
+    slv_identity_staked: "{{ hostvars[inventory_hostname].identity_account | default('') }}"
+    # what the first task printed, one value to a line
+    slv_identity_json: "{{ slv_identity.stdout_lines[0] | default('') }}"
+    slv_identity_unstaked: "{{ slv_identity.stdout_lines[1] | default('/home/solv/unstaked-identity.json') }}"
+    slv_identity_json_key: "{{ slv_identity.stdout_lines[2] | default('') }}"
+    slv_identity_written: "{{ slv_identity.stdout_lines[3] | default('') }}"
+    slv_identity_written_resolved: "{{ slv_identity.stdout_lines[4] | default('') }}"
+    slv_identity_written_key: "{{ slv_identity.stdout_lines[5] | default('') }}"
+    slv_identity_file_label: "{{ 'The start script /home/solv/start-validator.sh' if slv_identity_source == 'start-script' else 'The Firedancer config /home/solv/firedancer-config.toml (identity_path)' }}"
+    slv_identity_remedy: >-
+      {{ ('To move the node to the unstaked layout, link identity.json to the unstaked identity
+      (ln -sfn /home/solv/unstaked-identity.json /home/solv/identity.json), run slv v update:script -n '
+      ~ slv_identity_network ~ ' -p ' ~ inventory_hostname ~ ' so that the node is started with /home/solv/identity.json,
+      restart the node, and run slv v set:identity -n ' ~ slv_identity_network ~ ' -p ' ~ inventory_hostname
+      ~ ' once it is up, to put the staked identity on it again.')
+      if slv_identity_source != '' else
+      'Link identity.json to the unstaked identity (ln -sfn /home/solv/unstaked-identity.json /home/solv/identity.json)
+      and run this again.' }}
   tasks:
-    - name: Resolve the identity file of the start script
+    - name: Resolve the identity files of the node
       ansible.builtin.shell: |
-        printf '%s\n' "$(readlink -f /home/solv/identity.json)" "$(readlink -f /home/solv)/unstaked-identity.json"
+        home=$(readlink -f /home/solv)
+        pubkey() {
+          [ -n "$1" ] && [ -f "$1" ] && ( . ~/.profile >/dev/null 2>&1; solana-keygen pubkey "$1" 2>/dev/null | head -n 1 )
+          true
+        }
+        identity=$(readlink -f /home/solv/identity.json)
+        written=
+        case '{{ slv_identity_source }}' in
+          start-script)
+            written=$(sed -n -E 's/^[[:space:]]*--identity(=|[[:space:]]+)"?([^"[:space:]\\]+)"?.*$/\2/p' /home/solv/start-validator.sh 2>/dev/null | head -n 1)
+            ;;
+          firedancer-config)
+            written=$(sed -n -E 's/^[[:space:]]*identity_path[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/p' /home/solv/firedancer-config.toml 2>/dev/null | head -n 1)
+            ;;
+        esac
+        resolved=
+        [ -n "$written" ] && resolved=$(readlink -f "$written")
+        printf '%s\n' "$identity" "$home/unstaked-identity.json" "$(pubkey "$identity")" "$written" "$resolved" "$(pubkey "$resolved")"
       args:
         executable: /bin/bash
       register: slv_identity
       changed_when: false
       check_mode: false
 
+    - name: Stop when identity.json leads to the staked key
+      ansible.builtin.fail:
+        msg: >-
+          /home/solv/identity.json on {{ inventory_hostname }} leads to the key {{ slv_identity_json_key }}, which is the
+          staked identity of the host (identity_account), so the node would start with the staked identity. Nothing was
+          stopped or started. {{ slv_identity_remedy }}
+      when:
+        - slv_identity_staked != ''
+        - slv_identity_json_key == slv_identity_staked
+
     - name: Stop when the node would start with another identity
       ansible.builtin.fail:
         msg: >-
           /home/solv/identity.json on {{ inventory_hostname }}
-          {{ ('resolves to ' ~ slv_identity.stdout_lines[0]) if (slv_identity.stdout_lines[0] | default('')) != '' else 'cannot be resolved' }},
-          not to {{ slv_identity.stdout_lines[1] | default('/home/solv/unstaked-identity.json') }}, so the node would start with another
-          identity than its unstaked one. Nothing was started. Link identity.json to the unstaked identity
-          (ln -sfn /home/solv/unstaked-identity.json /home/solv/identity.json) and run this again.
-      when: (slv_identity.stdout_lines[0] | default('')) != (slv_identity.stdout_lines[1] | default(''))
+          {{ ('resolves to ' ~ slv_identity_json) if slv_identity_json != '' else 'cannot be resolved' }},
+          not to {{ slv_identity_unstaked }}, so the node would start with another
+          identity than its unstaked one. Nothing was stopped or started. {{ slv_identity_remedy }}
+      when: slv_identity_json != slv_identity_unstaked
+
+    - name: Stop when the file the node is started with leads to the staked key
+      ansible.builtin.fail:
+        msg: >-
+          {{ slv_identity_file_label }} of {{ inventory_hostname }} starts the node with {{ slv_identity_written }},
+          which leads to the key {{ slv_identity_written_key }}, the staked identity of the host (identity_account), so the
+          node would start with the staked identity. Nothing was stopped or started. {{ slv_identity_remedy }}
+      when:
+        - slv_identity_source != ''
+        - slv_identity_written != ''
+        - slv_identity_staked != ''
+        - slv_identity_written_key == slv_identity_staked
+
+    - name: Stop when the file the node is started with leads to another identity
+      ansible.builtin.fail:
+        msg: >-
+          {{ slv_identity_file_label }} of {{ inventory_hostname }} starts the node with {{ slv_identity_written }},
+          which resolves to {{ slv_identity_written_resolved }}, not to {{ slv_identity_unstaked }}, so the node would
+          start with another identity than its unstaked one. Nothing was stopped or started. {{ slv_identity_remedy }}
+      when:
+        - slv_identity_source != ''
+        - slv_identity_written != ''
+        - slv_identity_written_resolved != slv_identity_unstaked
