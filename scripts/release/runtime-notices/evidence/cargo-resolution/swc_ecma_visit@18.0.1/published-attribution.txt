@@ -1,0 +1,21 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: swc_ecma_visit@18.0.1
+Exact archive: https://static.crates.io/crates/swc_ecma_visit/swc_ecma_visit-18.0.1.crate
+Archive SHA-256: a9611a72a4008d62608547a394e5d72a5245413104db096d95a52368a8cc1d63
+Declared license: Apache-2.0
+Selected license branch for this distribution: Apache-2.0
+Published authors:
+- 강동윤 <kdy1997.dev@gmail.com>
+
+Resolution kind:
+declared-standard-license-supplement
+
+Resolution notes from the evidence review:
+- Unreachable source commit is not represented as recovered. Exact published archive is grant/notice source.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

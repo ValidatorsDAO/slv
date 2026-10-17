@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "deno-tower-lsp-macros@0.12.0",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/deno-tower-lsp-macros/deno-tower-lsp-macros-0.12.0.crate",
+    "sha256": "f9faf94704f67b21ae4e9e9bdd6cb3a876fdaeecd047cc2ecf2b3bd4d4978a7e"
+  },
+  "archive_vcs": {
+    "commit": "812d56f0dcd9df6ff80e85a5e83e0cc0dcf6cc49",
+    "path_in_vcs": "tower-lsp-macros"
+  },
+  "declared_license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/ebkalderon/tower-lsp",
+  "published_manifest": {
+    "path": "deno-tower-lsp-macros-0.12.0/Cargo.toml",
+    "sha256": "a80f1b465b8180e8239cec6cec079d83194e9ac43b644fe0bda83af89102e865"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/ebkalderon/tower-lsp/812d56f0dcd9df6ff80e85a5e83e0cc0dcf6cc49/LICENSE-MIT",
+      "sha256": "b1eb2598599e2a78fdd20f4a6a1d95ce79928a1f9854c16d8305157397dcf265",
+      "bytes": 1057
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/ebkalderon/tower-lsp/812d56f0dcd9df6ff80e85a5e83e0cc0dcf6cc49/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

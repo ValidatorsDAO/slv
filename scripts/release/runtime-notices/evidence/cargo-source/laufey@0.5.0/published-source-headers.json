@@ -1,0 +1,40 @@
+{
+  "purpose": "verbatim leading source-header record from the checksum-verified published crate; source material only, never rendered as a license notice",
+  "files": [
+    {
+      "archive_path": "laufey-0.5.0/build.rs",
+      "archive_file_sha256": "8bb41dfc5718262e583d413b812f4367d088e3b11ac17127ce79f8caf22f8755",
+      "leading_header": "// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.\n"
+    },
+    {
+      "archive_path": "laufey-0.5.0/include/laufey.h",
+      "archive_file_sha256": "33f3933811371a72361f18818366f56d786ec0e9363e76b8d0e191778a7789f8",
+      "leading_header": "// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.\n"
+    },
+    {
+      "archive_path": "laufey-0.5.0/include/laufey_external_links.h",
+      "archive_file_sha256": "2313144226ee87afa1d9ce123324d7c868db0cb0a5e932b98f82961ee002e44d",
+      "leading_header": "// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.\n// Shared policy for redirecting external link navigations to the OS browser.\n//\n// Clicking an `<a href=\"https://\u2026\">` inside a webview would otherwise replace\n// the app's view with the remote page. To match the behavior apps expect\n// (external links open in the user's browser, the app keeps running), every\n// page is injected with a standards-based Navigation API listener that cancels\n// such navigations and hands the URL to the native side via a reserved bridge\n// call.\n//\n// This header is the single source of truth shared by every backend: the\n// system WebView backends (webview/src/init_script.h) and the CEF renderer\n// (cef/src/render_process_handler.cc). The reserved method name is also matched\n// natively by each backend's call dispatcher, which routes it to the\n// platform's open-in-browser primitive instead of the runtime.\n"
+    },
+    {
+      "archive_path": "laufey-0.5.0/include/win32_menu.h",
+      "archive_file_sha256": "f0be6a40b0dfa32d57733ee53aa10990e0171a2743ef959580069bf1ea14e59d",
+      "leading_header": "// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.\n// Win32 application menu built from laufey_value_t menu templates.\n"
+    },
+    {
+      "archive_path": "laufey-0.5.0/src/keyboard.rs",
+      "archive_file_sha256": "4fdfcb1bdf6a769b32f00a21f1f15f45a6e1dd148a5356c7fb333125dca776ef",
+      "leading_header": "// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.\n"
+    },
+    {
+      "archive_path": "laufey-0.5.0/src/lib.rs",
+      "archive_file_sha256": "7f95d20717b2f995c1bd7bf4db934ab6a6e70b0d093c669cc9daee53adf0e89c",
+      "leading_header": "// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.\n"
+    },
+    {
+      "archive_path": "laufey-0.5.0/src/mouse.rs",
+      "archive_file_sha256": "f9b3675d94f58624ec2a73c7f96bc6c691032eb9836afb5a5c51892dc0e8b551",
+      "leading_header": "// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.\n"
+    }
+  ]
+}

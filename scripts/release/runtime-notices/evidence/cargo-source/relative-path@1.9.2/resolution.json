@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "relative-path@1.9.2",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/relative-path/relative-path-1.9.2.crate",
+    "sha256": "e898588f33fdd5b9420719948f9f2a32c922a246964576f71ba7f24f80610fbc"
+  },
+  "archive_vcs": {
+    "commit": "802227a5ffdbb1a2e87735602c91aa8d81eafe5d",
+    "path_in_vcs": "relative-path"
+  },
+  "declared_license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/udoprog/relative-path",
+  "published_manifest": {
+    "path": "relative-path-1.9.2/Cargo.toml",
+    "sha256": "463cf69e278e50e5d7c08d9fe78c88365e5f2ca61ce16937492a44561a5c4ca4"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/udoprog/relative-path/802227a5ffdbb1a2e87735602c91aa8d81eafe5d/LICENSE-MIT",
+      "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+      "bytes": 1071
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/udoprog/relative-path/802227a5ffdbb1a2e87735602c91aa8d81eafe5d/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    }
+  ],
+  "header_record": "published-source-headers.json",
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

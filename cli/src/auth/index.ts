@@ -10,15 +10,18 @@ import {
 } from '@/ai/config.ts'
 
 const CUSTOM_OPTION = 'Custom (enter model name)'
+const VALIDATION_TIMEOUT_MS = 10_000
 
 /**
  * Validate an API key by making a lightweight request to the provider.
  * Returns true if the key is valid, false otherwise.
  */
-const validateApiKey = async (
+export const validateApiKey = async (
   provider: AiProvider,
   apiKey: string,
 ): Promise<{ valid: boolean; error?: string }> => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS)
   try {
     if (provider === 'anthropic') {
       // Use messages API with minimal request to validate
@@ -34,29 +37,52 @@ const validateApiKey = async (
           max_tokens: 1,
           messages: [{ role: 'user', content: 'hi' }],
         }),
+        signal: controller.signal,
       })
-      if (res.status === 401) {
-        return { valid: false, error: 'Invalid API key' }
+      try {
+        if (res.status === 401) {
+          return { valid: false, error: 'Invalid API key' }
+        }
+        if (res.status === 403) {
+          const body = await res.json().catch((error) => {
+            // A malformed finite error body retains the historical
+            // access-denied fallback. A deadline expiry must escape so the
+            // caller reports the stalled provider as a connection error.
+            if (controller.signal.aborted) throw error
+            return {}
+          })
+          return {
+            valid: false,
+            error: (body as Record<string, Record<string, string>>)?.error
+              ?.message || 'Access denied',
+          }
+        }
+        // 200 or 429 (rate limit) or 400 all mean the key itself is valid
+        return { valid: true }
+      } finally {
+        // Keep the response lifetime bounded for status-only validation.
+        await res.body?.cancel().catch(() => undefined)
       }
-      if (res.status === 403) {
-        const body = await res.json().catch(() => ({}))
-        return { valid: false, error: (body as Record<string, Record<string, string>>)?.error?.message || 'Access denied' }
-      }
-      // 200 or 429 (rate limit) or 400 all mean the key itself is valid
-      return { valid: true }
     } else if (provider === 'openai') {
       // Use models list endpoint — lightweight and doesn't consume tokens
       const res = await fetch('https://api.openai.com/v1/models', {
         headers: { 'Authorization': `Bearer ${apiKey}` },
+        signal: controller.signal,
       })
-      if (res.status === 401) {
-        return { valid: false, error: 'Invalid API key' }
+      try {
+        if (res.status === 401) {
+          return { valid: false, error: 'Invalid API key' }
+        }
+        return { valid: true }
+      } finally {
+        await res.body?.cancel().catch(() => undefined)
       }
-      return { valid: true }
     }
     return { valid: true }
   } catch (e) {
     return { valid: false, error: `Connection error: ${(e as Error).message}` }
+  } finally {
+    clearTimeout(timer)
   }
 }
 

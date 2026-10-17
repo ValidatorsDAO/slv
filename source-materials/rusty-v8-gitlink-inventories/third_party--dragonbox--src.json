@@ -1,0 +1,652 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/external/github.com/jk-jeon/dragonbox.git",
+  "commit": "beeeef91cf6fef89a4d4ba5e95d47ca64ccb3a44",
+  "tree": "176383f02746d0248e7b04409367f691cc231cef",
+  "files": [
+    {
+      "path": ".clang-format",
+      "mode": "100644",
+      "blob": "3785927385bd6a495f17ac4ba905ecdec2691967",
+      "sha256": "e2a8781b63cd076571b486bfbb3516cfc1515756f093a4d8d890b479ca283357",
+      "size": 442
+    },
+    {
+      "path": ".gitattributes",
+      "mode": "100644",
+      "blob": "048761a22706a7a98a8275d3d59a12b141543d90",
+      "sha256": "a55ed2200f88a43b7c128fe5166d9502f64e064f7692de57dc7196542f7b41fc",
+      "size": 150
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "mode": "100644",
+      "blob": "c1121ad0c4140dad8259a0f80f5946effe00ac93",
+      "sha256": "21c2565eb516b0eea6b2e1c101efcd3508f378e0831cfb59032d00c4db8e6990",
+      "size": 1883
+    },
+    {
+      "path": ".github/workflows/cross.yml",
+      "mode": "100644",
+      "blob": "22e5029848809777bacbdf7ce090bcf1bd46dad3",
+      "sha256": "b0806063cf05936376e8ede0856cceb8891b7ad870f473833ec917e539909454",
+      "size": 1607
+    },
+    {
+      "path": ".github/workflows/os.yml",
+      "mode": "100644",
+      "blob": "3a8ff713da43147fffa6a560cebd2ce661e739a5",
+      "sha256": "4e53152186c3b97faf57591958a0a8f47dcf148027cd2be131a9ce933aac5a15",
+      "size": 594
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "blob": "4cbc6971545d9950131b38c9770b9a64a8d79ebb",
+      "sha256": "f4fa6da05f37341d7d249c2becba31199b1cc624050525eb22c1752549cf3c3c",
+      "size": 9003
+    },
+    {
+      "path": "cmake/dragonboxConfig.cmake",
+      "mode": "100644",
+      "blob": "23997b8ee5bfb0d49141b528b10c90cd79d67416",
+      "sha256": "0290918ae2aaf568e1e25d4c090c1c0eaa64c27d6da95abde4236e4251f5c753",
+      "size": 60
+    },
+    {
+      "path": "CMakeLists.txt",
+      "mode": "100644",
+      "blob": "561d14f3377e7ecc3fad26d5158212f837eab431",
+      "sha256": "ff3562fa25bd582765d7eb113ea55fab8c4423b5c2c6cfc92fa9d2a67a15e5c0",
+      "size": 3785
+    },
+    {
+      "path": "include/dragonbox/dragonbox_to_chars.h",
+      "mode": "100644",
+      "blob": "6bc094e2d80a089832025918b748b69afc3a59e5",
+      "sha256": "4f1b5b908f725a755436c0d3fc22a49544c7405ab3cf50e181215f891f8333a9",
+      "size": 21595
+    },
+    {
+      "path": "include/dragonbox/dragonbox.h",
+      "mode": "100644",
+      "blob": "84d6e24e3f49c6ad2952bec9ac53cfeabb5ebc2c",
+      "sha256": "5480d282648ba168b13cd4b78bd928e992ea5a45b4ce17c45c06781025178509",
+      "size": 257807
+    },
+    {
+      "path": "LICENSE-Apache2-LLVM",
+      "mode": "100644",
+      "blob": "bd8b243dfa02d4e7080150180520f742d2861d15",
+      "sha256": "9e45e856bedccee9f67254082ca11851d954de2fed7448c4bed19ad9aab99a91",
+      "size": 12262
+    },
+    {
+      "path": "LICENSE-Boost",
+      "mode": "100644",
+      "blob": "36b7cd93cdfbac762f5be4c6ce276df2ea6305c2",
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+      "size": 1338
+    },
+    {
+      "path": "other_files/Dragonbox_old.pdf",
+      "mode": "100644",
+      "blob": "6ff61d8c92f4210a53981112d4aba1621dd50e9c",
+      "sha256": "de4e8f7e8f9a4823135425a2ab1e7fdcbb1334ebd36a122ff4f147372c699445",
+      "size": 1545330
+    },
+    {
+      "path": "other_files/Dragonbox.pdf",
+      "mode": "100644",
+      "blob": "afae48e83d972d70eddb5ba25127966c0467a6b3",
+      "sha256": "7a150bccc518ad54d3b127290c39d91f4447b4f0771189747fff2bbc39e6a753",
+      "size": 1489163
+    },
+    {
+      "path": "other_files/unknown_win64_vc2019_randomdigit_time.png",
+      "mode": "100644",
+      "blob": "3e9bf89d161d6349b69a92683b1e647c24a19a22",
+      "sha256": "b7021f3c4bd536d06a9c839a59c4f8b626f0314decb2debffec33704e4de8a68",
+      "size": 18274
+    },
+    {
+      "path": "other_files/unknown_win64_vc2019_randomdigit_timedigit.png",
+      "mode": "100644",
+      "blob": "b63af164617fe399f1f1c307727ab021140e73cc",
+      "sha256": "b97ab6c061276756ae66e90d0e596abade9a2c4c1ad6ffc8cfcef5ab071f8cfb",
+      "size": 97543
+    },
+    {
+      "path": "other_files/unknown_win64_vc2019.html",
+      "mode": "100644",
+      "blob": "ed6188d8ac74b78ab85c28344359a5b0a647b6e3",
+      "sha256": "2e4477c31137a07036b4bcac6778bcb43d088646359a7f7bdffc462d7d8eb39f",
+      "size": 18298
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "blob": "cf618f0ca62055dd2e75c31e76ab260f3db208dd",
+      "sha256": "86e70685042c739ab08b6c11eec1e6c7ca6bb42fc331655995f7ebeb1988f0d4",
+      "size": 24089
+    },
+    {
+      "path": "source/dragonbox_to_chars.cpp",
+      "mode": "100644",
+      "blob": "51a18274148bcddf244c16bcea5d56baa70136ab",
+      "sha256": "e7c91f2de26b50ae920ea9981e70d0aa00d27f09cac84a5bb3309b0ff83e2590",
+      "size": 26896
+    },
+    {
+      "path": "subproject/3rdparty/grisu_exact/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "74abca3d0176628c3b51c3a084d5f6fe9d4a092e",
+      "sha256": "2b592d2ca50d80ddb397565fe66f7cbec25ddb32ebcad5f46609248d735805eb",
+      "size": 378
+    },
+    {
+      "path": "subproject/3rdparty/grisu_exact/fp_to_chars.cpp",
+      "mode": "100644",
+      "blob": "aa9244503fdbb877952f69a2f90b2eca9f520b3e",
+      "sha256": "5c03a15a633894cb0a21e413d9413bed7b174a35b1effd2c03377ed9ad49f082",
+      "size": 8221
+    },
+    {
+      "path": "subproject/3rdparty/grisu_exact/fp_to_chars.h",
+      "mode": "100644",
+      "blob": "2caac2486e5c14563dcc3eeb67de7734c595db22",
+      "sha256": "b3a6d9212c0002bfdde70c04fc48c135249c0ca047d505ed61fb9580b4e9df0c",
+      "size": 2747
+    },
+    {
+      "path": "subproject/3rdparty/grisu_exact/grisu_exact.h",
+      "mode": "100644",
+      "blob": "044af71e95210e800aa117aef036a15ae88baebc",
+      "sha256": "c0d097e6ffb8796083e987efebc5e51149de8715f1f156e585ccb053468c5f51",
+      "size": 98949
+    },
+    {
+      "path": "subproject/3rdparty/ryu/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "792f2838d98677a0dbc70da0fbcf10d228e0b915",
+      "sha256": "7c1b40855817976845e7a7872cdf7c7149622580254297d5c69d38e4ad790776",
+      "size": 460
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/common.h",
+      "mode": "100644",
+      "blob": "7dc130947ac797284cb23194abaf11b0a76000a4",
+      "sha256": "0bbd71d26da6193e678d0776cf418f43f287c73d6fd6725353df0aadf70f2a19",
+      "size": 3648
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/d2s_full_table.h",
+      "mode": "100644",
+      "blob": "c8629eef1b2e957f153a9543e1f3a36fe1f8fee4",
+      "sha256": "2618f6e5fae6c4443899b184efe3d08295dd267dc9f1a994c983c7caca59ebe6",
+      "size": 34501
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/d2s_intrinsics.h",
+      "mode": "100644",
+      "blob": "426ed8f09938e7d592df405a64b713b6aecdacae",
+      "sha256": "1d05702f2edacce428223d4b43dd3095c1bd1f3ad30128ce1761d84356dddc7d",
+      "size": 13015
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/d2s.c",
+      "mode": "100644",
+      "blob": "aa0da52da71a71e594da0333fb487676b4500aa8",
+      "sha256": "8e46b52297959adc52c62c7053293a14e94d34752a3c03814c039e60d36019cb",
+      "size": 17721
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/digit_table.h",
+      "mode": "100644",
+      "blob": "02219bc6d53bd579dd429f47ebb7603af222eafa",
+      "sha256": "8b782573abc0b8554d74163ae6c02f0beb5c30d1e63eaebdb0ddf2c98d817e01",
+      "size": 1745
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/f2s_full_table.h",
+      "mode": "100644",
+      "blob": "50e59c2029e7ad17331c8e7105dcb599c1b8364c",
+      "sha256": "ec08e3a1993d29ed5cabd54c97f2bd7dcf9e5f7b61cf854502613d6634855fb3",
+      "size": 3241
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/f2s_intrinsics.h",
+      "mode": "100644",
+      "blob": "bb822c9a0c005cd09a16ebee3a63e66e70fd2cb7",
+      "sha256": "662d2903454b8f6c44f18d0567e6d3f8f73f360d0d50a46e91fd245fdfa8fdc0",
+      "size": 4294
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/f2s.c",
+      "mode": "100644",
+      "blob": "255ecbe599ca95898c63f6c74616bf14130533a5",
+      "sha256": "0a98f4fce6be4c599f9602b8059e95bae6bffbb622dcde52deb4a8f8b51f5e0e",
+      "size": 11279
+    },
+    {
+      "path": "subproject/3rdparty/ryu/ryu/ryu.h",
+      "mode": "100644",
+      "blob": "558822ab8bf16e55d6f05317c8afb9babd85e406",
+      "sha256": "b7feab0ba1df5e9ef3d602f386592ad152491405e49b408fb21c0e0e9e6bfb16",
+      "size": 1360
+    },
+    {
+      "path": "subproject/3rdparty/schubfach/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "d9982bcd6c489f29ed89a6e1b7c5efd7fb5687dd",
+      "sha256": "7ab089896097696b3dedf72da195b9b07f66c199f07cce5c8a85d6d6f09b97cd",
+      "size": 390
+    },
+    {
+      "path": "subproject/3rdparty/schubfach/schubfach_32.cc",
+      "mode": "100644",
+      "blob": "1a27d94348390909adf4c47014f5850b3c92ba1a",
+      "sha256": "44f3294d9cf66d72d208482d503c2d561a719d98f1f8bcfd1d2fdf15348d305b",
+      "size": 20806
+    },
+    {
+      "path": "subproject/3rdparty/schubfach/schubfach_32.h",
+      "mode": "100644",
+      "blob": "ca48e495b533133cc04f7cd42077caa5408b1790",
+      "sha256": "4fc0fc121efafc03591c8d1e17acf704ad3ed016853532a60ed8d28823e5e120",
+      "size": 971
+    },
+    {
+      "path": "subproject/3rdparty/schubfach/schubfach_64.cc",
+      "mode": "100644",
+      "blob": "ad3348e33cab2fce6ec72102c59cadcf509b5a4f",
+      "sha256": "19e39a24a8cec182ef344701d03d146e7df5dfbccb558aef20726f5e92d3119e",
+      "size": 57358
+    },
+    {
+      "path": "subproject/3rdparty/schubfach/schubfach_64.h",
+      "mode": "100644",
+      "blob": "10d9a12f98a9268a485d724b014be889420924f4",
+      "sha256": "ae05bc6f6c43658af31479e688416999d0b579368d6c00214dd46c505245864f",
+      "size": 972
+    },
+    {
+      "path": "subproject/3rdparty/shaded_plots/example_shaded_plots.m",
+      "mode": "100644",
+      "blob": "d58104ff94fcb379ea1bc44bb5d100c012f5183a",
+      "sha256": "4e585379f67033821d2eb238b6f42333689a07058a8bd908619d51f4520f4cff",
+      "size": 1293
+    },
+    {
+      "path": "subproject/3rdparty/shaded_plots/license.txt",
+      "mode": "100644",
+      "blob": "d95fda92edf15902e65d23dc0e545eeb11dfa0a1",
+      "sha256": "4940bc5686a12692b9f95bb3af225592994fd1bc910e212f975cc73ab3799d2c",
+      "size": 1484
+    },
+    {
+      "path": "subproject/3rdparty/shaded_plots/plot_distribution_prctile.m",
+      "mode": "100644",
+      "blob": "cf8911c50439199a711c9922382efdf900cfd4e5",
+      "sha256": "1e51c09890eaecd8a1dbeb14c2c846e0cdc1ff1a291b3b471587ea5e0768834d",
+      "size": 4068
+    },
+    {
+      "path": "subproject/3rdparty/shaded_plots/plot_distribution.m",
+      "mode": "100644",
+      "blob": "47f7be7b20d5af85dd471a795f44b74b1505baf5",
+      "sha256": "9dca220d75594c46f96b16b62afb58f1ea0e222d0a90275340f5448f200c8379",
+      "size": 2490
+    },
+    {
+      "path": "subproject/3rdparty/shaded_plots/plot_histogram_shaded.m",
+      "mode": "100644",
+      "blob": "16f799a701f6066ca799ae7e27d45247f1394375",
+      "sha256": "4078d4cae681fb3df835a03760adb2dff0898e2dc1a4072b7af779786933c68c",
+      "size": 3148
+    },
+    {
+      "path": "subproject/3rdparty/shaded_plots/plot_shaded.m",
+      "mode": "100644",
+      "blob": "88f17d4377f61263aa95e5c5fdb62318e3dba53d",
+      "sha256": "7fc7e940b18222b109377375a1d6fe1a005d45d3b5db5f29d62fe45a185e7627",
+      "size": 2536
+    },
+    {
+      "path": "subproject/benchmark/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "5aa1a3f8af75dc03e535ee67ca81ee9f6bbce3d6",
+      "sha256": "f4b3e03a4f96770f42f2c98787c188e8217381f25c05e0b63d5863e43bbc0e91",
+      "size": 1953
+    },
+    {
+      "path": "subproject/benchmark/include/benchmark.h",
+      "mode": "100644",
+      "blob": "ddfca30dfc6c25b9d34332662de5a0a78a48b025",
+      "sha256": "5dd23b1e4dbd7db78c38bd84af0d568ff5be1333a9c3555dc2f616a5933b32f5",
+      "size": 1159
+    },
+    {
+      "path": "subproject/benchmark/matlab/plot_benchmarks.m",
+      "mode": "100644",
+      "blob": "0dace128e3944bcca74e7bff6bd1578993f32ef3",
+      "sha256": "533416156e956cbc43df1d2803a828a30b654a21550e645e87aae5ca866b729e",
+      "size": 1000
+    },
+    {
+      "path": "subproject/benchmark/matlab/plot_digit_benchmark.m",
+      "mode": "100644",
+      "blob": "a59e1bf2d3bbaf949d690eb026be9393ed0a8de2",
+      "sha256": "1ec33d27b5475512db07d74cc07ca0bc439dd5586dbd628024cf0bbae92e1b4e",
+      "size": 2754
+    },
+    {
+      "path": "subproject/benchmark/matlab/plot_uniform_benchmark.m",
+      "mode": "100644",
+      "blob": "2b9d436baaa595b14cca1879bfe9efa643898924",
+      "sha256": "a3126b91dac9e43cec42e4292888669fbc74d3a8477ab48d4454c31c96646c1f",
+      "size": 3263
+    },
+    {
+      "path": "subproject/benchmark/results/digits_benchmark_binary32_clang.png",
+      "mode": "100644",
+      "blob": "b66ff7b82399e9c94058f9af3b438d0107d40ae7",
+      "sha256": "79bc388485657ebd1e0d24ce2e3f8ac4183e526b48ef0767a61353f7394ec57a",
+      "size": 68278
+    },
+    {
+      "path": "subproject/benchmark/results/digits_benchmark_binary32_msvc.png",
+      "mode": "100644",
+      "blob": "b3784f0c92ef48878684faa3ed197e286b0dbd6a",
+      "sha256": "2b4aa0811532124d457d1615dfe844a43c39eab238d69a82ca6d4507a612d1c8",
+      "size": 78276
+    },
+    {
+      "path": "subproject/benchmark/results/digits_benchmark_binary64_clang.png",
+      "mode": "100644",
+      "blob": "8567918913e2b5d3271fd769102bfce79df119bc",
+      "sha256": "b5b685189069097a40db27593664ab9ce64a64bec748eca3ee22082bc4512513",
+      "size": 81329
+    },
+    {
+      "path": "subproject/benchmark/results/digits_benchmark_binary64_msvc.png",
+      "mode": "100644",
+      "blob": "9a0a0034e931bf58a54f24c86b981b33b575a3e3",
+      "sha256": "87eaa49034e9e5ab36f700d82d25751dd7a2b81b35e775b3e9b18327153f6e0a",
+      "size": 99962
+    },
+    {
+      "path": "subproject/benchmark/results/uniform_benchmark_binary32_clang.png",
+      "mode": "100644",
+      "blob": "3755297f624dc5ffaae9e3f10c5a64a380c68b79",
+      "sha256": "3860193514460c639fae8b703d2d8a537e275e7bf0d81c03d9d3453d6fab67b4",
+      "size": 170776
+    },
+    {
+      "path": "subproject/benchmark/results/uniform_benchmark_binary32_msvc.png",
+      "mode": "100644",
+      "blob": "06c10aa5389ac43ba4215fa2257ccf5406649efc",
+      "sha256": "170d9e32dc9d64ac28b0d9d7a510fce49bafe7df37f59e33c756e9502ae7c248",
+      "size": 134593
+    },
+    {
+      "path": "subproject/benchmark/results/uniform_benchmark_binary64_clang.png",
+      "mode": "100644",
+      "blob": "71f9025941f7603de65a76e8d1acfb312ab0cac0",
+      "sha256": "66948d95a44eb5a389764ce6caf0cf9b5d720782a99ea00d874c3048ab397d63",
+      "size": 161061
+    },
+    {
+      "path": "subproject/benchmark/results/uniform_benchmark_binary64_msvc.png",
+      "mode": "100644",
+      "blob": "c0ed2a56eaf02ecec4fd4b121bff6648832bff20",
+      "sha256": "879dc025b19b03c2ba76419bcc3fd9fdcf5386cc07cc408fe14e1131e154b912",
+      "size": 146485
+    },
+    {
+      "path": "subproject/benchmark/source/benchmark.cpp",
+      "mode": "100644",
+      "blob": "3ab65756f3a33c066ad1fa8c95e05fb55ab61200",
+      "sha256": "76a61056895711ca0c474162b2cf2aabe0cf32390078ae72dff8e77ea7c0623b",
+      "size": 9962
+    },
+    {
+      "path": "subproject/benchmark/source/dragonbox.cpp",
+      "mode": "100644",
+      "blob": "9f3eb40b553d98cc1f4fd6e5d75b48d641696aa3",
+      "sha256": "c9dbaf431f85bf8fde9f4e40d5673e18d513b8196844e0d316309990ee7146b4",
+      "size": 1121
+    },
+    {
+      "path": "subproject/benchmark/source/grisu_exact.cpp",
+      "mode": "100644",
+      "blob": "39f1a2a81f0d55823f120e475089648510b825c8",
+      "sha256": "5fcead8d28ab430a403fef725dd5bc818a1974c85ef352c6766c5661335d2a12",
+      "size": 1376
+    },
+    {
+      "path": "subproject/benchmark/source/ryu.cpp",
+      "mode": "100644",
+      "blob": "c235e34bb60967a62444bd7b6ad7fc15c54ad4b9",
+      "sha256": "55bb808f3149b971f0c556853d45fbe3c5961f4ab27d66c16b5aea8d37e22e14",
+      "size": 870
+    },
+    {
+      "path": "subproject/benchmark/source/schubfach.cpp",
+      "mode": "100644",
+      "blob": "3622ef44f5f8a443389e8b28b50dd3cd543c9389",
+      "sha256": "6ba261b4a04b17bd35f648d003652a233fc2e307501034dd3f06d8cca7958cad",
+      "size": 1067
+    },
+    {
+      "path": "subproject/common/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "e555b5a73973860e5b8618438950b230686d67e7",
+      "sha256": "4684330066a5c2a017e26e23bfc1a8ed68ed9f15e72890bac3cc43d33b0fc49c",
+      "size": 1173
+    },
+    {
+      "path": "subproject/common/include/best_rational_approx.h",
+      "mode": "100644",
+      "blob": "8ecfa7a9154298f09b400838effdaa96ee165c80",
+      "sha256": "c58892dd6f99a55987020dcd2b448b4c5457975446a9bb6f3eccf572c1ec6590",
+      "size": 3902
+    },
+    {
+      "path": "subproject/common/include/big_uint.h",
+      "mode": "100644",
+      "blob": "fe1617e0a24a947973ca41df5265fa9fbf5b0bfa",
+      "sha256": "317981848aff3863759e0333db14c24e3965567acbcd8bb22a3d7d5562fc4fe7",
+      "size": 7905
+    },
+    {
+      "path": "subproject/common/include/continued_fractions.h",
+      "mode": "100644",
+      "blob": "d423211159f0e17cf951017d534bb857aaacc9c1",
+      "sha256": "d123a2b138e8475fff05a6fa2d122872ad0287f3aef6bd323e519d5917949e9c",
+      "size": 7326
+    },
+    {
+      "path": "subproject/common/include/good_rational_approx.h",
+      "mode": "100644",
+      "blob": "fbad2760b922c38e0229bc4f8544cc039fba24ac",
+      "sha256": "129d61c57ce00ad90005dd1edeec9b769b8462e89aa355c023e3e9a3570ec4fc",
+      "size": 11066
+    },
+    {
+      "path": "subproject/common/include/random_float.h",
+      "mode": "100644",
+      "blob": "e291611cc2bf50ef829f04ce27bc16e3c6c8ce0d",
+      "sha256": "5670702d6538e5078c509d8a6268ab03917a9aaf340c33b18eb354b6cc5f2d48",
+      "size": 7268
+    },
+    {
+      "path": "subproject/common/include/rational_continued_fractions.h",
+      "mode": "100644",
+      "blob": "8c61011944c3b4a82ffca48cfd2753acafb28124",
+      "sha256": "5cae8f8da6e136c1aa56f449a6e1b944119c3f26ec29b80294ad4a6cb751c1c5",
+      "size": 1918
+    },
+    {
+      "path": "subproject/common/source/big_uint.cpp",
+      "mode": "100644",
+      "blob": "c2c0a4610274da9e25ab817e9988c77ccd43b02c",
+      "sha256": "55fd307fbf4dbf28ea8de33afcd28c910e642eb9a3adb0e304c01f0458bd7e8f",
+      "size": 20903
+    },
+    {
+      "path": "subproject/meta/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "6eae25e6bc6c488def6d66e8033428bf4198c7ab",
+      "sha256": "3ea9e03f1ad1c892fde6a5c044bcfaed035b827a28a22767454f3c3c329fc7fb",
+      "size": 1422
+    },
+    {
+      "path": "subproject/meta/results/binary32_generated_cache.txt",
+      "mode": "100644",
+      "blob": "6159d3a0c3694d417495dec3a4505a4a9a6dc8f2",
+      "sha256": "b3cab9f1e8940cf38ff1f299959a9c012ac9df7be90ce324fe6f1c57de151fd1",
+      "size": 2614
+    },
+    {
+      "path": "subproject/meta/results/binary64_generated_cache.txt",
+      "mode": "100644",
+      "blob": "2e7e28953004f3a2df68215ab2786a000f9d795a",
+      "sha256": "9f4dffa6b29f44fdd210fc235f214b16d0a231822c6d961a444bcfb938342d1a",
+      "size": 39195
+    },
+    {
+      "path": "subproject/meta/source/generate_cache.cpp",
+      "mode": "100644",
+      "blob": "36028f94cdc0d65c9565738b5d4b1050590f25e3",
+      "sha256": "4b517438049aa351471b1e43104dc65a6e5417324fcd9fbea6033055b55c7be7",
+      "size": 4928
+    },
+    {
+      "path": "subproject/meta/source/live_test.cpp",
+      "mode": "100644",
+      "blob": "e278b8a28eb912cec6a6377e2ae732981a7f6298",
+      "sha256": "0f361d66d1d2f60bbbef59d5d7a8aa952cc05d4b523a0d00ed5255f0bfa7b915",
+      "size": 2714
+    },
+    {
+      "path": "subproject/meta/source/perf_test.cpp",
+      "mode": "100644",
+      "blob": "cc31079d3f9cd417fe2684ccbbb082b0bb1bc2fa",
+      "sha256": "dc6e0767743164fd581a1bdbb73271551da4e790803ee256005dca075c36e0b6",
+      "size": 3866
+    },
+    {
+      "path": "subproject/meta/source/sandbox.cpp",
+      "mode": "100644",
+      "blob": "a5bf5db79ee26420629e8435cb0fbf5906c400e3",
+      "sha256": "dc3fad22c3e10eff9b614b58944841b7333cbedd824009530655e100571b36a4",
+      "size": 739
+    },
+    {
+      "path": "subproject/simple/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "49c1f901f09282596077e63e7842c97a58eead3a",
+      "sha256": "49fc8893a857d397201789d84bb1b0cfff5b93d9ba46e7324180610f1ca6dda8",
+      "size": 562
+    },
+    {
+      "path": "subproject/simple/include/simple_dragonbox.h",
+      "mode": "100644",
+      "blob": "9662d7533a519b698ca1563510e586bdedae5803",
+      "sha256": "9e56edbc129d9786b82e98cdd4ae4be56dc9a2871f47667f89123e480e5b17b1",
+      "size": 94340
+    },
+    {
+      "path": "subproject/simple/README.md",
+      "mode": "100644",
+      "blob": "d543976ddf48c760f31d496ff802b3903955205b",
+      "sha256": "7a529e6acdc4c783e8cd5d9b912189f1b81211d9fea8ad257b70d4a0d61f845a",
+      "size": 2792
+    },
+    {
+      "path": "subproject/test/CMakeLists.txt",
+      "mode": "100644",
+      "blob": "d6f722010613ca9ce002b695e527e289d65b860e",
+      "sha256": "ffef2bb9f2517f5f0ddd9d29e73a1c9379f76cd54b5ccc7f1e60c79c8748e241",
+      "size": 2340
+    },
+    {
+      "path": "subproject/test/results/binary32.csv",
+      "mode": "100644",
+      "blob": "2af9f71ddb4015c6257fda452265fade9d3044fc",
+      "sha256": "93707602137a2011d0a907b92f5e031c318dbefaa84d6c24dc91170f170805e0",
+      "size": 2762
+    },
+    {
+      "path": "subproject/test/results/binary64.csv",
+      "mode": "100644",
+      "blob": "0a89af57651ac14377bbd479f386ce90eb99669b",
+      "sha256": "f461c5744a2bf9c26070d844601dbfe12ac9929a6d23360abc24f369da5db2e2",
+      "size": 27256
+    },
+    {
+      "path": "subproject/test/results/plot_required_bits.m",
+      "mode": "100644",
+      "blob": "ffb9aff5c2b996297b99d7592345e0ea4f99e081",
+      "sha256": "dd89ab58e4454e65edc33644d610ca35d316afd70175ac8f4d113b1e851cf15f",
+      "size": 548
+    },
+    {
+      "path": "subproject/test/source/constexpr.cpp",
+      "mode": "100644",
+      "blob": "63f6f8d7c431135481c27d95bbac4fd2a8cadb9b",
+      "sha256": "2789e3625f326ce8799fb072473d561899a6a92f196b430c9176737114c1b563",
+      "size": 376
+    },
+    {
+      "path": "subproject/test/source/test_all_shorter_interval_cases.cpp",
+      "mode": "100644",
+      "blob": "1f79ca0f407f44953fe12e926320c6594d996acc",
+      "sha256": "9fb5a14db3f865aa05f9b0f958d09e72fb783e608c9705f068d89dfc1d35b9b2",
+      "size": 4057
+    },
+    {
+      "path": "subproject/test/source/uniform_random_test.cpp",
+      "mode": "100644",
+      "blob": "21b7dfc384b83743322b774045427878e0dfa9b4",
+      "sha256": "560f9304db68f6e5c907591225d7d3295eb2d849bceb78f1869e480fdf4749da",
+      "size": 4851
+    },
+    {
+      "path": "subproject/test/source/verify_cache_precision.cpp",
+      "mode": "100644",
+      "blob": "487ebbbe22bd7808069525425a93e6215fa374b1",
+      "sha256": "f2b3d506bf49cc035bbf918078bdc3733e5939fefafa404e5603af07fe56c846",
+      "size": 13712
+    },
+    {
+      "path": "subproject/test/source/verify_compressed_cache.cpp",
+      "mode": "100644",
+      "blob": "ae6aaadfec5f9d825fab148616c6b41365bf38d1",
+      "sha256": "348c411c953ed5c5dddb2eef28834b8c6e56ec8126ddb1d2812b086d825c35bf",
+      "size": 10119
+    },
+    {
+      "path": "subproject/test/source/verify_fast_multiplication.cpp",
+      "mode": "100644",
+      "blob": "e617e45cde97616504d6f3cfb5449791d08e3943",
+      "sha256": "92c909042799dac3bc2ab904be7c6b80b5caa663de30fd69fb2117cd26022a35",
+      "size": 8285
+    },
+    {
+      "path": "subproject/test/source/verify_log_computation.cpp",
+      "mode": "100644",
+      "blob": "d9d266e45c94e0f4640142b211696bf1437fab43",
+      "sha256": "730d54c4d90d81da77d9d9705d7b7ecc88afc1294631c6f7621d3238fded418f",
+      "size": 9789
+    },
+    {
+      "path": "subproject/test/source/verify_magic_division.cpp",
+      "mode": "100644",
+      "blob": "70dce342efe3c97d076957a626114ffada9ff89e",
+      "sha256": "aeefc42f92abe26d3d6770e067fd8de08735bdf2a86908fbb514b1917b3dcca9",
+      "size": 5745
+    }
+  ]
+}

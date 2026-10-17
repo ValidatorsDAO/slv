@@ -1,0 +1,193 @@
+PUBLISHED SOURCE HEADERS (VERBATIM EXCERPTS)
+
+These excerpts preserve copyright and license notices observed in the exact package archive.
+They are source-material evidence and are not a substitute for the full source archive.
+
+Path: src/adapter.rs
+
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use crate::stream::UnderlyingStream;
+use crate::trace;
+use rustls::server::AcceptedAlert;
+use rustls::server::Acceptor;
+use rustls::Connection;
+use std::io;
+use std::io::ErrorKind;
+use std::io::Read;
+use std::io::Write;
+
+/// Convert a [`rustls::Error`] to an [`io::Error`]
+pub fn rustls_to_io_error(error: rustls::Error) -> io::Error {
+  io::Error::new(ErrorKind::InvalidData, error)
+}
+
+/// Clones an [`io::Result`], assuming the inner error, if any, is a [`rustls::Error`].
+pub fn clone_result<T: Clone>(result: &io::Result<T>) -> io::Result<T> {
+  match result {
+    Ok(t) => Ok(t.clone()),
+    Err(e) => Err(clone_error(e)),
+  }
+}
+
+/// Clones an [`io::Error`], assuming the inner error, if any, is a [`rustls::Error`].
+
+---
+
+Path: src/connection_stream.rs
+
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use std::io;
+use std::io::BufRead;
+use std::io::ErrorKind;
+use std::io::Write;
+use std::sync::Arc;
+use std::task::ready;
+use std::task::Context;
+use std::task::Poll;
+use std::task::Waker;
+
+use derive_io::AsyncRead;
+use derive_io::AsyncWrite;
+use rustls::Connection;
+use rustls::IoState;
+use tokio::io::ReadBuf;
+
+use crate::adapter::read_tls;
+use crate::adapter::rustls_to_io_error;
+use crate::adapter::write_tls;
+use crate::stream::UnderlyingStream;
+use crate::trace;
+
+/// A poll context may be explicit (ie: passed by the external user) or implicit (ie: using whatever stashed waker
+/// we have stored).
+
+---
+
+Path: src/handshake.rs
+
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use rustls::Connection;
+use std::io;
+use std::io::ErrorKind;
+use std::sync::Arc;
+
+use crate::adapter::read_tls;
+use crate::adapter::rustls_to_io_error;
+use crate::adapter::write_tls;
+use crate::stream::UnderlyingStream;
+use crate::trace;
+use crate::TestOptions;
+
+#[inline(always)]
+fn trace_result<T>(result: io::Result<T>) -> io::Result<T> {
+  #[cfg(feature = "trace")]
+  if let Err(err) = &result {
+    trace!("result = {err:?}");
+  }
+  result
+}
+
+fn try_read<S: UnderlyingStream>(
+  tcp: &S,
+  tls: &mut Connection,
+
+---
+
+Path: src/lib.rs
+
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+mod adapter;
+mod connection_stream;
+mod handshake;
+mod stream;
+
+///! An `async` wrapper around the `rustls` connection types and a `tokio` TCP socket.
+
+#[cfg(test)]
+mod system_test;
+
+pub use stream::ServerConfigProvider;
+pub use stream::TlsHandshake;
+pub use stream::TlsStream;
+pub use stream::TlsStreamRead;
+pub use stream::TlsStreamWrite;
+pub use stream::UnderlyingStream;
+
+/// Re-export the version of rustls we are built on
+pub use rustls;
+
+/// Used to modify test timing to expose problems.
+#[derive(Copy, Clone, Default)]
+struct TestOptions {
+  #[cfg(test)]
+
+---
+
+Path: src/stream.rs
+
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+
+use crate::adapter::clone_error;
+use crate::adapter::clone_result;
+use crate::adapter::read_acceptor;
+use crate::adapter::rustls_to_io_error;
+use crate::adapter::write_acceptor_alert;
+use crate::connection_stream::ConnectionStream;
+use crate::handshake::handshake_task;
+use crate::handshake::HandshakeResult;
+use crate::trace;
+use crate::TestOptions;
+use derive_io::AsyncRead;
+use derive_io::AsyncWrite;
+use futures::task::AtomicWaker;
+use futures::FutureExt;
+use rustls::server::Acceptor;
+use rustls::server::ClientHello;
+use rustls::version::TLS13;
+use rustls::ClientConnection;
+use rustls::Connection;
+use rustls::ServerConfig;
+use rustls::ServerConnection;
+use socket2::SockRef;
+use std::any::Any;
+
+---
+
+Path: src/system_test/fastwebsockets.rs
+
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use std::num::NonZeroUsize;
+use std::time::Duration;
+
+use fastwebsockets::FragmentCollectorRead;
+use fastwebsockets::Frame;
+use fastwebsockets::OpCode;
+use fastwebsockets::Payload;
+use fastwebsockets::Role;
+use fastwebsockets::WebSocket;
+use fastwebsockets::WebSocketError;
+use rstest::rstest;
+use tokio::sync::Mutex;
+
+const LARGE_PAYLOAD: [u8; 48 * 1024] = [0xff; 48 * 1024];
+const SMALL_PAYLOAD: [u8; 16] = [0xff; 16];
+
+#[rstest]
+#[case(false, false, false, false)]
+#[case(false, false, false, true)]
+#[case(false, false, true, false)]
+#[case(false, false, true, true)]
+#[case(false, true, false, false)]
+#[case(false, true, false, true)]
+#[case(false, true, true, false)]
+
+---
+
+Path: src/system_test/mod.rs
+
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+mod disconnect_test;
+mod fastwebsockets;
+mod speed_test;
+
+---

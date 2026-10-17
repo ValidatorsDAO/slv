@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "package": "khronos_api@3.1.0",
+  "classification": "historical-license-scope-inference",
+  "source_distribution_notice_coverage": "materialized-with-qualification",
+  "archive": {
+    "url": "https://static.crates.io/crates/khronos_api/khronos_api-3.1.0.crate",
+    "sha256": "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+  },
+  "file_inventory": {
+    "path": "mapping-72files.json",
+    "sha256": "a9524b1afc968f92a6496e40a1f051880053a427ffd25a3c0d63395e7223c110",
+    "source_file_count": 72,
+    "webgl_xml_file_count": 55
+  },
+  "later_webgl_license": {
+    "url": "https://raw.githubusercontent.com/KhronosGroup/WebGL/ca07c9628d207b5cc560ee6eac32ceeb1c39a2ed/LICENSE.txt",
+    "commit": "ca07c9628d207b5cc560ee6eac32ceeb1c39a2ed",
+    "sha256": "631caf35cb7a21e2fa4e36617551d72566cc272619003857fe79b82399e8e8fa",
+    "direct_byte_equal_xml_files": 47,
+    "comparison": {
+      "path": "webgl-later-license-comparison.json",
+      "sha256": "ac648a48083e53a3aec8be1cbc7c9a484894ca01c9e422924e4ea241eb7ab472"
+    }
+  },
+  "historical_scope_inference": {
+    "path": "webgl-eight-historical-scope-diffs.json",
+    "sha256": "82a200102003dcd9f88ef5aca78ea016c7735e6f81aa68215ec4a8b3706efcdc",
+    "paths": [
+      "extensions/EXT_float_blend/extension.xml",
+      "extensions/EXT_texture_compression_bptc/extension.xml",
+      "extensions/EXT_texture_compression_rgtc/extension.xml",
+      "extensions/KHR_parallel_shader_compile/extension.xml",
+      "extensions/WEBGL_draw_buffers/extension.xml",
+      "extensions/WEBGL_multiview/extension.xml",
+      "extensions/proposals/EXT_multi_draw_arrays/extension.xml",
+      "extensions/proposals/WEBGL_blend_equation_advanced_coherent/extension.xml"
+    ],
+    "statement": "These eight changed or moved XML files retain a documented historical-scope inference. The later repository-level Materials permission is supplied as a genuine supplemental text, but this receipt does not assert that the 2018 source tree carried that text, prove retrospective permission certainty, or claim complete legal compliance."
+  },
+  "disposition": "The intact original source distribution is retained with its 72-file mapping, original header and attribution notices, genuine Apache, Materials, and ANGLE BSD terms, and the qualified WebGL supplement. Materialized notice coverage is complete with the explicit historical-scope qualification above."
+}

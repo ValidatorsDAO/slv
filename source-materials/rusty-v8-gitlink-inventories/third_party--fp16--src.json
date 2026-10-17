@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/Maratyszcza/FP16.git",
+  "commit": "3d2de1816307bac63c16a297e8c4dc501b4076df",
+  "tree": "052b1ec2fb66e4f709ecbdc11dd43c2bfb979f32",
+  "files": [
+    {
+      "path": ".github/workflows/cmake.yml",
+      "mode": "100644",
+      "blob": "7bf724d52e0f26ba886a18e70799358433fe5964",
+      "sha256": "450c299f4619580ab487b8d96c9d21c94bb1c0fa192c36d1c170bef7714da0e5",
+      "size": 6574
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "blob": "73b299889044e9a68f02892cee8da81a0fdcc032",
+      "sha256": "67382f8a043a8840d1a6bb9e2fa044ba6d9ad0e70906cbc6e0dfdfbeac9457be",
+      "size": 180
+    },
+    {
+      "path": "bench/alt-element.cc",
+      "mode": "100644",
+      "blob": "68d37cd478e20af82e9db01188b186b33fa3eff2",
+      "sha256": "03bf62b2925de098df92ee07e01aa31c7168dcc4332e85a9911251d71c22ba8e",
+      "size": 1164
+    },
+    {
+      "path": "bench/from-alt-array.cc",
+      "mode": "100644",
+      "blob": "8216c3f4d29a28dcc3010ca4386a8596e5b8cd3f",
+      "sha256": "b2c780dbb26b7b0d921c1608c9d549f1a4fbc0fd0f27bafa6f8021b85db13b3d",
+      "size": 1943
+    },
+    {
+      "path": "bench/from-ieee-array.cc",
+      "mode": "100644",
+      "blob": "274256f4ab05d84a2373d0cc4619a74c2ea1a2c1",
+      "sha256": "5f7fe7bb2948671165452f99d7c0f6404bcf097778760e76e04d9328ff4e9f2b",
+      "size": 7886
+    },
+    {
+      "path": "bench/ieee-element.cc",
+      "mode": "100644",
+      "blob": "f40df4d65cd91bc831a6e960286caa2d5870f1bb",
+      "sha256": "72638657def62034b9ea65111a2196ea8724e25b371ae10133f85fabc05a6535",
+      "size": 5736
+    },
+    {
+      "path": "bench/to-alt-array.cc",
+      "mode": "100644",
+      "blob": "b72f826ab43718231a69afb78a564795109effd9",
+      "sha256": "a7948a6baac1fbabe51f235269e78da1c61308cf16653fae6fb62b214fca4084",
+      "size": 1023
+    },
+    {
+      "path": "bench/to-ieee-array.cc",
+      "mode": "100644",
+      "blob": "e56aa7b3d78178dcacb16cc467837e89f7b00adf",
+      "sha256": "264cfba3244abe05d73c26cfed9076c18016abb1ede7fdbd89007dec634358ae",
+      "size": 6750
+    },
+    {
+      "path": "cmake/DownloadGoogleBenchmark.cmake",
+      "mode": "100644",
+      "blob": "46e5ea0cc38dc390ef6221e42d7e32740dd2c5c3",
+      "sha256": "1d6205407ef8fc243e6ec24013f7695ae1152392ca0926d4bf1c5c5716cef14f",
+      "size": 489
+    },
+    {
+      "path": "cmake/DownloadGoogleTest.cmake",
+      "mode": "100644",
+      "blob": "6fa70790a33d3b03c1a7c8f8ea86c0ae0311c6f3",
+      "sha256": "68767b8c007d6cf73845ce0693b178c1418fb4f8c2ee249976a645e32a2f418e",
+      "size": 471
+    },
+    {
+      "path": "CMakeLists.txt",
+      "mode": "100644",
+      "blob": "09ce80d43a0f76837be2a679e41d6ccdd1d49b56",
+      "sha256": "b396d3f5d2e88cb03e0df9fa957654da32e92e99035329b35a1b8be591ed3a91",
+      "size": 8051
+    },
+    {
+      "path": "include/fp16.h",
+      "mode": "100644",
+      "blob": "adbcb961c0b1744cc4ca6c301b025f78b1536e37",
+      "sha256": "9754daec48ac35fff78ab951d7111eef97e4f4b5279247344ceb149a4fd65c58",
+      "size": 88
+    },
+    {
+      "path": "include/fp16/bitcasts.h",
+      "mode": "100644",
+      "blob": "bcba3b573732e0b5aac8a6b42e274b794a65f776",
+      "sha256": "a73eb4c6783dc0c141251572cbc81e6b4ed68de7fd71d84698eac9fa034206be",
+      "size": 2786
+    },
+    {
+      "path": "include/fp16/fp16.h",
+      "mode": "100644",
+      "blob": "95fa0c2de8c0bbc76a0927304f20160737cb9f7b",
+      "sha256": "c0e1100313e9e990360ef405b0d1353bf059d9e4c9e07344c015fc5800c4c897",
+      "size": 24225
+    },
+    {
+      "path": "include/fp16/macros.h",
+      "mode": "100644",
+      "blob": "4018b0c9d0f87a29a7f2f4e7e40a29eb17103898",
+      "sha256": "b3e945eec6485017e99cecec94c666ec00471405b1e0951aac0f7817011436e5",
+      "size": 1468
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "blob": "eabec6c86a3c7117090954b3756012b37b7c3786",
+      "sha256": "17e4f539024be2749ee729d1e2f01d24cef12ece8c9bf18e91a4349be29c80bf",
+      "size": 1157
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "blob": "6cba158626d0b4614bc91aa1dc81a9c360c17f02",
+      "sha256": "487bade7b6575d3bf2b3c5434f3240cf9bdb36729b2badf467c32b0629c5c7fb",
+      "size": 1281
+    },
+    {
+      "path": "test/alt-from-fp32-value.cc",
+      "mode": "100644",
+      "blob": "530f3bdf1f703a65a19ba9cc847c30dcf1f5b0c9",
+      "sha256": "d68c191b60c409c649408321163c0635abf2de4a5102eb1c4211fedc549a2a3c",
+      "size": 22756
+    },
+    {
+      "path": "test/alt-to-fp32-bits.cc",
+      "mode": "100644",
+      "blob": "99d198f29e2c084a144c618012bc7d471a6c75b2",
+      "sha256": "57ef60ad8f91cdfdab5f9db60b4ecdc272dc13a6bea73681c5b68f3a128630b5",
+      "size": 12528
+    },
+    {
+      "path": "test/alt-to-fp32-value.cc",
+      "mode": "100644",
+      "blob": "ac375d9e6a82c669dee82c31282b6a3d7af4a98b",
+      "sha256": "7e2e1e9538992b3223baaf0ab5229de645091075d8e69bbdb635c0b376a24947",
+      "size": 15761
+    },
+    {
+      "path": "test/bitcasts.cc",
+      "mode": "100644",
+      "blob": "cdfbbc40a56860efbb1ee25ecf4536fad895b105",
+      "sha256": "9371d6f4f963cb5adfd4fc596aab3597f488f17e02262d62a47c7a678e28817d",
+      "size": 3069
+    },
+    {
+      "path": "test/ieee-from-fp32-value.cc",
+      "mode": "100644",
+      "blob": "58e94c28bab5c46f3223bbc07af8ab3a84caa5d8",
+      "sha256": "160b804143a15a5c9c0d708017727e52af72057aa9af4c92a5f1760fda1c4e94",
+      "size": 23443
+    },
+    {
+      "path": "test/ieee-to-fp32-bits.cc",
+      "mode": "100644",
+      "blob": "4a43af41453efc40c94fae3b85d6c0c3db9b8b23",
+      "sha256": "9548da064bf746f473acbe5dd3a8a43d5b20b3dd4e39bc43ce6f0073b276ce54",
+      "size": 15444
+    },
+    {
+      "path": "test/ieee-to-fp32-value.cc",
+      "mode": "100644",
+      "blob": "44eb4ed976cba24b1447f71269cd070fc1518152",
+      "sha256": "bc480803a5bafd28ddf5d3f236dba16dde5815254d44cd33bd150274ca80c72f",
+      "size": 18618
+    },
+    {
+      "path": "test/tables.cc",
+      "mode": "100644",
+      "blob": "82d6ef54c82429a9ff30cb2f15b2ce4c06eb90a9",
+      "sha256": "ffad0061439de52bf3680469242ddf1fcecf3131a20b228d128a37751bfcc768",
+      "size": 50432
+    },
+    {
+      "path": "test/tables.h",
+      "mode": "100644",
+      "blob": "942c542ff5c7c6cdd61944d704ba6b4cf02eaa3a",
+      "sha256": "ec15a30c8363b392a7e0c723ff3c99883982617d7022df8674e14a7124dff2cd",
+      "size": 582
+    },
+    {
+      "path": "third-party/eigen-half.h",
+      "mode": "100644",
+      "blob": "f7181cd252d9c3a81eb89706abaa3333b3b4814a",
+      "sha256": "d7c8ea6d5a5e8a088e93ea0d7000df06f803f67424d52e6566913ae155e4e1d2",
+      "size": 5870
+    },
+    {
+      "path": "third-party/float16-compressor.h",
+      "mode": "100644",
+      "blob": "8cd33ed37d5e75a3d027b0efb7f37347bb8d240e",
+      "sha256": "626875a25e4426e30e81a9a64bea1ea5a4fa05d453832748c4872b081398ff1a",
+      "size": 2264
+    },
+    {
+      "path": "third-party/half.hpp",
+      "mode": "100644",
+      "blob": "73a2ca000a0aa19b84259fb3aa943c760824b3c1",
+      "sha256": "7e13e513b9734e0963e84c7f074ded6bed834c4b5552c8068a67f51e47cf0fae",
+      "size": 142646
+    },
+    {
+      "path": "third-party/npy-halffloat.h",
+      "mode": "100644",
+      "blob": "ae29b22c95f82a7c83e7a36e4a146fcd0bac3958",
+      "sha256": "12203d43ec45aacf30f46de3943b55be4ad093a53250bc4d31c8a0e34ecae004",
+      "size": 11082
+    },
+    {
+      "path": "third-party/THHalf.h",
+      "mode": "100644",
+      "blob": "8bf645028d16f700122a02badeb4d14cdf44c656",
+      "sha256": "a713b311936018e147d0ea9072cc2d1a4dbfb48b5efaf6ecc0a214da32fa3a8a",
+      "size": 2440
+    }
+  ]
+}

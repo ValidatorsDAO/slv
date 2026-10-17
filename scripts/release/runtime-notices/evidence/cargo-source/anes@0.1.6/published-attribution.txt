@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: anes@0.1.6
+Exact archive: https://static.crates.io/crates/anes/anes-0.1.6.crate
+Archive SHA-256: 4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299
+Declared license: MIT OR Apache-2.0
+Selected license branch for this distribution: MIT OR Apache-2.0
+
+Published authors (author metadata is not restated as copyright ownership):
+- Robert Vojta <rvojta@me.com>
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

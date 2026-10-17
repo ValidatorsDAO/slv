@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "package": "r-efi@5.3.0",
+  "classification": "source-vendor",
+  "scope": "Exact Cargo source archive retained for full source-vendor coverage only; this record makes no denort binary-target inclusion assertion.",
+  "archive": {
+    "url": "https://static.crates.io/crates/r-efi/r-efi-5.3.0.crate",
+    "sha256": "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
+  },
+  "archive_vcs": {
+    "commit": "97b55bed1c2c91dcbf787674849f05337ff80b33",
+    "path_in_vcs": ""
+  },
+  "repository": "https://github.com/r-efi/r-efi",
+  "declared_license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+  "selected_license_branch": "Apache-2.0",
+  "resolution_kind": "declared-standard-license-supplement",
+  "terms": [
+    {
+      "kind": "standard-Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ],
+  "caveat": "The packaged archive lacks a full conventional license document for this selected branch except where stated above. The exact manifest declaration, archive attribution, and full authentic selected terms are retained together. No copyright holder or year is invented."
+}

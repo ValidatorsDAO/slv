@@ -251,11 +251,22 @@ async function resolveExisting(path: string): Promise<string> {
     try {
       const real = await Deno.realPath(current)
       return missing.length === 0 ? real : resolve(real, ...missing.reverse())
-    } catch {
-      const parent = dirname(current)
-      if (parent === current) return path
-      missing.push(basename(current))
-      current = parent
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error
+      try {
+        // A dangling link is an existing path whose destination cannot be
+        // established. Do not treat it as an absent suffix and reconstruct it
+        // under a parent the link may escape.
+        await Deno.lstat(current)
+      } catch (lstatError) {
+        if (!(lstatError instanceof Deno.errors.NotFound)) throw lstatError
+        const parent = dirname(current)
+        if (parent === current) return path
+        missing.push(basename(current))
+        current = parent
+        continue
+      }
+      throw new Error('cannot resolve an existing path')
     }
   }
 }
@@ -271,9 +282,21 @@ async function protectedPathReason(
   writing: boolean,
 ): Promise<string | null> {
   const home = resolveHome().replace(/\/+$/, '')
-  const homes = [home, await resolveExisting(home)]
   const absolute = normalize(resolve(path))
-  const candidates = [absolute, await resolveExisting(absolute)]
+  // Reject a path that names protected material before asking the filesystem
+  // to canonicalize it. Canonicalization can be denied for virtual filesystems
+  // such as /proc, but that must never turn a known protected path into one the
+  // console handles.
+  const lexicalRefusal = refusedPathReason(absolute, [home])
+  if (lexicalRefusal !== null) return lexicalRefusal
+  let homes: string[]
+  let candidates: string[]
+  try {
+    homes = [home, await resolveExisting(home)]
+    candidates = [absolute, await resolveExisting(absolute)]
+  } catch {
+    return 'a path whose destination the AI console cannot safely resolve'
+  }
   for (const p of candidates) {
     const refused = refusedPathReason(p, homes)
     if (refused !== null) return refused
@@ -363,8 +386,14 @@ export function decideWriteFile(
 export async function isAgentMemoryFile(path: string): Promise<boolean> {
   const target = normalize(path)
   if (target !== resolveMemoryMdPath(resolveHome())) return false
-  return await resolveExisting(target) ===
-    resolve(await resolveExisting(dirname(target)), basename(target))
+  try {
+    return await resolveExisting(target) ===
+      resolve(await resolveExisting(dirname(target)), basename(target))
+  } catch {
+    // A link whose destination cannot be resolved is never the autonomous
+    // memory file, even if its lexical name is MEMORY.md.
+    return false
+  }
 }
 
 /** What the refusal of a write says where no terminal is attached. */

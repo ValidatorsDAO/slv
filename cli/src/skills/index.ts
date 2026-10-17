@@ -7,7 +7,8 @@ export const skillsCmd = new Command()
 
 Skills are the per-agent instruction files (AGENT.md, SKILL.md) that the
 AI console loads when delegating to a specialist agent. They live in
-~/.slv/skills/ and are downloaded from GitHub on first install.
+~/.slv/skills/ and are installed from the immutable release archive matching
+the running CLI version.
 
 Run \`slv skills sync\` after pulling new CLI versions to make sure your
 local skills match the latest instructions. \`slv upgrade\` also runs a
@@ -19,7 +20,7 @@ sync automatically.
 
 skillsCmd
   .command('sync')
-  .description('Re-download AI agent skills from GitHub')
+  .description('Verify and install AI agent skills from this CLI release')
   .option('-f, --force', 'Re-write files even if already up to date', {
     default: false,
   })
@@ -60,6 +61,6 @@ skillsCmd
       console.log(`  - ${name}`)
     }
     console.log(
-      colors.gray(`\nRun \`slv skills sync\` to fetch the latest versions.`),
+      colors.gray(`\nRun \`slv skills sync\` to restore the versions bound to this CLI release.`),
     )
   })

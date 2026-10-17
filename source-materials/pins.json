@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "deno": {
+    "version": "2.9.3",
+    "commit": "f39575ecd50602a5b42b1ba8e93849460de9fcf4",
+    "archive": "https://github.com/denoland/deno/releases/download/v2.9.3/deno_src.tar.gz",
+    "sha256": "58da10e48968a80a6c205b31584d1f1f4583226e59ebb08cb3783b12e7f22d4d"
+  },
+  "rusty_v8": {
+    "version": "149.4.0",
+    "commit": "dd1b4e9c743b7a11dbeb99d4d0dc55979218b905",
+    "archive": "https://github.com/denoland/rusty_v8/archive/dd1b4e9c743b7a11dbeb99d4d0dc55979218b905.tar.gz",
+    "sha256": "0c03bfef876e048a743f8c4011f855bbba94e20bcab01a9a1fb3b7ac74bb7042"
+  },
+  "v8": {
+    "commit": "73d19698991616a34a00ca691a6e697dbb69e2ef",
+    "archive": "https://github.com/denoland/v8/archive/73d19698991616a34a00ca691a6e697dbb69e2ef.tar.gz",
+    "sha256": "63a19755f87d8366c5112c341e0d4fcdb10bf9706d6acb55cf581b9afee9361a"
+  },
+  "gitlink_closure": {
+    "path": "source-materials/rusty-v8-gitlinks.json",
+    "sha256": "d01ca26cfb8650d5ca577a15d06634128a3e116553cb92ce6b11addd1f44db8e"
+  }
+}

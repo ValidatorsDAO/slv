@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS data-crate adjudication 2026-10-13",
+  "packet_sha256": "e5a62868d8a6fc7ee468946aee046bde27131aaceac38af2922598c2a77ca3e2",
+  "package": "deno_core_icudata@0.77.0",
+  "classification": "source-vendor",
+  "scope": "Exact Cargo source archive retained for full source-vendor coverage only; this record makes no denort binary-target inclusion assertion.",
+  "archive": {
+    "url": "https://static.crates.io/crates/deno_core_icudata/deno_core_icudata-0.77.0.crate",
+    "sha256": "a9efff8990a82c1ae664292507e1a5c6749ddd2312898cdf9cd7cb1fd4bc64c6"
+  },
+  "archive_vcs": {
+    "commit": "83537ba16a4bf1645fc8322e81f7aaf0149a8922",
+    "path_in_vcs": ""
+  },
+  "repository": "https://github.com/denoland/deno_core_icudata",
+  "wrapper": {
+    "declared_license": "MIT",
+    "published_authors": [
+      "the Deno authors"
+    ],
+    "selected_license_branch": "MIT",
+    "terms": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+      "source_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+      "body_sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+      "transform": "Keep bytes from Permission is hereby granted through EOF; omit the standard template title and unfilled copyright placeholder. Preserve original package attribution separately."
+    }
+  },
+  "data": {
+    "archive_path": "src/icudtl.dat",
+    "bytes": 10822192,
+    "sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "upstream_icu_version": "77.1",
+    "upstream_commit": "f2765f39298a73f0c8023109242c33dae4c71b30",
+    "upstream_data_url": "https://chromium.googlesource.com/chromium/deps/icu/+/f2765f39298a73f0c8023109242c33dae4c71b30/common/icudtl.dat?format=TEXT",
+    "full_license_url": "https://chromium.googlesource.com/chromium/deps/icu/+/f2765f39298a73f0c8023109242c33dae4c71b30/LICENSE?format=TEXT",
+    "full_license_sha256": "451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca",
+    "readme_url": "https://chromium.googlesource.com/chromium/deps/icu/+/f2765f39298a73f0c8023109242c33dae4c71b30/README.chromium?format=TEXT",
+    "readme_sha256": "9edb4ae2df3d7585a64aff86085bdb2be6a4154c74d4071cbc9b383dcdd48b46"
+  },
+  "resolution_kind": "verified-embedded-data-provenance-plus-wrapper-license",
+  "decision": "Retain full pinned ICU LICENSE as an upstream distribution notice supplement distinct from the wrapper MIT terms. Preserve the embedded 2016-and-later Unicode and third-party notices. Do not treat the notice as proof that each code-only item in the upstream distribution ships."
+}

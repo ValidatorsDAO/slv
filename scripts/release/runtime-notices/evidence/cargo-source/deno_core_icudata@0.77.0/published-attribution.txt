@@ -1,0 +1,22 @@
+PUBLISHED PACKAGE ATTRIBUTION AND DATA NOTICE
+
+This record transcribes checksum-verified package metadata and measured data provenance.
+It preserves published attribution and does not infer an omitted copyright holder or year.
+
+Package: deno_core_icudata@0.77.0
+Exact archive: https://static.crates.io/crates/deno_core_icudata/deno_core_icudata-0.77.0.crate
+Archive SHA-256: a9efff8990a82c1ae664292507e1a5c6749ddd2312898cdf9cd7cb1fd4bc64c6
+Declared wrapper license: MIT
+Published authors: the Deno authors
+Repository: https://github.com/denoland/deno_core_icudata
+Archive VCS commit: 83537ba16a4bf1645fc8322e81f7aaf0149a8922
+
+The packaged src/lib.rs embeds src/icudtl.dat through include_bytes!. The 10,822,192-byte
+data file (SHA-256 1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612)
+is byte-identical to pinned Chromium ICU 77.1 data at commit
+f2765f39298a73f0c8023109242c33dae4c71b30. The complete wrapper MIT terms and
+the complete pinned upstream ICU distribution LICENSE, including its original Unicode
+and third-party notices, follow as separate evidence.
+
+This is source-vendor coverage only. It does not make a denort binary-target inclusion claim
+or assert that every code-only item in the upstream ICU distribution ships.

@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "aead-gcm-stream@0.4.0",
+    "archive": {
+      "url": "https://static.crates.io/crates/aead-gcm-stream/aead-gcm-stream-0.4.0.crate",
+      "sha256": "e70c8dec860340effb00f6945c49c0daaa6dac963602750db862eabb74bf7886"
+    },
+    "license_declared": "MIT",
+    "license_selected": "MIT",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "mit_standard_body"
+    ],
+    "original_authors": [
+      "Divy Srivastava <dj.srivastava23@gmail.com>"
+    ],
+    "notes": [
+      "Preserve actually published attribution/notices; no synthetic copyright holder/year. An absent copyright notice remains recorded as absent, not invented. Source declaration plus full authentic standard terms and original notices constitutes this narrow proposed resolution.",
+      "Repo recovered from exact README image URL: littledivy/aead-stream at2737345ddbccd5b3e1ae41060b136cfc3e0cb610; 4 Rust files and Cargo.toml.orig byte-equal. tests/README.md credits RustCrypto/aes-gcm; preserve this when distributing source tests."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "MIT",
+    "authors": [
+      "Divy Srivastava <dj.srivastava23@gmail.com>"
+    ],
+    "repository": null,
+    "homepage": null,
+    "description": "Pure Rust implementaion of AES GCM cipher for data streams",
+    "license-file": null,
+    "package": "aead-gcm-stream@0.4.0",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"Divy Srivastava <dj.srivastava23@gmail.com>\"]",
+          "license = \"MIT\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "mit_standard_body",
+      "path": "evidence/cargo-resolution/aead-gcm-stream@0.4.0/terms-mit_standard_body.txt",
+      "sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+      "source": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+        "source_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+        "body_sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+        "transform": "Keep bytes from Permission is hereby granted through EOF; omit standard template title/unfilled copyright placeholder. Attribute as standard terms supplement. Preserve original package attribution/notices separately."
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

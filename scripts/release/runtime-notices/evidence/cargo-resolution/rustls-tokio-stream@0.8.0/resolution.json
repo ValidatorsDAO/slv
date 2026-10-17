@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "rustls-tokio-stream@0.8.0",
+    "archive": {
+      "url": "https://static.crates.io/crates/rustls-tokio-stream/rustls-tokio-stream-0.8.0.crate",
+      "sha256": "0560d12c0d8c672f849197de91b9ee61f5bf9aa024c97aaeeb112ec2f6c347fd"
+    },
+    "license_declared": "MIT",
+    "license_selected": "MIT",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "mit_standard_body"
+    ],
+    "original_authors": null,
+    "notes": [
+      "Preserve actually published attribution/notices; no synthetic copyright holder/year. An absent copyright notice remains recorded as absent, not invented. Source declaration plus full authentic standard terms and original notices constitutes this narrow proposed resolution."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "MIT",
+    "authors": null,
+    "repository": "https://github.com/denoland/rustls-tokio-stream",
+    "homepage": null,
+    "description": "AsyncRead/AsyncWrite interface for RustTLS on Tokio",
+    "license-file": null,
+    "package": "rustls-tokio-stream@0.8.0",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "license = \"MIT\""
+        ]
+      ]
+    ],
+    "source_notices": [
+      [
+        "src/adapter.rs",
+        [
+          "// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license."
+        ]
+      ],
+      [
+        "src/connection_stream.rs",
+        [
+          "// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license."
+        ]
+      ],
+      [
+        "src/handshake.rs",
+        [
+          "// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license."
+        ]
+      ],
+      [
+        "src/lib.rs",
+        [
+          "// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license."
+        ]
+      ],
+      [
+        "src/stream.rs",
+        [
+          "// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license."
+        ]
+      ],
+      [
+        "src/system_test/fastwebsockets.rs",
+        [
+          "// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license."
+        ]
+      ],
+      [
+        "src/system_test/mod.rs",
+        [
+          "// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license."
+        ]
+      ]
+    ]
+  },
+  "terms": [
+    {
+      "reference": "mit_standard_body",
+      "path": "evidence/cargo-resolution/rustls-tokio-stream@0.8.0/terms-mit_standard_body.txt",
+      "sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+      "source": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+        "source_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+        "body_sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+        "transform": "Keep bytes from Permission is hereby granted through EOF; omit standard template title/unfilled copyright placeholder. Attribute as standard terms supplement. Preserve original package attribution/notices separately."
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

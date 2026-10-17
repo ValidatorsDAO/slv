@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "wit-bindgen-rt@0.39.0",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/wit-bindgen-rt/wit-bindgen-rt-0.39.0.crate",
+    "sha256": "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
+  },
+  "archive_vcs": {
+    "commit": "f2393e6e98fa5f9236cac580db8a3fc9de6a4b70",
+    "path_in_vcs": "crates/guest-rust/rt"
+  },
+  "declared_license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+  "repository": "https://github.com/bytecodealliance/wit-bindgen",
+  "published_manifest": {
+    "path": "wit-bindgen-rt-0.39.0/Cargo.toml",
+    "sha256": "3afc3d79b7c8dc63f0c9bc2c795f4f7dbca85807618636a4b594524ed20d53ed"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/bytecodealliance/wit-bindgen/f2393e6e98fa5f9236cac580db8a3fc9de6a4b70/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "bytes": 1023
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/bytecodealliance/wit-bindgen/f2393e6e98fa5f9236cac580db8a3fc9de6a4b70/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

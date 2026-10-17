@@ -1,0 +1,61 @@
+{
+  "measured_at": "2026-10-13T17:40:29.997607+00:00",
+  "endpoint": "https://api.osv.dev/v1/querybatch",
+  "request": {
+    "queries": [
+      {
+        "package": {
+          "ecosystem": "crates.io",
+          "name": "aws-lc-rs"
+        },
+        "version": "1.18.2"
+      },
+      {
+        "package": {
+          "ecosystem": "crates.io",
+          "name": "aws-lc-sys"
+        },
+        "version": "0.46.0"
+      },
+      {
+        "package": {
+          "ecosystem": "crates.io",
+          "name": "h2"
+        },
+        "version": "0.4.16"
+      },
+      {
+        "package": {
+          "ecosystem": "crates.io",
+          "name": "pkg-config"
+        },
+        "version": "0.3.34"
+      },
+      {
+        "package": {
+          "ecosystem": "crates.io",
+          "name": "rustls"
+        },
+        "version": "0.23.45"
+      },
+      {
+        "package": {
+          "ecosystem": "crates.io",
+          "name": "rustls-webpki"
+        },
+        "version": "0.103.15"
+      }
+    ]
+  },
+  "response": {
+    "results": [
+      {},
+      {},
+      {},
+      {},
+      {},
+      {}
+    ]
+  },
+  "source_security_lock_sha256": "09afc50a2481cea2e77e0d27eff26db844362067bfbc51357f3927d49cbf815d"
+}
