@@ -4,6 +4,8 @@
 # play of that host, right after set-identity to the unstaked key. Variables:
 #
 #   slv_vh_identity                the staked identity (a base58 public key)
+#   slv_alpenglow_network          mainnet or testnet: the network that the command in the message
+#                                  of a failed take names (slv v set:identity -n <network>)
 #   slv_vh_log_offset              size of the validator log in bytes before the identity changed
 #   slv_validator_log              the validator log (/home/solv/solana-validator.log)
 #   slv_vote_history_wait_seconds  how long to wait for each step below (60)
@@ -32,7 +34,7 @@
     slv_vh_gap: "{{ [slv_vote_history_gap_seconds | default(5) | int, 1] | max }}"
     slv_vh_log_polls: "{{ [((slv_vote_history_wait_seconds | default(60) | int) / ([slv_vote_poll_seconds | default(2) | int, 1] | max)) | round(0, 'ceil') | int, 1] | max }}"
     slv_vh_stable_polls: "{{ [((slv_vote_history_wait_seconds | default(60) | int) / (([slv_vote_history_gap_seconds | default(5) | int, 1] | max) + 1)) | round(0, 'ceil') | int, 1] | max }}"
-    slv_vh_left: "The host {{ inventory_hostname }} is on its unstaked identity now and nothing was promoted. Its vote history file is /mnt/ledger/vote_history-{{ slv_vh_identity }}.bin: once it no longer changes, copy it to /mnt/ledger on the host that takes the identity (owner solv), wait until the vote account has not voted for 270 slots (about two minutes) and run slv v set:identity -p <that host>. Or put the staked identity back here with agave-validator -l /mnt/ledger set-identity <the staked identity file>."
+    slv_vh_left: "The host {{ inventory_hostname }} is on its unstaked identity now and nothing was promoted. Its vote history file is /mnt/ledger/vote_history-{{ slv_vh_identity }}.bin: once it no longer changes, copy it to /mnt/ledger on the host that takes the identity (owner solv), wait until the vote account has not voted for 270 slots (about one minute) and run slv v set:identity -n {{ slv_alpenglow_network | default('<network>') }} -p <that host>. Or put the staked identity back here with agave-validator -l /mnt/ledger set-identity <the staked identity file>."
 
 - name: Remove an older copy from the controller, so that no copy of another moment is left behind
   ansible.builtin.file:

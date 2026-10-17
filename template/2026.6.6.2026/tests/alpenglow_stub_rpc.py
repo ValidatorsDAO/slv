@@ -17,7 +17,10 @@ It answers the calls the probe and the dead primary checks make, and nothing els
                     both|error|http500 puts the identity (id=NAME, default the staked key
                     of the rigs) at the address of the target (ip=, default 10.9.9.9), at
                     another one (other=, default 10.1.1.1), at both, or nowhere; also=IP
-                    adds one more entry of the identity at IP to any of the first four
+                    adds one more entry of the identity at IP to any of the first four;
+                    bam=IP puts the tpuQuic and tpuForwardsQuic sockets of the entries of the
+                    identity at IP, as a validator connected to BAM advertises them, while
+                    its gossip socket stays at the address of the entry
   getVoteAccounts   only for one vote account at processed commitment with
                     keepUnstakedDelinquents: vote=current:N or delinquent:N gives it a
                     last vote N, vote=current:N:STEP (or delinquent:N:STEP) gives it N the
@@ -109,15 +112,16 @@ def path_options(path):
     return dict(segment.split("=", 1) for segment in segments if "=" in segment)
 
 
-def gossip_node(pubkey, ip):
+def gossip_node(pubkey, ip, bam=None):
+    quic = bam or ip
     return {
         "pubkey": pubkey,
         "gossip": f"{ip}:8001",
         "tvu": f"{ip}:8002",
         "tpu": None,
-        "tpuQuic": f"{ip}:8009",
+        "tpuQuic": f"{quic}:8009",
         "tpuForwards": None,
-        "tpuForwardsQuic": f"{ip}:8010",
+        "tpuForwardsQuic": f"{quic}:8010",
         "tpuVote": f"{ip}:8004",
         "serveRepair": f"{ip}:8008",
         "rpc": None,
@@ -263,12 +267,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             identity = options.get("id", "StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA")
             nodes = [gossip_node("SOMEOTHERNODE1", "10.7.7.1"), gossip_node("SOMEOTHERNODE2", "10.7.7.2")]
+            bam = options.get("bam")
             if mode in ("target", "both"):
-                nodes.append(gossip_node(identity, options.get("ip", "10.9.9.9")))
+                nodes.append(gossip_node(identity, options.get("ip", "10.9.9.9"), bam))
             if mode in ("other", "both"):
-                nodes.append(gossip_node(identity, options.get("other", "10.1.1.1")))
+                nodes.append(gossip_node(identity, options.get("other", "10.1.1.1"), bam))
             if mode != "none" and "also" in options:
-                nodes.append(gossip_node(identity, options["also"]))
+                nodes.append(gossip_node(identity, options["also"], bam))
             self.send(200, dict(envelope, result=nodes))
             return
         elif method == "getVoteAccounts":

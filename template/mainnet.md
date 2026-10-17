@@ -44,7 +44,7 @@ You can set identity in two ways:
 
 - **No-downtime migration (recommended):**
   ```
-  slv v switch
+  slv v switch -n mainnet
   ```
   Switches identity/live traffic with near-zero downtime.
 
@@ -52,7 +52,7 @@ You can set identity in two ways:
   ```
   slv v set:identity -p <host> -n mainnet
   ```
-  Promotes the one node named by `-p <host>` (its name in the inventory) to the staked identity. For a staked/unstaked pair, use `slv v switch` instead.
+  Promotes the one node named by `-p <host>` (its name in the inventory) to the staked identity. For a staked/unstaked pair, use `slv v switch -n mainnet` instead.
 
 > ℹ️ Ensure your identity address, vote address must be correctly set in your `~/.slv/inventory.mainnet.validators.yml` file before running these commands.
 

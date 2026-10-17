@@ -289,6 +289,59 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
       new Set(conditionsOf(tasks[oneHost])),
       new Set([alpenglow, firstActivation, primaryDown]),
     )
+    // one identity on two hosts of one play: refused before any host passes its own checks
+    const twoHosts = tasks.findIndex((task) =>
+      hasModule(task, 'assert') &&
+      normalized(task).includes('slv_sik_same_identity')
+    )
+    assert(
+      twoHosts > oneHost && twoHosts < deadImport,
+      `${path}: one identity on two hosts is refused before the checks`,
+    )
+    assertEquals(conditionsOf(tasks[twoHosts]), [alpenglow])
+    const sameHosts = tasks.find((task) =>
+      hasModule(task, 'set_fact') &&
+      (moduleArgs(task, 'set_fact') as Entry).slv_sik_same_identity !==
+        undefined
+    )
+    assert(sameHosts, `${path}: the hosts that hold the identity are counted`)
+    assert(
+      normalized(sameHosts).includes('ansible_play_hosts_all') &&
+        normalized(sameHosts).includes('identity_account'),
+      `${path}: the hosts of the whole play are counted by identity_account`,
+    )
+    // a first activation is refused when the vote account has voted, or when that cannot be shown
+    const voted = tasks.findIndex((task) =>
+      hasModule(task, 'fail') &&
+      normalized(task).includes('first_activation says that the identity')
+    )
+    assert(
+      voted > deadImport && voted < firstSetIdentity,
+      `${path}: first activation`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[voted])),
+      new Set([
+        alpenglow,
+        'first_activation | default(false) is sameas true',
+        "validator_type in ['agave', 'jito', 'allnodes-jito']",
+        'slv_lv_last | int(-1) != 0',
+      ]),
+    )
+    const readers = tasks.filter((task) =>
+      moduleArgs(task, 'import_tasks') ===
+        '../cmn/tasks/vote_history_last_vote.yml'
+    )
+    assertEquals(readers.length, 1, `${path}: one baseline reader`)
+    assertEquals(
+      (readers[0].vars as Entry).slv_lv_identity,
+      '{{ hostvars[inventory_hostname].identity_account }}',
+      `${path}: the vote account has to belong to the identity`,
+    )
+    assert(
+      tasks.indexOf(readers[0]) < voted,
+      `${path}: the last vote is read before a first activation is judged`,
+    )
     const deadRefusal = tasks.findIndex((task, index) =>
       index > deadImport && hasModule(task, 'fail') &&
       conditionsOf(task).includes('not (slv_dp_ok | bool)')
@@ -748,6 +801,12 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         Array.isArray(block.rescue),
         `${path}: a failed step says where the copy is`,
       )
+      assert(
+        normalized(block.rescue).includes('set_identity_result') &&
+          normalized(block.rescue).includes('slv v set:identity -n') &&
+          normalized(block.rescue).includes('unstaked'),
+        `${path}: the rescue says which hosts are unstaked and the command that passes`,
+      )
       const innerSetIdentity = inner.filter((task) =>
         /set-identity/.test(commandOf(task))
       )
@@ -756,15 +815,60 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         !commandOf(innerSetIdentity[0]).includes('--require-tower'),
         `${path}: no tower flag on Alpenglow: agave then requires the vote history file`,
       )
-      const index = (predicate: (task: Entry) => boolean) =>
-        inner.findIndex(predicate)
-      const stat = index((task) =>
+      // the checks come before the block, so that a refusal changes nothing and has no rescue note:
+      // the copy exists, it belongs to the identity of the source, and this run took it
+      const blockIndex = tasks.indexOf(block)
+      const outer = (predicate: (task: Entry) => boolean) =>
+        tasks.findIndex(predicate)
+      const stat = outer((task) =>
         hasModule(task, 'stat') && task.register === 'slv_vh_copy_stat'
       )
-      const refuse = index((task) =>
+      assertEquals(
+        (moduleArgs(tasks[stat], 'stat') as Entry).checksum_algorithm,
+        'sha256',
+        `${path}: the copy is read with its sha256`,
+      )
+      const refuse = outer((task) =>
         isGuard(task) &&
         normalized(task).includes('slv_vh_copy_stat.stat.exists')
       )
+      const identityMatch = outer((task) =>
+        isGuard(task) &&
+        normalized(task).includes(
+          'hostvars[slv_alpenglow_demoted_source].identity_account == slv_vh_identity',
+        )
+      )
+      const taken = outer((task) =>
+        isGuard(task) && normalized(task).includes('slv_vh_taken_sha256')
+      )
+      assert(
+        stat >= 0 && stat < refuse && refuse < identityMatch &&
+          identityMatch < taken && taken < blockIndex,
+        `${path}: copy check, source identity, file of this run, then the block`,
+      )
+      for (const index of [stat, refuse, identityMatch, taken]) {
+        assert(
+          conditionsOf(tasks[index]).includes("slv_switch_mode == 'alpenglow'"),
+          `${path}: "${tasks[index].name}" is for Alpenglow`,
+        )
+      }
+      // the file of this run: a source was switched off in this run and the sha256 of the copy is the one its take recorded
+      const takenText = normalized(tasks[taken])
+      for (
+        const part of [
+          "slv_alpenglow_demoted_source | default('', true) != ''",
+          'hostvars[slv_alpenglow_demoted_source].slv_vh_taken_sha256',
+          'slv_vh_copy_stat.stat.checksum',
+          'slv v set:identity -n',
+        ]
+      ) {
+        assert(
+          takenText.includes(part),
+          `${path}: the file of this run: ${part}`,
+        )
+      }
+      const index = (predicate: (task: Entry) => boolean) =>
+        inner.findIndex(predicate)
       const upload2 = index((task) =>
         hasModule(task, 'copy') &&
         String((moduleArgs(task, 'copy') as Entry).dest).startsWith(
@@ -784,9 +888,22 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         (moduleArgs(task, 'file') as Entry).state === 'absent'
       )
       assert(
-        stat >= 0 && stat < refuse && refuse < upload2 && upload2 < set &&
-          set < voter && voter < confirm && confirm < remove,
-        `${path}: copy check, upload, set-identity, authorized voter, confirmation, removal of the copy`,
+        upload2 >= 0 && upload2 < set && set < voter && voter < confirm &&
+          confirm < remove,
+        `${path}: upload, set-identity, authorized voter, confirmation, removal of the copy`,
+      )
+      const reader = index((task) =>
+        moduleArgs(task, 'import_tasks') ===
+          '../cmn/tasks/vote_history_last_vote.yml'
+      )
+      assert(
+        reader >= 0 && reader < set,
+        `${path}: the last vote is read first`,
+      )
+      assertEquals(
+        (inner[reader].vars as Entry).slv_lv_identity,
+        '{{ hostvars[inventory_hostname].identity_account }}',
+        `${path}: the vote account has to belong to the identity`,
       )
       const copy = moduleArgs(inner[upload2], 'copy') as Entry
       assertEquals(
@@ -876,26 +993,14 @@ Deno.test('base58 identity: an identity_account that is not a base58 public key 
       const tasks = tasksOf(readPlaybook(path)[0])
       const guard = firstIndex(tasks, isBase58Guard)
       const slurp = firstIndex(tasks, (task) => hasModule(task, 'slurp'))
-      const block = firstIndex(
+      const block = firstIndex(tasks, (task) => Array.isArray(task.block))
+      const probe = firstIndex(
         tasks,
-        (task) =>
-          Array.isArray(task.block) &&
-          (task.block as Entry[]).some((inner) =>
-            hasModule(inner, 'stat') &&
-            String((moduleArgs(inner, 'stat') as Entry).path).includes(
-              'slv_vh_copy',
-            )
-          ),
-      )
-      const mode = firstIndex(
-        tasks,
-        (task) =>
-          hasModule(task, 'set_fact') &&
-          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
       )
       assert(
-        mode >= 0 && guard > mode && guard < slurp && slurp < block,
-        `${path}: the identity is checked before the controller paths are built`,
+        guard >= 0 && guard < probe && probe < slurp && slurp < block,
+        `${path}: the identity is checked before the probe, which stats a controller path built from it`,
       )
       assertEquals(
         conditionsOf(tasks[guard]),
@@ -976,6 +1081,203 @@ Deno.test('base58 identity: every other playbook that builds a controller path f
       firstUse < 0 || guard < firstUse,
       `${path}: a path is built from the identity before it is checked`,
     )
+  }
+})
+
+Deno.test('set_identity_to_active refuses on Alpenglow and points to slv v set:identity with the network of the run', () => {
+  for (const network of validatorNetworks) {
+    const path = `ansible/${network}/set_identity_to_active.yml`
+    const tasks = tasksOf(readPlaybook(path)[0])
+    const probe = firstIndex(
+      tasks,
+      (task) => moduleArgs(task, 'import_tasks') === probeFile,
+    )
+    const refusal = firstIndex(
+      tasks,
+      (task) =>
+        hasModule(task, 'assert') &&
+        normalized(task).includes("slv_alpenglow_state != 'alpenglow'"),
+    )
+    const firstChange = firstIndex(
+      tasks,
+      (task) =>
+        hasModule(task, 'shell') || hasModule(task, 'copy') ||
+        hasModule(task, 'slurp'),
+    )
+    assert(
+      probe >= 0 && refusal > probe && refusal < firstChange,
+      `${path}: the refusal follows the probe and comes before anything is read or changed`,
+    )
+    assertEquals(conditionsOf(tasks[refusal]), [])
+    const text = normalized(tasks[refusal])
+    assert(
+      text.includes(
+        `slv v set:identity -n ${network.replace('-validator', '')} -p`,
+      ),
+      `${path}: the refusal names the command with the network`,
+    )
+  }
+})
+
+// every task that reads a key file from the controller keeps what it reads out of the log, and a missing key
+// file is still reported by a task of its own
+const taskLists = (value: unknown): Entry[][] => {
+  const lists: Entry[][] = []
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      if (node.every((item) => item !== null && typeof item === 'object')) {
+        lists.push(node as Entry[])
+      }
+      node.forEach(walk)
+    } else if (node !== null && typeof node === 'object') {
+      Object.values(node as Entry).forEach(walk)
+    }
+  }
+  walk(value)
+  return lists
+}
+const readsKeyFile = (task: Entry): boolean => {
+  const slurp = moduleArgs(task, 'slurp') as Entry | undefined
+  if (slurp && /local_key_path|\.slv\/keys/.test(String(slurp.src))) {
+    return true
+  }
+  for (const module of ['copy', 'fetch', 'template']) {
+    const args = moduleArgs(task, module) as Entry | undefined
+    if (args && /\.slv\/keys/.test(String(args.src))) return true
+  }
+  return false
+}
+
+Deno.test('no_log: every task that reads a key file from the controller has it, and a missing key file is reported by a task of its own', () => {
+  let seen = 0
+  const files = listYamlFiles('ansible/').filter((file) =>
+    !file.startsWith('ansible/cmn/firewall/')
+  )
+  for (const file of files) {
+    for (const list of taskLists(parse(readText(file)))) {
+      list.forEach((task, index) => {
+        if (!readsKeyFile(task)) return
+        seen += 1
+        assertEquals(
+          task.no_log,
+          true,
+          `${file}: "${task.name}" reads a key file and must not log it`,
+        )
+        const missing = list.slice(0, index).some((before) =>
+          hasModule(before, 'fail') &&
+          normalized(before).includes('Key file not found')
+        )
+        assert(
+          missing,
+          `${file}: "${task.name}" has no stop for a missing key file before it`,
+        )
+      })
+    }
+  }
+  // set_identity_key, set_identity_to_active and switch_on_identity of both networks read the key with slurp;
+  // copy_keys of both networks, mainnet-rpc/copy_keys and cmn/copy_rpc_keys copy it
+  assertEquals(seen, 10, 'the tasks that read a key file')
+})
+
+Deno.test('the last vote reader refuses a vote account of another identity, and every caller says whose it is', () => {
+  const reader = readText('ansible/cmn/tasks/vote_history_last_vote.yml')
+  const tasks = parse(reader) as Entry[]
+  const refusal = tasks.find((task) =>
+    hasModule(task, 'fail') && normalized(task).includes('nodePubkey')
+  )
+  assert(refusal, 'the reader refuses a vote account of another identity')
+  assertEquals(conditionsOf(refusal), [
+    "slv_lv_identity | default('', true) | length > 0",
+    "slv_lv_node | default('', true) | length > 0",
+    'slv_lv_node != slv_lv_identity',
+  ])
+  const deadPrimary = parse(
+    readText('ansible/cmn/tasks/vote_history_dead_primary.yml'),
+  ) as Entry[]
+  const read = deadPrimary.find((task) =>
+    moduleArgs(task, 'import_tasks') === 'vote_history_last_vote.yml'
+  )
+  assert(read, 'the dead primary checks read the last vote')
+  assertEquals((read.vars as Entry).slv_lv_identity, '{{ slv_dp_identity }}')
+})
+
+Deno.test('the dead primary checks read the last vote from the RPC of the host as well and use the larger one', () => {
+  const tasks = parse(
+    readText('ansible/cmn/tasks/vote_history_dead_primary.yml'),
+  ) as Entry[]
+  const own = tasks.find((task) =>
+    hasModule(task, 'uri') &&
+    normalized(task).includes('getVoteAccounts') &&
+    normalized(task).includes('slv_target_rpc_url')
+  )
+  assert(own, 'this host is asked for the last vote of the vote account')
+  assertEquals(own.no_log, true)
+  const larger = tasks.find((task) =>
+    hasModule(task, 'set_fact') &&
+    (moduleArgs(task, 'set_fact') as Entry).slv_dp_last !== undefined
+  )
+  assert(larger, 'the larger last vote is kept')
+  assert(
+    normalized(larger).includes('slv_lv_last') &&
+      normalized(larger).includes('slv_dp_own_last') &&
+      normalized(larger).includes('| max'),
+    'the cluster and the host are compared with max',
+  )
+  // an unreadable answer of the cluster still stops the play: the host cannot make up for it
+  assert(
+    normalized(larger).includes('if (slv_lv_last | int(-1)) >= 0 else -1'),
+    'the host does not stand in for an unreadable answer of the cluster',
+  )
+  for (
+    const name of [
+      'Check that nothing votes with the identity',
+      'Check that this host has caught up',
+    ]
+  ) {
+    const check = tasks.find((task) => task.name === name)
+    assert(check, name)
+    assert(
+      normalized(check).includes('slv_dp_last | int(-1)') &&
+        !normalized(check).includes('slv_lv_last'),
+      `${name}: judged on the larger last vote`,
+    )
+  }
+})
+
+Deno.test('the gossip check compares the gossip socket of the entry of the identity only', () => {
+  const text = readText('ansible/cmn/tasks/vote_history_dead_primary.yml')
+  const code = text.split('\n').filter((line) => !line.trim().startsWith('#'))
+    .join('\n')
+  assert(code.includes("node['gossip']"), 'the gossip socket is read')
+  for (
+    const socket of [
+      'tpuQuic',
+      'tpuForwards',
+      'tpuVote',
+      'serveRepair',
+      'pubsub',
+    ]
+  ) {
+    assert(!code.includes(socket), `no code compares the ${socket} socket`)
+  }
+})
+
+Deno.test('the texts of the playbooks that name slv v set:identity or slv v switch name the network of the run', () => {
+  for (const file of listYamlFiles('ansible/')) {
+    if (file.startsWith('ansible/cmn/firewall/')) continue
+    const lines = readText(file).split('\n')
+    lines.forEach((line, number) => {
+      if (line.trim().startsWith('#')) return
+      for (const match of line.matchAll(/slv v (set:identity|switch)/g)) {
+        const rest = line.slice((match.index ?? 0) + match[0].length)
+        assert(
+          rest.startsWith(' -n '),
+          `${file}:${number + 1}: "${match[0]}" is named without -n: ${
+            line.trim().slice(0, 120)
+          }`,
+        )
+      }
+    })
   }
 })
 
@@ -1161,7 +1463,7 @@ Deno.test('alpenglow demotion: the probe is patient after a demotion, and a prom
       'slv_ag_give_up_at | default(0) | int) > 0',
       "hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) in ['towerbft', 'alpenglow']",
       'slv_pre_demotion_probe_at',
-      '(slv_alpenglow_margin_slots | default(3000) | int) * 0.4 / 2',
+      '(slv_alpenglow_margin_slots | default(3000) | int) * (slv_alpenglow_min_slot_seconds | default(0.2) | float) / 2',
       "== 'towerbft' or (slv_alpenglow_move_types | default([]) | intersect(['firedancer-agave', 'firedancer-jito', 'frankendancer']) | length) == 0",
     ]
   ) {

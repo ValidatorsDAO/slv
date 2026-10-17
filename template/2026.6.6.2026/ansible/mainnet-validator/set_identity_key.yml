@@ -66,9 +66,10 @@
         msg: >-
           /mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin
           does not exist on {{ inventory_hostname }}, so the identity was not set. Copy the file
-          from the validator that last ran this identity (slv v switch does that). If that
-          validator is down and cannot vote, run slv v set:identity with --primary-down. Only when
-          this identity has never voted, pass -e '{"first_activation": true}'.
+          from the validator that last ran this identity (slv v switch -n mainnet does that). If that
+          validator is down and cannot vote, run slv v set:identity -n mainnet -p {{ inventory_hostname }}
+          with --primary-down. Only when this identity has never voted, pass
+          -e '{"first_activation": true}'.
       when:
         - slv_alpenglow_state == 'alpenglow'
         - not vote_history_file.stat.exists
@@ -79,12 +80,30 @@
       ansible.builtin.assert:
         that:
           - ansible_play_hosts_all | length == 1
-        fail_msg: "primary_down_confirmed applies to the one host that takes the identity, but this play runs on {{ ansible_play_hosts_all | length }} hosts. Limit it to the host that takes the identity (slv v set:identity -p <host> does). Nothing was changed."
+        fail_msg: "primary_down_confirmed applies to the one host that takes the identity, but this play runs on {{ ansible_play_hosts_all | length }} hosts. Limit it to the host that takes the identity (slv v set:identity -n mainnet -p <host> does). Nothing was changed."
         quiet: true
       when:
         - slv_alpenglow_state == 'alpenglow'
         - first_activation | default(false) is not sameas true
         - primary_down_confirmed | default(false) | bool
+
+    - name: Find the hosts of this play that hold the same identity
+      ansible.builtin.set_fact:
+        slv_sik_same_identity: >-
+          {%- set ns = namespace(hosts=[]) -%}
+          {%- for h in ansible_play_hosts_all if (hostvars[h].identity_account | default('')) == hostvars[inventory_hostname].identity_account -%}
+          {%- set ns.hosts = ns.hosts + [h] -%}
+          {%- endfor -%}
+          {{ ns.hosts | join(', ') }}
+      when: slv_alpenglow_state == 'alpenglow'
+
+    - name: Refuse to set one identity on two hosts of the same play
+      ansible.builtin.assert:
+        that:
+          - slv_sik_same_identity.split(', ') | length == 1
+        fail_msg: "This play holds {{ slv_sik_same_identity }}, which carry the same identity_account {{ hostvars[inventory_hostname].identity_account }}. Each host passes the checks before any host sets the identity, so each would set it and vote with it. Set the identity on one host at a time: slv v set:identity -n mainnet -p <host>. Nothing was changed."
+        quiet: true
+      when: slv_alpenglow_state == 'alpenglow'
 
     - name: Check that no other node can be voting with the identity, whatever the vote history file says
       ansible.builtin.import_tasks: ../cmn/tasks/vote_history_dead_primary.yml
@@ -103,11 +122,12 @@
         msg: >-
           The identity was not set on {{ inventory_hostname }}: {{ slv_dp_reason }}.
           If another node runs the identity, make sure it is stopped, wait until the vote account has not voted for
-          {{ slv_dp_window | default(270, true) }} slots (about two minutes) and this host has caught up, then run
-          slv v set:identity again. A staked node can stay in gossip for a long time after it
-          stops: its address is allowed when it is passed as primary_down_address (slv v
-          set:identity does that for a node it reads as stopped, or that you name with
-          --primary-down).
+          {{ slv_dp_window | default(270, true) }} slots (about one minute) and this host has caught up, then run
+          slv v set:identity -n mainnet -p {{ inventory_hostname }} again. A staked node can stay in gossip
+          for a long time after it stops: its address is allowed when it is passed as
+          primary_down_address. The CLI (slv v set:identity -n mainnet) passes it for an inventory host
+          that shares the identity and is stopped: one you name with --primary-down, one you
+          confirm with --peer-down-confirmed, or one that runs another identity.
       when:
         - slv_alpenglow_state == 'alpenglow'
         - first_activation | default(false) is not sameas true
@@ -126,9 +146,35 @@
       vars:
         slv_alpenglow_network: mainnet
         slv_lv_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
+        slv_lv_identity: "{{ hostvars[inventory_hostname].identity_account }}"
       when:
         - slv_alpenglow_state == 'alpenglow'
         - validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Refuse a first activation of an identity that has voted
+      ansible.builtin.fail:
+        msg: >-
+          first_activation says that the identity {{ hostvars[inventory_hostname].identity_account }} has never voted, and the
+          cluster does not show that: {{ ('the last vote of its vote account ' ~ hostvars[inventory_hostname].vote_account ~ ' is at slot ' ~ slv_lv_last) if (slv_lv_last | int(-1)) > 0 else slv_lv_detail }}.
+          The identity was not set on {{ inventory_hostname }}. If the identity has voted, run
+          slv v set:identity -n mainnet -p {{ inventory_hostname }} without --first-activation.
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - first_activation | default(false) is sameas true
+        - validator_type in ['agave', 'jito', 'allnodes-jito']
+        - slv_lv_last | int(-1) != 0
+
+    - name: Look for the local validator key file
+      become: false
+      delegate_to: localhost
+      stat:
+        path: "{{ local_key_path }}"
+      register: key_file_stat
+
+    - name: Stop if key file not found
+      fail:
+        msg: "Key file not found: {{ local_key_path }}"
+      when: not key_file_stat.stat.exists
 
     - name: Read local validator key file securely (base64)
       become: false
@@ -136,11 +182,7 @@
       slurp:
         src: "{{ local_key_path }}"
       register: key_file
-
-    - name: Stop if key file not found
-      fail:
-        msg: "Key file not found: {{ local_key_path }}"
-      when: key_file is not defined
+      no_log: true
 
     - name: Set Identity to Validator Key via stdin (agave family)
       shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity {{ require_tower_flag }} {{ vote_history_flag }}

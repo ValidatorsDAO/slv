@@ -17,7 +17,7 @@
         fail_msg: >-
           {%- set slv_type = validator_type | default('', true) | string | trim | lower -%}
           {%- if slv_type in ['firedancer-agave', 'firedancer-jito', 'firedancer', 'frankendancer'] or slv_type.startswith('firedancer') -%}
-          A mainnet voting validator cannot be {{ validator_type }}. Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration. Use agave, jito or allnodes-jito instead, and move a node that already runs Firedancer or Frankendancer to one of them with `slv v switch` before epoch 1064. Nothing was changed on {{ inventory_hostname }}.
+          A mainnet voting validator cannot be {{ validator_type }}. Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration. Use agave, jito or allnodes-jito instead, and move a node that already runs Firedancer or Frankendancer to one of them with `slv v switch -n mainnet` before epoch 1064. Nothing was changed on {{ inventory_hostname }}.
           {%- else -%}
           validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito. Nothing was changed.
           {%- endif -%}

@@ -13,6 +13,18 @@
         fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the key file on the controller. Nothing was changed on {{ inventory_hostname }}."
         quiet: true
 
+    - name: Look for the local key file
+      become: false
+      delegate_to: localhost
+      stat:
+        path: '~/.slv/keys/{{ hostvars[inventory_hostname].identity_account }}.json'
+      register: key_file_stat
+
+    - name: Stop if key file not found
+      fail:
+        msg: "Key file not found: ~/.slv/keys/{{ hostvars[inventory_hostname].identity_account }}.json"
+      when: not key_file_stat.stat.exists
+
     - name: Copy validator key file
       become: yes
       become_user: root
@@ -22,3 +34,4 @@
         owner: solv
         group: solv
         mode: '0600'
+      no_log: true

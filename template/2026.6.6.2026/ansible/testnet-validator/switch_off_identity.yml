@@ -118,6 +118,7 @@
           vars:
             slv_vh_identity: "{{ hostvars[inventory_hostname].identity_account }}"
             slv_vh_log_offset: "{{ source_log_before.stat.size | default(0) }}"
+            slv_alpenglow_network: testnet
       rescue:
         - name: Say what is left to do when the vote history file could not be taken
           ansible.builtin.fail:

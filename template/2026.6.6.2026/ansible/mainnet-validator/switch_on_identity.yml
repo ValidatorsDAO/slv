@@ -8,8 +8,17 @@
   vars:
     key_name: "{{ hostvars[inventory_hostname].identity_account }}.json"
     local_key_path: "~/.slv/keys/{{ key_name }}"
+    slv_vh_identity: "{{ hostvars[inventory_hostname].identity_account }}"
+    slv_vh_copy: "~/.slv/vote_history/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin"
 
   tasks:
+    - name: Refuse an identity_account that is not a base58 public key, it names the tower, key and vote history files on the controller
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the tower, key or vote history file on the controller. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
       ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
       vars:
@@ -22,12 +31,43 @@
       ansible.builtin.set_fact:
         slv_switch_mode: "{{ slv_ag_resume_mode if (slv_ag_resume | default(false) | bool) else slv_alpenglow_state }}"
 
-    - name: Refuse an identity_account that is not a base58 public key, it names the tower, key and vote history files on the controller
+    - name: Look for the vote history file the source left on the controller
+      ansible.builtin.stat:
+        path: "{{ slv_vh_copy }}"
+        checksum_algorithm: sha256
+      register: slv_vh_copy_stat
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      when: slv_switch_mode == 'alpenglow'
+
+    - name: Refuse to switch on without the vote history file of the identity
       ansible.builtin.assert:
         that:
-          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
-        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the tower, key or vote history file on the controller. Nothing was changed on {{ inventory_hostname }}."
+          - slv_vh_copy_stat.stat.exists
+        fail_msg: "{{ slv_vh_copy }} does not exist on the controller, so there is no vote history to put on {{ inventory_hostname }} and the identity was not set. slv v switch -n mainnet takes the file off the host that runs the identity before it gets here. When that host is down, stop it, wait until the vote account has not voted for 270 slots (about one minute) and run slv v set:identity -n mainnet -p {{ inventory_hostname }} --primary-down. {{ slv_ag_outcome | default('') }}"
         quiet: true
+      when: slv_switch_mode == 'alpenglow'
+
+    - name: Refuse an identity that is not the one the source ran
+      ansible.builtin.assert:
+        that:
+          - hostvars[slv_alpenglow_demoted_source].identity_account == slv_vh_identity
+        fail_msg: "The source {{ slv_alpenglow_demoted_source }} ran the identity {{ hostvars[slv_alpenglow_demoted_source].identity_account }}, but {{ inventory_hostname }} would set {{ slv_vh_identity }}: the vote history file does not belong to it. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      when:
+        - slv_switch_mode == 'alpenglow'
+        - slv_alpenglow_demoted_source | default('', true) != ''
+
+    - name: Refuse to switch on a vote history file that this run did not take off a source
+      ansible.builtin.assert:
+        that:
+          - slv_alpenglow_demoted_source | default('', true) != ''
+          - (hostvars[slv_alpenglow_demoted_source].slv_vh_taken_sha256 | default('')) != ''
+          - slv_vh_copy_stat.stat.checksum | default('') == hostvars[slv_alpenglow_demoted_source].slv_vh_taken_sha256
+        fail_msg: "{{ slv_vh_copy }} on the controller is not a vote history file that this run took off a source ({{ 'no source host was switched off in this run' if (slv_alpenglow_demoted_source | default('', true)) == '' else ('its sha256 ' ~ (slv_vh_copy_stat.stat.checksum | default('missing')) ~ ' is not the ' ~ (hostvars[slv_alpenglow_demoted_source].slv_vh_taken_sha256 | default('none')) ~ ' that the take from ' ~ slv_alpenglow_demoted_source ~ ' recorded') }}), so the identity was not set on {{ inventory_hostname }}. switch_on_identity.yml puts a file on a host only in the run of slv v switch -n mainnet that took it off the source: a file left on the controller by an earlier run can be older than the last vote of the node that ran the identity. To put the identity on {{ inventory_hostname }} use slv v set:identity -n mainnet -p {{ inventory_hostname }}: it needs the vote history file in /mnt/ledger on the host, or --primary-down when the old primary is down, and it checks first that nothing votes with the identity and that the host has caught up. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      when: slv_switch_mode == 'alpenglow'
 
     - name: Upload Tower File
       ansible.builtin.copy:
@@ -35,17 +75,25 @@
         dest: /mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
       when: slv_switch_mode == 'towerbft'
 
+    - name: Look for the local validator key file
+      become: false
+      delegate_to: localhost
+      stat:
+        path: "{{ local_key_path }}"
+      register: key_file_stat
+
+    - name: Stop if key file not found
+      fail:
+        msg: "Key file not found: {{ local_key_path }}"
+      when: not key_file_stat.stat.exists
+
     - name: Read local validator key file securely (base64)
       become: false
       delegate_to: localhost
       slurp:
         src: "{{ local_key_path }}"
       register: key_file
-
-    - name: Stop if key file not found
-      fail:
-        msg: "Key file not found: {{ local_key_path }}"
-      when: key_file is not defined
+      no_log: true
 
     - name: Set Identity to Validator Key via stdin
       shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity --require-tower
@@ -78,33 +126,7 @@
 
     - name: Move the vote history file to this host and put the staked identity on it
       when: slv_switch_mode == 'alpenglow'
-      vars:
-        slv_vh_identity: "{{ hostvars[inventory_hostname].identity_account }}"
-        slv_vh_copy: "~/.slv/vote_history/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin"
       block:
-        - name: Look for the vote history file the source left on the controller
-          ansible.builtin.stat:
-            path: "{{ slv_vh_copy }}"
-          register: slv_vh_copy_stat
-          delegate_to: localhost
-          become: false
-          check_mode: false
-
-        - name: Refuse to switch on without the vote history file of the identity
-          ansible.builtin.assert:
-            that:
-              - slv_vh_copy_stat.stat.exists
-            fail_msg: "{{ slv_vh_copy }} does not exist on the controller, so there is no vote history to put on {{ inventory_hostname }} and the identity was not set. slv v switch takes the file off the host that runs the identity before it gets here. When that host is down, stop it, wait until the vote account has not voted for 270 slots (about two minutes) and run slv v set:identity -p {{ inventory_hostname }} --primary-down. {{ slv_ag_outcome | default('') }}"
-            quiet: true
-
-        - name: Refuse an identity that is not the one the source ran
-          ansible.builtin.assert:
-            that:
-              - hostvars[slv_alpenglow_demoted_source].identity_account == slv_vh_identity
-            fail_msg: "The source {{ slv_alpenglow_demoted_source }} ran the identity {{ hostvars[slv_alpenglow_demoted_source].identity_account }}, but {{ inventory_hostname }} would set {{ slv_vh_identity }}: the vote history file does not belong to it. Nothing was changed on {{ inventory_hostname }}."
-            quiet: true
-          when: slv_alpenglow_demoted_source | default('', true) != ''
-
         - name: Upload the vote history file with the owner and mode agave gives it
           ansible.builtin.copy:
             src: "{{ slv_vh_copy }}"
@@ -124,6 +146,7 @@
           vars:
             slv_alpenglow_network: mainnet
             slv_lv_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
+            slv_lv_identity: "{{ hostvars[inventory_hostname].identity_account }}"
 
         - name: Set Identity to Validator Key via stdin (without a tower flag agave requires the vote history file)
           shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity
@@ -163,6 +186,15 @@
           ansible.builtin.debug:
             msg: "{{ inventory_hostname }} votes with {{ slv_vh_identity }}."
       rescue:
-        - name: Say where the vote history file is and what to check
+        - name: Say where the vote history file is, which hosts are unstaked and what to do
           ansible.builtin.fail:
-            msg: "{{ ansible_failed_result.msg | default('A step failed') }} {{ ((ansible_failed_result.stdout | default('')) ~ ' ' ~ (ansible_failed_result.stderr | default(''))) | trim | truncate(400) }} (step: {{ ansible_failed_task.name }}). {{ ('The vote history file is kept at ' ~ slv_vh_copy ~ ' on the controller. ') if slv_vh_copy_stat.stat.exists | default(false) else '' }}See what {{ inventory_hostname }} runs with agave-validator -l /mnt/ledger contact-info before you do anything else with the identity {{ slv_vh_identity }}."
+            msg: >-
+              {{ ansible_failed_result.msg | default('A step failed') }}
+              {{ ((ansible_failed_result.stdout | default('')) ~ ' ' ~ (ansible_failed_result.stderr | default(''))) | trim | truncate(400) }}
+              (step: {{ ansible_failed_task.name }}).
+              {{ ('The vote history file is kept at ' ~ slv_vh_copy ~ ' on the controller.') if slv_vh_copy_stat.stat.exists | default(false) else '' }}
+              {% if set_identity_result is defined and set_identity_result is not skipped and (set_identity_result.rc | default(1)) == 0 -%}
+              The identity {{ slv_vh_identity }} is set on {{ inventory_hostname }} and {{ slv_alpenglow_demoted_source }} is on its unstaked identity. See what {{ inventory_hostname }} runs with agave-validator -l /mnt/ledger contact-info, and whether the vote account {{ hostvars[inventory_hostname].vote_account | default('') }} votes, before you do anything else with the identity. When {{ inventory_hostname }} runs it and does not vote, fix the cause and run slv v set:identity -n mainnet -p {{ inventory_hostname }} again.
+              {%- else -%}
+              The identity {{ slv_vh_identity }} was not set on {{ inventory_hostname }}: {{ slv_alpenglow_demoted_source }} and {{ inventory_hostname }} both run their unstaked identities, so nothing votes with it. To put it on {{ inventory_hostname }}, copy the vote history file to /mnt/ledger there (owner solv), wait until the vote account has not voted for 270 slots (about one minute) and run slv v set:identity -n mainnet -p {{ inventory_hostname }}.
+              {%- endif %}

@@ -17,7 +17,9 @@
 #      (alpenglow-vote-history.sh runs that path); here the file is missing, so a switch
 #      stops before the demotion, switch_on stops without the copy of the source, and
 #      set:identity stops and names --primary-down. A Firedancer or Frankendancer host
-#      stops every identity move; set_unstaked_key and set_identity_to_active are not moves
+#      stops every identity move; set_unstaked_key is not a move, and set_identity_to_active
+#      stops on Alpenglow for every type of host: it sets the identity from the vote history
+#      file of the host and checks nothing else, so slv v set:identity is the way
 #   4. mainnet: Firedancer and Frankendancer never take an identity, in any state, and
 #      nodowntime_migrate says so before it demotes the source; as the source they go
 #      on only while the state is towerbft
@@ -231,7 +233,8 @@ identity_playbooks=(switch_off_identity switch_off_firedancer_identity switch_on
 #   towerbft,window,unknown,alpenglow  with run, freeze, fdctl (a mainnet Firedancer target),
 #   afdctl (Firedancer or Frankendancer in an identity move on Alpenglow), vhfile (switch_off
 #   without the vote history file), vhcopy (switch_on without the copy of the source) or
-#   primarydown (set:identity without the vote history file)
+#   primarydown (set:identity without the vote history file) or aactive (set_identity_to_active, which
+#   sets the identity from the vote history file of the host and checks nothing else)
 #   (the fifth state, imminent, refuses every row with its own message)
 cases=(
   'mainnet|switch_off_identity|agave|run,freeze,freeze,vhfile'
@@ -245,8 +248,8 @@ cases=(
   'mainnet|set_identity_key|firedancer-jito|fdctl,freeze,freeze,afdctl'
   'mainnet|set_unstaked_key|agave|run,freeze,freeze,run'
   'mainnet|set_unstaked_key|firedancer-jito|run,freeze,freeze,run'
-  'mainnet|set_identity_to_active|jito|run,freeze,freeze,run'
-  'mainnet|set_identity_to_active|firedancer-jito|fdctl,freeze,freeze,fdctl'
+  'mainnet|set_identity_to_active|jito|run,freeze,freeze,aactive'
+  'mainnet|set_identity_to_active|firedancer-jito|fdctl,freeze,freeze,aactive'
   'mainnet|nodowntime_migrate|agave>agave|run,freeze,freeze,vhfile'
   'mainnet|nodowntime_migrate|firedancer-jito>agave|run,freeze,freeze,afdctl'
   'mainnet|nodowntime_migrate|agave>firedancer-jito|fdctl,freeze,freeze,afdctl'
@@ -259,8 +262,8 @@ cases=(
   'testnet|set_identity_key|firedancer-jito|run,freeze,freeze,afdctl'
   'testnet|set_unstaked_key|agave|run,freeze,freeze,run'
   'testnet|set_unstaked_key|firedancer-jito|run,freeze,freeze,run'
-  'testnet|set_identity_to_active|jito|run,freeze,freeze,run'
-  'testnet|set_identity_to_active|firedancer-jito|run,freeze,freeze,run'
+  'testnet|set_identity_to_active|jito|run,freeze,freeze,aactive'
+  'testnet|set_identity_to_active|firedancer-jito|run,freeze,freeze,aactive'
   'testnet|nodowntime_migrate|agave>agave|run,freeze,freeze,vhfile'
   'testnet|nodowntime_migrate|firedancer-jito>firedancer-jito|run,freeze,freeze,afdctl'
   'testnet|nodowntime_migrate|agave>firedancer-jito|run,freeze,freeze,afdctl'
@@ -365,7 +368,7 @@ imminent_text='Run the identity change after the genesis certificate'
 demoted_text='are both unstaked now'
 vhfile_text='so there is no vote history to carry to the target'
 vhcopy_text='does not exist on the controller'
-primarydown_text='run slv v set:identity with --primary-down'
+aactive_text='and checks nothing else'
 
 for entry in "${cases[@]}"; do
   IFS='|' read -r net play types outcomes <<<"$entry"
@@ -391,7 +394,8 @@ for entry in "${cases[@]}"; do
     grep -qF "$imminent_text" "$run/log" && messages+='imminent '
     grep -qF "$vhfile_text" "$run/log" && messages+='vhfile '
     grep -qF "$vhcopy_text" "$run/log" && messages+='vhcopy '
-    grep -qF "$primarydown_text" "$run/log" && messages+='primarydown '
+    grep -qF "slv v set:identity -n $net -p src with --primary-down" "$run/log" && messages+='primarydown '
+    grep -qF "$aactive_text" "$run/log" && messages+='aactive '
     if [[ $outcome == run ]]; then
       want=1
       [[ $play == nodowntime_migrate ]] && want=2
@@ -568,7 +572,7 @@ for entry in "${flip_cases[@]}"; do
         # the source is demoted, switch_on refuses: both nodes are unstaked and the message says what to do by hand
         [[ $rc != 0 && $sets -eq 1 && $promoted -eq 0 ]] && grep -qF "$freeze_text" "$run/log" && grep -qF "$demoted_text" "$run/log" &&
           grep -q 'source host src was already switched to its unstaked identity' "$run/log" &&
-          grep -q 'promote StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA on dst yourself' "$run/log" && grep -q 'slv v set:identity -p dst' "$run/log" &&
+          grep -q 'promote StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA on dst yourself' "$run/log" && grep -q "slv v set:identity -n $net -p dst" "$run/log" &&
           grep -q 'Nothing is promoted automatically' "$run/log" && ! grep -q 'Nothing was changed' "$run/log"
         check $? "$id: switch_on refusing after the demotion names both nodes, the identity and the target (rc $rc, $sets set-identity calls, $promoted promotions) $(tail -n 3 "$run/log" | tr '\n' ' ')"
         ;;

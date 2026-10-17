@@ -171,6 +171,12 @@ box() {
 vote_file() { echo "$S/$1/mnt/ledger/vote_history-$STAKED.bin"; }
 tower_file() { echo "$S/$1/mnt/ledger/tower-1_9-$STAKED.bin"; }
 copy_file() { echo "$S/home/.slv/vote_history/vote_history-$STAKED.bin"; }
+# the take of the same run records, on the source host, the sha256 of the file it copied; switch_on compares the
+# copy on the controller with it. With no argument it records the sha256 of the copy that is there.
+taken_by_this_run() { # [sha256]
+  local sha=${1:-$(sha256sum "$(copy_file)" | cut -d' ' -f1)}
+  sed -i "s#^    dst:\$#      slv_vh_taken_sha256: $sha\n    dst:#" "$S/inventory.yml"
+}
 prepare_copy() { # content: the vote history file of the identity, on the controller
   mkdir -p "$S/home/.slv/vote_history"
   chmod 700 "$S/home/.slv/vote_history"
@@ -209,7 +215,7 @@ refused() { # box playbook text description
 
 alp() { echo "$rpc/alpenglow/case=$ID${1:-}"; } # cluster in the alpenglow state, with options
 tower() { echo "$rpc/towerbft/case=$ID${1:-}"; }
-local_rpc() { echo "$rpc/local/case=$ID/slot=$1"; }
+local_rpc() { echo "$rpc/local/case=$ID/slot=$1"; } # the slot may be followed by options of the stub: 2300/vote=current:1900
 
 SOURCE_FILE_TEXT=vote-history-from-the-source
 
@@ -254,8 +260,8 @@ case_off_silent_votor() {
   refused src switch_off_identity "Votor did not report" "an old Votor line does not stand in for the one of this demotion"
   log_has src switch_off_identity "is on its unstaked identity now and nothing was promoted"
   check $? "the message says the source is unstaked and nothing was promoted"
-  log_has src switch_off_identity "has not voted for 270 slots" && log_has src switch_off_identity "slv v set:identity -p <that host>"
-  check $? "the message names the wait that set:identity needs and the command"
+  log_has src switch_off_identity "has not voted for 270 slots (about one minute)" && log_has src switch_off_identity "slv v set:identity -n $NET -p <that host>"
+  check $? "the message names the wait that set:identity needs and the command, with the network of the run"
   [[ $(count_calls src 'set-identity .*unstaked-identity.json') -eq 1 && ! -e "$(copy_file)" ]]
   check $? "the source was demoted, and no copy is left: neither a new one nor one of an earlier switch"
 }
@@ -436,7 +442,8 @@ case_on_happy() {
   box dst dst
   printf 'stale-vote-history\n' >"$(vote_file dst)"
   prepare_copy "$SOURCE_FILE_TEXT"
-  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  taken_by_this_run
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)" -e slv_alpenglow_demoted_source=src
   ok dst switch_on_identity "switch_on puts the identity on the target"
   [[ $(count_calls dst 'set-identity') -eq 1 && $(count_calls dst require-tower) -eq 0 && $(count_calls dst 'authorized-voter add') -eq 1 ]]
   check $? "set-identity has no tower flag and the authorized voter is added"
@@ -457,7 +464,8 @@ case_on_cluster_stuck() {
   inventory agave agave
   box dst dst
   prepare_copy "$SOURCE_FILE_TEXT"
-  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp /vote=current:1000)"
+  taken_by_this_run
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp /vote=current:1000)" -e slv_alpenglow_demoted_source=src
   refused dst switch_on_identity "did not move past 1000" "a last vote that does not move on the cluster fails the switch although the host writes its vote history"
   log_has dst switch_on_identity "is kept at"
   check $? "the message says where the copy is kept"
@@ -470,7 +478,8 @@ case_on_cluster_unread() {
   inventory agave agave
   box dst dst
   prepare_copy "$SOURCE_FILE_TEXT"
-  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp /vote=error)"
+  taken_by_this_run
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp /vote=error)" -e slv_alpenglow_demoted_source=src
   ok dst switch_on_identity "a cluster that cannot give the last vote does not stop a host that writes its vote history"
   log_has dst switch_on_identity "because the last vote before the change was not read"
   check $? "the play says the cluster was not asked"
@@ -485,8 +494,8 @@ case_on_no_copy() {
   printf 'stale-vote-history\n' >"$(vote_file dst)"
   play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
   refused dst switch_on_identity "does not exist on the controller" "switch_on refuses without the vote history file"
-  log_has dst switch_on_identity "has not voted for 270 slots" && log_has dst switch_on_identity "slv v set:identity -p dst --primary-down"
-  check $? "the message names the wait and the command that passes when the old primary is down"
+  log_has dst switch_on_identity "has not voted for 270 slots (about one minute)" && log_has dst switch_on_identity "slv v set:identity -n $NET -p dst --primary-down"
+  check $? "the message names the wait and the command that passes when the old primary is down, with the network of the run"
   [[ $(count_calls dst .) -eq 0 && $(cat "$(vote_file dst)") == stale-vote-history ]]
   check $? "nothing was uploaded or set"
 }
@@ -519,6 +528,8 @@ case_on_bad_identity() {
       refused dst switch_on_identity "(32 to 44 characters of the base58 alphabet)" "switch_on refuses the identity_account $bad on $mode"
       [[ $(count_calls dst .) -eq 0 && -e "$(copy_file)" ]]
       check $? "nothing was uploaded or set, and the copy is untouched ($mode, $bad)"
+      [[ $(grep -c "case=$ID[\"/]" "$work/stub.log" || true) -eq 0 ]]
+      check $? "the cluster was not asked before the identity was checked ($mode, $bad)"
     done
   done
 }
@@ -528,7 +539,8 @@ case_on_voter_present() {
   inventory agave agave
   box dst dst ADD_VOTER=present
   prepare_copy "$SOURCE_FILE_TEXT"
-  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  taken_by_this_run
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)" -e slv_alpenglow_demoted_source=src
   ok dst switch_on_identity "an authorized voter that is already present is fine"
 }
 
@@ -537,10 +549,13 @@ case_on_voter_error() {
   inventory agave agave
   box dst dst ADD_VOTER=error
   prepare_copy "$SOURCE_FILE_TEXT"
-  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  taken_by_this_run
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)" -e slv_alpenglow_demoted_source=src
   refused dst switch_on_identity "Failed to read authorized voter keypair" "an authorized voter that cannot be added fails the switch"
   log_has dst switch_on_identity "is kept at"
   check $? "the message says where the copy is kept"
+  log_has dst switch_on_identity "is set on dst and src is on its unstaked identity" && log_has dst switch_on_identity "slv v set:identity -n $NET -p dst again"
+  check $? "the message says that the identity is set on the target, which host is unstaked and the command to run again"
   [[ -e "$(copy_file)" && $(stat -c %a "$(copy_file)") == 600 && $(stat -c %a "$S/home/.slv/vote_history") == 700 ]]
   check $? "the copy stays, readable by its owner only"
 }
@@ -550,10 +565,85 @@ case_on_not_voting() {
   inventory agave agave
   box dst dst TARGET_VOTES=0
   prepare_copy "$SOURCE_FILE_TEXT"
-  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  taken_by_this_run
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)" -e slv_alpenglow_demoted_source=src
   refused dst switch_on_identity "is not voting yet" "a target that does not vote fails the switch"
   [[ -e "$(copy_file)" ]]
   check $? "the copy is kept"
+}
+
+# switch_on on its own, with a copy that an earlier run left on the controller
+case_on_standalone() {
+  begin on_standalone "$1"
+  inventory agave agave
+  box dst dst
+  printf 'stale-vote-history\n' >"$(vote_file dst)"
+  prepare_copy "$SOURCE_FILE_TEXT"
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  refused dst switch_on_identity "is not a vote history file that this run took off a source" "switch_on on its own does not put a copy that is left on the controller on a host"
+  log_has dst switch_on_identity "no source host was switched off in this run" && log_has dst switch_on_identity "slv v set:identity -n $NET -p dst"
+  check $? "the message says why and points to slv v set:identity with the network of the run"
+  [[ $(count_calls dst .) -eq 0 && $(cat "$(vote_file dst)") == stale-vote-history && -e "$(copy_file)" ]]
+  check $? "nothing was uploaded or set, and the copy is untouched"
+}
+
+# a source was switched off in this run, but the copy is not the file its take recorded
+case_on_copy_not_taken() {
+  begin on_copy_not_taken "$1"
+  inventory agave agave
+  box dst dst
+  printf 'stale-vote-history\n' >"$(vote_file dst)"
+  prepare_copy "$SOURCE_FILE_TEXT"
+  taken_by_this_run 0000000000000000000000000000000000000000000000000000000000000000
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)" -e slv_alpenglow_demoted_source=src
+  refused dst switch_on_identity "is not a vote history file that this run took off a source" "a copy that is not the file the take of this run recorded is not put on a host"
+  log_has dst switch_on_identity "that the take from src recorded"
+  check $? "the message names the source and the sha256 that the take recorded"
+  [[ $(count_calls dst .) -eq 0 && $(cat "$(vote_file dst)") == stale-vote-history && -e "$(copy_file)" ]]
+  check $? "nothing was uploaded or set, and the copy is untouched"
+}
+
+# the cluster names another identity for the vote account of the inventory
+case_on_vote_account_other_identity() {
+  begin on_vote_account_other_identity "$1"
+  inventory agave agave
+  box dst dst
+  prepare_copy "$SOURCE_FILE_TEXT"
+  taken_by_this_run
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp /id=AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB)" -e slv_alpenglow_demoted_source=src
+  refused dst switch_on_identity "The cluster names the identity AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB for the vote account VOTEACCOUNT" "a vote account of another identity stops switch_on before it sets the identity"
+  log_has dst switch_on_identity "src and dst both run their unstaked identities" && log_has dst switch_on_identity "slv v set:identity -n $NET -p dst."
+  check $? "the message says which hosts are unstaked and the command that passes"
+  [[ $(count_calls dst 'set-identity') -eq 0 && -e "$(copy_file)" ]]
+  check $? "the identity was not set and the copy is kept"
+}
+
+# a run that has no reading of the cluster after the demotion goes on only within half of the margin at 0.2 seconds a slot:
+# 3000 slots, halved, is 300 seconds
+resume_run() { # id seconds-since-the-reading-before-the-demotion
+  begin "$1" "$NET"
+  inventory agave agave
+  box dst dst ADD_VOTER=present GATE=0
+  mkdir -p "$S/home/.slv/tower"
+  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
+  local at=$(($(date +%s) - $2))
+  sed -i "s#^    dst:\$#      slv_pre_demotion_state: towerbft\n      slv_pre_demotion_feature: inactive\n      slv_pre_demotion_probe_at: $at\n    dst:#" "$S/inventory.yml"
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$rpc/unknown-http500/case=$ID" \
+    -e slv_alpenglow_demoted_source=src -e slv_alpenglow_patience_seconds=3 -e slv_alpenglow_rpc_delay=1
+}
+case_on_resume_inside() {
+  resume_run on_resume_inside 280
+  ok dst switch_on_identity "280 seconds after the reading the promotion goes on with the tower"
+  log_has dst switch_on_identity "the promotion goes on within 300 seconds of the reading"
+  check $? "the play states the bound: 3000 slots at 0.2 seconds, halved"
+  [[ $(count_calls dst 'set-identity --require-tower') -eq 1 ]]
+  check $? "the target takes the identity with the tower"
+}
+case_on_resume_outside() {
+  resume_run on_resume_outside 320
+  refused dst switch_on_identity "are both unstaked now" "320 seconds after the reading the promotion does not go on without a reading"
+  [[ $(count_calls dst 'set-identity') -eq 0 ]]
+  check $? "the identity was not set"
 }
 
 case_on_fdctl() {
@@ -626,7 +716,7 @@ case_key_tower_only() {
 case_key_first_activation() {
   begin key_first_activation "$1"
   key_target GATE=0
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e '{"first_activation": true}'
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /vote=delinquent:0:25)" -e '{"first_activation": true}'
   ok dst set_identity_key "an identity that never voted needs no file"
   [[ $(count_calls dst do-not-require-vote-history) -eq 0 && $(count_calls dst require-tower) -eq 0 ]]
   check $? "set-identity has no flag"
@@ -738,10 +828,109 @@ case_key_dead_with_file_ok() {
   check $? "gossip was read"
 }
 
+case_key_first_activation_voted() {
+  begin key_first_activation_voted "$1"
+  key_target GATE=0
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e '{"first_activation": true}'
+  refused dst set_identity_key "first_activation says that the identity" "a first activation is refused when the vote account has voted"
+  log_has dst set_identity_key "is at slot 1000"
+  check $? "the message gives the last vote of the vote account"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host"
+}
+
+case_key_first_activation_unread() {
+  begin key_first_activation_unread "$1"
+  key_target GATE=0
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /vote=error)" -e '{"first_activation": true}'
+  refused dst set_identity_key "first_activation says that the identity" "a first activation is refused when the cluster cannot show that the vote account has not voted"
+  log_has dst set_identity_key "did not give a readable answer to getVoteAccounts"
+  check $? "the message says why"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host"
+}
+
+# set_identity_to_active sets the identity from the vote history file of the host and checks nothing else: on Alpenglow it refuses
+case_active_alpenglow() {
+  begin active_alpenglow "$1"
+  inventory jito jito
+  box dst dst ADD_VOTER=present
+  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
+  refused dst set_identity_to_active "sets the identity from the vote history file that is on dst and checks nothing else" "set_identity_to_active does not set the identity from the file of the host on Alpenglow"
+  log_has dst set_identity_to_active "slv v set:identity -n $NET -p dst"
+  check $? "the message points to slv v set:identity with the network of the run"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host"
+}
+case_active_towerbft() {
+  begin active_towerbft "$1"
+  inventory jito jito
+  box dst dst ADD_VOTER=present GATE=0
+  mkdir -p "$S/home/.slv/tower"
+  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
+  printf 'tower-from-the-source\n' >"$(tower_file dst)"
+  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
+  ok dst set_identity_to_active "TowerBFT: set_identity_to_active is unchanged"
+  [[ $(count_calls dst 'set-identity') -eq 1 ]]
+  check $? "the identity was set"
+}
+
+# two hosts of one identity in one play: each would pass the checks before the other sets the identity
+case_key_two_hosts_same_identity() {
+  begin key_two_hosts_same_identity "$1"
+  key_target
+  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+  play dst set_identity_key "-l all" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 2000)"
+  refused dst set_identity_key "which carry the same identity_account" "two hosts of the same identity in one play are refused on Alpenglow, whatever the file"
+  log_has dst set_identity_key "slv v set:identity -n $NET -p <host>"
+  check $? "the message points to one host at a time, with the network of the run"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "no host set the identity"
+}
+
+# the vote account of the inventory belongs to another identity
+case_key_vote_account_other_identity() {
+  begin key_vote_account_other_identity "$1"
+  key_target
+  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /id=AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB)" -e "slv_target_rpc_url=$(local_rpc 2000)"
+  refused dst set_identity_key "The cluster names the identity AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB for the vote account VOTEACCOUNT" "a vote account of another identity stops set:identity, whatever the checks would have said"
+  [[ $(count_calls dst .) -eq 0 ]]
+  check $? "nothing was run on the host"
+}
+case_key_vote_account_other_identity_dead() {
+  dead_refused key_vote_account_other_identity_dead none/id=AnotherKeyForTheRigsBBBBBBBBBBBBBBBBBB current:1000 1300 "The cluster names the identity" "a vote account of another identity stops a confirmed dead primary run too"
+}
+
+# a verbose run does not print what the tasks read from the key file
+case_key_no_log() {
+  begin key_no_log "$1"
+  key_target
+  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 2000)" -vvv
+  ok dst set_identity_key "a verbose run of set:identity goes through"
+  ! log_has dst set_identity_key "WzEsMiwzXQ=="
+  check $? "the base64 content of the key file is not in the log"
+}
+
+# a validator connected to BAM advertises tpuQuic and tpuForwardsQuic at the BAM node: only the gossip socket counts
+case_key_dead_bam_down_address_ok() {
+  dead_run key_dead_bam_down_address_ok other/bam=10.5.5.5 current:1000:2 1300 -e primary_down_address=10.1.1.1
+  ok dst set_identity_key "the entry of the old primary, with its BAM sockets elsewhere, is allowed at the address named down"
+  [[ $(count_calls dst 'set-identity --do-not-require-vote-history') -eq 1 ]]
+  check $? "set-identity has --do-not-require-vote-history"
+}
+case_key_dead_bam_third_address() { dead_refused key_dead_bam_third_address other/other=10.2.2.2/bam=10.5.5.5 current:1000 1300 "is in gossip at 10.2.2.2, not at the address of this host" "an entry with its gossip socket at a third address stops the run, whatever its BAM sockets say" -e primary_down_address=10.1.1.1; }
+case_key_file_bam_own_entry() {
+  file_run key_file_bam_own_entry /nodes=target/bam=10.5.5.5/vote=current:1000:25/now=2000 2000
+  ok dst set_identity_key "the entry of the host itself, with its BAM sockets elsewhere, passes the gossip check"
+}
+
 case_key_dead_first_activation() {
   begin key_dead_first_activation "$1"
   key_target GATE=0
-  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 1)" -e primary_down_confirmed=true -e '{"first_activation": true}'
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp /vote=delinquent:0:25)" -e "slv_target_rpc_url=$(local_rpc 1)" -e primary_down_confirmed=true -e '{"first_activation": true}'
   ok dst set_identity_key "first_activation needs neither the file nor the checks"
   [[ $(count_calls dst do-not-require-vote-history) -eq 0 ]]
   check $? "set-identity has no --do-not-require-vote-history"
@@ -785,6 +974,9 @@ file_refused() { # id options-of-the-cluster-url finalized-slot text description
   check $? "nothing was run on the host"
 }
 case_key_file_voting() { file_refused key_file_voting /vote=current:1900:25/now=2000 2300 "may still be voting with the identity" "a vote account that voted 100 slots before the current slot stops set:identity although the file is there"; }
+# a public RPC behind a load balancer can answer from a backend that is far behind: the cluster shows a last vote that is old, this host a recent one
+case_key_file_cluster_stale() { file_refused key_file_cluster_stale /vote=current:1000:25/now=2000 "2300/vote=current:1900:25" "as the RPC of dst shows it, where the cluster RPC shows 1000" "a last vote that only this host shows still counts, and the host does not set the identity"; }
+case_key_dead_cluster_stale() { dead_refused key_dead_cluster_stale none current:1000 "2300/vote=current:1900" "may still be voting with the identity" "the same with a confirmed dead primary"; }
 case_key_file_behind() { file_refused key_file_behind /vote=current:1000:25/now=2000 1200 "slots past the last vote 1000" "a host whose finalized slot is not 270 past the last vote stops set:identity although the file is there"; }
 case_key_file_slot_error() { file_refused key_file_slot_error /vote=current:1000:25/now=2000 error "RPC of this host did not answer getSlot" "a host that does not answer getSlot stops set:identity although the file is there"; }
 case_key_file_votes_error() { file_refused key_file_votes_error /vote=error/now=2000 2300 "did not give a readable answer to getVoteAccounts" "a cluster that does not give the last vote stops set:identity although the file is there"; }
@@ -929,8 +1121,8 @@ case_mig_unknown_after_take() {
   refused both nodowntime_migrate "are both unstaked now" "a switch_on that refuses after the demotion says both nodes are unstaked"
   log_has both nodowntime_migrate "vote history file taken from src is at ~/.slv/vote_history/vote_history-$STAKED.bin"
   check $? "the message says where the vote history file is"
-  log_has both nodowntime_migrate "has not voted for 270 slots" && log_has both nodowntime_migrate "run slv v set:identity -p dst."
-  check $? "the message names the wait and the command"
+  log_has both nodowntime_migrate "has not voted for 270 slots" && log_has both nodowntime_migrate "run slv v set:identity -n $NET -p dst."
+  check $? "the message names the wait and the command, with the network of the run"
   [[ $(count_calls both 'set-identity') -eq 1 && -e "$(copy_file)" && $(stat -c %a "$(copy_file)") == 600 ]]
   check $? "only the demotion ran and the copy is kept, readable by its owner only"
 }
@@ -986,8 +1178,8 @@ case_mig_down_after_demotion_pending() {
   play both nodowntime_migrate "-e source_host=src -e target_host=dst" -e "slv_alpenglow_rpc_url=$rpc/phiccup-3-999999/case=$ID" \
     -e slv_alpenglow_patience_seconds=3 -e slv_alpenglow_rpc_delay=1
   ok both nodowntime_migrate "a cluster that stays out of reach after the demotion does not leave both nodes unstaked, with the feature account pending"
-  log_has both nodowntime_migrate "an activation of Alpenglow takes at least" && ! log_has both nodowntime_migrate "had no Alpenglow feature account then"
-  check $? "with a pending feature account the play says how long an activation takes to start"
+  log_has both nodowntime_migrate "Slots are assumed to take at least 0.2 seconds" && log_has both nodowntime_migrate "within 300 seconds of the reading" && ! log_has both nodowntime_migrate "had no Alpenglow feature account then"
+  check $? "with a pending feature account the play states the bound and the slot time it assumes"
   [[ $(count_calls both 'set-identity') -eq 2 && $(count_calls both 'set-identity --require-tower') -eq 1 ]]
   check $? "the target takes the identity with the tower"
 }
@@ -1014,7 +1206,7 @@ case_mig_alpenglow_down_after_demotion() {
 case_mig_down_too_long() {
   begin mig_down_too_long "$1"
   tower_migrate_box agave agave
-  # half of 2 slots of 0.4 seconds is 0.4 seconds, less than the patience of the probe alone
+  # half of 2 slots of 0.2 seconds is 0.2 seconds, less than the patience of the probe alone
   play both nodowntime_migrate "-e source_host=src -e target_host=dst" -e "slv_alpenglow_rpc_url=$rpc/hiccup-3-999999/case=$ID" \
     -e slv_alpenglow_patience_seconds=3 -e slv_alpenglow_rpc_delay=1 -e slv_alpenglow_margin_slots=2
   refused both nodowntime_migrate "are both unstaked now" "a run that is older than half of the margin does not go on without a reading"
@@ -1033,7 +1225,7 @@ case_mig_alpenglow_after_demotion() {
   check $? "the message tells to promote the identity by hand, without waiting for a certificate that is already there"
   ! log_has both nodowntime_migrate "Wait until getAgGenesisCert returns a certificate"
   check $? "the message does not tell to wait for the certificate"
-  log_has both nodowntime_migrate "left no vote history file on the controller" && log_has both nodowntime_migrate "slv v set:identity -p dst --primary-down"
+  log_has both nodowntime_migrate "left no vote history file on the controller" && log_has both nodowntime_migrate "slv v set:identity -n $NET -p dst --primary-down"
   check $? "the message names the command for a source that was demoted on TowerBFT: there is no vote history file to carry"
   [[ $(count_calls both 'set-identity') -eq 1 ]]
   check $? "only the demotion ran"
@@ -1065,7 +1257,10 @@ cases=(
   key_dead_third_address key_dead_down_and_third
   key_file_voting key_file_behind key_file_slot_error key_file_votes_error key_file_now_error key_file_edge_now
   key_file_edge_slot key_file_edge_ok key_file_down_address_ok key_file_down_address_voting key_file_third_address
-  key_file_foreign_entry key_file_gossip_own_address key_file_self_voting
+  key_file_foreign_entry key_file_gossip_own_address key_file_self_voting key_file_cluster_stale key_dead_cluster_stale
+  key_first_activation_voted key_first_activation_unread key_two_hosts_same_identity key_vote_account_other_identity
+  key_vote_account_other_identity_dead key_no_log key_dead_bam_down_address_ok key_dead_bam_third_address key_file_bam_own_entry
+  active_alpenglow active_towerbft on_standalone on_copy_not_taken on_vote_account_other_identity on_resume_inside on_resume_outside
   key_voter_error key_voter_present key_not_voting key_fdctl key_towerbft
   mig_happy mig_identity mig_fdctl_source mig_fdctl_target mig_unknown_after_take
   mig_hiccup_clears mig_hiccup_before mig_down_after_demotion mig_down_after_demotion_pending mig_down_too_long
