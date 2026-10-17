@@ -1,0 +1,76 @@
+name: Validate GCE runner infrastructure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/github-runners/**'
+      - 'scripts/ci/gce_runner.py'
+      - 'scripts/ci/test_gce_runner.py'
+      - 'scripts/ci/gce-runner-startup.sh'
+      - '.github/actions/gce-control/**'
+      - '.github/workflows/gce-runner-smoke.yml'
+      - '.github/workflows/gce-runner-janitor.yml'
+      - '.github/workflows/gce-runner-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/github-runners/**'
+      - 'scripts/ci/gce_runner.py'
+      - 'scripts/ci/test_gce_runner.py'
+      - 'scripts/ci/gce-runner-startup.sh'
+      - '.github/actions/gce-control/**'
+      - '.github/workflows/gce-runner-smoke.yml'
+      - '.github/workflows/gce-runner-janitor.yml'
+      - '.github/workflows/gce-runner-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slv-gce-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  controller:
+    name: Controller and budget unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Test runner lifecycle without cloud requests
+        run: python3 -m unittest discover -s scripts/ci -p 'test_gce_runner.py' -v
+      - name: Test budget decisions and owned-resource cleanup
+        run: python3 -m unittest discover -s infra/github-runners/budget-handler -p 'test_main.py' -v
+      - name: Check runner startup shell
+        run: |
+          bash -n scripts/ci/gce-runner-startup.sh
+          shellcheck scripts/ci/gce-runner-startup.sh
+
+  terraform:
+    name: Terraform configuration and mock plans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra/github-runners
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install the reviewed Terraform CLI
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: '1.11.4'
+          terraform_wrapper: false
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+      - name: Initialize locked providers without a state backend
+        run: terraform init -backend=false -input=false -lockfile=readonly -no-color
+      - name: Validate Terraform configuration
+        run: terraform validate -no-color
+      - name: Test plans with mock providers and fixture inputs
+        run: terraform test -no-color
