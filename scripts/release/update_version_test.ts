@@ -105,17 +105,21 @@ async function writeTemplateFixture(root: string): Promise<void> {
     'ansible/mainnet-validator/init.yml',
     'jinja/mainnet-rpc/start-mainnet-rpc.sh.j2',
     'ansible/cmn/install_solana.yml',
+    'tests/alpenglow_floor_vectors.json',
   ]
   for (const file of files) {
     const path = `${root}/template/${PREVIOUS_VERSION}/${file}`
     await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
-    await Deno.writeTextFile(path, `fixture ${file}\n`)
+    await Deno.writeTextFile(
+      path,
+      file.endsWith('.json') ? '[]\n' : `fixture ${file}\n`,
+    )
   }
 }
 
 Deno.test({
   name:
-    'update-version preserves blocked legacy delivery tasks in an isolated generator fixture',
+    'update-version preserves blocked delivery tasks and tracks versioned test fixtures',
   permissions: { read: true, run: true, write: true },
   async fn() {
     const root = await Deno.makeTempDir({ prefix: 'slv-update-version-' })
@@ -131,6 +135,10 @@ Deno.test({
       await Deno.copyFile(
         new URL('../check-version-sync.ts', import.meta.url),
         `${root}/scripts/check-version-sync.ts`,
+      )
+      await Deno.copyFile(
+        new URL('../../.gitignore', import.meta.url),
+        `${root}/.gitignore`,
       )
       await Deno.writeTextFile(
         `${root}/cmn/constants/version.ts`,
@@ -215,6 +223,25 @@ echo "fixture skill $1 $2"
           versionSync.stderr || versionSync.stdout
         }`,
       )
+
+      const initialized = await run(root, 'git', ['init', '--quiet'])
+      assertEquals(initialized.code, 0, initialized.stderr)
+      const staged = await run(root, 'git', ['add', '--all'])
+      assertEquals(staged.code, 0, staged.stderr)
+      const fixturePath =
+        `template/${VERSION}/tests/alpenglow_floor_vectors.json`
+      const tracked = await run(root, 'git', [
+        'ls-files',
+        '--error-unmatch',
+        '--',
+        fixturePath,
+      ])
+      assertEquals(
+        tracked.code,
+        0,
+        `generated public test fixture is missing from the commit: ${tracked.stderr}`,
+      )
+      assertEquals(await Deno.readTextFile(`${root}/${fixturePath}`), '[]\n')
     } finally {
       await Deno.remove(root, { recursive: true })
     }
