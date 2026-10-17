@@ -1,4 +1,17 @@
 ---
+# A mainnet voting validator cannot be Firedancer or Frankendancer: Alpenglow starts on mainnet at epoch 1064 and
+# does not support them during the migration, and this playbook updates Firedancer. It stops every host,
+# before anything is changed, with the words of init.yml and of the CLI (cli/lib/fdctlMainnetGuard.ts), whoever
+# runs it: slv, the AI console or ansible-playbook by hand. Use init.yml with agave, jito or allnodes-jito.
+- name: Refuse Firedancer on mainnet
+  hosts: all
+  gather_facts: no
+  any_errors_fatal: true
+  tasks:
+    - name: Fail, because a mainnet voting validator cannot be Firedancer or Frankendancer
+      ansible.builtin.fail:
+        msg: "A mainnet voting validator cannot be Firedancer or Frankendancer, and this playbook updates Firedancer. Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration. Use agave, jito or allnodes-jito instead, and move a node that already runs Firedancer or Frankendancer to one of them with `slv v switch` before epoch 1064. Nothing was changed on {{ inventory_hostname }}."
+
 - name: Update Firedancer
   hosts: all
   become: yes
@@ -51,6 +64,7 @@
         src: /home/solv/firedancer/build/native/gcc/bin/fdctl
         dest: /usr/local/bin/fdctl
         state: link
+        force: yes
       become: yes
       become_user: root
 

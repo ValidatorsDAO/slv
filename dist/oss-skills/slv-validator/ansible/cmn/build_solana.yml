@@ -8,4 +8,7 @@
   when: validator_type in ['agave', 'firedancer-agave']
 
 - import_playbook: build_jito.yml
-  when: validator_type in ['jito', 'jito-bam', 'firedancer-jito', 'firedancer']
+  when: validator_type in ['jito', 'firedancer-jito', 'firedancer']
+
+- import_playbook: build_allnodes_jito.yml
+  when: validator_type == 'allnodes-jito'

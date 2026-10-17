@@ -28,6 +28,8 @@ import {
   redactSecretKeys,
 } from '@/ai/console/toolSafety.ts'
 import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
+import { VERSION_JITO_VALIDATOR_TESTNET } from '@cmn/constants/version.ts'
+import { ALPENGLOW_FLOORS } from '/lib/versionFloor.ts'
 import { isReadOnlyLine } from '@/ai/console/readOnly.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
@@ -1229,7 +1231,7 @@ ${specialistGuidance}
 
 ### Pre-requisites
 1. Read \`${home}/.slv/versions.yml\` FIRST to get default versions for the selected network/type.
-   - For jito on testnet: use \`testnet_validators.version_jito\` (e.g. "4.0.0-beta.2-jito")
+   - For jito on testnet: use \`testnet_validators.version_jito\` (e.g. "${VERSION_JITO_VALIDATOR_TESTNET}")
    - For agave on mainnet: use \`mainnet_validators.version_agave\`
    - etc.
 
@@ -1239,7 +1241,7 @@ For validator deploy, ask the main agent to collect ONLY:
 2. SSH login user (e.g. ubuntu, root, solv — default: solv)
 3. Network: mainnet / testnet
 4. Region: amsterdam / frankfurt / tokyo / ny
-5. Validator type: jito / agave / allnodes-jito / firedancer-agave / firedancer-jito
+5. Validator type: jito / agave / allnodes-jito on any network, or firedancer-agave / firedancer-jito on testnet only (mainnet refuses them, see Step 3)
 6. Identity: the existing pubkey
 7. Vote account: the existing pubkey
 
@@ -1307,7 +1309,11 @@ If any ansible command fails with SSH errors, report it to the main agent immedi
 
 ### Step 3: Deploy
 Do NOT use \`slv v deploy\` — it has an interactive confirm prompt that hangs.
-Instead, run ansible-playbook directly:
+Running the playbook yourself skips the checks that \`slv v deploy\` makes, so make them first:
+- Mainnet refuses firedancer-agave and firedancer-jito. Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration, so a mainnet voting validator has to be jito, agave or allnodes-jito. If the user asks for a Firedancer type on mainnet, do not write the inventory and do not run init.yml: tell the main agent to offer jito, agave or allnodes-jito instead.
+- The version floor applies. An agave, jito or allnodes release older than ${ALPENGLOW_FLOORS.mainnet} on mainnet (${ALPENGLOW_FLOORS.testnet} on testnet) cannot follow Alpenglow. Compare the \`version_agave\`, \`version_jito\` and \`version_allnodes_jito\` values of \`<network>_validators\` in \`${home}/.slv/versions.yml\` with it. If one is older, or on mainnet is not a version number such as 4.3.2 (latest, main, a commit hash), do not run init.yml: tell the main agent which key to change in \`${home}/.slv/versions.yml\`.
+- init.yml is meant to stop on both as well. If it does, report its message to the main agent as it is, and do not change the validator type, a version or the playbook to get past it.
+Then run ansible-playbook directly:
 \`\`\`
 TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
 ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_DIR}ansible/<network>-validator/init.yml --limit <identity_pubkey>
@@ -1344,8 +1350,8 @@ In your completion message, say:
 - jito — Jito MEV client
 - agave — Standard Agave validator
 - allnodes-jito — Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches)
-- firedancer-agave — Firedancer with Agave consensus
-- firedancer-jito — Firedancer with Jito consensus
+- firedancer-agave — Firedancer with Agave consensus (testnet only; refused on mainnet)
+- firedancer-jito — Firedancer with Jito consensus (testnet only; refused on mainnet)
 
 ### Ansible/SSH execution
 When running ansible-playbook or slv commands that connect to servers:

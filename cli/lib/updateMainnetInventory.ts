@@ -5,11 +5,17 @@ import type {
   ValidatorMainnetConfig,
 } from '@cmn/types/config.ts'
 import { genOrReadMainnetInventory } from '/lib/genOrReadMainnetInventory.ts'
+import { mainnetValidatorTypeRefusal } from '/lib/fdctlMainnetGuard.ts'
 
 const updateMainnetInventory = async (
   identityAccount: string,
   body: Partial<ValidatorMainnetConfig>,
 ) => {
+  // A mainnet voting validator entry is never written with a Firedancer or
+  // Frankendancer type. This stops before the inventory file is touched.
+  const refusal = mainnetValidatorTypeRefusal(String(body.validator_type ?? ''))
+  if (refusal) throw new Error(refusal)
+
   const inventoryType: InventoryType = 'mainnet_validators'
   const inventoryPath = getInventoryPath(inventoryType)
   const inventory = await genOrReadMainnetInventory()

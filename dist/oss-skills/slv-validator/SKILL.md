@@ -9,8 +9,14 @@ Ansible playbooks and Jinja2 templates for deploying and managing Solana validat
 | `jito` | Jito MEV client (default for mainnet) |
 | `allnodes-jito` | Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches) |
 | `agave` | Standard Agave validator |
-| `firedancer-agave` | Firedancer with Agave consensus |
-| `firedancer-jito` | Firedancer with Jito consensus |
+| `firedancer-agave` | Firedancer with Agave consensus. Testnet only: refused on mainnet during the Alpenglow migration |
+| `firedancer-jito` | Firedancer with Jito consensus. Testnet only: refused on mainnet during the Alpenglow migration |
+
+Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not
+supported during the migration. A mainnet voting validator is `agave`, `jito` or
+`allnodes-jito`: mainnet `init.yml` and `init-firedancer.yml` refuse the Firedancer types
+before anything is changed, and `slv v setup:firedancer` and `slv v update:firedancer`
+refuse on mainnet.
 
 ## Directory Structure
 
@@ -38,11 +44,12 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `slv v restart` | `{net}/restart_node.yml` | Graceful restart (`agave-validator exit`, then systemd) |
 | `slv v build:solana` | `{net}/install_solana.yml` | Build Solana from source (dispatches by `validator_type`) |
 | `slv v install:solana` | `cmn/install_solana.yml` | Install Solana binary (deprecated, prefer build) |
-| `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer |
-| `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary |
+| `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer. Testnet only: refused on mainnet (Alpenglow) |
+| `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary. Testnet only: refused on mainnet (Alpenglow) |
 | `slv v update:script` | `{net}/update_startup_config.yml` | Re-render start-validator.sh from template |
 | `slv v set:identity -p <host>` | `{net}/set_identity_key.yml` | Set validator identity key on one host |
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
+| `slv v register:bls` | *(no playbook — solana CLI)* | Register the BLS pubkey on each vote account (SIMD-0387). Also auto-runs at the end of `slv v deploy` |
 | `slv v get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv v cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |
 | `slv disable pwd-login` | `cmn/disable_pwd_login.yml` | Disable SSH password authentication |
@@ -58,7 +65,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 |---|---|
 | `init.yml` | Full node initialization (Agave/Jito) |
 | `init-jito.yml` | Jito-specific initialization |
-| `init-firedancer.yml` | Firedancer initialization |
+| `init-firedancer.yml` | Firedancer initialization. Refuses every host on mainnet (Alpenglow) |
 | `restart_node.yml` | Restart validator |
 | `start_node.yml` | Start validator |
 | `stop_node.yml` | Stop validator |
@@ -66,8 +73,8 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `install_agave.yml` | Build Agave from source |
 | `install_jito.yml` | Build Jito from source |
 | `install_rust.yml` | Install Rust toolchain |
-| `setup_firedancer.yml` | Setup Firedancer binary and config |
-| `update_firedancer.yml` | Update Firedancer binary |
+| `setup_firedancer.yml` | Setup Firedancer binary and config. Refuses every host on mainnet, before anything is changed (Alpenglow); `slv v setup:firedancer -n mainnet` stops before the playbook runs |
+| `update_firedancer.yml` | Update Firedancer binary. Refuses every host on mainnet, before anything is changed (Alpenglow); `slv v update:firedancer -n mainnet` stops before the playbook runs |
 | `update_startup_config.yml` | Update start-validator.sh from Jinja template |
 | `deploy-start-validator-sh.yml` | Deploy start script to remote |
 | `create-start-validator-sh.yml` | Generate start script from template |
@@ -77,8 +84,8 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `set_unstaked_key.yml` | Switch to unstaked identity |
 | `switch_on_identity.yml` | Enable identity (tower copy + key deploy) |
 | `switch_off_identity.yml` | Disable identity (tower backup) |
-| `switch_on_firedancer_identity.yml` | Enable Firedancer identity |
-| `switch_off_firedancer_identity.yml` | Disable Firedancer identity |
+| `switch_on_firedancer_identity.yml` | Enable Firedancer identity. Refused on mainnet in every state (Alpenglow): a Firedancer or Frankendancer host cannot take a mainnet identity |
+| `switch_off_firedancer_identity.yml` | Disable Firedancer identity. On mainnet only while the cluster runs TowerBFT, to move a node off Firedancer before the activation; it stops before it changes anything in the migration window, shortly before the activation, when the cluster cannot be read, and on Alpenglow |
 | `copy_keys.yml` | Copy validator keys to node |
 | `copy_restart_sh.yml` | Copy restarter script |
 | `create_overrides.yml` | Generate overrides.yml from template |
@@ -164,23 +171,29 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 
 | Variable | Description | Default |
 |---|---|---|
-| `validator_type` | Validator type (`jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito`) | `jito` |
-| `solana_version` | Solana/Agave version to build (used when `validator_type == 'agave'`) | — |
-| `jito_version` | Jito version to build (used when `validator_type == 'jito'`) | — |
-| `allnodes_jito_version` | Allnodes-Jito version (used when `validator_type == 'allnodes-jito'`); template appends `-allnodes` to form the git tag | — |
+| `validator_type` | Validator type (`jito`, `allnodes-jito`, `agave`; `firedancer-agave` and `firedancer-jito` on testnet only, mainnet refuses them) | `jito` |
+| `agave_version` | Agave version that `init.yml` builds for `validator_type` `agave` (and `firedancer-agave`): the git tag without its leading `v`, which the build adds. The host or `-e` first, else `version_agave` of the `mainnet_validators` or `testnet_validators` section of `~/.slv/versions.yml`; with neither the run stops before it builds. `init.yml` also stops, before it changes anything, on a client older than the floor of the network (mainnet 4.3.0, testnet 4.4.0-beta.0) | `version_agave` of `versions.yml` |
+| `jito_version` | The same for `validator_type` `jito` (and `firedancer-jito`): the tag without its leading `v`, with its `-jito` suffix. Else `version_jito` of the section | `version_jito` of `versions.yml` |
+| `allnodes_jito_version` | The same for `validator_type` `allnodes-jito`; the build adds the leading `v` and, to a version that does not contain it, `-allnodes`, to form the git tag. Else `version_allnodes_jito` of the section | `version_allnodes_jito` of `versions.yml` |
+| `solana_version` | Not read by `init.yml` or by the builds. Read by `cmn/patch_sha256.yml` (the git ref it clones) and, on testnet, by the snapshot finder (`--version` in `setup_snapshot_finder.yml`, `restart_agave_with_rm_ledger.yml` and `restart_firedancer_with_rm_ledger.yml`, from the variable of the host) | none — `slv v patch:sha256` asks for it; a direct run of `cmn/patch_sha256.yml` stops without it |
 | `firedancer_version` | Firedancer version | — |
 | `snapshot_url` | Snapshot download URL | — |
 | `identity_account` | Validator identity pubkey | — |
 | `vote_account` | Vote account pubkey | — |
 | `block_engine_url` | Jito block engine URL | `https://frankfurt.mainnet.block-engine.jito.wtf` |
 | `shred_receiver_address` | Jito shred receiver. **Accepts a single string or a YAML list** — a list emits one `--shred-receiver-address` flag per entry | `64.130.50.14:1002` |
-| `bam_url` | *Optional.* When set, the validator starts with `--bam-url <value>` and joins the BAM pipeline. Applies to both `jito` and `allnodes-jito`. Replaces the removed `jito-bam` validator_type | — |
+| `bam_url` | BAM scheduler URL — the validator starts with `--bam-url <value>` and joins the BAM pipeline. Applies to `jito` / `allnodes-jito` and must be paired with `block_engine_url` + `shred_receiver_address` (and the tip/merkle MEV flags). Can also be toggled at runtime without a restart: `agave-validator -l <ledger> set-bam-config --bam-url <url>` (empty to disable). Replaces the removed `jito-bam` validator_type | — |
 | `commission_bps` | Commission in basis points | `0` |
 | `dynamic_port_range` | Validator port range | `8000-8025` |
 | `limit_ledger_size` | Ledger size limit | `200000000` |
 | `expected_shred_version` | Expected shred version (testnet, epoch-dependent) | — |
-| `expected_bank_hash` | Expected bank hash (testnet, optional) | — |
-| `wait_for_supermajority` | Wait for supermajority slot (testnet, optional) | — |
+| `expected_bank_hash` | **Cluster-restart only.** Emitted only when explicitly set (gated `is defined`). Do NOT set for normal operation — a stale value triggers a bank-hash-mismatch panic on restart | — |
+| `wait_for_supermajority` | **Cluster-restart only.** Emitted only when explicitly set (gated `is defined`). Do NOT set for normal operation — a stale slot makes the validator hang/fail at startup | — |
+| `xdp_enabled` | Enable XDP (eXpress Data Path) Turbine-retransmit acceleration. `agave` / `jito` only (Firedancer uses XDP natively). Gates the `--experimental-retransmit-xdp-*` flags and the systemd `CAP_NET_RAW/NET_ADMIN/BPF/PERFMON` capabilities. Per-host (NIC-/CPU-dependent) | `false` |
+| `xdp_interface` | XDP NIC (bond member, e.g. the active data interface). Required when `xdp_enabled`; the flag block is skipped if blank | — |
+| `xdp_cpu_cores` | XDP retransmit CPU core count | `1` |
+| `xdp_zero_copy` | Enable `--experimental-retransmit-xdp-zero-copy`. Do NOT enable on `bnxt_en` / `ice` drivers | `false` |
+| `xdp_poh_pinned_cpu_core` | Optional PoH pinned CPU core (`--experimental-poh-pinned-cpu-core`) | — |
 | `source_host` | Source host for nodowntime migration | — |
 | `target_host` | Target host for nodowntime migration | — |
 
@@ -199,7 +212,7 @@ performance tuning, source build, snapshot download, systemd setup, and start.
 
 ### B. Version / config update
 ```bash
-# 1. Edit ~/.slv/versions.yml (e.g. version_jito: 3.1.13 -> 3.1.14)
+# 1. Edit ~/.slv/versions.yml (e.g. set version_jito: 4.3.2-jito)
 # 2. Build new binary from source
 slv v build:solana -n <network> -p <host>
 # 3. Re-render start-validator.sh (picks up inventory changes such as bam_url
@@ -226,6 +239,51 @@ Runs `{net}-validator/nodowntime_migrate.yml`:
 `~/.slv/keys/<identity_account>.json`, and `unstaked-identity.json` on each
 remote box.
 
+## Validator Requirements: BLS (SIMD-0387), XDP, BAM
+
+### BLS public key (SIMD-0387)
+
+Voting validators must register the BLS public key derived from their authorized
+voter keypair. Without it the vote account behaves as **unstaked** once SIMD-0357
+(Alpenglow voting) activates. The authorized voter defaults to the validator
+identity, so the identity keypair signs and fills the derived BLS key:
+
+```bash
+slv v register:bls -n <network> -p <host>   # all hosts if -p omitted
+```
+
+- Runs `solana vote-authorize-voter-checked <vote> <identity> <identity> --use-v2-instruction`.
+  Forcing the v2 instruction means that while the feature gate is still inactive
+  the tx fails cleanly at simulation **without mutating state** (no wasted
+  voter re-authorization). The authorized voter is unchanged.
+- Idempotent: skips hosts whose on-chain `blsPubkeyCompressed` is already set and
+  re-reads it to confirm success.
+- Auto-runs (non-fatal) at the end of `slv v deploy`. Re-run manually after the
+  feature activates on the target cluster.
+- Requires a solana/agave CLI new enough to expose `vote-authorize-voter-checked
+  --use-v2-instruction` and `solana-keygen bls_pubkey` (v4.x).
+
+### XDP retransmit acceleration
+
+`agave` / `jito` only — Firedancer uses XDP natively. Set the per-host
+`xdp_*` inventory vars (see Key Variables); `slv v init` prompts for them. When
+`xdp_enabled` + a non-empty `xdp_interface` are present, the start script gains
+`--experimental-retransmit-xdp-*` flags and the systemd unit gets
+`CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON`. Needs kernel 6.8+ (igb: 6.14+).
+Do not enable `xdp_zero_copy` on `bnxt_en` / `ice` drivers. Flags are
+`--experimental-` in current Agave and may be renamed upstream.
+
+### BAM (jito)
+
+Joining BAM needs `bam_url` **plus** `block_engine_url` and
+`shred_receiver_address` (BAM runs alongside the block engine, it does not
+replace it), and the MEV flags (`--tip-payment-program-pubkey`,
+`--tip-distribution-program-pubkey`, `--merkle-root-upload-authority`,
+`--commission-bps`) — all already emitted by the jito start template. A relayer
+URL is not used with BAM. BAM can be enabled/disabled at runtime without a
+restart via `agave-validator -l <ledger> set-bam-config --bam-url [<url>]`.
+A validator only connects to BAM while it is in the leader schedule.
+
 ## Direct ansible invocation
 
 If you need to bypass the `slv v` wrapper, the playbooks are designed to run
@@ -233,7 +291,7 @@ directly via `ansible-playbook` with `extra_vars`:
 
 ```bash
 ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"3.1.14","snapshot_url":"https://..."}'
+  -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"4.3.2-allnodes","snapshot_url":"https://..."}'
 ```
 
 No `versions.yml` required when you pass everything via `extra_vars`.
@@ -251,10 +309,11 @@ for the generated output format.
 | `server_ip` | "Target server IP?" | Valid IPv4 |
 | `network` | "Mainnet or testnet?" | `mainnet` or `testnet` |
 | `region` | "Server region? (amsterdam, frankfurt, tokyo, ny, ...)" | String |
-| `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito` |
-| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
-| `jito_version` | "Jito version?" (if jito/allnodes-jito) | Semver |
-| `firedancer_version` | "Firedancer version?" (if firedancer) | String |
+| `validator_type` | "Which validator type?" | `jito`, `allnodes-jito`, `agave`; `firedancer-agave` and `firedancer-jito` on testnet only (mainnet refuses them) |
+| `agave_version` | "Solana version?" (if agave; default: 4.3.2 on mainnet, the `version_agave` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver, no leading `v` |
+| `jito_version` | "Jito version?" (if jito; default: 4.3.2-jito on mainnet, the `version_jito` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver with the `-jito` suffix, no leading `v` |
+| `allnodes_jito_version` | "Allnodes-Jito version?" (if allnodes-jito; default: 4.3.2-allnodes on mainnet, the `version_allnodes_jito` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver, with or without `-allnodes`, no leading `v` |
+| `firedancer_version` | "Firedancer version?" (testnet, if firedancer) | String |
 | `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
 | `vote_account` | "Vote account pubkey? (or generate)" | Base58 pubkey or `generate` |
 | `snapshot_url` | "Snapshot URL? (auto-detected for ERPC nodes)" | URL (cannot be empty for init) |
@@ -271,9 +330,11 @@ for the generated output format.
 | `allowed_ips` | — | Optional (UFW) |
 | `block_engine_url` | Auto by region | Jito types only |
 | `shred_receiver_address` | Auto by region | Jito types only |
+| `bam_url` | — | Jito types joining BAM |
 | `expected_shred_version` | Epoch-dependent | Testnet only |
-| `expected_bank_hash` | Epoch-dependent | Testnet (optional) |
-| `wait_for_supermajority` | Epoch-dependent | Testnet (optional) |
+| `expected_bank_hash` | — | Cluster restart only (leave unset normally) |
+| `wait_for_supermajority` | — | Cluster restart only (leave unset normally) |
+| `xdp_enabled` (+ `xdp_interface`, `xdp_cpu_cores`, `xdp_zero_copy`, `xdp_poh_pinned_cpu_core`) | `false` | agave/jito, per-host |
 
 ### Optional: Reference RPC
 
@@ -297,54 +358,68 @@ All paths relative to skill's `ansible/` directory:
 ```bash
 cd /path/to/slv-validator/ansible/
 ansible-playbook -i inventory.yml {network}-validator/init.yml \
-  -e '{"validator_type":"<type>","solana_version":"<version>","snapshot_url":"<url>"}'
+  -e '{"validator_type":"<type>","<version variable>":"<version>","snapshot_url":"<url>"}'
 ```
+`<version variable>` is `agave_version` for `agave`, `jito_version` for `jito` and
+`allnodes_jito_version` for `allnodes-jito`. Write `<version>` without a leading `v` (the
+build adds it), at or above the floor of the network (mainnet 4.3.0, testnet 4.4.0-beta.0):
+`init.yml` stops before it changes anything on an older one. Leave the variable out to build
+the pin of `~/.slv/versions.yml`.
 
 ### Dry-Run First
 
 Always offer `--check` mode before actual deployment:
 ```bash
-ansible-playbook -i inventory.yml {network}-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"3.1.8"}' --check
+ansible-playbook -i inventory.yml mainnet-validator/init.yml \
+  -e '{"validator_type":"jito","jito_version":"4.3.2-jito"}' --check
 ```
 
 ## Performance Tuning
 
-The `init.yml` playbook automatically applies performance tuning during first deployment:
+`slv v init` automatically applies node-level performance tuning **after the SSH
+connection check** and **before** `slv v deploy`. The orchestrator playbook
+(`cmn/optimize_node.yml`) chains three sub-skills and reboots the node once
+when GRUB / kernel changes require it.
 
-| Tuning | Description |
-|---|---|
-| SMT Disable | Disables Hyper-Threading via GRUB `nosmt` for better single-thread performance |
-| IRQ Tuning | NIC IRQ 1:1 pinning + RPS/XPS optimization for balanced network interrupt distribution |
-| CPU Boost | HWE kernel + AMD performance governor + boost + C-state optimization |
-
-### Inventory Fields (auto-managed)
-
-| Field | Type | Default | Description |
+| Sub-skill | Playbook | Description | Reboot |
 |---|---|---|---|
-| `smt_disable` | bool | `false` | Set to `true` after SMT disable is applied |
-| `irq_tuning` | bool | `false` | Set to `true` after IRQ tuning is applied |
-| `cpu_boost` | bool | `false` | Set to `true` after CPU boost is applied |
-| `need_reboot` | bool | `false` | Set to `true` when reboot is required |
+| `slv-smt-disable` | `cmn/smt_disable.yml` | Disables Hyper-Threading via GRUB `nosmt=force` | **Yes** (first run) |
+| `slv-irq-tuning` | `cmn/irq_tune.yml` | NIC IRQ 1:1 pin + RPS/XPS + ring 8192 + sysctl + ulimit + THP off + NVMe queue=ncores | Only if NVMe GRUB changed |
+| `slv-performance-boost` | `cmn/boost_performance.yml` | HWE kernel install + amd_pstate=active + governor=performance + EPP + boost + cpuidle disable + scaling_max_freq | **Yes** if AMD < 6.14 or AMD GRUB updated |
+
+### Idempotency markers
+
+Each sub-skill writes a marker file so subsequent runs no-op safely:
+
+| Marker | Skill |
+|---|---|
+| `/var/lib/slv/.smt_disabled` | smt_disable |
+| `/var/lib/slv/.irq_tuned` | irq_tune |
+| `/var/lib/slv/.boost_applied` | boost_performance |
 
 ### Reboot Flow
 
-If performance tuning requires a reboot (kernel update, GRUB changes):
-1. Deployment pauses with a message: "Reboot required"
-2. User reboots the server
-3. User re-runs `slv v deploy`
-4. Tuning steps are skipped (already applied), deployment continues
+`cmn/optimize_node.yml` runs the three sub-playbooks, collects each one's
+`need_reboot` fact, then calls `ansible.builtin.reboot` once if any of them
+requested it (waits up to 15 min for the host to come back). No manual user
+intervention is required.
 
 ### Standalone Usage
 
-Performance tuning can also be run independently:
 ```bash
-ansible-playbook -i inventory.yml cmn/performance_tune.yml
+# Run full optimization stack
+ansible-playbook -i inventory.yml cmn/optimize_node.yml --limit <host>
+
+# Or run a single sub-skill
+ansible-playbook -i inventory.yml cmn/smt_disable.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/irq_tune.yml --limit <host>
+ansible-playbook -i inventory.yml cmn/boost_performance.yml --limit <host> -e amd_pstate_mode=active
 ```
 
 ### CLI Command Mapping
 
 | CLI Command | Playbook |
 |---|---|
-| `slv v deploy` | `{net}/init.yml` (includes performance_tune.yml) |
-| *(standalone)* | `cmn/performance_tune.yml` |
+| `slv v init` (after SSH check) | `cmn/optimize_node.yml` (auto-reboot if needed) |
+| `slv v deploy` | `{net}/init.yml` |
+| *(standalone optimization)* | `cmn/optimize_node.yml` |

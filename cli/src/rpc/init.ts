@@ -10,6 +10,7 @@ import { devnetInitRpc } from '/src/rpc/init/devnetInitRpc.ts'
 import { testnetInitRpc } from '/src/rpc/init/testnetInitRpc.ts'
 import { checkSSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { getLocalConnection } from '@cmn/prompt/localConnection.ts'
+import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 export async function copyTemplateDirs() {
   const templateBase = join(configRoot, 'template', denoJson.version, 'jinja')
@@ -67,6 +68,9 @@ const init = async (options?: { localhost?: boolean }) => {
     console.log(colors.red('❌ Network selection is required'))
     return
   }
+
+  // A client pinned below what Alpenglow runs on is not set up.
+  if (await refuseBelowFloorPins(network, 'rpc')) return
 
   let sshOptions
   if (options?.localhost) {

@@ -7,9 +7,12 @@
   vars_files:
     - ["~/.slv/versions.yml", "/dev/null"]
   tasks:
-    - name: Set validator type fact for each host
-      set_fact:
-        validator_type: "{{ validator_type | default('firedancer-jito') }}"
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
 
     # The XDP flags have to suit the agave that starts next, so the version comes
     # from the agave-validator installed on this host, found the way the solv unit

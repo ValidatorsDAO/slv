@@ -6,8 +6,8 @@ Ansible playbooks and Jinja2 templates for deploying and managing Solana gRPC Ge
 
 | Config | Description |
 |---|---|
-| Yellowstone gRPC | Standard Geyser gRPC plugin (Triton/rpcpool) |
-| Richat gRPC | Richat Geyser plugin (lamports-dev) |
+| Yellowstone gRPC | Standard Geyser gRPC plugin (Triton/rpcpool); the default |
+| Richat gRPC | Richat Geyser plugin (lamports-dev); `geyser_plugin: richat`. Richat has no release for agave 4.3 or later yet, so `init.yml` stops on a node that is set to run such an agave |
 
 ## Directory Structure
 
@@ -40,10 +40,12 @@ gRPC Geyser nodes are managed via `slv r` (RPC) commands with `rpc_type` set to 
 | Playbook | Description |
 |---|---|
 | `init.yml` | Full gRPC Geyser node initialization |
-| `init_richat_geyser.yml` | Richat Geyser initialization |
-| `geyser_build.yml` | Build Yellowstone gRPC from GitHub source |
-| `geyser_richat_build.yml` | Build Richat plugin from GitHub source |
-| `install_richat.yml` | Install Richat plugin |
+| `init_richat_geyser.yml` | Richat Geyser initialization (only for `geyser_plugin: richat`) |
+| `cmn/stop_richat.yml` | Stop and disable `richat.service` on a node that ran richat, and move its plugin library aside (`librichat_plugin_agave.so.disabled`), after the Yellowstone build of `init.yml` |
+| `cmn/check_alpenglow_floor.yml` | Stop `init.yml`, before it changes anything, on an agave or jito version or a Yellowstone plugin older than Alpenglow runs on (4.3.0 on mainnet) |
+| `geyser_build.yml` | Build Yellowstone gRPC from GitHub source (the default of `init.yml`) |
+| `geyser_richat_build.yml` | Build Richat plugin from GitHub source (only with `geyser_plugin: richat`) |
+| `install_richat.yml` | Install Richat plugin (only with `geyser_plugin: richat`) |
 | `update_geyser.yml` | Update Geyser plugin |
 | `restart_node.yml` | Restart node |
 | `start_node.yml` / `stop_node.yml` | Start/stop node |
@@ -61,6 +63,7 @@ gRPC Geyser nodes are managed via `slv r` (RPC) commands with `rpc_type` set to 
 - Config template: `jinja/mainnet-rpc/geyser.json.j2`
 
 ### Richat (`geyser_richat_build.yml`)
+- Only with `geyser_plugin: richat`. Richat has no release for agave 4.3 or later yet, so `init.yml` stops on a node set to run such an agave; the playbooks stay for when a release exists
 - Clones from https://github.com/lamports-dev/richat
 - Builds with `cargo build --release`
 - Produces `librichat_plugin_agave.so`
@@ -74,9 +77,12 @@ gRPC Geyser nodes are managed via `slv r` (RPC) commands with `rpc_type` set to 
 |---|---|---|
 | `rpc_type` | Must be `Geyser gRPC` or `Index RPC + gRPC` | — |
 | `validator_type` | Client type (`agave`, `jito`, `firedancer-agave`, etc.) | — |
-| `solana_version` | Solana/Agave version | — |
-| `yellowstone_grpc_version` | Yellowstone gRPC version tag | — |
-| `richat_version` | Richat plugin version (e.g. `richat-v8.1.0`) | — |
+| `agave_version` | Agave version of an `agave` node, without the leading `v` | `version_agave` of the `<network>_rpcs` section of `~/.slv/versions.yml` |
+| `jito_version` | Jito version of a `jito` node, with the `-jito` suffix (e.g. `4.3.2-jito`) | `version_jito` of the same section |
+| `allnodes_jito_version` | Allnodes-Jito version of an `allnodes-jito` node (e.g. `4.3.2-allnodes`) | — (the RPC sections hold no pin for it) |
+| `geyser_plugin` | Geyser plugin, an inventory variable: `yellowstone` or `richat` | `yellowstone` |
+| `geyser_version` | Yellowstone gRPC release tag | `geyser_version` of the network in `~/.slv/versions.yml` |
+| `richat_version` | Richat plugin version, for `geyser_plugin: richat` (e.g. `richat-v8.1.0`) | — |
 | `snapshot_url` | Snapshot download URL | — |
 | `port_grpc` | gRPC listen port | `10000` |
 | `limit_ledger_size` | Ledger size limit | `100000000` |
@@ -102,14 +108,16 @@ Both plugins are built from source (no binary downloads):
 - **Yellowstone gRPC**: https://github.com/rpcpool/yellowstone-grpc
 - **Richat**: https://github.com/lamports-dev/richat
 
+Yellowstone is the default plugin of `init.yml`. A node that ran Richat gets `richat.service` stopped and disabled when it is initialised with Yellowstone, so the two never share port 10000.
+
 ## Usage
 
 ```bash
 # Deploy a new gRPC Geyser node
 ansible-playbook -i inventory mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Geyser gRPC","solana_version":"3.1.8","yellowstone_grpc_version":"v6.0.0","snapshot_url":"https://..."}'
+  -e '{"rpc_type":"Geyser gRPC","agave_version":"4.3.2","snapshot_url":"https://..."}'
 
-# Build/update Richat plugin
+# Build/update the Richat plugin, on a node whose agave is older than 4.3 (see Geyser Plugin Sources)
 ansible-playbook -i inventory mainnet-rpc/geyser_richat_build.yml \
   -e '{"richat_version":"richat-v8.1.0"}'
 ```
@@ -128,7 +136,7 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 | `region` | "Server region?" | String |
 | `rpc_type` | "Geyser gRPC or Index RPC + gRPC?" | `Geyser gRPC`, `Index RPC + gRPC` |
 | `validator_type` | "Underlying client?" | `agave`, `jito`, `allnodes-jito`, `firedancer-agave` |
-| `solana_version` | "Solana version? (default: 3.1.8)" | Semver |
+| `agave_version`, `jito_version` or `allnodes_jito_version` (the one of the `validator_type`) | "Solana version? (default: 4.3.2)" | Semver without a leading `v`; `4.3.2-jito` for `jito`, `4.3.2-allnodes` for `allnodes-jito` |
 | `identity_account` | "Node identity pubkey?" | Base58 pubkey |
 | `snapshot_url` | "Snapshot URL? (auto for ERPC)" | URL (cannot be empty for init) |
 
@@ -136,17 +144,18 @@ See `AGENT.md` for the full step-by-step flow and `examples/inventory.yml` for o
 
 | Plugin | Version Variable | Source | Output |
 |---|---|---|---|
-| Yellowstone gRPC | `yellowstone_grpc_version` | github.com/rpcpool/yellowstone-grpc | `libyellowstone_grpc_geyser.so` |
-| Richat | `richat_version` | github.com/lamports-dev/richat | `librichat_plugin_agave.so` |
+| Yellowstone gRPC (default) | `geyser_version` (optional) | github.com/rpcpool/yellowstone-grpc | `libyellowstone_grpc_geyser.so` |
+| Richat (`geyser_plugin: richat`) | `richat_version` | github.com/lamports-dev/richat | `librichat_plugin_agave.so` |
 
 Both are built from source (no pre-built binaries). Build time: ~15-30 min.
-**Only collect the version variable for the selected plugin.**
+**Yellowstone is the default: leave `geyser_plugin` out of the inventory.** Richat needs `geyser_plugin: richat`, and richat has no release for agave 4.3 or later yet: `init.yml` stops, before it changes anything, on a node set to run such an agave.
 
 ### Conditionally Required Variables
 
 | Variable | When Required |
 |---|---|
-| `jito_version` | jito/allnodes-jito types |
+| `jito_version` | `jito` type, in place of `agave_version` |
+| `allnodes_jito_version` | `allnodes-jito` type, in place of `agave_version` (the RPC sections of `versions.yml` hold no pin for it) |
 | `firedancer_version` | firedancer types |
 | `shred_receiver_address` | jito/allnodes-jito (auto by region) |
 | `block_engine_url` | jito/allnodes-jito (auto by region) |
@@ -184,5 +193,6 @@ All paths relative to skill's `ansible/` directory:
 ```bash
 cd /path/to/slv-grpc-geyser/ansible/
 ansible-playbook -i inventory.yml mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Geyser gRPC","solana_version":"<version>","richat_version":"<version>"}'
+  -e '{"rpc_type":"Geyser gRPC","agave_version":"<version>"}'
 ```
+Pass `jito_version` (e.g. `4.3.2-jito`) or `allnodes_jito_version` (e.g. `4.3.2-allnodes`) in place of `agave_version` for a `jito` or `allnodes-jito` node. `solana_version` is not read by `init.yml`.

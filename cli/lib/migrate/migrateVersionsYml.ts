@@ -45,9 +45,12 @@ type MigrationOperations = {
  * - Ensures required keys exist (fills missing with defaults)
  * - Preserves user values and unknown keys
  * - Recovers from parse errors by backing up and restoring defaults
+ *
+ * A value already in the file is never replaced by a newer default, so a
+ * `slv upgrade` leaves the versions an operator pinned as they are.
  */
 export const migrateVersionsYml = async (
-  versionsPath = VERSIONS_PATH,
+  versionsPath: string = VERSIONS_PATH,
   operations: MigrationOperations = {},
 ): Promise<boolean> => {
   const readTextFile = operations.readTextFile ?? Deno.readTextFile

@@ -1,11 +1,18 @@
 ---
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, a jito older than 4.4.0-beta.0, the floor of Alpenglow
+# on testnet. This play installs jito_version of the host or -e, else version_jito of testnet_rpcs, and the check reads the same.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: testnet_rpcs
+    floor_client: jito
+    floor_plugin: false
+
 - name: Install Jito Solana (agave + solana bins from target/release)
   hosts: all
   become: true
   vars_files:
     - ~/.slv/versions.yml
   vars:
-    jito_version: v{{ testnet_rpcs.version_jito }}
     jito_repo: https://github.com/jito-foundation/jito-solana.git
     jito_install_dir: '/home/solv/jito-solana'
     jito_release_dir: '{{ jito_install_dir }}/target/release'
@@ -13,6 +20,16 @@
     solana_bin_dir: '{{ solana_release_dir }}/bin'
 
   tasks:
+    - name: Resolve jito version (override with -e jito_version=)
+      set_fact:
+        jito_version_resolved: "v{{ jito_version | default(testnet_rpcs.version_jito | default('', true), true) }}"
+
+    - name: Ensure jito version is resolved
+      assert:
+        that:
+          - jito_version_resolved != 'v'
+        fail_msg: "jito_version must be provided (via -e jito_version= or testnet_rpcs.version_jito in ~/.slv/versions.yml)"
+
     - name: Check if Rust is installed
       become: no
       shell: command -v rustc
@@ -49,8 +66,17 @@
       git:
         repo: '{{ jito_repo }}'
         dest: '{{ jito_install_dir }}'
-        version: '{{ jito_version }}'
+        version: '{{ jito_version_resolved }}'
         force: yes
+
+    - name: Remove stale cargo-build-sbf/cargo-test-sbf (avoid cargo-install conflict)
+      become: no
+      file:
+        path: '{{ jito_install_dir }}/bin/{{ item }}'
+        state: absent
+      loop:
+        - cargo-build-sbf
+        - cargo-test-sbf
 
     - name: Build Jito Solana (cargo-install-all)
       become: no

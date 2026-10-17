@@ -1,20 +1,51 @@
 ---
+# Geyser gRPC and Index RPC + gRPC nodes on agave or jito get the Yellowstone Geyser plugin
+# (geyser_build.yml), built at mainnet_rpcs.geyser_version of ~/.slv/versions.yml. A node that
+# ran richat has richat.service stopped and disabled (cmn/stop_richat.yml) so that the two
+# never share port 10000.
+# geyser_plugin: richat in the inventory is the way to richat (geyser_richat_build.yml and
+# install_richat.yml, at mainnet_rpcs.richat_version), but richat has no release for agave 4.3
+# or later yet: cmn/check_richat_release.yml stops the play, before it changes anything, on a node
+# that is set to run such an agave. Any other value of geyser_plugin stops it too.
+# The client is built at the agave_version or jito_version of the host, else at version_agave or
+# version_jito of mainnet_rpcs (cmn/build_solana.yml, which takes the section as versions_section).
 - name: Load validator type from inventory
   hosts: all
   gather_facts: no
+  any_errors_fatal: true
   tasks:
-    - name: Set validator type fact for each host
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+    - name: Set Geyser plugin fact for each host
       set_fact:
-        validator_type: "{{ validator_type | default('firedancer-jito') }}"
+        geyser_plugin: "{{ geyser_plugin | default('yellowstone') }}"
 
-    - name: Debug validator type. Stop if not set
-      debug:
-        msg: 'Validator type is {{ validator_type }}'
+    - name: Fail unless geyser_plugin is yellowstone or richat
+      ansible.builtin.assert:
+        that:
+          - geyser_plugin in ['yellowstone', 'richat']
+        fail_msg: "geyser_plugin must be yellowstone or richat (or left out for yellowstone), not '{{ geyser_plugin }}'. Nothing was changed on {{ inventory_hostname }}."
+        success_msg: "Geyser plugin is {{ geyser_plugin }}"
 
-    - name: Fail if validator type is not set
-      fail:
-        msg: 'Validator type is not set. Please set it in the inventory.'
-      when: validator_type is not defined
+# cmn/check_alpenglow_floor.yml stops, before anything is changed, a client or a Yellowstone plugin that is
+# older than the floor of mainnet: the agave_version or jito_version of the host, else the version_* pin of
+# mainnet_rpcs, and the geyser_version of the host, else the geyser_version of mainnet_rpcs.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: mainnet_rpcs
+
+- import_playbook: ../cmn/check_richat_release.yml
+  vars:
+    versions_section: mainnet_rpcs
+  when:
+    - geyser_plugin == 'richat'
+    - rpc_type | default('') in ['Geyser gRPC', 'Index RPC + gRPC']
+    - validator_type in ['agave', 'jito']
 
 - import_playbook: ../cmn/fix_permissions.yml
 - import_playbook: ../cmn/copy_restart_sh.yml
@@ -35,6 +66,8 @@
 - import_playbook: ../cmn/setup_norestart.yml
 - import_playbook: ../cmn/setup_logrotate.yml
 - import_playbook: ../cmn/build_solana.yml
+  vars:
+    versions_section: mainnet_rpcs
 - import_playbook: create-symlink.yml
 
 - import_playbook: setup_firedancer.yml
@@ -46,15 +79,29 @@
 - import_playbook: create-start-validator-sh.yml
   when: validator_type in ['agave', 'jito']
 
+- import_playbook: geyser_build.yml
+  when:
+    - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+    - validator_type in ['agave', 'jito']
+    - geyser_plugin == 'yellowstone'
+
+- import_playbook: ../cmn/stop_richat.yml
+  when:
+    - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+    - validator_type in ['agave', 'jito']
+    - geyser_plugin == 'yellowstone'
+
 - import_playbook: geyser_richat_build.yml
   when:
     - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
     - validator_type in ['agave', 'jito']
+    - geyser_plugin == 'richat'
 
 - import_playbook: install_richat.yml
   when:
     - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
     - validator_type in ['agave', 'jito']
+    - geyser_plugin == 'richat'
 
 - import_playbook: ../cmn/wget_snapshot.yml
 

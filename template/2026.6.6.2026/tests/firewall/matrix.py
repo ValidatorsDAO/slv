@@ -89,9 +89,11 @@ CLIENT_PINS = {
         "allnodes-jito": "VERSION_ALLNODES_JITO_MAINNET",
         "firedancer": "VERSION_FIREDANCER_MAINNET",
     },
+    # the testnet validators have pins of their own: the RPC pins of testnet stay on the version
+    # that a Geyser plugin is built for
     ("testnet", "validator"): {
-        "agave": "VERSION_SOLANA_TESTNET",
-        "jito": "VERSION_JITO_TESTNET",
+        "agave": "VERSION_SOLANA_VALIDATOR_TESTNET",
+        "jito": "VERSION_JITO_VALIDATOR_TESTNET",
         "allnodes-jito": "VERSION_ALLNODES_JITO_TESTNET",
         "firedancer": "VERSION_FIREDANCER_TESTNET",
     },
@@ -111,9 +113,10 @@ CLIENT_PINS = {
         "firedancer": "VERSION_FIREDANCER_DEVNET",
     },
 }
-# Pins of things that have no listen profile: richat, Old Faithful and the Yellowstone
-# plugin.  Their ports are read from the config that the start playbooks render for them (the
-# Old Faithful address from its play), so the pin itself is not looked up.
+# Pins of things that have no listen profile: Old Faithful, the Yellowstone plugin and richat.
+# The ports of the first two are read from the config that the start playbooks render for them
+# (the Old Faithful address from its play), so the pin itself is not looked up.
+# startup_templates.yml no longer lists richat; the CLI still passes its pin.
 OTHER_PINS = (
     "VERSION_RICHAT",
     "VERSION_OF1",
@@ -427,7 +430,9 @@ def scenario_cells(pins):
                 "has_global_v6": True,
             },
         ),
-        # the Yellowstone plugin in place of richat: the geyser.json route of the playbook
+        # the entries listed by hand for the Yellowstone plugin (the geyser.json route of the
+        # playbook).  startup_templates.yml gives the Geyser gRPC cell of mainnet-rpc/agave the
+        # same entries, so this renders the same tables as that cell
         scenario(
             pins, "scenarios/yellowstone", "scenarios/yellowstone",
             entries=[

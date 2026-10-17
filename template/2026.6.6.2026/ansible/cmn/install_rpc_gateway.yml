@@ -23,7 +23,12 @@
 #   rpc_gateway_ch_user     (unset)
 #   rpc_gateway_ch_pass     (unset)
 #   rpc_gateway_yellowstone_grpc                       localhost:10000
-#   rpc_gateway_pubsub_ws                              ws://localhost:7111
+#   rpc_gateway_pubsub_ws                              ws://localhost:<port_rpc + 1>, the pubsub of
+#                                                       the agave of this node (port_rpc is the host
+#                                                       variable the start script reads for --rpc-port,
+#                                                       8899 when it is not set); ws://localhost:7111
+#                                                       when the host has geyser_plugin: richat, which
+#                                                       serves the pubsub itself
 #   rpc_gateway_slot_first_shred_url                   (unset) — opt-in latency tweak
 #   rpc_gateway_slot_first_shred_multiplex_urls        (unset, comma list) — opt-in
 #   rpc_gateway_slot_multiplex_urls                    (unset, comma list) — opt-in
@@ -102,7 +107,9 @@
     rg_ch_user: "{{ rpc_gateway_ch_user | default('') }}"
     rg_ch_pass: "{{ rpc_gateway_ch_pass | default('') }}"
     rg_yellowstone: "{{ rpc_gateway_yellowstone_grpc | default('localhost:10000') }}"
-    rg_pubsub: "{{ rpc_gateway_pubsub_ws | default('ws://localhost:7111') }}"
+    # With the Yellowstone plugin (the default of slv's RPC init) the pubsub is the one of the agave of
+    # the node: its RPC port + 1, the port that the start script gives --rpc-port. Richat serves it on 7111.
+    rg_pubsub: "{{ rpc_gateway_pubsub_ws | default('ws://localhost:7111' if (geyser_plugin | default('yellowstone')) == 'richat' else 'ws://localhost:' ~ ((port_rpc | default(8899, true) | int) + 1)) }}"
     rg_slot_first_shred_url: "{{ rpc_gateway_slot_first_shred_url | default('') }}"
     rg_slot_first_shred_multiplex_urls: "{{ rpc_gateway_slot_first_shred_multiplex_urls | default('') }}"
     rg_slot_multiplex_urls: "{{ rpc_gateway_slot_multiplex_urls | default('') }}"
@@ -196,7 +203,7 @@
       become_user: solv
       ansible.builtin.shell: |
         export PATH="$HOME/.cargo/bin:$PATH"
-        # librocksdb-sys's bindgen needs libclang at build time; the
+        # the bindgen of librocksdb-sys needs libclang at build time; the
         # exact path differs by libclang-dev version (libclang-N).
         # `find` here picks whatever the distro installed without
         # hard-coding a version.

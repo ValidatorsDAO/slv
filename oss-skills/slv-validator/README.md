@@ -7,13 +7,13 @@ Deploy and manage Solana validators (mainnet & testnet) with AI-powered interact
 This skill gives an AI agent the knowledge and tools to:
 - **Deploy** new Solana validators with guided setup
 - **Manage** validator lifecycle — start, stop, restart, update
-- **Build** Solana from source (Agave, Jito, Firedancer)
+- **Build** Solana from source (Agave, Jito, Allnodes-Jito; Firedancer on testnet only)
 - **Migrate** validators with zero-downtime identity switching
 - **Configure** firewall, systemd services, and log rotation
 - **Register** the BLS public key on vote accounts (SIMD-0387 / Alpenglow readiness)
 - **Accelerate** Turbine retransmit with XDP (agave/jito) and join Jito BAM
 
-Supported validator types: `jito`, `allnodes-jito`, `agave`, `firedancer-agave`, `firedancer-jito`
+Supported validator types: `jito`, `allnodes-jito`, `agave` and, on testnet only, `firedancer-agave` and `firedancer-jito`. A mainnet voting validator cannot be Firedancer or Frankendancer during the Alpenglow migration, and the mainnet playbooks refuse them.
 
 ## Prerequisites
 
@@ -43,7 +43,7 @@ cp examples/inventory.yml my-inventory.yml
 # 2. Deploy
 cd ansible/
 ansible-playbook -i ../my-inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","solana_version":"3.1.8"}'
+  -e '{"validator_type":"jito","jito_version":"4.3.2-jito"}'
 ```
 
 ## Contents

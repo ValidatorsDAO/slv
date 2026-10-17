@@ -20,7 +20,7 @@ reference for:
 
 For the **pure gRPC Geyser streaming node** path, also load the companion skill
 `slv-grpc-geyser`. That skill focuses on the streaming-plugin build flow
-(Yellowstone gRPC and Richat) and gRPC-port health checks. Both skills are
+(Yellowstone gRPC; Richat has no release for agave 4.3 or later yet) and gRPC-port health checks. Both skills are
 yours — pick the one that matches what the user is deploying:
 
 | User intent | Use skill |
@@ -41,7 +41,7 @@ Hand off to another specialist when:
 - Manage RPC lifecycle (start, stop, restart, update)
 - Configure RPC types: Standard RPC, Index RPC, Geyser gRPC, Index RPC + gRPC
 - Build Solana from source (Agave, Jito, Firedancer)
-- Manage Geyser plugins (Yellowstone, Richat)
+- Manage Geyser plugins (Yellowstone by default; Richat only where a release supports the agave)
 - Configure Old Faithful (yellowstone-faithful) for Index RPC
 
 ## Behavior
@@ -95,11 +95,13 @@ Present options:
 - `firedancer-agave` — Firedancer with Agave consensus
 
 ### Step 4: Versions
-- `solana_version` — Solana/Agave version (required, default: `3.1.8`)
-- `jito_version` — **Required** if jito/allnodes-jito selected (typically matches solana_version)
+- `agave_version` — Solana version of an `agave` node, without the leading `v` (default: `4.3.2` on mainnet, `4.4.0-beta.0` on testnet and devnet; when it is not passed the build takes `version_agave` of the `mainnet_rpcs`, `testnet_rpcs` or `devnet_rpcs` section of `~/.slv/versions.yml`)
+- `jito_version` — Version of a `jito` node, with the `-jito` suffix (e.g. `4.3.2-jito`; when it is not passed the build takes `version_jito` of the same section)
+- `allnodes_jito_version` — **Required** for an `allnodes-jito` node (e.g. `4.3.2-allnodes`): the RPC sections of `versions.yml` hold no pin for it
 - `firedancer_version` — **Required** if firedancer selected
-- `yellowstone_grpc_version` — If Geyser gRPC selected (Yellowstone plugin)
-- `richat_version` — If Richat plugin selected (e.g., `richat-v8.1.0`)
+- `geyser_version` — Yellowstone plugin release tag (optional; the default is `<network>_rpcs.geyser_version` of `versions.yml`)
+- `richat_version` — Only with `geyser_plugin: richat` (e.g., `richat-v8.1.0`)
+- Do not pass `solana_version`: `init.yml` does not read it
 
 ### Step 5: Keys & Identity
 - `identity_account` — Node identity pubkey (required for init)
@@ -126,8 +128,8 @@ Present options:
 
 ### Step 10: gRPC specific (if rpc_type includes "gRPC")
 - `port_grpc` — gRPC listen port (default: `10000`)
-- Choose plugin: Yellowstone gRPC or Richat
-- Set corresponding version variable
+- Plugin: Yellowstone gRPC is the default; leave `geyser_plugin` out of the inventory
+- Richat (`geyser_plugin: richat`): richat has no release for agave 4.3 or later yet, and `init.yml` stops, before it changes anything, on a node set to run such an agave. Do not offer it unless the agave of the node is older.
 
 ### Step 11: Transaction forwarding (optional)
 - `tpu_peer_address` — TPU peer address for transaction forwarding (important for Index RPC)

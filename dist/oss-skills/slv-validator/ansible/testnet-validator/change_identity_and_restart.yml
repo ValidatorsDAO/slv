@@ -5,6 +5,12 @@
   become_user: solv
 
   tasks:
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_alpenglow_freeze: true
+
     - name: Stop firedancer.service
       ansible.builtin.systemd:
         name: firedancer.service

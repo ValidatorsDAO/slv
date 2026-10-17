@@ -9,7 +9,7 @@ This skill gives an AI agent the knowledge and tools to:
 - **Manage** node lifecycle — start, stop, restart, update
 - **Configure** multiple RPC types in a single skill
 - **Build** Solana from source (Agave, Jito, Firedancer)
-- **Install** Geyser plugins (Yellowstone gRPC, Richat)
+- **Install** the Yellowstone gRPC Geyser plugin (the default; Richat only once a release supports agave 4.3 or later)
 - **Setup** Old Faithful for full-index RPC
 
 Supported RPC types: `RPC`, `Index RPC`, `Geyser gRPC`, `Index RPC + gRPC`
@@ -37,7 +37,7 @@ cp examples/inventory.yml my-inventory.yml
 
 cd ansible/
 ansible-playbook -i ../my-inventory.yml mainnet-rpc/init.yml \
-  -e '{"rpc_type":"Index RPC","solana_version":"3.1.8"}'
+  -e '{"rpc_type":"Index RPC","agave_version":"4.3.2"}'
 ```
 
 ## Contents

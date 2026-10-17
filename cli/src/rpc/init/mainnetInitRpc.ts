@@ -27,6 +27,7 @@ import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
 import { VERSION_RICHAT } from '@cmn/constants/version.ts'
 import { findNearestSnapshotUrl } from '/lib/snapshot/findNearestSnapshot.ts'
 import { getAllRegions } from '/lib/jito/jitoRegions.ts'
+import { mainnetRpcFdctlWarning } from '/lib/fdctlMainnetGuard.ts'
 
 export const mainnetInitRpc = async (
   sshOptions: SSHConnection,
@@ -91,6 +92,12 @@ export const mainnetInitRpc = async (
       default: 'jito',
     },
   ])
+  // Alpenglow: a Frankendancer RPC node is not supported for the migration.
+  // This only warns; the init still goes on.
+  const frankendancer = mainnetRpcFdctlWarning(rpcTypes.validatorType ?? '')
+  if (frankendancer) {
+    console.log(colors.yellow(`⚠️ ${frankendancer}`))
+  }
   const RPC_OPTIONS = rpcTypes.validatorType?.includes('firedancer')
     ? ['Index RPC', 'SendTx RPC']
     : ['Geyser gRPC', 'Index RPC', 'SendTx RPC', 'Index RPC + gRPC']

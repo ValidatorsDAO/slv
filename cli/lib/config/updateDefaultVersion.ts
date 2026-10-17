@@ -11,10 +11,12 @@ import {
   VERSION_JITO_MAINNET,
   VERSION_JITO_TESTNET,
   VERSION_JITO_VALIDATOR_MAINNET,
+  VERSION_JITO_VALIDATOR_TESTNET,
   VERSION_SOLANA_DEVNET,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_TESTNET,
   VERSION_SOLANA_VALIDATOR_MAINNET,
+  VERSION_SOLANA_VALIDATOR_TESTNET,
 } from '@cmn/constants/version.ts'
 import { VERSIONS_PATH } from '@cmn/constants/path.ts'
 import type { CmnType } from '@cmn/types/config.ts'
@@ -136,10 +138,12 @@ export const updateDefaultVersion = async (
     VERSION_ALLNODES_JITO_MAINNET
   currentVersion.mainnet_validators.version_firedancer =
     VERSION_FIREDANCER_MAINNET
-  currentVersion.testnet_validators.version_agave = VERSION_SOLANA_TESTNET
+  currentVersion.testnet_validators.version_agave =
+    VERSION_SOLANA_VALIDATOR_TESTNET
   currentVersion.testnet_validators.version_firedancer =
     VERSION_FIREDANCER_TESTNET
-  currentVersion.testnet_validators.version_jito = VERSION_JITO_TESTNET
+  currentVersion.testnet_validators.version_jito =
+    VERSION_JITO_VALIDATOR_TESTNET
   currentVersion.testnet_validators.version_allnodes_jito =
     VERSION_ALLNODES_JITO_TESTNET
   currentVersion.mainnet_rpcs.version_agave = VERSION_SOLANA_MAINNET

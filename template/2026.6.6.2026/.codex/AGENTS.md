@@ -15,7 +15,7 @@ SLV Ansible playbooks for deploying Solana nodes (Validator, RPC, gRPC Geyser).
 - `jinja/` — Jinja2 config templates
 
 ## Key Variables
-- `validator_type`: agave | jito | firedancer-agave | firedancer-jito | frankendancer
+- `validator_type`: agave | jito | allnodes-jito | firedancer-agave | firedancer-jito | frankendancer (a mainnet voting validator is agave, jito or allnodes-jito: the mainnet playbooks refuse the Firedancer types and frankendancer)
 - `rpc_type`: "Index RPC" | "Geyser gRPC" | "Index RPC + gRPC"
 - All passed as `extra_vars` at runtime
 

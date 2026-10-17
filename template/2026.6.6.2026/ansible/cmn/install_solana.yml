@@ -2,6 +2,34 @@
 # Use cmn/build_solana.yml instead (builds from GitHub source)
 # This file will be removed in a future version.
 ---
+# Before anything is changed, the version that this playbook is going to install is held to the Alpenglow floor of the
+# network of the host (4.3.0 on mainnet, 4.4.0-beta.0 on testnet and devnet) by cmn/check_alpenglow_floor.yml: the version
+# of the host or -e (`version`), else the version_agave or version_jito of the versions.yml section that the host is in.
+# The section is the group of the host: mainnet_validators, testnet_validators, mainnet_rpcs, testnet_rpcs or devnet_rpcs.
+# There is no version to fall back on: with none of the three, the run stops.
+- name: Work out the versions.yml section and the client of each host
+  hosts: all
+  gather_facts: no
+  any_errors_fatal: true
+  tasks:
+    - name: Stop unless the host is in exactly one section of versions.yml
+      ansible.builtin.assert:
+        that:
+          - (group_names | intersect(['mainnet_validators', 'testnet_validators', 'mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs'])) | length == 1
+        fail_msg: "cmn/install_solana.yml needs {{ inventory_hostname }} to be in exactly one of the groups mainnet_validators, testnet_validators, mainnet_rpcs, testnet_rpcs and devnet_rpcs, so that the version it installs can be held to the Alpenglow floor of its network. Nothing was changed."
+
+    - name: Work out the section and the client that this play installs
+      ansible.builtin.set_fact:
+        slv_floor_section: "{{ (group_names | intersect(['mainnet_validators', 'testnet_validators', 'mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs'])) | first }}"
+        slv_floor_client: "{{ solana_cli_type | default('jito' if 'jito' in (validator_type | default('agave')) else 'agave') }}"
+
+- import_playbook: check_alpenglow_floor.yml
+  vars:
+    versions_section: "{{ slv_floor_section }}"
+    floor_client: "{{ slv_floor_client }}"
+    floor_version_var: version
+    floor_plugin: false
+
 - name: Install/Update Solana CLI (agave or jito) from hosted binaries
   hosts: all
   become: true
@@ -9,8 +37,8 @@
     # ==== Args: -e "validator_type=jito version=v3.0.7 region=tokyo" ====
     # validator_type can be: agave, jito, firedancer-agave, or firedancer-jito
     # If not provided, defaults to "agave"
+    # version comes from -e, the inventory or versions.yml; there is no default
     # Default values if not provided via inventory or -e
-    default_version: "v3.0.12"
     default_region: "frankfurt" # default region. use "tokyo" or "singapore" to switch to storage-asia
 
     # These are computed later via set_fact (don't change here)
@@ -99,13 +127,6 @@
         - matched_group is defined
         - solana_cli_type == 'jito'
         - slv_versions[matched_group]['version_jito'] is defined
-
-    - name: Set default version when still unset (agave/jito)
-      set_fact:
-        version: "{{ default_version }}"
-      when:
-        - (version is not defined) or (version == '')
-        - solana_cli_type in ['agave', 'jito']
 
     - name: Ensure version is set
       assert:

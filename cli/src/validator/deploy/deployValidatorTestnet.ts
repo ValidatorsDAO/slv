@@ -6,8 +6,11 @@ import rpcLog from '/lib/config/rpcLog.ts'
 import { listValidators } from '/src/validator/listValidators.ts'
 import { getAnsibleHosts } from '/lib/yml/getAnsibleHost.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
+import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
 
 const deployValidatorTestnet = async (limit?: string) => {
+  // A client pinned below what Alpenglow runs on is not installed.
+  if (await refuseBelowFloorPins('testnet', 'validator')) return false
   const inventoryType = 'testnet_validators'
   const templateRoot = getTemplatePath()
   await listValidators('testnet', limit)

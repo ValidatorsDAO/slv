@@ -15,6 +15,20 @@
         success_msg: "Source validator type is {{ hostvars[source_host].validator_type | default('undefined') }} and Target validator type is {{ hostvars[target_host].validator_type | default('undefined') }}"
       run_once: true
 
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_alpenglow_freeze: true
+
+    - name: Refuse a Firedancer or Frankendancer host as a mainnet identity target
+      ansible.builtin.assert:
+        that:
+          - hostvars[target_host].validator_type | default('') not in ['firedancer-agave', 'firedancer-jito', 'frankendancer']
+        fail_msg: "Firedancer and Frankendancer cannot take a mainnet identity: the Alpenglow migration (mainnet epoch 1064) does not support them. Move the identity to an agave, jito or allnodes-jito host. Nothing was changed."
+        quiet: true
+      run_once: true
+
     - name: Check connectivity to all hosts
       ansible.builtin.ping:
       register: ping_result
@@ -37,9 +51,11 @@
 - import_playbook: switch_on_identity.yml
   vars:
     on_host: "{{ target_host }}"
+    slv_alpenglow_demoted_source: "{{ source_host }}"
   when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: switch_on_firedancer_identity.yml
   vars:
     on_host: "{{ target_host }}"
+    slv_alpenglow_demoted_source: "{{ source_host }}"
   when: validator_type in ['firedancer-agave', 'firedancer-jito']

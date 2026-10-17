@@ -13,15 +13,19 @@
     solana_lib_dir: '{{ solana_release_dir }}/lib'
 
   tasks:
+    # jito_version of -e or of the host, else version_jito of the section of versions.yml that the
+    # calling playbook passes as versions_section (mainnet_rpcs, testnet_validators, ...)
     - name: Resolve jito version (override with -e jito_version=)
       set_fact:
-        jito_version_resolved: "v{{ jito_version | default(mainnet_validators.version_jito | default('', true), true) }}"
+        jito_version_resolved: "v{{ jito_version | default(slv_pins.version_jito | default('', true), true) }}"
+      vars:
+        slv_pins: "{{ lookup('ansible.builtin.vars', versions_section, default={}) if (versions_section | default('')) != '' else {} }}"
 
     - name: Ensure jito version is resolved
       assert:
         that:
           - jito_version_resolved != 'v'
-        fail_msg: "jito_version must be provided (via -e jito_version= or mainnet_validators.version_jito in ~/.slv/versions.yml)"
+        fail_msg: "No jito version for {{ inventory_hostname }}: set jito_version (-e or the host), or version_jito in {{ versions_section | default('the section that the calling playbook passes as versions_section') }} of ~/.slv/versions.yml. Nothing was built."
 
     - name: Check if Rust is installed
       become: no
