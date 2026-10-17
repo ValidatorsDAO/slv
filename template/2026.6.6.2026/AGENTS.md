@@ -48,6 +48,7 @@ jinja/                      # Jinja2 templates for config generation
 
 2. **`rpc_type`** — (Mainnet RPC only) Controls RPC features:
    - `Index RPC` | `Geyser gRPC` | `Index RPC + gRPC`
+   - `Geyser gRPC` omits `--enable-rpc-transaction-history` by default; pass `enable_rpc_transaction_history=true` to restore it
 
 3. **`geyser_plugin`** — (RPC `init.yml`, inventory variable) The Geyser plugin of `Geyser gRPC` and `Index RPC + gRPC` nodes on agave or jito:
    - `yellowstone` — the default when the variable is absent; built by `geyser_build.yml` at `<network>_rpcs.geyser_version` of `versions.yml`
