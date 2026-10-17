@@ -21,10 +21,29 @@
         slv_alpenglow_network: testnet
         slv_alpenglow_freeze: true
 
+    - name: Refuse to set the identity from the vote history file of the host on Alpenglow
+      ansible.builtin.assert:
+        that:
+          - slv_alpenglow_state != 'alpenglow'
+        fail_msg: "set_identity_to_active.yml sets the identity from the vote history file that is on {{ inventory_hostname }} and checks nothing else, and on a cluster that runs Alpenglow that file can be older than the last vote of the node that ran the identity. Use slv v set:identity -n testnet -p {{ inventory_hostname }}: it checks first that nothing votes with the identity, that the host has caught up and where the identity is in gossip. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Upload Tower File
       ansible.builtin.copy:
         src: ~/.slv/tower/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
         dest: /mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+
+    - name: Look for the local validator key file
+      become: false
+      delegate_to: localhost
+      stat:
+        path: "{{ local_key_path }}"
+      register: key_file_stat
+
+    - name: Stop if key file not found
+      fail:
+        msg: "Key file not found: {{ local_key_path }}"
+      when: not key_file_stat.stat.exists
 
     - name: Read local validator key file securely (base64)
       become: false
@@ -32,11 +51,7 @@
       slurp:
         src: "{{ local_key_path }}"
       register: key_file
-
-    - name: Stop if key file not found
-      fail:
-        msg: "Key file not found: {{ local_key_path }}"
-      when: key_file is not defined
+      no_log: true
 
     - name: Set Identity to Validator Key via stdin
       shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity

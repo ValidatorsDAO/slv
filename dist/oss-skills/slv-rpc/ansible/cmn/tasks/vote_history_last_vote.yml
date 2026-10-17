@@ -8,10 +8,14 @@
 #   slv_alpenglow_network   mainnet, testnet or devnet (picks the public RPC)
 #   slv_alpenglow_rpc_url   ask this cluster RPC instead
 #   slv_lv_vote_account     the vote account
+#   slv_lv_identity         the identity the vote account belongs to (its nodePubkey): when it is set
+#                           and the cluster names another identity for the vote account, the play stops,
+#                           because what that vote account shows says nothing about this identity
 #   slv_alpenglow_rpc_retries / slv_alpenglow_rpc_delay   as in alpenglow_state.yml
 #
-# It sets slv_lv_last to the last vote, or to -1 when the cluster did not give one, and
-# slv_lv_detail to the reason (empty when slv_lv_last is not -1).
+# It sets slv_lv_last to the last vote, or to -1 when the cluster did not give one,
+# slv_lv_detail to the reason (empty when slv_lv_last is not -1), and slv_lv_node to the identity that
+# the cluster names for the vote account (empty when the vote account is not listed).
 
 - name: Ask the cluster for the last vote of the vote account (getVoteAccounts)
   ansible.builtin.uri:
@@ -57,6 +61,28 @@
       {%- endfor -%}
       {%- endif -%}
       {{ ns.last }}
+
+- name: Read which identity the cluster names for the vote account
+  ansible.builtin.set_fact:
+    slv_lv_node: >-
+      {%- set body = slv_lv_reply.json | default(none) -%}
+      {%- set ns = namespace(node='') -%}
+      {%- if slv_lv_reply is not skipped and body is mapping and body.result is defined and body.result is mapping -%}
+      {%- for group in ['current', 'delinquent'] -%}
+      {%- for account in body.result[group] | default([], true) if account is mapping and account.votePubkey | default('') == slv_lv_vote_account -%}
+      {%- set ns.node = (account.nodePubkey | string) if account.nodePubkey is defined and account.nodePubkey is string and account.nodePubkey | length > 0 else '(none)' -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ ns.node }}
+
+- name: Refuse a vote account that belongs to another identity
+  ansible.builtin.fail:
+    msg: "The cluster names the identity {{ slv_lv_node }} for the vote account {{ slv_lv_vote_account }} (nodePubkey in getVoteAccounts), not the identity_account {{ slv_lv_identity }} of {{ inventory_hostname }}. The inventory pairs the identity with the wrong vote account, and what that vote account shows says nothing about this identity, so nothing was changed. Fix vote_account or identity_account in the inventory."
+  when:
+    - slv_lv_identity | default('', true) | length > 0
+    - slv_lv_node | default('', true) | length > 0
+    - slv_lv_node != slv_lv_identity
 
 - name: Say why there is no last vote
   ansible.builtin.set_fact:

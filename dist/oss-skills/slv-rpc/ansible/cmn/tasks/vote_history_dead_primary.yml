@@ -17,6 +17,7 @@
 #                           a name that resolves to one (looked up on the controller)
 #   slv_dp_down_address     the IP address of the node that was named or confirmed down, read by
 #                           check 3: the identity may stay in gossip there (empty: nowhere else)
+# The vote account has to belong to the identity (its nodePubkey in getVoteAccounts), or the play stops.
 #
 # A staked node can stay in the gossip table for a long time after it stops (CRDS_GOSSIP_PURGE_DURATION
 # in agave's gossip/src/crds_gossip_pull.rs), so an entry of the identity at the address of the old
@@ -25,14 +26,19 @@
 # Check 1, nothing votes with the identity: the last vote of the vote account (getVoteAccounts with
 # commitment processed) is more than slv_dp_window slots before the current slot of the cluster
 # (getSlot with commitment processed). Both are asked of the cluster from the controller, the slot
-# first, so that a vote cast between the two calls counts against the identity. The check cannot tell
-# which node votes: when this host already runs the identity it fails too, and its message says so.
+# first, so that a vote cast between the two calls counts against the identity. The last vote is asked
+# of the RPC of this host as well, and the larger of the two counts: a public RPC behind a load balancer
+# can answer from a backend that is far behind, and then a voting identity looks quiet. The check cannot
+# tell which node votes: when this host already runs the identity it fails too, and its message says so.
 # Check 2, this host has caught up: the finalized slot of this host (getSlot with commitment finalized,
 # asked of its own RPC) is at least slv_dp_window slots past that last vote, so that a vote still on its
 # way when the old primary stopped can no longer land, and this host has seen what the cluster did since.
-# Check 3, gossip, on every run: the cluster lists the identity at no address but the one of this host
-# and slv_dp_down_address (getClusterNodes, compared by IP). An entry at the address named down is
-# allowed because check 1 shows that nothing votes there.
+# Check 3, gossip, on every run: the cluster lists the identity at no gossip address but the one of this
+# host and slv_dp_down_address (getClusterNodes, compared by IP). The gossip address is the `gossip`
+# socket of the entry of the identity, the field that slv v set:identity reads; the other sockets of the
+# entry (tpu, tpuQuic and so on) are not compared, because a validator connected to BAM advertises some of
+# them at the address of the BAM node. An entry at the address named down is allowed because check 1
+# shows that nothing votes there.
 #
 # A vote account that is not listed, or an answer that cannot be read, fails the check it belongs to.
 
@@ -115,6 +121,56 @@
   ansible.builtin.import_tasks: vote_history_last_vote.yml
   vars:
     slv_lv_vote_account: "{{ slv_dp_vote_account }}"
+    slv_lv_identity: "{{ slv_dp_identity }}"
+
+- name: Ask this host for the last vote of the vote account (getVoteAccounts)
+  ansible.builtin.uri:
+    url: "{{ slv_target_rpc_url | default('http://127.0.0.1:' ~ (port_rpc | default(8899, true)), true) }}"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: getVoteAccounts
+      params:
+        - votePubkey: "{{ slv_dp_vote_account }}"
+          commitment: processed
+          keepUnstakedDelinquents: true
+    return_content: true
+    timeout: 20
+    use_proxy: false
+  register: slv_dp_own_votes_reply
+  until: >-
+    (slv_dp_own_votes_reply.status | default(0)) == 200 and
+    slv_dp_own_votes_reply.json is defined and slv_dp_own_votes_reply.json is mapping and
+    'error' not in slv_dp_own_votes_reply.json and slv_dp_own_votes_reply.json.result is defined and
+    slv_dp_own_votes_reply.json.result is mapping
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+  delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: slv_dp_vote_account | default('', true) | length > 0
+
+- name: Read the last vote that this host shows
+  ansible.builtin.set_fact:
+    slv_dp_own_last: >-
+      {%- set body = slv_dp_own_votes_reply.json | default(none) -%}
+      {%- set ns = namespace(last=-1) -%}
+      {%- if slv_dp_own_votes_reply is not skipped and body is mapping and body.result is defined and body.result is mapping -%}
+      {%- for group in ['current', 'delinquent'] -%}
+      {%- for account in body.result[group] | default([], true) if account is mapping and account.votePubkey | default('') == slv_dp_vote_account and account.lastVote is defined and account.lastVote is integer and account.lastVote is not boolean and account.lastVote >= 0 -%}
+      {%- set ns.last = [ns.last, account.lastVote] | max -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ ns.last }}
+
+- name: Take the larger of the last votes that the cluster and this host show
+  ansible.builtin.set_fact:
+    slv_dp_cluster_last: "{{ slv_lv_last | int(-1) }}"
+    slv_dp_last: "{{ ([slv_lv_last | int(-1), slv_dp_own_last | int(-1)] | max) if (slv_lv_last | int(-1)) >= 0 else -1 }}"
 
 - name: Ask this host for its finalized slot (getSlot)
   ansible.builtin.uri:
@@ -146,22 +202,22 @@
   ansible.builtin.set_fact:
     slv_dp_quiet_reason: >-
       {%- set now = slv_dp_now_reply.json | default(none) -%}
-      {%- set last = slv_lv_last | int(-1) -%}
+      {%- set last = slv_dp_last | int(-1) -%}
       {%- set window = [slv_dp_window | default(270, true) | int(270), 1] | max -%}
       {%- if last < 0 -%}
       {{ slv_lv_detail }}
       {%- elif now is not mapping or now.result is not defined or now.result is not integer or now.result is boolean -%}
       the cluster did not answer getSlot, so the age of the last vote cannot be told
       {%- elif now.result - last <= window -%}
-      the identity voted {{ [now.result - last, 0] | max }} slots ago (the last vote of the vote account {{ slv_dp_vote_account }} is at slot {{ last }}, the current slot is {{ now.result }}): a node may still be voting with the identity. If {{ inventory_hostname }} already runs it (ask its own RPC with getIdentity), there is nothing to set: check that before you run this again. A node counts as stopped after more than {{ window }} slots without a vote
+      the identity voted {{ [now.result - last, 0] | max }} slots ago (the last vote of the vote account {{ slv_dp_vote_account }} is at slot {{ last }}{{ (', as the RPC of ' ~ inventory_hostname ~ ' shows it, where the cluster RPC shows ' ~ slv_dp_cluster_last) if (slv_dp_cluster_last | int(-1)) < last else '' }}, the current slot is {{ now.result }}): a node may still be voting with the identity. If {{ inventory_hostname }} already runs it (ask its own RPC with getIdentity), there is nothing to set: check that before you run this again. A node counts as stopped after more than {{ window }} slots without a vote
       {%- endif -%}
-    slv_dp_last_vote: "{{ slv_lv_last | int(-1) }}"
+    slv_dp_last_vote: "{{ slv_dp_last | int(-1) }}"
 
 - name: Check that this host has caught up
   ansible.builtin.set_fact:
     slv_dp_slot_reason: >-
       {%- set slot = slv_dp_slot_reply.json | default(none) -%}
-      {%- set last = slv_lv_last | int(-1) -%}
+      {%- set last = slv_dp_last | int(-1) -%}
       {%- set window = [slv_dp_window | default(270, true) | int(270), 1] | max -%}
       {%- if last < 0 -%}
       {%- elif slot is not mapping or slot.result is not defined or slot.result is not integer or slot.result is boolean -%}
@@ -177,21 +233,25 @@
       {%- set down = slv_dp_down_address | default('', true) | string | trim | lower -%}
       {%- set found = (slv_dp_lookup.stdout | default('', true) | string | lower).split() if (slv_dp_lookup is defined and slv_dp_lookup is not skipped) else [] -%}
       {%- set mine = [slv_dp_me] if (slv_dp_me_is_ip | bool) else found -%}
-      {%- set ns = namespace(foreign=[]) -%}
+      {%- set ns = namespace(foreign=[], noaddress=0) -%}
       {%- if mine | length == 0 -%}
       the address of this host ({{ slv_dp_address | default('not set', true) }}) is not an IP address{{ ' and does not resolve to one' if slv_dp_me != '' else '' }}, so it cannot be compared with the gossip addresses
       {%- elif body is not mapping or body.result is not defined or body.result is not sequence -%}
       the cluster did not give a readable list of nodes (getClusterNodes)
       {%- else -%}
       {%- for node in body.result if node is mapping and node.pubkey | default('') == slv_dp_identity -%}
-      {%- for key in ['gossip', 'tvu', 'tpu', 'tpuQuic', 'tpuForwards', 'tpuForwardsQuic', 'tpuVote', 'serveRepair', 'rpc', 'pubsub'] -%}
-      {%- set value = node[key] | default(none) -%}
-      {%- if value is string -%}
+      {%- set value = node['gossip'] | default(none) -%}
+      {%- if value is string and value | length > 0 -%}
       {%- set ip = value | regex_replace('^\\[?(.*?)\\]?:[0-9]+$', '\\1') | lower -%}
       {%- if ip not in mine and ip != down and ip not in ns.foreign -%}{%- set ns.foreign = ns.foreign + [ip] -%}{%- endif -%}
+      {%- else -%}
+      {%- set ns.noaddress = ns.noaddress + 1 -%}
       {%- endif -%}
       {%- endfor -%}
-      {%- endfor -%}
+      {%- if ns.noaddress > 0 -%}
+      the identity {{ slv_dp_identity }} is in gossip without a gossip address, so it cannot be compared with the address of this host
+      {%- endif -%}
+      {%- if ns.noaddress > 0 and ns.foreign | length > 0 -%}; {% endif -%}
       {%- if ns.foreign | length > 0 -%}
       the identity {{ slv_dp_identity }} is in gossip at {{ ns.foreign | join(', ') }}, not at the address of this host ({{ slv_dp_address }}){{ (' and not at the address named down (' ~ down ~ ')') if down != '' else '' }}: another node may be running it
       {%- endif -%}

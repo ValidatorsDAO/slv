@@ -81,9 +81,9 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `create-start-validator-sh.yml` | Generate start script from template |
 | `nodowntime_migrate.yml` | Zero-downtime identity migration between nodes |
 | `set_identity_key.yml` | Set validator identity key |
-| `set_identity_to_active.yml` | Activate identity key |
+| `set_identity_to_active.yml` | Activate identity key (TowerBFT only: on Alpenglow it refuses and points to `slv v set:identity -n <network> -p <host>`) |
 | `set_unstaked_key.yml` | Switch to unstaked identity |
-| `switch_on_identity.yml` | Enable identity (tower copy, or on Alpenglow the vote history file, + key deploy) |
+| `switch_on_identity.yml` | Enable identity (tower copy, or on Alpenglow the vote history file that the same `slv v switch` run took, + key deploy; on its own it refuses on Alpenglow) |
 | `switch_off_identity.yml` | Disable identity (tower backup, or on Alpenglow the vote history file) |
 | `switch_on_firedancer_identity.yml` | Enable Firedancer identity. Refused on mainnet in every state (Alpenglow): a Firedancer or Frankendancer host cannot take a mainnet identity |
 | `switch_off_firedancer_identity.yml` | Disable Firedancer identity. On mainnet only while the cluster runs TowerBFT, to move a node off Firedancer before the activation; it stops before it changes anything in the migration window, shortly before the activation, when the cluster cannot be read, and on Alpenglow |
@@ -123,7 +123,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `create-start-validator-sh-jito.yml` | Generate Jito start script |
 | `nodowntime_migrate.yml` | Zero-downtime identity migration |
 | `set_identity_key.yml` | Set identity key |
-| `set_identity_to_active.yml` | Activate identity |
+| `set_identity_to_active.yml` | Activate identity (TowerBFT only; on Alpenglow use `slv v set:identity`) |
 | `set_unstaked_key.yml` | Switch to unstaked identity |
 | `switch_on_identity.yml` / `switch_off_identity.yml` | Toggle identity |
 | `switch_on_firedancer_identity.yml` / `switch_off_firedancer_identity.yml` | Toggle Firedancer identity |
@@ -242,8 +242,9 @@ After the source was demoted, a cluster RPC that cannot be read does not leave b
 nodes unstaked right away: the probe of `to_host` retries for up to 60 seconds
 (`slv_alpenglow_patience_seconds`). If the cluster stays unreadable and the reading
 right before the demotion was less than half of `slv_alpenglow_margin_slots` slots
-ago (3000 by default, at 0.4 seconds a slot: 10 minutes), the promotion goes on and
-the output says so: with the tower after a TowerBFT reading (while the Alpenglow
+ago at the fastest slot time that is assumed (`slv_alpenglow_min_slot_seconds`, 0.2
+by default; about 0.22 is measured on mainnet and testnet), which is 300 seconds for
+the 3000 slots of the default margin, the promotion goes on and the output says so: with the tower after a TowerBFT reading (while the Alpenglow
 feature account was pending at that reading, an activation cannot have started in
 that time; while it was absent, one can have been scheduled since, the reading does
 not rule that out, and the output says so), with the vote history file after an
@@ -278,8 +279,13 @@ file. Votor needs it to keep from voting twice in a slot.
    fails the copy stays, and the message says where it is, which hosts are
    unstaked right now and what is left to do by hand: copy the file to
    `/mnt/ledger` on `to_host`, wait until the vote account has not voted for 270
-   slots (about two minutes), and run `slv v set:identity -p <to_host>`. Nothing
-   is promoted automatically.
+   slots (about one minute), and run `slv v set:identity -n <network> -p <to_host>`.
+   Nothing is promoted automatically.
+   `switch_on_identity.yml` run on its own refuses on Alpenglow: it puts a vote
+   history file on a host only when the same run took it off the source (it compares
+   the sha256 of the copy with the one the take recorded), because a copy left on
+   the controller by an earlier run can be older than the last vote of the node that
+   ran the identity. `slv v set:identity` is the command for any other case.
 5. Swap the host entries in the inventory file.
 
 Firedancer and Frankendancer hosts (`firedancer-agave`, `firedancer-jito`,
@@ -320,21 +326,33 @@ The file does not show that nobody else votes with the identity: it can be older
 than the last vote of the node that held the identity. So on every Alpenglow run
 that is not a first activation, with the file or without it, the playbook asks
 the cluster before it sets anything, and stops with nothing changed when one of
-these fails or cannot be read:
+these fails or cannot be read (the vote account has to belong to the identity as well:
+its `nodePubkey` in `getVoteAccounts` is the `identity_account`, or the play stops):
 1. Nothing votes with the identity: the last vote of the vote account
    (`getVoteAccounts`, `lastVote`) is more than 270 slots before the current slot
-   of the cluster (`getSlot`). The check cannot tell which node votes. If `<host>`
+   of the cluster (`getSlot`). The last vote is also asked of the RPC of `<host>`, and
+   the larger of the two counts, because a public RPC behind a load balancer can
+   answer from a backend that is far behind. The check cannot tell which node votes. If `<host>`
    already runs the identity it fails too, and the message says so: look at the
    identity `<host>` runs (its own RPC, `getIdentity`) before you run the command
    again, because then there is nothing to set.
 2. `<host>` has caught up: its finalized slot (its own RPC, `getSlot` with
    commitment `finalized`) is at least 270 slots past that last vote.
-3. Gossip: the cluster (`getClusterNodes`) lists the identity at no address but the
-   one of `<host>` and `primary_down_address`, compared by IP (an `ansible_host`
-   that is a name is looked up on the controller).
+3. Gossip: the cluster (`getClusterNodes`) lists the identity at no gossip address
+   but the one of `<host>` and `primary_down_address`, compared by IP (an
+   `ansible_host` that is a name is looked up on the controller). The gossip address
+   is the `gossip` socket of the entry of the identity, the field the CLI reads. The
+   other sockets of the entry are not compared: a validator connected to BAM
+   advertises some of them at the BAM node.
 
 After the old primary stopped, or was switched to its unstaked identity, give it
-about two minutes before you run the command.
+about one minute (270 slots at about 0.22 seconds a slot) before you run the command.
+
+A play that holds more than one host with the same `identity_account` stops on
+Alpenglow: each host would pass the checks before any host sets the identity. Run it
+for one host at a time. `--first-activation` skips the checks, and so the playbook
+refuses it when the vote account has a last vote (the identity has voted), or when
+the cluster cannot show that it has not.
 
 A staked node can stay in the gossip table for a long time after it stops, so an
 entry of the identity at the address of the old primary does not show that it runs;
