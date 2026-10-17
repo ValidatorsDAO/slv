@@ -103,6 +103,7 @@
       timeout: 20
       no_log: true
       failed_when: false
+      ignore_errors: true
       when: slv_switch_mode == 'towerbft'
 
     - name: Stop when set-identity failed, with what agave said

@@ -1035,6 +1035,47 @@ case_on_set_identity_error() {
   no_key_in_log dst switch_on_identity
   check $? "and the content of the key file is not in the log"
 }
+# a set-identity that ends without an answer (the step is given 20 seconds) outside a rescue fails with what the step says
+# (ansible-core 2.16 says "failed to execute in the expected time frame (20)", 2.21 "Timed out after 20 second(s)")
+timeout_said() { grep -qE "expected time frame \(20\)|Timed out after 20 second" "$S/$1/$2.log"; } # box playbook
+case_key_set_identity_timeout() {
+  begin key_set_identity_timeout "$1"
+  key_target SET_IDENTITY=slow
+  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+  play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)" -e "slv_target_rpc_url=$(local_rpc 2000)" -vvv
+  refused dst set_identity_key "agave-validator set-identity failed on dst (" "a set-identity that ends without an answer fails in the task that reports it"
+  timeout_said dst set_identity_key
+  check $? "and the message says that the step ran out of time"
+  no_key_in_log dst set_identity_key
+  check $? "and the content of the key file is not in the log"
+}
+case_active_set_identity_timeout() {
+  begin active_set_identity_timeout "$1"
+  inventory jito jito
+  box dst dst ADD_VOTER=present GATE=0 SET_IDENTITY=slow
+  mkdir -p "$S/home/.slv/tower"
+  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
+  printf 'tower-from-the-source\n' >"$(tower_file dst)"
+  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)" -vvv
+  refused dst set_identity_to_active "agave-validator set-identity failed on dst (" "a set-identity that ends without an answer fails in the task that reports it"
+  timeout_said dst set_identity_to_active
+  check $? "and the message says that the step ran out of time"
+  no_key_in_log dst set_identity_to_active
+  check $? "and the content of the key file is not in the log"
+}
+case_on_towerbft_set_identity_timeout() {
+  begin on_towerbft_set_identity_timeout "$1"
+  inventory agave agave
+  box dst dst ADD_VOTER=present GATE=0 SET_IDENTITY=slow
+  mkdir -p "$S/home/.slv/tower"
+  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)" -vvv
+  refused dst switch_on_identity "agave-validator set-identity failed on dst (" "a set-identity that ends without an answer fails in the task that reports it"
+  timeout_said dst switch_on_identity
+  check $? "and the message says that the step ran out of time"
+  no_key_in_log dst switch_on_identity
+  check $? "and the content of the key file is not in the log"
+}
 # a set-identity that ends without an answer (the step is given 20 seconds): agave may have applied the change
 case_on_set_identity_timeout() {
   begin on_set_identity_timeout "$1"
@@ -1427,6 +1468,7 @@ cases=(
   key_first_activation_voted key_first_activation_unread key_two_hosts_same_identity key_vote_account_other_identity
   key_vote_account_other_identity_dead key_no_log key_dead_bam_down_address_ok key_dead_bam_third_address key_file_bam_own_entry
   key_file_host_votes_error key_file_host_votes_http500 key_file_host_votes_missing key_dead_host_votes_error key_first_activation_host_unread
+  key_set_identity_timeout active_set_identity_timeout on_towerbft_set_identity_timeout
   active_alpenglow active_towerbft on_standalone on_copy_not_taken on_vote_account_other_identity on_resume_inside on_resume_outside
   key_voter_error key_voter_present key_not_voting key_fdctl key_towerbft
   mig_happy mig_identity mig_fdctl_source mig_fdctl_target mig_unknown_after_take

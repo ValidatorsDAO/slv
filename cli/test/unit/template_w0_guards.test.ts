@@ -1273,6 +1273,23 @@ const listAnsibleFiles = (directory: string): string[] =>
       ? [`${directory}${entry.name}`]
       : []
   )
+// the lists of tasks that sit in a block with a rescue: a task that fails there is reported by the rescue
+const rescuedLists = (value: unknown): Set<Entry[]> => {
+  const lists = new Set<Entry[]>()
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk)
+    } else if (node !== null && typeof node === 'object') {
+      const entry = node as Entry
+      if (Array.isArray(entry.block) && Array.isArray(entry.rescue)) {
+        lists.add(entry.block as Entry[])
+      }
+      Object.values(entry).forEach(walk)
+    }
+  }
+  walk(value)
+  return lists
+}
 const stdinOf = (task: Entry): unknown => {
   for (const value of Object.values(task)) {
     if (
@@ -1292,7 +1309,9 @@ Deno.test('no_log: every task that passes a key on stdin has it and does not fai
     !file.startsWith('ansible/cmn/firewall/')
   )
   for (const file of files) {
-    for (const list of taskLists(parse(readText(file)))) {
+    const parsed = parse(readText(file))
+    const rescued = rescuedLists(parsed)
+    for (const list of taskLists(parsed)) {
       list.forEach((task, index) => {
         if (stdinOf(task) === undefined) return
         const label = `${file}: ${task.name}`
@@ -1317,6 +1336,15 @@ Deno.test('no_log: every task that passes a key on stdin has it and does not fai
             text.includes(part)
           )
         if (!reports) unreported.push(label)
+        // a step that runs out of time (timeout) has no return code, and the failure of the step itself would show nothing:
+        // outside a rescue the task after it reports that too
+        if (reports && task.timeout !== undefined && !rescued.has(list)) {
+          assertEquals(
+            task.ignore_errors,
+            true,
+            `${label} runs out of time without a return code, and the task after it says so`,
+          )
+        }
       })
     }
   }
