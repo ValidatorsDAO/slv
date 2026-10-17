@@ -59,6 +59,30 @@
     beacon_binary: "/home/solv/beacon-bin"
 
   tasks:
+    # These values go to git, into URLs and paths, onto the command line of the Rust installer and into the systemd units
+    # of the stack: each has to be what its place can take, and nothing is changed before they are checked.
+    - name: Stop when a variable of the stack is not a value its place can take
+      ansible.builtin.assert:
+        that:
+          - slv_hermes_repo | string is match('^(https://|ssh://git@|git@)[A-Za-z0-9._~:/@%+-]+\\Z')
+          - slv_beacon_repo | string is match('^(https://|ssh://git@|git@)[A-Za-z0-9._~:/@%+-]+\\Z')
+          - slv_hermes_repo_ref | string is match('^[A-Za-z0-9][A-Za-z0-9._/+-]*\\Z')
+          - slv_beacon_repo_ref | string is match('^[A-Za-z0-9][A-Za-z0-9._/+-]*\\Z')
+          - slv_nats_version | string is match('^v[0-9]+\\.[0-9]+\\.[0-9]+\\Z')
+          - rust_toolchain | string is match('^(stable|beta|nightly(-[0-9]{4}-[0-9]{2}-[0-9]{2})?|[0-9]+\\.[0-9]+(\\.[0-9]+)?)\\Z')
+          - slv_nats_port | string is match('^[0-9]{1,5}\\Z')
+          - 1 <= (slv_nats_port | int) <= 65535
+          - slv_beacon_listen_port | string is match('^[0-9]{1,5}\\Z')
+          - 1 <= (slv_beacon_listen_port | int) <= 65535
+          - slv_beacon_spy_grpc_addr | string is match('^[A-Za-z0-9.\\[\\]:-]+:[0-9]{1,5}\\Z')
+          - rpc_listen_addr | string is match('^[A-Za-z0-9.\\[\\]:-]+:[0-9]{1,5}\\Z')
+          - metrics_listen_addr | string is match('^[A-Za-z0-9.\\[\\]:-]+:[0-9]{1,5}\\Z')
+          - wormhole_env | string is match('^[A-Za-z0-9_-]+\\Z')
+          - pythnet_http_addr | string is match('^https?://[A-Za-z0-9._~:/?#@%+=&,-]+\\Z')
+          - pythnet_ws_addr | string is match('^wss?://[A-Za-z0-9._~:/?#@%+=&,-]+\\Z')
+        fail_msg: "A variable of the Hermes stack has a value that its place cannot take (hermes_repo and beacon_repo: an https or ssh git URL; hermes_repo_ref and beacon_repo_ref: a branch, tag or commit name; nats_version: v2.10.22 style; hermes_rust_toolchain: a Rust version or channel; nats_port, beacon_listen_port: a port; beacon_spy_grpc_addr, hermes_rpc_listen_addr, hermes_metrics_listen_addr: host:port; hermes_wormhole_env: a name; hermes_pythnet_http_addr, hermes_pythnet_ws_addr: an http(s) or ws(s) URL), with no spaces or shell characters. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Install OS packages (build deps + nats prerequisites)
       ansible.builtin.apt:
         name:
@@ -111,7 +135,7 @@
       become_user: solv
       ansible.builtin.shell: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-          | sh -s -- -y --default-toolchain {{ rust_toolchain }} --profile minimal
+          | sh -s -- -y --default-toolchain {{ rust_toolchain | quote }} --profile minimal
       args:
         creates: /home/solv/.cargo/bin/cargo
 

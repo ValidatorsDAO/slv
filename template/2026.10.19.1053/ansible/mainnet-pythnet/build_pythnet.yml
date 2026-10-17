@@ -20,6 +20,18 @@
     src_dir: "{{ slv_pythnet_ledger_mount }}/src/pythnet"
 
   tasks:
+    # the repository and the ref go to git, and the mount is the directory that the build runs in
+    - name: Stop when the repository, the ref or the mount of the build is not usable
+      ansible.builtin.assert:
+        that:
+          - slv_pythnet_repo | string is match('^(https://|ssh://git@|git@)[A-Za-z0-9._~:/@%+-]+\\Z')
+          - slv_pythnet_ref | string is match('^[A-Za-z0-9][A-Za-z0-9._/+-]*\\Z')
+          - "'..' not in (slv_pythnet_ref | string)"
+          - slv_pythnet_ledger_mount | string is match('^/[A-Za-z0-9._/-]*\\Z')
+          - "'..' not in (slv_pythnet_ledger_mount | string)"
+        fail_msg: "pythnet_repo '{{ slv_pythnet_repo }}' has to be an https or ssh git URL, pythnet_ref '{{ slv_pythnet_ref }}' a branch, tag or commit name, and pythnet_ledger_mount '{{ slv_pythnet_ledger_mount }}' an absolute path, all without spaces or shell characters. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Ensure src dir exists
       ansible.builtin.file:
         path: "{{ src_dir | dirname }}"
