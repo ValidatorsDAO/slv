@@ -186,6 +186,10 @@ Deno.test('set:identity --primary-down and --first-activation exclude each other
   assertEquals(went, false)
   assertEquals(h.events, [])
   assertEquals(h.exitCodes, [1])
+  assertStringIncludes(
+    h.errors.join('\n'),
+    '--first-activation is for a vote account that has not voted since the Alpenglow genesis (or never), and --primary-down for taking the identity over from a host that held it',
+  )
 })
 
 Deno.test('set:identity --primary-down is refused when no other host of the inventory holds the identity', async () => {
@@ -197,7 +201,18 @@ Deno.test('set:identity --primary-down is refused when no other host of the inve
   assertEquals(went, false)
   assertEquals(h.events, [])
   assertEquals(h.exitCodes, [1])
-  assertStringIncludes(h.errors.join('\n'), IDENTITY)
+  const text = h.errors.join('\n')
+  assertStringIncludes(text, IDENTITY)
+  // What applies without --primary-down depends on the consensus.
+  assertStringIncludes(text, 'tower file on val-primary under TowerBFT')
+  assertStringIncludes(
+    text,
+    'under Alpenglow the vote history file must be on val-primary',
+  )
+  assertStringIncludes(
+    text,
+    'slv v set:identity -n testnet -p val-primary --first-activation',
+  )
 })
 
 Deno.test('set:identity --primary-down asks for the inventory name of the old primary, and any other answer runs nothing', async () => {
@@ -298,5 +313,6 @@ Deno.test('slv v set:identity declares --primary-down and hands it to runSetIden
     index.indexOf('validatorCmd.command(', start + 1),
   )
   assertStringIncludes(block, "'--primary-down'")
+  assertStringIncludes(block, 'voted only before Alpenglow')
   assertStringIncludes(block, 'primaryDown: options.primaryDown')
 })

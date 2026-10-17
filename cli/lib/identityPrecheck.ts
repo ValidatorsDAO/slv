@@ -215,7 +215,31 @@ const consensusLabel = (consensus: Consensus): string =>
 type VoteReading =
   | { kind: 'skipped' }
   | { kind: 'failed'; error: string }
-  | { kind: 'read'; lastVote: number; age: number }
+  | {
+    kind: 'read'
+    lastVote: number
+    age: number
+    /** The cluster lists the vote account (an unstaked one that never voted is not listed). */
+    listed: boolean
+    /** The node the vote account names, or null when it names none or its rows disagree. */
+    node: string | null
+  }
+
+/**
+ * Why the votes of the vote account say nothing about the identity: it belongs
+ * to another node, or names none. Null when the account names the identity, and
+ * when the cluster lists no such account (then there is no vote to read).
+ */
+const voteIsNotTheIdentitys = (
+  vote: Extract<VoteReading, { kind: 'read' }>,
+  voteAccount: string,
+  identity: string,
+): string | null => {
+  if (!vote.listed || vote.node === identity) return null
+  return vote.node === null
+    ? `vote account ${voteAccount} does not name a node`
+    : `vote account ${voteAccount} belongs to ${vote.node}, not to identity ${identity}`
+}
 
 const readVote = async (
   input: PrecheckInput,
@@ -239,13 +263,28 @@ const readVote = async (
     ) {
       throw new Error('getVoteAccounts returned no vote account lists')
     }
+    const rows = [...asRecords(votes.current), ...asRecords(votes.delinquent)]
+      .filter((vote) => vote.votePubkey === target.voteAccount)
     const lastVote = Math.max(
       0,
-      ...[...asRecords(votes.current), ...asRecords(votes.delinquent)]
-        .filter((vote) => vote.votePubkey === target.voteAccount)
-        .map((vote) => typeof vote.lastVote === 'number' ? vote.lastVote : 0),
+      ...rows.map((vote) =>
+        typeof vote.lastVote === 'number' ? vote.lastVote : 0
+      ),
     )
-    return { kind: 'read', lastVote, age: Math.max(0, slot - lastVote) }
+    // The votes of a vote account tell whether its identity runs only when the
+    // account names that identity as its node.
+    const nodes = new Set(
+      rows.map((vote) =>
+        typeof vote.nodePubkey === 'string' ? vote.nodePubkey : ''
+      ),
+    )
+    return {
+      kind: 'read',
+      lastVote,
+      age: Math.max(0, slot - lastVote),
+      listed: rows.length > 0,
+      node: nodes.size === 1 ? [...nodes][0] || null : null,
+    }
   } catch (error) {
     return { kind: 'failed', error: describe(error) }
   }
@@ -391,6 +430,16 @@ const judgeForeignEntry = (ip: string, ctx: GossipContext): GossipVerdict => {
       `the vote account could not be read (${vote.error}), so nothing shows that the entry is stale`,
     )
   }
+  const otherNode = voteIsNotTheIdentitys(
+    vote,
+    ctx.target.voteAccount,
+    identity,
+  )
+  if (otherNode !== null) {
+    return unproven(
+      `${otherNode}, so its votes do not show that the entry is stale`,
+    )
+  }
   if (vote.lastVote === 0) {
     return unproven(
       `vote account ${ctx.target.voteAccount} has no vote on record, so nothing shows that the entry is stale`,
@@ -532,6 +581,9 @@ const checkClusterView = async (
     }
   }
 
+  const otherVote = vote.kind === 'read'
+    ? voteIsNotTheIdentitys(vote, target.voteAccount, identity)
+    : null
   if (vote.kind === 'skipped') {
     out.notes.push(
       `${target.name} has no vote_account in the inventory; the vote check was skipped`,
@@ -539,6 +591,10 @@ const checkClusterView = async (
   } else if (vote.kind === 'failed') {
     out.failures.push(
       `could not read the vote account from ${rpcUrl}: ${vote.error}`,
+    )
+  } else if (otherVote !== null) {
+    out.failures.push(
+      `${otherVote}, so its votes say nothing about whether identity ${identity} is running; correct vote_account in the inventory`,
     )
   } else if (vote.lastVote === 0) {
     out.notes.push(`vote account ${target.voteAccount} has no vote on record`)
@@ -766,7 +822,7 @@ const runSetIdentity = async (
   if (options.primaryDown) {
     if (options.firstActivation) {
       return refuse(
-        '--primary-down and --first-activation exclude each other: an identity that has never voted has no primary to be down.',
+        '--primary-down and --first-activation exclude each other: --first-activation is for a vote account that has not voted since the Alpenglow genesis (or never), and --primary-down for taking the identity over from a host that held it.',
       )
     }
     if (!deps.isTty()) {
@@ -799,7 +855,7 @@ const runSetIdentity = async (
   const peers = peersHoldingIdentity(target, hosts)
   if (options.primaryDown && peers.length === 0) {
     return refuse(
-      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down the identity is set from the tower or vote history file on ${target.name}.`,
+      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down the identity is set from the tower file on ${target.name} under TowerBFT; under Alpenglow the vote history file must be on ${target.name}. When the vote account has voted only before Alpenglow there is no vote history file: use slv v set:identity -n ${network} -p ${target.name} --first-activation, and the playbook checks the vote account.`,
     )
   }
 

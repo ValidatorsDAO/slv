@@ -56,7 +56,11 @@ import {
 //             (`agave-validator authorized-voter add`), and Votor votes only when
 //             the BLS key derived from the authorized voter keypairs of the
 //             validator is the one registered on the vote account (agave
-//             votor/src/voting_utils.rs).
+//             votor/src/voting_utils.rs). The vote account also has to name the
+//             identity as its node (nodePubkey): slv v set:identity reads the
+//             votes of the vote_account of the inventory to tell whether the
+//             identity runs, and those votes mean something only when the
+//             account is the identity's.
 
 type ReadinessNetwork = 'mainnet' | 'testnet'
 type Level = 'OK' | 'WARN' | 'FAIL'
@@ -404,7 +408,7 @@ const clusterLine = (
         check: 'cluster',
         level: 'OK',
         message:
-          `Alpenglow: the genesis certificate exists on ${network}. Identity changes move the vote history file (vote_history-<identity>.bin) instead of the tower; with the old primary down use slv v set:identity -n ${network} -p <host> --primary-down.`,
+          `Alpenglow: the genesis certificate exists on ${network}. Identity changes move the vote history file (vote_history-<identity>.bin) instead of the tower; with the old primary down use slv v set:identity -n ${network} -p <host> --primary-down, and when the vote account has voted only before Alpenglow, so that there is no vote history file, use slv v set:identity -n ${network} -p <host> --first-activation.`,
       }
     case 'unknown':
       return {
@@ -874,7 +878,7 @@ const voterAt = (
   return begun.length > 0 ? begun[begun.length - 1] : sorted[0]
 }
 
-/** 6. The authorized voter of the vote account is the identity slv adds to the validator. */
+/** 6. The vote account names the identity as its node, and its authorized voter is the identity slv adds to the validator. */
 const voterLine = (
   host: ReadinessHost,
   network: ReadinessNetwork,
@@ -892,6 +896,16 @@ const voterLine = (
     }
   }
   const { account } = resolved
+  if (account.nodePubkey !== host.identityAccount) {
+    return {
+      check: 'voter',
+      level: 'FAIL',
+      message:
+        `the vote account ${host.voteAccount} names ${account.nodePubkey} as its node, not the identity ${host.identityAccount}. It is the vote account of another validator, or the inventory has the wrong vote_account or identity_account, and its votes say nothing about whether the identity is running.`,
+      fix:
+        'correct vote_account or identity_account in the inventory so that they belong to the same validator (solana vote-update-validator-identity changes the node of a vote account)',
+    }
+  }
   const current = voterAt(account.authorizedVoters, epoch)
   if (current === null) {
     return {

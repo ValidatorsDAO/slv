@@ -30,7 +30,12 @@ const THIRD = makeHost('val-third', '203.0.113.12')
 
 type Scenario = {
   nodes?: { pubkey: string; gossip: string | null }[]
-  votes?: { votePubkey: string; lastVote: number; rootSlot?: number }[]
+  votes?: {
+    votePubkey: string
+    lastVote: number
+    rootSlot?: number
+    nodePubkey?: string
+  }[]
   peerOutput?: string
 }
 
@@ -40,7 +45,14 @@ const stub = (s: Scenario = {}): PrecheckDeps => ({
     const answers: Record<string, unknown> = {
       getClusterNodes: s.nodes ?? [],
       getSlot: SLOT,
-      getVoteAccounts: { current: s.votes ?? [], delinquent: [] },
+      // A vote account names the node it belongs to: the identity, unless a row says otherwise.
+      getVoteAccounts: {
+        current: (s.votes ?? []).map((vote) => ({
+          nodePubkey: IDENTITY,
+          ...vote,
+        })),
+        delinquent: [],
+      },
     }
     return Promise.resolve(
       Response.json({
@@ -178,4 +190,34 @@ Deno.test('under Alpenglow the vote check reads lastVote and not rootSlot: a vot
   const result = await votedAgo(5, 'alpenglow', { rootSlot: SLOT - 8_087 })
   assertEquals(result.ok, false)
   assertStringIncludes(result.failures.join('\n'), 'voted 5 slot(s) ago')
+})
+
+// --- the vote account has to be the identity's -----------------------------------
+
+Deno.test('a vote account that belongs to another identity or names no node proves nothing, quiet or not, and a vote account the cluster does not list is no failure', async () => {
+  const OTHER = 'Ee'.repeat(22)
+  for (const age of [5, 5_000]) {
+    for (
+      const [nodePubkey, message] of [
+        [OTHER, `belongs to ${OTHER}, not to identity ${IDENTITY}`],
+        ['', 'does not name a node'],
+      ]
+    ) {
+      const result = await runIdentityPrecheck(
+        input({ hosts: [STANDBY] }),
+        stub({
+          votes: [{ votePubkey: VOTE, lastVote: SLOT - age, nodePubkey }],
+        }),
+      )
+      assertEquals(result.ok, false, `age=${age} ${nodePubkey}`)
+      assertStringIncludes(result.failures.join('\n'), message)
+    }
+  }
+  // A new vote account that has no stake is not listed: that is no vote to read.
+  const unlisted = await runIdentityPrecheck(
+    input({ hosts: [STANDBY] }),
+    stub({ votes: [] }),
+  )
+  assertEquals(unlisted.ok, true)
+  assertStringIncludes(unlisted.notes.join('\n'), 'has no vote on record')
 })

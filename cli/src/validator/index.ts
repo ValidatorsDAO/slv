@@ -107,7 +107,7 @@ validatorCmd.command('check:alpenglow')
       '  bls       the vote account has a BLS public key (fix: slv v register:bls)',
       '  vat       the vote account holds the Validator Admission Ticket, 0.8 SOL per epoch, above its rent-exempt minimum (WARN below 3 epochs)',
       '  identity  the identity pays the vote fees of TowerBFT, about 1 SOL per epoch (WARN below 3 SOL); under Alpenglow it does not',
-      '  voter     the authorized voter of the vote account is the identity slv adds to the validator',
+      '  voter     the vote account names the identity as its node, and its authorized voter is the identity slv adds to the validator',
     ].join('\n'),
   )
   .option('-n, --network <network>', 'Solana Network (mainnet or testnet)', {
@@ -144,7 +144,7 @@ validatorCmd.command('set:identity')
   .option('-p, --pubkey <pubkey>', 'Inventory name of the one host to promote.')
   .option(
     '--first-activation',
-    'First promotion of this identity: the host has no tower or vote history yet.',
+    'First promotion of this identity: the host has no tower or vote history yet. On Alpenglow also when the vote account has voted only before Alpenglow, so that there is no vote history file; the playbook checks the vote account.',
   )
   .option(
     '--peer-down-confirmed',

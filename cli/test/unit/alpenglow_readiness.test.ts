@@ -86,6 +86,7 @@ Deno.test('the cluster line says what each state means for identity changes', as
     ['alpenglow', 'OK', [
       'vote_history',
       'slv v set:identity -n mainnet -p <host> --primary-down',
+      'voted only before Alpenglow, so that there is no vote history file, use slv v set:identity -n mainnet -p <host> --first-activation',
     ]],
     ['unknown', 'WARN', [
       'cannot be read',
@@ -659,6 +660,24 @@ Deno.test('an authorized voter that is the identity is OK, and another one FAILs
   )
 })
 
+Deno.test('a vote account that names another node than the identity FAILs with the fix, and one that names the identity is as before', async () => {
+  const other = lineOf(
+    await run({ cluster: { votes: { [VOTE]: { node: OTHER_VOTER } } } }),
+    'voter',
+  )
+  assertEquals(other.level, 'FAIL')
+  assertStringIncludes(
+    other.message,
+    `names ${OTHER_VOTER} as its node, not the identity ${IDENTITY}`,
+  )
+  assertStringIncludes(
+    other.message,
+    'say nothing about whether the identity is running',
+  )
+  assertStringIncludes(other.fix ?? '', 'vote_account or identity_account')
+  assertEquals(lineOf(await run(), 'voter').level, 'OK')
+})
+
 Deno.test('the authorized voter is the one in force in the current epoch, and a change that has not begun is a WARN', async () => {
   // An entry for an epoch to come is not the voter yet.
   const later = await run({
@@ -836,7 +855,7 @@ Deno.test('every slv command the report advises names the network of the run, be
   // check:alpenglow reads mainnet, and set:identity and gen:vote-account read
   // testnet, unless -n says otherwise.
   const advised =
-    /slv v (set:identity|check:alpenglow|switch|gen:vote-account|register:bls)[^.;)]*/g
+    /slv v (set:identity|check:alpenglow|switch|gen:vote-account|register:bls)(?:(?!slv v )[^.;)])*/g
   const scenarios: [string, RunOptions][] = [
     ['Alpenglow', { state: 'alpenglow' }],
     ['migration window', { state: 'window' }],

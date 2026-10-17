@@ -18,6 +18,7 @@ import type { InventoryHost } from '/lib/targetGuard.ts'
 
 const IDENTITY = 'Aa'.repeat(22)
 const UNSTAKED = 'Bb'.repeat(22)
+const OTHER_NODE = 'Ee'.repeat(22)
 const VOTE = 'Cc'.repeat(22)
 const SLOT = 400_000_000
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/
@@ -52,6 +53,8 @@ type Scenario = {
   nodes?: { pubkey: string; gossip: string | null }[]
   /** Slots since the last vote of the vote account; absent: no vote on record. */
   votedAgo?: number
+  /** The node the vote account names: the identity unless set; null names none. */
+  voteNode?: string | null
   /** The vote account calls (not the gossip call) answer with this HTTP status. */
   voteStatus?: number
   peerOutput?: string
@@ -65,9 +68,12 @@ const stub = (s: Scenario = {}): PrecheckDeps => ({
     if (s.voteStatus !== undefined && body.method !== 'getClusterNodes') {
       return Promise.resolve(new Response('', { status: s.voteStatus }))
     }
-    const entry = s.votedAgo === undefined
-      ? []
-      : [{ votePubkey: VOTE, lastVote: SLOT - s.votedAgo }]
+    const node = s.voteNode === undefined ? IDENTITY : s.voteNode
+    const entry = s.votedAgo === undefined ? [] : [{
+      votePubkey: VOTE,
+      lastVote: SLOT - s.votedAgo,
+      ...(node === null ? {} : { nodePubkey: node }),
+    }]
     // The cluster calls a vote account delinquent after 128 slots.
     const delinquent = (s.votedAgo ?? 0) > 128
     const answers: Record<string, unknown> = {
@@ -375,6 +381,45 @@ Deno.test('a gossip entry is not taken for a stale one when nothing shows the vo
   }
 })
 
+Deno.test('a gossip entry is not taken for a stale one when the vote account belongs to another identity or names no node, on TowerBFT and on Alpenglow, with --primary-down and with --peer-down-confirmed', async () => {
+  // Its votes, quiet or not, say nothing about whether this identity votes.
+  const base = {
+    nodes: [STALE_AT_PRIMARY],
+    votedAgo: 4_000,
+    peerOutput: report('val-primary', 'unknown'),
+  }
+  for (const state of ['towerbft', 'alpenglow'] as const) {
+    for (
+      const [flag, options, typed] of [
+        ['--primary-down', { primaryDown: true }, 'val-primary'],
+        ['--peer-down-confirmed', { peerDownConfirmed: true }, undefined],
+      ] as const
+    ) {
+      for (
+        const [voteNode, message] of [
+          [OTHER_NODE, `belongs to ${OTHER_NODE}, not to identity ${IDENTITY}`],
+          [null, 'does not name a node'],
+        ] as const
+      ) {
+        const name = `${state} ${flag} ${voteNode}`
+        const f = await failover(options, { ...base, voteNode }, {
+          state,
+          typed,
+        })
+        assertEquals(f.went, false, name)
+        assertEquals(f.runs, [], name)
+        assertEquals(f.exitCodes, [1], name)
+        assertStringIncludes(
+          f.errors,
+          'already in gossip at 203.0.113.10',
+          name,
+        )
+        assertStringIncludes(f.errors, message, name)
+      }
+    }
+  }
+})
+
 // --- comparing addresses ----------------------------------------------------
 
 Deno.test('a peer whose ansible_host is a name is matched by what the name resolves to, and a name that does not resolve is never matched', async () => {
@@ -519,4 +564,36 @@ Deno.test('the precheck reports an allowed stale address only when it is ok, and
   assertEquals(f.runs.map((run) => run.extraVars), [{
     primary_down_confirmed: true,
   }])
+})
+
+// --- a first activation on Alpenglow -----------------------------------------
+
+Deno.test('set:identity --first-activation on Alpenglow goes on to the playbook for a vote account whose last vote is older than the window or that is not listed, and a recent vote still refuses', async () => {
+  // The precheck leaves the decision about the vote account to the playbook:
+  // it only asks whether something votes now.
+  for (
+    const [name, votedAgo] of [
+      ['voted only before Alpenglow', 5_000_000],
+      ['one slot past the window', 271],
+      ['not listed (a new vote account)', undefined],
+    ] as const
+  ) {
+    const f = await failover({ firstActivation: true }, {
+      nodes: [],
+      votedAgo,
+    }, { hosts: [STANDBY], state: 'alpenglow' })
+    assertEquals(f.errors, '', name)
+    assertEquals(f.went, true, name)
+    assertEquals(f.runs.map((run) => run.extraVars), [{
+      first_activation: true,
+    }], name)
+  }
+  const recent = await failover({ firstActivation: true }, {
+    nodes: [],
+    votedAgo: 12,
+  }, { hosts: [STANDBY], state: 'alpenglow' })
+  assertEquals(recent.went, false)
+  assertEquals(recent.runs, [])
+  assertEquals(recent.exitCodes, [1])
+  assertStringIncludes(recent.errors, 'voted 12 slot(s) ago')
 })

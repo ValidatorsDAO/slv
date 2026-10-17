@@ -31,6 +31,8 @@ export const reading = (state: AlpenglowState): AlpenglowReading => ({
 // --- a stubbed cluster ----------------------------------------------------------
 
 export type VoteFixture = {
+  /** The node the vote account names; the identity by default. */
+  node?: string
   lamports?: number
   bls?: string | null
   /** [epoch, authorized voter] */
@@ -52,7 +54,7 @@ export const voteResult = (fixture: VoteFixture) => ({
       parsed: {
         type: 'vote',
         info: {
-          nodePubkey: IDENTITY,
+          nodePubkey: fixture.node ?? IDENTITY,
           authorizedVoters:
             (fixture.voters ?? [[1058, IDENTITY], [1059, IDENTITY]])
               .map(([epoch, authorizedVoter]) => ({ epoch, authorizedVoter })),
