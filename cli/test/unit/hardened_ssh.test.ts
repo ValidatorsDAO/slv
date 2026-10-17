@@ -163,6 +163,8 @@ Deno.test('the configuration that is written is what real ssh -G says it would u
     assertEquals(settings.get('identityfile'), [TARGET.identityFile])
     assertEquals(settings.get('userknownhostsfile'), [knownHosts])
     assertEquals(settings.get('globalknownhostsfile'), ['/dev/null'])
+    // The host key of one type only: the type that hosts:pin pins, and that the person checked.
+    assertEquals(settings.get('hostkeyalgorithms'), ['ssh-ed25519'])
     assertEquals(settings.get('identityagent'), ['none'])
     assertEquals(settings.get('forwardagent'), ['no'])
     assertEquals(settings.has('proxycommand'), false)
@@ -184,7 +186,11 @@ Deno.test('the configuration that is written is what real ssh -G says it would u
       .replace('StrictHostKeyChecking yes', 'StrictHostKeyChecking no')
       .replace('ProxyCommand none', 'ProxyCommand nc %h %p')
       .replace('IdentitiesOnly yes', 'IdentitiesOnly no')
-      .replace('ClearAllForwardings yes', 'ClearAllForwardings no') +
+      .replace('ClearAllForwardings yes', 'ClearAllForwardings no')
+      .replace(
+        'HostKeyAlgorithms ssh-ed25519',
+        'HostKeyAlgorithms ssh-ed25519,ecdsa-sha2-nistp256',
+      ) +
       'LocalForward 8000 127.0.0.1:8000\n'
     const found = verifyEffectiveConfig(
       await effective(forced),
@@ -197,6 +203,7 @@ Deno.test('the configuration that is written is what real ssh -G says it would u
         'forwardagent is not no',
         'stricthostkeychecking is not yes',
         'identitiesonly is not yes',
+        'hostkeyalgorithms is not ssh-ed25519',
         'clearallforwardings is not yes',
         'proxycommand is set',
         'localforward is set',
@@ -285,6 +292,24 @@ Deno.test('a session is not opened when ssh -G shows a setting that differs from
   assertEquals(none instanceof SshNotPinned, true)
   assertEquals(real.spawned.length, 0)
   assertEquals(pinsFor(`${ALIAS} ssh-ed25519 ${ED_1}\n# c\n`, ALIAS).length, 1)
+  // A key of a type that the configuration does not accept is no pin.
+  assertEquals(
+    pinsFor(
+      `${ALIAS} ecdsa-sha2-nistp256 AAAA\n${ALIAS} ssh-rsa AAAA\n`,
+      ALIAS,
+    ),
+    [],
+  )
+  await withPinsFile(
+    [`${ALIAS} ecdsa-sha2-nistp256 AAAA`],
+    async (knownHosts) => {
+      const error = await assertRejects(
+        () => open(real.spawn, knownHosts),
+        SshNotPinned,
+      )
+      assertStringIncludes(error.message, 'is not pinned')
+    },
+  )
 })
 
 Deno.test('every call runs ssh as -F <config> -T target -- <the fixed command> with an environment of its own, and the key buffer is zero afterwards whether the call went well, failed, timed out or could not start', async () => {

@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from '@std/assert'
-import { type PinDeps, pinHost } from '/src/validator/keys/pinHost.ts'
+import { type PinDeps, pinHost, scanArgs } from '/src/validator/keys/pinHost.ts'
 import { captureIo, scriptedTty } from '/test/unit/_keylessFixtures.ts'
 
 const ED_1 =
@@ -8,6 +8,9 @@ const ED_1_FINGERPRINT = 'SHA256:tug+Nsa0W463DpKSTAmfelWUhRYIv+k250avQuKO3ko'
 const ED_2 =
   'AAAAC3NzaC1lZDI1NTE5AAAAINJvnBfiD9Vj3rDfZh0fZPrTa41lMuHZFPhOX2t3h8cu'
 const ED_2_FINGERPRINT = 'SHA256:SHwFuOAyKZj8ZjqNCQ/vL81gV2+1z4DOqBG8tb6N29k'
+const ECDSA =
+  'AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBB68ouA1ARfIAE5QVraNOngbAfGa3bfKN3KChxGJaxadLEKoKm4XcL9HcBLaLtHeEbhTyVg7EnnFebM/2Q5goGE='
+const ECDSA_FINGERPRINT = 'SHA256:1j1u8Q0RcXVX4di7UyVfNPwZ+Lo1EDhq0LU4xYrQGM4'
 // The line that `ssh-keygen -H` made of `[127.0.0.1]:22888 ssh-ed25519 <ED_1>`.
 const HASHED =
   `|1|AA6wnhUQ5EwF0aRbtbW4LKM8EYk=|asIkW5lnKAvgLId6WtffxsbEMFM= ssh-ed25519 ${ED_1}`
@@ -195,7 +198,7 @@ Deno.test('a network that is not testnet or mainnet, a missing host name, a host
         'no key from the scan',
         TESTNET,
         { scan: '# nothing\n' },
-        'returned no key',
+        'returned no ssh-ed25519 key',
       ],
       [
         'a scan that fails',
@@ -220,4 +223,59 @@ Deno.test('a network that is not testnet or mainnet, a missing host name, a host
     scan: `${ALIAS} ssh-ed25519 ${ED_1}`,
   })
   assertEquals(mainnet.result, true)
+})
+
+Deno.test('only the ssh-ed25519 key is scanned for, shown and pinned: the other key types that a scan or ~/.ssh/known_hosts holds are left out, and a node with no ed25519 key is refused with nothing written', async () => {
+  // ssh-keyscan is asked for the one type, and the arguments say nothing of the others.
+  const args = scanArgs('127.0.0.1', 22888)
+  assertEquals(args.slice(args.indexOf('-t'), args.indexOf('-t') + 2), [
+    '-t',
+    'ed25519',
+  ])
+  assertEquals(args.join(' ').includes('ecdsa'), false)
+  assertEquals(args.join(' ').includes('rsa'), false)
+
+  // A scan that answers with an ed25519 key and with keys of other types (an attacker on the path answers the probes of the types that the person did not check) pins the ed25519 key only.
+  const scan = [
+    `${ALIAS} ssh-ed25519 ${ED_1}`,
+    `${ALIAS} ecdsa-sha2-nistp256 ${ECDSA}`,
+    `${ALIAS} ssh-rsa ${ED_1}`,
+  ].join('\n')
+  const scanned = await run(TESTNET, { scan })
+  assertEquals(scanned.result, true)
+  assertEquals(scanned.writes, [{
+    path: PINS,
+    text: `${ALIAS} ssh-ed25519 ${ED_1}\n`,
+  }])
+  assertStringIncludes(scanned.terminal.said[0], ED_1_FINGERPRINT)
+  assertEquals(scanned.terminal.said[0].includes(ECDSA_FINGERPRINT), false)
+
+  // The same from the keys that ~/.ssh/known_hosts holds.
+  const known = await run(TESTNET, {
+    userKnownHosts:
+      `${ALIAS} ssh-ed25519 ${ED_1}\n${ALIAS} ecdsa-sha2-nistp256 ${ECDSA}\n`,
+  })
+  assertEquals(known.result, true)
+  assertEquals(known.scans, [])
+  assertEquals(known.writes, [{
+    path: PINS,
+    text: `${ALIAS} ssh-ed25519 ${ED_1}\n`,
+  }])
+
+  // A node with an ECDSA key alone, from either source, is not pinned.
+  for (
+    const setup of [
+      { scan: `${ALIAS} ecdsa-sha2-nistp256 ${ECDSA}` },
+      {
+        userKnownHosts: `${ALIAS} ecdsa-sha2-nistp256 ${ECDSA}\n`,
+        scan: '# nothing\n',
+      },
+    ]
+  ) {
+    const refused = await run(TESTNET, setup)
+    assertEquals(refused.result, false)
+    assertEquals(refused.writes, [])
+    assertEquals(refused.captured.exitCode(), 1)
+    assertStringIncludes(refused.captured.error[0], 'no ssh-ed25519 key')
+  }
 })

@@ -50,22 +50,25 @@ const scanEnv = (): Record<string, string> => {
   return env
 }
 
+/** The arguments of ssh-keyscan: the keys of one type, the type that is pinned. */
+const scanArgs = (host: string, port: number): string[] => [
+  '-T',
+  '10',
+  '-p',
+  String(port),
+  '-t',
+  'ed25519',
+  '--',
+  host,
+]
+
 const defaultScan = async (host: string, port: number): Promise<string> => {
   const path = await findExecutable('ssh-keyscan', Deno.env.get('PATH'))
   if (path === null) {
     throw new Error('ssh-keyscan is not in an absolute directory of PATH')
   }
   const output = await new Deno.Command(path, {
-    args: [
-      '-T',
-      '10',
-      '-p',
-      String(port),
-      '-t',
-      'ed25519,ecdsa,rsa',
-      '--',
-      host,
-    ],
+    args: scanArgs(host, port),
     env: scanEnv(),
     clearEnv: true,
     stdin: 'null',
@@ -192,7 +195,7 @@ const pinHost = async (
     }
     if (keys.length === 0) {
       return refuse(
-        `ssh-keyscan returned no key for ${target.alias}. Is the node up, and is port ${target.port} its ssh port?`,
+        `ssh-keyscan returned no ssh-ed25519 key for ${target.alias}, and slv pins ssh-ed25519 host keys only. Is the node up, is port ${target.port} its ssh port, and has it an ed25519 host key?`,
       )
     }
     source =
@@ -232,5 +235,5 @@ const pinHost = async (
   return true
 }
 
-export { defaultPinDeps, defaultScan, pinHost }
+export { defaultPinDeps, defaultScan, pinHost, scanArgs }
 export type { PinDeps, PinOptions }

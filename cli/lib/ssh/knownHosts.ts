@@ -10,14 +10,13 @@ import { configRoot } from '@cmn/constants/path.ts'
 
 const PINS_PATH = join(configRoot, 'known_hosts')
 
-/** The key types that are pinned. */
-const KEY_TYPES: readonly string[] = [
-  'ssh-ed25519',
-  'ecdsa-sha2-nistp256',
-  'ecdsa-sha2-nistp384',
-  'ecdsa-sha2-nistp521',
-  'ssh-rsa',
-]
+/**
+ * The key type that is pinned, and the only one that the ssh configuration
+ * accepts for a host. ssh-keyscan asks for each type over a connection of its
+ * own, so a person who has checked the fingerprint of one key has not checked
+ * the others.
+ */
+const KEY_TYPES: readonly string[] = ['ssh-ed25519']
 
 type HostKey = {
   keyType: string

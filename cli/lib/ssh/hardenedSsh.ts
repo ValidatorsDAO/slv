@@ -127,6 +127,7 @@ const buildSshConfig = (target: SshTarget, knownHostsPath: string): string => {
     '  PasswordAuthentication no',
     '  KbdInteractiveAuthentication no',
     '  StrictHostKeyChecking yes',
+    '  HostKeyAlgorithms ssh-ed25519',
     `  UserKnownHostsFile ${knownHostsPath}`,
     '  GlobalKnownHostsFile /dev/null',
     '  UpdateHostKeys no',
@@ -182,6 +183,7 @@ const expectedSettings = (
   ['passwordauthentication', 'no'],
   ['kbdinteractiveauthentication', 'no'],
   ['stricthostkeychecking', 'yes'],
+  ['hostkeyalgorithms', 'ssh-ed25519'],
   ['userknownhostsfile', knownHostsPath],
   ['globalknownhostsfile', '/dev/null'],
   ['updatehostkeys', 'no'],
@@ -242,7 +244,10 @@ const pinsFor = (knownHostsText: string, alias: string): string[] => {
       }
       continue
     }
-    if (fields[0] === alias) lines.push(line.trim())
+    // Only a key of the type that the configuration accepts is a pin.
+    if (fields[0] === alias && fields[1] === 'ssh-ed25519') {
+      lines.push(line.trim())
+    }
   }
   return lines
 }

@@ -52,13 +52,9 @@ Deno.test('the keys that ~/.ssh/known_hosts holds for a host are found in its pl
   ])
   assertEquals(hostForms('203.0.113.7', 2222), ['[203.0.113.7]:2222'])
 
+  // Only the key of the type that is pinned: the ECDSA line of the same host is left out.
   assertEquals(await findHostKeys(text, '203.0.113.7', 22), [
     { keyType: 'ssh-ed25519', base64: ED_1, fingerprint: ED_1_FINGERPRINT },
-    {
-      keyType: 'ecdsa-sha2-nistp256',
-      base64: ECDSA,
-      fingerprint: ECDSA_FINGERPRINT,
-    },
   ])
   assertEquals(await findHostKeys(text, '203.0.113.7', 2222), [
     { keyType: 'ssh-ed25519', base64: ED_2, fingerprint: ED_2_FINGERPRINT },
@@ -81,6 +77,7 @@ Deno.test('a line with a wildcard, a marker, another host, a type that is not pi
     `@cert-authority 203.0.113.7 ssh-ed25519 ${ED_2}`,
     `203.0.113.8 ssh-ed25519 ${ED_2}`,
     `203.0.113.7 ssh-dss ${DSS}`,
+    `203.0.113.7 ecdsa-sha2-nistp256 ${ECDSA}`,
     `203.0.113.7 ssh-rsa ${ED_1}`,
     `203.0.113.7 ssh-ed25519 not-base64!`,
     `203.0.113.7 ssh-ed25519`,
@@ -111,19 +108,15 @@ Deno.test('ssh-keyscan output is read key by key, and the lines of a pin are add
     `[127.0.0.1]:22888 ssh-dss ${DSS}`,
     'a line that is no key',
   ].join('\n')
+  // The ECDSA key in the scan is not a key that is pinned: the person checks one fingerprint, of an ed25519 key.
   const keys = await parseScan(scan)
-  assertEquals(keys.map((key) => key.fingerprint), [
-    ED_1_FINGERPRINT,
-    ECDSA_FINGERPRINT,
-  ])
+  assertEquals(keys.map((key) => key.fingerprint), [ED_1_FINGERPRINT])
+  assertEquals(ECDSA_FINGERPRINT.startsWith('SHA256:'), true)
   assertEquals(await parseScan('# only a comment\n'), [])
 
   const alias = '[127.0.0.1]:22888'
   const lines = pinLines(alias, keys)
-  assertEquals(lines, [
-    `${alias} ssh-ed25519 ${ED_1}`,
-    `${alias} ecdsa-sha2-nistp256 ${ECDSA}`,
-  ])
+  assertEquals(lines, [`${alias} ssh-ed25519 ${ED_1}`])
   const once = withPins(null, lines)
   assertEquals(once, `${lines.join('\n')}\n`)
   // Adding them again changes nothing; a file without a final newline gets one.
