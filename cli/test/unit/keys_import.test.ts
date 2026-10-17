@@ -559,6 +559,18 @@ Deno.test('an item that has the public key as its title is not made a second tim
   assertEquals(writes, [])
   assertStringIncludes(captured.error[0], 'has an item titled')
   assertStringIncludes(captured.error[0], 'z'.repeat(26))
+  // It names both ways on: remove the item and run again, or check it and set the reference by hand.
+  assertStringIncludes(
+    captured.error[0],
+    'remove that item in 1Password and run keys:import again',
+  )
+  assertStringIncludes(
+    captured.error[0],
+    `slv v keys:check -n testnet --ref ${
+      refOf(VAULT, 'z'.repeat(26))
+    } --pubkey ${IDENTITY}`,
+  )
+  assertStringIncludes(captured.error[0], 'set identity_ref')
 })
 
 Deno.test('with no vault in keyless.yml the vaults are listed on the terminal and only the id of a listed one is taken; the vault is written to keyless.yml after the inventory, and not when the id is wrong', async () => {

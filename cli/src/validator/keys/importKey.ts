@@ -164,6 +164,39 @@ const refusalForReferenced = (referenced: IdentityEntries['referenced']) =>
       .join('; ')
   }: keys:import does not overwrite a reference. Remove the line from the inventory if the key is to be imported again. Nothing was changed.`
 
+/** What the person does when the vault has an item with the title already: remove it, or check it and point the inventory at it by hand. */
+const refusalForExisting = (
+  network: string,
+  vaultId: string,
+  identityAccount: string,
+  existing: readonly { id: string }[],
+): string => {
+  const many = existing.length > 1
+  const checks = existing.flatMap((item) => {
+    try {
+      const { ref } = parseIdentityRef(`op://${vaultId}/${item.id}/keypair`, {
+        homeDir: '/',
+      })
+      return [
+        `slv v keys:check -n ${network} --ref ${ref.text} --pubkey ${identityAccount}`,
+      ]
+    } catch (_error) {
+      return []
+    }
+  })
+  return `the vault ${vaultId} has an item titled ${identityAccount} already (${
+    existing.map((item) => printable(item.id)).join(', ')
+  }), and keys:import does not make a second one. Nothing was changed. Either remove ${
+    many ? 'those items' : 'that item'
+  } in 1Password and run keys:import again, or check ${
+    many ? 'each' : 'it'
+  } with ${
+    checks.length > 0
+      ? checks.join(' ; ')
+      : `slv v keys:check -n ${network} --ref op://<vault id>/<item id>/keypair --pubkey ${identityAccount}`
+  } and, if it holds the key, set identity_ref of the inventory entries to its reference by hand.`
+}
+
 /**
  * Puts the key file of a host into 1Password and writes the reference of the
  * item into the inventory entries that have the identity_account of the host.
@@ -269,9 +302,7 @@ const importKey = async (
     const existing = before.filter((item) => item.title === identityAccount)
     if (existing.length > 0) {
       throw new ImportRefusal(
-        `the vault ${vaultId} has an item titled ${identityAccount} already (${
-          existing.map((item) => item.id).join(', ')
-        }), and keys:import does not make a second one. Nothing was changed.`,
+        refusalForExisting(network, vaultId, identityAccount, existing),
       )
     }
 
