@@ -1,0 +1,91 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/jinja/mainnet-rpc/firedancer-config.toml.j2
+# source-sha256: 38f5c702720ca6179d6b7a54e9dd775c257f881118220407c3c1b6737b0108df
+# source-state: unmodified (identical to HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# vars: {"dynamic_port_range": "8000-8030", "port_rpc": 7211, "rpc_type": "Index RPC", "validator_type": "firedancer-jito"}
+# render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
+# slv-fixture: body
+name = "solv"
+user = "solv"
+scratch_directory = "/home/{user}"
+dynamic_port_range = "8000-8030"
+
+[log]
+    path = "/home/solv/solana-validator.log"
+    colorize = "auto"
+    level_logfile = "INFO"
+    level_stderr = "NOTICE"
+    level_flush = "WARNING"
+
+[rpc]
+    port = 7211
+    private = true
+    bind_address = "0.0.0.0"
+    full_api = true
+    transaction_history = true
+    extended_tx_metadata_storage = true
+    pubsub_enable_block_subscription = true
+    pubsub_enable_vote_subscription  = true
+    bigtable_ledger_storage = false
+
+    
+[reporting]
+    solana_metrics_config = "host=https://metrics.solana.com:8086,db=mainnet-beta,u=mainnet-beta_write,p=password"
+
+[ledger]
+    path = "/mnt/ledger"
+    accounts_path = "/mnt/accounts"
+    limit_size = 200000000
+    account_indexes = ["program-id", "spl-token-mint", "spl-token-owner"]
+    account_index_exclude_keys = []
+    snapshot_archive_format = "zstd"
+    require_tower = false
+
+[snapshots]
+    incremental_snapshots = true
+    full_snapshot_interval_slots = 25000
+    incremental_snapshot_interval_slots = 100
+    path = "/mnt/snapshot"
+
+[gossip]
+    entrypoints = [
+      "entrypoint.mainnet-beta.solana.com:8001",
+      "entrypoint2.mainnet-beta.solana.com:8001",
+      "entrypoint3.mainnet-beta.solana.com:8001",
+      "entrypoint4.mainnet-beta.solana.com:8001",
+      "entrypoint5.mainnet-beta.solana.com:8001",
+    ]
+    port_check = false
+
+[consensus]
+    identity_path = "/home/solv/identity.json"
+    snapshot_fetch = true
+    genesis_fetch = true
+    expected_genesis_hash = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
+    expected_shred_version = 50093
+    known_validators = [
+        "Certusm1sa411sMpV9FPqU5dXAYhmmhygvxJ23S6hJ24",
+        "7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2",
+        "GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ",
+        "CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S",
+    ]
+
+[hugetlbfs]
+    mount_path = "/mnt"
+    max_page_size = "huge"
+
+[layout]
+     affinity = "auto"
+     agave_affinity = "auto"
+     verify_tile_count = 1
+     bank_tile_count = 1
+
+[tiles.gui]
+    enabled = true
+    gui_listen_port = 6001
+    gui_listen_address = "0.0.0.0"
+
+[tiles.metric]
+    prometheus_listen_address = "0.0.0.0"
+    prometheus_listen_port = 7999
+

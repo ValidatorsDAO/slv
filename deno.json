@@ -20,7 +20,7 @@
     "docker:rm": "bash scripts/docker-systemd-rm.sh",
     "upload:script": "echo 'Direct upload is disabled; use the reviewed GitHub release workflow.' && exit 1",
     "upload:exe": "echo 'Direct upload is disabled; use the reviewed GitHub release workflow.' && exit 1",
-    "create:template": "tar -czf dist/template.tar.gz ./template/2026.6.6.2026",
+    "create:template": "tar -czf dist/template.tar.gz ./template/2026.10.17.2215",
     "generate:checksums": "deno run -A cli/generateChecksums.ts",
     "release:package": "deno run --frozen --allow-read --allow-write --allow-run scripts/release/release.ts pack",
     "upload:template": "echo 'Direct upload is disabled; use the reviewed GitHub release workflow.' && exit 1",

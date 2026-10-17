@@ -2,7 +2,7 @@
 # Bootstrap source: review a commit-pinned copy of this file before running it.
 # The existing release-version task rewrites this canonical CalVer label.
 set -eu
-VERSION="2026.6.6.2026"
+VERSION="2026.10.17.2215"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "SLV install requires Python 3.9 or later; install Python and retry." >&2

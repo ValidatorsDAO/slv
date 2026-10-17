@@ -1,0 +1,151 @@
+---
+- name: Deploy start-validator script dynamically
+  hosts: all
+  become: true
+  vars:
+    geyser_config_path: "/home/solv/geyser.json"
+    richat_config_template: "~/.slv/mainnet-rpc/geyser-richat.json.j2"
+    richat_lib_path: "/home/solv/librichat_plugin_agave.so"
+    geyser_config_template: "~/.slv/mainnet-rpc/geyser.json.j2"
+    yellowstone_lib_path: "{{ geyser_lib_path | default('/home/solv/yellowstone-grpc/target/release/libyellowstone_grpc_geyser.so') }}"
+  vars_files:
+    - ~/.slv/versions.yml
+  tasks:
+    - name: Set RPC type fact for each host
+      set_fact:
+        rpc_type: "{{ rpc_type | default('Geyser gRPC') }}"
+    
+    - name: Debug RPC type. Stop if not set
+      debug:
+        msg: "RPC type is {{ rpc_type }}"
+
+    - name: Fail if RPC type is not set
+      fail:
+        msg: "RPC type is not set. Please set it in the inventory."
+      when: rpc_type is not defined
+
+    # geyser.json has to be for the plugin library that is installed on the host,
+    # so both libraries are looked for before anything is written. Richat is the
+    # link geyser_richat_build.yml makes; Yellowstone is the path its own config
+    # points at (geyser_lib_path). The answer is geyser_plugin_installed, not
+    # geyser_plugin: that is the name of the inventory variable that chooses the
+    # plugin for init.yml, and this play does not read it.
+    - name: Look for the Richat geyser plugin library
+      stat:
+        path: "{{ richat_lib_path }}"
+        follow: true
+      register: richat_lib
+      when: rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+
+    - name: Look for the Yellowstone geyser plugin library
+      stat:
+        path: "{{ yellowstone_lib_path }}"
+        follow: true
+      register: yellowstone_lib
+      when: rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+
+    - name: Decide which geyser plugin this host runs
+      set_fact:
+        geyser_plugin_installed: >-
+          {{ 'both' if (richat_lib.stat.exists and yellowstone_lib.stat.exists)
+             else 'richat' if richat_lib.stat.exists
+             else 'yellowstone' if yellowstone_lib.stat.exists
+             else 'none' }}
+      when: rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+
+    - name: Stop when neither geyser plugin library is installed
+      fail:
+        msg: >-
+          No geyser plugin library is installed on {{ inventory_hostname }}: neither
+          {{ richat_lib_path }} nor {{ yellowstone_lib_path }} exists, so there is no
+          geyser.json to write. Build the Yellowstone plugin with geyser_build.yml (init.yml
+          does that unless the inventory sets geyser_plugin: richat), or build the Richat plugin
+          with geyser_richat_build.yml and install the Richat daemon with install_richat.yml
+          (richat has no release for agave 4.3 or later yet), then run this again.
+          Nothing was changed.
+      when:
+        - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+        - geyser_plugin_installed == 'none'
+
+    - name: Stop when both geyser plugin libraries are installed
+      fail:
+        msg: >-
+          Both geyser plugin libraries are installed on {{ inventory_hostname }}
+          ({{ richat_lib_path }} and {{ yellowstone_lib_path }}), so it is not clear
+          which one geyser.json is for. Remove the library this node does not run, then
+          run this again. Nothing was changed.
+      when:
+        - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+        - geyser_plugin_installed == 'both'
+
+    # The XDP flags have to suit the agave that starts next, so the version comes
+    # from the agave-validator installed on this host, found the way the solv unit
+    # finds it. Without an installed binary the configured version applies.
+    - name: Read the version of the agave-validator installed on this host
+      shell: |
+        unit_path=$(systemctl show solv --property=Environment --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^PATH=//p' | tail -n 1)
+        unit_path=${unit_path:-/home/solv/.local/share/solana/install/active_release/bin}
+        binary=
+        for dir in $(printf '%s' "$unit_path" | tr ':' ' '); do
+          if [ -e "$dir/agave-validator" ] || [ -L "$dir/agave-validator" ]; then
+            binary="$dir/agave-validator"
+            break
+          fi
+        done
+        [ -n "$binary" ] || exit 0
+        output=$("$binary" --version 2>&1)
+        status=$?
+        version=$(printf '%s\n' "$output" | sed -n 's/^[A-Za-z][A-Za-z0-9_.-]* v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)
+        if [ "$status" -ne 0 ] || [ -z "$version" ]; then
+          printf 'The agave-validator at %s did not report a version (exit %s). It printed: "%s".\n' "$binary" "$status" "$output" >&2
+          exit 1
+        fi
+        printf '%s\n' "$version"
+      args:
+        executable: /bin/bash
+      register: agave_installed
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Stop when the installed agave-validator does not report its version
+      fail:
+        msg: 'Nothing was changed on {{ inventory_hostname }}. {{ agave_installed.stderr | trim }} Reinstall the agave-validator that the solv service runs, then run this again.'
+      when: agave_installed.rc != 0
+
+    - name: Generate start-validator.sh from template for Geyser gRPC
+      template:
+        src: ~/.slv/mainnet-rpc/start-validator.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        shredstream_address: "{{ hostvars[inventory_hostname].shredstream_address }}"
+        port_rpc: "{{ hostvars[inventory_hostname].port_rpc }}"
+        limit_ledger_size: "{{ hostvars[inventory_hostname].limit_ledger_size }}"
+        installed_agave_version: '{{ agave_installed.stdout | trim }}'
+
+    - name: Copy the geyser.json configuration file for Richat
+      template:
+        src: "{{ richat_config_template }}"
+        dest: "{{ geyser_config_path }}"
+        owner: solv
+        group: solv
+        mode: "0644"
+        backup: true
+      when:
+        - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+        - geyser_plugin_installed == 'richat'
+
+    - name: Copy the geyser.json configuration file for Yellowstone
+      template:
+        src: "{{ geyser_config_template }}"
+        dest: "{{ geyser_config_path }}"
+        owner: solv
+        group: solv
+        mode: "0644"
+        backup: true
+      when:
+        - rpc_type in ['Geyser gRPC', 'Index RPC + gRPC']
+        - geyser_plugin_installed == 'yellowstone'
