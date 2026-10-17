@@ -3293,7 +3293,7 @@ function parentDirectory(path: string): string {
 
 function defaultReviewedToolPinsPath(sourcePinsPath: string): string {
   return join(
-    parentDirectory(parentDirectory(sourcePinsPath)),
+    parentDirectory(parentDirectory(sourcePinsPath)) || '.',
     'source-rebuild/tool-prereqs.json',
   )
 }

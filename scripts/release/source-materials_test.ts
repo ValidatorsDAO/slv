@@ -1175,12 +1175,13 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
   const proofDirectory = `${root}/source-proofs`
   const toolPinsDirectory = `${root}/tool-pins`
   const noticePath = `${root}/THIRD_PARTY_NOTICES`
-  const pinsPath = `${root}/source-pins.json`
-  const reviewedToolPinsPath = `${root}/tool-prereqs.json`
+  const pinsPath = `${sourceDirectory}/pins.json`
+  const reviewedToolPinsPath = `${root}/source-rebuild/tool-prereqs.json`
   const receiptPath = `${root}/source-materials-receipt.json`
   try {
     await Deno.mkdir(sourceDirectory, { recursive: true })
     await Deno.mkdir(toolPinsDirectory, { recursive: true })
+    await Deno.mkdir(`${root}/source-rebuild`, { recursive: true })
     await Deno.copyFile(
       new URL('../../source-rebuild/tool-prereqs.json', import.meta.url),
       reviewedToolPinsPath,
@@ -1387,6 +1388,83 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
       canonicalNoticePath: noticePath,
       reviewedToolPinsPath,
     })
+    const runCli = async (sourcePinsPath: string, denyReviewed = false) => {
+      const result = await new Deno.Command(Deno.execPath(), {
+        cwd: root,
+        args: [
+          'run',
+          '--cached-only',
+          '--frozen',
+          '--no-prompt',
+          '--config',
+          new URL('../../deno.json', import.meta.url).pathname,
+          `--allow-read=${root}`,
+          ...(denyReviewed ? [`--deny-read=${reviewedToolPinsPath}`] : []),
+          new URL('./source-materials.ts', import.meta.url).pathname,
+          'verify-source-proofs',
+          receiptPath,
+          sourceDirectory,
+          proofDirectory,
+          commit,
+          sourcePinsPath,
+          toolPinsDirectory,
+          noticePath,
+        ],
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      return { ...result, error: new TextDecoder().decode(result.stderr) }
+    }
+    for (
+      const path of [
+        'source-materials/pins.json',
+        './source-materials/pins.json',
+        pinsPath,
+      ]
+    ) {
+      const result = await runCli(path)
+      if (!result.success) {
+        throw new Error(`CLI rejected ${path}: ${result.error}`)
+      }
+    }
+    const denied = await runCli('source-materials/pins.json', true)
+    if (denied.success || !denied.error.includes('Requires read access')) {
+      throw new Error(
+        `CLI ignored denied reviewed pins access: ${denied.error}`,
+      )
+    }
+    const reviewedBytes = await Deno.readFile(reviewedToolPinsPath)
+    try {
+      const alteredPins = structuredClone(reviewedToolPins)
+      alteredPins.targets['x86_64-unknown-linux-gnu'].tools[0].sha256 = '0'
+        .repeat(64)
+      await Deno.writeTextFile(
+        reviewedToolPinsPath,
+        JSON.stringify(alteredPins),
+      )
+      const altered = await runCli('source-materials/pins.json')
+      if (
+        altered.success ||
+        !altered.error.includes('descriptor differs from reviewed tool pins')
+      ) {
+        throw new Error(
+          `CLI did not reject altered reviewed pins: ${altered.error}`,
+        )
+      }
+      await Deno.remove(reviewedToolPinsPath)
+      const missing = await runCli('source-materials/pins.json')
+      if (
+        missing.success ||
+        !missing.error.includes('source-rebuild/tool-prereqs.json') ||
+        !missing.error.includes('No such file')
+      ) {
+        throw new Error(
+          `CLI did not reject missing reviewed pins: ${missing.error}`,
+        )
+      }
+    } finally {
+      await Deno.writeFile(reviewedToolPinsPath, reviewedBytes)
+    }
     const targetProofRoot = `${proofDirectory}/x86_64-unknown-linux-gnu`
     const proofPath = `${targetProofRoot}/native-proof.json`
     const buildPath = `${targetProofRoot}/build-receipt.json`
