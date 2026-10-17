@@ -14,7 +14,12 @@ that restarts comes back on its unstaked identity. So:
   signer    cmn/doublezero_deposit.yml and cmn/doublezero_withdraw.yml sign with a key file on the node: they look for it
             first and stop, without calling doublezero-solana, when it is not there.
   types     testnet-validator/init.yml sets up the solv unit, deploys the start script and starts the node for
-            allnodes-jito as it does for agave and jito (mainnet-validator/init.yml does).
+            allnodes-jito as it does for agave and jito (mainnet-validator/init.yml does), and
+            testnet-validator/update_startup_config.yml renders the start script of an allnodes-jito host.
+  firedancer  a Firedancer host of testnet takes the staked key from a file on the node, so testnet-validator/
+            nodowntime_migrate.yml refuses a Firedancer source or target before the source is demoted, and
+            testnet-validator/set_identity_key.yml refuses a Firedancer host in its first task: both with
+            SLV_KEYLESS_REFUSED, and nothing is changed. The agave, jito and allnodes-jito hosts are not affected.
 
 The tests run the real ansible-playbook on this machine over a local connection, without become, sudo, a network or a
 host, with temporary directories for HOME and for the paths of the node (/home/solv and /mnt are moved into one, and a
@@ -26,7 +31,9 @@ ansible-playbook (the one on PATH, or the one that ANSIBLE_PLAYBOOK names). Run 
 """
 
 import functools
+import grp
 import os
+import pwd
 import re
 import shutil
 import sys
@@ -38,7 +45,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_init_geyser_plugin import ANSIBLE_DIR, make_flow_copy, read_logs, run_ansible, write_inventory  # noqa: E402
+from test_init_geyser_plugin import ANSIBLE_DIR, make_flow_copy, make_home, read_logs, run_ansible, write_inventory  # noqa: E402
 
 VALIDATORS = ("mainnet-validator", "testnet-validator")
 AGAVE_FAMILY = ("agave", "jito", "allnodes-jito")
@@ -76,7 +83,8 @@ def fake_bin(root, calls):
 
 
 def run_with_fakes(args, root, home, bin_dir):
-    env = {"PATH": "%s:%s" % (bin_dir, os.environ.get("PATH", ""))}
+    # no gathering of facts: the setup module calls systemctl itself, and what the playbook calls is what is under test
+    env = {"PATH": "%s:%s" % (bin_dir, os.environ.get("PATH", "")), "ANSIBLE_GATHERING": "explicit"}
     return run_ansible(args, root, home, extra_env=env)
 
 
@@ -410,6 +418,181 @@ class InitRunsTheSolvPlaysForEveryAgaveType(unittest.TestCase):
                     self.assertNotIn("copy_keys.yml", imports)
                     setup = imports.index("../cmn/setup_unstaked_identity.yml")
                     self.assertEqual(imports[setup + 1], "../cmn/assert_unstaked_identity.yml")
+
+
+
+# ---------------------------------------------------------------------------
+# firedancer: a Firedancer host of testnet is refused before anything is changed
+# ---------------------------------------------------------------------------
+
+TESTNET = ANSIBLE_DIR / "testnet-validator"
+STAKED = "StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA"
+
+
+def copy_validator_plays(root, network_dir):
+    """A copy of the playbooks of the directory and of cmn/tasks with the paths of the node moved into root."""
+    target = root / "ansible" / network_dir
+    target.mkdir(parents=True)
+    shutil.copytree(ANSIBLE_DIR / "cmn" / "tasks", root / "ansible" / "cmn" / "tasks")
+    for source in sorted((ANSIBLE_DIR / network_dir).glob("*.yml")):
+        text = move_to(source.read_text(), root)
+        if real_host_paths_left(text):
+            raise AssertionError("a path of the real host is left in %s/%s" % (network_dir, source.name))
+        (target / source.name).write_text(text)
+    return target
+
+
+def node_dirs(root):
+    for name in ("solv", "mnt", "mnt/ledger"):
+        (root / name).mkdir(exist_ok=True)
+
+
+@functools.lru_cache(maxsize=None)
+def run_migrate(source_type, target_type):
+    with tempfile.TemporaryDirectory(prefix="slv-keyless-migrate-") as tmp:
+        root = Path(tmp)
+        home = root / "home"
+        home.mkdir()
+        node_dirs(root)
+        calls = root / "calls.log"
+        calls.write_text("")
+        bin_dir = fake_bin(root, calls)
+        target = copy_validator_plays(root, "testnet-validator")
+        (root / "mnt" / "ledger" / ("tower-1_9-%s.bin" % STAKED)).write_text("ledger-tower")
+        write_inventory(root / "inventory.json", {
+            "src": {"identity_account": STAKED, "vote_account": "VOTE", "validator_type": source_type},
+            "dst": {"identity_account": STAKED, "vote_account": "VOTE", "validator_type": target_type}})
+        before = node_files(root)
+        process = run_with_fakes(["-i", "inventory.json", target / "nodowntime_migrate.yml", "-e", "source_host=src",
+                                  "-e", "target_host=dst", "-e", "ansible_become=false",
+                                  "-e", "slv_alpenglow_rpc_url=http://127.0.0.1:9", "-e", "slv_alpenglow_rpc_delay=0"],
+                                 root, home, bin_dir)
+        return {"rc": process.returncode, "output": process.stdout, "calls": calls.read_text(),
+                "created": sorted(set(node_files(root)) - set(before))}
+
+
+@functools.lru_cache(maxsize=None)
+def run_set_identity_key(validator_type):
+    with tempfile.TemporaryDirectory(prefix="slv-keyless-setkey-") as tmp:
+        root = Path(tmp)
+        home = root / "home"
+        home.mkdir()
+        node_dirs(root)
+        calls = root / "calls.log"
+        calls.write_text("")
+        bin_dir = fake_bin(root, calls)
+        target = copy_validator_plays(root, "testnet-validator")
+        # no identity_account: the first check of the agave family, the base58 one, stops it
+        write_inventory(root / "inventory.json", {"node": {"validator_type": validator_type, "vote_account": "VOTE"}})
+        before = node_files(root)
+        process = run_with_fakes(["-i", "inventory.json", target / "set_identity_key.yml", "-e", "ansible_become=false",
+                                  "-e", "slv_alpenglow_rpc_url=http://127.0.0.1:9", "-e", "slv_alpenglow_rpc_delay=0"],
+                                 root, home, bin_dir)
+        return {"rc": process.returncode, "output": process.stdout, "calls": calls.read_text(),
+                "created": sorted(set(node_files(root)) - set(before))}
+
+
+def tasks_run(output):
+    """The names of the tasks that the run started, but for the gathering of facts."""
+    return [name for name in re.findall(r"^TASK \[(.*?)\] \*", output, re.M) if name != "Gathering Facts"]
+
+
+FIREDANCER_MOVES = (("firedancer-jito", "firedancer-jito"), ("agave", "firedancer-jito"), ("firedancer-agave", "agave"))
+
+
+class FiredancerHostsAreRefusedOnTestnet(unittest.TestCase):
+    def test_k14_a_migrate_with_a_firedancer_source_or_target_is_refused_before_the_source_is_demoted(self):
+        for source_type, target_type in FIREDANCER_MOVES:
+            with self.subTest(source=source_type, target=target_type):
+                result = run_migrate(source_type, target_type)
+                output = result["output"]
+                self.assertNotEqual(result["rc"], 0, output[-2000:])
+                self.assertIn("SLV_KEYLESS_REFUSED", output)
+                self.assertIn("Nothing was changed", output)
+                self.assertEqual(result["calls"], "", "a command of the node was called: the source was demoted")
+                self.assertEqual(result["created"], [], "the run created a file")
+                # the type gate, which asserts and changes nothing, and then the refusal: nothing else started
+                names = tasks_run(output)
+                self.assertEqual(len(names), 2, output[-2000:])
+                self.assertTrue(names[1].startswith("Refuse a Firedancer"), names)
+
+    def test_k15_set_identity_key_refuses_a_firedancer_host_before_any_check_but_the_type_gate(self):
+        for validator_type in ("firedancer-agave", "firedancer-jito"):
+            with self.subTest(validator_type=validator_type):
+                result = run_set_identity_key(validator_type)
+                output = result["output"]
+                self.assertNotEqual(result["rc"], 0, output[-2000:])
+                self.assertIn('"msg": "SLV_KEYLESS_REFUSED', output)
+                self.assertIn("Nothing was changed on node", output)
+                names = tasks_run(output)
+                self.assertEqual(len(names), 2, "the refusal comes right after the type gate:\n" + output[-2000:])
+                self.assertEqual(names[1], "Refuse a Firedancer host, which has no staked key on the node to take")
+                self.assertEqual(result["calls"], "", "a command of the node was called")
+                self.assertEqual(result["created"], [], "the play created a file")
+
+    def test_k16_an_agave_family_host_goes_through_its_own_checks_as_before(self):
+        for validator_type in AGAVE_FAMILY:
+            with self.subTest(validator_type=validator_type):
+                output = run_set_identity_key(validator_type)["output"]
+                self.assertNotIn("SLV_KEYLESS_REFUSED", output)
+                self.assertIn("is not a base58 public key", output)
+                self.assertGreaterEqual(len(tasks_run(output)), 2, output[-2000:])
+
+
+# ---------------------------------------------------------------------------
+# update_startup_config.yml of testnet: the start script of every agave type
+# ---------------------------------------------------------------------------
+
+UPDATE_TYPES = AGAVE_FAMILY
+
+
+@functools.lru_cache(maxsize=None)
+def run_update_script(validator_type):
+    with tempfile.TemporaryDirectory(prefix="slv-keyless-update-") as tmp:
+        root = Path(tmp)
+        home = make_home(root)
+        node_dirs(root)
+        # the agave-validator that the solv unit would find: it reports a version the way the real one does
+        agave_dir = root / "solv" / ".local" / "share" / "solana" / "install" / "active_release" / "bin"
+        agave_dir.mkdir(parents=True)
+        agave = agave_dir / "agave-validator"
+        agave.write_text("#!/bin/bash\necho 'agave-validator 4.4.0-beta.0 (src:00000000; feat:1, client:Agave)'\n")
+        agave.chmod(0o755)
+        calls = root / "calls.log"
+        calls.write_text("")
+        fakes = fake_bin(root, calls)
+        user, group = pwd.getpwuid(os.getuid()).pw_name, grp.getgrgid(os.getgid()).gr_name
+        text = move_to((TESTNET / "update_startup_config.yml").read_text(), root)
+        text = text.replace("owner: solv", "owner: %s" % user).replace("group: solv", "group: %s" % group)
+        if real_host_paths_left(text):
+            raise AssertionError("a path of the real host is left in update_startup_config.yml")
+        playbook = root / "update.yml"
+        playbook.write_text(text)
+        write_inventory(root / "inventory.json", {"node": {
+            "validator_type": validator_type, "vote_account": "VOTE", "commission_bps": 0,
+            "block_engine_url": "http://localhost"}})
+        process = run_with_fakes(["-i", "inventory.json", playbook, "-e", "ansible_become=false"], root, home, fakes)
+        script = root / "solv" / "start-validator.sh"
+        return process.returncode, process.stdout, script.read_text() if script.exists() else None
+
+
+class UpdateStartupConfigRendersEveryAgaveType(unittest.TestCase):
+    def test_k17_the_start_script_of_an_allnodes_jito_host_is_rendered_as_init_renders_it(self):
+        returncode, output, script = run_update_script("allnodes-jito")
+        self.assertEqual(returncode, 0, output[-3000:])
+        self.assertIsNotNone(script, "update_startup_config.yml wrote no start script for allnodes-jito")
+        self.assertIn("--vote-account VOTE", script)
+        self.assertIn("--identity /home/solv/identity.json", script)
+        self.assertIn("--block-engine-url", script, "the Jito flags of the generic template")
+
+    def test_k18_agave_and_jito_keep_the_scripts_of_their_own_templates(self):
+        for validator_type in ("agave", "jito"):
+            with self.subTest(validator_type=validator_type):
+                returncode, output, script = run_update_script(validator_type)
+                self.assertEqual(returncode, 0, output[-3000:])
+                self.assertIsNotNone(script)
+                self.assertIn("--vote-account VOTE", script)
+                self.assertEqual("--block-engine-url" in script, validator_type == "jito")
 
 
 if __name__ == "__main__":

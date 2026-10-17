@@ -120,8 +120,8 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `deploy-start-validator-sh.yml` | Deploy start script |
 | `create-start-validator-sh-agave.yml` | Generate Agave start script |
 | `create-start-validator-sh-jito.yml` | Generate Jito start script |
-| `nodowntime_migrate.yml` | Zero-downtime identity migration |
-| `set_identity_key.yml` | Set identity key |
+| `nodowntime_migrate.yml` | Zero-downtime identity migration. Refuses a Firedancer source or target before it changes anything (`SLV_KEYLESS_REFUSED`, see Keys) |
+| `set_identity_key.yml` | Set identity key. Refuses a Firedancer host before it changes anything (`SLV_KEYLESS_REFUSED`, see Keys) |
 | `set_identity_to_active.yml` | Refuses, for every host: it set the identity from a staked key on the node, and there is none (see Keys). The message starts with `SLV_KEYLESS_REFUSED`, nothing is changed, and it names `slv v set:identity -n testnet -p <host>` and `slv v switch -n testnet` |
 | `set_unstaked_key.yml` | Switch to unstaked identity |
 | `switch_on_identity.yml` / `switch_off_identity.yml` | Toggle identity |
@@ -211,6 +211,12 @@ A playbook that read the staked key from a file on the node refuses now: `set_id
 and `switch_on_firedancer_identity.yml` and `change_identity_and_restart.yml` on testnet. Each fails in its first
 task, with a message that starts with `SLV_KEYLESS_REFUSED` and names `slv v set:identity` and `slv v switch`; nothing
 else runs.
+
+On testnet a Firedancer host (`firedancer-agave`, `firedancer-jito`) takes the staked key from a file on the node, and a
+deploy puts none there. `set_identity_key.yml` refuses such a host, and `nodowntime_migrate.yml` refuses a Firedancer
+source or target: both fail right after the check of the validator type, with a message that starts with
+`SLV_KEYLESS_REFUSED` that says nothing was changed. `slv v switch` refuses before it demotes the source, so no node is
+left unstaked. The staked identity moves between `agave`, `jito` and `allnodes-jito` hosts.
 
 ## Three Core Workflows
 
@@ -310,7 +316,8 @@ Firedancer and Frankendancer hosts (`firedancer-agave`, `firedancer-jito`,
 `frankendancer`) cannot be the source or the target of a switch, or take an
 identity with `set:identity`, while the cluster runs Alpenglow: where they keep
 the vote history file is not confirmed. The same switch works for them on
-TowerBFT.
+TowerBFT, except on testnet: a Firedancer host there is refused as the source or the
+target of a switch, and by `set:identity`, whatever the cluster runs (see Keys).
 
 **Between the Alpenglow activation and the genesis certificate (`window`), shortly
 before the activation (`imminent`: the feature is pending and fewer than 3000
@@ -324,7 +331,8 @@ then, and the message says what is left to do by hand.
 
 `from_host` / `to_host` are inventory keys (e.g. `validator-primary`,
 `validator-spare`), not IPs. Both must have `validator_type` set
-(`agave`, `jito`, or `allnodes-jito`; Firedancer types on TowerBFT only), the
+(`agave`, `jito`, or `allnodes-jito`; Firedancer types on TowerBFT only, and not on
+testnet), the
 local key file at `~/.slv/keys/<identity_account>.json`, and
 `unstaked-identity.json` on each remote box.
 
