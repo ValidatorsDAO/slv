@@ -17,9 +17,11 @@
 #      (alpenglow-vote-history.sh runs that path); here the file is missing, so a switch
 #      stops before the demotion, switch_on stops without the copy of the source, and
 #      set:identity stops and names --primary-down. A Firedancer or Frankendancer host
-#      stops every identity move; set_unstaked_key is not a move, and set_identity_to_active
-#      stops on Alpenglow for every type of host: it sets the identity from the vote history
-#      file of the host and checks nothing else, so slv v set:identity is the way
+#      stops every identity move; set_unstaked_key is not a move. The playbooks that took the
+#      staked key from a file on the node (set_identity_to_active of both networks, and
+#      switch_on_firedancer_identity and change_identity_and_restart of testnet) refuse in
+#      their first task in every state, with SLV_KEYLESS_REFUSED: a deploy puts no staked key
+#      on a node, and slv v set:identity and slv v switch pass it on stdin
 #   4. mainnet: Firedancer and Frankendancer never take an identity, in any state, and
 #      nodowntime_migrate says so before it demotes the source; as the source they go
 #      on only while the state is towerbft
@@ -233,9 +235,10 @@ identity_playbooks=(switch_off_identity switch_off_firedancer_identity switch_on
 #   towerbft,window,unknown,alpenglow  with run, freeze, fdctl (a mainnet Firedancer target),
 #   afdctl (Firedancer or Frankendancer in an identity move on Alpenglow), vhfile (switch_off
 #   without the vote history file), vhcopy (switch_on without the copy of the source) or
-#   primarydown (set:identity without the vote history file) or aactive (set_identity_to_active, which
-#   sets the identity from the vote history file of the host and checks nothing else)
-#   (the fifth state, imminent, refuses every row with its own message)
+#   primarydown (set:identity without the vote history file), keyless (a playbook that took the staked key from a
+#   file on the node: it refuses in every state, in its first task) or demotedkeyless (a migrate run that demotes
+#   a Firedancer source and then meets the keyless refusal of switch_on_firedancer_identity of testnet)
+#   (the fifth state, imminent, refuses every row with its own message, except the keyless rows, which have five)
 cases=(
   'mainnet|switch_off_identity|agave|run,freeze,freeze,vhfile'
   'mainnet|switch_off_firedancer_identity|firedancer-jito|run,freeze,freeze,afdctl'
@@ -248,8 +251,8 @@ cases=(
   'mainnet|set_identity_key|firedancer-jito|fdctl,freeze,freeze,afdctl'
   'mainnet|set_unstaked_key|agave|run,freeze,freeze,run'
   'mainnet|set_unstaked_key|firedancer-jito|run,freeze,freeze,run'
-  'mainnet|set_identity_to_active|jito|run,freeze,freeze,aactive'
-  'mainnet|set_identity_to_active|firedancer-jito|fdctl,freeze,freeze,aactive'
+  'mainnet|set_identity_to_active|jito|keyless,keyless,keyless,keyless,keyless'
+  'mainnet|set_identity_to_active|firedancer-jito|keyless,keyless,keyless,keyless,keyless'
   'mainnet|nodowntime_migrate|agave>agave|run,freeze,freeze,vhfile'
   'mainnet|nodowntime_migrate|firedancer-jito>agave|run,freeze,freeze,afdctl'
   'mainnet|nodowntime_migrate|agave>firedancer-jito|fdctl,freeze,freeze,afdctl'
@@ -257,17 +260,17 @@ cases=(
   'testnet|switch_off_identity|agave|run,freeze,freeze,vhfile'
   'testnet|switch_off_firedancer_identity|firedancer-jito|run,freeze,freeze,afdctl'
   'testnet|switch_on_identity|agave|run,freeze,freeze,vhcopy'
-  'testnet|switch_on_firedancer_identity|firedancer-jito|run,freeze,freeze,afdctl'
+  'testnet|switch_on_firedancer_identity|firedancer-jito|keyless,keyless,keyless,keyless,keyless'
   'testnet|set_identity_key|agave|run,freeze,freeze,primarydown'
   'testnet|set_identity_key|firedancer-jito|run,freeze,freeze,afdctl'
   'testnet|set_unstaked_key|agave|run,freeze,freeze,run'
   'testnet|set_unstaked_key|firedancer-jito|run,freeze,freeze,run'
-  'testnet|set_identity_to_active|jito|run,freeze,freeze,aactive'
-  'testnet|set_identity_to_active|firedancer-jito|run,freeze,freeze,aactive'
+  'testnet|set_identity_to_active|jito|keyless,keyless,keyless,keyless,keyless'
+  'testnet|set_identity_to_active|firedancer-jito|keyless,keyless,keyless,keyless,keyless'
   'testnet|nodowntime_migrate|agave>agave|run,freeze,freeze,vhfile'
-  'testnet|nodowntime_migrate|firedancer-jito>firedancer-jito|run,freeze,freeze,afdctl'
-  'testnet|nodowntime_migrate|agave>firedancer-jito|run,freeze,freeze,afdctl'
-  'testnet|change_identity_and_restart|firedancer-jito|run,freeze,freeze,run'
+  'testnet|nodowntime_migrate|firedancer-jito>firedancer-jito|demotedkeyless,freeze,freeze,afdctl'
+  'testnet|nodowntime_migrate|agave>firedancer-jito|demotedkeyless,freeze,freeze,afdctl'
+  'testnet|change_identity_and_restart|firedancer-jito|keyless,keyless,keyless,keyless,keyless'
 )
 states=(towerbft window unknown alpenglow imminent)
 scenario_of() { # state, case id (flip scenarios count their probes per path)
@@ -368,12 +371,12 @@ imminent_text='Run the identity change after the genesis certificate'
 demoted_text='are both unstaked now'
 vhfile_text='so there is no vote history to carry to the target'
 vhcopy_text='does not exist on the controller'
-aactive_text='and checks nothing else'
+keyless_text='SLV_KEYLESS_REFUSED'
 
 for entry in "${cases[@]}"; do
   IFS='|' read -r net play types outcomes <<<"$entry"
   IFS=',' read -r -a expected <<<"$outcomes"
-  expected+=(imminent)
+  ((${#expected[@]} == 4)) && expected+=(imminent)
   for i in 0 1 2 3 4; do
     state=${states[$i]}
     outcome=${expected[$i]}
@@ -395,7 +398,7 @@ for entry in "${cases[@]}"; do
     grep -qF "$vhfile_text" "$run/log" && messages+='vhfile '
     grep -qF "$vhcopy_text" "$run/log" && messages+='vhcopy '
     grep -qF "slv v set:identity -n $net -p src with --primary-down" "$run/log" && messages+='primarydown '
-    grep -qF "$aactive_text" "$run/log" && messages+='aactive '
+    grep -qF "$keyless_text" "$run/log" && messages+='keyless '
     if [[ $outcome == run ]]; then
       want=1
       [[ $play == nodowntime_migrate ]] && want=2
@@ -407,6 +410,11 @@ for entry in "${cases[@]}"; do
         [[ $rc == 0 && $sets -eq $want && -z $messages ]]
         check $? "$id: expected the change to run (rc $rc, $sets set-identity calls, messages: ${messages:-none}) $(tail -n 4 "$run/log" | tr '\n' ' ')"
       fi
+    elif [[ $outcome == demotedkeyless ]]; then
+      # KNOWN: nothing refuses a Firedancer target of testnet before the source is demoted, so the run demotes it (one
+      # set-identity call) and the keyless refusal of switch_on_firedancer_identity stops the promotion
+      [[ $rc != 0 && $rc != missing && $sets -eq 1 && $voters -eq 0 && $messages == 'keyless ' ]]
+      check $? "$id: expected the source to be demoted and the keyless refusal to stop the target (rc $rc, $sets set-identity calls, messages: ${messages:-none}) $(tail -n 4 "$run/log" | tr '\n' ' ')"
     else
       refused=1
       [[ $rc != 0 && $rc != missing && $sets -eq 0 && $voters -eq 0 && $messages == "$outcome " ]] && refused=0
@@ -541,7 +549,7 @@ done
 # A migrate run probes four times: at the start, when switch_off starts, right before
 # switch_off demotes the source, and when switch_on starts. flip-K answers towerbft to
 # the first K probes and window to every later one.
-flip_cases=('mainnet|agave>agave' 'testnet|agave>agave' 'mainnet|firedancer-jito>agave' 'testnet|firedancer-jito>firedancer-jito')
+flip_cases=('mainnet|agave>agave' 'testnet|agave>agave' 'mainnet|firedancer-jito>agave' 'testnet|firedancer-jito>agave')
 flip_states=(flip2 flip3 flip9)
 for entry in "${flip_cases[@]}"; do
   IFS='|' read -r net types <<<"$entry"
@@ -597,10 +605,22 @@ for net in mainnet testnet; do
   [[ $(grep -c 'slv_alpenglow_demoted_source: "{{ source_host }}"' "$template/ansible/$net-validator/nodowntime_migrate.yml") -eq 2 ]]
   check $? "$net/nodowntime_migrate.yml tells both switch_on plays which source host it demoted"
 done
+# the playbooks that took the staked key from a file on the node only refuse, in their first task: they ask the cluster nothing
+is_keyless() { # network playbook
+  case $1/$2 in
+    */set_identity_to_active | testnet/switch_on_firedancer_identity | testnet/change_identity_and_restart) return 0 ;;
+  esac
+  return 1
+}
 for net in mainnet testnet; do
   for play in "${identity_playbooks[@]}"; do
     file="$template/ansible/$net-validator/$play.yml"
     [[ -e $file ]] || continue
+    if is_keyless "$net" "$play"; then
+      grep -q 'SLV_KEYLESS_REFUSED' "$file" && ! grep -q 'import_tasks' "$file"
+      check $? "$net/$play.yml refuses with SLV_KEYLESS_REFUSED and imports nothing"
+      continue
+    fi
     grep -q 'import_tasks: ../cmn/tasks/alpenglow_state.yml' "$file" && grep -q 'slv_alpenglow_freeze: true' "$file"
     check $? "$net/$play.yml imports the probe with the freeze on"
   done

@@ -810,8 +810,9 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
       )
     }
 
-    // switch_on_firedancer_identity: an fdctl host takes a tower
-    {
+    // switch_on_firedancer_identity: an fdctl host takes a tower (the one of testnet refuses, and is pinned with the other
+    // playbooks that took the staked key from a file on the node)
+    if (network === 'mainnet-validator') {
       const path = `ansible/${network}/switch_on_firedancer_identity.yml`
       const tasks = tasksOf(readPlaybook(path)[0])
       const setIdentity = tasks.filter((task) =>
@@ -1112,16 +1113,15 @@ Deno.test('base58 identity: an identity_account that is not a base58 public key 
 })
 
 Deno.test('base58 identity: every other playbook that builds a controller path from identity_account refuses a value that is not a base58 public key first, in every mode', () => {
+  // set_identity_to_active, change_identity_and_restart and switch_on_firedancer_identity of testnet refuse without
+  // reading anything, and the copy_keys.yml of the validators are gone: the staked key is not copied to a node
   const files = [
     ...validatorNetworks.flatMap((network) =>
-      [
-        'set_identity_key',
-        'set_identity_to_active',
-        'switch_on_firedancer_identity',
-        'switch_off_firedancer_identity',
-        'copy_keys',
-      ].map((file) => `ansible/${network}/${file}.yml`)
+      ['set_identity_key', 'switch_off_firedancer_identity'].map((file) =>
+        `ansible/${network}/${file}.yml`
+      )
     ),
+    'ansible/mainnet-validator/switch_on_firedancer_identity.yml',
     'ansible/mainnet-rpc/copy_keys.yml',
     'ansible/cmn/copy_rpc_keys.yml',
   ]
@@ -1167,39 +1167,78 @@ Deno.test('base58 identity: every other playbook that builds a controller path f
   }
 })
 
-Deno.test('set_identity_to_active refuses on Alpenglow and points to slv v set:identity with the network of the run', () => {
-  for (const network of validatorNetworks) {
-    const path = `ansible/${network}/set_identity_to_active.yml`
-    const tasks = tasksOf(readPlaybook(path)[0])
-    const probe = firstIndex(
-      tasks,
-      (task) => moduleArgs(task, 'import_tasks') === probeFile,
+// The playbooks that took the staked key from a file on the node refuse: a deploy puts no staked key on a node, the key
+// stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. Each is one play
+// with one task that fails with a message that starts with SLV_KEYLESS_REFUSED, so nothing else runs.
+const keylessRefusals: [string, string][] = [
+  ['mainnet-validator', 'set_identity_to_active'],
+  ['testnet-validator', 'set_identity_to_active'],
+  ['testnet-validator', 'switch_on_firedancer_identity'],
+  ['testnet-validator', 'change_identity_and_restart'],
+]
+const isKeylessRefusal = (network: string, file: string): boolean =>
+  keylessRefusals.some(([n, f]) => n === network && f === file)
+
+Deno.test('keyless: the playbooks that took the staked key from a file on the node are one play with one task that refuses', () => {
+  for (const [directory, file] of keylessRefusals) {
+    const path = `ansible/${directory}/${file}.yml`
+    const plays = readPlaybook(path)
+    assertEquals(plays.length, 1, `${path}: one play`)
+    const tasks = tasksOf(plays[0])
+    assertEquals(tasks.length, 1, `${path}: one task, so nothing else runs`)
+    assert(hasModule(tasks[0], 'fail'), `${path}: the task fails`)
+    assertEquals(conditionsOf(tasks[0]), [], `${path}: it always fails`)
+    assertEquals(
+      plays[0].become,
+      undefined,
+      `${path}: nothing is run as another user`,
     )
-    const refusal = firstIndex(
-      tasks,
-      (task) =>
-        hasModule(task, 'assert') &&
-        normalized(task).includes("slv_alpenglow_state != 'alpenglow'"),
-    )
-    const firstChange = firstIndex(
-      tasks,
-      (task) =>
-        hasModule(task, 'shell') || hasModule(task, 'copy') ||
-        hasModule(task, 'slurp'),
-    )
+    const message = String((moduleArgs(tasks[0], 'fail') as Entry).msg)
     assert(
-      probe >= 0 && refusal > probe && refusal < firstChange,
-      `${path}: the refusal follows the probe and comes before anything is read or changed`,
+      message.startsWith('SLV_KEYLESS_REFUSED'),
+      `${path}: the message starts with SLV_KEYLESS_REFUSED`,
     )
-    assertEquals(conditionsOf(tasks[refusal]), [])
-    const text = normalized(tasks[refusal])
-    assert(
-      text.includes(
-        `slv v set:identity -n ${network.replace('-validator', '')} -p`,
-      ),
-      `${path}: the refusal names the command with the network`,
-    )
+    const network = directory.replace('-validator', '')
+    for (
+      const part of [
+        'Nothing was changed on {{ inventory_hostname }}',
+        `slv v set:identity -n ${network} -p {{ inventory_hostname }}`,
+        `slv v switch -n ${network}`,
+      ]
+    ) {
+      assert(message.includes(part), `${path}: the message says: ${part}`)
+    }
   }
+  // nodowntime_migrate imports the play of testnet switch_on_firedancer_identity: one host that fails ends the run
+  assertEquals(
+    readPlaybook(
+      'ansible/testnet-validator/switch_on_firedancer_identity.yml',
+    )[0]
+      .any_errors_fatal,
+    true,
+  )
+})
+
+Deno.test('keyless: no task of the template writes the staked key to a node', () => {
+  const written: string[] = []
+  for (const file of listYamlFiles('ansible/')) {
+    for (const list of taskLists(parse(readText(file)))) {
+      for (const task of list) {
+        for (const module of ['copy', 'template', 'synchronize', 'fetch']) {
+          const args = moduleArgs(task, module) as Entry | undefined
+          if (
+            args &&
+            /(?:mainnet|testnet)-validator-keypair\.json/.test(
+              String(args.dest),
+            )
+          ) {
+            written.push(`${file}: ${task.name}`)
+          }
+        }
+      }
+    }
+  }
+  assertEquals(written, [], 'a staked key is written to a node')
 })
 
 // every task that reads a key file from the controller keeps what it reads out of the log, and a missing key
@@ -1257,9 +1296,10 @@ Deno.test('no_log: every task that reads a key file from the controller has it, 
       })
     }
   }
-  // set_identity_key, set_identity_to_active and switch_on_identity of both networks read the key with slurp;
-  // copy_keys of both networks, mainnet-rpc/copy_keys and cmn/copy_rpc_keys copy it
-  assertEquals(seen, 10, 'the tasks that read a key file')
+  // set_identity_key and switch_on_identity of both networks read the key with slurp; mainnet-rpc/copy_keys and
+  // cmn/copy_rpc_keys copy the key of an RPC node. The validators have no copy_keys.yml, and set_identity_to_active
+  // refuses: no staked key is copied to a node.
+  assertEquals(seen, 6, 'the tasks that read a key file')
 })
 
 // a task that passes a key on stdin keeps its arguments out of the log (ansible-core 2.16 prints them at -vvv, and
@@ -1366,16 +1406,14 @@ Deno.test('no_log: every task that passes a key on stdin has it and does not fai
       })
     }
   }
-  // set_identity_key (2) and set_identity_to_active (2) of both networks, switch_on_identity (4) of both networks,
-  // and the public key of WireGuard
-  assertEquals(seen.length, 17, 'the tasks that pass a key on stdin')
-  // the authorized-voter add of the TowerBFT paths never stopped a run on a return code, it still does not
+  // set_identity_key (2) and switch_on_identity (4) of both networks, and the public key of WireGuard
+  assertEquals(seen.length, 13, 'the tasks that pass a key on stdin')
+  // the authorized-voter add of the TowerBFT path of switch_on_identity never stopped a run on a return code, it still does not
   assertEquals(
     lenient.sort(),
-    validatorNetworks.flatMap((network) => [
-      `ansible/${network}/set_identity_to_active.yml: Add Authorized Voter via stdin`,
-      `ansible/${network}/switch_on_identity.yml: Add Authorized Voter via stdin`,
-    ]).sort(),
+    validatorNetworks.map((network) =>
+      `ansible/${network}/switch_on_identity.yml: Add Authorized Voter via stdin`
+    ).sort(),
     'the tasks that do not stop the play on a return code',
   )
 })
@@ -1916,10 +1954,9 @@ const moveTypesOf = (file: string): Entry => {
 
 Deno.test('alpenglow freeze: every identity playbook imports the probe with the freeze on before it changes anything', () => {
   for (const network of validatorNetworks) {
-    const files = network === 'testnet-validator'
-      ? [...identityPlaybooks, 'change_identity_and_restart']
-      : identityPlaybooks
-    for (const file of files) {
+    for (const file of identityPlaybooks) {
+      // a playbook that only refuses changes no identity and asks the cluster nothing
+      if (isKeylessRefusal(network, file)) continue
       const path = `ansible/${network}/${file}.yml`
       const tasks = tasksOf(readPlaybook(path)[0])
       const probe = firstIndex(
@@ -1977,7 +2014,7 @@ Deno.test('alpenglow fdctl: mainnet refuses Firedancer and Frankendancer as an i
   assert(hasModule(unconditional, 'fail'))
   assertEquals(conditionsOf(unconditional), [])
 
-  for (const file of ['set_identity_key', 'set_identity_to_active']) {
+  for (const file of ['set_identity_key']) {
     const task = refusalOf(
       mainnet(file),
       tasksOf(readPlaybook(mainnet(file))[0]),
@@ -2445,7 +2482,6 @@ Deno.test('addendum 10: the testnet validator wipes and both validator restarter
       'rm_ledger.yml',
       'restart_agave_with_rm_ledger.yml',
       'restart_firedancer_with_rm_ledger.yml',
-      'change_identity_and_restart.yml',
     ]
   ) {
     const path = `${testnet}/${file}`

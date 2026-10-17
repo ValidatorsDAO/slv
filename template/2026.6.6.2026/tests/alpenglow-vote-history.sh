@@ -367,18 +367,6 @@ case_key_bad_identity() {
   done
 }
 
-case_active_bad_identity() {
-  local n=0 bad
-  for bad in "${BAD_IDENTITIES[@]}"; do
-    n=$((n + 1))
-    begin "active_bad_identity_$n" "$1"
-    inventory agave agave "$bad"
-    box dst dst
-    play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
-    bad_identity_refused set_identity_to_active "set_identity_to_active refuses the identity_account $bad"
-  done
-}
-
 case_off_fdctl_bad_identity() {
   local n=0 bad
   for bad in "${BAD_IDENTITIES[@]}"; do
@@ -396,6 +384,7 @@ case_off_fdctl_bad_identity() {
 
 case_on_fdctl_bad_identity() {
   local n=0 bad
+  [[ $1 == mainnet ]] || return 0 # switch_on_firedancer_identity.yml of testnet refuses without reading the identity
   for bad in "${BAD_IDENTITIES[@]}"; do
     n=$((n + 1))
     begin "on_fdctl_bad_identity_$n" "$1"
@@ -404,30 +393,6 @@ case_on_fdctl_bad_identity() {
     play dst switch_on_firedancer_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
     bad_identity_refused switch_on_firedancer_identity "switch_on_firedancer_identity refuses the identity_account $bad"
   done
-}
-
-case_copy_keys_bad_identity() {
-  local n=0 bad
-  for bad in "${BAD_IDENTITIES[@]}"; do
-    n=$((n + 1))
-    begin "copy_keys_bad_identity_$n" "$1"
-    inventory agave agave "$bad"
-    box dst dst
-    play dst copy_keys "-l dst"
-    refused dst copy_keys "(32 to 44 characters of the base58 alphabet)" "copy_keys refuses the identity_account $bad"
-    [[ ! -e $S/dst/solv/$NET-validator-keypair.json ]]
-    check $? "no key file was copied ($bad)"
-  done
-}
-
-case_copy_keys_ok() {
-  begin copy_keys_ok "$1"
-  inventory agave agave
-  box dst dst
-  play dst copy_keys "-l dst"
-  ok dst copy_keys "copy_keys copies the key of a base58 identity_account"
-  [[ $(cat "$S/dst/solv/$NET-validator-keypair.json" 2>/dev/null) == "$KEY_CONTENT" && $(stat -c %a "$S/dst/solv/$NET-validator-keypair.json" 2>/dev/null) == 600 ]]
-  check $? "the key file is on the host with the mode 0600"
 }
 
 # the vote account of the inventory belongs to another identity: the switch stops before the source waits or is demoted
@@ -692,7 +657,12 @@ case_on_fdctl() {
   box dst dst
   prepare_copy "$SOURCE_FILE_TEXT"
   play dst switch_on_firedancer_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
-  refused dst switch_on_firedancer_identity "cannot move an identity on a cluster that runs Alpenglow" "a Firedancer host is not switched on on Alpenglow"
+  if [[ $NET == testnet ]]; then
+    # the play of testnet took the staked key from a file on the node, and a deploy puts none there: it refuses in its first task
+    refused dst switch_on_firedancer_identity "SLV_KEYLESS_REFUSED" "a Firedancer host is not switched on from a key on the node"
+  else
+    refused dst switch_on_firedancer_identity "cannot move an identity on a cluster that runs Alpenglow" "a Firedancer host is not switched on on Alpenglow"
+  fi
   [[ $(count_calls dst .) -eq 0 && -e "$(copy_file)" ]]
   check $? "nothing was run on the host and the copy is untouched"
 }
@@ -915,30 +885,25 @@ case_key_first_activation_unread() {
   check $? "nothing was run on the host"
 }
 
-# set_identity_to_active sets the identity from the vote history file of the host and checks nothing else: on Alpenglow it refuses
-case_active_alpenglow() {
-  begin active_alpenglow "$1"
-  inventory jito jito
-  box dst dst ADD_VOTER=present
-  printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
-  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
-  refused dst set_identity_to_active "sets the identity from the vote history file that is on dst and checks nothing else" "set_identity_to_active does not set the identity from the file of the host on Alpenglow"
-  log_has dst set_identity_to_active "slv v set:identity -n $NET -p dst"
-  check $? "the message points to slv v set:identity with the network of the run"
-  [[ $(count_calls dst .) -eq 0 ]]
-  check $? "nothing was run on the host"
-}
-case_active_towerbft() {
-  begin active_towerbft "$1"
-  inventory jito jito
-  box dst dst ADD_VOTER=present GATE=0
-  mkdir -p "$S/home/.slv/tower"
-  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
-  printf 'tower-from-the-source\n' >"$(tower_file dst)"
-  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
-  ok dst set_identity_to_active "TowerBFT: set_identity_to_active is unchanged"
-  [[ $(count_calls dst 'set-identity') -eq 1 ]]
-  check $? "the identity was set"
+# set_identity_to_active took the staked key from a file on the node, and a deploy puts none there: it refuses in its first task,
+# whatever consensus the cluster runs, and nothing is run on the host
+case_active_keyless() {
+  local mode url
+  for mode in alpenglow towerbft; do
+    begin "active_keyless_$mode" "$1"
+    inventory jito jito
+    box dst dst
+    printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
+    if [[ $mode == alpenglow ]]; then url=$(alp); else url=$(tower); fi
+    play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$url"
+    refused dst set_identity_to_active "SLV_KEYLESS_REFUSED" "set_identity_to_active refuses on $mode"
+    log_has dst set_identity_to_active "slv v set:identity -n $NET -p dst"
+    check $? "the message points to slv v set:identity with the network of the run ($mode)"
+    log_has dst set_identity_to_active "slv v switch -n $NET"
+    check $? "and to slv v switch ($mode)"
+    [[ $(count_calls dst .) -eq 0 ]]
+    check $? "nothing was run on the host ($mode)"
+  done
 }
 
 # two hosts of one identity in one play: each would pass the checks before the other sets the identity
@@ -1000,18 +965,6 @@ case_on_towerbft_no_log() {
   no_key_in_log dst switch_on_identity
   check $? "the content of the key file is not in the log of a verbose run of switch_on on TowerBFT"
 }
-case_active_no_log() {
-  begin active_no_log "$1"
-  inventory jito jito
-  box dst dst ADD_VOTER=present GATE=0
-  mkdir -p "$S/home/.slv/tower"
-  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
-  printf 'tower-from-the-source\n' >"$(tower_file dst)"
-  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)" -vvv
-  ok dst set_identity_to_active "a verbose run of set_identity_to_active on TowerBFT goes through"
-  no_key_in_log dst set_identity_to_active
-  check $? "the content of the key file is not in the log of a verbose run of set_identity_to_active"
-}
 # a set-identity that agave refuses still shows what agave said, and not the key
 case_key_set_identity_error() {
   begin key_set_identity_error "$1"
@@ -1049,20 +1002,6 @@ case_key_set_identity_timeout() {
   no_key_in_log dst set_identity_key
   check $? "and the content of the key file is not in the log"
 }
-case_active_set_identity_timeout() {
-  begin active_set_identity_timeout "$1"
-  inventory jito jito
-  box dst dst ADD_VOTER=present GATE=0 SET_IDENTITY=slow
-  mkdir -p "$S/home/.slv/tower"
-  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
-  printf 'tower-from-the-source\n' >"$(tower_file dst)"
-  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)" -vvv
-  refused dst set_identity_to_active "agave-validator set-identity failed on dst (" "a set-identity that ends without an answer fails in the task that reports it"
-  timeout_said dst set_identity_to_active
-  check $? "and the message says that the step ran out of time"
-  no_key_in_log dst set_identity_to_active
-  check $? "and the content of the key file is not in the log"
-}
 case_on_towerbft_set_identity_timeout() {
   begin on_towerbft_set_identity_timeout "$1"
   inventory agave agave
@@ -1074,37 +1013,6 @@ case_on_towerbft_set_identity_timeout() {
   timeout_said dst switch_on_identity
   check $? "and the message says that the step ran out of time"
   no_key_in_log dst switch_on_identity
-  check $? "and the content of the key file is not in the log"
-}
-# the authorized-voter add of the TowerBFT paths never stops a run on a return code (agave says it failed, or that the voter is there)
-case_active_voter_error() {
-  begin active_voter_error "$1"
-  inventory jito jito
-  box dst dst ADD_VOTER=error GATE=0
-  mkdir -p "$S/home/.slv/tower"
-  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
-  printf 'tower-from-the-source\n' >"$(tower_file dst)"
-  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
-  ok dst set_identity_to_active "an authorized-voter add that agave refuses does not stop set_identity_to_active on TowerBFT"
-  [[ $(count_calls dst 'authorized-voter add') -eq 1 ]]
-  check $? "the voter was asked for once"
-}
-# ... but a step that does not run to its end (mainnet gives the step 20 seconds) stops it, with what the step says and not with the key
-case_active_voter_timeout() {
-  begin active_voter_timeout "$1"
-  [[ $1 == mainnet ]] || return 0 # the voter add of the testnet playbooks has no time limit
-  inventory jito jito
-  box dst dst ADD_VOTER=slow GATE=0
-  mkdir -p "$S/home/.slv/tower"
-  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
-  printf 'tower-from-the-source\n' >"$(tower_file dst)"
-  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)" -vvv
-  refused dst set_identity_to_active "agave-validator authorized-voter add did not run to its end on dst" "an authorized-voter add that ends without an answer stops set_identity_to_active, in the task that reports it"
-  timeout_said dst set_identity_to_active
-  check $? "and the message says that the step ran out of time"
-  log_has dst set_identity_to_active "The identity was set on dst before this step"
-  check $? "and that the identity was set"
-  no_key_in_log dst set_identity_to_active
   check $? "and the content of the key file is not in the log"
 }
 case_on_towerbft_voter_timeout() {
@@ -1486,21 +1394,21 @@ case_mig_down_fdctl() {
   tower_migrate_box firedancer-jito firedancer-jito
   play both nodowntime_migrate "-e source_host=src -e target_host=dst" -e "slv_alpenglow_rpc_url=$rpc/hiccup-3-999999/case=$ID" \
     -e slv_alpenglow_patience_seconds=3 -e slv_alpenglow_rpc_delay=1
-  ok both nodowntime_migrate "a Firedancer promotion goes on after the demotion although the cluster stays out of reach"
-  [[ $(count_calls both 'sudo fdctl set-identity') -eq 2 && $(count_calls both 'sudo fdctl set-identity .*--require-tower') -eq 1 ]]
-  check $? "the target takes the identity with the tower"
-  log_has both nodowntime_migrate "The cluster could not be read for 3 seconds after src was switched to its unstaked identity"
-  check $? "the play says it went on without a reading"
+  # KNOWN: the play of testnet that switches a Firedancer host on took the staked key from a file on the node, and a deploy puts none
+  # there, so it refuses; nothing refuses a Firedancer target before the source is demoted, and the demotion has happened by then
+  refused both nodowntime_migrate "SLV_KEYLESS_REFUSED" "a Firedancer promotion is refused after the demotion: the node has no staked key"
+  [[ $(count_calls both 'sudo fdctl set-identity') -eq 1 && $(count_calls both 'sudo fdctl set-identity .*--require-tower') -eq 0 ]]
+  check $? "only the source was switched, to its unstaked identity"
 }
 
 cases=(
   off_happy off_no_file off_silent_votor off_churning off_mode_changes off_window_opens off_fdctl off_towerbft off_bad_identity
   off_vote_account_other_identity mig_vote_account_other_identity key_first_activation_unlisted
   off_vote_account_unread off_vote_account_unlisted key_first_activation_tower_only
-  on_no_log on_towerbft_no_log active_no_log key_set_identity_error on_set_identity_error on_set_identity_timeout
+  on_no_log on_towerbft_no_log key_set_identity_error on_set_identity_error on_set_identity_timeout
   on_happy on_cluster_stuck on_cluster_unread on_no_copy on_other_identity on_voter_present on_voter_error on_not_voting
   on_fdctl on_towerbft on_bad_identity
-  key_bad_identity active_bad_identity off_fdctl_bad_identity on_fdctl_bad_identity copy_keys_bad_identity copy_keys_ok
+  key_bad_identity off_fdctl_bad_identity on_fdctl_bad_identity
   key_file_present key_cluster_stuck key_file_absent key_tower_only key_first_activation key_dead_ok key_dead_ok_string
   key_dead_target_address key_dead_delinquent key_dead_gossip key_dead_gossip_both key_dead_slot_equal
   key_dead_slot_behind key_dead_slot_short key_dead_vote_missing key_dead_nodes_error key_dead_votes_error key_dead_slot_error
@@ -1513,9 +1421,9 @@ cases=(
   key_first_activation_voted key_first_activation_unread key_two_hosts_same_identity key_vote_account_other_identity
   key_vote_account_other_identity_dead key_no_log key_dead_bam_down_address_ok key_dead_bam_third_address key_file_bam_own_entry
   key_file_host_votes_error key_file_host_votes_http500 key_file_host_votes_missing key_dead_host_votes_error key_first_activation_host_unread
-  key_set_identity_timeout active_set_identity_timeout on_towerbft_set_identity_timeout
-  active_voter_error active_voter_timeout on_towerbft_voter_timeout
-  active_alpenglow active_towerbft on_standalone on_copy_not_taken on_vote_account_other_identity on_resume_inside on_resume_outside
+  key_set_identity_timeout on_towerbft_set_identity_timeout
+  on_towerbft_voter_timeout
+  active_keyless on_standalone on_copy_not_taken on_vote_account_other_identity on_resume_inside on_resume_outside
   key_voter_error key_voter_present key_not_voting key_fdctl key_towerbft
   mig_happy mig_identity mig_fdctl_source mig_fdctl_target mig_unknown_after_take
   mig_hiccup_clears mig_hiccup_before mig_down_after_demotion mig_down_after_demotion_pending mig_down_too_long

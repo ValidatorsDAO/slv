@@ -41,7 +41,8 @@ the user is asking for, then drive the right `slv v` commands.
 ```bash
 # 1. Interactive config wizard (writes ~/.slv/inventory.<network>.validators.yml)
 slv v init
-# 2. Deploy: clones source, builds, sets up systemd, fetches snapshot, starts
+# 2. Deploy: clones source, builds, sets up systemd, fetches snapshot, starts on the unstaked identity
+#    (no staked key is copied to the node)
 slv v deploy -n <network> -p <pubkey>
 ```
 Use `examples/inventory.yml` as a reference for the resulting inventory shape.
@@ -197,6 +198,7 @@ Ask if user has existing keys or needs to generate:
 - `identity_account` — Validator identity pubkey (required)
 - `vote_account` — Vote account pubkey (required)
 - If generating: the keys are generated on the operator's machine with `slv v init`, into `~/.slv/keys/`. Keys are never generated on a remote host, and the agent does not run `solana-keygen`.
+- The staked key stays in `~/.slv/keys/<identity_account>.json` on the operator's machine. `slv v deploy` copies it to no host; it reaches a node on stdin, during `slv v set:identity` and `slv v switch`, and a node that restarts comes back on its unstaked identity.
 
 ### Step 5: Snapshot
 - `snapshot_url` — Snapshot download URL
