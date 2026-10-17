@@ -1,0 +1,1445 @@
+{
+  "schema_version": 1,
+  "kind": "slv-native-tool-pins",
+  "targets": {
+    "x86_64-unknown-linux-gnu": {
+      "tools": [
+        {
+          "name": "rustc",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rustc-1.95.0-x86_64-unknown-linux-gnu.tar.xz",
+          "sha256": "8426a3d170a5879f5682f5fbdd024a1779b3951e7baba685af2d6dc32a6dfc15",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rustc/bin/rustdoc",
+              "sha256": "e5144902aed6cf94280eae3ad7708da5bdd3819b5281728af432d0e70231439c"
+            },
+            {
+              "path": "rustc/bin/rustc",
+              "sha256": "bff349e72704ff70bc08a234a3847338e797065bbedde5e556808bc87b7bf7c6"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/rustdoc",
+              "sha256": "e5144902aed6cf94280eae3ad7708da5bdd3819b5281728af432d0e70231439c"
+            },
+            {
+              "path": "rustc/prefix/bin/rustc",
+              "sha256": "bff349e72704ff70bc08a234a3847338e797065bbedde5e556808bc87b7bf7c6"
+            }
+          ]
+        },
+        {
+          "name": "cargo",
+          "version": "0.96.0 (f2d3ce0bd 2026-03-21)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/cargo-1.95.0-x86_64-unknown-linux-gnu.tar.xz",
+          "sha256": "e74edd2cf7d0f1f1383b4f00eb90c843750bc489e2ccf7214e6476678a907425",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "cargo/bin/cargo",
+              "sha256": "841072d1d92f9e841d9ba5b0814182a0adf064acf4527cd120967b7bc49dcb66"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/cargo",
+              "sha256": "841072d1d92f9e841d9ba5b0814182a0adf064acf4527cd120967b7bc49dcb66"
+            }
+          ]
+        },
+        {
+          "name": "rust-std",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rust-std-1.95.0-x86_64-unknown-linux-gnu.tar.xz",
+          "sha256": "047ea7098803d3500fa1072e9cee5392697e21525559e4458128a2bf874aa382",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rust-std-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-d1237ef7159db0a2.rlib",
+              "sha256": "2f4c8945547a8487dd6a5bf38cd94167a3566876006b9abda7544ba9825b9a95"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-d1237ef7159db0a2.rlib",
+              "sha256": "2f4c8945547a8487dd6a5bf38cd94167a3566876006b9abda7544ba9825b9a95"
+            }
+          ]
+        },
+        {
+          "name": "clang",
+          "version": "23.0.0git llvmorg-23-init-10931-g20b6ec66-3",
+          "url": "https://commondatastorage.googleapis.com/chromium-browser-clang/Linux_x64/clang-llvmorg-23-init-10931-g20b6ec66-3.tar.xz",
+          "sha256": "f4569980affeb46176ea13dbf3e6dc7d41848c4b73207bfc143575925fca0452",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "bin/clang",
+              "sha256": "c6e52fb5be3b7d29d8f60a12204072ffe9aaf8135a6e668b8eccc143d58c69ca"
+            },
+            {
+              "path": "lib/clang/23/include/stdarg.h",
+              "sha256": "ce6e43d79dc89b50208ecf259b1ffd519f5a78cd3a2c7fcaac6386f376b89fef"
+            },
+            {
+              "path": "lib/clang/23/include/stddef.h",
+              "sha256": "b3e62a046ddf28d09eedebe6eb9461cb7060e47cad2c69964b222c4eea10347e"
+            },
+            {
+              "path": "bin/ld.lld",
+              "sha256": "e340f4655e15837f51454702c2f2e28c884543cd9368b93c4ee2f3edf2365f55"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        },
+        {
+          "name": "chromium-rust",
+          "version": "4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66",
+          "url": "https://storage.googleapis.com/chromium-browser-clang/Linux_x64/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz",
+          "sha256": "a96863c5b811af23cbe3f20fcfc82939e637be2bd79f05a117f1762c3bb35fe5",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "VERSION",
+              "sha256": "401c6bfcbf870dd1959ea6e2424c3d9ac4b0b9a75914674dda07bda5cdf07fe2"
+            },
+            {
+              "path": "bin/rustc",
+              "sha256": "cf56c770785886d929d2981eb838af7ec9f87223bffe00068e90f89d1919e067"
+            },
+            {
+              "path": "lib/libclang.so.23.0.0git",
+              "sha256": "f04ab23d8350a5a5d5920c0d77958213f3ae04be2d1b4df3a03ed5a7afaab649"
+            }
+          ],
+          "redirect_hosts": [
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "deno",
+          "version": "2.9.3",
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-x86_64-unknown-linux-gnu.zip",
+          "sha256": "8101865641cbede56f08ad19c0a67a87df84bce127fee0d3e3e1f7467717ffa6",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "deno",
+              "sha256": "8570c9cdebe936ba744e12a6d329e0a17ea505b4e5f89b654473a2efc2d2e3ba"
+            }
+          ],
+          "redirect_hosts": [
+            "github.com",
+            "release-assets.githubusercontent.com"
+          ]
+        },
+        {
+          "name": "gn",
+          "version": "git_revision:d830369a8e7db2383ab7bb1c2c142ee2766cfea2",
+          "url": "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/Hsz5PJ5YuLJ3tmkyqxJOIbGBkdBloNZRSbLnUi205fAC",
+          "sha256": "1eccf93c9e58b8b277b66932ab124e21b18191d065a0d65149b2e7522db4e5f0",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "gn",
+              "sha256": "9a45b0aabd427540f2cc05f3d81ac964873fa4ba618698751c1db48f8d09b524"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "ninja",
+          "version": "version:3@1.12.1.chromium.4",
+          "url": "https://chrome-infra-packages.appspot.com/dl/infra/3pp/tools/ninja/linux-amd64/+/Px8cwPaaG8_fZ_tsK8dBmx3YEruNDnmvqb-oo1U7UIIC",
+          "sha256": "3f1f1cc0f69a1bcfdf67fb6c2bc7419b1dd812bb8d0e79afa9bfa8a3553b5082",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "ninja",
+              "sha256": "09f0e5a8a2cf762b24b4d3ed464ffb2529e650d2efc36bab31da36aa93791efc"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "deno-sysroot",
+          "version": "deno_sysroot_build sysroot-20250207",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "redirect_hosts": [
+            "github.com",
+            "release-assets.githubusercontent.com"
+          ],
+          "include_members": [
+            "sysroot/.env",
+            "sysroot/lib",
+            "sysroot/lib64",
+            "sysroot/usr/include",
+            "sysroot/usr/lib"
+          ],
+          "url": "https://github.com/denoland/deno_sysroot_build/releases/download/sysroot-20250207/sysroot-x86_64.tar.xz",
+          "sha256": "64513b04d8a38da6f47c0a9c4cb47b2ce7bcb735250b10eb10751aec6afe46ee",
+          "identities": [
+            {
+              "path": "sysroot/.env",
+              "sha256": "8dd1d28a69afcd7790a4f9871c02992553ad348b3855aab4e465a263e298c81a"
+            },
+            {
+              "path": "sysroot/lib/x86_64-linux-gnu/ld-2.27.so",
+              "sha256": "2d196bc8632e500316fa0e0c3e8f40d0e7da853ae940805080b3492ce03b7b51"
+            },
+            {
+              "path": "sysroot/lib/x86_64-linux-gnu/libc-2.27.so",
+              "sha256": "cd7c1a035d24122798d97a47a10f6e2b71d58710aecfd392375f1aa9bdde164d"
+            },
+            {
+              "path": "sysroot/usr/include/features.h",
+              "sha256": "3fa8e0cb66e1dcae7ae0c65927ad27513f30e16520b2953f58039b67fd9a67a8"
+            },
+            {
+              "path": "sysroot/usr/lib/x86_64-linux-gnu/crt1.o",
+              "sha256": "5b32b9e48c5ac8266449ce1b62ad7ab3b7442a2c68082b0b8090b08cb4341c3d"
+            }
+          ]
+        },
+        {
+          "name": "sysroot-amd64",
+          "version": "rusty_v8 149.4.0 recursive Bullseye sysroot (sysroots.json sha256 57caf9c36ba1c6273a3b53cad89733c304fd41a2cdaf3629113cb28e278db632)",
+          "url": "https://commondatastorage.googleapis.com/chrome-linux-sysroot/52d61d4446ffebfaa3dda2cd02da4ab4876ff237853f46d273e7f9b666652e1d",
+          "sha256": "52d61d4446ffebfaa3dda2cd02da4ab4876ff237853f46d273e7f9b666652e1d",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "usr/include/stdio.h",
+              "sha256": "e7d85131c888412c0eaaaca3a7165d86f147c8645993ddf333a5b2500117a478"
+            },
+            {
+              "path": "lib/x86_64-linux-gnu/libc-2.31.so",
+              "sha256": "64e593953cc2bb09844b5e8843990f25f7dd8c0db3f8f613089791b96c833240"
+            },
+            {
+              "path": "usr/lib/x86_64-linux-gnu/crt1.o",
+              "sha256": "0342e800ed0be0c5defcfad44d8254d1e2f07e2f51a9f0d106989449953ea17a"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        },
+        {
+          "name": "sysroot-arm64",
+          "version": "rusty_v8 149.4.0 recursive Bullseye sysroot (sysroots.json sha256 57caf9c36ba1c6273a3b53cad89733c304fd41a2cdaf3629113cb28e278db632)",
+          "url": "https://commondatastorage.googleapis.com/chrome-linux-sysroot/c7176a4c7aacbf46bda58a029f39f79a68008d3dee6518f154dcf5161a5486d8",
+          "sha256": "c7176a4c7aacbf46bda58a029f39f79a68008d3dee6518f154dcf5161a5486d8",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "usr/include/stdio.h",
+              "sha256": "e7d85131c888412c0eaaaca3a7165d86f147c8645993ddf333a5b2500117a478"
+            },
+            {
+              "path": "lib/aarch64-linux-gnu/libc-2.31.so",
+              "sha256": "4c1ab05b0df5bec02f99bb0364cfab6af5f169fe0a242693f6a2e441b9b7c96b"
+            },
+            {
+              "path": "usr/lib/aarch64-linux-gnu/crt1.o",
+              "sha256": "cc8daa730207ab3210be08fe4e38447beab67a848d6889e26c0297f5731002dd"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        }
+      ],
+      "environment": {
+        "RUST_BIN": "@tool/rustc/prefix/bin",
+        "GN": "@tool/gn/gn",
+        "NINJA": "@tool/ninja/ninja",
+        "CLANG_BASE_PATH": "@tool/clang/.",
+        "LIBCLANG_PATH": "@tool/clang/lib",
+        "CHROMIUM_RUST_TOOLCHAIN": "@tool/chromium-rust/.",
+        "DENO_FRONTEND": "@tool/deno/deno",
+        "DENO_SYSROOT": "@tool/deno-sysroot/sysroot",
+        "V8_SYSROOT_AMD64": "@tool/sysroot-amd64/.",
+        "V8_SYSROOT_ARM64": "@tool/sysroot-arm64/.",
+        "SLV_LINKER": "@tool/clang/bin/ld.lld"
+      },
+      "installation_contract": {
+        "status": "requires_prepare_tools_adapter_not_raw_extract_only",
+        "rust": "After verified extraction, run each official component install.sh with --prefix=<tools>/rustc/prefix --disable-ldconfig; install rustc, cargo, rust-std into that same prefix. Record installed rustc/cargo/std identities against archive members. Do not use network rustup.",
+        "paired_libclang": "Create verified links/copies of chromium-rust/lib/libclang* in clang/lib, keeping all symlink targets inside owned tools root, so LIBCLANG_PATH parent/bin/clang finds matching clang23/resource headers. Rehash final dereferenced libclang.",
+        "rusty_v8_rust_sentinel": "In prepared chromium-rust write .rusty_v8_version containing the exact pinned chromium-rust URL; this is acquisition marker only, never replace archive/executable hash verification.",
+        "executable_modes": "Restore archive executable modes and test native --version on the matching build host.",
+        "redirect_validation": "At most 5 HTTPS redirects; each URL hostname must match tool.redirect_hosts; verify final archive SHA before extraction."
+      },
+      "layout": {
+        "links": [
+          {
+            "source": "chromium-rust/lib/libclang.so.23.0.0git",
+            "destination": "clang/lib/libclang.so",
+            "sha256": "f04ab23d8350a5a5d5920c0d77958213f3ae04be2d1b4df3a03ed5a7afaab649"
+          }
+        ],
+        "markers": [
+          {
+            "path": "chromium-rust/.rusty_v8_version",
+            "content": "https://storage.googleapis.com/chromium-browser-clang/Linux_x64/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz"
+          }
+        ],
+        "post_extract_identities": [
+          {
+            "path": "clang/lib/libclang.so",
+            "sha256": "f04ab23d8350a5a5d5920c0d77958213f3ae04be2d1b4df3a03ed5a7afaab649"
+          }
+        ]
+      },
+      "execution": {
+        "tools": [
+          {
+            "name": "deno",
+            "version": "2.9.3",
+            "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-x86_64-unknown-linux-gnu.zip",
+            "sha256": "8101865641cbede56f08ad19c0a67a87df84bce127fee0d3e3e1f7467717ffa6",
+            "format": "zip",
+            "strip_components": 0,
+            "identities": [
+              {
+                "path": "deno",
+                "sha256": "8570c9cdebe936ba744e12a6d329e0a17ea505b4e5f89b654473a2efc2d2e3ba"
+              }
+            ],
+            "redirect_hosts": [
+              "github.com",
+              "release-assets.githubusercontent.com"
+            ]
+          },
+          {
+            "name": "deno-sysroot",
+            "version": "deno_sysroot_build sysroot-20250207",
+            "format": "tar.xz",
+            "strip_components": 0,
+            "redirect_hosts": [
+              "github.com",
+              "release-assets.githubusercontent.com"
+            ],
+            "include_members": [
+              "sysroot/.env",
+              "sysroot/lib",
+              "sysroot/lib64",
+              "sysroot/usr/include",
+              "sysroot/usr/lib"
+            ],
+            "url": "https://github.com/denoland/deno_sysroot_build/releases/download/sysroot-20250207/sysroot-x86_64.tar.xz",
+            "sha256": "64513b04d8a38da6f47c0a9c4cb47b2ce7bcb735250b10eb10751aec6afe46ee",
+            "identities": [
+              {
+                "path": "sysroot/.env",
+                "sha256": "8dd1d28a69afcd7790a4f9871c02992553ad348b3855aab4e465a263e298c81a"
+              },
+              {
+                "path": "sysroot/lib/x86_64-linux-gnu/ld-2.27.so",
+                "sha256": "2d196bc8632e500316fa0e0c3e8f40d0e7da853ae940805080b3492ce03b7b51"
+              },
+              {
+                "path": "sysroot/lib/x86_64-linux-gnu/libc-2.27.so",
+                "sha256": "cd7c1a035d24122798d97a47a10f6e2b71d58710aecfd392375f1aa9bdde164d"
+              },
+              {
+                "path": "sysroot/usr/include/features.h",
+                "sha256": "3fa8e0cb66e1dcae7ae0c65927ad27513f30e16520b2953f58039b67fd9a67a8"
+              },
+              {
+                "path": "sysroot/usr/lib/x86_64-linux-gnu/crt1.o",
+                "sha256": "5b32b9e48c5ac8266449ce1b62ad7ab3b7442a2c68082b0b8090b08cb4341c3d"
+              }
+            ]
+          }
+        ],
+        "environment": {
+          "DENO_FRONTEND": "@tool/deno/deno",
+          "DENO_SYSROOT": "@tool/deno-sysroot/sysroot"
+        },
+        "layout": {
+          "links": [],
+          "markers": [],
+          "post_extract_identities": [
+            {
+              "path": "deno/deno",
+              "sha256": "8570c9cdebe936ba744e12a6d329e0a17ea505b4e5f89b654473a2efc2d2e3ba"
+            }
+          ]
+        }
+      }
+    },
+    "x86_64-apple-darwin": {
+      "tools": [
+        {
+          "name": "rustc",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rustc-1.95.0-x86_64-apple-darwin.tar.xz",
+          "sha256": "33db457715446a69ed6f69f78f5fbb9ca8e17a16585d1d7a0060479bfe4c7afc",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rustc/bin/rustdoc",
+              "sha256": "d22da4ff70d30bf3ac993ed575b1b1a462f7fc00b5c984758e9ef05b9f696fa1"
+            },
+            {
+              "path": "rustc/bin/rustc",
+              "sha256": "fcf2ce6f5b55d90d29867767262ad179ed761a8b54d24b5c181c535fa05ced19"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/rustdoc",
+              "sha256": "d22da4ff70d30bf3ac993ed575b1b1a462f7fc00b5c984758e9ef05b9f696fa1"
+            },
+            {
+              "path": "rustc/prefix/bin/rustc",
+              "sha256": "fcf2ce6f5b55d90d29867767262ad179ed761a8b54d24b5c181c535fa05ced19"
+            }
+          ]
+        },
+        {
+          "name": "cargo",
+          "version": "0.96.0 (f2d3ce0bd 2026-03-21)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/cargo-1.95.0-x86_64-apple-darwin.tar.xz",
+          "sha256": "e2e1131ade2dddc0d779e0ab3a6a990085c7a654951235742823c3a1ce0f190f",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "cargo/bin/cargo",
+              "sha256": "c33738cc290221c79452ad6dd98a40b40b719dc9213e4484fa5e486bd2cbf13c"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/cargo",
+              "sha256": "c33738cc290221c79452ad6dd98a40b40b719dc9213e4484fa5e486bd2cbf13c"
+            }
+          ]
+        },
+        {
+          "name": "rust-std",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rust-std-1.95.0-x86_64-apple-darwin.tar.xz",
+          "sha256": "2be13c14122b8d4d09b7f7c434fca9ae7215ec72049944189c88c4d9128ce504",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rust-std-x86_64-apple-darwin/lib/rustlib/x86_64-apple-darwin/lib/libstd-233bc57cc7440cbe.rlib",
+              "sha256": "0208b00f8dfc6d398afd23b51f1e722a85bfaafafee80ee173db0a689c87e048"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/lib/rustlib/x86_64-apple-darwin/lib/libstd-233bc57cc7440cbe.rlib",
+              "sha256": "0208b00f8dfc6d398afd23b51f1e722a85bfaafafee80ee173db0a689c87e048"
+            }
+          ]
+        },
+        {
+          "name": "clang",
+          "version": "23.0.0git llvmorg-23-init-10931-g20b6ec66-3",
+          "url": "https://commondatastorage.googleapis.com/chromium-browser-clang/Mac/clang-llvmorg-23-init-10931-g20b6ec66-3.tar.xz",
+          "sha256": "d16a7482ae08a9176cd6e84b42b15143ffd732f0ca9f4a70190da13eadb4bc7e",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "bin/clang",
+              "sha256": "f5f6ac081106679d21d09fe43387b91606371e5ad49b17752e8e68b52fae82db"
+            },
+            {
+              "path": "lib/clang/23/include/stdarg.h",
+              "sha256": "ce6e43d79dc89b50208ecf259b1ffd519f5a78cd3a2c7fcaac6386f376b89fef"
+            },
+            {
+              "path": "lib/clang/23/include/stddef.h",
+              "sha256": "b3e62a046ddf28d09eedebe6eb9461cb7060e47cad2c69964b222c4eea10347e"
+            },
+            {
+              "path": "bin/ld.lld",
+              "sha256": "dbb4a0ba6228f3bc3bf28039d04365ee4fd7afedfda28dfca8e892ca42ac9ff1"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        },
+        {
+          "name": "chromium-rust",
+          "version": "4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66",
+          "url": "https://storage.googleapis.com/chromium-browser-clang/Mac/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz",
+          "sha256": "cfb1cfa17fe96540ae732b2ed8cef39792786f7d84c317f3aca2004f2495c3fa",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "VERSION",
+              "sha256": "401c6bfcbf870dd1959ea6e2424c3d9ac4b0b9a75914674dda07bda5cdf07fe2"
+            },
+            {
+              "path": "bin/rustc",
+              "sha256": "45f746ad9c137a2c2c71ac6224c16385cd625a6ff25d66fefe7234a4afc3046c"
+            },
+            {
+              "path": "lib/libclang.dylib",
+              "sha256": "3ccff3c6a28a8f7ad6b8a57121309d01689425db28a637bf38df660cbbc80273"
+            }
+          ],
+          "redirect_hosts": [
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "deno",
+          "version": "2.9.3",
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-x86_64-apple-darwin.zip",
+          "sha256": "cff2bce236fde0952aac62a5699464c46901b4eb1e61d0caffbb33d556e098c1",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "deno",
+              "sha256": "480b74c4fe7c316f7719a91ceb57e57c50798f1a0c470e00674b683e9e1a76d4"
+            }
+          ],
+          "redirect_hosts": [
+            "github.com",
+            "release-assets.githubusercontent.com"
+          ]
+        },
+        {
+          "name": "gn",
+          "version": "git_revision:d830369a8e7db2383ab7bb1c2c142ee2766cfea2",
+          "url": "https://chrome-infra-packages.appspot.com/dl/gn/gn/mac-amd64/+/rCTLNRYs2LFJya_RZpzmLEK8KTO7BzNP6RO0Z6C4dUwC",
+          "sha256": "ac24cb35162cd8b149c9afd1669ce62c42bc2933bb07334fe913b467a0b8754c",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "gn",
+              "sha256": "d9e873fe7469514dfc3f11779687312ab6a0802a7e63484b99420275a8a40772"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "ninja",
+          "version": "version:3@1.12.1.chromium.4",
+          "url": "https://chrome-infra-packages.appspot.com/dl/infra/3pp/tools/ninja/mac-amd64/+/mGbmncDR78ysAZaXITtasuAzLcxiloLxNzPgeS6pURkC",
+          "sha256": "9866e69dc0d1efccac019697213b5ab2e0332dcc629682f13733e0792ea95119",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "ninja",
+              "sha256": "49876d36b01735eb8a1b6e8a02c435761e3964807930fdef3ba30c9f66f809f6"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        }
+      ],
+      "environment": {
+        "RUST_BIN": "@tool/rustc/prefix/bin",
+        "GN": "@tool/gn/gn",
+        "NINJA": "@tool/ninja/ninja",
+        "CLANG_BASE_PATH": "@tool/clang/.",
+        "LIBCLANG_PATH": "@tool/clang/lib",
+        "CHROMIUM_RUST_TOOLCHAIN": "@tool/chromium-rust/.",
+        "DENO_FRONTEND": "@tool/deno/deno",
+        "SLV_LINKER": "@tool/clang/bin/ld.lld"
+      },
+      "installation_contract": {
+        "status": "requires_prepare_tools_adapter_not_raw_extract_only",
+        "rust": "After verified extraction, run each official component install.sh with --prefix=<tools>/rustc/prefix --disable-ldconfig; install rustc, cargo, rust-std into that same prefix. Record installed rustc/cargo/std identities against archive members. Do not use network rustup.",
+        "paired_libclang": "Create verified links/copies of chromium-rust/lib/libclang* in clang/lib, keeping all symlink targets inside owned tools root, so LIBCLANG_PATH parent/bin/clang finds matching clang23/resource headers. Rehash final dereferenced libclang.",
+        "rusty_v8_rust_sentinel": "In prepared chromium-rust write .rusty_v8_version containing the exact pinned chromium-rust URL; this is acquisition marker only, never replace archive/executable hash verification.",
+        "executable_modes": "Restore archive executable modes and test native --version on the matching build host.",
+        "redirect_validation": "At most 5 HTTPS redirects; each URL hostname must match tool.redirect_hosts; verify final archive SHA before extraction."
+      },
+      "layout": {
+        "links": [
+          {
+            "source": "chromium-rust/lib/libclang.dylib",
+            "destination": "clang/lib/libclang.dylib",
+            "sha256": "3ccff3c6a28a8f7ad6b8a57121309d01689425db28a637bf38df660cbbc80273"
+          }
+        ],
+        "markers": [
+          {
+            "path": "chromium-rust/.rusty_v8_version",
+            "content": "https://storage.googleapis.com/chromium-browser-clang/Mac/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz"
+          }
+        ],
+        "post_extract_identities": [
+          {
+            "path": "clang/lib/libclang.dylib",
+            "sha256": "3ccff3c6a28a8f7ad6b8a57121309d01689425db28a637bf38df660cbbc80273"
+          }
+        ]
+      },
+      "execution": {
+        "tools": [
+          {
+            "name": "deno",
+            "version": "2.9.3",
+            "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-x86_64-apple-darwin.zip",
+            "sha256": "cff2bce236fde0952aac62a5699464c46901b4eb1e61d0caffbb33d556e098c1",
+            "format": "zip",
+            "strip_components": 0,
+            "identities": [
+              {
+                "path": "deno",
+                "sha256": "480b74c4fe7c316f7719a91ceb57e57c50798f1a0c470e00674b683e9e1a76d4"
+              }
+            ],
+            "redirect_hosts": [
+              "github.com",
+              "release-assets.githubusercontent.com"
+            ]
+          }
+        ],
+        "environment": {
+          "DENO_FRONTEND": "@tool/deno/deno"
+        },
+        "layout": {
+          "links": [],
+          "markers": [],
+          "post_extract_identities": [
+            {
+              "path": "deno/deno",
+              "sha256": "480b74c4fe7c316f7719a91ceb57e57c50798f1a0c470e00674b683e9e1a76d4"
+            }
+          ]
+        }
+      }
+    },
+    "aarch64-apple-darwin": {
+      "tools": [
+        {
+          "name": "rustc",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rustc-1.95.0-aarch64-apple-darwin.tar.xz",
+          "sha256": "149e85a285b6eba58eb6c8bdf7deb1b93763890598e62cb635a712e3a8454f04",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rustc/bin/rustdoc",
+              "sha256": "59bc6a1caf617032284a2edc2aa03916396e70589c435a8b51e3957887f90ce5"
+            },
+            {
+              "path": "rustc/bin/rustc",
+              "sha256": "b829b733131d4e1673eeebd1f34d06ae1e9ff4977b051313cf42e2a9e79ecf1c"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/rustdoc",
+              "sha256": "59bc6a1caf617032284a2edc2aa03916396e70589c435a8b51e3957887f90ce5"
+            },
+            {
+              "path": "rustc/prefix/bin/rustc",
+              "sha256": "b829b733131d4e1673eeebd1f34d06ae1e9ff4977b051313cf42e2a9e79ecf1c"
+            }
+          ]
+        },
+        {
+          "name": "cargo",
+          "version": "0.96.0 (f2d3ce0bd 2026-03-21)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/cargo-1.95.0-aarch64-apple-darwin.tar.xz",
+          "sha256": "6c2ffed8e1ac9cf4dc9e80f282a869a6b237a153e7c55cca039d33de29d80aaf",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "cargo/bin/cargo",
+              "sha256": "c512bff73c86143b557463f021d0c3d5b0490d97d65040ba59ea2b3427784758"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/cargo",
+              "sha256": "c512bff73c86143b557463f021d0c3d5b0490d97d65040ba59ea2b3427784758"
+            }
+          ]
+        },
+        {
+          "name": "rust-std",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rust-std-1.95.0-aarch64-apple-darwin.tar.xz",
+          "sha256": "9b30089b0f767cb91b2190ffec55a9beeb2a21a1405d8da0f664d7e09d08e6d8",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rust-std-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-09bec66e14073fe6.rlib",
+              "sha256": "4ad1c4e712b013147dca4e6cf0c30360959f5999f18bd51e45e0735d3054a464"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/lib/rustlib/aarch64-apple-darwin/lib/libstd-09bec66e14073fe6.rlib",
+              "sha256": "4ad1c4e712b013147dca4e6cf0c30360959f5999f18bd51e45e0735d3054a464"
+            }
+          ]
+        },
+        {
+          "name": "clang",
+          "version": "23.0.0git llvmorg-23-init-10931-g20b6ec66-3",
+          "url": "https://commondatastorage.googleapis.com/chromium-browser-clang/Mac_arm64/clang-llvmorg-23-init-10931-g20b6ec66-3.tar.xz",
+          "sha256": "e965a78a20b2281c36441d2e64d7ea4bd102aec31cabe1bcdd07125f388fa748",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "bin/clang",
+              "sha256": "834222281642bc05448328e8e22421f4e2a8981df28a2ae2203d11b904359587"
+            },
+            {
+              "path": "lib/clang/23/include/stdarg.h",
+              "sha256": "ce6e43d79dc89b50208ecf259b1ffd519f5a78cd3a2c7fcaac6386f376b89fef"
+            },
+            {
+              "path": "lib/clang/23/include/stddef.h",
+              "sha256": "b3e62a046ddf28d09eedebe6eb9461cb7060e47cad2c69964b222c4eea10347e"
+            },
+            {
+              "path": "bin/ld.lld",
+              "sha256": "c1db8f48f3a89252ee62ff8276f3101cb14b50263f56720e30d443a1aa4e2cc6"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        },
+        {
+          "name": "chromium-rust",
+          "version": "4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66",
+          "url": "https://storage.googleapis.com/chromium-browser-clang/Mac_arm64/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz",
+          "sha256": "f7b34f50331e3d22b9b79b8217b3645dd67700ee801bec801da09bcffb583f9c",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "VERSION",
+              "sha256": "401c6bfcbf870dd1959ea6e2424c3d9ac4b0b9a75914674dda07bda5cdf07fe2"
+            },
+            {
+              "path": "bin/rustc",
+              "sha256": "eebe89c25ae8d79346c135353eff39984f6b1b0ceeecff20a4aeeb69e2e661eb"
+            },
+            {
+              "path": "lib/libclang.dylib",
+              "sha256": "e781d77fe60cd1210ae6e8afcd13019f8fbb99197450c26019935c4a59f03dc0"
+            }
+          ],
+          "redirect_hosts": [
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "deno",
+          "version": "2.9.3",
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-aarch64-apple-darwin.zip",
+          "sha256": "1b2972f7ceb6df28d9600eab18d423bebb9aa18db02f01d7eb37a5b501482203",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "deno",
+              "sha256": "80c83cdfb20289f8818a71220b570df363f6f0ba93580c29c70f08ab14e93568"
+            }
+          ],
+          "redirect_hosts": [
+            "github.com",
+            "release-assets.githubusercontent.com"
+          ]
+        },
+        {
+          "name": "gn",
+          "version": "git_revision:d830369a8e7db2383ab7bb1c2c142ee2766cfea2",
+          "url": "https://chrome-infra-packages.appspot.com/dl/gn/gn/mac-arm64/+/jdrugTYOHrGgodoOp_Ej97OZkloIPagZW9XgKdfbJqAC",
+          "sha256": "8ddaee81360e1eb1a0a1da0ea7f123f7b399925a083da8195bd5e029d7db26a0",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "gn",
+              "sha256": "823a38d58214d9a2617f385a7b98df0ba49295693a00b9bf56b5688ade8b599c"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "ninja",
+          "version": "version:3@1.12.1.chromium.4",
+          "url": "https://chrome-infra-packages.appspot.com/dl/infra/3pp/tools/ninja/mac-arm64/+/xem0_6s7Lt77xBhJ_IHxFsjQR7JYkGvswGG-nsrwSv0C",
+          "sha256": "c5e9b4ffab3b2edefbc41849fc81f116c8d047b258906becc061be9ecaf04afd",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "ninja",
+              "sha256": "6c03e94e3ee141301a7e5151227508ac8cec05c12d79ed9240062a86a0e2d14f"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        }
+      ],
+      "environment": {
+        "RUST_BIN": "@tool/rustc/prefix/bin",
+        "GN": "@tool/gn/gn",
+        "NINJA": "@tool/ninja/ninja",
+        "CLANG_BASE_PATH": "@tool/clang/.",
+        "LIBCLANG_PATH": "@tool/clang/lib",
+        "CHROMIUM_RUST_TOOLCHAIN": "@tool/chromium-rust/.",
+        "DENO_FRONTEND": "@tool/deno/deno",
+        "SLV_LINKER": "@tool/clang/bin/ld.lld"
+      },
+      "installation_contract": {
+        "status": "requires_prepare_tools_adapter_not_raw_extract_only",
+        "rust": "After verified extraction, run each official component install.sh with --prefix=<tools>/rustc/prefix --disable-ldconfig; install rustc, cargo, rust-std into that same prefix. Record installed rustc/cargo/std identities against archive members. Do not use network rustup.",
+        "paired_libclang": "Create verified links/copies of chromium-rust/lib/libclang* in clang/lib, keeping all symlink targets inside owned tools root, so LIBCLANG_PATH parent/bin/clang finds matching clang23/resource headers. Rehash final dereferenced libclang.",
+        "rusty_v8_rust_sentinel": "In prepared chromium-rust write .rusty_v8_version containing the exact pinned chromium-rust URL; this is acquisition marker only, never replace archive/executable hash verification.",
+        "executable_modes": "Restore archive executable modes and test native --version on the matching build host.",
+        "redirect_validation": "At most 5 HTTPS redirects; each URL hostname must match tool.redirect_hosts; verify final archive SHA before extraction."
+      },
+      "layout": {
+        "links": [
+          {
+            "source": "chromium-rust/lib/libclang.dylib",
+            "destination": "clang/lib/libclang.dylib",
+            "sha256": "e781d77fe60cd1210ae6e8afcd13019f8fbb99197450c26019935c4a59f03dc0"
+          }
+        ],
+        "markers": [
+          {
+            "path": "chromium-rust/.rusty_v8_version",
+            "content": "https://storage.googleapis.com/chromium-browser-clang/Mac_arm64/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz"
+          }
+        ],
+        "post_extract_identities": [
+          {
+            "path": "clang/lib/libclang.dylib",
+            "sha256": "e781d77fe60cd1210ae6e8afcd13019f8fbb99197450c26019935c4a59f03dc0"
+          }
+        ]
+      },
+      "execution": {
+        "tools": [
+          {
+            "name": "deno",
+            "version": "2.9.3",
+            "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-aarch64-apple-darwin.zip",
+            "sha256": "1b2972f7ceb6df28d9600eab18d423bebb9aa18db02f01d7eb37a5b501482203",
+            "format": "zip",
+            "strip_components": 0,
+            "identities": [
+              {
+                "path": "deno",
+                "sha256": "80c83cdfb20289f8818a71220b570df363f6f0ba93580c29c70f08ab14e93568"
+              }
+            ],
+            "redirect_hosts": [
+              "github.com",
+              "release-assets.githubusercontent.com"
+            ]
+          }
+        ],
+        "environment": {
+          "DENO_FRONTEND": "@tool/deno/deno"
+        },
+        "layout": {
+          "links": [],
+          "markers": [],
+          "post_extract_identities": [
+            {
+              "path": "deno/deno",
+              "sha256": "80c83cdfb20289f8818a71220b570df363f6f0ba93580c29c70f08ab14e93568"
+            }
+          ]
+        }
+      }
+    },
+    "aarch64-unknown-linux-gnu": {
+      "tools": [
+        {
+          "name": "rustc",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rustc-1.95.0-x86_64-unknown-linux-gnu.tar.xz",
+          "sha256": "8426a3d170a5879f5682f5fbdd024a1779b3951e7baba685af2d6dc32a6dfc15",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rustc/bin/rustdoc",
+              "sha256": "e5144902aed6cf94280eae3ad7708da5bdd3819b5281728af432d0e70231439c"
+            },
+            {
+              "path": "rustc/bin/rustc",
+              "sha256": "bff349e72704ff70bc08a234a3847338e797065bbedde5e556808bc87b7bf7c6"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/rustdoc",
+              "sha256": "e5144902aed6cf94280eae3ad7708da5bdd3819b5281728af432d0e70231439c"
+            },
+            {
+              "path": "rustc/prefix/bin/rustc",
+              "sha256": "bff349e72704ff70bc08a234a3847338e797065bbedde5e556808bc87b7bf7c6"
+            }
+          ]
+        },
+        {
+          "name": "cargo",
+          "version": "0.96.0 (f2d3ce0bd 2026-03-21)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/cargo-1.95.0-x86_64-unknown-linux-gnu.tar.xz",
+          "sha256": "e74edd2cf7d0f1f1383b4f00eb90c843750bc489e2ccf7214e6476678a907425",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "cargo/bin/cargo",
+              "sha256": "841072d1d92f9e841d9ba5b0814182a0adf064acf4527cd120967b7bc49dcb66"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/bin/cargo",
+              "sha256": "841072d1d92f9e841d9ba5b0814182a0adf064acf4527cd120967b7bc49dcb66"
+            }
+          ]
+        },
+        {
+          "name": "rust-std-host",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rust-std-1.95.0-x86_64-unknown-linux-gnu.tar.xz",
+          "sha256": "047ea7098803d3500fa1072e9cee5392697e21525559e4458128a2bf874aa382",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rust-std-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-d1237ef7159db0a2.rlib",
+              "sha256": "2f4c8945547a8487dd6a5bf38cd94167a3566876006b9abda7544ba9825b9a95"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-d1237ef7159db0a2.rlib",
+              "sha256": "2f4c8945547a8487dd6a5bf38cd94167a3566876006b9abda7544ba9825b9a95"
+            }
+          ]
+        },
+        {
+          "name": "clang",
+          "version": "23.0.0git llvmorg-23-init-10931-g20b6ec66-3",
+          "url": "https://commondatastorage.googleapis.com/chromium-browser-clang/Linux_x64/clang-llvmorg-23-init-10931-g20b6ec66-3.tar.xz",
+          "sha256": "f4569980affeb46176ea13dbf3e6dc7d41848c4b73207bfc143575925fca0452",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "bin/clang",
+              "sha256": "c6e52fb5be3b7d29d8f60a12204072ffe9aaf8135a6e668b8eccc143d58c69ca"
+            },
+            {
+              "path": "lib/clang/23/include/stdarg.h",
+              "sha256": "ce6e43d79dc89b50208ecf259b1ffd519f5a78cd3a2c7fcaac6386f376b89fef"
+            },
+            {
+              "path": "lib/clang/23/include/stddef.h",
+              "sha256": "b3e62a046ddf28d09eedebe6eb9461cb7060e47cad2c69964b222c4eea10347e"
+            },
+            {
+              "path": "bin/ld.lld",
+              "sha256": "e340f4655e15837f51454702c2f2e28c884543cd9368b93c4ee2f3edf2365f55"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        },
+        {
+          "name": "chromium-rust",
+          "version": "4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66",
+          "url": "https://storage.googleapis.com/chromium-browser-clang/Linux_x64/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz",
+          "sha256": "a96863c5b811af23cbe3f20fcfc82939e637be2bd79f05a117f1762c3bb35fe5",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "VERSION",
+              "sha256": "401c6bfcbf870dd1959ea6e2424c3d9ac4b0b9a75914674dda07bda5cdf07fe2"
+            },
+            {
+              "path": "bin/rustc",
+              "sha256": "cf56c770785886d929d2981eb838af7ec9f87223bffe00068e90f89d1919e067"
+            },
+            {
+              "path": "lib/libclang.so.23.0.0git",
+              "sha256": "f04ab23d8350a5a5d5920c0d77958213f3ae04be2d1b4df3a03ed5a7afaab649"
+            }
+          ],
+          "redirect_hosts": [
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "deno-build",
+          "version": "2.9.3",
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-x86_64-unknown-linux-gnu.zip",
+          "sha256": "8101865641cbede56f08ad19c0a67a87df84bce127fee0d3e3e1f7467717ffa6",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "deno",
+              "sha256": "8570c9cdebe936ba744e12a6d329e0a17ea505b4e5f89b654473a2efc2d2e3ba"
+            }
+          ],
+          "redirect_hosts": [
+            "github.com",
+            "release-assets.githubusercontent.com"
+          ]
+        },
+        {
+          "name": "gn",
+          "version": "git_revision:d830369a8e7db2383ab7bb1c2c142ee2766cfea2",
+          "url": "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/Hsz5PJ5YuLJ3tmkyqxJOIbGBkdBloNZRSbLnUi205fAC",
+          "sha256": "1eccf93c9e58b8b277b66932ab124e21b18191d065a0d65149b2e7522db4e5f0",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "gn",
+              "sha256": "9a45b0aabd427540f2cc05f3d81ac964873fa4ba618698751c1db48f8d09b524"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "ninja",
+          "version": "version:3@1.12.1.chromium.4",
+          "url": "https://chrome-infra-packages.appspot.com/dl/infra/3pp/tools/ninja/linux-amd64/+/Px8cwPaaG8_fZ_tsK8dBmx3YEruNDnmvqb-oo1U7UIIC",
+          "sha256": "3f1f1cc0f69a1bcfdf67fb6c2bc7419b1dd812bb8d0e79afa9bfa8a3553b5082",
+          "format": "zip",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "ninja",
+              "sha256": "09f0e5a8a2cf762b24b4d3ed464ffb2529e650d2efc36bab31da36aa93791efc"
+            }
+          ],
+          "redirect_hosts": [
+            "chrome-infra-packages.appspot.com",
+            "storage.googleapis.com"
+          ]
+        },
+        {
+          "name": "rust-std-aarch64",
+          "version": "1.95.0 (59807616e 2026-04-14)",
+          "url": "https://static.rust-lang.org/dist/2026-04-16/rust-std-1.95.0-aarch64-unknown-linux-gnu.tar.xz",
+          "sha256": "3a21b271b1ff973b94d69b25e7a39992f9fbcae1ab6d9475844a23e6ad3908ac",
+          "format": "tar.xz",
+          "strip_components": 1,
+          "identities": [
+            {
+              "path": "rust-std-aarch64-unknown-linux-gnu/lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-30b8a9ba02153abd.rlib",
+              "sha256": "59fa077f9a51350d5029760d8906128697daa15c8f32a15f99bc10be9aa92017"
+            }
+          ],
+          "redirect_hosts": [
+            "static.rust-lang.org"
+          ],
+          "install": {
+            "kind": "rust-dist-component",
+            "group": "rust-1.95.0",
+            "prefix": "rustc/prefix",
+            "script": "install.sh",
+            "disable_ldconfig": true
+          },
+          "installed_identities": [
+            {
+              "path": "rustc/prefix/lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-30b8a9ba02153abd.rlib",
+              "sha256": "59fa077f9a51350d5029760d8906128697daa15c8f32a15f99bc10be9aa92017"
+            }
+          ]
+        },
+        {
+          "name": "sysroot-amd64",
+          "version": "rusty_v8 149.4.0 recursive Bullseye sysroot (sysroots.json sha256 57caf9c36ba1c6273a3b53cad89733c304fd41a2cdaf3629113cb28e278db632)",
+          "url": "https://commondatastorage.googleapis.com/chrome-linux-sysroot/52d61d4446ffebfaa3dda2cd02da4ab4876ff237853f46d273e7f9b666652e1d",
+          "sha256": "52d61d4446ffebfaa3dda2cd02da4ab4876ff237853f46d273e7f9b666652e1d",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "usr/include/stdio.h",
+              "sha256": "e7d85131c888412c0eaaaca3a7165d86f147c8645993ddf333a5b2500117a478"
+            },
+            {
+              "path": "lib/x86_64-linux-gnu/libc-2.31.so",
+              "sha256": "64e593953cc2bb09844b5e8843990f25f7dd8c0db3f8f613089791b96c833240"
+            },
+            {
+              "path": "usr/lib/x86_64-linux-gnu/crt1.o",
+              "sha256": "0342e800ed0be0c5defcfad44d8254d1e2f07e2f51a9f0d106989449953ea17a"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        },
+        {
+          "name": "sysroot-arm64",
+          "version": "rusty_v8 149.4.0 recursive Bullseye sysroot (sysroots.json sha256 57caf9c36ba1c6273a3b53cad89733c304fd41a2cdaf3629113cb28e278db632)",
+          "url": "https://commondatastorage.googleapis.com/chrome-linux-sysroot/c7176a4c7aacbf46bda58a029f39f79a68008d3dee6518f154dcf5161a5486d8",
+          "sha256": "c7176a4c7aacbf46bda58a029f39f79a68008d3dee6518f154dcf5161a5486d8",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "identities": [
+            {
+              "path": "usr/include/stdio.h",
+              "sha256": "e7d85131c888412c0eaaaca3a7165d86f147c8645993ddf333a5b2500117a478"
+            },
+            {
+              "path": "lib/aarch64-linux-gnu/libc-2.31.so",
+              "sha256": "4c1ab05b0df5bec02f99bb0364cfab6af5f169fe0a242693f6a2e441b9b7c96b"
+            },
+            {
+              "path": "usr/lib/aarch64-linux-gnu/crt1.o",
+              "sha256": "cc8daa730207ab3210be08fe4e38447beab67a848d6889e26c0297f5731002dd"
+            }
+          ],
+          "redirect_hosts": [
+            "commondatastorage.googleapis.com"
+          ]
+        },
+        {
+          "name": "deno-sysroot",
+          "version": "deno_sysroot_build sysroot-20250207",
+          "format": "tar.xz",
+          "strip_components": 0,
+          "redirect_hosts": [
+            "github.com",
+            "release-assets.githubusercontent.com"
+          ],
+          "include_members": [
+            "sysroot/.env",
+            "sysroot/lib",
+            "sysroot/usr/include",
+            "sysroot/usr/lib"
+          ],
+          "url": "https://github.com/denoland/deno_sysroot_build/releases/download/sysroot-20250207/sysroot-aarch64.tar.xz",
+          "sha256": "0a29c63c52cc1e59228686602cf3cf41080a809655afc29d1b8a27af4b20cedb",
+          "identities": [
+            {
+              "path": "sysroot/.env",
+              "sha256": "11c9a31f2303e448eb68ff5de9f0359ff202a2f25e5f4fa9001d8c332ea2d80e"
+            },
+            {
+              "path": "sysroot/lib/aarch64-linux-gnu/ld-2.27.so",
+              "sha256": "c5bbac6bc43251f952974c148989fbec4781804cecf10049ffb0317b21dd5f4b"
+            },
+            {
+              "path": "sysroot/lib/aarch64-linux-gnu/libc-2.27.so",
+              "sha256": "c82e737d5921eb92774e2f285c1b02fbe526ddd83bde1a6314f17f88a22064a5"
+            },
+            {
+              "path": "sysroot/usr/include/features.h",
+              "sha256": "3fa8e0cb66e1dcae7ae0c65927ad27513f30e16520b2953f58039b67fd9a67a8"
+            },
+            {
+              "path": "sysroot/usr/lib/aarch64-linux-gnu/crt1.o",
+              "sha256": "65b48d1f38c68289f55e60302b84ef3564298bf834bbdeb9abf7d755a9aa9f19"
+            }
+          ]
+        }
+      ],
+      "environment": {
+        "RUST_BIN": "@tool/rustc/prefix/bin",
+        "GN": "@tool/gn/gn",
+        "NINJA": "@tool/ninja/ninja",
+        "CLANG_BASE_PATH": "@tool/clang/.",
+        "LIBCLANG_PATH": "@tool/clang/lib",
+        "CHROMIUM_RUST_TOOLCHAIN": "@tool/chromium-rust/.",
+        "DENO_FRONTEND": "@tool/deno-build/deno",
+        "CROSS_SYSROOT_AMD64": "@tool/sysroot-amd64/.",
+        "CROSS_SYSROOT_ARM64": "@tool/sysroot-arm64/.",
+        "CROSS_LINKER": "@tool/clang/bin/clang",
+        "DENO_SYSROOT": "@tool/deno-sysroot/sysroot",
+        "V8_SYSROOT_AMD64": "@tool/sysroot-amd64/.",
+        "V8_SYSROOT_ARM64": "@tool/sysroot-arm64/.",
+        "SLV_LINKER": "@tool/clang/bin/ld.lld"
+      },
+      "installation_contract": {
+        "status": "requires_prepare_tools_adapter_not_raw_extract_only",
+        "rust": "After verified extraction, run each official component install.sh with --prefix=<tools>/rustc/prefix --disable-ldconfig; install rustc, cargo, rust-std into that same prefix. Record installed rustc/cargo/std identities against archive members. Do not use network rustup.",
+        "paired_libclang": "Create verified links/copies of chromium-rust/lib/libclang* in clang/lib, keeping all symlink targets inside owned tools root, so LIBCLANG_PATH parent/bin/clang finds matching clang23/resource headers. Rehash final dereferenced libclang.",
+        "rusty_v8_rust_sentinel": "In prepared chromium-rust write .rusty_v8_version containing the exact pinned chromium-rust URL; this is acquisition marker only, never replace archive/executable hash verification.",
+        "executable_modes": "Restore archive executable modes and test native --version on the matching build host.",
+        "redirect_validation": "At most 5 HTTPS redirects; each URL hostname must match tool.redirect_hosts; verify final archive SHA before extraction."
+      },
+      "layout": {
+        "links": [
+          {
+            "source": "chromium-rust/lib/libclang.so.23.0.0git",
+            "destination": "clang/lib/libclang.so",
+            "sha256": "f04ab23d8350a5a5d5920c0d77958213f3ae04be2d1b4df3a03ed5a7afaab649"
+          }
+        ],
+        "markers": [
+          {
+            "path": "chromium-rust/.rusty_v8_version",
+            "content": "https://storage.googleapis.com/chromium-browser-clang/Linux_x64/rust-toolchain-4c4205163abcbd08948b3efab796c543ba1ea687-2-llvmorg-23-init-10931-g20b6ec66.tar.xz"
+          }
+        ],
+        "post_extract_identities": [
+          {
+            "path": "clang/lib/libclang.so",
+            "sha256": "f04ab23d8350a5a5d5920c0d77958213f3ae04be2d1b4df3a03ed5a7afaab649"
+          }
+        ]
+      },
+      "execution": {
+        "tools": [
+          {
+            "name": "deno",
+            "version": "2.9.3",
+            "url": "https://github.com/denoland/deno/releases/download/v2.9.3/deno-aarch64-unknown-linux-gnu.zip",
+            "sha256": "753937db98a4b56cbbbd26e8f00eb4b789191a229afec93f74bcfa4e79bc2c8b",
+            "format": "zip",
+            "strip_components": 0,
+            "identities": [
+              {
+                "path": "deno",
+                "sha256": "f398f4b98c74634e56b56f8229bef5daeca02107f9dcd036ff99dbf28bc1b07e"
+              }
+            ],
+            "redirect_hosts": [
+              "github.com",
+              "release-assets.githubusercontent.com"
+            ]
+          },
+          {
+            "name": "deno-sysroot",
+            "version": "deno_sysroot_build sysroot-20250207",
+            "format": "tar.xz",
+            "strip_components": 0,
+            "redirect_hosts": [
+              "github.com",
+              "release-assets.githubusercontent.com"
+            ],
+            "include_members": [
+              "sysroot/.env",
+              "sysroot/lib",
+              "sysroot/usr/include",
+              "sysroot/usr/lib"
+            ],
+            "url": "https://github.com/denoland/deno_sysroot_build/releases/download/sysroot-20250207/sysroot-aarch64.tar.xz",
+            "sha256": "0a29c63c52cc1e59228686602cf3cf41080a809655afc29d1b8a27af4b20cedb",
+            "identities": [
+              {
+                "path": "sysroot/.env",
+                "sha256": "11c9a31f2303e448eb68ff5de9f0359ff202a2f25e5f4fa9001d8c332ea2d80e"
+              },
+              {
+                "path": "sysroot/lib/aarch64-linux-gnu/ld-2.27.so",
+                "sha256": "c5bbac6bc43251f952974c148989fbec4781804cecf10049ffb0317b21dd5f4b"
+              },
+              {
+                "path": "sysroot/lib/aarch64-linux-gnu/libc-2.27.so",
+                "sha256": "c82e737d5921eb92774e2f285c1b02fbe526ddd83bde1a6314f17f88a22064a5"
+              },
+              {
+                "path": "sysroot/usr/include/features.h",
+                "sha256": "3fa8e0cb66e1dcae7ae0c65927ad27513f30e16520b2953f58039b67fd9a67a8"
+              },
+              {
+                "path": "sysroot/usr/lib/aarch64-linux-gnu/crt1.o",
+                "sha256": "65b48d1f38c68289f55e60302b84ef3564298bf834bbdeb9abf7d755a9aa9f19"
+              }
+            ]
+          }
+        ],
+        "environment": {
+          "DENO_FRONTEND": "@tool/deno/deno",
+          "DENO_SYSROOT": "@tool/deno-sysroot/sysroot"
+        },
+        "layout": {
+          "links": [],
+          "markers": [],
+          "post_extract_identities": [
+            {
+              "path": "deno/deno",
+              "sha256": "f398f4b98c74634e56b56f8229bef5daeca02107f9dcd036ff99dbf28bc1b07e"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

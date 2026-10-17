@@ -1,0 +1,50 @@
+{
+  "purpose": "verbatim leading source-header record from the checksum-verified published crate; source material only, never rendered as a license notice",
+  "files": [
+    {
+      "archive_path": "gl_generator-0.14.0/generators/debug_struct_gen.rs",
+      "archive_file_sha256": "6fecccf8e57d4be93ea2657328d6e111ca44bc69542a5522cd7360d80ca64630",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/generators/global_gen.rs",
+      "archive_file_sha256": "1696013af16bb92a3fa7cf3802a57ec6f7ba460322ede33aa2af30fc9911bd98",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/generators/mod.rs",
+      "archive_file_sha256": "100a1da965bf11eaa9fad48a06c7856b60f48363a4a707e34ba97938bedae0b8",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/generators/static_gen.rs",
+      "archive_file_sha256": "925a9401e27358a466baadfb660056a24394cf2fa21f5613e2d7f50ab8935e71",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/generators/static_struct_gen.rs",
+      "archive_file_sha256": "eb08e6e59b0e0947c4ab263a0749efbb28430c5741634c413a2be011fcdad88f",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/generators/struct_gen.rs",
+      "archive_file_sha256": "fa1bcda4501a597922be7c7ef4ad13738536a9c97529996671e264acd709c680",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/lib.rs",
+      "archive_file_sha256": "6f47da878479b503b5202bda84ad8935607264ac03c0b68203109fad9cd479db",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/registry/mod.rs",
+      "archive_file_sha256": "84eed5c113b322e5267b2b130987e6bb726b4e7c38ce50292cd6cc57b8e06994",
+      "leading_header": "// Copyright 2015-2016 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    },
+    {
+      "archive_path": "gl_generator-0.14.0/registry/parse.rs",
+      "archive_file_sha256": "5cb781082014f143b06ef7d3678f3c4ca59133a5732d4e136fd750b78fb9453f",
+      "leading_header": "// Copyright 2015 Brendan Zabarauskas and the gl-rs developers\n//\n// Licensed under the Apache License, Version 2.0 (the \"License\");\n// you may not use this file except in compliance with the License.\n// You may obtain a copy of the License at\n//\n//     http://www.apache.org/licenses/LICENSE-2.0\n//\n// Unless required by applicable law or agreed to in writing, software\n// distributed under the License is distributed on an \"AS IS\" BASIS,\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n// See the License for the specific language governing permissions and\n// limitations under the License.\n"
+    }
+  ]
+}

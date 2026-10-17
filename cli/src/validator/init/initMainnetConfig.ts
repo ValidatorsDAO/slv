@@ -108,7 +108,7 @@ The key stays on this machine: deploy never copies it to the node, and slv v set
     const regionKeys = regions
       .filter(([key]) => key !== 'global')
       .map(([key, r]) => ({ name: `${r.emoji} ${r.name}`, value: key }))
-    const selectedRegion = await Select.prompt({
+    const selectedRegion = await Select.prompt<string>({
       message: 'Select your region',
       options: regionKeys,
     })

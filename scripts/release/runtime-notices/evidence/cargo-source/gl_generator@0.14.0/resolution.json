@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "gl_generator@0.14.0",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/gl_generator/gl_generator-0.14.0.crate",
+    "sha256": "1a95dfc23a2b4a9a2f5ab41d194f8bfda3cabec42af4e39f08c339eb2a0c124d"
+  },
+  "archive_vcs": {
+    "commit": "ea503e8d5fb6d73c6030e6191ce738cd3bf3433e",
+    "path_in_vcs": ""
+  },
+  "declared_license": "Apache-2.0",
+  "repository": "https://github.com/brendanzab/gl-rs/",
+  "published_manifest": {
+    "path": "gl_generator-0.14.0/Cargo.toml",
+    "sha256": "f586015aa2816b3c34d89f5e6a6539172efcd7f3ed055a0fab433ea83e2a0f0f"
+  },
+  "terms": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/brendanzab/gl-rs/ea503e8d5fb6d73c6030e6191ce738cd3bf3433e/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358
+    }
+  ],
+  "header_record": "published-source-headers.json",
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

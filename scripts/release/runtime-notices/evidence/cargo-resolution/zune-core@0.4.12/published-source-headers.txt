@@ -1,0 +1,362 @@
+PUBLISHED SOURCE HEADERS (VERBATIM EXCERPTS)
+
+These excerpts preserve copyright and license notices observed in the exact package archive.
+They are source-material evidence and are not a substitute for the full source archive.
+
+Path: src/bit_depth.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+//! Image bit depth, information and manipulations
+
+/// The image bit depth.
+///
+/// The library successfully supports depths up to
+/// 16 bits, as the underlying storage is usually a `u16`.
+///
+/// This allows us to comfortably support a wide variety of images
+/// e.g 10 bit av1, 16 bit png and ppm.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum BitDepth {
+    /// U8 bit depth.
+    ///
+    /// Images with such bit depth use [`u8`] to store
+    /// pixels and use the whole range from 0-255.
+    ///
+
+---
+
+Path: src/bytestream/reader.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+use core::cmp::min;
+
+use crate::bytestream::traits::ZReaderTrait;
+
+const ERROR_MSG: &str = "No more bytes";
+
+/// An encapsulation of a byte stream reader
+///
+/// This provides an interface similar to [std::io::Cursor] but
+/// it provides fine grained options for reading different integer data types from
+/// the underlying buffer.
+///
+/// There are two variants mainly error and non error variants,
+/// the error variants are useful for cases where you need bytes
+/// from the underlying stream, and cannot do with zero result.
+/// the non error variants are useful when you may have proved data already exists
+/// eg by using [`has`] method or you are okay with returning zero if the underlying
+
+---
+
+Path: src/bytestream/traits.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+//! Traits for reading and writing images in zune
+//!
+//!
+//! This exposes the traits and implementations for readers
+//! and writers in the zune family of decoders and encoders.
+
+use alloc::vec::Vec;
+use core::ops::Range;
+
+/// The underlying reader trait
+///
+/// # Considerations
+///
+///- When implementing this for a type, it is recommended to implement methods with
+/// `#inline[(always)]` directive to allow the functions to get inlined in call sites,
+/// this may make it faster on some situations since the call sites may be in hot loop.
+///
+/// - If you are reading from a file and it's small , it is preferable to read it into memory
+
+---
+
+Path: src/bytestream/writer.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+use core::mem::size_of;
+
+enum Mode {
+    // Big endian
+    BE,
+    // Little Endian
+    LE
+}
+
+static ERROR_MSG: &str = "No more space";
+
+/// Encapsulates a simple Byte writer with
+/// support for Endian aware writes
+pub struct ZByteWriter<'a> {
+    buffer:   &'a mut [u8],
+    position: usize
+}
+
+---
+
+Path: src/bytestream.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+//! A simple implementation of a bytestream reader
+//! and writer.
+//!
+//! This module contains two main structs that help in
+//! byte reading and byte writing
+//!
+//! Useful for a lot of image readers and writers, it's put
+//! here to minimize code reuse
+pub use reader::ZByteReader;
+pub use traits::*;
+pub use writer::ZByteWriter;
+
+mod reader;
+mod traits;
+mod writer;
+
+---
+
+Path: src/colorspace.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+//! Image Colorspace information and manipulation utilities.
+
+/// All possible image colorspaces
+/// Some of them aren't yet supported exist here.
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ColorSpace {
+    /// Red, Green , Blue
+    RGB,
+    /// Red, Green, Blue, Alpha
+    RGBA,
+    /// YUV colorspace
+    YCbCr,
+    /// Grayscale colorspace
+    Luma,
+    /// Grayscale with alpha colorspace
+
+---
+
+Path: src/lib.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software; You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+//! Core routines shared by all libraries
+//!
+//! This crate provides a set of core routines shared
+//! by the decoders and encoders under `zune` umbrella
+//!
+//! It currently contains
+//!
+//! - A bytestream reader and writer with endian aware reads and writes
+//! - Colorspace and bit depth information shared by images
+//! - Image decoder and encoder options
+//! - A simple enum type to hold image decoding results.
+//!
+//! This library is `#[no_std]` with `alloc` feature needed for defining `Vec`
+//! which we need for storing decoded  bytes.
+//!
+//!
+//! # Features
+//!  - `no_std`: Enables `#[no_std]` compilation support.
+//!
+
+---
+
+Path: src/log.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+// #[macro_export] is required to make macros works across crates
+// but it always put the macro in the crate root.
+// #[doc(hidden)] + "pub use" is a workaround to namespace a macro.
+pub use crate::{
+    __debug as debug, __error as error, __info as info, __log_enabled as log_enabled,
+    __trace as trace, __warn as warn
+};
+
+#[repr(usize)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
+pub enum Level {
+    Error = 1,
+    Warn,
+    Info,
+    Debug,
+    Trace
+}
+
+---
+
+Path: src/options/decoder.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+//! Global Decoder options
+#![allow(clippy::zero_prefixed_literal)]
+
+use crate::bit_depth::ByteEndian;
+use crate::colorspace::ColorSpace;
+
+fn decoder_strict_mode() -> DecoderFlags {
+    DecoderFlags {
+        inflate_confirm_adler:        true,
+        png_confirm_crc:              true,
+        jpg_error_on_non_conformance: true,
+
+        zune_use_unsafe:           true,
+        zune_use_neon:             true,
+        zune_use_avx:              true,
+        zune_use_avx2:             true,
+        zune_use_sse2:             true,
+
+---
+
+Path: src/options/encoder.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+use crate::bit_depth::BitDepth;
+use crate::colorspace::ColorSpace;
+
+/// Encoder options that are flags
+#[derive(Copy, Debug, Clone, Default)]
+struct EncoderFlags {
+    /// Whether JPEG images should be encoded as progressive images
+    jpeg_encode_progressive: bool,
+    /// Whether JPEG images should use optimized huffman tables
+    jpeg_optimize_huffman:   bool,
+    /// Whether to not preserve metadata across image transformations
+    image_strip_metadata:    bool
+}
+
+/// Options shared by some of the encoders in
+/// the `zune-` family of image crates
+#[derive(Debug, Copy, Clone)]
+
+---
+
+Path: src/result.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+//! Decoding results for images
+use alloc::vec::Vec;
+
+/// A simple enum that can hold decode
+/// results of most images
+#[non_exhaustive]
+pub enum DecodingResult {
+    U8(Vec<u8>),
+    U16(Vec<u16>),
+    F32(Vec<f32>)
+}
+
+impl DecodingResult {
+    /// Return the contents if the enum stores `Vec<u8>` or otherwise
+    /// return `None`.
+    ///
+    /// Useful for de-sugaring the result of a decoding operation
+
+---
+
+Path: src/serde.rs
+
+/*
+ * Copyright (c) 2023.
+ *
+ * This software is free software;
+ *
+ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
+ */
+
+#![cfg(feature = "serde")]
+//! Serde support for serializing
+//! crate datastructures
+//!
+//! Implements serialize for
+//!  - ColorSpace
+//!  - BitDepth
+//!  - ColorCharacteristics
+use alloc::format;
+
+use serde::ser::*;
+
+use crate::bit_depth::BitDepth;
+use crate::colorspace::{ColorCharacteristics, ColorSpace};
+
+impl Serialize for ColorSpace {
+    #[allow(clippy::uninlined_format_args)]
+
+---

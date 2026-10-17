@@ -740,11 +740,9 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
   }
 
   // --- Update-available probe ----------------------------------
-  // On load and every 30 min, fetch the install script from
-  // storage.slv.dev and grep its VERSION="…" line. If newer than
-  // the baked-in VERSION, reveal the Update button. The fetch is
-  // cross-origin but the install script is public, so CORS is OK
-  // — the user's browser caches it for 5 min via Cloudflare.
+  // On load and every 30 min, discover fresh immutable release metadata.
+  // This is display-only; the gateway never authorizes an installation and
+  // the CLI repeats provenance and payload verification after the click.
   const currentVersion = '${VERSION}'
   let latestVersion = currentVersion
   const compareCalVer = (a, b) => {
@@ -757,14 +755,38 @@ export const renderChatHtml = async (opts: RenderOptions): Promise<string> => {
     }
     return 0
   }
+  const validCalVer = (value) => {
+    const match = /^([0-9]{4})[.](?:([1-9]|1[0-2]))[.](?:([1-9]|[12][0-9]|3[01]))[.]([0-9]{4})$/.exec(value)
+    if (!match) return false
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    const clock = Number(match[4])
+    if (clock > 2359 || clock % 100 > 59) return false
+    const date = new Date(Date.UTC(year, month - 1, day))
+    return date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+  }
   const checkLatest = async () => {
     try {
-      const res = await fetch('https://storage.slv.dev/slv/install', { cache: 'no-store' })
-      if (!res.ok) return
-      const body = await res.text()
-      const m = body.match(/VERSION=[\"']([0-9.]+)[\"']/)
-      if (!m) return
-      const v = m[1]
+      const response = await fetch(
+        'https://api.github.com/repos/ValidatorsDAO/slv/releases/latest',
+        { headers: { accept: 'application/vnd.github+json' } },
+      )
+      if (!response.ok) return
+      const release = await response.json()
+      const tag = release && release.tag_name
+      if (
+        !release ||
+        release.immutable !== true ||
+        release.draft !== false ||
+        release.prerelease !== false ||
+        typeof tag !== 'string' ||
+        !tag.startsWith('v') ||
+        !validCalVer(tag.slice(1))
+      ) return
+      const v = tag.slice(1)
       if (compareCalVer(v, currentVersion) > 0) {
         latestVersion = v
         updateBtn.textContent = I18N.updateReady.replace('{version}', v)

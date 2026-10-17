@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "kind": "slv-deno-security-selection",
+  "upstream": {
+    "cargo_lock": {
+      "archive_path": "deno/Cargo.lock",
+      "sha256": "4e86cc7eca855b5ab589a6c735294677b10937ced61114347c6ba2bebb8d14d8",
+      "package_count": 1125
+    },
+    "cargo_manifest": {
+      "archive_path": "deno/Cargo.toml",
+      "sha256": "cb99850e81c208583ee183046b8830304ba32c3cc44c43858a1fb4c0b5b568d2"
+    }
+  },
+  "selected": {
+    "cargo_lock": {
+      "input_path": "security/selected-Cargo.lock",
+      "archive_path": "deno/Cargo.lock",
+      "sha256": "09afc50a2481cea2e77e0d27eff26db844362067bfbc51357f3927d49cbf815d",
+      "package_count": 1126
+    },
+    "cargo_manifest": {
+      "archive_path": "deno/Cargo.toml",
+      "sha256": "4a05547b2394aae4b748d94eabe9fa0561c55ebb3accab644e8ec98dd89dc9bf"
+    }
+  },
+  "transform": {
+    "manifest_patch": {
+      "input_path": "security/manifest-patch.json",
+      "archive_path": "source-materials/security/manifest-patch.json",
+      "sha256": "12ef21d56ac6ff260b6f55b4a23fc81b1a462d10e42769dcceb4d31bbfce6d27",
+      "replace": {
+        "from": "rustls = { version = \"=0.23.40\",",
+        "to": "rustls = { version = \"=0.23.45\","
+      }
+    },
+    "resolution_receipt": {
+      "input_path": "security/resolution-receipt.json",
+      "archive_path": "source-materials/security/resolution-receipt.json",
+      "sha256": "86c10880d12dc37a71cd6c68f314de4d33bf99b25b6107e82c70585c4aacb728"
+    },
+    "added_identities_osv": {
+      "input_path": "security/added-identities-osv.json",
+      "archive_path": "source-materials/security/added-identities-osv.json",
+      "sha256": "c3100d6fddc9f2d5616e82c981c3d0a87ecb45d4faf3753d1aaaa817b4695c01"
+    }
+  },
+  "allowed_delta": {
+    "added": [
+      "aws-lc-rs@1.18.2",
+      "aws-lc-sys@0.46.0",
+      "h2@0.4.16",
+      "pkg-config@0.3.34",
+      "rustls@0.23.45",
+      "rustls-webpki@0.103.15"
+    ],
+    "removed": [
+      "aws-lc-rs@1.16.3",
+      "h2@0.4.7",
+      "pkg-config@0.3.30",
+      "rustls@0.23.40",
+      "rustls-webpki@0.103.13"
+    ],
+    "changed_same_identity": [
+      "deno_crypto_provider@0.49.0",
+      "deno_node_crypto@0.25.0"
+    ]
+  }
+}

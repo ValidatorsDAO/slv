@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "dlopen2_derive@0.4.0",
+    "archive": {
+      "url": "https://static.crates.io/crates/dlopen2_derive/dlopen2_derive-0.4.0.crate",
+      "sha256": "f2b99bf03862d7f545ebc28ddd33a665b50865f4dfd84031a393823879bd4c54"
+    },
+    "license_declared": "MIT",
+    "license_selected": "MIT",
+    "resolution_kind": "recovered-upstream-license-with-source-comparison",
+    "text_refs": [
+      "dlopen2"
+    ],
+    "original_authors": [
+      "Szymon Wieloch <szymon.wieloch@gmail.com>",
+      "OpenByte <development.openbyte@gmail.com>"
+    ],
+    "notes": [
+      "37 main / 5 derive Rust files equal after CRLF-to-LF normalization; do not claim byte equality or original vcs metadata for dlopen2 0.6.1."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "MIT",
+    "authors": [
+      "Szymon Wieloch <szymon.wieloch@gmail.com>",
+      "OpenByte <development.openbyte@gmail.com>"
+    ],
+    "repository": null,
+    "homepage": null,
+    "description": "Derive macros for the dlopen2 crate.",
+    "license-file": null,
+    "package": "dlopen2_derive@0.4.0",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [",
+          "license = \"MIT\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "dlopen2",
+      "path": "evidence/cargo-resolution/dlopen2_derive@0.4.0/terms-dlopen2.txt",
+      "sha256": "39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2",
+      "source": {
+        "url": "https://raw.githubusercontent.com/OpenByteDev/dlopen2/122b5b7d9f15718de9525b5968ea8888ddc3a89d/LICENSE",
+        "sha256": "39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

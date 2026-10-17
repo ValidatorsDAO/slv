@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "wit-parser@0.244.0",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/wit-parser/wit-parser-0.244.0.crate",
+    "sha256": "ecc8ac4bc1dc3381b7f59c34f00b67e18f910c2c0f50015669dde7def656a736"
+  },
+  "archive_vcs": {
+    "commit": "d4e317f22c3bace76cb3205003bcc34b4929037d",
+    "path_in_vcs": "crates/wit-parser"
+  },
+  "declared_license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+  "repository": "https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wit-parser",
+  "published_manifest": {
+    "path": "wit-parser-0.244.0/Cargo.toml",
+    "sha256": "d7bcbbfa75bb0ee12fb76a45b75af7f4f92af9c3ed6046866a2315efb65773fe"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/bytecodealliance/wasm-tools/d4e317f22c3bace76cb3205003bcc34b4929037d/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "bytes": 1023
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/bytecodealliance/wasm-tools/d4e317f22c3bace76cb3205003bcc34b4929037d/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "swc_ecma_transforms_typescript@33.0.0",
+    "archive": {
+      "url": "https://static.crates.io/crates/swc_ecma_transforms_typescript/swc_ecma_transforms_typescript-33.0.0.crate",
+      "sha256": "4408800fdeb541fabf3659db622189a0aeb386f57b6103f9294ff19dfde4f7b0"
+    },
+    "license_declared": "Apache-2.0",
+    "license_selected": "Apache-2.0",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "apache"
+    ],
+    "original_authors": [
+      "강동윤 <kdy1997.dev@gmail.com>"
+    ],
+    "notes": [
+      "Unreachable source commit is not represented as recovered. Exact published archive is grant/notice source."
+    ]
+  },
+  "published_archive_metadata": {
+    "license": "Apache-2.0",
+    "authors": [
+      "강동윤 <kdy1997.dev@gmail.com>"
+    ],
+    "repository": "https://github.com/swc-project/swc.git",
+    "homepage": null,
+    "description": "rust port of babel and closure compiler.",
+    "license-file": null,
+    "package": "swc_ecma_transforms_typescript@33.0.0",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"강동윤 <kdy1997.dev@gmail.com>\"]",
+          "license = \"Apache-2.0\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "apache",
+      "path": "evidence/cargo-resolution/swc_ecma_transforms_typescript@33.0.0/terms-apache.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": {
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: rustyline-derive@0.11.1
+Exact archive: https://static.crates.io/crates/rustyline-derive/rustyline-derive-0.11.1.crate
+Archive SHA-256: 5d66de233f908aebf9cc30ac75ef9103185b4b715c6f2fb7a626aa5e5ede53ab
+Declared license: MIT
+Selected license branch for this distribution: MIT
+
+Published authors (author metadata is not restated as copyright ownership):
+- gwenn
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

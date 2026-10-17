@@ -1,0 +1,16 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: lax-core@0.1.2
+Exact archive: https://static.crates.io/crates/lax-core/lax-core-0.1.2.crate
+Archive SHA-256: 59154ddba1bc6fa3d3e9ef0190dbecbac0cbbdc87b8d28e4437f8ff9c70b8d24
+Declared license: MIT
+Selected license branch for this distribution: MIT
+
+Published authors: none recorded in the packaged Cargo.toml.
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

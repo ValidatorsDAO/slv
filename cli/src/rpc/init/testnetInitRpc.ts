@@ -37,7 +37,7 @@ export const testnetInitRpc = async (
     const regionKeys = regions
       .filter(([key]) => key !== 'global')
       .map(([key, r]) => ({ name: `${r.emoji} ${r.name}`, value: key }))
-    const selectedRegion = await Select.prompt({
+    const selectedRegion = await Select.prompt<string>({
       message: 'Select your region',
       options: regionKeys,
     })

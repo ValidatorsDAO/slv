@@ -1,0 +1,21 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: sacabase@2.0.0
+Exact archive: https://static.crates.io/crates/sacabase/sacabase-2.0.0.crate
+Archive SHA-256: 9883fc3d6ce3d78bb54d908602f8bc1f7b5f983afe601dabe083009d86267a84
+Declared license: MIT
+Selected license branch for this distribution: MIT
+Published authors:
+- Amos Wenger <amoswenger@gmail.com>
+
+Resolution kind:
+declared-standard-license-supplement
+
+Resolution notes from the evidence review:
+- Preserve actually published attribution/notices; no synthetic copyright holder/year. An absent copyright notice remains recorded as absent, not invented. Source declaration plus full authentic standard terms and original notices constitutes this narrow proposed resolution.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.
