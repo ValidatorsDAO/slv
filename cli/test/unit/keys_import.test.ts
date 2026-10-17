@@ -932,3 +932,69 @@ Deno.test('the attach path wipes the key file buffer too', async () => {
   assertEquals(keyFiles[0].every((byte) => byte === 0), true)
   assertEquals(op.calls.filter((call) => call.args[1] === 'create'), [])
 })
+
+Deno.test('the inventory is written through a link to the file it points at: the link stays, the file has the new text and keeps its mode, and the data and then the directory are synced', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'slv-inventory-' })
+  const defaults = defaultImportDeps()
+  const synced: string[] = []
+  const realOpen = Deno.open
+  const realRename = Deno.rename
+  try {
+    await Deno.mkdir(`${dir}/ops`)
+    await Deno.mkdir(`${dir}/home`)
+    await Deno.writeTextFile(`${dir}/ops/inventory.yml`, 'old: 1\n', {
+      mode: 0o640,
+    })
+    await Deno.chmod(`${dir}/ops/inventory.yml`, 0o640)
+    await Deno.symlink(`${dir}/ops/inventory.yml`, `${dir}/home/inventory.yml`) // What is synced, in order, and when the file is put in place.
+     // deno-lint-ignore no-explicit-any
+    ;(Deno as any).open = async (path: string, options?: Deno.OpenOptions) => {
+      const file = await realOpen(path, options)
+      const sync = file.syncData.bind(file)
+      file.syncData = () => {
+        synced.push(
+          path.startsWith(`${dir}/ops/inventory.yml.`) ? 'file' : 'directory',
+        )
+        return sync()
+      }
+      return file
+    } // deno-lint-ignore no-explicit-any
+    ;(Deno as any).rename = (from: string, to: string) => {
+      synced.push('rename')
+      return realRename(from, to)
+    }
+    await defaults.writeInventory(`${dir}/home/inventory.yml`, 'new: 2\n')
+  } finally {
+    // deno-lint-ignore no-explicit-any
+    ;(Deno as any).open = realOpen // deno-lint-ignore no-explicit-any
+    ;(Deno as any).rename = realRename
+  }
+  try {
+    assertEquals(
+      (await Deno.lstat(`${dir}/home/inventory.yml`)).isSymlink,
+      true,
+    )
+    assertEquals(
+      await Deno.readTextFile(`${dir}/ops/inventory.yml`),
+      'new: 2\n',
+    )
+    assertEquals(
+      (await Deno.stat(`${dir}/ops/inventory.yml`)).mode! & 0o777,
+      0o640,
+    )
+    assertEquals([...Deno.readDirSync(`${dir}/ops`)].map((e) => e.name), [
+      'inventory.yml',
+    ])
+    assertEquals([...Deno.readDirSync(`${dir}/home`)].map((e) => e.name), [
+      'inventory.yml',
+    ])
+    // The data first, then the file in place, then the directory.
+    assertEquals(synced, ['file', 'rename', 'directory'])
+
+    // A file that is not there yet is made private, and a plain file keeps its mode.
+    await defaults.writeInventory(`${dir}/new.yml`, 'a: 1\n')
+    assertEquals((await Deno.stat(`${dir}/new.yml`)).mode! & 0o777, 0o600)
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})

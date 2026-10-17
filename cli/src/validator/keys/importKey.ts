@@ -1,3 +1,4 @@
+import { dirname } from '@std/path'
 import { getInventoryPath } from '@cmn/constants/path.ts'
 import type { InventoryType } from '@cmn/types/config.ts'
 import { parse } from 'https://deno.land/std@0.202.0/yaml/parse.ts'
@@ -88,20 +89,53 @@ const defaultImportDeps = (): ImportDeps => ({
     }
   },
   writeInventory: async (path, text) => {
+    // A link is followed: the file it points at is the inventory, and the link stays.
+    let target = path
+    try {
+      target = await Deno.realPath(path)
+    } catch (_error) {
+      // A file that is not there yet is written where it is named.
+    }
     let mode = 0o600
     try {
-      mode = (await Deno.stat(path)).mode! & 0o777
+      mode = (await Deno.stat(target)).mode! & 0o777
     } catch (_error) {
       // A new file is private.
     }
-    const temporary = `${path}.${crypto.randomUUID()}.tmp`
+    const temporary = `${target}.${crypto.randomUUID()}.tmp`
     try {
-      await Deno.writeTextFile(temporary, text, { mode, createNew: true })
+      const file = await Deno.open(temporary, {
+        write: true,
+        createNew: true,
+        mode,
+      })
+      try {
+        const bytes = new TextEncoder().encode(text)
+        let written = 0
+        while (written < bytes.length) {
+          written += await file.write(bytes.subarray(written))
+        }
+        // The data is on the disk before the name is.
+        await file.syncData()
+      } finally {
+        file.close()
+      }
       await Deno.chmod(temporary, mode)
-      await Deno.rename(temporary, path)
+      await Deno.rename(temporary, target)
     } catch (error) {
       await Deno.remove(temporary).catch(() => undefined)
       throw error
+    }
+    // And the directory entry, where the system lets a directory be synced.
+    try {
+      const directory = await Deno.open(dirname(target), { read: true })
+      try {
+        await directory.syncData()
+      } finally {
+        directory.close()
+      }
+    } catch (_error) {
+      // Not everywhere can a directory be opened and synced.
     }
   },
   readKeyFile: async (path) => {
