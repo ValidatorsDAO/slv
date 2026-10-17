@@ -271,10 +271,12 @@ function parameterEvaluates(inner: string): boolean {
     if (name[1] === '!' && rest === '') return true
     const subscript = /^\[([^\]]*)\]/.exec(rest)
     if (subscript !== null) {
+      // deno-lint-ignore no-control-regex
       if (/[A-Za-z_$`\u0000\u0001]/.test(subscript[1])) return true
       rest = rest.slice(subscript[0].length)
     }
     return rest.startsWith(':') && !/^:[-=+?]/.test(rest) &&
+      // deno-lint-ignore no-control-regex
       /[A-Za-z_$`\[\u0000\u0001]/.test(rest)
   }
   if (reads(inner)) return true
@@ -1244,6 +1246,7 @@ const SCREEN_READ_ONLY_FLAGS = new Set([
 // ---------------------------------------------------------------------------
 
 /** Whitespace, shell metacharacters and the placeholders; not / . - : _ */
+// deno-lint-ignore no-control-regex
 const TOKEN_SEPARATORS = /[\s|&;()<>$`"'\\{}[\]*?!#=,@\u0000\u0001]+/
 /** Commands that print where a name resolves and run nothing. */
 const LOOKUP_COMMANDS = new Set(['which', 'type', 'hash', 'whereis'])
@@ -2615,6 +2618,7 @@ const ARITHMETIC_OPERATORS = new Set(['-eq', '-ne', '-lt', '-le', '-gt', '-ge'])
 /** A name with a subscript that is assigned to: `a[$i]=1`. */
 const SUBSCRIPT_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\[([^\]]*)\]\+?=/
 /** Text in a subscript or an offset that is more than a number. */
+// deno-lint-ignore no-control-regex
 const EXPRESSION_TEXT = /[A-Za-z_$`\u0000\u0001]/
 
 /**
@@ -2818,6 +2822,7 @@ function scanKeyMaterial(
 ): void {
   for (const word of [...command.words, ...command.redirects]) {
     let reason = keyMaterialInWord(word)
+    // deno-lint-ignore no-control-regex
     if (reason === null && directory !== null && !/^[/~\u0000]/.test(word)) {
       reason = keyMaterialInWord(`${directory}/${word}`)
     }
@@ -2843,6 +2848,7 @@ function directoryAfter(
   )
   if (target === undefined) return '~'
   if (target === '-') return RUNTIME
+  // deno-lint-ignore no-control-regex
   if (/^[/~\u0000]/.test(target)) return target
   return directory === null ? null : `${directory}/${target}`
 }
