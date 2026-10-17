@@ -1,0 +1,131 @@
+name: SLV GCE runner control
+description: Manage one-job runner leases from an approved GitHub-hosted control job.
+inputs:
+  operation:
+    description: provision, cleanup, or janitor
+    required: true
+  job-keys:
+    description: One lease key for provisioning, or newline-separated keys for cleanup
+    required: false
+  project-id:
+    description: Existing runner project ID
+    required: true
+  zone:
+    description: Runner zone
+    required: true
+  template:
+    description: Exact runner template self link
+    required: true
+  service-account:
+    description: Keyless hosted provisioner identity
+    required: true
+  workload-identity-provider:
+    description: Restricted Google workload identity provider
+    required: true
+  app-id:
+    description: Repository-scoped runner GitHub App ID
+    required: true
+  onepassword-token:
+    description: Protected environment token for the dedicated 1Password vault.
+    required: true
+  app-key-ref:
+    description: 1Password reference to the GitHub App private key
+    required: true
+outputs:
+  runner_label:
+    description: Unpredictable single-job dispatch label; never a credential.
+    value: ${{ steps.control.outputs.runner_label }}
+  instance_name:
+    description: Deterministic instance lease name.
+    value: ${{ steps.control.outputs.instance_name }}
+runs:
+  using: composite
+  steps:
+    - name: Reject untrusted control contexts before loading credentials
+      shell: bash
+      env:
+        CONTROL_REPOSITORY: ${{ github.repository }}
+        CONTROL_REF: ${{ github.ref }}
+        CONTROL_EVENT: ${{ github.event_name }}
+        CONTROL_RUNNER: ${{ runner.environment }}
+        CONTROL_OPERATION: ${{ inputs.operation }}
+        APP_ID: ${{ inputs.app-id }}
+        APP_KEY_REF: ${{ inputs.app-key-ref }}
+        OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.onepassword-token }}
+      run: |
+        set -euo pipefail
+        test "$CONTROL_REPOSITORY" = ValidatorsDAO/slv
+        test "$CONTROL_REF" = refs/heads/main
+        test "$CONTROL_RUNNER" = github-hosted
+        case "$CONTROL_EVENT" in push|workflow_dispatch|schedule) ;; *) exit 1 ;; esac
+        case "$CONTROL_OPERATION" in provision|cleanup|janitor) ;; *) exit 1 ;; esac
+        [[ "$APP_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+        [[ "$APP_KEY_REF" == op://* ]] || exit 1
+        test -n "${OP_SERVICE_ACCOUNT_TOKEN:-}"
+    - name: Authenticate the hosted controller to Google Cloud
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+      with:
+        workload_identity_provider: ${{ inputs.workload-identity-provider }}
+        service_account: ${{ inputs.service-account }}
+        project_id: ${{ inputs.project-id }}
+        create_credentials_file: true
+        export_environment_variables: true
+        cleanup_credentials: true
+    - name: Install Google Cloud CLI
+      uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+    - name: Load the runner App key only into this hosted job
+      id: app-key
+      uses: 1password/load-secrets-action@70062d7a876d3eb6334754fa26efd2fbd90c32f2 # v5
+      with:
+        export-env: false
+        version: '2.40.0'
+      env:
+        OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.onepassword-token }}
+        SLV_RUNNER_APP_PRIVATE_KEY: ${{ inputs.app-key-ref }}
+    - name: Mint a short-lived token for this repository only
+      id: app-token
+      uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ steps.app-key.outputs.SLV_RUNNER_APP_PRIVATE_KEY }}
+        owner: ValidatorsDAO
+        repositories: slv
+        permission-administration: write
+        skip-token-revoke: false
+    - name: Execute runner lifecycle operation
+      id: control
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        CONTROL_OPERATION: ${{ inputs.operation }}
+        CONTROL_PROJECT: ${{ inputs.project-id }}
+        CONTROL_ZONE: ${{ inputs.zone }}
+        CONTROL_TEMPLATE: ${{ inputs.template }}
+        CONTROL_JOB_KEYS: ${{ inputs.job-keys }}
+        CONTROL_REPOSITORY: ${{ github.repository }}
+        CONTROL_RUN_ID: ${{ github.run_id }}
+        CONTROL_RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -euo pipefail
+        # The guest receives only one-use JIT registration, never these credentials.
+        unset OP_SERVICE_ACCOUNT_TOKEN
+        args=("$CONTROL_OPERATION" --project "$CONTROL_PROJECT" --repository "$CONTROL_REPOSITORY")
+        if [ "$CONTROL_OPERATION" = janitor ]; then
+          python3 scripts/ci/gce_runner.py "${args[@]}"
+          exit 0
+        fi
+        args+=(--zone "$CONTROL_ZONE" --run-id "$CONTROL_RUN_ID" --run-attempt "$CONTROL_RUN_ATTEMPT")
+        if [ "$CONTROL_OPERATION" = provision ]; then
+          [[ "$CONTROL_JOB_KEYS" =~ ^[a-z][a-z0-9-]{0,62}$ ]] || exit 1
+          python3 scripts/ci/gce_runner.py "${args[@]}" --job-key "$CONTROL_JOB_KEYS" --template "$CONTROL_TEMPLATE" --ttl-seconds 21600
+        else
+          status=0
+          count=0
+          while IFS= read -r job_key; do
+            [ -n "$job_key" ] || continue
+            count=$((count + 1))
+            python3 scripts/ci/gce_runner.py "${args[@]}" --job-key "$job_key" || status=1
+          done <<< "$CONTROL_JOB_KEYS"
+          test "$count" -gt 0
+          exit "$status"
+        fi

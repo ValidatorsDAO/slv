@@ -1764,7 +1764,7 @@ Deno.test('relative source archives are resolved before scanners change extracti
   }
 })
 
-Deno.test('split native CLI requires explicit role, target-fixed jobs, context, and join dependencies', () => {
+Deno.test('split native CLI permits bounded Linux parallelism and retains macOS jobs and producer requirements', () => {
   const common = [
     '--target',
     'x86_64-apple-darwin',
@@ -1807,7 +1807,13 @@ Deno.test('split native CLI requires explicit role, target-fixed jobs, context, 
   for (
     const [target, jobs] of [
       ['x86_64-unknown-linux-gnu', '2'],
+      ['x86_64-unknown-linux-gnu', '4'],
+      ['x86_64-unknown-linux-gnu', '8'],
+      ['x86_64-unknown-linux-gnu', '16'],
+      ['aarch64-unknown-linux-gnu', '2'],
       ['aarch64-unknown-linux-gnu', '4'],
+      ['aarch64-unknown-linux-gnu', '8'],
+      ['aarch64-unknown-linux-gnu', '16'],
       ['x86_64-apple-darwin', '4'],
     ] as const
   ) {
@@ -1830,14 +1836,17 @@ Deno.test('split native CLI requires explicit role, target-fixed jobs, context, 
     producer('x86_64-apple-darwin', '2'),
     'requires --jobs 4',
   )
-  rejected(
-    producer('aarch64-unknown-linux-gnu', '2'),
-    'requires --jobs 4',
-  )
-  rejected(
-    producer('x86_64-unknown-linux-gnu', '4'),
-    'requires --jobs 2',
-  )
+  for (
+    const target of ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu']
+  ) {
+    for (const jobs of ['1', '3', '15']) {
+      rejected(producer(target, jobs), 'requires --jobs 2, 4, 8, or 16')
+    }
+    for (const jobs of ['0', '17', '32', '016', '16.0', '16x']) {
+      rejected(producer(target, jobs), '--jobs is permitted only')
+    }
+  }
+  rejected(producer('x86_64-apple-darwin', '16'), 'requires --jobs 4')
   rejected(
     producer('x86_64-apple-darwin', '4').filter((_, index, argv) =>
       index < argv.indexOf('--producer-context')
@@ -2197,9 +2206,9 @@ async function createNativeJoinFixture(
   root: string,
   target: 'x86_64-apple-darwin' | 'x86_64-unknown-linux-gnu' =
     'x86_64-apple-darwin',
+  jobs = target === 'x86_64-unknown-linux-gnu' ? '2' : '4',
 ): Promise<NativeJoinFixture> {
   const linux = target === 'x86_64-unknown-linux-gnu'
-  const jobs = linux ? '2' : '4'
   const buildHost = linux ? { os: 'linux', arch: 'x64' } : {
     os: 'darwin',
     arch: 'x64',
@@ -2857,68 +2866,79 @@ Deno.test('join-build production entrypoint preserves raw variants and passes me
   }
 })
 
-Deno.test('join-build production entrypoint preserves Linux x86_64 native split receipts with fixed jobs 2', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'slv-native-join-linux-' })
-  try {
-    const fixture = await createNativeJoinFixture(
-      root,
-      'x86_64-unknown-linux-gnu',
-    )
-    await verifyNative(fixture.args)
-    const build = JSON.parse(
-      await Deno.readTextFile(`${fixture.out}/build-receipt.json`),
-    ) as Record<string, unknown>
-    const split = build.split_build as Record<
-      string,
-      Record<string, Record<string, unknown>>
-    >
-    const baseline = split.baseline.receipt
-    const modified = split.modified.receipt
-    requireFixture(
-      build.jobs === '2' && build.build_mode === 'native' &&
-        JSON.stringify(build.build_host) ===
-          JSON.stringify({ os: 'linux', arch: 'x64' }) &&
-        baseline.jobs === '2' && modified.jobs === '2' &&
-        (baseline.producer as Record<string, unknown>).job_id ===
-          'source-linux-x64-baseline' &&
-        (modified.producer as Record<string, unknown>).job_id ===
-          'source-linux-x64-modified',
-      'Linux split receipts did not retain native host, producer, and fixed jobs 2',
-    )
-    const sourceReceipt = JSON.parse(
-      await Deno.readTextFile(fixture.sourceReceipt),
-    ) as Record<string, unknown>
-    const manifest = JSON.parse(
-      await Deno.readTextFile(`${fixture.out}/transport/manifest.json`),
-    ) as Record<string, Record<string, unknown>>
-    const inputs = {
-      assembly: sourceReceipt,
-      assemblyReceiptSha256: await fixtureFileSha256(fixture.sourceReceipt),
-      pinsSha256: await fixtureFileSha256(fixture.pins),
-      noticeSha256: await fixtureFileSha256(fixture.notice),
-      sourceAssets: (sourceReceipt.assets as Array<Record<string, unknown>>)
-        .map(
-          ({ name, sha256, size }) => ({ name, sha256, size }),
-        ),
+for (const jobs of ['2', '16']) {
+  Deno.test(`join-build production entrypoint preserves Linux x86_64 native split receipts with jobs ${jobs}`, async () => {
+    const root = await Deno.makeTempDir({ prefix: 'slv-native-join-linux-' })
+    try {
+      const fixture = await createNativeJoinFixture(
+        root,
+        'x86_64-unknown-linux-gnu',
+        jobs,
+      )
+      await verifyNative(fixture.args)
+      const build = JSON.parse(
+        await Deno.readTextFile(`${fixture.out}/build-receipt.json`),
+      ) as Record<string, unknown>
+      const split = build.split_build as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+      const baseline = split.baseline.receipt
+      const modified = split.modified.receipt
+      requireFixture(
+        build.jobs === jobs && build.build_mode === 'native' &&
+          JSON.stringify(build.build_host) ===
+            JSON.stringify({ os: 'linux', arch: 'x64' }) &&
+          baseline.jobs === jobs && modified.jobs === jobs &&
+          (baseline.producer as Record<string, unknown>).job_id ===
+            'source-linux-x64-baseline' &&
+          (modified.producer as Record<string, unknown>).job_id ===
+            'source-linux-x64-modified',
+        `Linux split receipts did not retain native host, producer, and jobs ${jobs}`,
+      )
+      const sourceReceipt = JSON.parse(
+        await Deno.readTextFile(fixture.sourceReceipt),
+      ) as Record<string, unknown>
+      const manifest = JSON.parse(
+        await Deno.readTextFile(`${fixture.out}/transport/manifest.json`),
+      ) as Record<string, Record<string, unknown>>
+      const inputs = {
+        assembly: sourceReceipt,
+        assemblyReceiptSha256: await fixtureFileSha256(fixture.sourceReceipt),
+        pinsSha256: await fixtureFileSha256(fixture.pins),
+        noticeSha256: await fixtureFileSha256(fixture.notice),
+        sourceAssets: (sourceReceipt.assets as Array<Record<string, unknown>>)
+          .map(
+            ({ name, sha256, size }) => ({ name, sha256, size }),
+          ),
+      }
+      await verifySplitBuildEvidence(
+        build.split_build,
+        build,
+        inputs as never,
+        fixture.target,
+        build.artifacts as never,
+        manifest.entries as never,
+      )
+      const changedCombinedJobs = structuredClone(build)
+      changedCombinedJobs.jobs = '4'
+      await expectLayoutRejection(
+        () =>
+          verifySplitBuildEvidence(
+            changedCombinedJobs.split_build,
+            changedCombinedJobs,
+            inputs as never,
+            fixture.target,
+            changedCombinedJobs.artifacts as never,
+            manifest.entries as never,
+          ),
+        'producer jobs',
+      )
+    } finally {
+      await Deno.remove(root, { recursive: true })
     }
-    const changedCombinedJobs = structuredClone(build)
-    changedCombinedJobs.jobs = '4'
-    await expectLayoutRejection(
-      () =>
-        verifySplitBuildEvidence(
-          changedCombinedJobs.split_build,
-          changedCombinedJobs,
-          inputs as never,
-          fixture.target,
-          changedCombinedJobs.artifacts as never,
-          manifest.entries as never,
-        ),
-      'fixed jobs',
-    )
-  } finally {
-    await Deno.remove(root, { recursive: true })
-  }
-})
+  })
+}
 
 Deno.test('join-build rejects Linux x86_64 split receipts with changed jobs, producer, host, or mode', async () => {
   const root = await Deno.makeTempDir({
@@ -2950,6 +2970,18 @@ Deno.test('join-build rejects Linux x86_64 split receipts with changed jobs, pro
           receipt.jobs = '4'
         }),
     )
+    for (const jobs of ['0', '3', '17', '32', '016', '16.0', 16, null]) {
+      await caseFixture(
+        `invalid-jobs-${JSON.stringify(jobs)}`,
+        async (fixture) => {
+          for (const variant of ['baseline', 'modified'] as const) {
+            await rewriteFixtureRole(fixture, variant, (receipt) => {
+              receipt.jobs = jobs
+            })
+          }
+        },
+      )
+    }
     await caseFixture('wrong-producer-job', async (fixture) => {
       await rewriteFixtureRole(fixture, 'baseline', (receipt) => {
         ;(receipt.producer as Record<string, unknown>).job_id =

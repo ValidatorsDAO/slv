@@ -18,6 +18,16 @@ import { manifest, payloadSpecs } from './release.ts'
 const SHA = 'a'.repeat(40)
 const BEFORE = 'b'.repeat(40)
 const TAG_SHA = 'c'.repeat(40)
+const gceBuildJobs = [
+  'source-linux-x64-baseline',
+  'source-linux-x64-modified',
+  'source-arm-baseline',
+  'source-arm-modified',
+]
+const gceControlJobs = [
+  ...gceBuildJobs.map((job) => `gce-${job}`),
+  ...gceBuildJobs.map((job) => `gce-${job}-cleanup`),
+]
 const versionFile = (version: string) => `export const VERSION = '${version}'\n`
 
 function runtime(
@@ -606,10 +616,13 @@ Deno.test('workflow keeps CI-only pull-request builds and permissions narrow', a
 
   assert(workflow.includes('permissions: {}'))
   assertEquals(count(workflow, ciCondition), 15)
-  assertEquals(count(workflow, 'id-token: write'), 1)
+  assertEquals(count(workflow, 'id-token: write'), 1 + gceControlJobs.length)
   assert(jobSection(workflow, 'attest').includes('id-token: write'))
   const legacyBootstrap = jobSection(workflow, 'legacy-bootstrap')
-  const normalWorkflow = workflow.replace(legacyBootstrap, '')
+  const normalWorkflow = gceControlJobs.reduce(
+    (text, job) => text.replace(jobSection(workflow, job), ''),
+    workflow.replace(legacyBootstrap, ''),
+  )
   assert(!normalWorkflow.includes('secrets.'))
   assertEquals(count(workflow, 'secrets.SLV_R2_CREDENTIALS_JSON'), 1)
   assert(!workflow.includes('CLOUDFLARE_ACCOUNT_ID'))
@@ -921,8 +934,21 @@ Deno.test('split native producers preserve the required facades and fail them cl
     const [job, runner, target, buildHost, variant, timeout] of producerSpecs
   ) {
     const section = jobSection(workflow, job)
-    assert(section.includes('needs: [resolve, test, source-materials]'))
-    assert(section.includes(`runs-on: ${runner}`))
+    if (target.endsWith('-unknown-linux-gnu')) {
+      assert(
+        section.includes(
+          `needs: [resolve, test, source-materials, gce-${job}]`,
+        ),
+      )
+      assert(
+        section.includes(
+          `needs.gce-${job}.outputs.runner_label || '${runner}'`,
+        ),
+      )
+    } else {
+      assert(section.includes('needs: [resolve, test, source-materials]'))
+      assert(section.includes(`runs-on: ${runner}`))
+    }
     assert(section.includes('timeout-minutes: 350'))
     assert(section.includes('contents: read'))
     assert(section.includes(`TARGET: ${target}`))
@@ -930,7 +956,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
     assert(section.includes(`VARIANT: ${variant}`))
     assert(section.includes(`id: variant\n        timeout-minutes: ${timeout}`))
     assert(section.includes('--phase build-variant'))
-    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(
+      section.includes(
+        target.endsWith('-unknown-linux-gnu')
+          ? '--variant "$VARIANT" --jobs "$SLV_SOURCE_BUILD_JOBS"'
+          : '--variant "$VARIANT" --jobs 4',
+      ),
+    )
     assert(section.includes('--purpose build'))
     assert(section.includes('producer-context.json'))
     assert(section.includes('variant_receipt_sha256'))
@@ -1074,7 +1106,7 @@ Deno.test('split native producers preserve the required facades and fail them cl
   assert(mac.includes('if: ${{ always() && !cancelled() }}'))
 })
 
-Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds both variants', async () => {
+Deno.test('Linux x64 cold producers retain hosted jobs2 or GCE jobs16 and the facade binds both variants', async () => {
   const workflow = await releaseWorkflow()
   const target = 'x86_64-unknown-linux-gnu'
   const producerSpecs = [
@@ -1084,13 +1116,22 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
 
   for (const [job, variant] of producerSpecs) {
     const section = jobSection(workflow, job)
-    assert(section.includes('needs: [resolve, test, source-materials]'))
+    assert(
+      section.includes(`needs: [resolve, test, source-materials, gce-${job}]`),
+    )
     assert(
       section.includes(
-        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}",
+        "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
       ),
     )
-    assert(section.includes('runs-on: ubuntu-26.04'))
+    assert(
+      section.includes(
+        `needs.gce-${job}.outputs.runner_label || 'ubuntu-26.04'`,
+      ),
+    )
+    assert(
+      section.includes(`needs.gce-${job}.result == 'success' && '16' || '2'`),
+    )
     assert(section.includes('timeout-minutes: 350'))
     assert(section.includes('contents: read'))
     assert(section.includes(`TARGET: ${target}`))
@@ -1098,7 +1139,9 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
     assert(section.includes(`VARIANT: ${variant}`))
     assert(section.includes('id: variant\n        timeout-minutes: 320'))
     assert(section.includes('--phase build-variant'))
-    assert(section.includes('--variant "$VARIANT" --jobs 2'))
+    assert(
+      section.includes('--variant "$VARIANT" --jobs "$SLV_SOURCE_BUILD_JOBS"'),
+    )
     assert(section.includes('test ! -e "$variant_out"'))
     assert(section.includes('producer-context.json'))
     assert(section.includes('variant_receipt_sha256'))
@@ -1277,7 +1320,12 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
   for (const job of ['source-arm-baseline', 'source-arm-modified']) {
     const section = jobSection(workflow, job)
     assert(section.includes('id: variant\n        timeout-minutes: 320'))
-    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(
+      section.includes('--variant "$VARIANT" --jobs "$SLV_SOURCE_BUILD_JOBS"'),
+    )
+    assert(
+      section.includes(`needs.gce-${job}.result == 'success' && '16' || '4'`),
+    )
   }
 })
 
@@ -1381,7 +1429,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
     assert(diagnostic.includes('if-no-files-found: warn'))
     assert(diagnostic.includes('retention-days: 7'))
 
-    const expectedArguments = (runnerTemp: string) => [
+    const expectedArguments = (runnerTemp: string, parallelJobs: string) => [
       'run',
       '--frozen',
       '--allow-read',
@@ -1412,7 +1460,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
       '--variant',
       variant,
       '--jobs',
-      jobs,
+      parallelJobs,
       '--source-root',
       `${runnerTemp}/build-source-root`,
       '--work-dir',
@@ -1428,6 +1476,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
       commandPreamble: string,
       exitCode: number,
       label: string,
+      parallelJobs: string = jobs,
     ) => {
       const directory = await Deno.makeTempDir({
         prefix: 'slv evidence carrier ',
@@ -1456,6 +1505,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
             TARGET: target,
             BUILD_HOST: buildHost,
             VARIANT: variant,
+            SLV_SOURCE_BUILD_JOBS: parallelJobs,
             ARGV_CAPTURE: argvPath,
             CARRIER_LABEL: label,
             CARRIER_EXIT: String(exitCode),
@@ -1471,23 +1521,34 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
             `${runnerTemp}/source-logs/build-${variant}.log`,
           ),
           argv: (await Deno.readTextFile(argvPath)).split('\0').slice(0, -1),
-          expectedArguments: expectedArguments(runnerTemp),
+          expectedArguments: expectedArguments(runnerTemp, parallelJobs),
         }
       } finally {
         await Deno.remove(directory, { recursive: true })
       }
     }
 
-    for (const exitCode of [0, 17]) {
-      const label = `${job}:${exitCode}`
-      const observed = await executeCarrier(preamble, exitCode, label)
-      assertEquals(observed.code, exitCode, `pipeline exit for ${label}`)
-      const expectedOutput =
-        `carrier stdout:${label}\ncarrier stderr:${label}\n`
-      assertEquals(observed.stdout, expectedOutput)
-      assertEquals(observed.stderr, '')
-      assertEquals(observed.log, expectedOutput)
-      assertEquals(observed.argv, observed.expectedArguments)
+    for (
+      const parallelJobs of target.endsWith('-unknown-linux-gnu')
+        ? [jobs, '16']
+        : [jobs]
+    ) {
+      for (const exitCode of [0, 17]) {
+        const label = `${job}:${parallelJobs}:${exitCode}`
+        const observed = await executeCarrier(
+          preamble,
+          exitCode,
+          label,
+          parallelJobs,
+        )
+        assertEquals(observed.code, exitCode, `pipeline exit for ${label}`)
+        const expectedOutput =
+          `carrier stdout:${label}\ncarrier stderr:${label}\n`
+        assertEquals(observed.stdout, expectedOutput)
+        assertEquals(observed.stderr, '')
+        assertEquals(observed.log, expectedOutput)
+        assertEquals(observed.argv, observed.expectedArguments)
+      }
     }
 
     if (job === 'source-arm-baseline') {
@@ -1548,6 +1609,11 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     'source-native-diagnostic',
     ...expectedOldJobs.slice(3),
   ]
+  expectedJobs.splice(
+    expectedJobs.indexOf('source-linux-x64-baseline'),
+    0,
+    ...gceControlJobs,
+  )
   const jobs = workflow.slice(workflow.indexOf('\njobs:\n'))
   assertEquals(
     [...jobs.matchAll(/^  ([a-z][a-z0-9-]*):\n/gm)].map((match) => match[1]),
@@ -1635,6 +1701,11 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
   for (const [job, oldCondition] of oldConditions) {
     const section = jobSection(workflow, job)
     assert(section.includes(diagnosticExclusion))
+    if (gceBuildJobs.includes(job)) {
+      assert(section.includes(oldCondition!))
+      assert(section.includes("needs.resolve.result == 'success'"))
+      continue // The opt-in routing truth table below checks these extended guards.
+    }
     assertEquals(
       jobIf(section),
       oldCondition === undefined
@@ -3772,5 +3843,201 @@ Deno.test('draft recovery only accepts the original manifest artifact attempt', 
     )
   } finally {
     await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('GCE opt-in routes only trusted main builds and fails closed on controller or prerequisite failure', async () => {
+  const workflow = await releaseWorkflow()
+  for (const job of gceBuildJobs) {
+    const provisionName = `gce-${job}`
+    const build = jobSection(workflow, job)
+    const provision = jobSection(workflow, provisionName)
+    assert(build.includes('always() && !cancelled()'))
+    assert(!build.includes('secrets.'))
+    assert(!build.includes('id-token: write'))
+    assert(!build.includes('environment:'))
+    assert(!build.includes('gce-control'))
+    assert(provision.includes('environment: slv-gce-runners'))
+    assert(provision.includes('runs-on: ubuntu-26.04'))
+    assert(provision.includes('id-token: write'))
+    assert(provision.includes('persist-credentials: false'))
+    assert(provision.includes('ref: ${{ github.sha }}'))
+    assert(!provision.includes('needs.resolve.outputs.source_sha'))
+    const context = {
+      github: {
+        repository: 'ValidatorsDAO/slv',
+        ref: 'refs/heads/main',
+        event_name: 'push',
+      },
+      vars: { SLV_GCE_RUNNERS_ENABLED: 'true' },
+      inputs: { operation: 'release' },
+      needs: {
+        resolve: { result: 'success', outputs: { release_required: 'true' } },
+        test: { result: 'success', outputs: {} },
+        'source-materials': { result: 'success', outputs: {} },
+        [provisionName]: {
+          result: 'success',
+          outputs: { runner_label: 'slv-gce-fixture-nonce' },
+        },
+      } as Record<string, { result: string; outputs: Record<string, string> }>,
+      cancelled: false,
+    }
+    // These checked-in guards use only boolean operators, property reads, and
+    // the two status functions below. Execute the actual expressions, including
+    // GitHub's dashed job identifiers, rather than duplicating their conditions.
+    const evaluate = (section: string, values: typeof context): boolean => {
+      const raw = jobIf(section)!
+      const expression = raw.replace(/^\$\{\{\s*/, '').replace(/\s*\}\}$/, '')
+        .replace(/\bneeds\.([a-z][a-z0-9-]*)/g, 'needs["$1"]')
+      const result = new Function(
+        'github',
+        'vars',
+        'needs',
+        'inputs',
+        'always',
+        'cancelled',
+        `return (${expression})`,
+      )(
+        values.github,
+        values.vars,
+        values.needs,
+        values.inputs,
+        () => true,
+        () => values.cancelled,
+      )
+      assertEquals(typeof result, 'boolean')
+      return result
+    }
+    assert(evaluate(provision, context))
+    assert(evaluate(build, context))
+    for (const state of ['failure', 'cancelled', 'skipped']) {
+      const values = structuredClone(context)
+      values.needs[provisionName] = { result: state, outputs: {} }
+      assert(
+        !evaluate(build, values),
+        `GCE ${state} fell back to hosted: ${job}`,
+      )
+    }
+    for (const dependency of ['resolve', 'test', 'source-materials']) {
+      const values = structuredClone(context)
+      values.needs[dependency].result = 'failure'
+      assert(!evaluate(build, values), `ignored failed ${dependency}: ${job}`)
+    }
+    for (const mode of ['disabled', 'pull_request', 'tag', 'fork']) {
+      const values = structuredClone(context)
+      values.needs[provisionName] = { result: 'skipped', outputs: {} }
+      if (mode === 'disabled') values.vars.SLV_GCE_RUNNERS_ENABLED = 'false'
+      if (mode === 'pull_request') {
+        values.github.event_name = 'pull_request'
+        values.github.ref = 'refs/pull/1/merge'
+      }
+      if (mode === 'tag') values.github.ref = 'refs/tags/v2026.10.17.0'
+      if (mode === 'fork') values.github.repository = 'example/slv'
+      assert(!evaluate(provision, values), `created GCE for ${mode}`)
+      assert(evaluate(build, values), `lost hosted path for ${mode}`)
+    }
+    const noLabel = structuredClone(context)
+    noLabel.needs[provisionName].outputs.runner_label = ''
+    assert(!evaluate(build, noLabel), 'accepted an empty routing label')
+    const cancelled = structuredClone(context)
+    cancelled.cancelled = true
+    assert(!evaluate(build, cancelled))
+    const diagnostic = structuredClone(context)
+    diagnostic.github.event_name = 'workflow_dispatch'
+    diagnostic.inputs.operation = 'source-native-diagnostic'
+    assert(!evaluate(build, diagnostic))
+  }
+  for (const job of gceBuildJobs) {
+    const cleanup = jobSection(workflow, `gce-${job}-cleanup`)
+    assert(jobIf(cleanup)?.includes('always()'))
+    assert(cleanup.includes('environment: slv-gce-runners'))
+    assert(cleanup.includes(`needs: [resolve, gce-${job}, ${job}]`))
+    assert(cleanup.includes(`job-keys: ${job}`))
+    for (const other of gceBuildJobs.filter((name) => name !== job)) {
+      assert(!cleanup.includes(`needs: [resolve, gce-${other}`))
+    }
+  }
+})
+
+Deno.test('GCE hosted control rejects untrusted contexts before secrets and scopes the App token', async () => {
+  const action = await Deno.readTextFile(
+    new URL('../../.github/actions/gce-control/action.yml', import.meta.url),
+  )
+  const normalized = action.split('\n').map((line) => `  ${line}`).join('\n')
+  const guard = stepShell(
+    normalized,
+    'Reject untrusted control contexts before loading credentials',
+  )
+  const valid = {
+    CONTROL_REPOSITORY: 'ValidatorsDAO/slv',
+    CONTROL_REF: 'refs/heads/main',
+    CONTROL_EVENT: 'workflow_dispatch',
+    CONTROL_RUNNER: 'github-hosted',
+    CONTROL_OPERATION: 'provision',
+    APP_ID: '1',
+    APP_KEY_REF: 'op://fixture-vault/fixture-item/private-key',
+    OP_SERVICE_ACCOUNT_TOKEN: 'fixture-token-must-not-be-printed',
+  }
+  assert((await runDiagnosticGuard(guard, valid)).success)
+  for (
+    const [key, value] of [
+      ['CONTROL_REPOSITORY', 'example/slv'],
+      ['CONTROL_REF', 'refs/heads/untrusted'],
+      ['CONTROL_REF', 'refs/pull/1/merge'],
+      ['CONTROL_EVENT', 'pull_request'],
+      ['CONTROL_EVENT', 'pull_request_target'],
+      ['CONTROL_RUNNER', 'self-hosted'],
+      ['CONTROL_OPERATION', 'unknown'],
+      ['APP_KEY_REF', 'not-a-secret-reference'],
+      ['APP_ID', ''],
+      ['OP_SERVICE_ACCOUNT_TOKEN', ''],
+    ]
+  ) {
+    const result = await runDiagnosticGuard(guard, { ...valid, [key]: value })
+    assert(!result.success, `accepted untrusted ${key}`)
+    assert(
+      !new TextDecoder().decode(result.stdout).includes(
+        valid.OP_SERVICE_ACCOUNT_TOKEN,
+      ),
+    )
+    assert(
+      !new TextDecoder().decode(result.stderr).includes(
+        valid.OP_SERVICE_ACCOUNT_TOKEN,
+      ),
+    )
+  }
+  assert(action.includes('owner: ValidatorsDAO'))
+  assert(action.includes('repositories: slv'))
+  assert(action.includes('permission-administration: write'))
+  assertEquals([...action.matchAll(/^        permission-/gm)].length, 1)
+  assert(action.includes('skip-token-revoke: false'))
+  assert(action.includes('export-env: false'))
+  assert(action.includes('unset OP_SERVICE_ACCOUNT_TOKEN'))
+  for (const match of action.matchAll(/^      uses: (.+)$/gm)) {
+    assert(
+      /@[a-f0-9]{40}(?: #.*)?$/.test(match[1]),
+      `unpinned control action: ${match[1]}`,
+    )
+  }
+  for (const name of ['gce-runner-smoke', 'gce-runner-janitor']) {
+    const workflow = await Deno.readTextFile(
+      new URL(`../../.github/workflows/${name}.yml`, import.meta.url),
+    )
+    assert(!workflow.includes('pull_request'))
+    assert(workflow.includes("github.ref == 'refs/heads/main'"))
+    assert(workflow.includes('environment: slv-gce-runners'))
+    if (name === 'gce-runner-smoke') {
+      const smoke = jobSection(workflow, 'smoke')
+      assert(!smoke.includes('environment:'))
+      assert(!smoke.includes('secrets.'))
+      assert(!smoke.includes('id-token: write'))
+      assert(
+        smoke.includes(
+          'instance/service-accounts/ instance/attributes/slv-jit-config',
+        ),
+      )
+      assert(smoke.includes('test "$status" = 404'))
+      assert(jobIf(jobSection(workflow, 'cleanup'))?.includes('always()'))
+    }
   }
 })
