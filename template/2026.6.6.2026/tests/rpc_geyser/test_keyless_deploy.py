@@ -8,9 +8,11 @@ that restarts comes back on its unstaked identity. So:
             cmn/assert_unstaked_identity.yml right after cmn/setup_unstaked_identity.yml: the start script starts the
             node with --identity /home/solv/identity.json, and the deploy stops, before the node is started, when that
             path does not resolve to /home/solv/unstaked-identity.json.
-  refusal   the playbooks that took the staked key from a file on the node (set_identity_to_active of both networks,
-            switch_on_firedancer_identity and change_identity_and_restart of testnet) are one play with one task that
-            fails with a message that starts with SLV_KEYLESS_REFUSED. Nothing else runs.
+  refusal   the retired playbooks (set_identity_to_active of both networks, switch_on_firedancer_identity and
+            change_identity_and_restart of testnet) are one play with one task that fails with a message that starts with
+            SLV_KEYLESS_REFUSED. Nothing else runs. set_identity_to_active set the identity without the checks that
+            slv v set:identity makes first (on testnet, for a Firedancer host, from a key file on the node); the other two
+            took the staked key from a file on the node, which deploy never copies there.
   signer    cmn/doublezero_deposit.yml and cmn/doublezero_withdraw.yml sign with a key file on the node: they look for it
             first and stop, without calling doublezero-solana, when it is not there.
   types     testnet-validator/init.yml sets up the solv unit, deploys the start script and starts the node for
@@ -18,8 +20,8 @@ that restarts comes back on its unstaked identity. So:
             testnet-validator/update_startup_config.yml renders the start script of an allnodes-jito host.
   firedancer  a Firedancer host of testnet takes the staked key from a file on the node, so testnet-validator/
             nodowntime_migrate.yml refuses a Firedancer source or target before the source is demoted, and
-            testnet-validator/set_identity_key.yml refuses a Firedancer host in its first task: both with
-            SLV_KEYLESS_REFUSED, and nothing is changed. The agave, jito and allnodes-jito hosts are not affected.
+            testnet-validator/set_identity_key.yml refuses a Firedancer host right after the check of the validator type:
+            both with SLV_KEYLESS_REFUSED, and nothing is changed. The agave, jito and allnodes-jito hosts are not affected.
 
 The tests run the real ansible-playbook on this machine over a local connection, without become, sudo, a network or a
 host, with temporary directories for HOME and for the paths of the node (/home/solv and /mnt are moved into one, and a
@@ -235,7 +237,7 @@ class AssertUnstakedIdentityResolvesIdentityJson(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# refusal: the playbooks that took the staked key from a file on the node
+# refusal: the retired playbooks
 # ---------------------------------------------------------------------------
 
 REFUSALS = (
@@ -306,9 +308,32 @@ class KeylessRefusals(unittest.TestCase):
                 output = run_refusal(directory, name)["run"]
                 network = directory.replace("-validator", "")
                 self.assertIn('"msg": "SLV_KEYLESS_REFUSED', output)
-                self.assertIn("slv v set:identity -n %s -p node" % network, output)
+                self.assertIn("slv v set:identity -n %s -p %s" % (network, "node" if name == "set_identity_to_active" else "<host>"), output)
                 self.assertIn("slv v switch -n %s" % network, output)
                 self.assertIn("Nothing was changed on node", output)
+
+    def test_k08a_the_message_gives_the_reason_that_holds_for_the_playbook(self):
+        # set_identity_to_active passed the staked key of the controller on stdin for its agave and jito hosts: it is retired
+        # because it set the identity without the checks that slv v set:identity makes, not because it read a key on the node
+        checks = ("It set the identity without the checks that the set:identity command of slv makes first (that nothing votes "
+                  "with the identity, that the host has caught up, where the identity is in gossip, and that the tower or vote "
+                  "history file of the identity is there)")
+        reasons = {
+            ("mainnet-validator", "set_identity_to_active"): [checks],
+            ("testnet-validator", "set_identity_to_active"): [checks, "and on a Firedancer host it read the staked key from a file on the node"],
+            ("testnet-validator", "switch_on_firedancer_identity"): ["It took the staked key from a file on the node",
+                                                                     "deploy never copies the staked key to a node"],
+            ("testnet-validator", "change_identity_and_restart"): ["It linked the identity of the node to a staked key on the node and restarted firedancer.service",
+                                                                  "deploy never copies the staked key to a node"],
+        }
+        for directory, name in REFUSALS:
+            with self.subTest(playbook="%s/%s" % (directory, name)):
+                output = run_refusal(directory, name)["run"]
+                self.assertIn("%s.yml is retired." % name, output)
+                for fragment in reasons[(directory, name)]:
+                    self.assertIn(fragment, output)
+                self.assertNotIn("sets the identity from a staked key on the node", output)
+                self.assertNotIn("the node has no staked key", output)
 
 
 # ---------------------------------------------------------------------------
@@ -526,7 +551,7 @@ class FiredancerHostsAreRefusedOnTestnet(unittest.TestCase):
                 self.assertIn("Nothing was changed on node", output)
                 names = tasks_run(output)
                 self.assertEqual(len(names), 2, "the refusal comes right after the type gate:\n" + output[-2000:])
-                self.assertEqual(names[1], "Refuse a Firedancer host, which has no staked key on the node to take")
+                self.assertEqual(names[1], "Refuse a Firedancer host, which takes the staked key from a file on the node")
                 self.assertEqual(result["calls"], "", "a command of the node was called")
                 self.assertEqual(result["created"], [], "the play created a file")
 

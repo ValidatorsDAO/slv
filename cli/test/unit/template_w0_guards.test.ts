@@ -810,8 +810,8 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
       )
     }
 
-    // switch_on_firedancer_identity: an fdctl host takes a tower (the one of testnet refuses, and is pinned with the other
-    // playbooks that took the staked key from a file on the node)
+    // switch_on_firedancer_identity: an fdctl host takes a tower (the one of testnet is retired and refuses, and is pinned
+    // with the other retired playbooks)
     if (network === 'mainnet-validator') {
       const path = `ansible/${network}/switch_on_firedancer_identity.yml`
       const tasks = tasksOf(readPlaybook(path)[0])
@@ -1114,7 +1114,7 @@ Deno.test('base58 identity: an identity_account that is not a base58 public key 
 
 Deno.test('base58 identity: every other playbook that builds a controller path from identity_account refuses a value that is not a base58 public key first, in every mode', () => {
   // set_identity_to_active, change_identity_and_restart and switch_on_firedancer_identity of testnet refuse without
-  // reading anything, and the copy_keys.yml of the validators are gone: the staked key is not copied to a node
+  // reading anything, and the copy_keys.yml of the validators are gone: deploy never copies the staked key to a node
   const files = [
     ...validatorNetworks.flatMap((network) =>
       ['set_identity_key', 'switch_off_firedancer_identity'].map((file) =>
@@ -1167,9 +1167,11 @@ Deno.test('base58 identity: every other playbook that builds a controller path f
   }
 })
 
-// The playbooks that took the staked key from a file on the node refuse: a deploy puts no staked key on a node, the key
-// stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. Each is one play
-// with one task that fails with a message that starts with SLV_KEYLESS_REFUSED, so nothing else runs.
+// The retired playbooks refuse. set_identity_to_active set the identity without the checks that slv v set:identity makes
+// first (for a Firedancer host of testnet it also read a key file on the node); switch_on_firedancer_identity and
+// change_identity_and_restart of testnet took the staked key from a file on the node, which a deploy never copies there:
+// the key stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. Each is one
+// play with one task that fails with a message that starts with SLV_KEYLESS_REFUSED, so nothing else runs.
 const keylessRefusals: [string, string][] = [
   ['mainnet-validator', 'set_identity_to_active'],
   ['testnet-validator', 'set_identity_to_active'],
@@ -1179,7 +1181,7 @@ const keylessRefusals: [string, string][] = [
 const isKeylessRefusal = (network: string, file: string): boolean =>
   keylessRefusals.some(([n, f]) => n === network && f === file)
 
-Deno.test('keyless: the playbooks that took the staked key from a file on the node are one play with one task that refuses', () => {
+Deno.test('keyless: the retired playbooks are one play with one task that refuses', () => {
   for (const [directory, file] of keylessRefusals) {
     const path = `ansible/${directory}/${file}.yml`
     const plays = readPlaybook(path)
@@ -1199,14 +1201,34 @@ Deno.test('keyless: the playbooks that took the staked key from a file on the no
       `${path}: the message starts with SLV_KEYLESS_REFUSED`,
     )
     const network = directory.replace('-validator', '')
+    // the two Firedancer-only playbooks cannot name their own host: slv v set:identity refuses a Firedancer host of testnet
+    const host = file === 'set_identity_to_active'
+      ? '{{ inventory_hostname }}'
+      : '<host>'
     for (
       const part of [
         'Nothing was changed on {{ inventory_hostname }}',
-        `slv v set:identity -n ${network} -p {{ inventory_hostname }}`,
+        `slv v set:identity -n ${network} -p ${host}`,
         `slv v switch -n ${network}`,
+        `${file}.yml is retired.`,
       ]
     ) {
       assert(message.includes(part), `${path}: the message says: ${part}`)
+    }
+    // set_identity_to_active passed the staked key of the controller on stdin for its agave and jito hosts: it is retired
+    // for the checks it left out, and the message must not say it read a key on the node
+    assertEquals(
+      message.includes('sets the identity from a staked key on the node'),
+      false,
+      `${path}: the message gives a reason that does not hold`,
+    )
+    if (file === 'set_identity_to_active') {
+      assert(
+        message.includes(
+          'set the identity without the checks that the set:identity command of slv makes first',
+        ),
+        `${path}: the message gives the checks it left out`,
+      )
     }
   }
   // nodowntime_migrate imports the play of testnet switch_on_firedancer_identity: one host that fails ends the run
@@ -1297,8 +1319,8 @@ Deno.test('no_log: every task that reads a key file from the controller has it, 
     }
   }
   // set_identity_key and switch_on_identity of both networks read the key with slurp; mainnet-rpc/copy_keys and
-  // cmn/copy_rpc_keys copy the key of an RPC node. The validators have no copy_keys.yml, and set_identity_to_active
-  // refuses: no staked key is copied to a node.
+  // cmn/copy_rpc_keys copy the key of an RPC node. The validators have no copy_keys.yml (deploy never copies a staked key
+  // to a node), and set_identity_to_active is retired.
   assertEquals(seen, 6, 'the tasks that read a key file')
 })
 

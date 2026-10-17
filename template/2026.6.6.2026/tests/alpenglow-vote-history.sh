@@ -658,7 +658,7 @@ case_on_fdctl() {
   prepare_copy "$SOURCE_FILE_TEXT"
   play dst switch_on_firedancer_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(alp)"
   if [[ $NET == testnet ]]; then
-    # the play of testnet took the staked key from a file on the node, and a deploy puts none there: it refuses in its first task
+    # the play of testnet took the staked key from a file on the node, and a deploy never copies one there: it refuses in its first task
     refused dst switch_on_firedancer_identity "SLV_KEYLESS_REFUSED" "a Firedancer host is not switched on from a key on the node"
   else
     refused dst switch_on_firedancer_identity "cannot move an identity on a cluster that runs Alpenglow" "a Firedancer host is not switched on on Alpenglow"
@@ -885,8 +885,8 @@ case_key_first_activation_unread() {
   check $? "nothing was run on the host"
 }
 
-# set_identity_to_active took the staked key from a file on the node, and a deploy puts none there: it refuses in its first task,
-# whatever consensus the cluster runs, and nothing is run on the host
+# set_identity_to_active is retired (it set the identity without the checks that slv v set:identity makes first): it refuses in its
+# first task, whatever consensus the cluster runs, and nothing is run on the host
 case_active_keyless() {
   local mode url
   for mode in alpenglow towerbft; do
@@ -1194,7 +1194,7 @@ case_key_fdctl() {
   printf 'vote-history-of-the-primary\n' >"$(vote_file dst)"
   play dst set_identity_key "-l dst" -e "slv_alpenglow_rpc_url=$(alp)"
   if [[ $NET == testnet ]]; then
-    # a Firedancer host of testnet takes the staked key from a file on the node, and a deploy puts none there: refused first
+    # a Firedancer host of testnet takes the staked key from a file on the node, and a deploy never copies one there: refused first
     refused dst set_identity_key "SLV_KEYLESS_REFUSED" "a Firedancer host is refused by set:identity, before any check"
   else
     refused dst set_identity_key "cannot move an identity on a cluster that runs Alpenglow" "a Firedancer host is refused by set:identity on Alpenglow"
@@ -1407,9 +1407,9 @@ case_mig_down_fdctl() {
   tower_migrate_box firedancer-jito firedancer-jito
   play both nodowntime_migrate "-e source_host=src -e target_host=dst" -e "slv_alpenglow_rpc_url=$rpc/hiccup-3-999999/case=$ID" \
     -e slv_alpenglow_patience_seconds=3 -e slv_alpenglow_rpc_delay=1
-  # a Firedancer host of testnet takes the staked key from a file on the node, and a deploy puts none there: the run is refused
+  # a Firedancer host of testnet takes the staked key from a file on the node, and a deploy never copies one there: the run is refused
   # right after the check of the validator type, before the source is demoted, whatever the cluster does
-  refused both nodowntime_migrate "SLV_KEYLESS_REFUSED" "a Firedancer source and target are refused before the demotion: the nodes have no staked key"
+  refused both nodowntime_migrate "SLV_KEYLESS_REFUSED" "a Firedancer source and target are refused before the demotion: they take the staked key from a file on the node"
   [[ $(count_calls both .) -eq 0 ]]
   check $? "no node was switched, not even the source to its unstaked identity"
 }

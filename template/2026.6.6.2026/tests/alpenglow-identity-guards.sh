@@ -17,14 +17,16 @@
 #      (alpenglow-vote-history.sh runs that path); here the file is missing, so a switch
 #      stops before the demotion, switch_on stops without the copy of the source, and
 #      set:identity stops and names --primary-down. A Firedancer or Frankendancer host
-#      stops every identity move; set_unstaked_key is not a move. The playbooks that took the
-#      staked key from a file on the node (set_identity_to_active of both networks, and
-#      switch_on_firedancer_identity and change_identity_and_restart of testnet) refuse in
-#      their first task in every state, with SLV_KEYLESS_REFUSED: a deploy puts no staked key
-#      on a node, and slv v set:identity and slv v switch pass it on stdin. On testnet, a
-#      Firedancer host takes the staked key from a file on the node too: set_identity_key
-#      refuses it and nodowntime_migrate refuses it as the source or the target, in every
-#      state, right after the check of the validator type and before anything is changed
+#      stops every identity move; set_unstaked_key is not a move. The retired playbooks
+#      (set_identity_to_active of both networks, and switch_on_firedancer_identity and
+#      change_identity_and_restart of testnet) refuse in their first task in every state, with
+#      SLV_KEYLESS_REFUSED: set_identity_to_active set the identity without the checks that
+#      slv v set:identity makes first, and the other two took the staked key from a file on the
+#      node, which a deploy never copies there (slv v set:identity and slv v switch pass the
+#      key on stdin). On testnet, a Firedancer host takes the staked key from a file on the
+#      node too: set_identity_key refuses it and nodowntime_migrate refuses it as the source
+#      or the target, in every state, right after the check of the validator type and before
+#      anything is changed
 #   4. mainnet: Firedancer and Frankendancer never take an identity, in any state, and
 #      nodowntime_migrate says so before it demotes the source; as the source they go
 #      on only while the state is towerbft
@@ -607,7 +609,7 @@ for net in mainnet testnet; do
   [[ $(grep -c 'slv_alpenglow_demoted_source: "{{ source_host }}"' "$template/ansible/$net-validator/nodowntime_migrate.yml") -eq 2 ]]
   check $? "$net/nodowntime_migrate.yml tells both switch_on plays which source host it demoted"
 done
-# the playbooks that took the staked key from a file on the node only refuse, in their first task: they ask the cluster nothing
+# the retired playbooks only refuse, in their first task: they ask the cluster nothing
 is_keyless() { # network playbook
   case $1/$2 in
     */set_identity_to_active | testnet/switch_on_firedancer_identity | testnet/change_identity_and_restart) return 0 ;;

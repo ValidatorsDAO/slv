@@ -81,7 +81,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `create-start-validator-sh.yml` | Generate start script from template |
 | `nodowntime_migrate.yml` | Zero-downtime identity migration between nodes |
 | `set_identity_key.yml` | Set validator identity key |
-| `set_identity_to_active.yml` | Refuses, for every host: it set the identity from a staked key on the node, and there is none (see Keys). The message starts with `SLV_KEYLESS_REFUSED`, nothing is changed, and it names `slv v set:identity -n mainnet -p <host>` and `slv v switch -n mainnet` |
+| `set_identity_to_active.yml` | Retired, refuses for every host: it set the identity without the checks that `slv v set:identity` makes first (see Keys). The message starts with `SLV_KEYLESS_REFUSED`, nothing is changed, and it names `slv v set:identity -n mainnet -p <host>` and `slv v switch -n mainnet` |
 | `set_unstaked_key.yml` | Switch to unstaked identity |
 | `switch_on_identity.yml` | Enable identity (tower copy, or on Alpenglow the vote history file that the same `slv v switch` run took, + key deploy; on its own it refuses on Alpenglow) |
 | `switch_off_identity.yml` | Disable identity (tower backup, or on Alpenglow the vote history file) |
@@ -122,12 +122,12 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `create-start-validator-sh-jito.yml` | Generate Jito start script |
 | `nodowntime_migrate.yml` | Zero-downtime identity migration. Refuses a Firedancer source or target before it changes anything (`SLV_KEYLESS_REFUSED`, see Keys) |
 | `set_identity_key.yml` | Set identity key. Refuses a Firedancer host before it changes anything (`SLV_KEYLESS_REFUSED`, see Keys) |
-| `set_identity_to_active.yml` | Refuses, for every host: it set the identity from a staked key on the node, and there is none (see Keys). The message starts with `SLV_KEYLESS_REFUSED`, nothing is changed, and it names `slv v set:identity -n testnet -p <host>` and `slv v switch -n testnet` |
+| `set_identity_to_active.yml` | Retired, refuses for every host: it set the identity without the checks that `slv v set:identity` makes first, and on a Firedancer host it read a key file on the node (see Keys). The message starts with `SLV_KEYLESS_REFUSED`, nothing is changed, and it names `slv v set:identity -n testnet -p <host>` and `slv v switch -n testnet` |
 | `set_unstaked_key.yml` | Switch to unstaked identity |
 | `switch_on_identity.yml` / `switch_off_identity.yml` | Toggle identity |
-| `switch_on_firedancer_identity.yml` | Refuses, as `set_identity_to_active.yml` does (`SLV_KEYLESS_REFUSED`): it set the identity from a staked key on the node |
+| `switch_on_firedancer_identity.yml` | Retired, refuses (`SLV_KEYLESS_REFUSED`): it took the staked key from a file on the node, which deploy never copies there (see Keys) |
 | `switch_off_firedancer_identity.yml` | Disable Firedancer identity |
-| `change_identity_and_restart.yml` | Refuses, as `set_identity_to_active.yml` does (`SLV_KEYLESS_REFUSED`): it linked the identity of the node to a staked key on the node |
+| `change_identity_and_restart.yml` | Retired, refuses (`SLV_KEYLESS_REFUSED`): it linked the identity of the node to a staked key on the node and restarted firedancer.service, so that every restart started with the staked identity (see Keys) |
 | `rm_ledger.yml` | Remove ledger data |
 | `restart_agave_with_rm_ledger.yml` | Restart with ledger removal |
 | `restart_firedancer.yml` | Restart Firedancer |
@@ -207,13 +207,20 @@ controller at `~/.slv/keys/<identity_account>.json` and reaches the node only on
 `slv v switch`. A node that restarts comes back on its unstaked identity; `slv v set:identity -n <network> -p <host>`
 puts the staked identity on it again.
 
-A playbook that read the staked key from a file on the node refuses now: `set_identity_to_active.yml` (both networks),
-and `switch_on_firedancer_identity.yml` and `change_identity_and_restart.yml` on testnet. Each fails in its first
-task, with a message that starts with `SLV_KEYLESS_REFUSED` and names `slv v set:identity` and `slv v switch`; nothing
-else runs.
+Deploy does not remove a staked key either: a node that an earlier slv deployed may still hold
+`/home/solv/<network>-validator-keypair.json`, and the DoubleZero deposit and withdrawal playbooks sign with it when it
+is there (they stop without calling the signer when it is not).
+
+Three playbooks are retired and refuse now. `set_identity_to_active.yml` (both networks) set the identity without the
+checks that `slv v set:identity` makes first (that nothing votes with the identity, that the host has caught up, where
+the identity is in gossip, and that the tower or vote history file of the identity is there); for a jito host (on
+testnet also an agave host) it read the staked key on the controller and passed it on stdin, and on testnet a Firedancer
+host read a key file on the node. `switch_on_firedancer_identity.yml` and `change_identity_and_restart.yml` on testnet read the staked key from a
+file on the node. Each fails in its first task, with a message that starts with `SLV_KEYLESS_REFUSED` and names
+`slv v set:identity` and `slv v switch`; nothing else runs.
 
 On testnet a Firedancer host (`firedancer-agave`, `firedancer-jito`) takes the staked key from a file on the node, and a
-deploy puts none there. `set_identity_key.yml` refuses such a host, and `nodowntime_migrate.yml` refuses a Firedancer
+deploy never copies one there. `set_identity_key.yml` refuses such a host, and `nodowntime_migrate.yml` refuses a Firedancer
 source or target: both fail right after the check of the validator type, with a message that starts with
 `SLV_KEYLESS_REFUSED` that says nothing was changed. `slv v switch` refuses before it demotes the source, so no node is
 left unstaked. The staked identity moves between `agave`, `jito` and `allnodes-jito` hosts.
