@@ -143,7 +143,7 @@ const resolveHostAddresses = async (host: string): Promise<string[]> => {
 // --- JSON-RPC ---------------------------------------------------------------
 
 const rpcRequest = async (
-  deps: PrecheckDeps,
+  deps: Pick<PrecheckDeps, 'fetch'>,
   url: string,
   method: string,
   params?: unknown[],
@@ -1041,11 +1041,15 @@ const runSetIdentity = async (
 
 export {
   ALPENGLOW_VOTE_WINDOW_SLOTS,
+  asRecords,
   defaultPrecheckDeps,
   parseGossipIp,
   parseRunningIdentityLines,
   RECENT_VOTE_WINDOW_SLOTS,
   resolveHostAddresses,
+  RPC_TIMEOUT_MS,
+  RPC_URLS,
+  rpcRequest,
   runIdentityPrecheck,
   RUNNING_IDENTITY_PLAYBOOK,
   runSetIdentity,
