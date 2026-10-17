@@ -16,15 +16,16 @@
 #       "set-identity: from OLD to NEW". Leaving the staked identity, the box keeps "voting"
 #       (rewriting its vote history file) for VOTOR_DELAY seconds first. Taking the staked
 #       identity, it votes (rewrites the file) after VOTE_AFTER seconds when TARGET_VOTES=1.
-#   authorized-voter add   ADD_VOTER=ok | present | error
+#   authorized-voter add   ADD_VOTER=ok | present | error | slow
 #   wait-for-restart-window, contact-info --output json
 #
 # Knobs: VOTOR_DELAY (2) NO_VOTOR_LINE (0) CHURN_FOREVER (0) GATE (1: the cluster runs
 #        Alpenglow, 0: it runs TowerBFT) NO_ALPENGLOW_VOTES (0; 1: the vote account has not voted
 #        since the genesis certificate, so the gate needs no vote history file, as
 #        should_require_vote_history_file in core/src/validator.rs) TARGET_VOTES (1)
-#        VOTE_AFTER (1) ADD_VOTER (ok) SET_IDENTITY (ok; error: the admin RPC answers with an
-#        error and changes nothing; slow: the identity changes and the command takes 25 seconds)
+#        VOTE_AFTER (1) ADD_VOTER (ok; slow: the command takes 25 seconds) SET_IDENTITY (ok;
+#        error: the admin RPC answers with an error and changes nothing; slow: the identity
+#        changes and the command takes 25 seconds)
 set -u
 box=${FAKE_BOX:?FAKE_BOX names the box}
 # shellcheck disable=SC1091
@@ -81,6 +82,7 @@ authorized-voter)
       echo "Validator command failed: admin rpc error: JSON-RPC error: Error { code: InvalidParams, message: \"Failed to read authorized voter keypair\", data: None }"
       exit 1
       ;;
+    slow) sleep 25 ;;
     esac
   fi
   ;;

@@ -1076,6 +1076,51 @@ case_on_towerbft_set_identity_timeout() {
   no_key_in_log dst switch_on_identity
   check $? "and the content of the key file is not in the log"
 }
+# the authorized-voter add of the TowerBFT paths never stops a run on a return code (agave says it failed, or that the voter is there)
+case_active_voter_error() {
+  begin active_voter_error "$1"
+  inventory jito jito
+  box dst dst ADD_VOTER=error GATE=0
+  mkdir -p "$S/home/.slv/tower"
+  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
+  printf 'tower-from-the-source\n' >"$(tower_file dst)"
+  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)"
+  ok dst set_identity_to_active "an authorized-voter add that agave refuses does not stop set_identity_to_active on TowerBFT"
+  [[ $(count_calls dst 'authorized-voter add') -eq 1 ]]
+  check $? "the voter was asked for once"
+}
+# ... but a step that does not run to its end (mainnet gives the step 20 seconds) stops it, with what the step says and not with the key
+case_active_voter_timeout() {
+  begin active_voter_timeout "$1"
+  [[ $1 == mainnet ]] || return 0 # the voter add of the testnet playbooks has no time limit
+  inventory jito jito
+  box dst dst ADD_VOTER=slow GATE=0
+  mkdir -p "$S/home/.slv/tower"
+  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
+  printf 'tower-from-the-source\n' >"$(tower_file dst)"
+  play dst set_identity_to_active "-l dst -e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)" -vvv
+  refused dst set_identity_to_active "agave-validator authorized-voter add did not run to its end on dst" "an authorized-voter add that ends without an answer stops set_identity_to_active, in the task that reports it"
+  timeout_said dst set_identity_to_active
+  check $? "and the message says that the step ran out of time"
+  log_has dst set_identity_to_active "The identity was set on dst before this step"
+  check $? "and that the identity was set"
+  no_key_in_log dst set_identity_to_active
+  check $? "and the content of the key file is not in the log"
+}
+case_on_towerbft_voter_timeout() {
+  begin on_towerbft_voter_timeout "$1"
+  [[ $1 == mainnet ]] || return 0 # the voter add of the testnet playbooks has no time limit
+  inventory agave agave
+  box dst dst ADD_VOTER=slow GATE=0
+  mkdir -p "$S/home/.slv/tower"
+  printf 'tower-from-the-source\n' >"$S/home/.slv/tower/tower-1_9-$STAKED.bin"
+  play dst switch_on_identity "-e on_host=dst" -e "slv_alpenglow_rpc_url=$(tower)" -vvv
+  refused dst switch_on_identity "agave-validator authorized-voter add did not run to its end on dst" "an authorized-voter add that ends without an answer stops switch_on on TowerBFT, in the task that reports it"
+  timeout_said dst switch_on_identity
+  check $? "and the message says that the step ran out of time"
+  no_key_in_log dst switch_on_identity
+  check $? "and the content of the key file is not in the log"
+}
 # a set-identity that ends without an answer (the step is given 20 seconds): agave may have applied the change
 case_on_set_identity_timeout() {
   begin on_set_identity_timeout "$1"
@@ -1469,6 +1514,7 @@ cases=(
   key_vote_account_other_identity_dead key_no_log key_dead_bam_down_address_ok key_dead_bam_third_address key_file_bam_own_entry
   key_file_host_votes_error key_file_host_votes_http500 key_file_host_votes_missing key_dead_host_votes_error key_first_activation_host_unread
   key_set_identity_timeout active_set_identity_timeout on_towerbft_set_identity_timeout
+  active_voter_error active_voter_timeout on_towerbft_voter_timeout
   active_alpenglow active_towerbft on_standalone on_copy_not_taken on_vote_account_other_identity on_resume_inside on_resume_outside
   key_voter_error key_voter_present key_not_voting key_fdctl key_towerbft
   mig_happy mig_identity mig_fdctl_source mig_fdctl_target mig_unknown_after_take

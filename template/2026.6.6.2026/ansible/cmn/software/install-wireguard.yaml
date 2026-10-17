@@ -96,6 +96,7 @@
       slurp:
         src: '{{ wg_private_key_path }}'
       register: existing_priv
+      no_log: true
       ignore_errors: true
 
     - name: Set private key if exists
@@ -103,19 +104,41 @@
         wg_private_key_value: >-
           {{ (existing_priv.content | b64decode | trim).splitlines()
              | first | default('') | trim }}
+      register: wg_existing_key
+      no_log: true
+      ignore_errors: true
       when: existing_priv.content is defined
+
+    - name: Stop when the private key in the file could not be read
+      ansible.builtin.fail:
+        msg: >-
+          The private key in {{ wg_private_key_path }} on {{ inventory_hostname }} could not be read
+          ({{ wg_existing_key.msg | default('no answer') }}). The file was not changed.
+      when: wg_existing_key is failed
 
     - name: Generate new private key if missing or invalid
       command: wg genkey
       register: new_priv
+      no_log: true
+      failed_when: false
       when: >
         wg_private_key_value is not defined
         or wg_private_key_value | length != 44
         or not (wg_private_key_value is match('^[A-Za-z0-9+/]{43}=$'))
 
+    - name: Stop when the private key could not be generated
+      ansible.builtin.fail:
+        msg: >-
+          wg genkey failed on {{ inventory_hostname }} ({{ ("rc " ~ new_priv.rc) if new_priv.rc is defined else "no answer" }}):
+          {{ (new_priv.stderr | default('') | trim) or (new_priv.msg | default('')) }}
+      when:
+        - new_priv is not skipped
+        - (new_priv.rc | default(1)) != 0
+
     - name: Set private key from newly generated key
       set_fact:
         wg_private_key_value: '{{ new_priv.stdout | trim }}'
+      no_log: true
       when: new_priv.stdout is defined
 
     - name: Assert private key is valid
@@ -130,6 +153,7 @@
         dest: '{{ wg_private_key_path }}'
         content: '{{ wg_private_key_value }}'
         mode: '0600'
+      diff: false
 
     - name: Generate public key
       command: wg pubkey
@@ -142,8 +166,8 @@
     - name: Stop when the public key could not be generated
       ansible.builtin.fail:
         msg: >-
-          wg pubkey failed on {{ inventory_hostname }} ({{ ("rc " ~ wg_public_key.rc) if wg_public_key.rc is defined else (wg_public_key.msg | default("no answer")) }}):
-          {{ ((wg_public_key.stdout | default('')) ~ ' ' ~ (wg_public_key.stderr | default(''))) | trim }}
+          wg pubkey failed on {{ inventory_hostname }} ({{ ("rc " ~ wg_public_key.rc) if wg_public_key.rc is defined else "no answer" }}):
+          {{ (((wg_public_key.stdout | default('')) ~ ' ' ~ (wg_public_key.stderr | default(''))) | trim) or (wg_public_key.msg | default('')) }}
       when:
         - wg_public_key is not skipped
         - (wg_public_key.rc | default(1)) != 0
@@ -184,6 +208,7 @@
           [Peer]
           PublicKey = {{ wg_iphone_pubkey }}
           AllowedIPs = 10.0.0.2/32
+      diff: false
 
     - name: Enable & restart WireGuard
       systemd:

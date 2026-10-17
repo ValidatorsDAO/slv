@@ -98,7 +98,15 @@
       timeout: 20
       no_log: true
       failed_when: false
+      ignore_errors: true
       when: validator_type == 'jito'
+
+    - name: Stop when authorized-voter add did not run to its end
+      ansible.builtin.fail:
+        msg: >-
+          agave-validator authorized-voter add did not run to its end on {{ inventory_hostname }} ({{ add_voter_result.msg | default('no answer') }}).
+          The identity was set on {{ inventory_hostname }} before this step.
+      when: add_voter_result is failed
 
     - name: Add Authorized Voter
       shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/mainnet-validator-keypair.json

@@ -1264,7 +1264,9 @@ Deno.test('no_log: every task that reads a key file from the controller has it, 
 
 // a task that passes a key on stdin keeps its arguments out of the log (ansible-core 2.16 prints them at -vvv, and
 // stdin is the key), does not fail by itself, and the task after it fails when the return code is not 0 and says
-// what the command printed, so that what agave said stays visible and the key does not
+// what the command printed, so that what agave said stays visible and the key does not. The authorized-voter add of
+// the TowerBFT paths is the exception: it never stops a run on a return code, and the task after it says when the step
+// did not run to its end
 const listAnsibleFiles = (directory: string): string[] =>
   [...Deno.readDirSync(new URL(directory, templateRoot))].flatMap((entry) =>
     entry.isDirectory
@@ -1304,7 +1306,7 @@ const stdinOf = (task: Entry): unknown => {
 
 Deno.test('no_log: every task that passes a key on stdin has it and does not fail by itself, and the task after it fails with what the command printed', () => {
   const seen: string[] = []
-  const unreported: string[] = []
+  const lenient: string[] = []
   const files = listAnsibleFiles('ansible/').filter((file) =>
     !file.startsWith('ansible/cmn/firewall/')
   )
@@ -1335,7 +1337,23 @@ Deno.test('no_log: every task that passes a key on stdin has it and does not fai
           [`${register}.stdout`, `${register}.stderr`].every((part) =>
             text.includes(part)
           )
-        if (!reports) unreported.push(label)
+        if (!reports) {
+          // the authorized-voter add of the TowerBFT paths never stops a run on a return code; a step that did not run
+          // to its end (no return code) is reported by the task after it
+          lenient.push(label)
+          assertEquals(
+            task.ignore_errors,
+            true,
+            `${label} never stops the play on a return code, and a step that does not run to its end is reported by the task after it`,
+          )
+          assert(
+            register.length > 0 && next !== undefined &&
+              hasModule(next, 'fail') &&
+              conditionsOf(next).includes(`${register} is failed`) &&
+              text.includes(`${register}.msg`),
+            `${label}: the task after it says what the step said when it did not run to its end`,
+          )
+        }
         // a step that runs out of time (timeout) has no return code, and the failure of the step itself would show nothing:
         // outside a rescue the task after it reports that too
         if (reports && task.timeout !== undefined && !rescued.has(list)) {
@@ -1351,14 +1369,94 @@ Deno.test('no_log: every task that passes a key on stdin has it and does not fai
   // set_identity_key (2) and set_identity_to_active (2) of both networks, switch_on_identity (4) of both networks,
   // and the public key of WireGuard
   assertEquals(seen.length, 17, 'the tasks that pass a key on stdin')
-  // the authorized-voter add of the TowerBFT paths never stopped a run, it still does not
+  // the authorized-voter add of the TowerBFT paths never stopped a run on a return code, it still does not
   assertEquals(
-    unreported.sort(),
+    lenient.sort(),
     validatorNetworks.flatMap((network) => [
       `ansible/${network}/set_identity_to_active.yml: Add Authorized Voter via stdin`,
       `ansible/${network}/switch_on_identity.yml: Add Authorized Voter via stdin`,
     ]).sort(),
-    'the tasks whose failure no task reports',
+    'the tasks that do not stop the play on a return code',
+  )
+})
+
+// the WireGuard tasks that handle the private key: no_log keeps the key out of the log (a result prints at -v), the two
+// copies that write it return no diff (copy masks `content` in its arguments, but --diff shows it), and a failure that
+// no_log hides is reported by the task after it
+Deno.test('no_log: the WireGuard tasks that handle the private key keep it out of the log, and a failure they would hide is reported by the task after them', () => {
+  const tasks = (parse(
+    readText('ansible/cmn/software/install-wireguard.yaml'),
+  ) as Entry[]).flatMap(tasksOf)
+  const handlesKey = (task: Entry): boolean =>
+    /wg_private_key_value|existing_priv|new_priv|wg genkey|wg_private_key_path/
+      .test(JSON.stringify(task))
+  const handled: string[] = []
+  for (const task of tasks) {
+    // the stops and the assert say a text of their own, never a value
+    if (hasModule(task, 'fail') || hasModule(task, 'assert')) continue
+    if (!handlesKey(task) && stdinOf(task) === undefined) continue
+    handled.push(String(task.name))
+    const copy = moduleArgs(task, 'copy') as Entry | undefined
+    if (copy?.content !== undefined) {
+      assertEquals(
+        task.diff,
+        false,
+        `${task.name} writes the private key and must not return a diff`,
+      )
+      continue
+    }
+    assertEquals(
+      task.no_log,
+      true,
+      `${task.name} handles the private key and must not log it`,
+    )
+  }
+  assertEquals(handled, [
+    'Read existing private key if present',
+    'Set private key if exists',
+    'Generate new private key if missing or invalid',
+    'Set private key from newly generated key',
+    'Save private key',
+    'Generate public key',
+    'Create WireGuard config',
+  ])
+  const after = (name: string): Entry => {
+    const index = tasks.findIndex((task) => task.name === name)
+    assert(index >= 0, name)
+    return tasks[index + 1]
+  }
+  const named = (name: string): Entry => {
+    const task = tasks.find((candidate) => candidate.name === name)
+    assert(task, name)
+    return task
+  }
+  // the key in the file: a missing file is no failure (the key is generated), a fact that fails says why
+  assertEquals(
+    named('Read existing private key if present').ignore_errors,
+    true,
+  )
+  const fact = named('Set private key if exists')
+  assertEquals([fact.register, fact.ignore_errors], ['wg_existing_key', true])
+  const factStop = after('Set private key if exists')
+  assert(
+    hasModule(factStop, 'fail') &&
+      conditionsOf(factStop).includes('wg_existing_key is failed') &&
+      normalized(factStop).includes('wg_existing_key.msg'),
+    'a private key in the file that cannot be read is reported',
+  )
+  // wg genkey prints the key: its stop shows the return code and what went wrong, never its stdout
+  const genkey = named('Generate new private key if missing or invalid')
+  assertEquals([genkey.register, genkey.failed_when], ['new_priv', false])
+  const genkeyStop = after('Generate new private key if missing or invalid')
+  assert(
+    hasModule(genkeyStop, 'fail') &&
+      conditionsOf(genkeyStop).includes('(new_priv.rc | default(1)) != 0'),
+    'a wg genkey that fails is reported',
+  )
+  assert(
+    !normalized(genkeyStop).includes('new_priv.stdout') &&
+      normalized(genkeyStop).includes('new_priv.stderr'),
+    'the report of wg genkey never shows its stdout, which is the key',
   )
 })
 
