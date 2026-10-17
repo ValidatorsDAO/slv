@@ -48,6 +48,7 @@ import {
 import { errToString } from '/lib/errToString.ts'
 import { callReadTool } from '/lib/userApi/readTools.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
+import { UserApiHttpError } from '/lib/userApi/httpError.ts'
 import {
   classifyIntent,
   type DeploymentMode,
@@ -57,9 +58,13 @@ import {
   type SpecialistAgent,
   type UserContextKind,
 } from '@/ai/console/intentClassifier.ts'
-import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import {
+  findUserApiAuth,
+  printCredentialProblem,
+  resolveHome,
+  resolveUserApiAuth,
+} from '/lib/getApiKeyFromYml.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
-import { listAgentsByOrder } from '@/ai/agentConfig/registry.ts'
 import { VERSION_UPDATES_DISABLED_MESSAGE } from '@/ai/console/checkRelease.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
@@ -111,8 +116,6 @@ const editorTheme: EditorTheme = {
     noMatch: (t: string) => gray(t),
   },
 }
-
-
 
 /**
  * ChatLog: scrollable container for messages
@@ -225,258 +228,48 @@ class ChatLog extends Container {
   }
 }
 
-async function buildLocalGreeting(home: string): Promise<string> {
+export async function buildLocalGreeting(home: string): Promise<string> {
   const ctx = await loadAgentContext({ home })
 
-  const agentName = ctx.soul?.name ?? 'your SLV assistant'
+  const agentName = ctx.soul?.name ?? 'SLV'
   const userName = ctx.user?.preferredName ?? ''
 
   const greetLine = userName
-    ? t('Hey {name}! 👋').replace('{name}', userName)
+    ? t('Hey {name}! 👋').replace('{name}', () => userName)
     : t('Hey there! 👋')
 
-  const introLine = agentName !== 'your SLV assistant'
-    ? t("I'm {agent}, your SLV commander.").replace('{agent}', agentName)
-    : t("I'm your SLV assistant.")
+  const introLine = t("I'm {agent}, your SLV assistant.")
+    .replace('{agent}', () => agentName)
 
-  const crew = listAgentsByOrder(ctx.enabledAgents)
-  const crewSection = crew.length > 0
-    ? ` ${t("Here's my crew:")}\n\n${
-      crew.map((meta) => `- ${meta.id} — ${meta.description()}`).join('\n')
-    }\n\n`
-    : ' '
-
-  // Append a one-line profile hint so the user sees we've detected their
-  // primary focus. Failures are non-fatal — the greeting still works.
-  let profileLine = ''
-  try {
-    const profile = await detectProfile()
-    profileLine = `\n\n${describeProfile(profile)}`
-  } catch { /* profile detection is best-effort */ }
-
-  return `${greetLine}\n\n${introLine}${crewSection}${
-    t('What would you like to work on today?')
-  }${profileLine}`
+  return [
+    greetLine,
+    `${introLine} ${t('What would you like to work on today?')}`,
+    t('Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".'),
+  ].join('\n\n')
 }
 
-async function checkDependencies(): Promise<string[]> {
-  const missing: string[] = []
-
-  // Check ansible
-  try {
-    const p = new Deno.Command('ansible-playbook', {
-      args: ['--version'],
-      stdout: 'piped',
-      stderr: 'piped',
-    })
-    const { success } = await p.output()
-    if (!success) missing.push('ansible')
-  } catch {
-    missing.push('ansible')
+// A definitive rejection affects the whole AI route. Continuing from the
+// classifier would submit the same blocked/authenticated request a second time.
+export function stopOnDefinitiveApiError(error: Error): void {
+  if (
+    error instanceof UserApiHttpError &&
+    [
+      'edge_block',
+      'authentication',
+      'provider_configuration',
+      'activation_required',
+      'token_limit',
+    ]
+      .includes(error.kind)
+  ) {
+    throw error
   }
-
-  // Check solana-keygen (or agave-keygen)
-  try {
-    const p = new Deno.Command('solana-keygen', {
-      args: ['--version'],
-      stdout: 'piped',
-      stderr: 'piped',
-    })
-    const { success } = await p.output()
-    if (!success) missing.push('solana-cli')
-  } catch {
-    try {
-      const p = new Deno.Command('agave-keygen', {
-        args: ['--version'],
-        stdout: 'piped',
-        stderr: 'piped',
-      })
-      const { success } = await p.output()
-      if (!success) missing.push('solana-cli')
-    } catch {
-      missing.push('solana-cli')
-    }
-  }
-
-  return missing
-}
-
-async function promptInstallDependencies(missing: string[]): Promise<void> {
-  console.log(
-    yellow(
-      `\n  ${
-        t('⚠️  Missing dependencies: {deps}').replace(
-          '{deps}',
-          missing.join(', '),
-        )
-      }`,
-    ),
-  )
-  const buf = new Uint8Array(1)
-  Deno.stdout.writeSync(
-    new TextEncoder().encode(`  ${t('Install now? (Y/n) ')}`),
-  )
-  await Deno.stdin.read(buf)
-  const answer = new TextDecoder().decode(buf).trim().toLowerCase()
-  if (answer === 'n') {
-    console.log(
-      gray(`  ${t('Skipping installation. Some features may not work.')}\n`),
-    )
-    return
-  }
-
-  const os = Deno.build.os
-
-  for (const dep of missing) {
-    if (dep === 'ansible') {
-      console.log(green(`  ${t('Installing ansible-core...')}`))
-      if (os === 'darwin') {
-        const cmd = new Deno.Command('brew', {
-          args: ['install', 'ansible'],
-          stdout: 'inherit',
-          stderr: 'inherit',
-        })
-        await cmd.output()
-      } else {
-        // Ensure python3 and pip3 are available (clean Ubuntu servers may lack them)
-        let hasPip3 = false
-        try {
-          const check = new Deno.Command('pip3', {
-            args: ['--version'],
-            stdout: 'piped',
-            stderr: 'piped',
-          })
-          const { success } = await check.output()
-          hasPip3 = success
-        } catch { /* not found */ }
-
-        if (!hasPip3) {
-          console.log(green(`  ${t('Installing python3-pip...')}`))
-          // Try apt-get first (Debian/Ubuntu)
-          let aptSuccess = false
-          try {
-            const update = new Deno.Command('sudo', {
-              args: ['apt-get', 'update', '-qq'],
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            await update.output()
-            const install = new Deno.Command('sudo', {
-              args: ['apt-get', 'install', '-y', 'python3-pip'],
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            const result = await install.output()
-            aptSuccess = result.success
-          } catch { /* apt-get not available */ }
-
-          if (!aptSuccess) {
-            // Try dnf (Fedora/RHEL)
-            try {
-              const install = new Deno.Command('sudo', {
-                args: ['dnf', 'install', '-y', 'python3-pip'],
-                stdout: 'inherit',
-                stderr: 'inherit',
-              })
-              await install.output()
-            } catch {
-              console.log(
-                red(
-                  `  ${
-                    t(
-                      '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip',
-                    )
-                  }`,
-                ),
-              )
-            }
-          }
-        }
-
-        // Try apt install first (avoids PEP 668 on Ubuntu 24.04+)
-        let ansibleInstalled = false
-        try {
-          const aptInstall = new Deno.Command('sudo', {
-            args: ['apt-get', 'install', '-y', 'ansible-core'],
-            stdout: 'inherit',
-            stderr: 'inherit',
-          })
-          const aptResult = await aptInstall.output()
-          ansibleInstalled = aptResult.success
-        } catch { /* apt-get not available */ }
-
-        // Fallback: pip3 with --break-system-packages
-        if (!ansibleInstalled) {
-          const isRoot = Deno.uid?.() === 0
-          const pipArgs = isRoot
-            ? ['install', '--break-system-packages', 'ansible-core']
-            : ['install', '--user', '--break-system-packages', 'ansible-core']
-          try {
-            const cmd = new Deno.Command('pip3', {
-              args: pipArgs,
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            await cmd.output()
-          } catch {
-            // Last resort: try without --break-system-packages (older distros)
-            const fallbackArgs = isRoot
-              ? ['install', 'ansible-core']
-              : ['install', '--user', 'ansible-core']
-            const cmd = new Deno.Command('pip3', {
-              args: fallbackArgs,
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            await cmd.output()
-          }
-
-          // Ensure ~/.local/bin is in PATH for --user installs
-          if (!isRoot) {
-            const home = Deno.env.get('HOME') || ''
-            const currentPath = Deno.env.get('PATH') || ''
-            const localBin = `${home}/.local/bin`
-            if (!currentPath.includes(localBin)) {
-              Deno.env.set('PATH', `${localBin}:${currentPath}`)
-            }
-          }
-        }
-      }
-      console.log(green(`  ${t('✓ ansible-core installed')}`))
-    }
-
-    if (dep === 'solana-cli') {
-      console.log(green(`  ${t('Installing solana-cli (agave)...')}`))
-      // Try to read agave version from versions.yml in ~/.slv
-      let agaveVersion = 'stable'
-      try {
-        const versionsPath = `${Deno.env.get('HOME')}/.slv/versions.yml`
-        const content = await Deno.readTextFile(versionsPath)
-        const match = content.match(/AGAVE_VERSION:\s*["']?([^"'\s\n]+)/)
-        if (match) agaveVersion = match[1]
-      } catch {
-        // fallback to stable
-      }
-      const installUrl = agaveVersion === 'stable'
-        ? 'https://release.anza.xyz/stable/install'
-        : `https://release.anza.xyz/v${agaveVersion}/install`
-      const cmd = new Deno.Command('sh', {
-        args: ['-c', `curl -sSfL "${installUrl}" | sh`],
-        stdout: 'inherit',
-        stderr: 'inherit',
-      })
-      await cmd.output()
-      console.log(green(`  ${t('✓ solana-cli installed')}`))
-    }
-  }
-  console.log('')
 }
 
 export type ConsoleOptions = { viaGateway?: boolean }
 
 export const consoleAction = async (options: ConsoleOptions = {}) => {
   const viaGateway = options.viaGateway === true
-  await initI18n()
   // Reset lazy-loaded tools, context modules, and demand-driven caches at session start
   resetActiveTools()
   resetContextModules()
@@ -484,15 +277,23 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
 
   let config = await readAiConfig()
   if (!config) {
-    // Default to SLV AI — works with just the SLV API Key
+    // Default to SLV AI, authenticated by the ERPC OAuth login.
     config = { provider: 'slv', api_key: '', model: 'SLV AI' }
   }
 
-  // Check dependencies before TUI init
-  const missing = await checkDependencies()
-  if (missing.length > 0) {
-    await promptInstallDependencies(missing)
+  // Resolve OAuth before translation, TUI setup or
+  // gateway startup. Keep provider API keys separate from ERPC credentials.
+  let slvAuth: UserApiAuth | null = null
+  if (config.provider === 'slv') {
+    const login = await resolveUserApiAuth()
+    if (!login.ok) {
+      printCredentialProblem(login)
+      Deno.exitCode = 1
+      return
+    }
+    slvAuth = login.auth
   }
+  await initI18n()
 
   let currentSystemPrompt = await buildSystemPrompt()
   const providerLabel = config.provider === 'openai'
@@ -522,7 +323,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       white(
         config.provider === 'slv'
           ? `  ${t('Provider:')} ${providerLabel}`
-          : `  ${t('Provider:')} ${providerLabel} | ${t('Model:')} ${config.model}`,
+          : `  ${t('Provider:')} ${providerLabel} | ${
+            t('Model:')
+          } ${config.model}`,
       ),
       1,
     ),
@@ -672,9 +475,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     stopCommandLoader() // guard against overlap
     // Keep the label short so it fits on one line in narrow terminals.
     const cleaned = command.replace(/\s+/g, ' ').trim()
-    commandLabel = cleaned.length > 56
-      ? cleaned.slice(0, 53) + '...'
-      : cleaned
+    commandLabel = cleaned.length > 56 ? cleaned.slice(0, 53) + '...' : cleaned
     commandStartedAt = Date.now()
     commandHint = null
     commandLineCount = 0
@@ -704,7 +505,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     const tickMs = tuiLite ? 2000 : 1000
     commandTimer = setInterval(() => {
       const elapsed = formatElapsed(Date.now() - commandStartedAt)
-      updateIndicator?.(tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed))
+      updateIndicator?.(
+        tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed),
+      )
       tui.requestRender()
     }, tickMs)
     tui.requestRender()
@@ -745,7 +548,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   const refreshIndicator = () => {
     if (!updateIndicator) return
     const elapsed = formatElapsed(Date.now() - commandStartedAt)
-    updateIndicator(tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed))
+    updateIndicator(
+      tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed),
+    )
   }
 
   // Named handlers so they can be called BOTH from in-process tool
@@ -803,7 +608,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
 
   // Provider init with callbacks
   let provider: OpenAIProvider | AnthropicProvider | SLVProvider
-  let slvAuth: UserApiAuth | null = null
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
@@ -905,7 +709,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
         try {
           const parsed = JSON.parse(detail) as { tools?: string[] }
           const requested = Array.isArray(parsed.tools) ? parsed.tools : []
-          const newTools = requested.filter((tool) => !announcedEnabledTools.has(tool))
+          const newTools = requested.filter((tool) =>
+            !announcedEnabledTools.has(tool)
+          )
           if (newTools.length === 0) return
           newTools.forEach((tool) => announcedEnabledTools.add(tool))
           chatLog.addTool(name, JSON.stringify({ tools: newTools }))
@@ -986,7 +792,10 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
         }\n`,
       )
     } else {
-      gatewayBootstrap = { port: outcome.config.port, token: outcome.config.token }
+      gatewayBootstrap = {
+        port: outcome.config.port,
+        token: outcome.config.token,
+      }
       if (outcome.bootstrapped) {
         console.log(
           `\n  ${
@@ -1003,9 +812,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     // Swap in the WS-backed provider. The ERPC login is still read
     // because some code paths (authorization checks, token purchasing)
     // reach for it.
-    if (config.provider === 'slv') {
-      slvAuth = await findUserApiAuth()
-    }
     const { GatewaySessionProvider } = await import(
       '/src/ai/core/sessionClient.ts'
     )
@@ -1024,16 +830,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       callbacks,
     )
   } else if (config.provider === 'slv') {
-    // SLV AI uses the ERPC login from ~/.slv/api.yml (not ai.api_key)
-    slvAuth = await findUserApiAuth()
-    if (!slvAuth) {
-      console.log(
-        `\n  ${t('Not signed in to ERPC. Run `slv login` first.')}\n`,
-      )
-      return
-    }
+    // Checked before starting the UI above.
     provider = new SLVProvider(
-      slvAuth,
+      slvAuth!,
       config.model,
       currentSystemPrompt,
       callbacks,
@@ -1064,6 +863,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
 
   // Track user interactions for memory save decision
   let userMessageCount = 0
+  let completedTurnCount = 0
   let isProcessing = false
   // Messages the user typed while a previous turn was still running. Drained
   // FIFO after each turn completes so long builds/deploys don't block the
@@ -1163,7 +963,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   }
 
   const saveMemoryAndExit = async () => {
-    if (userMessageCount > 0) {
+    if (completedTurnCount > 0) {
       chatLog.addSystem(`  ${t('Saving session memory...')}`)
       tui.requestRender()
       try {
@@ -1231,7 +1031,9 @@ RULES:
   const isLikelyFollowUp = (input: string) => {
     const trimmed = input.trim()
     if (!trimmed) return false
-    return trimmed.length <= 80 || /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i.test(trimmed)
+    return trimmed.length <= 80 ||
+      /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i
+        .test(trimmed)
   }
 
   const applyIntentBootstrap = async (input: string) => {
@@ -1243,6 +1045,7 @@ RULES:
         apiKey: config.api_key,
         model: config.model,
         slvAuth: slvAuth ?? undefined,
+        onFallback: stopOnDefinitiveApiError,
       },
       {
         message: input,
@@ -1258,7 +1061,8 @@ RULES:
       currentSpecialist &&
       currentIntent &&
       isLikelyFollowUp(input) &&
-      (plan.intent === 'unknown' || intentDomain(plan.intent) === intentDomain(currentIntent))
+      (plan.intent === 'unknown' ||
+        intentDomain(plan.intent) === intentDomain(currentIntent))
     ) {
       plan = {
         ...plan,
@@ -1288,7 +1092,9 @@ RULES:
       }
     }
 
-    const newlyLoadedModules = filterUnloadedContextModules(plan.contextModulesToLoad)
+    const newlyLoadedModules = filterUnloadedContextModules(
+      plan.contextModulesToLoad,
+    )
     if (newlyLoadedModules.length > 0) {
       renderStage(
         t('📚 Loading context: {modules}').replace(
@@ -1309,7 +1115,10 @@ RULES:
       )
       await injectSkillDocs(plan.delegateAgent)
       currentSpecialist = plan.delegateAgent
-    } else if (!plan.delegateAgent && plan.confidence >= 0.7 && intentDomain(plan.intent) !== intentDomain(currentIntent)) {
+    } else if (
+      !plan.delegateAgent && plan.confidence >= 0.7 &&
+      intentDomain(plan.intent) !== intentDomain(currentIntent)
+    ) {
       currentSpecialist = null
     }
 
@@ -1414,6 +1223,8 @@ RULES:
           callbacks,
         )
       }
+      userMessageCount = 0
+      completedTurnCount = 0
       chatLog.addSystem(`  ${t('Conversation cleared.')}`)
       tui.requestRender()
       return
@@ -1434,7 +1245,7 @@ RULES:
       chatLog.addSystem(
         `  ${
           t(
-            '/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent\'s primary focus',
+            "/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent's primary focus",
           )
         }`,
       )
@@ -1450,7 +1261,7 @@ RULES:
 
     // /focus <role> — switch the main agent's routing bias. Persisted to
     // ~/.slv/agent/focus.txt so it carries across sessions. `/focus auto`
-    // clears the override and returns to heuristic detection.
+    // clears the override and returns to the configured request/automatic mode.
     // Exact-token match so `/focuses`, `/focusapp`, etc. fall through to the
     // shell-command path below instead of silently being interpreted.
     const firstToken = input.split(/\s+/)[0]
@@ -1467,7 +1278,11 @@ RULES:
             ? 'Current focus: {focus} (manual override)'
             : 'Current focus: {focus} (auto)'
           chatLog.addSystem(
-            `  ${t(focusKey).replace('{focus}', profile.primary)}`,
+            `  ${
+              profile.focusSource === 'request'
+                ? describeProfile(profile)
+                : t(focusKey).replace('{focus}', profile.primary)
+            }`,
           )
         } catch (err) {
           chatLog.addSystem(
@@ -1656,41 +1471,36 @@ RULES:
     loader.start()
     tui.requestRender()
 
-    const plan = await applyIntentBootstrap(input)
+    try {
+      const plan = await applyIntentBootstrap(input)
 
-    // Only ask for clarification on the very first message.
-    // On follow-up messages the AI already has conversation context
-    // and can interpret short replies (e.g. an IP address answering
-    // a previous question) correctly.
-    if (plan.askClarify && plan.intent === 'unknown' && userMessageCount <= 1) {
+      // Only ask for clarification before the first conversation turn; short
+      // follow-up replies can depend on the existing conversation context.
+      if (
+        plan.askClarify && plan.intent === 'unknown' && userMessageCount <= 1
+      ) {
+        chatLog.addAssistant(plan.askClarify)
+      } else {
+        await provider.chat(input)
+        if (!isAborted()) completedTurnCount++
+      }
+    } catch (error) {
+      const msg = errToString(error)
+      const color = /[Ii]nsufficient.*token|token.*limit/i.test(msg)
+        ? yellow
+        : red
+      chatLog.addSystem(
+        color(`  ${t('Error: {message}').replace('{message}', () => msg)}`),
+      )
+    } finally {
       if (loader) {
         chatLog.removeChild(loader)
         loader.stop()
         loader = null
       }
-      chatLog.addAssistant(plan.askClarify)
       isProcessing = false
       tui.requestRender()
-      return
     }
-
-    try {
-      await provider.chat(input)
-    } catch (error) {
-      const msg = (error as Error).message
-      const color = /[Ii]nsufficient.*token|token.*limit/i.test(msg) ? yellow : red
-      chatLog.addSystem(
-        color(`  ${t('Error: {message}').replace('{message}', () => msg)}`),
-      )
-    }
-
-    if (loader) {
-      chatLog.removeChild(loader)
-      loader.stop()
-      loader = null
-    }
-    isProcessing = false
-    tui.requestRender()
 
     // Drain one queued message via microtask so the stack doesn't grow
     // with each chained turn. Shift is INSIDE the microtask so a Ctrl+C
@@ -1781,14 +1591,16 @@ RULES:
         chatLog.addSystem(
           `  ${
             t('⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
-          }${dropped > 0
-            ? ` ${
-              t('({count} queued message(s) discarded.)').replace(
-                '{count}',
-                String(dropped),
-              )
-            }`
-            : ''}`,
+          }${
+            dropped > 0
+              ? ` ${
+                t('({count} queued message(s) discarded.)').replace(
+                  '{count}',
+                  String(dropped),
+                )
+              }`
+              : ''
+          }`,
         )
         isProcessing = false
         if (loader) {

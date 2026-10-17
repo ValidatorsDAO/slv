@@ -15,15 +15,16 @@ export type TradeAppInventory = {
 
 export type UserProfile = {
   primary: PrimaryFocus
-  // One or two short lines of evidence used to explain the classification to
-  // the user in the opening greeting.
+  // Evidence for a legacy automatic profile or an explicit override.
   signals: string[]
-  // Present trade-app style projects under ~/slv/. Used to bias the greeting
-  // and system prompt toward Setzer when non-empty.
+  // Existing projects are only a routing signal for legacy configurations.
   apps: TradeAppInventory[]
   // True when the user manually set focus via `/focus <role>` this session or
   // a previous one. Manual overrides beat heuristics.
   overridden: boolean
+  // Quick onboarding makes every skill available, so skill availability and
+  // existing projects must not be interpreted as the user's current intent.
+  focusSource?: 'request'
 }
 
 // Location of the manual /focus override, relative to $HOME.
@@ -166,17 +167,27 @@ const scanTradeApps = async (): Promise<TradeAppInventory[]> => {
 
 type ConfigSkill = { name: string; enabled: boolean; agent?: string }
 
-const readEnabledSkills = async (): Promise<ConfigSkill[]> => {
+const readProfileConfig = async (): Promise<{
+  enabledSkills: ConfigSkill[]
+  focusSource?: 'request'
+}> => {
   try {
     const raw = await Deno.readTextFile(
       join(requireHome(), '.slv/agent/config.yml'),
     )
-    const cfg = parse(raw) as { skills?: ConfigSkill[] } | null
-    return (cfg?.skills || []).filter((s) => s && s.enabled)
+    const cfg = parse(raw) as {
+      skills?: ConfigSkill[]
+      focus_source?: unknown
+    } | null
+    return {
+      enabledSkills: (Array.isArray(cfg?.skills) ? cfg.skills : [])
+        .filter((s) => s && s.enabled),
+      focusSource: cfg?.focus_source === 'request' ? 'request' : undefined,
+    }
   } catch (err) {
     if (!(err instanceof Deno.errors.NotFound)) throw err
   }
-  return []
+  return { enabledSkills: [] }
 }
 
 // `mixed` is a derived classification — never a direct signal source — so
@@ -190,17 +201,31 @@ const SCORED_ROLES: readonly ScoredRole[] = ['validator', 'rpc', 'app']
 //   1. Manual override via `/focus <role>` (persisted in
 //      ~/.slv/agent/focus.txt). An invalid file is ignored but surfaced in
 //      signals so the user can spot their typo.
-//   2. Live trade apps under ~/slv/ — if the user has a real trade-bot with
+//   2. focus_source: request — follow the current request, without guessing
+//      from enabled skills or existing projects.
+//   3. Live trade apps under ~/slv/ — if the user has a real trade-bot with
 //      binary+wallet, they're clearly in app-dev mode regardless of what they
 //      picked during onboard.
-//   3. Enabled skills in ~/.slv/agent/config.yml.
-//   4. Default to `validator` (the original SLV focus).
+//   4. Enabled skills in ~/.slv/agent/config.yml.
+//   5. Default to `validator` (the original SLV focus).
 //
 // Multiple strong signals across different roles → `mixed`.
 export const detectProfile = async (): Promise<UserProfile> => {
   const overrideResult = await readFocusOverride()
+  const config = await readProfileConfig()
+  if (config.focusSource === 'request' && overrideResult.kind !== 'valid') {
+    return {
+      primary: 'mixed',
+      focusSource: 'request',
+      overridden: false,
+      apps: [],
+      signals: [
+        'Follow the current request; available skills are capabilities, not a user preference.',
+      ],
+    }
+  }
   const apps = await scanTradeApps()
-  const enabled = await readEnabledSkills()
+  const enabled = config.enabledSkills
 
   if (overrideResult.kind === 'valid') {
     return {
@@ -278,6 +303,9 @@ export const detectProfile = async (): Promise<UserProfile> => {
 // Uses the i18n dictionary so non-English users see this in their language.
 // The translations for each key live in cli/src/ai/i18n/messages/<lang>.ts.
 export const describeProfile = (profile: UserProfile): string => {
+  if (profile.focusSource === 'request' && !profile.overridden) {
+    return t('Following your current request. Use /focus to set a preference.')
+  }
   const { primary, apps } = profile
   const liveApps = apps.filter((a) => a.hasBinary || a.hasWallet)
   const appCount = liveApps.length
@@ -317,6 +345,16 @@ export const describeProfile = (profile: UserProfile): string => {
 // of `lang` because the model reasons in English internally — translation is
 // only applied to user-facing output.
 export const profilePromptBlock = (profile: UserProfile): string => {
+  if (profile.focusSource === 'request' && !profile.overridden) {
+    return [
+      '## User Profile',
+      '',
+      'Follow the current user request. All specialist skills are available; this does not indicate a preferred role.',
+      'Do not assume that an existing app or enabled skill is what the user wants to work on.',
+      'For ERPC account, subscription, or billing questions, use the account tools and do not redirect to app development or infrastructure setup.',
+      'The user may explicitly set a preference with /focus validator, /focus rpc, /focus app, or /focus mixed. Always honor the current request.',
+    ].join('\n')
+  }
   const { primary, apps, signals, overridden } = profile
   const liveApps = apps.filter((a) => a.hasBinary || a.hasWallet)
   const appCount = liveApps.length
@@ -352,7 +390,7 @@ export const profilePromptBlock = (profile: UserProfile): string => {
   lines.push(roleGuidance[primary])
   lines.push('')
   lines.push(
-    "The user can override this at any time with `/focus validator`, `/focus rpc`, `/focus app`, or `/focus mixed`. Always honor an explicit intent over the profile — the profile is a prior, not a gate.",
+    'The user can override this at any time with `/focus validator`, `/focus rpc`, `/focus app`, or `/focus mixed`. Always honor an explicit intent over the profile — the profile is a prior, not a gate.',
   )
   return lines.join('\n')
 }

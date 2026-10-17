@@ -8,7 +8,7 @@ import { PROTOCOL_VERSION } from '/src/gateway/ws/frames.ts'
 import { echoDriver, Session } from '/src/ai/core/session.ts'
 import { providerDriver } from '/src/ai/core/drivers/provider.ts'
 import { readAiConfig } from '/src/ai/config.ts'
-import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import { resolveUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   invalidateAgentContext,
@@ -254,17 +254,13 @@ const methods: Record<string, MethodHandler> = {
     let slvAuth: UserApiAuth | null = null
     if (aiCfg.provider === 'slv') {
       try {
-        slvAuth = await findUserApiAuth()
+        const login = await resolveUserApiAuth()
+        if (!login.ok) return resErr(req, login.lines.join('\n'))
+        slvAuth = login.auth
       } catch (err) {
         return resErr(
           req,
           `failed to read the ERPC login: ${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
-      if (!slvAuth) {
-        return resErr(
-          req,
-          'not signed in to ERPC — run `slv signup` / `slv login` first',
         )
       }
     }

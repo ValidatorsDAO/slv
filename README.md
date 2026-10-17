@@ -37,14 +37,22 @@ SLV is a CLI tool that handles the full lifecycle of Solana infrastructure — f
 # 1. Install SLV
 curl -fsSL https://storage.slv.dev/slv/install | sh
 
-# 2. Configure your environment (AI provider, SSH keys, API keys)
+# 2. Choose your language, connect ERPC with browser sign-in, and start chatting
 slv onboard
 
-# 3. Launch the AI Console
-slv c
+# Return to the AI Console later
+slv ai
 ```
 
-That's it. The AI Console guides you through everything:
+Onboarding enables all five specialist agents and checks your AI balance before
+opening the console. It keeps existing profiles and memory. Use
+`slv onboard --no-start` to save settings without opening chat, or
+`slv onboard --advanced` to configure names, deployment mode, Discord notifications,
+and browser access later. An ERPC browser sign-in is required for SLV AI; an RPC
+API key alone does not authorize account or AI requests.
+
+Describe what you want to do. Commands that change your environment require
+confirmation:
 
 ```
 You: Deploy a mainnet Jito validator on 203.0.113.10
@@ -82,6 +90,7 @@ The AI Console (`slv c`) includes specialist agents for different tasks:
 |---|---|
 | **Cecil** | Validator deployments (Jito, Agave, Allnodes-Jito; Firedancer on testnet) |
 | **Tina** | RPC & gRPC Geyser deployments |
+| **Cid** | Benchmarks and connectivity checks |
 | **Figaro** | Server procurement and pricing |
 | **Setzer** | Solana app development |
 
@@ -155,7 +164,8 @@ Servers from [erpc.global](https://erpc.global/en/) automatically get:
 - **SSH access** to target servers (key-based auth)
 - **solana-cli** (optional, for local key generation)
 
-`slv onboard` handles most of this automatically.
+These tools are needed for the corresponding deployment operations. Initial chat
+setup does not install Ansible or Solana CLI, or start a background service.
 
 ## For Developers
 

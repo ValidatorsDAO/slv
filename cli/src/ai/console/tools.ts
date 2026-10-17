@@ -1,4 +1,4 @@
-import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import { resolveHome, resolveUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
@@ -34,6 +34,7 @@ import { isReadOnlyLine } from '@/ai/console/readOnly.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
+import { readUserApiError } from '/lib/userApi/httpError.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
 import { ALL_AGENT_IDS, isKnownAgentId } from '@/ai/agentConfig/registry.ts'
 import {
@@ -408,11 +409,20 @@ function buildReadFileCacheKey(
   return JSON.stringify({ path, offset: offset ?? null, limit: limit ?? null })
 }
 
-function buildMcpCacheKey(
+async function buildMcpCacheKey(
   toolName: string,
   args: Record<string, unknown>,
-): string {
-  return JSON.stringify({ toolName, args })
+  auth: UserApiAuth,
+): Promise<string> {
+  // A login/refresh in another terminal must not reuse the previous login's
+  // account data. Keep only a digest in the cache key, never the credential.
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(await userApiAuthHeader(auth)),
+  )
+  const authScope = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return JSON.stringify({ toolName, args, authScope })
 }
 
 // Get the current active tool set (core + enabled extended tools)
@@ -1026,19 +1036,19 @@ async function executeCallMcp(
   args: Record<string, unknown>,
   refresh = false,
 ): Promise<string> {
+  const login = await resolveUserApiAuth()
+  if (!login.ok) {
+    invalidateMcpCache()
+    return `Error: ${login.lines.join('\n')}`
+  }
+  const auth = login.auth
   const cacheable = isCacheableMcpTool(toolName)
-  const cacheKey = buildMcpCacheKey(toolName, args)
-  if (cacheable && !refresh) {
-    const cached = mcpResponseCache.get(cacheKey)
-    if (cached) return `${cached}\n\n[session cache hit]`
-  }
-
-  const auth = await findUserApiAuth()
-  if (!auth) {
-    return 'Error: Not signed in to ERPC. Run `slv login` first.'
-  }
-
   try {
+    const cacheKey = await buildMcpCacheKey(toolName, args, auth)
+    if (cacheable && !refresh) {
+      const cached = mcpResponseCache.get(cacheKey)
+      if (cached) return `${cached}\n\n[session cache hit]`
+    }
     const content = await callReadTool(
       auth,
       toolName,
@@ -1049,9 +1059,12 @@ async function executeCallMcp(
       : content
     if (cacheable && !isReadToolFailure(content)) {
       mcpResponseCache.set(cacheKey, result)
+    } else {
+      mcpResponseCache.delete(cacheKey)
     }
     return result
   } catch (error) {
+    invalidateMcpCache()
     return `MCP request failed: ${(error as Error).message}`
   }
 }
@@ -1378,12 +1391,10 @@ When running ansible-playbook or slv commands that connect to servers:
         task,
       )
     } else if (config.provider === 'slv') {
-      const slvAuth = await findUserApiAuth()
-      if (!slvAuth) {
-        return 'Error: Not signed in to ERPC. Run `slv login` first.'
-      }
+      const login = await resolveUserApiAuth()
+      if (!login.ok) return `Error: ${login.lines.join('\n')}`
       return await runSlvSubAgent(
-        slvAuth,
+        login.auth,
         config.model,
         subSystemPrompt,
         task,
@@ -1506,8 +1517,7 @@ async function runSlvSubAgent(
     })
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => '')
-      throw new Error(`SLV AI API error (${res.status}): ${errText}`)
+      throw await readUserApiError(res)
     }
 
     // deno-lint-ignore no-explicit-any

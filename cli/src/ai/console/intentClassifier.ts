@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
+import { readUserApiError } from '/lib/userApi/httpError.ts'
 
 export type DeploymentMode = 'local' | 'remote'
 export type SpecialistAgent =
@@ -61,6 +62,8 @@ type ClassifierConfig = {
   model: string
   /** ERPC login for the `slv` provider (user-api). */
   slvAuth?: UserApiAuth
+  /** Explain local fallback, or stop a turn after a definitive API rejection. */
+  onFallback?: (error: Error) => void
 }
 
 type ClassifierInput = {
@@ -285,7 +288,7 @@ async function callSlvClassifier(
     }),
     signal: AbortSignal.timeout(30_000),
   })
-  if (!response.ok) return null
+  if (!response.ok) throw await readUserApiError(response)
   const data = await response.json()
   const raw = Array.isArray(data?.content)
     ? data.content
@@ -302,6 +305,25 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
     tokens.some((token) => text.includes(token))
   const specialistSet = new Set(input.enabledSpecialists)
   const canDelegate = (agent: SpecialistAgent) => specialistSet.has(agent)
+
+  // Account questions win over product names and the previous specialist.
+  // Keep generic "plan" / "subscription" programming terms out of this rule.
+  const accountQuestion = (
+    has(
+      'サブスク', '契約', '請求', '支払', '課金', '利用枠',
+      '残高', '残りのトークン', 'アカウント', '加入中',
+    ) ||
+    /\b(?:my|our|current|active)\s+(?:(?:rpc|ai|erpc)\s+)?(?:subscriptions?|plans?|accounts?|balance|credits?)\b/.test(text) ||
+    /\b(?:billing|invoices?|payment history|token balance|remaining tokens)\b/.test(text)
+  ) && !has('実装', '機能を', 'アプリを', 'build ', 'implement ', 'develop ')
+  if (accountQuestion) {
+    return buildPlan({
+      intent: 'account_billing',
+      confidence: 0.6,
+      language: detectLanguageFallback(input.message),
+      delegateAgent: null,
+    }, input)
+  }
 
   const mentionsServerDomain = has(
     'server',
@@ -652,6 +674,7 @@ export async function classifyIntent(
   input: ClassifierInput,
 ): Promise<IntentClassification> {
   let raw: Record<string, unknown> | null = null
+  let failure: Error | null = null
 
   try {
     if (config.provider === 'openai') {
@@ -661,10 +684,16 @@ export async function classifyIntent(
     } else {
       raw = await callAnthropicClassifier(config, input)
     }
-  } catch {
+  } catch (error) {
+    failure = error instanceof Error
+      ? error
+      : new Error('Intent classification failed')
     raw = null
   }
 
+  // Call outside the catch so callers may stop on a security/auth rejection
+  // rather than submit a second AI request against the same blocked route.
+  if (failure) config.onFallback?.(failure)
   if (!raw) return fallbackFromRegex(input)
   return buildPlan(raw as Partial<IntentClassification>, input)
 }

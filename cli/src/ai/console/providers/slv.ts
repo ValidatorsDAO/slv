@@ -7,6 +7,7 @@ import {
 } from '@/ai/console/tools.ts'
 import { isAbortLikeError } from '/lib/isAbortError.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
+import { readUserApiError } from '/lib/userApi/httpError.ts'
 import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
 import {
   fetchAuthorizationStatus,
@@ -244,25 +245,14 @@ export class SLVProvider {
       }
 
       if (!response.ok) {
-        const errorText = await response.text()
-        let errJson: TokenErrorPayload | null = null
-        try {
-          errJson = JSON.parse(errorText) as TokenErrorPayload
-        } catch {
-          errJson = null
-        }
-
-        const tokenLimitReached = response.status === 529 ||
-          (response.status === 403 &&
-            errorText.includes('ai_token_limit_reached'))
-
-        if (tokenLimitReached) {
-          throw new Error(
-            await buildInsufficientTokenMessage(this.auth, errJson ?? {}),
+        const error = await readUserApiError(response)
+        if (error.kind === 'token_limit') {
+          error.message = await buildInsufficientTokenMessage(
+            this.auth,
+            error.payload ?? {},
           )
         }
-
-        throw new Error(`SLV AI API error (${response.status}): ${errorText}`)
+        throw error
       }
 
       // Parse the Anthropic SSE stream. Events we care about:

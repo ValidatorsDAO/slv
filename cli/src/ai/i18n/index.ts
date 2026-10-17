@@ -31,7 +31,9 @@ const cachePath = (lang: string): string => {
   return `${home}/.slv/i18n/${lang}.json`
 }
 
-const loadCache = async (lang: string): Promise<Record<string, string> | null> => {
+const loadCache = async (
+  lang: string,
+): Promise<Record<string, string> | null> => {
   try {
     const raw = await Deno.readTextFile(cachePath(lang))
     const parsed = JSON.parse(raw)
@@ -76,8 +78,7 @@ const translateViaSlvAi = async (
 
   const system =
     `You are a professional translator. Translate the VALUES of the given JSON object from English to the target language. Keep the KEYS exactly unchanged. Preserve markdown, punctuation, emojis, backticks, URLs, and placeholders. Respond with ONLY the translated JSON object, no prose, no code fences.`
-  const user =
-    `Target language: ${lang}\n\nJSON:\n${JSON.stringify(sourceObj)}`
+  const user = `Target language: ${lang}\n\nJSON:\n${JSON.stringify(sourceObj)}`
 
   try {
     const response = await fetch('https://user-api.erpc.global/v3/ai/chat', {
@@ -147,6 +148,16 @@ export const initI18n = (): Promise<void> => {
     initialized = true
   })()
   return initPromise
+}
+
+/** Apply a language change (or a newly available login) in the same process. */
+export const reloadI18n = async (): Promise<void> => {
+  // An earlier custom-language translation must finish before replacing the
+  // dictionary, otherwise it could overwrite the newly selected language.
+  await initPromise?.catch(() => {})
+  initPromise = null
+  initialized = false
+  await initI18n()
 }
 
 export const t = (key: string): string => {

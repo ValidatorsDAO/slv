@@ -14,7 +14,10 @@ import {
   type AuthorizationStatus,
   fetchAuthorizationStatus,
 } from '@/ai/authorization.ts'
-import type { UserApiAuth } from '/lib/userApi/auth.ts'
+import {
+  ERPC_LOGIN_REJECTED_MESSAGE,
+  type UserApiAuth,
+} from '/lib/userApi/auth.ts'
 import { userApiRequest } from '/lib/userApi/client.ts'
 
 type Product = {
@@ -36,8 +39,8 @@ type Product = {
 /**
  * Fetch `/v3/ai/product-list` directly. Flattens the typed
  * discriminated-union result down to the "raw text" shape this
- * file's existing product-list rendering code expects — on failure
- * it returns an empty string, same contract the old MCP wrapper had.
+ * file's product-list rendering expects. Preserve failures so callers can
+ * distinguish a rejected OAuth login from unavailable product information.
  */
 async function fetchProductListRaw(auth: UserApiAuth): Promise<string> {
   const r = await userApiRequest<Record<string, unknown>>(
@@ -45,8 +48,17 @@ async function fetchProductListRaw(auth: UserApiAuth): Promise<string> {
     'GET',
     '/v3/ai/product-list',
   )
-  if (r.ok) return JSON.stringify(r.data)
-  return ''
+  if (!r.ok) {
+    throw new Error(
+      r.status === 401
+        ? ERPC_LOGIN_REJECTED_MESSAGE
+        : String(r.body?.message ?? r.body?.error ?? `HTTP ${r.status}`),
+    )
+  }
+  if (!r.data || r.data.success === false) {
+    throw new Error('Could not read AI products (unsuccessful response).')
+  }
+  return JSON.stringify(r.data)
 }
 
 function getAuthorizationLink(product: Product): string {
@@ -110,6 +122,7 @@ export const aiProductAction = async () => {
       spinner.fail('Failed to fetch products')
       console.log(colors.red('  Could not retrieve product information.'))
       console.log('  Visit https://slv.dev for plan details.')
+      Deno.exitCode = 1
       return
     }
 
@@ -205,6 +218,6 @@ export const aiProductAction = async () => {
   } catch (error) {
     spinner.fail('Failed to fetch AI products')
     console.log(colors.red(`  ${(error as Error).message}`))
-    console.log('  Visit https://slv.dev for plan details.')
+    Deno.exitCode = 1
   }
 }
