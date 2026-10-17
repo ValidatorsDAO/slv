@@ -70,6 +70,12 @@ type PrecheckInput = {
   consensus?: Consensus
   /** The inventory name of the peer the operator confirmed to be stopped. */
   downPeer?: string
+  /**
+   * `--first-activation`. On Alpenglow the precheck then also shows, as the
+   * playbook does, that the vote account has not voted since the genesis
+   * certificate. Every other check runs as without the flag, on both consensus.
+   */
+  firstActivation?: boolean
 }
 
 type PrecheckResult = {
@@ -140,12 +146,17 @@ const rpcRequest = async (
   deps: PrecheckDeps,
   url: string,
   method: string,
-  params: unknown[],
+  params?: unknown[],
 ): Promise<unknown> => {
   const response = await deps.fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method,
+      ...(params === undefined ? {} : { params }),
+    }),
   })
   if (!response.ok) {
     throw new Error(`${method} returned HTTP ${response.status}`)
@@ -241,6 +252,10 @@ const voteIsNotTheIdentitys = (
     : `vote account ${voteAccount} belongs to ${vote.node}, not to identity ${identity}`
 }
 
+/** Whether the rule for a first activation on Alpenglow applies. TowerBFT is not touched by it. */
+const firstActivationOnAlpenglow = (input: PrecheckInput): boolean =>
+  input.firstActivation === true && input.consensus === 'alpenglow'
+
 const readVote = async (
   input: PrecheckInput,
   deps: PrecheckDeps,
@@ -248,10 +263,15 @@ const readVote = async (
   const { target } = input
   if (target.voteAccount === '') return { kind: 'skipped' }
   const rpcUrl = RPC_URLS[input.network]
+  // A new vote account has no stake and has not voted: getVoteAccounts leaves
+  // it out unless it is asked to keep the unstaked delinquent ones. The rule
+  // for a first activation on Alpenglow needs to see it.
+  const keepUnstaked = firstActivationOnAlpenglow(input)
   try {
     const votes = await rpcRequest(deps, rpcUrl, 'getVoteAccounts', [{
       votePubkey: target.voteAccount,
       commitment: 'confirmed',
+      ...(keepUnstaked ? { keepUnstakedDelinquents: true } : {}),
     }]) as { current?: unknown; delinquent?: unknown }
     const slot = await rpcRequest(deps, rpcUrl, 'getSlot', [{
       commitment: 'confirmed',
@@ -288,6 +308,85 @@ const readVote = async (
   } catch (error) {
     return { kind: 'failed', error: describe(error) }
   }
+}
+
+type GenesisSlot = { ok: true; slot: number } | { ok: false; reason: string }
+
+/** The slot of the Alpenglow genesis certificate, where the playbook reads it: result.block.slot of getAgGenesisCert. */
+const readGenesisSlot = async (
+  deps: PrecheckDeps,
+  rpcUrl: string,
+): Promise<GenesisSlot> => {
+  try {
+    const cert = await rpcRequest(deps, rpcUrl, 'getAgGenesisCert')
+    const block = typeof cert === 'object' && cert !== null
+      ? (cert as { block?: unknown }).block
+      : undefined
+    const slot = typeof block === 'object' && block !== null
+      ? (block as { slot?: unknown }).slot
+      : undefined
+    if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0) {
+      throw new Error(
+        cert === null
+          ? 'getAgGenesisCert returned no certificate'
+          : 'getAgGenesisCert returned no block slot',
+      )
+    }
+    return { ok: true, slot }
+  } catch (error) {
+    return { ok: false, reason: describe(error) }
+  }
+}
+
+/**
+ * `--first-activation` on Alpenglow, decided as the playbook decides it, which
+ * mirrors agave (should_require_vote_history_file): the vote history file is
+ * required only when the vote account has voted after the slot of the genesis
+ * certificate, so a first activation is for a vote account that has not voted
+ * since (a new one, or one that voted only under TowerBFT). A vote at the slot of
+ * the certificate itself is not after it. Whatever cannot be shown is a refusal.
+ * The playbook adds the last vote that the host itself knows.
+ */
+const checkFirstActivation = (
+  input: PrecheckInput,
+  vote: VoteReading,
+  genesis: GenesisSlot,
+  out: Collected,
+): void => {
+  const { target } = input
+  const command = `slv v set:identity -n ${input.network} -p ${target.name}`
+  if (!genesis.ok) {
+    out.failures.push(
+      `could not read the slot of the Alpenglow genesis certificate (${genesis.reason}), so --first-activation cannot be checked against the last vote of the vote account`,
+    )
+  }
+  if (vote.kind === 'skipped') {
+    out.failures.push(
+      `${target.name} has no vote_account in the inventory, so --first-activation cannot be checked against the last vote of the vote account`,
+    )
+    return
+  }
+  // A vote account that cannot be read is reported with the vote check.
+  if (vote.kind === 'failed') return
+  if (!vote.listed) {
+    out.failures.push(
+      `vote account ${target.voteAccount} is not listed by the cluster, not even among the unstaked accounts that have not voted, so --first-activation cannot be checked: it does not exist on ${input.network}, or vote_account in the inventory is wrong`,
+    )
+    return
+  }
+  // One that names another node is reported with the vote check.
+  if (!genesis.ok || vote.node !== target.identityAccount) return
+  if (vote.lastVote > genesis.slot) {
+    out.failures.push(
+      `--first-activation is for a vote account that has not voted since the Alpenglow genesis, and the last vote of ${target.voteAccount} is at slot ${vote.lastVote}, after the genesis certificate at slot ${genesis.slot}, so this is not a first activation. A vote account that has voted under Alpenglow needs its vote history file: copy /mnt/ledger/vote_history-${target.identityAccount}.bin to ${target.name} from the host that has it and run ${command}, or, when another host held the identity and is down, run ${command} --primary-down`,
+    )
+    return
+  }
+  out.notes.push(
+    vote.lastVote === 0
+      ? `--first-activation: vote account ${target.voteAccount} has not voted (certificate at slot ${genesis.slot})`
+      : `--first-activation: vote account ${target.voteAccount} last voted at slot ${vote.lastVote}, not after the Alpenglow genesis certificate at slot ${genesis.slot}`,
+  )
 }
 
 /**
@@ -525,6 +624,9 @@ const checkClusterView = async (
   }
   const vote = await readVote(input, deps)
   const consensus = input.consensus ?? 'towerbft'
+  const genesis = firstActivationOnAlpenglow(input)
+    ? await readGenesisSlot(deps, rpcUrl)
+    : null
 
   // null until the gossip table has been read.
   let identityAtTarget: boolean | null = null
@@ -615,6 +717,7 @@ const checkClusterView = async (
       `vote account ${target.voteAccount} voted ${vote.age} slot(s) ago (slot ${vote.lastVote}) and the gossip table could not be read to show that ${target.name} is the one voting`,
     )
   }
+  if (genesis !== null) checkFirstActivation(input, vote, genesis, out)
   return staleAddress
 }
 
@@ -855,7 +958,7 @@ const runSetIdentity = async (
   const peers = peersHoldingIdentity(target, hosts)
   if (options.primaryDown && peers.length === 0) {
     return refuse(
-      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down the identity is set from the tower file on ${target.name} under TowerBFT; under Alpenglow the vote history file must be on ${target.name}. When the vote account has voted only before Alpenglow there is no vote history file: use slv v set:identity -n ${network} -p ${target.name} --first-activation, and the playbook checks the vote account.`,
+      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down the identity is set from the tower file on ${target.name} under TowerBFT; under Alpenglow the vote history file must be on ${target.name}. When the vote account has voted only before Alpenglow there is no vote history file: use slv v set:identity -n ${network} -p ${target.name} --first-activation, and the vote account is checked against the genesis certificate first.`,
     )
   }
 
@@ -894,6 +997,7 @@ const runSetIdentity = async (
     peerDownConfirmed: options.peerDownConfirmed === true,
     consensus: reading.state,
     downPeer,
+    firstActivation: options.firstActivation === true,
   })
   for (const note of check.notes) deps.info(`   ${note}`)
   if (!check.ok) {

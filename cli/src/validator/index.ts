@@ -144,7 +144,7 @@ validatorCmd.command('set:identity')
   .option('-p, --pubkey <pubkey>', 'Inventory name of the one host to promote.')
   .option(
     '--first-activation',
-    'First promotion of this identity: the host has no tower or vote history yet. On Alpenglow also when the vote account has voted only before Alpenglow, so that there is no vote history file; the playbook checks the vote account.',
+    'First promotion of this identity: the host has no tower or vote history yet. On Alpenglow also when the vote account has voted only before Alpenglow, so that there is no vote history file; slv checks the vote account against the genesis certificate first.',
   )
   .option(
     '--peer-down-confirmed',

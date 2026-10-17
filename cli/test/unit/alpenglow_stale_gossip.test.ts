@@ -21,6 +21,8 @@ const UNSTAKED = 'Bb'.repeat(22)
 const OTHER_NODE = 'Ee'.repeat(22)
 const VOTE = 'Cc'.repeat(22)
 const SLOT = 400_000_000
+// The slot of the Alpenglow genesis certificate.
+const GENESIS_SLOT = SLOT - 1_000_000
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/
 const isIp = (host: string): boolean =>
   IPV4.test(host) || (host.includes(':') && /^[0-9a-fA-F:.]+$/.test(host))
@@ -55,6 +57,10 @@ type Scenario = {
   votedAgo?: number
   /** The node the vote account names: the identity unless set; null names none. */
   voteNode?: string | null
+  /** The vote account has no stake and has not voted since: only keepUnstakedDelinquents lists it. */
+  unstaked?: boolean
+  /** The slot of the genesis certificate; 'none' answers null and 'unreadable' answers HTTP 503. */
+  genesisSlot?: number | 'none' | 'unreadable'
   /** The vote account calls (not the gossip call) answer with this HTTP status. */
   voteStatus?: number
   peerOutput?: string
@@ -62,11 +68,21 @@ type Scenario = {
   dns?: Record<string, string[]>
 }
 
-const stub = (s: Scenario = {}): PrecheckDeps => ({
+type Call = { method: string; params: unknown }
+
+const stub = (s: Scenario = {}, calls: Call[] = []): PrecheckDeps => ({
   fetch: (_url, init) => {
-    const body = JSON.parse(String(init.body)) as { id: number; method: string }
+    const body = JSON.parse(String(init.body)) as {
+      id: number
+      method: string
+      params?: { keepUnstakedDelinquents?: boolean }[]
+    }
+    calls.push({ method: body.method, params: body.params })
     if (s.voteStatus !== undefined && body.method !== 'getClusterNodes') {
       return Promise.resolve(new Response('', { status: s.voteStatus }))
+    }
+    if (body.method === 'getAgGenesisCert' && s.genesisSlot === 'unreadable') {
+      return Promise.resolve(new Response('', { status: 503 }))
     }
     const node = s.voteNode === undefined ? IDENTITY : s.voteNode
     const entry = s.votedAgo === undefined ? [] : [{
@@ -76,12 +92,23 @@ const stub = (s: Scenario = {}): PrecheckDeps => ({
     }]
     // The cluster calls a vote account delinquent after 128 slots.
     const delinquent = (s.votedAgo ?? 0) > 128
+    // A vote account with no stake that has not voted is left out, as the
+    // cluster leaves it out, unless the call keeps the unstaked delinquent ones.
+    const listed = !s.unstaked ||
+      body.params?.[0]?.keepUnstakedDelinquents === true
     const answers: Record<string, unknown> = {
       getClusterNodes: s.nodes ?? [],
       getSlot: SLOT,
       getVoteAccounts: {
-        current: delinquent ? [] : entry,
-        delinquent: delinquent ? entry : [],
+        current: delinquent || !listed ? [] : entry,
+        delinquent: delinquent && listed ? entry : [],
+      },
+      getAgGenesisCert: s.genesisSlot === 'none' ? null : {
+        block: {
+          blockId: 'Hq3kJ2',
+          slot: s.genesisSlot ?? GENESIS_SLOT,
+        },
+        signature: '3Xz9',
       },
     }
     return Promise.resolve(
@@ -117,6 +144,8 @@ const failover = async (
     state?: AlpenglowState
     typed?: string
     hosts?: InventoryHost[]
+    /** Every JSON-RPC call of the precheck, in order. */
+    calls?: Call[]
   } = {},
 ) => {
   const runs: Run[] = []
@@ -134,7 +163,7 @@ const failover = async (
       }),
     ask: () => Promise.resolve(setup.typed ?? ''),
     precheck: (input: PrecheckInput) =>
-      runIdentityPrecheck(input, stub(scenario)),
+      runIdentityPrecheck(input, stub(scenario, setup.calls)),
     confirm: () => Promise.resolve(true),
     runPlaybook: (playbook, inventoryType, limit, extraVars) => {
       runs.push({ playbook, inventoryType, limit, extraVars })
@@ -567,33 +596,223 @@ Deno.test('the precheck reports an allowed stale address only when it is ok, and
 })
 
 // --- a first activation on Alpenglow -----------------------------------------
+//
+// agave asks for the vote history file only when the vote account has voted
+// after the slot of the genesis certificate, and the playbook mirrors it. The
+// precheck shows the same before the playbook runs.
 
-Deno.test('set:identity --first-activation on Alpenglow goes on to the playbook for a vote account whose last vote is older than the window or that is not listed, and a recent vote still refuses', async () => {
-  // The precheck leaves the decision about the vote account to the playbook:
-  // it only asks whether something votes now.
-  for (
-    const [name, votedAgo] of [
-      ['voted only before Alpenglow', 5_000_000],
-      ['one slot past the window', 271],
-      ['not listed (a new vote account)', undefined],
-    ] as const
-  ) {
-    const f = await failover({ firstActivation: true }, {
-      nodes: [],
-      votedAgo,
-    }, { hosts: [STANDBY], state: 'alpenglow' })
+const ALONE: { hosts: InventoryHost[]; state: AlpenglowState } = {
+  hosts: [STANDBY],
+  state: 'alpenglow',
+}
+const TOO_LATE = SLOT - GENESIS_SLOT
+
+Deno.test('set:identity --first-activation on Alpenglow goes on for a vote account that has not voted since the genesis certificate: it voted only before it, at its slot, or never', async () => {
+  const cases: [string, Scenario][] = [
+    ['voted only before the certificate', { votedAgo: TOO_LATE + 5_000_000 }],
+    ['voted at the slot of the certificate', { votedAgo: TOO_LATE }],
+    ['a new vote account that has no stake and has not voted', {
+      votedAgo: SLOT,
+      unstaked: true,
+    }],
+  ]
+  for (const [name, scenario] of cases) {
+    const f = await failover(
+      { firstActivation: true },
+      { nodes: [], ...scenario },
+      ALONE,
+    )
     assertEquals(f.errors, '', name)
     assertEquals(f.went, true, name)
     assertEquals(f.runs.map((run) => run.extraVars), [{
       first_activation: true,
     }], name)
+    assertStringIncludes(f.info, '--first-activation: vote account', name)
   }
-  const recent = await failover({ firstActivation: true }, {
-    nodes: [],
-    votedAgo: 12,
-  }, { hosts: [STANDBY], state: 'alpenglow' })
-  assertEquals(recent.went, false)
-  assertEquals(recent.runs, [])
-  assertEquals(recent.exitCodes, [1])
-  assertStringIncludes(recent.errors, 'voted 12 slot(s) ago')
+})
+
+Deno.test('set:identity --first-activation on Alpenglow is refused when the vote account has voted after the genesis certificate or this cannot be shown, and says what applies', async () => {
+  const noVoteAccount = makeHost('val-standby', '203.0.113.11', '')
+  const copyIt = [
+    'is at slot',
+    'after the genesis certificate at slot',
+    'so this is not a first activation',
+    `copy /mnt/ledger/vote_history-${IDENTITY}.bin to val-standby`,
+    'slv v set:identity -n testnet -p val-standby, or',
+    'slv v set:identity -n testnet -p val-standby --primary-down',
+  ]
+  const cases: [string, Scenario, readonly InventoryHost[], string[]][] = [
+    [
+      'it voted after the certificate, long before the window',
+      { votedAgo: TOO_LATE - 500_000 },
+      ALONE.hosts,
+      copyIt,
+    ],
+    [
+      'it voted one slot after the certificate',
+      { votedAgo: TOO_LATE - 1 },
+      ALONE.hosts,
+      copyIt,
+    ],
+    [
+      'the slot of the certificate cannot be read',
+      { votedAgo: TOO_LATE + 5_000_000, genesisSlot: 'unreadable' },
+      ALONE.hosts,
+      ['could not read the slot of the Alpenglow genesis certificate'],
+    ],
+    [
+      'neither the vote account nor the certificate can be read',
+      { votedAgo: TOO_LATE + 5_000_000, voteStatus: 503 },
+      ALONE.hosts,
+      [
+        'could not read the vote account from',
+        'could not read the slot of the Alpenglow genesis certificate',
+      ],
+    ],
+    [
+      'the cluster returns no certificate',
+      { votedAgo: TOO_LATE + 5_000_000, genesisSlot: 'none' },
+      ALONE.hosts,
+      ['getAgGenesisCert returned no certificate'],
+    ],
+    [
+      'the vote account is not listed, not even with keepUnstakedDelinquents',
+      {},
+      ALONE.hosts,
+      ['is not listed by the cluster'],
+    ],
+    [
+      'the inventory has no vote_account',
+      { votedAgo: TOO_LATE + 5_000_000 },
+      [noVoteAccount],
+      ['has no vote_account in the inventory, so --first-activation'],
+    ],
+    [
+      'an unstaked vote account that names another node',
+      { votedAgo: SLOT, unstaked: true, voteNode: OTHER_NODE },
+      ALONE.hosts,
+      [`belongs to ${OTHER_NODE}, not to identity ${IDENTITY}`],
+    ],
+  ]
+  for (const [name, scenario, hosts, messages] of cases) {
+    const f = await failover(
+      { firstActivation: true },
+      { nodes: [], ...scenario },
+      { ...ALONE, hosts: [...hosts] },
+    )
+    assertEquals(f.went, false, name)
+    assertEquals(f.runs, [], name)
+    assertEquals(f.exitCodes, [1], name)
+    for (const message of messages) {
+      assertStringIncludes(f.errors, message, name)
+    }
+  }
+})
+
+Deno.test('set:identity --first-activation skips no check of the precheck: with and without it, on TowerBFT and on Alpenglow, the same entry, peer and vote refuse', async () => {
+  const before = TOO_LATE + 5_000_000
+  const cases: [
+    string,
+    Scenario,
+    readonly InventoryHost[],
+    string,
+  ][] = [
+    [
+      'the identity is in gossip at an address that is no inventory host',
+      { nodes: [NO_HOST_OF_THE_IDENTITY], votedAgo: before },
+      [STANDBY],
+      'which is not an inventory host of this identity',
+    ],
+    [
+      'a peer runs the identity',
+      {
+        nodes: [],
+        votedAgo: before,
+        peerOutput: report('val-primary', IDENTITY),
+      },
+      [PRIMARY, STANDBY],
+      'peer val-primary (203.0.113.10) is running identity',
+    ],
+    [
+      'the vote account voted a moment ago and the identity is not at the target',
+      { nodes: [], votedAgo: 12 },
+      [STANDBY],
+      'voted 12 slot(s) ago',
+    ],
+  ]
+  for (const state of ['towerbft', 'alpenglow'] as const) {
+    for (const firstActivation of [false, true]) {
+      for (const [name, scenario, hosts, message] of cases) {
+        const label = `${state} firstActivation=${firstActivation}: ${name}`
+        const f = await failover({ firstActivation }, scenario, {
+          state,
+          hosts: [...hosts],
+        })
+        assertEquals(f.went, false, label)
+        assertEquals(f.runs, [], label)
+        assertStringIncludes(f.errors, message, label)
+      }
+    }
+  }
+})
+
+Deno.test('the first-activation rule reads the genesis certificate and the unstaked vote accounts on Alpenglow only: TowerBFT reads what it read', async () => {
+  const scenario = { nodes: [], votedAgo: TOO_LATE + 5_000_000 }
+  const tower: Call[] = []
+  await failover({ firstActivation: true }, scenario, {
+    hosts: [STANDBY],
+    state: 'towerbft',
+    calls: tower,
+  })
+  assertEquals(tower.map((call) => call.method).sort(), [
+    'getClusterNodes',
+    'getSlot',
+    'getVoteAccounts',
+  ])
+  assertEquals(
+    tower.find((call) => call.method === 'getVoteAccounts')?.params,
+    [
+      { votePubkey: VOTE, commitment: 'confirmed' },
+    ],
+  )
+
+  const votor: Call[] = []
+  await failover({ firstActivation: true }, scenario, {
+    hosts: [STANDBY],
+    state: 'alpenglow',
+    calls: votor,
+  })
+  assertEquals(votor.map((call) => call.method).sort(), [
+    'getAgGenesisCert',
+    'getClusterNodes',
+    'getSlot',
+    'getVoteAccounts',
+  ])
+  // getAgGenesisCert takes no params, as the playbook sends it.
+  assertEquals(
+    votor.find((call) => call.method === 'getAgGenesisCert')?.params,
+    undefined,
+  )
+  assertEquals(
+    votor.find((call) => call.method === 'getVoteAccounts')?.params,
+    [
+      {
+        votePubkey: VOTE,
+        commitment: 'confirmed',
+        keepUnstakedDelinquents: true,
+      },
+    ],
+  )
+
+  // Without the flag nothing about the certificate is read, on either.
+  const plain: Call[] = []
+  await failover({}, scenario, {
+    hosts: [STANDBY],
+    state: 'alpenglow',
+    calls: plain,
+  })
+  assertEquals(
+    plain.some((call) => call.method === 'getAgGenesisCert'),
+    false,
+  )
 })
