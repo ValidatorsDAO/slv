@@ -256,8 +256,8 @@ export class SLVProvider {
       }
 
       // Parse the Anthropic SSE stream. Events we care about:
-      //   - content_block_start  → begin a text or tool_use block
-      //   - content_block_delta  → text_delta or input_json_delta
+      //   - content_block_start  → begin text, thinking or tool_use blocks
+      //   - content_block_delta  → text, thinking, signature or tool JSON
       //   - content_block_stop   → finalize the block
       //   - message_delta        → stop_reason lands here
       //   - message_stop         → end of this turn's stream
@@ -269,15 +269,7 @@ export class SLVProvider {
       const decoder = new TextDecoder()
       let sseBuffer = ''
       let assistantText = ''
-      const finalContent: Array<
-        | { type: 'text'; text: string }
-        | {
-          type: 'tool_use'
-          id: string
-          name: string
-          input: Record<string, unknown>
-        }
-      > = []
+      const finalContent: Record<string, unknown>[] = []
       const toolUseBlocks: {
         id: string
         name: string
@@ -288,6 +280,14 @@ export class SLVProvider {
       type BlockScratch =
         | { kind: 'text'; text: string }
         | { kind: 'tool_use'; id: string; name: string; partialJson: string }
+        | {
+          kind: 'thinking'
+          block: Record<string, unknown> & {
+            thinking: string
+            signature: string
+          }
+        }
+        | { kind: 'redacted_thinking'; block: Record<string, unknown> }
       const scratch = new Map<number, BlockScratch>()
 
       try {
@@ -314,17 +314,21 @@ export class SLVProvider {
             let p: {
               type: string
               index?: number
-              content_block?: {
+              content_block?: Record<string, unknown> & {
                 type: string
                 id?: string
                 name?: string
                 text?: string
+                thinking?: string
+                signature?: string
               }
               delta?: {
                 type?: string
                 text?: string
                 partial_json?: string
                 stop_reason?: string
+                thinking?: string
+                signature?: string
               }
               error?: { message?: string }
             }
@@ -337,6 +341,20 @@ export class SLVProvider {
               const idx = p.index ?? 0
               if (p.content_block.type === 'text') {
                 scratch.set(idx, { kind: 'text', text: '' })
+              } else if (p.content_block.type === 'thinking') {
+                scratch.set(idx, {
+                  kind: 'thinking',
+                  block: {
+                    ...p.content_block,
+                    thinking: p.content_block.thinking ?? '',
+                    signature: p.content_block.signature ?? '',
+                  },
+                })
+              } else if (p.content_block.type === 'redacted_thinking') {
+                scratch.set(idx, {
+                  kind: 'redacted_thinking',
+                  block: { ...p.content_block },
+                })
               } else if (p.content_block.type === 'tool_use') {
                 scratch.set(idx, {
                   kind: 'tool_use',
@@ -358,6 +376,14 @@ export class SLVProvider {
                 // text_delta events for the client.
                 this.callbacks.onStream(assistantText)
               } else if (
+                p.delta.type === 'thinking_delta' && b.kind === 'thinking'
+              ) {
+                b.block.thinking += p.delta.thinking ?? ''
+              } else if (
+                p.delta.type === 'signature_delta' && b.kind === 'thinking'
+              ) {
+                b.block.signature += p.delta.signature ?? ''
+              } else if (
                 p.delta.type === 'input_json_delta' &&
                 b.kind === 'tool_use'
               ) {
@@ -369,6 +395,12 @@ export class SLVProvider {
               if (!b) continue
               if (b.kind === 'text') {
                 finalContent.push({ type: 'text', text: b.text })
+              } else if (
+                b.kind === 'thinking' || b.kind === 'redacted_thinking'
+              ) {
+                // Replay signed blocks exactly, including empty thinking text,
+                // so subsequent tool results retain the provider's context.
+                finalContent.push(b.block)
               } else {
                 let input: Record<string, unknown> = {}
                 try {
