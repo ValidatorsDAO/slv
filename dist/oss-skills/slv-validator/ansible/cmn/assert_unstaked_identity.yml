@@ -1,0 +1,30 @@
+---
+# The start script of the node starts it with --identity /home/solv/identity.json, so what that path resolves to is the
+# identity the node comes up with, on a first start and on every restart. Deploy puts no staked key on a node: the staked
+# key stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. So identity.json
+# has to resolve to unstaked-identity.json (cmn/setup_unstaked_identity.yml makes that link), and this play stops the
+# deploy before the node is started when it does not. The path of the unstaked identity is resolved through /home/solv,
+# so a link of identity.json to a file that unstaked-identity.json itself links to is not taken for the unstaked identity.
+- name: Check that the node starts with its unstaked identity
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Resolve the identity file of the start script
+      ansible.builtin.shell: |
+        printf '%s\n' "$(readlink -f /home/solv/identity.json)" "$(readlink -f /home/solv)/unstaked-identity.json"
+      args:
+        executable: /bin/bash
+      register: slv_identity
+      changed_when: false
+      check_mode: false
+
+    - name: Stop when the node would start with another identity
+      ansible.builtin.fail:
+        msg: >-
+          /home/solv/identity.json on {{ inventory_hostname }}
+          {{ ('resolves to ' ~ slv_identity.stdout_lines[0]) if (slv_identity.stdout_lines[0] | default('')) != '' else 'cannot be resolved' }},
+          not to {{ slv_identity.stdout_lines[1] | default('/home/solv/unstaked-identity.json') }}, so the node would start with another
+          identity than its unstaked one. Nothing was started. Link identity.json to the unstaked identity
+          (ln -sfn /home/solv/unstaked-identity.json /home/solv/identity.json) and run this again.
+      when: (slv_identity.stdout_lines[0] | default('')) != (slv_identity.stdout_lines[1] | default(''))

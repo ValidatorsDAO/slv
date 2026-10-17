@@ -1,43 +1,17 @@
 ---
-- name: Change Identity and Restart firedancer.service
+# This playbook linked /home/solv/identity.json to the staked key on the node (/home/solv/testnet-validator-keypair.json)
+# and restarted firedancer.service. Deploy puts no staked key on a node any more: the key stays on the controller
+# (~/.slv/keys/<identity>.json) and reaches the node on stdin during slv v set:identity and slv v switch, and a restarted
+# node comes back on its unstaked identity. So there is no staked key to link, and this play only refuses: its first task
+# fails and nothing else runs.
+- name: Change Identity and Restart firedancer.service (refused, the node has no staked key)
   hosts: all
-  become: true
-  become_user: solv
-
+  gather_facts: no
   tasks:
-    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
-      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
-      vars:
-        slv_alpenglow_network: testnet
-        slv_alpenglow_freeze: true
-
-    - name: Stop firedancer.service
-      ansible.builtin.systemd:
-        name: firedancer.service
-        state: stopped
-      become: true
-      become_user: root
-      register: stop_service_result
-
-    - name: Remove all files in /mnt/ledger/ using rm -rf
-      shell: sudo find /mnt/ledger/ -mindepth 1 -not -name 'tower-1_9-*' -not -name 'vote_history-*' -not -name 'contact-info.bin' -delete
-      become: true
-      become_user: root
-
-    - name: Remove all files in /mnt/snapshot/ using rm -rf
-      ansible.builtin.shell: rm -rf /mnt/snapshot/*
-      become: true
-      become_user: root
-
-    - name: Change Symbolic Link to Authoried Identity
-      shell: ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json
-      become: true
-      become_user: solv
-
-    - name: Start firedancer.service
-      ansible.builtin.systemd:
-        name: firedancer.service
-        state: started
-      become: true
-      become_user: root
-      register: start_service_result
+    - name: Refuse to link the identity to a key on the node
+      ansible.builtin.fail:
+        msg: >-
+          SLV_KEYLESS_REFUSED: change_identity_and_restart.yml links the identity of the node to a staked key on the
+          node, and slv does not put the staked key on a node: it stays on the controller and reaches the node on
+          stdin. Nothing was changed on {{ inventory_hostname }}. Use slv v set:identity -n testnet -p
+          {{ inventory_hostname }}, or slv v switch -n testnet to move the identity from one host to another.

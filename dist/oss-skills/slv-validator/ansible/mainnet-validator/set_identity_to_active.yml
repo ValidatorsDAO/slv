@@ -1,116 +1,16 @@
 ---
-- name: Set Identity to Mainnet Validator Key
+# This playbook set the identity from the staked key, which it took from a file on the node. Deploy puts no staked key
+# on a node any more: the key stays on the controller (~/.slv/keys/<identity>.json) and reaches the node on stdin
+# during slv v set:identity and slv v switch, and a restarted node comes back on its unstaked identity. So there is
+# nothing to set the identity from on the node, and this play only refuses: its first task fails and nothing else runs.
+- name: Set Identity to Mainnet Validator Key (refused, the node has no staked key)
   hosts: all
-  become: true
-  become_user: solv
   gather_facts: no
-  vars:
-    key_name: "{{ hostvars[inventory_hostname].identity_account }}.json"
-    local_key_path: "~/.slv/keys/{{ key_name }}"
   tasks:
-    - name: Refuse an identity_account that is not a base58 public key, it names files on the controller
-      ansible.builtin.assert:
-        that:
-          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
-        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the key file on the controller. Nothing was changed on {{ inventory_hostname }}."
-        quiet: true
-
-    - name: Set validator type fact for each host
-      set_fact:
-        validator_type: "{{ validator_type | default('jito') }}"
-
-    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
-      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
-      vars:
-        slv_alpenglow_network: mainnet
-        slv_alpenglow_freeze: true
-
-    - name: Refuse to set the identity from the vote history file of the host on Alpenglow
-      ansible.builtin.assert:
-        that:
-          - slv_alpenglow_state != 'alpenglow'
-        fail_msg: "set_identity_to_active.yml sets the identity from the vote history file that is on {{ inventory_hostname }} and checks nothing else, and on a cluster that runs Alpenglow that file can be older than the last vote of the node that ran the identity. Use slv v set:identity -n mainnet -p {{ inventory_hostname }} (with the vote history file in /mnt/ledger, with --primary-down when the old primary is down, or with --first-activation when the vote account has not voted since the Alpenglow genesis): it checks first that nothing votes with the identity, that the host has caught up and where the identity is in gossip. Nothing was changed on {{ inventory_hostname }}."
-        quiet: true
-
-    - name: Refuse a Firedancer or Frankendancer host as a mainnet identity target
-      ansible.builtin.assert:
-        that:
-          - validator_type not in ['firedancer-agave', 'firedancer-jito', 'frankendancer']
-        fail_msg: "Firedancer and Frankendancer cannot take a mainnet identity: the Alpenglow migration (mainnet epoch 1064) does not support them. Move the identity to an agave, jito or allnodes-jito host. Nothing was changed."
-        quiet: true
-
-    - name: Look for the local validator key file
-      become: false
-      delegate_to: localhost
-      stat:
-        path: "{{ local_key_path }}"
-      register: key_file_stat
-
-    - name: Stop if key file not found
-      fail:
-        msg: "Key file not found: {{ local_key_path }}"
-      when: not key_file_stat.stat.exists
-
-    - name: Read local validator key file securely (base64)
-      become: false
-      delegate_to: localhost
-      slurp:
-        src: "{{ local_key_path }}"
-      register: key_file
-      no_log: true
-
-    - name: Set Identity to Validator Key via stdin
-      shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity
-      args:
-        stdin: "{{ key_file.content | b64decode }}"
-        executable: /bin/bash
-      register: set_identity_result
-      timeout: 20
-      no_log: true
-      failed_when: false
-      ignore_errors: true
-      when: validator_type == 'jito'
-
-    - name: Stop when set-identity failed, with what agave said
+    - name: Refuse to set the identity from a key on the node
       ansible.builtin.fail:
         msg: >-
-          agave-validator set-identity failed on {{ inventory_hostname }} ({{ ("rc " ~ set_identity_result.rc) if set_identity_result.rc is defined else (set_identity_result.msg | default("no answer")) }}):
-          {{ ((set_identity_result.stdout | default('')) ~ ' ' ~ (set_identity_result.stderr | default(''))) | trim }}
-      when:
-        - set_identity_result is not skipped
-        - (set_identity_result.rc | default(1)) != 0
-
-    - name: Set Identity to Active Validator Key
-      shell: |
-        . ~/.profile
-        sudo fdctl set-identity --config /home/solv/firedancer-config.toml /home/solv/mainnet-validator-keypair.json
-      args:
-        executable: /bin/bash
-      when: validator_type == 'firedancer'
-
-
-    - name: Add Authorized Voter via stdin
-      shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add
-      args:
-        stdin: "{{ key_file.content | b64decode }}"
-        executable: /bin/bash
-      register: add_voter_result
-      timeout: 20
-      no_log: true
-      failed_when: false
-      ignore_errors: true
-      when: validator_type == 'jito'
-
-    - name: Stop when authorized-voter add did not run to its end
-      ansible.builtin.fail:
-        msg: >-
-          agave-validator authorized-voter add did not run to its end on {{ inventory_hostname }} ({{ add_voter_result.msg | default('no answer') }}).
-          The identity was set on {{ inventory_hostname }} before this step.
-      when: add_voter_result is failed
-
-    - name: Add Authorized Voter
-      shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/mainnet-validator-keypair.json
-      args:
-        executable: /bin/bash
-      failed_when: false
-      when: validator_type == 'firedancer'
+          SLV_KEYLESS_REFUSED: set_identity_to_active.yml sets the identity from a staked key on the node, and slv does
+          not put the staked key on a node: it stays on the controller and reaches the node on stdin. Nothing was
+          changed on {{ inventory_hostname }}. Use slv v set:identity -n mainnet -p {{ inventory_hostname }}, or
+          slv v switch -n mainnet to move the identity from one host to another.

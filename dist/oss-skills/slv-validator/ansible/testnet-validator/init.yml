@@ -23,7 +23,6 @@
 - import_playbook: ../cmn/copy_restart_sh.yml
   vars:
     restarter_snapshot_network: testnet
-- import_playbook: copy_keys.yml
 - import_playbook: ../cmn/add_solv.yml
 - import_playbook: ../cmn/install_package.yml
 - import_playbook: ../cmn/setup_node_exporter.yml
@@ -38,22 +37,23 @@
     versions_section: testnet_validators
 
 - import_playbook: ../cmn/setup_unstaked_identity.yml
+- import_playbook: ../cmn/assert_unstaked_identity.yml
 
 - import_playbook: setup_firedancer.yml
   when: validator_type in ['firedancer-agave', 'firedancer-jito']
 
 - import_playbook: setup_solv_service.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: deploy-start-validator-sh.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 # Testnet does NOT use ERPC mainnet snapshots.
 # If a snapshot is needed, use snapshot_finder or provide snapshot_url manually.
 # - import_playbook: ../cmn/wget_snapshot.yml
 
 - import_playbook: start_solv.yml
-  when: validator_type in ['agave', 'jito']
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
 - import_playbook: start_firedancer.yml
   when: validator_type in ['firedancer-jito', 'firedancer-agave']
