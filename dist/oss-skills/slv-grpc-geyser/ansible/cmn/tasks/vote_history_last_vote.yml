@@ -78,7 +78,7 @@
 
 - name: Refuse a vote account that belongs to another identity
   ansible.builtin.fail:
-    msg: "The cluster names the identity {{ slv_lv_node }} for the vote account {{ slv_lv_vote_account }} (nodePubkey in getVoteAccounts), not the identity_account {{ slv_lv_identity }} of {{ inventory_hostname }}. The inventory pairs the identity with the wrong vote account, and what that vote account shows says nothing about this identity, so nothing was changed. Fix vote_account or identity_account in the inventory."
+    msg: "The cluster names the identity {{ slv_lv_node }} for the vote account {{ slv_lv_vote_account }} (nodePubkey in getVoteAccounts), not the identity_account {{ slv_lv_identity }} of {{ inventory_hostname }}. The inventory pairs the identity with the wrong vote account, and what that vote account shows says nothing about this identity. Fix vote_account or identity_account in the inventory."
   when:
     - slv_lv_identity | default('', true) | length > 0
     - slv_lv_node | default('', true) | length > 0
@@ -91,5 +91,5 @@
       {%- if slv_lv_last | int(-1) >= 0 -%}
       {%- elif slv_lv_vote_account | default('', true) | length == 0 -%}the inventory has no vote_account for this host
       {%- elif slv_lv_reply is skipped or (slv_lv_reply.status | default(-1)) != 200 or body is not mapping or body.result is not defined or body.result is not mapping -%}the cluster did not give a readable answer to getVoteAccounts
-      {%- else -%}the cluster does not list the vote account {{ slv_lv_vote_account }} with a last vote (getVoteAccounts)
+      {%- else -%}the vote account {{ slv_lv_vote_account }} is not on the cluster: getVoteAccounts does not list it, although it keeps the unstaked accounts that have not voted (keepUnstakedDelinquents)
       {%- endif -%}

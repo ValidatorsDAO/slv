@@ -259,7 +259,9 @@ and the message says that both hosts are unstaked and what to do by hand.
 file. Votor needs it to keep from voting twice in a slot.
 1. Before the demotion: `from_host` must hold that file, or the switch stops with
    nothing changed. `from_host` and `to_host` must carry the same
-   `identity_account` in the inventory.
+   `identity_account` in the inventory, and the `vote_account` of `from_host` must
+   belong to it (the cluster names that identity as its `nodePubkey`), or the switch
+   stops there too.
 2. `set-identity` to unstaked on `from_host`. The admin RPC returns before Votor
    has handled the change, so the switch waits (60 seconds at most) for Votor's
    log line `set-identity: from <identity> to ...` in the validator log and for
@@ -351,8 +353,10 @@ about one minute (270 slots at about 0.22 seconds a slot) before you run the com
 A play that holds more than one host with the same `identity_account` stops on
 Alpenglow: each host would pass the checks before any host sets the identity. Run it
 for one host at a time. `--first-activation` skips the checks, and so the playbook
-refuses it when the vote account has a last vote (the identity has voted), or when
-the cluster cannot show that it has not.
+asks the cluster for the vote account with `keepUnstakedDelinquents` and refuses
+it when the last vote is above 0 (the identity has voted), when the answer cannot
+be read, or when the vote account is not on the cluster. A vote account that exists
+and has never voted is listed with a last vote of 0, and the first activation goes on.
 
 A staked node can stay in the gossip table for a long time after it stops, so an
 entry of the identity at the address of the old primary does not show that it runs;
