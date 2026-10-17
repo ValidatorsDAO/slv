@@ -5,7 +5,11 @@ import {
   assertStringIncludes,
   assertThrows,
 } from '@std/assert'
-import { checkSecretContext, type ContextDeps } from '/lib/secret/context.ts'
+import {
+  checkSecretContext,
+  type ContextDeps,
+  defaultContextDeps,
+} from '/lib/secret/context.ts'
 import { parseIdentityRef } from '/lib/secret/identityRef.ts'
 import {
   checkRefVault,
@@ -39,14 +43,22 @@ const withoutToken: KeylessConfig = {
 
 /** A context that is fine: a terminal, no marker, no node, an empty environment. */
 const context = (
-  overrides: { env?: Record<string, string>; files?: string[]; tty?: boolean } =
-    {},
+  overrides: {
+    env?: Record<string, string>
+    files?: string[]
+    /** Paths that cannot be looked at: looking for them is an error. */
+    unreadable?: string[]
+    tty?: boolean
+  } = {},
 ): ContextDeps => {
   const env = overrides.env ?? {}
   return {
     env: (name) => env[name],
     envNames: () => Object.keys(env),
-    exists: (path) => Promise.resolve((overrides.files ?? []).includes(path)),
+    exists: (path) =>
+      (overrides.unreadable ?? []).includes(path)
+        ? Promise.reject(new Error(`PermissionDenied: ${path}`))
+        : Promise.resolve((overrides.files ?? []).includes(path)),
     canOpenTty: () => Promise.resolve(overrides.tty ?? true),
   }
 }
@@ -87,6 +99,34 @@ Deno.test('the context refuses a read without a terminal, from the AI console, o
       withToken,
       { files: ['/etc/systemd/system/solv.service'] },
       'is a node',
+    ],
+    [
+      'a Firedancer node by its service',
+      'testnet',
+      withToken,
+      { files: ['/etc/systemd/system/firedancer.service'] },
+      'is a node',
+    ],
+    [
+      'a marker that cannot be looked for',
+      'testnet',
+      withToken,
+      { unreadable: ['/etc/slv/no-op-resolution'] },
+      'could not be looked for',
+    ],
+    [
+      'the unstaked key of a node that cannot be looked for',
+      'testnet',
+      withToken,
+      { unreadable: ['/home/solv/unstaked-identity.json'] },
+      'could not be looked for',
+    ],
+    [
+      'the service of a node that cannot be looked for',
+      'testnet',
+      withToken,
+      { unreadable: ['/etc/systemd/system/firedancer.service'] },
+      'could not be looked for',
     ],
     ['mainnet with the token configured', 'mainnet', withToken, {}, 'mainnet'],
     [
@@ -426,6 +466,38 @@ Deno.test('the vault of mainnet is a vault of its own: a testnet or devnet vault
       OTHER_VAULT,
     )
   } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('the real look for a marker: a path that is not there is absent, a link with nothing at its end is there, and a path that cannot be looked at is an error and not an absent marker', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'slv-marker-' })
+  const real = defaultContextDeps()
+  try {
+    assertEquals(await real.exists(`${dir}/absent`), false)
+    await Deno.writeTextFile(`${dir}/there`, '')
+    assertEquals(await real.exists(`${dir}/there`), true)
+    await Deno.symlink(`${dir}/nothing-at-the-end`, `${dir}/dangling`)
+    assertEquals(await real.exists(`${dir}/dangling`), true)
+    // An unprivileged user cannot look inside a directory without the right to search it; root can.
+    if (Deno.uid() !== 0) {
+      await Deno.mkdir(`${dir}/locked`, { mode: 0o000 })
+      await assertRejects(() => real.exists(`${dir}/locked/marker`))
+      // And the check refuses on it, with the marker named.
+      const reason = await checkSecretContext(
+        'testnet',
+        withToken,
+        {
+          ...context(),
+          exists: (path) =>
+            real.exists(path.replace('/etc/slv', `${dir}/locked`)),
+        },
+      )
+      assert(reason !== null)
+      assertStringIncludes(reason, 'could not be looked for')
+    }
+  } finally {
+    await Deno.chmod(`${dir}/locked`, 0o700).catch(() => undefined)
     await Deno.remove(dir, { recursive: true })
   }
 })

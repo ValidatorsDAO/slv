@@ -11,6 +11,7 @@ import {
 type ContextDeps = {
   env: (name: string) => string | undefined
   envNames: () => string[]
+  /** Whether a path is there; it rejects when that cannot be told. */
   exists: (path: string) => Promise<boolean>
   /** True when /dev/tty can be opened. */
   canOpenTty: () => Promise<boolean>
@@ -19,12 +20,14 @@ type ContextDeps = {
 const defaultContextDeps = (): ContextDeps => ({
   env: (name) => Deno.env.get(name),
   envNames: () => Object.keys(Deno.env.toObject()),
+  // Only a path that is not there is absent. A link with nothing at its end is there, and a path that cannot be looked at is an error.
   exists: async (path) => {
     try {
-      await Deno.stat(path)
+      await Deno.lstat(path)
       return true
-    } catch (_error) {
-      return false
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) return false
+      throw error
     }
   },
   canOpenTty: async () => {
@@ -44,6 +47,7 @@ const NO_RESOLUTION_MARKER = '/etc/slv/no-op-resolution'
 const NODE_MARKERS = [
   '/home/solv/unstaked-identity.json',
   '/etc/systemd/system/solv.service',
+  '/etc/systemd/system/firedancer.service',
 ]
 
 const isTokenVariable = (name: string): boolean =>
@@ -65,11 +69,25 @@ const checkSecretContext = async (
   if (deps.env('SLV_EXECUTION_CONTEXT') === 'ai-console') {
     return 'this does not run from the AI console'
   }
-  if (await deps.exists(NO_RESOLUTION_MARKER)) {
+  // A marker that cannot be looked for is not an absent marker.
+  const there = async (path: string): Promise<boolean | string> => {
+    try {
+      return await deps.exists(path)
+    } catch (error) {
+      return `${path} could not be looked for (${
+        error instanceof Error ? error.message : String(error)
+      }), so it is not known whether this machine is one where a key is resolved`
+    }
+  }
+  const marked = await there(NO_RESOLUTION_MARKER)
+  if (typeof marked === 'string') return marked
+  if (marked) {
     return `${NO_RESOLUTION_MARKER} exists: no key is resolved on this machine`
   }
   for (const marker of NODE_MARKERS) {
-    if (await deps.exists(marker)) {
+    const found = await there(marker)
+    if (typeof found === 'string') return found
+    if (found) {
       return `${marker} exists: this machine is a node, and a key is not resolved on a node`
     }
   }
