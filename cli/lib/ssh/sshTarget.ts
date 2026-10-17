@@ -149,5 +149,5 @@ const parseSshTarget = (
   }
 }
 
-export { parseSshTarget, TargetError }
+export { parseSshTarget, plain as plainValue, TargetError }
 export type { SshTarget }
