@@ -5,10 +5,28 @@
   vars:
     home_paths_authorized_keys: /home/solv/.ssh/authorized_keys
     ansible_remote_tmp: /tmp/ansible_tmp
-    local_public_key_path: "{{ lookup('env', 'HOME') + '/.ssh/id_rsa.pub' }}"
+    # The key to authorize is the public key of the private key that the inventory names for the host (the key
+    # Ansible connects with, and keeps using for solv once this play has run); ~/.ssh/id_rsa.pub when it names none.
+    local_public_key_path: "{{ ((ansible_ssh_private_key_file | expanduser) ~ '.pub') if (ansible_ssh_private_key_file | default('', true)) != '' else (lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
   vars_files:
     - ~/.slv/config.pwd.yml
   tasks:
+    - name: Look for the public key to authorize
+      become: false
+      delegate_to: localhost
+      stat:
+        path: "{{ local_public_key_path }}"
+        follow: true
+      register: local_public_key_stat
+
+    - name: Stop when the public key to authorize does not exist
+      fail:
+        msg: >-
+          The public key {{ local_public_key_path }} does not exist, so there is no key to authorize for solv on {{ inventory_hostname }}.
+          {{ ('It is the public key of the private key ' ~ ansible_ssh_private_key_file ~ ', which the inventory names for ' ~ inventory_hostname ~ ': create it next to the private key (ssh-keygen -y -f ' ~ ansible_ssh_private_key_file ~ ' > ' ~ local_public_key_path ~ ').') if (ansible_ssh_private_key_file | default('', true)) != '' else 'The inventory names no ansible_ssh_private_key_file for this host, so the public key of ~/.ssh/id_rsa is used: create it, or name the private key in the inventory with ansible_ssh_private_key_file.' }}
+          Nothing was changed on {{ inventory_hostname }}.
+      when: not local_public_key_stat.stat.exists
+
     - name: Ensure solv user exists
       user:
         name: solv

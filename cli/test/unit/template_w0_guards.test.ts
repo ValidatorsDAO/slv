@@ -3233,3 +3233,78 @@ Deno.test('display names: no template playbook reads the host name var without a
     )
   }
 })
+
+// A `vars:` entry of a play, block or task that reads its own name ("x: {{ x | default('a') }}") fails on every run with
+// "recursive loop detected in template string", whether or not the inventory sets x: the entry is x, so x reads itself.
+// The way to take a value from the caller with a default is an entry of its own name that reads the caller's variable
+// (slv_x: "{{ x | default('a') }}"). A set_fact is not a `vars:` entry: it stores the value it reads, and may read its own name.
+const jinjaSegments = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
+const stringLiterals = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g
+const stringsOf = (value: unknown): string[] =>
+  typeof value === 'string'
+    ? [value]
+    : Array.isArray(value)
+    ? value.flatMap(stringsOf)
+    : value !== null && typeof value === 'object'
+    ? Object.values(value).flatMap(stringsOf)
+    : []
+const readsItself = (name: string, value: unknown): boolean => {
+  // the name as a variable of an expression: not behind a dot (an attribute), not inside a string literal
+  const read = new RegExp(
+    `(?<![\\w.])${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`,
+  )
+  return stringsOf(value).some((text) =>
+    (text.match(jinjaSegments) ?? []).some((segment) =>
+      read.test(segment.replaceAll(stringLiterals, "''"))
+    )
+  )
+}
+const varsReadingThemselves = (node: unknown): string[] => {
+  if (Array.isArray(node)) return node.flatMap(varsReadingThemselves)
+  if (node === null || typeof node !== 'object') return []
+  const entry = node as Entry
+  const own = entry.vars !== null && typeof entry.vars === 'object' &&
+      !Array.isArray(entry.vars)
+    ? Object.entries(entry.vars as Entry)
+      .filter(([name, value]) => readsItself(name, value))
+      .map(([name]) => name)
+    : []
+  return [...own, ...Object.values(entry).flatMap(varsReadingThemselves)]
+}
+
+Deno.test('vars: no play, block or task variable of the template reads its own name', () => {
+  // what the detector refuses and what it lets through, so that an empty result below means something
+  assertEquals(
+    varsReadingThemselves(parse(`
+- hosts: all
+  vars:
+    loops: "{{ loops | default('a') }}"
+    loops_in_a_list: ["{{ loops_in_a_list }}"]
+    loops_in_a_block: "{% if loops_in_a_block %}x{% endif %}"
+    fine_other_name: "{{ loops_in_a_block | default('b') }}"
+    fine_attribute: "{{ item.fine_attribute }}"
+    fine_hostvars: "{{ hostvars[inventory_hostname].fine_hostvars }}"
+    fine_text: "fine_text is a name, not an expression"
+    fine_literal: "{{ other | default('fine_literal') }}"
+    fine_prefix: "{{ fine_prefix_of_another }}"
+  tasks:
+    - name: a task
+      ansible.builtin.set_fact:
+        validator_type: "{{ validator_type | default('agave') }}"
+      vars:
+        task_loops: "{{ task_loops }}"
+`)),
+    ['loops', 'loops_in_a_list', 'loops_in_a_block', 'task_loops'],
+  )
+  const found: string[] = []
+  for (const file of listAnsibleFiles('')) {
+    for (const name of varsReadingThemselves(parse(readText(file)))) {
+      found.push(`${file}: ${name}`)
+    }
+  }
+  assertEquals(
+    found,
+    [],
+    'an entry of vars: that reads its own name fails with "recursive loop detected in template string": give it a name of its own that reads the caller variable',
+  )
+})
