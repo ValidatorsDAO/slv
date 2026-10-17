@@ -270,10 +270,8 @@ Deno.test('the reference is written to every inventory entry that has the identi
   const lines = captured.info.join('\n')
   assertStringIncludes(lines, REF)
   assertStringIncludes(lines, 'ams1, ams2')
-  assertStringIncludes(
-    lines,
-    `slv v keys:check -n testnet --ref ${REF} --pubkey ${IDENTITY}`,
-  )
+  // The check of a host: the entry has the reference now.
+  assertStringIncludes(lines, 'slv v keys:check -n testnet -p ams1')
   assertStringIncludes(lines, `The key file ${KEY_PATH} was not removed`)
   assertStringIncludes(
     lines,

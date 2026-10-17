@@ -37,6 +37,8 @@ Deno.test('keys:gen, keys:import, keys:check, keys:try and hosts:pin are added t
     [
       '-n',
       '--network',
+      '-p',
+      '--host',
       '--ref',
       '--pubkey',
     ],

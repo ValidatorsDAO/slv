@@ -41,19 +41,24 @@ const registerKeylessCommands = (parentCmd: Command): void => {
 
   parentCmd.command('keys:check')
     .description(
-      '🔍 Read a key from its reference and show its public key (no node is touched)',
+      '🔍 Read the key of a host and show that it is the key of its identity_account (no node is touched)',
     )
     .option('-n, --network <network>', 'Solana Network', {
       default: 'testnet',
     })
+    .option('-p, --host <host>', 'Inventory name of the host.')
     .option(
       '--ref <ref>',
-      'Reference of the key: op://<vault id>/<item id>/keypair',
+      'Reference of a key that has no host: op://<vault id>/<item id>/keypair (with --pubkey)',
     )
-    .option('--pubkey <pubkey>', 'The public key that the key has to have.')
+    .option(
+      '--pubkey <pubkey>',
+      'The public key that the key of --ref has to have.',
+    )
     .action(async (options) => {
       await checkKey({
         network: options.network,
+        host: options.host,
         ref: options.ref,
         pubkey: options.pubkey,
       })

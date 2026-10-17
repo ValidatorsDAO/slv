@@ -77,7 +77,10 @@ Deno.test('a keyless verb run with the environment of a console command is refus
     [
       'keys:check',
       (setup, io) =>
-        checkKey({ network: 'testnet', ref: refOf() }, { setup, io }),
+        checkKey(
+          { network: 'testnet', ref: refOf(), pubkey: KEY_A.pubkey },
+          { setup, io },
+        ),
     ],
     [
       'keys:gen',
@@ -118,7 +121,11 @@ Deno.test('a keyless verb run with the environment of a console command is refus
   const op = scriptedOp(() => ({ success: true, stdout: KEY_A.canonical }))
   const captured = captureIo()
   assertEquals(
-    await checkKey({ network: 'testnet', ref: refOf() }, {
+    await checkKey({
+      network: 'testnet',
+      ref: refOf(),
+      pubkey: KEY_A.pubkey,
+    }, {
       setup: setupDeps(op.op, { context: contextOf(terminalEnv) }),
       io: captured.io,
     }),

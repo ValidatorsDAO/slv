@@ -365,7 +365,7 @@ const importKey = async (
     deps.io.info(`   ref    ${ref.text}`)
     deps.io.info(`   hosts  ${latest.names.join(', ')}`)
     deps.io.info(
-      `   check it: slv v keys:check -n ${network} --ref ${ref.text} --pubkey ${identityAccount}`,
+      `   check it: slv v keys:check -n ${network} -p ${host}`,
     )
     deps.io.info(
       `   The key file ${keyPath} was not removed. Remove it yourself after you have checked the key.`,
