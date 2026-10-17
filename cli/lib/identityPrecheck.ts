@@ -925,7 +925,7 @@ const runSetIdentity = async (
   if (options.primaryDown) {
     if (options.firstActivation) {
       return refuse(
-        '--primary-down and --first-activation exclude each other: --first-activation is for a vote account that has not voted since the Alpenglow genesis (or never), and --primary-down for taking the identity over from a host that held it.',
+        '--primary-down and --first-activation exclude each other: --first-activation is for an identity that has never voted on TowerBFT, and for a vote account that has not voted since the genesis certificate on Alpenglow; --primary-down is for taking the identity over from a host that held it.',
       )
     }
     if (!deps.isTty()) {
@@ -958,7 +958,7 @@ const runSetIdentity = async (
   const peers = peersHoldingIdentity(target, hosts)
   if (options.primaryDown && peers.length === 0) {
     return refuse(
-      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down the identity is set from the tower file on ${target.name} under TowerBFT; under Alpenglow the vote history file must be on ${target.name}. When the vote account has voted only before Alpenglow there is no vote history file: use slv v set:identity -n ${network} -p ${target.name} --first-activation, and the vote account is checked against the genesis certificate first.`,
+      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down: under TowerBFT the identity is set from the tower file on ${target.name}, and --first-activation is only for an identity that has never voted (the playbook then sets it without a tower file); under Alpenglow the vote history file must be on ${target.name}, and when the vote account has not voted since the Alpenglow genesis there is no vote history file: use slv v set:identity -n ${network} -p ${target.name} --first-activation, which checks the vote account against the genesis certificate first.`,
     )
   }
 

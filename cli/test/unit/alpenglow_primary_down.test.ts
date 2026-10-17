@@ -188,7 +188,7 @@ Deno.test('set:identity --primary-down and --first-activation exclude each other
   assertEquals(h.exitCodes, [1])
   assertStringIncludes(
     h.errors.join('\n'),
-    '--first-activation is for a vote account that has not voted since the Alpenglow genesis (or never), and --primary-down for taking the identity over from a host that held it',
+    '--first-activation is for an identity that has never voted on TowerBFT, and for a vote account that has not voted since the genesis certificate on Alpenglow; --primary-down is for taking the identity over from a host that held it',
   )
 })
 
@@ -203,16 +203,24 @@ Deno.test('set:identity --primary-down is refused when no other host of the inve
   assertEquals(h.exitCodes, [1])
   const text = h.errors.join('\n')
   assertStringIncludes(text, IDENTITY)
-  // What applies without --primary-down depends on the consensus.
-  assertStringIncludes(text, 'tower file on val-primary under TowerBFT')
+  // What applies without --primary-down depends on the consensus, and each
+  // rule is said under its own: the never-voted rule under TowerBFT, the
+  // genesis certificate under Alpenglow.
   assertStringIncludes(
     text,
-    'under Alpenglow the vote history file must be on val-primary',
+    'under TowerBFT the identity is set from the tower file on val-primary, and --first-activation is only for an identity that has never voted',
   )
   assertStringIncludes(
     text,
-    'slv v set:identity -n testnet -p val-primary --first-activation',
+    'under Alpenglow the vote history file must be on val-primary, and when the vote account has not voted since the Alpenglow genesis there is no vote history file',
   )
+  assertStringIncludes(
+    text,
+    'slv v set:identity -n testnet -p val-primary --first-activation, which checks the vote account against the genesis certificate first',
+  )
+  const [tower, votor] = text.split('; under Alpenglow')
+  assertEquals(tower.includes('genesis'), false)
+  assertStringIncludes(votor, 'genesis certificate')
 })
 
 Deno.test('set:identity --primary-down asks for the inventory name of the old primary, and any other answer runs nothing', async () => {
