@@ -11,6 +11,7 @@ import {
   openSshSession,
   parseEffectiveConfig,
   pinsFor,
+  SshNotPinned,
   SshRefusal,
   type SshSpawn,
   verifyEffectiveConfig,
@@ -267,6 +268,12 @@ Deno.test('a session is not opened when ssh -G shows a setting that differs from
           'slv v hosts:pin -n testnet -p node-1',
         )
       }
+      // A host that is not pinned is told apart from one refused for another reason: the commands that move an identity pin it on the spot.
+      assertEquals(
+        error instanceof SshNotPinned,
+        !name.startsWith('a marker'),
+        name,
+      )
     })
   }
   // No file of pins at all.
@@ -275,6 +282,7 @@ Deno.test('a session is not opened when ssh -G shows a setting that differs from
     SshRefusal,
   )
   assertStringIncludes(none.message, 'is not pinned')
+  assertEquals(none instanceof SshNotPinned, true)
   assertEquals(real.spawned.length, 0)
   assertEquals(pinsFor(`${ALIAS} ssh-ed25519 ${ED_1}\n# c\n`, ALIAS).length, 1)
 })

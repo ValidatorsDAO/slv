@@ -79,6 +79,14 @@ class SshRefusal extends Error {
   }
 }
 
+/** The host has no pin in the file of pins. */
+class SshNotPinned extends SshRefusal {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SshNotPinned'
+  }
+}
+
 const SAFE_PATH = /^\/[A-Za-z0-9._/-]+$/
 
 const SSH_TIMEOUT_MS = 20_000
@@ -364,7 +372,7 @@ const openSshSession = async (
       // No file of pins is no pin.
     }
     if (pins.length === 0) {
-      throw new SshRefusal(
+      throw new SshNotPinned(
         `${target.name} (${target.alias}) is not pinned. Pin it first: slv v hosts:pin -n ${network} -p ${target.name}`,
       )
     }
@@ -414,6 +422,7 @@ export {
   parseEffectiveConfig,
   pinsFor,
   SSH_TIMEOUT_MS,
+  SshNotPinned,
   SshRefusal,
   verifyEffectiveConfig,
 }

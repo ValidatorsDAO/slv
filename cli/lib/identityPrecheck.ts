@@ -7,6 +7,12 @@ import {
   type Consensus,
   readAlpenglowState,
 } from '/lib/alpenglowState.ts'
+import {
+  asRecords,
+  RPC_TIMEOUT_MS,
+  RPC_URLS,
+  rpcRequest,
+} from '/lib/clusterRpc.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import {
   type ExtraVars,
@@ -27,13 +33,6 @@ import {
 
 type IdentityNetwork = 'mainnet' | 'testnet'
 
-// Public RPC endpoints, as in registerBlsPubkey.ts.
-const RPC_URLS: Record<IdentityNetwork, string> = {
-  mainnet: 'https://api.mainnet-beta.solana.com',
-  testnet: 'https://api.testnet.solana.com',
-}
-
-const RPC_TIMEOUT_MS = 20_000
 const RUNNING_IDENTITY_PLAYBOOK = 'cmn/read_running_identity.yml'
 
 // A vote of the vote account this recent means that someone is voting with the
@@ -139,47 +138,6 @@ const resolveHostAddresses = async (host: string): Promise<string[]> => {
   }
   return [...found]
 }
-
-// --- JSON-RPC ---------------------------------------------------------------
-
-const rpcRequest = async (
-  deps: Pick<PrecheckDeps, 'fetch'>,
-  url: string,
-  method: string,
-  params?: unknown[],
-): Promise<unknown> => {
-  const response = await deps.fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method,
-      ...(params === undefined ? {} : { params }),
-    }),
-  })
-  if (!response.ok) {
-    throw new Error(`${method} returned HTTP ${response.status}`)
-  }
-  const body = await response.json() as {
-    result?: unknown
-    error?: { message?: string }
-  }
-  if (body.error) {
-    throw new Error(
-      `${method} failed: ${body.error.message ?? 'unknown error'}`,
-    )
-  }
-  if (body.result === undefined) throw new Error(`${method} returned no result`)
-  return body.result
-}
-
-const asRecords = (value: unknown): Record<string, unknown>[] =>
-  Array.isArray(value)
-    ? value.filter((item): item is Record<string, unknown> =>
-      typeof item === 'object' && item !== null
-    )
-    : []
 
 const describe = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
@@ -1041,15 +999,11 @@ const runSetIdentity = async (
 
 export {
   ALPENGLOW_VOTE_WINDOW_SLOTS,
-  asRecords,
   defaultPrecheckDeps,
   parseGossipIp,
   parseRunningIdentityLines,
   RECENT_VOTE_WINDOW_SLOTS,
   resolveHostAddresses,
-  RPC_TIMEOUT_MS,
-  RPC_URLS,
-  rpcRequest,
   runIdentityPrecheck,
   RUNNING_IDENTITY_PLAYBOOK,
   runSetIdentity,

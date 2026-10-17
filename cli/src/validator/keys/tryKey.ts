@@ -1,4 +1,3 @@
-import { BASE58_PUBKEY } from '/lib/secret/base58.ts'
 import {
   IdentityRefError,
   parseIdentityRef,
@@ -19,21 +18,20 @@ import {
 import { defaultTty, type Tty } from '/lib/secret/tty.ts'
 import { type UnusedDeps, whyNotUnused } from '/lib/secret/unusedPubkey.ts'
 import { checkRefVault, PolicyError } from '/lib/secret/vaultPolicy.ts'
-import {
-  defaultSshSpawn,
-  openSshSession,
-  SshRefusal,
-  type SshSession,
-} from '/lib/ssh/hardenedSsh.ts'
+import { SshRefusal, type SshSession } from '/lib/ssh/hardenedSsh.ts'
 import {
   defaultInventoryReader,
   type InventoryReader,
   readSshTarget,
 } from '/lib/ssh/inventoryTarget.ts'
-import { PINS_PATH } from '/lib/ssh/knownHosts.ts'
-import { parseContactInfoId } from '/lib/ssh/remoteCommands.ts'
+import {
+  readRunningId,
+  readUnstakedPubkey,
+  withStderr,
+} from '/lib/ssh/nodeReadings.ts'
+import { defaultOpenSession } from '/lib/ssh/openSession.ts'
+import { AGAVE_FAMILY } from '/lib/ssh/remoteCommands.ts'
 import { type SshTarget, TargetError } from '/lib/ssh/sshTarget.ts'
-import { findExecutable } from '/lib/secret/opCli.ts'
 import { defaultIo, describe, type Io } from '/src/validator/keys/io.ts'
 
 // keys:try puts a throwaway identity of 1Password on one testnet node for a
@@ -54,22 +52,6 @@ type TryDeps = {
   sleep: (ms: number) => Promise<void>
 }
 
-const defaultOpenSession = async (
-  target: SshTarget,
-  network: string,
-): Promise<SshSession> => {
-  const sshPath = await findExecutable('ssh', Deno.env.get('PATH'))
-  if (sshPath === null) {
-    throw new SshRefusal('ssh is not in an absolute directory of PATH')
-  }
-  return await openSshSession(target, network, {
-    spawn: defaultSshSpawn,
-    sshPath,
-    knownHostsPath: PINS_PATH,
-    parentEnv: (name) => Deno.env.get(name),
-  })
-}
-
 const defaultTryDeps = (): TryDeps => ({
   setup: defaultSecretSetupDeps(),
   reader: defaultInventoryReader(),
@@ -80,50 +62,9 @@ const defaultTryDeps = (): TryDeps => ({
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 })
 
-/** The kinds of node that run agave-validator, which is what the commands on the node are for. */
-const AGAVE_FAMILY: readonly string[] = ['agave', 'jito', 'allnodes-jito']
-
 /** How often the node is told to go back to its unstaked identity before it is given up on. */
 const REVERT_ATTEMPTS = 3
 const REVERT_PAUSE_MS = 2000
-
-type Reading = { id: string | null; note: string }
-
-const withStderr = (what: string, stderrLine: string): string =>
-  stderrLine === '' ? what : `${what}: ${stderrLine}`
-
-/** The identity that the validator of the node runs now. */
-const readRunningId = async (session: SshSession): Promise<Reading> => {
-  try {
-    const result = await session.run('guardContactInfo')
-    if (result.outcome !== 'ok') {
-      return {
-        id: null,
-        note: withStderr(`contact-info ${result.outcome}`, result.stderrLine),
-      }
-    }
-    const id = parseContactInfoId(result.stdout)
-    return id === null
-      ? { id: null, note: 'contact-info did not show an identity' }
-      : { id, note: '' }
-  } catch (error) {
-    return { id: null, note: describe(error) }
-  }
-}
-
-/** The public key of the unstaked identity file of the node, or null. */
-const readUnstakedPubkey = async (
-  session: SshSession,
-): Promise<string | null> => {
-  try {
-    const result = await session.run('unstakedPubkey')
-    if (result.outcome !== 'ok') return null
-    const text = result.stdout.trim()
-    return BASE58_PUBKEY.test(text) ? text : null
-  } catch (_error) {
-    return null
-  }
-}
 
 /** Sets the node back on its unstaked identity and reads the identity to prove it. */
 const putBack = async (

@@ -12,6 +12,9 @@ const PROFILE = '. ~/.profile </dev/null >/dev/null 2>&1;'
 const LEDGER = '/mnt/ledger'
 const UNSTAKED_IDENTITY = '/home/solv/unstaked-identity.json'
 
+/** The kinds of node that run agave-validator, which is what these commands are for. */
+const AGAVE_FAMILY: readonly string[] = ['agave', 'jito', 'allnodes-jito']
+
 /** How set-identity treats the tower and the vote history file of the node. */
 type SetIdentityFlag = 'none' | 'require-tower' | 'do-not-require-vote-history'
 
@@ -57,6 +60,7 @@ const setIdentityConfirmation = (pubkey: string): string =>
   `New validator identity: ${pubkey}`
 
 export {
+  AGAVE_FAMILY,
   parseContactInfoId,
   remoteCommands,
   setIdentityConfirmation,

@@ -3,7 +3,7 @@ import {
   RPC_TIMEOUT_MS,
   RPC_URLS,
   rpcRequest,
-} from '/lib/identityPrecheck.ts'
+} from '/lib/clusterRpc.ts'
 import { BASE58_PUBKEY } from '/lib/secret/base58.ts'
 
 // What the cluster says about the vote account of a host, held against the

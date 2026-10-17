@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert'
-import { RPC_URLS } from '/lib/identityPrecheck.ts'
+import { RPC_URLS } from '/lib/clusterRpc.ts'
 import { checkVoteBinding } from '/lib/secret/onchain.ts'
 
 const IDENTITY = '586Z7H2vpX9qNhN2T4e9Utugie3ogjbxzGaMtM3E6HR5'
