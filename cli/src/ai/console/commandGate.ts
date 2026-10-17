@@ -782,6 +782,10 @@ const SLV_NODE_VERB_PREFIXES = [
   'patch:',
   // Historical SLV binaries and scripts can still invoke these node operations.
   'doublezero:',
+  // keys:gen, keys:check and keys:try read, make or send a key; hosts:pin
+  // decides which ssh key of a node slv trusts
+  'keys:',
+  'hosts:',
 ]
 /** Other slv command groups whose every verb changes a node. */
 const SLV_NODE_GROUPS = new Set([
