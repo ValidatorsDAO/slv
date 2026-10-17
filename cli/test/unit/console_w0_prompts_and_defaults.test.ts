@@ -179,22 +179,28 @@ Deno.test('the write_file description and the validator onboarding text say who 
   includes(tools, 'gives both to the user to save themselves', 'tools.ts')
 })
 
-Deno.test('the validator prompts name the staked mainnet key as the template does', async () => {
-  const template = await source(
-    `${ROOT}/template/2026.6.6.2026/ansible/mainnet-validator/copy_keys.yml`,
-  )
-  includes(
-    template,
-    '/home/solv/mainnet-validator-keypair.json',
-    'copy_keys.yml',
-  )
-  for (const file of ['tools.ts', 'systemPrompt.ts']) {
-    const text = await source(`${SRC}/ai/console/${file}`)
-    includes(text, '/home/solv/mainnet-validator-keypair.json', file)
+Deno.test('the console prompts and the init flows say that the staked key stays on the controller and is never copied, and name no key file of it on the node', async () => {
+  for (
+    const path of [
+      'ai/console/tools.ts',
+      'ai/console/systemPrompt.ts',
+      'validator/init/initMainnetConfig.ts',
+      'validator/init/initTestnetConfig.ts',
+    ]
+  ) {
+    const text = await source(`${SRC}/${path}`)
+    assertFalse(
+      /(?:mainnet|testnet)-validator-keypair\.json/.test(text),
+      `${path}: names the staked key file as being on the node`,
+    )
     assertFalse(
       text.includes('/home/solv/<identity-pubkey>.json'),
-      `${file}: a pubkey-named staked key is left`,
+      `${path}: a pubkey-named staked key is left`,
     )
+    assertFalse(/copied from ~\/\.slv\/keys/.test(text), `${path}: says copied`)
+    includes(text, '~/.slv/keys/', path)
+    includes(text, 'deploy never copies', path)
+    includes(text, 'only on stdin', path)
   }
 })
 

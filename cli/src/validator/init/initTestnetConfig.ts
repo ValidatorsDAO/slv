@@ -52,9 +52,9 @@ const initTestnetConfig = async (
   }
   const inventoryPath = getInventoryPath(inventoryType)
 
-  console.log(colors.yellow(`⚠️ Please place your identity key in 
-        
-~/.slv/keys/${identityAccount}.json`))
+  console.log(colors.yellow(`⚠️ Please place your identity key in
+~/.slv/keys/${identityAccount}.json
+The key stays on this machine: deploy never copies it to the node, and slv v set:identity and slv v switch send it to the node only on stdin.`))
 
   let getNearRegion: RegionLatency | null = null
   if (isLocalhost) {
