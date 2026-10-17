@@ -7,9 +7,10 @@ authorized_keys of solv has to be the public key of that private key, whatever i
 the play stops, before it changes anything, and says which file it looked for.
 
 The play also gives solv sudo without a password, so the password it sets has to be a SHA-512 crypt hash ($6$<salt>$<hash>,
-what `openssl passwd -6` makes): the user module hands any password that is not None to useradd/usermod -p, so an empty
-value would leave solv with an empty password field. The play stops at its own task, before the user task and before it
-changes anything, for a value that is empty, missing or not such a hash, and says so.
+what `openssl passwd -6` makes, with a salt of 1 to 16 characters of ./0-9A-Za-z): the user module hands any password that
+is not None to useradd/usermod -p, so an empty value would leave solv with an empty password field. The play stops at its
+own task, before the user task and before it changes anything, for a value that is empty, missing or not such a hash (a
+colon, a newline or any other character in the salt, or a salt of 17 characters, included), and says so.
 
 The tests run the real ansible-playbook on this machine over a local connection, without become, sudo, a network or a
 host, with a temporary directory as HOME. The play's own vars: and its first two tasks (the look for the public key and the
@@ -23,6 +24,7 @@ need PyYAML and ansible-playbook (the one on PATH, or the one that ANSIBLE_PLAYB
 import functools
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -43,6 +45,28 @@ USER_TASK = "Ensure solv user exists"
 # a SHA-512 crypt hash, as `openssl passwd -6 -salt abcdefgh <password>` makes it
 SHA512_HASH = "$6$abcdefgh$d3.qg23mdXQOkqqjZXZyUXFhKyznlA8rakh8ntGy3dYyBAMvwwuIKlodGzggq4uszLBsp6LVbpJBYP/NCc/8.1"
 SHA512_DIGEST = SHA512_HASH.split("$")[3]
+# hashes that `openssl passwd -6 -stdin` made of three passwords, each with a salt of its own (one of them has a dot in it)
+OPENSSL_HASHES = [
+    "$6$tevPzUfuOPD9EYnb$poD8dOuIWbfquzPKHHk3rZA7rR4hAhKq9ZJcQP/di7CeJDCENCG1se0Jbges34qBwcqMRBFg/sH08eQp2IrvS1",
+    "$6$Kdi5DjzOFjQ6r.0F$yyM4jIrx3Pz8K359QDnQdJMZ4cErJnOEtpZVwChiVMuGX198vE.VKltvT8c7U3r0vsfjOO6tyMpmgYFikIokn.",
+    "$6$1dI6Xtg7.KEpZLv3$L6WleAE.wZE5XeYIb1BIfKb16ZlDEbGc6mkxB4tP4hQ8JJKyFFb7beeIowyT3NaCWajFdBWQNRCSYRG8rqfp61",
+]
+
+
+def live_openssl_hashes(count):
+    """Hashes that the openssl of this machine makes now, or none when it makes none (the openssl of macOS has no -6)."""
+    made = []
+    for number in range(count):
+        try:
+            done = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input="password %d" % number,
+                                  capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        text = done.stdout.strip()
+        if done.returncode != 0 or not text.startswith("$6$"):
+            return []
+        made.append(text)
+    return made
 
 
 def play_of_create_user():
@@ -147,8 +171,23 @@ HASHES = {
     "hash-no-hash": {"encrypted_password": "$6$abcdefgh$"},
     "hash-newline": {"encrypted_password": SHA512_HASH + "\n"},
     "hash-locked": {"encrypted_password": "!"},
+    # a salt is 1 to 16 characters of ./0-9A-Za-z: anything else in it, or more of it, is no salt of openssl passwd -6
+    "hash-salt-colon": {"encrypted_password": "$6$sa:lt$" + SHA512_DIGEST},
+    "hash-salt-newline": {"encrypted_password": "$6$sa\nlt$" + SHA512_DIGEST},
+    "hash-salt-17": {"encrypted_password": "$6$" + "s" * 17 + "$" + SHA512_DIGEST},
+    "hash-salt-space": {"encrypted_password": "$6$sa lt$" + SHA512_DIGEST},
+    "hash-salt-rounds": {"encrypted_password": "$6$rounds=5000$saltsalt$" + SHA512_DIGEST},
+    "hash-salt-dollar": {"encrypted_password": "$6$sa$lt$" + SHA512_DIGEST},
+    "hash-sha512-salt-1": {"encrypted_password": "$6$a$" + SHA512_DIGEST},
+    "hash-sha512-salt-alphabet": {"encrypted_password": "$6$./09AZaz$" + SHA512_DIGEST},
 }
-HASH_GOES_ON = {"hash-sha512", "hash-sha512-long-salt"}
+HASH_GOES_ON = {"hash-sha512", "hash-sha512-long-salt", "hash-sha512-salt-1", "hash-sha512-salt-alphabet"}
+BAD_SALT_HASHES = {"hash-salt-colon", "hash-salt-newline", "hash-salt-17", "hash-salt-space", "hash-salt-rounds",
+                   "hash-salt-dollar"}
+# the hashes that openssl made: three fixed ones, and some more when this machine's openssl can make them
+for number, made in enumerate(OPENSSL_HASHES + live_openssl_hashes(8)):
+    HASHES["hash-openssl-%d" % number] = {"encrypted_password": made}
+    HASH_GOES_ON.add("hash-openssl-%d" % number)
 
 
 @functools.lru_cache(maxsize=None)
@@ -236,6 +275,21 @@ class CreateUserSetsOnlyASha512CryptPassword(unittest.TestCase):
         self.assertEqual(task_named(play, USER_TASK)["user"]["password"], "{{ encrypted_password }}",
                          "the user task sets the value that the check looked at")
         self.assertIn("encrypted_password", task_named(play, HASH_TASK)["ansible.builtin.assert"]["that"][0])
+
+    def test_c10_a_salt_is_up_to_16_characters_of_the_crypt_alphabet(self):
+        result = run_hashes()
+        # a colon or a newline in the salt, a salt of 17 characters, and the other characters that a salt cannot have:
+        # the host fails at the task of the hash, and the play does not go on to the user task
+        self.assertEqual(result.past & BAD_SALT_HASHES, set(), "a salt that openssl passwd -6 cannot make got past the check:\n"
+                         + result.output[-3000:])
+        for name in sorted(BAD_SALT_HASHES):
+            with self.subTest(host=name):
+                self.assertRegex(result.output, r"fatal: \[%s\]: FAILED!" % re.escape(name))
+        # the hashes that openssl passwd -6 makes (three real ones, and the ones this machine's openssl made now), a
+        # salt of 1 character and a salt of the whole alphabet go on
+        goes_on = {name for name in HASH_GOES_ON if name.startswith("hash-openssl-")} | {"hash-sha512-salt-1", "hash-sha512-salt-alphabet"}
+        self.assertEqual(result.past & goes_on, goes_on, "a hash that openssl makes is refused:\n" + result.output[-3000:])
+        self.assertGreaterEqual(len([name for name in goes_on if name.startswith("hash-openssl-")]), len(OPENSSL_HASHES))
 
 
 if __name__ == "__main__":
