@@ -97,7 +97,11 @@ Deno.test('every description of auto_execute says that it runs read-only command
 
   // the refusal that points to auto_execute carries it as well
   const gate = await import('@/ai/console/commandGate.ts')
-  const refusal = gate.describeRefusal('ls', { gated: false, reasons: [] })
+  const refusal = gate.describeRefusal('ls', {
+    gated: false,
+    reasons: [],
+    forbidden: [],
+  })
   includes(refusal, 'auto_execute: true', 'refusal')
   includes(refusal, 'run read-only commands', 'refusal')
   includes(refusal, READ_ONLY_ONLY, 'refusal')
@@ -106,7 +110,7 @@ Deno.test('every description of auto_execute says that it runs read-only command
   // with auto_execute on, a line that is not read-only is told why
   const notReadOnly = gate.describeRefusal(
     'touch /tmp/x',
-    { gated: false, reasons: [] },
+    { gated: false, reasons: [], forbidden: [] },
     { autoExecute: true, notReadOnly: ['touch is not a read-only program'] },
   )
   includes(

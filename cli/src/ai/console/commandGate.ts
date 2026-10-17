@@ -30,6 +30,11 @@ export type CommandClassification = {
   gated: boolean
   /** The command words that put the line in a gated class. */
   reasons: string[]
+  /**
+   * The reasons, among those, for which a person's confirmation is not
+   * enough: the line never runs from the console.
+   */
+  forbidden: string[]
 }
 
 /**
@@ -44,6 +49,8 @@ type Found = string[] & {
   quotedSubstitution?: boolean
   /** A construct reads the value of a variable as an expression. */
   evaluates?: boolean
+  /** Reasons that no confirmation makes good: see CommandClassification. */
+  forbidden?: string[]
 }
 
 /** Stands in a word for text that is only known when the shell runs. */
@@ -1962,6 +1969,83 @@ function isNodeVerb(verb: string): boolean {
     SLV_NODE_VERB_PREFIXES.some((prefix) => verb.startsWith(prefix))
 }
 
+/**
+ * The slv verbs that read, make or send a key, or decide which key of a node is
+ * trusted. They refuse to run when slv sees that the AI console runs them, and
+ * the console has nothing to run them for, so a line with one is not run at all.
+ */
+const SLV_FORBIDDEN_VERB_PREFIXES = ['keys:', 'hosts:']
+
+function isForbiddenVerb(verb: string): boolean {
+  return SLV_FORBIDDEN_VERB_PREFIXES.some((prefix) => verb.startsWith(prefix))
+}
+
+/** A reason that gates the line and that no confirmation makes good. */
+function forbid(found: Found, reason: string): void {
+  found.push(reason)
+  ;(found.forbidden ??= []).push(reason)
+}
+
+/**
+ * The variables by which slv knows that a command comes from the AI console, and
+ * by which 1Password knows that it cannot ask a person. A line that sets,
+ * exports, unsets or drops them is what an AI console would write to run a
+ * verb as if a person had.
+ */
+const CONSOLE_VARIABLES = [
+  'SLV_EXECUTION_CONTEXT',
+  'OP_BIOMETRIC_UNLOCK_ENABLED',
+]
+
+const ASSIGNED_NAME = /^([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?\+?=/
+
+const holdsConsoleVariable = (text: string): boolean =>
+  CONSOLE_VARIABLES.some((name) => text.includes(name))
+
+/** An option of env (or exec) that leaves the command no environment. */
+const clearsEnvironment = (arg: string): boolean =>
+  arg === '-' || arg === '--ignore-environment' ||
+  /^-[A-Za-z]*i[A-Za-z]*$/.test(arg)
+
+const ENVIRONMENT_COMMANDS = new Set([
+  'unset',
+  'export',
+  'declare',
+  'typeset',
+  'readonly',
+  'local',
+])
+
+function guardEnvironment(
+  name: string,
+  args: string[],
+  words: string[],
+  found: Found,
+): void {
+  for (const word of words) {
+    const assigned = ASSIGNED_NAME.exec(word)?.[1]
+    if (assigned !== undefined && CONSOLE_VARIABLES.includes(assigned)) {
+      forbid(found, `a line that sets ${assigned}`)
+    }
+  }
+  if (ENVIRONMENT_COMMANDS.has(name)) {
+    if (args.some(holdsConsoleVariable)) {
+      forbid(found, `${name} of a variable that tells slv where a command runs`)
+    }
+  } else if (name === 'env') {
+    if (args.some(holdsConsoleVariable)) {
+      forbid(found, 'env given a variable that tells slv where a command runs')
+    }
+    if (args.some(clearsEnvironment)) {
+      forbid(found, 'env with an empty environment')
+    }
+  } else if (name === 'exec') {
+    if (args.some((arg) => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg))) {
+      forbid(found, 'exec with an empty environment')
+    }
+  }
+}
+
 function analyzeSlv(args: string[], found: Found): void {
   let i = 0
   while (i < args.length && args[i].startsWith('-')) i++
@@ -1980,12 +2064,17 @@ function analyzeSlv(args: string[], found: Found): void {
     if (hasUnknownPart(verb)) {
       found.push(`slv ${group} with a verb known only at run time`)
     } else if (isNodeVerb(verb.toLowerCase())) {
-      found.push(`slv ${group} ${verb.toLowerCase()}`)
+      if (isForbiddenVerb(verb.toLowerCase())) {
+        forbid(found, `slv ${group} ${verb.toLowerCase()}`)
+      } else {
+        found.push(`slv ${group} ${verb.toLowerCase()}`)
+      }
     }
     return
   }
   if (SLV_NODE_GROUPS.has(group) || isNodeVerb(group)) {
-    found.push(`slv ${group}`)
+    if (isForbiddenVerb(group)) forbid(found, `slv ${group}`)
+    else found.push(`slv ${group}`)
   }
 }
 
@@ -2622,10 +2711,12 @@ function analyzeWords(
   if (start < 0) return
   const name = commandName(words[start])
   if (name === null) {
+    guardEnvironment('', [], words, found)
     found.push('a command named only when the shell runs')
     return
   }
   const args = words.slice(start + 1)
+  guardEnvironment(name, args, words, found)
   if (evaluatesExpression(name, args)) found.evaluates = true
   if (
     (EVALUATING_BUILTINS.has(name) ||
@@ -2780,6 +2871,8 @@ function scanTokenStream(tokens: string[], found: Found): void {
       found.push(name)
     } else if (name === 'slv') {
       analyzeSlv(tokens.slice(i + 1), found)
+    } else if (name === 'env' || ENVIRONMENT_COMMANDS.has(name)) {
+      guardEnvironment(name, tokens.slice(i + 1), [], found)
     } else if (name === 'rm') {
       analyzeRm(tokens.slice(i + 1), found)
     } else if (name === 'systemctl' || name === 'service') {
@@ -2929,7 +3022,11 @@ export function classifyCommand(command: string): CommandClassification {
     found.push('a command line the gate cannot read')
   }
   const reasons = [...new Set(found)]
-  return { gated: reasons.length > 0, reasons }
+  return {
+    gated: reasons.length > 0,
+    reasons,
+    forbidden: [...new Set(found.forbidden ?? [])],
+  }
 }
 
 export type CommandGateDecision = 'run' | 'confirm' | 'refuse'
@@ -2937,7 +3034,9 @@ export type CommandGateDecision = 'run' | 'confirm' | 'refuse'
 /**
  * A command runs on its own only when auto-execute is on, the line is
  * read-only and no gated class matched. Every other command needs a person to
- * confirm it at a terminal, and is refused where no terminal is attached.
+ * confirm it at a terminal, and is refused where no terminal is attached. A
+ * line with a reason that no confirmation makes good is refused whatever the
+ * terminal.
  */
 export function decideCommandGate(
   input: {
@@ -2945,8 +3044,11 @@ export function decideCommandGate(
     autoExecute: boolean
     hasTerminal: boolean
     readOnly: boolean
+    /** The line has a reason that no confirmation makes good. */
+    forbidden?: boolean
   },
 ): CommandGateDecision {
+  if (input.forbidden) return 'refuse'
   if (input.autoExecute && input.readOnly && !input.gated) return 'run'
   return input.hasTerminal ? 'confirm' : 'refuse'
 }
@@ -2960,6 +3062,13 @@ export function describeRefusal(
     notReadOnly: [],
   },
 ): string {
+  if (classification.forbidden.length > 0) {
+    return `Command not run: it is one of the lines that never run from the AI console, whoever confirms them (${
+      classification.forbidden.join(', ')
+    }). The verbs of slv that read, make or send a key (keys:*) or decide which key of a node is trusted (hosts:*) refuse to run from the console, and so does a line that sets, exports or unsets SLV_EXECUTION_CONTEXT or OP_BIOMETRIC_UNLOCK_ENABLED, or runs with an empty environment, to look like a person at a terminal.\n\n` +
+      `Command: ${command}\n\n` +
+      'Do not retry it or rewrite it into another form. Tell the user the exact command and ask them to run it themselves in a terminal.'
+  }
   const why = classification.gated
     ? `it may change nodes or keys, touch credentials or run another command (${
       classification.reasons.join(', ')

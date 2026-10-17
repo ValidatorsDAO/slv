@@ -621,6 +621,7 @@ async function executeRunCommand(command: string): Promise<string> {
     autoExecute: autoExecuteCommands,
     hasTerminal: tui !== null,
     readOnly: readOnly.readOnly,
+    forbidden: classification.forbidden.length > 0,
   })
 
   if (decision === 'refuse') {
