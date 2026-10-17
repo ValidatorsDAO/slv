@@ -288,10 +288,10 @@ script passes `/home/solv/identity.json`, restart the node, and run `slv v set:i
 up. A run over several hosts stops on the hosts that fail the check and goes on with the others.
 
 Three playbooks are retired and refuse now. `set_identity_to_active.yml` (both networks) set the identity without the
-checks that `slv v set:identity` makes first (that nothing votes with the identity, that the host has caught up, where
-the identity is in gossip, and that the tower or vote history file of the identity is there); for a jito host (on
-testnet also an agave host) it read the staked key on the controller and passed it on stdin, and on testnet a Firedancer
-host read a key file on the node. `switch_on_firedancer_identity.yml` and `change_identity_and_restart.yml` on testnet read the staked key from a
+checks that `slv v set:identity` makes first: that nothing votes with the identity, where the identity is in gossip, and
+that the tower or vote history file of the identity is there (on Alpenglow, also that the host has caught up); for a
+jito host (on testnet also an agave host) it read the staked key on the controller and passed it on stdin, and on
+testnet a Firedancer host read a key file on the node. `switch_on_firedancer_identity.yml` and `change_identity_and_restart.yml` on testnet read the staked key from a
 file on the node. Each fails in its first task, with a message that starts with `SLV_KEYLESS_REFUSED` and names
 `slv v set:identity` and `slv v switch`; nothing else runs.
 

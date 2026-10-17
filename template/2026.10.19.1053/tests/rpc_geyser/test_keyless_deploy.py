@@ -342,9 +342,10 @@ class KeylessRefusals(unittest.TestCase):
     def test_k08a_the_message_gives_the_reason_that_holds_for_the_playbook(self):
         # set_identity_to_active passed the staked key of the controller on stdin for its agave and jito hosts: it is retired
         # because it set the identity without the checks that slv v set:identity makes, not because it read a key on the node
-        checks = ("It set the identity without the checks that the set:identity command of slv makes first (that nothing votes "
-                  "with the identity, that the host has caught up, where the identity is in gossip, and that the tower or vote "
-                  "history file of the identity is there)")
+        # the caught-up check belongs to Alpenglow only (check 2 of vote_history_dead_primary.yml): the text says so
+        checks = ("It set the identity without the checks that the set:identity command of slv makes first: that nothing votes "
+                  "with the identity, where the identity is in gossip, and that the tower or vote history file of the identity "
+                  "is there (on Alpenglow, also that the host has caught up)")
         reasons = {
             ("mainnet-validator", "set_identity_to_active"): [checks],
             ("testnet-validator", "set_identity_to_active"): [checks, "and on a Firedancer host it read the staked key from a file on the node"],
