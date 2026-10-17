@@ -1,5 +1,0 @@
----
-# Run Richat installation and then deploy the Geyser plugin that uses it.
-
-- import_playbook: install_richat.yml
-- import_playbook: geyser_richat_build.yml

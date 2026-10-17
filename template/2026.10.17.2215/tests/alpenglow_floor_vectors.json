@@ -1,0 +1,514 @@
+{
+  "about": [
+    "Cases for the Alpenglow floor on the version of an agave, jito or allnodes client and on the Yellowstone geyser_version of an RPC node.",
+    "ansible/cmn/check_alpenglow_floor.yml (tests/rpc_geyser/test_alpenglow_floor.py) and cli/lib/versionFloor.ts both have to give these answers.",
+    "A version is read as: an optional v; X.Y with an optional .Z (4.2 is 4.2.0); any further numeric components, which are ignored (4.2.1.1 is 4.2.1);",
+    "an optional pre-release -alpha, -beta or -rc with an optional dot and number (a missing number is 0); then whatever follows, which is ignored",
+    "(the jito and allnodes tags and any tag that is not known, so 3.1.10-bam is 3.1.10 and 4.3.0-beta.3-bam is 4.3.0-beta.3).",
+    "reads is [major, minor, patch, rank, number] with rank 0 for alpha, 1 for beta, 2 for rc and 3 for a release; null when there is no X.Y.",
+    "below says, per network, whether the version reads older than the floor of that network; a version that reads null is below nothing.",
+    "A Yellowstone tag is read by the solana release it is built for: what follows +solana. up to the next + or space, with 4.4.0.beta.0 turned into 4.4.0-beta.0 (built_for is null when the tag has no +solana.).",
+    "A client version that reads null cannot be compared: a pin like that is refused in a mainnet section and only warned about in the others (the Ansible check stops the run on mainnet and says it elsewhere).",
+    "A Yellowstone tag that has no +solana. part, or whose part reads null, is not checked.",
+    "An empty version is no version and is not a case here: the Ansible check and the builders stop on it whatever the network. An empty Yellowstone tag is not a case either (the Ansible check takes the pin of the section then)."
+  ],
+  "floors": {
+    "mainnet": "4.3.0",
+    "testnet": "4.4.0-beta.0",
+    "devnet": "4.4.0-beta.0"
+  },
+  "rank": {
+    "alpha": 0,
+    "beta": 1,
+    "rc": 2,
+    "release": 3
+  },
+  "client_versions": [
+    {
+      "value": "4.3.2",
+      "reads": [4, 3, 2, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "a release"
+    },
+    {
+      "value": "4.3.0",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "the floor of mainnet"
+    },
+    {
+      "value": "4.4.0-beta.0",
+      "reads": [4, 4, 0, 1, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "the floor of testnet and devnet"
+    },
+    {
+      "value": "4.4.0-beta.1",
+      "reads": [4, 4, 0, 1, 1],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a pre-release above the floor of testnet"
+    },
+    {
+      "value": "4.4.0-rc.1",
+      "reads": [4, 4, 0, 2, 1],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "release candidates come after betas"
+    },
+    {
+      "value": "4.4.0",
+      "reads": [4, 4, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "the release after its pre-releases"
+    },
+    {
+      "value": "4.4.1-jito",
+      "reads": [4, 4, 1, 3, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a jito tag does not change the release"
+    },
+    {
+      "value": "4.5.0",
+      "reads": [4, 5, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a later minor"
+    },
+    {
+      "value": "5.0.0",
+      "reads": [5, 0, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a later major"
+    },
+    {
+      "value": "v4.3.2",
+      "reads": [4, 3, 2, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "a leading v"
+    },
+    {
+      "value": "v4.4.0-beta.0",
+      "reads": [4, 4, 0, 1, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a leading v on a pre-release"
+    },
+    {
+      "value": "4.3.0-jito.0",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "jito tag with a number"
+    },
+    {
+      "value": "4.3.0-jito.1",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "jito tag with a number"
+    },
+    {
+      "value": "4.3.0-allnodes.1",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "allnodes tag with a number"
+    },
+    {
+      "value": "4.3.1-jito",
+      "reads": [4, 3, 1, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "jito tag"
+    },
+    {
+      "value": "4.3.2-jito",
+      "reads": [4, 3, 2, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "jito tag"
+    },
+    {
+      "value": "4.3.2-allnodes",
+      "reads": [4, 3, 2, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "allnodes tag"
+    },
+    {
+      "value": "4.4.0-beta.0-jito",
+      "reads": [4, 4, 0, 1, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "pre-release then jito tag"
+    },
+    {
+      "value": "4.4.0-beta.1-jito",
+      "reads": [4, 4, 0, 1, 1],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "pre-release then jito tag"
+    },
+    {
+      "value": "4.4.0-beta.1-allnodes",
+      "reads": [4, 4, 0, 1, 1],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "pre-release then allnodes tag"
+    },
+    {
+      "value": "4.4.0-alpha.5",
+      "reads": [4, 4, 0, 0, 5],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "an alpha is older than any beta"
+    },
+    {
+      "value": "4.4.0-alpha.5-jito",
+      "reads": [4, 4, 0, 0, 5],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "an alpha with a jito tag"
+    },
+    {
+      "value": "4.4.0-beta1",
+      "reads": [4, 4, 0, 1, 1],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no dot before the pre-release number"
+    },
+    {
+      "value": "4.4.0-rc",
+      "reads": [4, 4, 0, 2, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a pre-release without a number is number 0"
+    },
+    {
+      "value": "3.1.1-rc",
+      "reads": [3, 1, 1, 2, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a release candidate without a number"
+    },
+    {
+      "value": "3.1.10",
+      "reads": [3, 1, 10, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "older than both floors"
+    },
+    {
+      "value": "3.1.10-jito",
+      "reads": [3, 1, 10, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "older than both floors"
+    },
+    {
+      "value": "3.1.14",
+      "reads": [3, 1, 14, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "older than both floors"
+    },
+    {
+      "value": "4.0.0-beta.2",
+      "reads": [4, 0, 0, 1, 2],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "older than both floors"
+    },
+    {
+      "value": "4.0.0-beta.2-jito",
+      "reads": [4, 0, 0, 1, 2],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "older than both floors"
+    },
+    {
+      "value": "4.2.1",
+      "reads": [4, 2, 1, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "just below the floor of mainnet"
+    },
+    {
+      "value": "4.2.2",
+      "reads": [4, 2, 2, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "just below the floor of mainnet"
+    },
+    {
+      "value": "4.2.2-jito.1",
+      "reads": [4, 2, 2, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "jito tag with a number, below"
+    },
+    {
+      "value": "4.2.9",
+      "reads": [4, 2, 9, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "just below the floor of mainnet"
+    },
+    {
+      "value": "v4.2.1-jito",
+      "reads": [4, 2, 1, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a leading v and a jito tag, below"
+    },
+    {
+      "value": "4.3.0-beta.3",
+      "reads": [4, 3, 0, 1, 3],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a pre-release of the floor release is older than it"
+    },
+    {
+      "value": "4.3.0-rc.1-jito",
+      "reads": [4, 3, 0, 2, 1],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a release candidate of the floor release is older than it"
+    },
+    {
+      "value": "4.2.1 ",
+      "reads": [4, 2, 1, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a trailing space is dropped"
+    },
+    {
+      "value": 4.2,
+      "reads": [4, 2, 0, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a numeric YAML value is X.Y.0"
+    },
+    {
+      "value": 4.3,
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "a numeric YAML value is X.Y.0"
+    },
+    {
+      "value": 4.4,
+      "reads": [4, 4, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a numeric YAML value is X.Y.0"
+    },
+    {
+      "value": "4.2",
+      "reads": [4, 2, 0, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "X.Y is X.Y.0"
+    },
+    {
+      "value": "4.3",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "X.Y is X.Y.0"
+    },
+    {
+      "value": "4.2.1.1",
+      "reads": [4, 2, 1, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a fourth component is ignored"
+    },
+    {
+      "value": "4.3.0.9",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "a fourth component is ignored"
+    },
+    {
+      "value": "4.2.9.9.9",
+      "reads": [4, 2, 9, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "further numeric components are ignored"
+    },
+    {
+      "value": "3.1.10-bam",
+      "reads": [3, 1, 10, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a tag that is not known is read by its X.Y.Z"
+    },
+    {
+      "value": "4.3.2-bam",
+      "reads": [4, 3, 2, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "a tag that is not known is read by its X.Y.Z"
+    },
+    {
+      "value": "4.3.1-patched",
+      "reads": [4, 3, 1, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "a tag that is not known is read by its X.Y.Z"
+    },
+    {
+      "value": "4.2.2-custom.7",
+      "reads": [4, 2, 2, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a tag that is not known is read by its X.Y.Z"
+    },
+    {
+      "value": "4.3.0-beta.3-bam",
+      "reads": [4, 3, 0, 1, 3],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "a pre-release stays in front of a tag that is not known"
+    },
+    {
+      "value": "4.4.0-beta.1-bam",
+      "reads": [4, 4, 0, 1, 1],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a pre-release stays in front of a tag that is not known"
+    },
+    {
+      "value": "latest",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no X.Y at all"
+    },
+    {
+      "value": "main",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no X.Y at all"
+    },
+    {
+      "value": "master",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no X.Y at all"
+    },
+    {
+      "value": "a1b2c3d",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a commit hash"
+    },
+    {
+      "value": "4e5f6a7",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a commit hash that starts with a digit"
+    },
+    {
+      "value": "0123456789abcdef0123456789abcdef01234567",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a full commit hash"
+    },
+    {
+      "value": 4,
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a whole number is no X.Y"
+    },
+    {
+      "value": "4.x",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no minor number"
+    },
+    {
+      "value": "x4.3.0",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "text in front of the number"
+    },
+    {
+      "value": "v",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a v alone"
+    }
+  ],
+  "geyser_tags": [
+    {
+      "tag": "v16.1.1+solana.4.3.0",
+      "built_for": "4.3.0",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "built for the floor of mainnet"
+    },
+    {
+      "tag": "v16.0.0+solana.4.3.0",
+      "built_for": "4.3.0",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "built for the floor of mainnet"
+    },
+    {
+      "tag": "v17.0.0-rc5+solana.4.4.0.beta.0",
+      "built_for": "4.4.0-beta.0",
+      "reads": [4, 4, 0, 1, 0],
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "4.4.0.beta.0 reads as 4.4.0-beta.0"
+    },
+    {
+      "tag": "v17.0.0-rc2+solana.4.4.0.alpha.5",
+      "built_for": "4.4.0-alpha.5",
+      "reads": [4, 4, 0, 0, 5],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "built for an alpha"
+    },
+    {
+      "tag": "v16.0.0-rc9+solana.4.3.0.rc.1",
+      "built_for": "4.3.0-rc.1",
+      "reads": [4, 3, 0, 2, 1],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "built for a release candidate of the floor release"
+    },
+    {
+      "tag": "v15.2.1+solana.4.2.2",
+      "built_for": "4.2.2",
+      "reads": [4, 2, 2, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "built for a solana that is too old"
+    },
+    {
+      "tag": "v10.1.1+solana.3.1.1-rc",
+      "built_for": "3.1.1-rc",
+      "reads": [3, 1, 1, 2, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "built for a solana that is too old"
+    },
+    {
+      "tag": "v10.1.2-rc3+solana.3.1.10",
+      "built_for": "3.1.10",
+      "reads": [3, 1, 10, 3, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "built for a solana that is too old"
+    },
+    {
+      "tag": "v13.0.0-triton-ext+solana.4.0.0-rc.0+rust-1.93",
+      "built_for": "4.0.0-rc.0",
+      "reads": [4, 0, 0, 2, 0],
+      "below": {"mainnet": true, "testnet": true, "devnet": true},
+      "why": "text after the solana release is dropped"
+    },
+    {
+      "tag": "v13.0.0-triton-ext+solana.4.3.0+rust-1.93",
+      "built_for": "4.3.0",
+      "reads": [4, 3, 0, 3, 0],
+      "below": {"mainnet": false, "testnet": true, "devnet": true},
+      "why": "text after the solana release is dropped"
+    },
+    {
+      "tag": "richat-v8.2.2",
+      "built_for": null,
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a tag that does not say which solana it is built for"
+    },
+    {
+      "tag": "plugin-agave-v9.0.0",
+      "built_for": null,
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "a tag that does not say which solana it is built for"
+    },
+    {
+      "tag": "v13.1.0-triton-ext+solana.alpenglow.rc.1",
+      "built_for": "alpenglow.rc.1",
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "built for a branch: no release to compare"
+    },
+    {
+      "tag": "v10.1.2",
+      "built_for": null,
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no +solana"
+    },
+    {
+      "tag": "main",
+      "built_for": null,
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no +solana"
+    },
+    {
+      "tag": "",
+      "built_for": null,
+      "reads": null,
+      "below": {"mainnet": false, "testnet": false, "devnet": false},
+      "why": "no tag"
+    }
+  ]
+}

@@ -109,6 +109,7 @@ resolve_cmn_deps() {
 
     # Copy the file
     if [[ -f "$ANSIBLE_DIR/cmn/$current" ]]; then
+      mkdir -p "$(dirname "$DIST_DIR/ansible/cmn/$current")"
       cp "$ANSIBLE_DIR/cmn/$current" "$DIST_DIR/ansible/cmn/$current"
 
       # Check for second-level cmn deps (relative, no ../)
@@ -122,7 +123,8 @@ resolve_cmn_deps() {
   # Copy cmn/tasks/ if any playbook references it
   if grep -rq 'tasks/' "$DIST_DIR/ansible/cmn/" 2>/dev/null; then
     if [[ -d "$ANSIBLE_DIR/cmn/tasks" ]]; then
-      cp -r "$ANSIBLE_DIR/cmn/tasks" "$DIST_DIR/ansible/cmn/tasks"
+      mkdir -p "$DIST_DIR/ansible/cmn/tasks"
+      cp -R "$ANSIBLE_DIR/cmn/tasks/." "$DIST_DIR/ansible/cmn/tasks/"
     fi
   fi
 }

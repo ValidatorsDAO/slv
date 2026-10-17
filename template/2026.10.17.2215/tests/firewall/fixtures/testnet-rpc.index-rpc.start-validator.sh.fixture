@@ -1,0 +1,35 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/jinja/testnet-rpc/start-validator.sh.j2
+# source-sha256: 9d36c3b38d751a114a0399e6f14ba8f8b71c1237eab113e8a97b0e56c8bb37f2
+# source-state: unmodified (identical to HEAD 0d220e5c003969dce425bcc3b223405fa1652866)
+# vars: {"agave_version": "4.0.0-beta.2", "dynamic_port_range": "8000-8030", "port_rpc": 7211, "rpc_type": "Index RPC", "validator_type": "agave"}
+# render: lookup('template') with ansible-core 2.16.3, Jinja2 3.1.2
+# slv-fixture: body
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--snapshots /mnt/snapshot \
+--entrypoint entrypoint.testnet.solana.com:8001 \
+--entrypoint entrypoint2.testnet.solana.com:8001 \
+--entrypoint entrypoint3.testnet.solana.com:8001 \
+--known-validator 5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on \
+--known-validator dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs \
+--known-validator Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN \
+--known-validator eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ \
+--known-validator 9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv \
+--only-known-rpc \
+--expected-genesis-hash 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+--dynamic-port-range 8000-8030  \
+--no-voting \
+--full-rpc-api \
+--rpc-port 7211 \
+--wal-recovery-mode skip_any_corrupted_record \
+--expected-shred-version 57087 \
+--limit-ledger-size 200000000 \
+--enable-rpc-transaction-history \
+--enable-extended-tx-metadata-storage \
+--account-index program-id spl-token-mint spl-token-owner \
+--no-port-check \

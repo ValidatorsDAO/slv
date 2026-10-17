@@ -2,7 +2,7 @@
 // e.g.: VERSION + SOLANA CLI NAME + NETWORK = '0.0.1' only numbers and dots
 
 // SLV version
-export const VERSION = '2026.6.6.2026'
+export const VERSION = '2026.10.17.2215'
 
 // Component versions
 // VERSION_SOLANA_* and VERSION_JITO_* are the RPC defaults of a network.
