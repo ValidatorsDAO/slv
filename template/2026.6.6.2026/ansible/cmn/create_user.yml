@@ -27,6 +27,15 @@
           Nothing was changed on {{ inventory_hostname }}.
       when: not local_public_key_stat.stat.exists
 
+    # The user module hands any password that is not None to useradd/usermod -p, so '' would leave solv with an empty
+    # password field, and this play gives solv sudo without a password: only a SHA-512 crypt hash goes on.
+    - name: Stop when the password hash of solv is empty or not a SHA-512 crypt hash
+      ansible.builtin.assert:
+        that:
+          - encrypted_password | default('', true) | string is match('^\\$6\\$[^$]+\\$[./0-9A-Za-z]+\\Z')
+        fail_msg: "the password hash in ~/.slv/config.pwd.yml is empty or not a $6$ hash; nothing was changed on {{ inventory_hostname }}. A SHA-512 crypt hash starts with $6$ (openssl passwd -6 makes one): put it in encrypted_password of that file, and run this again."
+        quiet: true
+
     - name: Ensure solv user exists
       user:
         name: solv
