@@ -1778,6 +1778,12 @@ jobs:
         run: |
           set -euo pipefail
           deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
       - name: Download canonical notices and current application sources
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -1850,6 +1856,12 @@ jobs:
         run: |
           set -euo pipefail
           deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
       - name: Download canonical notices and current application sources
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -1922,6 +1934,12 @@ jobs:
         run: |
           set -euo pipefail
           deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
       - name: Download canonical notices and current application sources
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -1993,6 +2011,12 @@ jobs:
         run: |
           set -euo pipefail
           deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
       - name: Download canonical notices and current application sources
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

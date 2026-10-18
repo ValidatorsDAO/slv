@@ -4786,6 +4786,96 @@ Deno.test('qualified scheduling crosses skipped promotion only after successful 
   }
 })
 
+Deno.test('product jobs expose only the verified frontend after acquisition succeeds', async () => {
+  const workflow = await releaseWorkflow()
+  const title = 'Install the exact qualification-pinned compiler frontend'
+  assertEquals(count(workflow, `      - name: ${title}\n`), 4)
+  for (const job of currentProductJobs) {
+    const section = jobSection(workflow, job)
+    assert(
+      section.indexOf('Require exact product prerequisites') <
+        section.indexOf(title),
+    )
+    assert(
+      section.indexOf(title) < section.indexOf('Download canonical notices'),
+    )
+    assert(
+      section.indexOf(title) <
+        section.indexOf('Compile and verify the fresh application product'),
+    )
+    const shell = stepShell(section, title)
+    const directory = await Deno.makeTempDir({ prefix: 'slv frontend step ' })
+    try {
+      const bin = `${directory}/bootstrap`,
+        pathFile = `${directory}/github path`
+      const calls = `${directory}/calls`
+      await Deno.mkdir(bin)
+      await Deno.writeTextFile(
+        `${bin}/deno`,
+        `#!/bin/sh
+set -eu
+printf '%s\\n' "$@" > "$FRONTEND_CALLS"
+test "$MOCK_FRONTEND_FAILURE" = 0 || exit 71
+for argument in "$@"; do destination="$argument"; done
+mkdir -m 700 "$destination"
+printf '#!/bin/sh\\nprintf "qualified-frontend\\\\n"\\n' > "$destination/deno"
+chmod 700 "$destination/deno"
+`,
+      )
+      await Deno.chmod(`${bin}/deno`, 0o700)
+      const environment = {
+        PATH: `${bin}:${Deno.env.get('PATH') ?? ''}`,
+        RUNNER_TEMP: directory,
+        GITHUB_PATH: pathFile,
+        FRONTEND_CALLS: calls,
+      }
+      await Deno.writeTextFile(pathFile, 'existing-tool\n')
+      const failed = await runDiagnosticGuard(shell, {
+        ...environment,
+        MOCK_FRONTEND_FAILURE: '1',
+      })
+      assertEquals(failed.code, 71)
+      assertEquals(await Deno.readTextFile(pathFile), 'existing-tool\n')
+      await assertRejects(
+        () => Deno.stat(`${directory}/slv-qualified-frontend`),
+        Deno.errors.NotFound,
+      )
+      const passed = await runDiagnosticGuard(shell, {
+        ...environment,
+        MOCK_FRONTEND_FAILURE: '0',
+      })
+      assert(passed.success, new TextDecoder().decode(passed.stderr))
+      const recorded = (await Deno.readTextFile(calls)).trimEnd().split('\n')
+      assertEquals(recorded.slice(-3), [
+        'scripts/release/prepare-frontend.ts',
+        'source-materials/runtime-qualification.json',
+        `${directory}/slv-qualified-frontend`,
+      ])
+      assert(recorded.includes('--frozen'))
+      assert(recorded.includes('--no-prompt'))
+      assert(
+        recorded.includes(
+          '--allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com',
+        ),
+      )
+      assertEquals(
+        await Deno.readTextFile(pathFile),
+        `existing-tool\n${directory}/slv-qualified-frontend\n`,
+      )
+      const next = await runDiagnosticGuard('deno --version', {
+        PATH: `${directory}/slv-qualified-frontend:${environment.PATH}`,
+      })
+      assert(next.success)
+      assertEquals(
+        new TextDecoder().decode(next.stdout),
+        'qualified-frontend\n',
+      )
+    } finally {
+      await Deno.remove(directory, { recursive: true })
+    }
+  }
+})
+
 Deno.test('four explicit products use Linux profiles and source qualification never enters ordinary DAG', async () => {
   const workflow = await releaseWorkflow()
   assert(!/^  build:/m.test(workflow))
