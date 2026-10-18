@@ -1,4 +1,10 @@
 /** Immutable runtime evidence is separate from each freshly compiled application. */
+import {
+  checkFreshRuntimeRevocation,
+  checkReviewedRuntimeRevocation,
+  type RuntimeRevocationObservation,
+  type RuntimeRevocationTransport,
+} from './runtime-revocations.ts'
 import { createHash } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { scanArchiveForUnsafeMembers } from '../../source-rebuild/verify-native.ts'
@@ -110,6 +116,10 @@ export type QualificationBinding = {
   sourceReceipt: QualificationAsset & { path: string }
   abi: QualificationManifest['targets'][number]['abi']
   manifest: QualificationManifest
+  revocation: {
+    reviewed_checkout_policy: RuntimeRevocationObservation
+    current_main_policy: RuntimeRevocationObservation | null
+  }
 }
 function fail(message: string): never {
   throw new Error(`runtime qualification: ${message}`)
@@ -766,8 +776,12 @@ export async function verifyQualificationDirectory(
   m: QualificationManifest,
   directory: string,
   repositoryRoot: string,
-): Promise<void> {
+): Promise<RuntimeRevocationObservation> {
   assertQualificationManifest(m)
+  const reviewedPolicy = await checkReviewedRuntimeRevocation(
+    qualificationIdentity(m),
+    repositoryRoot,
+  )
   for (const [name, expected] of Object.entries(m.assets)) {
     await verifyFile(join(directory, name), expected)
   }
@@ -818,6 +832,7 @@ export async function verifyQualificationDirectory(
   }
   await verifyQualificationArchiveBindings(m, directory)
   await verifyOriginalEvidence(m, directory)
+  return reviewedPolicy
 }
 
 export type QualificationRelease = {
@@ -851,7 +866,7 @@ export interface QualificationGitHub {
     producer: QualificationManifest['producer'],
   ): Promise<void>
   verifyMainAncestor(commit: string): Promise<void>
-  tagCommit(tag: string): Promise<string>
+  tagCommit(tag: string): Promise<string | null>
   artifact(id: number): Promise<Record<string, any>>
   run(id: number, attempt: number): Promise<Record<string, any>>
   downloadArtifact(id: number, destination: string): Promise<void>
@@ -1078,13 +1093,16 @@ export function githubQualificationAdapter(options: {
     },
     async tagCommit(tag) {
       const reference = await api(`git/ref/tags/${encodeURIComponent(tag)}`)
+      if (reference === null) return null
       let item = reference.object
       const seen = new Set<string>()
       while (item?.type === 'tag') {
         string(item.sha, COMMIT, 'tag object')
         if (seen.has(item.sha) || seen.size >= 8) fail('tag peel cycle')
         seen.add(item.sha)
-        item = (await api(`git/tags/${item.sha}`)).object
+        const tagObject = await api(`git/tags/${item.sha}`)
+        if (!tagObject) fail('qualification annotated tag object is missing')
+        item = tagObject.object
       }
       if (item?.type !== 'commit') {
         fail('qualification tag does not identify a commit')
@@ -1237,12 +1255,16 @@ export async function verifyPublishedQualification(
   m: QualificationManifest,
   github: QualificationGitHub,
   selectedAssets?: string[],
-): Promise<void> {
+  revocationTransport: RuntimeRevocationTransport = {},
+): Promise<RuntimeRevocationObservation> {
   assertQualificationManifest(m)
   const release = await github.release(qualificationTag(m))
   if (!release) fail('final qualification does not exist')
   assertPublishedRelease(m, release)
-  await github.verifyOriginalLineage(m.producer)
+  // The protected hosted promotion already checked the original Actions/PR
+  // lineage. Its signed immutable payload preserves the original evidence;
+  // consumers must not depend on expiring CI artifacts or synthetic PR refs.
+  // The promotion source, tag, signature and public bytes are reverified below.
   if (await github.tagCommit(release.tag_name) !== release.target_commitish) {
     fail('qualification tag differs from attested source')
   }
@@ -1280,6 +1302,10 @@ export async function verifyPublishedQualification(
       join(temporary, `${QUALIFICATION_MANIFEST}.intoto.jsonl`),
       release.target_commitish,
     )
+    return await checkFreshRuntimeRevocation(
+      qualificationIdentity(m),
+      revocationTransport,
+    )
   } finally {
     await Deno.remove(temporary, { recursive: true })
   }
@@ -1291,7 +1317,6 @@ export type QualificationBindingOptions = {
   repositoryRoot: string
   target: QualificationTarget
   mode: QualificationState
-  revokedIdentities?: string[]
   github?: QualificationGitHub
 }
 export async function verifyQualificationBinding(
@@ -1306,18 +1331,16 @@ export async function verifyQualificationBinding(
     options.expectedIdentity,
   )
   const identity = qualificationIdentity(m)
-  if (options.revokedIdentities?.includes(identity)) {
-    fail('qualification revoked')
-  }
   const row = m.targets.find((x) => x.target === options.target)
   if (!row) fail('unknown target')
-  await verifyQualificationDirectory(
+  const reviewedPolicy = await verifyQualificationDirectory(
     m,
     options.directory,
     options.repositoryRoot,
   )
+  let currentPolicy: RuntimeRevocationObservation | null = null
   if (options.mode === 'final-qualified') {
-    await verifyPublishedQualification(
+    currentPolicy = await verifyPublishedQualification(
       m,
       options.github ?? githubQualificationAdapter(),
       [
@@ -1348,6 +1371,10 @@ export async function verifyQualificationBinding(
     sourceReceipt: file(m.source.receipt),
     abi: row.abi,
     manifest: m,
+    revocation: {
+      reviewed_checkout_policy: reviewedPolicy,
+      current_main_policy: currentPolicy,
+    },
   }
 }
 /** Only call on the JSON returned by a successful cryptographic gh verification. */
@@ -1391,6 +1418,21 @@ export function assertPromotionContext(context: PromotionContext): void {
     context.runner_environment !== 'github-hosted'
   ) fail('promotion is restricted to trusted hosted main')
 }
+/** An absent tag may be created by publishing; an existing tag is never moved. */
+export async function verifyQualificationTagForPromotion(
+  tag: string,
+  sourceCommit: string,
+  github: QualificationGitHub,
+): Promise<'absent' | 'matching'> {
+  string(sourceCommit, COMMIT, 'promotion source')
+  const resolved = await github.tagCommit(tag)
+  if (resolved === null) return 'absent'
+  if (resolved !== sourceCommit) {
+    fail('existing qualification tag conflicts with reviewed promotion')
+  }
+  return 'matching'
+}
+
 /** Read-only recovery audit. Existing asset bytes are never replaced. */
 export async function verifyQualificationDraft(
   m: QualificationManifest,
@@ -1398,7 +1440,14 @@ export async function verifyQualificationDraft(
   sourceCommit: string,
   github: QualificationGitHub,
   requireComplete = false,
-): Promise<{ missing_assets: string[]; needs_attestation: boolean }> {
+  revocationTransport: RuntimeRevocationTransport = {},
+): Promise<
+  {
+    missing_assets: string[]
+    needs_attestation: boolean
+    current_main_policy: RuntimeRevocationObservation | null
+  }
+> {
   assertQualificationManifest(m)
   const tag = qualificationTag(m)
   if (
@@ -1406,6 +1455,7 @@ export async function verifyQualificationDraft(
     release.prerelease !== true || release.immutable === true ||
     release.target_commitish !== sourceCommit || !COMMIT.test(sourceCommit)
   ) fail('existing qualification draft conflicts with reviewed promotion')
+  await verifyQualificationTagForPromotion(tag, sourceCommit, github)
   const expected: Record<string, QualificationAsset> = {
     ...m.assets,
     [QUALIFICATION_MANIFEST]: {
@@ -1466,7 +1516,22 @@ export async function verifyQualificationDraft(
     if (requireComplete && (missing_assets.length || needs_attestation)) {
       fail('draft qualification upload is incomplete')
     }
-    return { missing_assets, needs_attestation }
+    // Re-read after asset transfer and attestation verification, immediately
+    // before the caller can publish the complete draft. No tag update is allowed.
+    if (requireComplete) {
+      await verifyQualificationTagForPromotion(tag, sourceCommit, github)
+    }
+    const currentPolicy = requireComplete
+      ? await checkFreshRuntimeRevocation(
+        qualificationIdentity(m),
+        revocationTransport,
+      )
+      : null
+    return {
+      missing_assets,
+      needs_attestation,
+      current_main_policy: currentPolicy,
+    }
   } finally {
     await Deno.remove(temporary, { recursive: true })
   }
@@ -1488,6 +1553,10 @@ export async function planQualificationPromotion(
     assets: string[]
     needs_attestation: boolean
     source_sha: string
+    revocation: {
+      reviewed_checkout_policy: RuntimeRevocationObservation
+      current_main_policy: RuntimeRevocationObservation
+    }
     tag_protection: { bypass_visibility: 'visible-empty' | 'not-visible' }
   }
 > {
@@ -1496,7 +1565,7 @@ export async function planQualificationPromotion(
   const tagProtection = await options.github.verifyTagProtection(
     qualificationTag(options.manifest),
   )
-  await verifyQualificationDirectory(
+  const reviewedPolicy = await verifyQualificationDirectory(
     options.manifest,
     options.directory,
     options.repositoryRoot,
@@ -1512,8 +1581,15 @@ export async function planQualificationPromotion(
       options.context.source_sha,
       options.github,
     )
+    const currentPolicy = await checkFreshRuntimeRevocation(
+      qualificationIdentity(options.manifest),
+    )
     return {
       action: 'resume',
+      revocation: {
+        reviewed_checkout_policy: reviewedPolicy,
+        current_main_policy: currentPolicy,
+      },
       tag: qualificationTag(options.manifest),
       identity: qualificationIdentity(options.manifest),
       assets: recovery.missing_assets,
@@ -1523,9 +1599,16 @@ export async function planQualificationPromotion(
     }
   }
   if (existing) {
-    await verifyPublishedQualification(options.manifest, options.github)
+    const currentPolicy = await verifyPublishedQualification(
+      options.manifest,
+      options.github,
+    )
     return {
       action: 'reuse',
+      revocation: {
+        reviewed_checkout_policy: reviewedPolicy,
+        current_main_policy: currentPolicy,
+      },
       tag: qualificationTag(options.manifest),
       identity: qualificationIdentity(options.manifest),
       assets: [],
@@ -1534,9 +1617,21 @@ export async function planQualificationPromotion(
       tag_protection: tagProtection,
     }
   }
+  await verifyQualificationTagForPromotion(
+    qualificationTag(options.manifest),
+    options.context.source_sha,
+    options.github,
+  )
   await verifyCandidateProvenance(options.manifest, options.github)
+  const currentPolicy = await checkFreshRuntimeRevocation(
+    qualificationIdentity(options.manifest),
+  )
   return {
     action: 'create',
+    revocation: {
+      reviewed_checkout_policy: reviewedPolicy,
+      current_main_policy: currentPolicy,
+    },
     needs_attestation: true,
     tag: qualificationTag(options.manifest),
     identity: qualificationIdentity(options.manifest),
@@ -1600,6 +1695,11 @@ export async function acquireQualificationInputs(
   }
 > {
   const m = await readQualificationManifest(options.manifestPath)
+  const reviewedPolicy = await checkReviewedRuntimeRevocation(
+    qualificationIdentity(m),
+    options.repositoryRoot,
+  )
+  let currentPolicy: RuntimeRevocationObservation | null = null
   await Deno.mkdir(options.directory, { recursive: false, mode: 0o700 })
   const existing = await options.github.release(qualificationTag(m))
   if (existing?.draft) {
@@ -1626,7 +1726,7 @@ export async function acquireQualificationInputs(
       options.directory,
       options.repositoryRoot,
     )
-    await verifyPublishedQualification(m, options.github, [])
+    currentPolicy = await verifyPublishedQualification(m, options.github, [])
   } else {
     await verifyCandidateProvenance(m, options.github)
     for (const row of m.artifacts) {
@@ -1653,6 +1753,10 @@ export async function acquireQualificationInputs(
       : 'candidate-ready' as const,
     identity: qualificationIdentity(m),
     tag: qualificationTag(m),
+    revocation: {
+      reviewed_checkout_policy: reviewedPolicy,
+      current_main_policy: currentPolicy,
+    },
   }
   await Deno.writeFile(
     join(options.directory, 'qualification-state.json'),
@@ -1693,15 +1797,36 @@ if (import.meta.main) {
     await Deno.writeFile(args[3], canonicalQualificationBytes(plan), {
       createNew: true,
     })
-  } else if (action === 'verify-draft' && args.length === 3) {
+  } else if (
+    action === 'verify-draft' && (args.length === 3 || args.length === 4)
+  ) {
     const m = await readQualificationManifest(args[0]),
       context = promotionEnvironment(),
       github = githubQualificationAdapter()
     assertPromotionContext(context)
-    await verifyQualificationDirectory(m, args[1], args[2])
+    const reviewedPolicy = await verifyQualificationDirectory(
+      m,
+      args[1],
+      args[2],
+    )
     const release = await github.release(qualificationTag(m))
     if (!release) fail('draft qualification not found')
-    await verifyQualificationDraft(m, release, context.source_sha, github, true)
+    const result = await verifyQualificationDraft(
+      m,
+      release,
+      context.source_sha,
+      github,
+      true,
+    )
+    const receipt = canonicalQualificationBytes({
+      identity: qualificationIdentity(m),
+      revocation: {
+        reviewed_checkout_policy: reviewedPolicy,
+        current_main_policy: result.current_main_policy,
+      },
+    })
+    if (args[3]) await Deno.writeFile(args[3], receipt, { createNew: true })
+    else await Deno.stdout.write(receipt)
   } else if (action === 'verify' && args.length === 5) {
     const m = await readQualificationManifest(args[0])
     const state = args[3]
@@ -1712,10 +1837,14 @@ if (import.meta.main) {
       Deno.env.get('GITHUB_REF') === 'refs/heads/main' &&
       state !== 'final-qualified'
     ) fail('main requires final public qualification')
-    await verifyQualificationDirectory(m, args[1], args[2])
-    if (state === 'final-qualified') {
-      await verifyPublishedQualification(m, githubQualificationAdapter())
-    }
+    const reviewedPolicy = await verifyQualificationDirectory(
+      m,
+      args[1],
+      args[2],
+    )
+    const currentPolicy = state === 'final-qualified'
+      ? await verifyPublishedQualification(m, githubQualificationAdapter())
+      : null
     await Deno.writeFile(
       args[4],
       canonicalQualificationBytes({
@@ -1723,6 +1852,10 @@ if (import.meta.main) {
         identity: qualificationIdentity(m),
         tag: qualificationTag(m),
         manifest_sha256: qualificationIdentity(m),
+        revocation: {
+          reviewed_checkout_policy: reviewedPolicy,
+          current_main_policy: currentPolicy,
+        },
       }),
       { createNew: true },
     )

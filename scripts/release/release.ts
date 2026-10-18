@@ -1,5 +1,11 @@
 /** Offline, deterministic construction of the files uploaded by a release. */
 import { createHash } from 'node:crypto'
+import { dirname, resolve } from 'node:path'
+import {
+  checkFreshRuntimeRevocation,
+  checkReviewedRuntimeRevocation,
+  verifyRuntimeRevocationBinding,
+} from './runtime-revocations.ts'
 import { buildRuntimeNotices } from './runtime-notices.ts'
 import { materializeApplicationNotices } from './application-notices.ts'
 import {
@@ -3226,6 +3232,15 @@ export async function verifyQualifiedProducts(
         join(targetDirectory, 'product-verification.json'),
       ),
     )
+    verifyRuntimeRevocationBinding(verification.runtime_revocation, {
+      identity: qualified.identity,
+      mode: state,
+      reviewedPolicySha256:
+        qualified.revocation.reviewed_checkout_policy.policy_sha256,
+      sourceCommit: identity.sourceSha,
+    })
+    const { runtime_revocation: _validatedPolicy, ...staticVerification } =
+      verification
     if (isLinux) {
       const expected = {
         kind: 'slv-current-linux-verification',
@@ -3238,7 +3253,7 @@ export async function verifyQualifiedProducts(
         help: 'passed',
         bridge: 'passed',
       }
-      if (canonicalReceipt(verification) !== canonicalReceipt(expected)) {
+      if (canonicalReceipt(staticVerification) !== canonicalReceipt(expected)) {
         throw new Error('current Linux verification differs')
       }
       await verifyLinuxCompatibilityReceipt(
@@ -3280,7 +3295,7 @@ export async function verifyQualifiedProducts(
         ),
         native_execution: 'not_performed',
       }
-      if (canonicalReceipt(actual) !== canonicalReceipt(verification)) {
+      if (canonicalReceipt(actual) !== canonicalReceipt(staticVerification)) {
         throw new Error(
           'Darwin static verification differs from exact current bytes',
         )
@@ -3306,11 +3321,20 @@ export async function verifyQualifiedPublication(
   args: string[],
   root = Deno.cwd(),
 ): Promise<void> {
-  const [directory, sourceSha, runId, runAttempt, workflowSha] = args
+  const [directory, sourceSha, runId, runAttempt, workflowSha, receiptPath] =
+    args
   if (
-    args.length !== 5 || !SHA40.test(sourceSha) || !SHA40.test(workflowSha) ||
+    (args.length !== 5 && args.length !== 6) || !SHA40.test(sourceSha) ||
+    !SHA40.test(workflowSha) ||
     !DECIMAL.test(runId) || !DECIMAL.test(runAttempt)
   ) throw new Error('invalid qualified publication identity')
+  const selectedQualification = await readQualificationManifest(
+    join(root, 'source-materials/runtime-qualification.json'),
+  )
+  const reviewedPolicy = await checkReviewedRuntimeRevocation(
+    qualificationIdentity(selectedQualification),
+    root,
+  )
   const value = JSON.parse(
     await Deno.readTextFile(join(directory, 'release-manifest.json')),
   )
@@ -3434,6 +3458,32 @@ export async function verifyQualifiedPublication(
         ) !== receipt.output.executable_sha256
     ) throw new Error('published product differs from qualified receipt')
   }
+  const currentPolicy = await checkFreshRuntimeRevocation(reference.identity)
+  const destination = resolve(
+    receiptPath ??
+      join(root, 'dist/release-inputs/publication-runtime-revocation.json'),
+  )
+  const releaseDirectory = resolve(directory)
+  if (
+    destination === releaseDirectory ||
+    destination.startsWith(`${releaseDirectory}/`)
+  ) {
+    throw new Error(
+      'policy observation must be outside release payload directory',
+    )
+  }
+  await Deno.mkdir(dirname(destination), { recursive: true })
+  await Deno.writeTextFile(
+    destination,
+    JSON.stringify({
+      qualification_identity: reference.identity,
+      runtime_revocation: {
+        reviewed_checkout_policy: reviewedPolicy,
+        current_main_policy: currentPolicy,
+      },
+    }) + '\n',
+    { createNew: true },
+  )
 }
 
 async function packageRelease(
@@ -3460,6 +3510,12 @@ async function packageRelease(
   const out = configured.startsWith('/') ? configured : join(root, configured)
   if (!out.startsWith(`${root}/`) && !configured.startsWith('/')) {
     throw new Error('release output must be below source root')
+  }
+  if (options.qualification) {
+    const selected = await readQualificationManifest(
+      join(root, 'source-materials/runtime-qualification.json'),
+    )
+    await checkReviewedRuntimeRevocation(qualificationIdentity(selected), root)
   }
   await Deno.remove(out, { recursive: true }).catch((error) => {
     if (!(error instanceof Deno.errors.NotFound)) throw error
@@ -3606,6 +3662,38 @@ async function packageRelease(
         2,
       ) + '\n',
     )
+    if (qualification) {
+      const reviewedPolicy = await checkReviewedRuntimeRevocation(
+        qualification.identity,
+        root,
+      )
+      const currentPolicy = ciOnly
+        ? null
+        : await checkFreshRuntimeRevocation(qualification.identity)
+      const destination = resolve(
+        join(root, 'dist/release-inputs/package-runtime-revocation.json'),
+      )
+      if (
+        destination === resolve(out) ||
+        destination.startsWith(`${resolve(out)}/`)
+      ) {
+        throw new Error(
+          'package policy observation must be outside payload directory',
+        )
+      }
+      await Deno.mkdir(dirname(destination), { recursive: true })
+      await Deno.writeTextFile(
+        destination,
+        JSON.stringify({
+          qualification_identity: qualification.identity,
+          runtime_revocation: {
+            reviewed_checkout_policy: reviewedPolicy,
+            current_main_policy: currentPolicy,
+          },
+        }) + '\n',
+        { createNew: true },
+      )
+    }
     return out
   } catch (error) {
     await Deno.remove(out, { recursive: true }).catch(() => undefined)

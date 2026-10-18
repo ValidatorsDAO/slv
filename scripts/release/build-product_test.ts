@@ -18,6 +18,7 @@ import {
   validateQualificationReference,
 } from './release.ts'
 
+import { checkReviewedRuntimeRevocation } from './runtime-revocations.ts'
 const TARGET = 'x86_64-apple-darwin' as const
 const hash = (value: Uint8Array | string) =>
   createHash('sha256').update(value).digest('hex')
@@ -265,7 +266,23 @@ Deno.test('current product gate rejects changed app inputs, archive, bridge, pro
     await Deno.writeFile(exe, signedMachO())
     await packExecutable(exe, `${exe}.tar.gz`, `slv-${TARGET}-exe`)
     await Deno.writeTextFile(`${base}/release-bridge-smoke`, 'fresh bridge')
-    await Deno.writeTextFile(`${base}/product-verification.json`, '{}')
+    await Deno.mkdir(`${root}/source-materials`, { recursive: true })
+    await Deno.writeTextFile(
+      `${root}/source-materials/runtime-revocations.json`,
+      '{"schema_version":1,"revoked_identities":[]}',
+    )
+    await Deno.writeTextFile(
+      `${base}/product-verification.json`,
+      JSON.stringify({
+        runtime_revocation: {
+          reviewed_checkout_policy: await checkReviewedRuntimeRevocation(
+            DIGEST,
+            root,
+          ),
+          current_main_policy: null,
+        },
+      }),
+    )
     r.output = {
       executable_sha256: await hashFile(exe),
       archive_sha256: await hashFile(`${exe}.tar.gz`),

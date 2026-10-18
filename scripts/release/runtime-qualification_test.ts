@@ -19,10 +19,11 @@ import {
   qualificationTag,
   readQualificationManifest,
   verifyCandidateProvenance,
-  verifyPublishedQualification,
+  verifyPublishedQualification as verifyPublishedQualificationProduction,
   verifyQualificationAttestationResult,
   verifyQualificationDirectory,
-  verifyQualificationDraft,
+  verifyQualificationDraft as verifyQualificationDraftProduction,
+  verifyQualificationTagForPromotion,
 } from './runtime-qualification.ts'
 import type {
   PromotionContext,
@@ -31,6 +32,32 @@ import type {
   QualificationRelease,
 } from './runtime-qualification.ts'
 import { SOURCE_PROOF_TARGETS } from './source-materials.ts'
+const allowPolicy = {
+  fetch: () =>
+    Promise.resolve(
+      Response.json({ schema_version: 1, revoked_identities: [] }),
+    ),
+}
+const verifyPublishedQualification = (
+  m: QualificationManifest,
+  github: QualificationGitHub,
+  assets?: string[],
+) => verifyPublishedQualificationProduction(m, github, assets, allowPolicy)
+const verifyQualificationDraft = (
+  m: QualificationManifest,
+  release: QualificationRelease,
+  source: string,
+  github: QualificationGitHub,
+  complete = false,
+) =>
+  verifyQualificationDraftProduction(
+    m,
+    release,
+    source,
+    github,
+    complete,
+    allowPolicy,
+  )
 const bytes = new TextEncoder().encode('fixture bytes\n')
 const file = {
   sha256: createHash('sha256').update(bytes).digest('hex'),
@@ -416,6 +443,11 @@ Deno.test('final verification requires actual immutable public bytes, matching p
 Deno.test('payload verifier rejects runtime, proof, receipt, lock and source substitution before qualification', async () => {
   const m = fixture(), root = await Deno.realPath(await Deno.makeTempDir())
   try {
+    await Deno.mkdir(join(root, 'source-materials'))
+    await Deno.writeTextFile(
+      join(root, 'source-materials/runtime-revocations.json'),
+      '{"schema_version":1,"revoked_identities":[]}',
+    )
     for (const name of Object.keys(m.assets)) {
       await Deno.writeFile(join(root, name), bytes)
     }
@@ -561,7 +593,9 @@ Deno.test('draft resume validates present bytes and original attestation, return
     api = adapter(m),
     full = { ...published(m), draft: true, immutable: false }
   const complete = await verifyQualificationDraft(m, full, commit, api, true)
-  assertEquals(complete, { missing_assets: [], needs_attestation: false })
+  assertEquals(complete.missing_assets, [])
+  assertEquals(complete.needs_attestation, false)
+  assertEquals(complete.current_main_policy?.outcome, 'allow')
   const partial = {
     ...full,
     assets: full.assets.filter((x) =>
@@ -571,6 +605,7 @@ Deno.test('draft resume validates present bytes and original attestation, return
   assertEquals(await verifyQualificationDraft(m, partial, commit, api), {
     missing_assets: [QUALIFICATION_MANIFEST, 'zip-0'].sort(),
     needs_attestation: false,
+    current_main_policy: null,
   })
   await assertRejects(
     () => verifyQualificationDraft(m, partial, commit, api, true),
@@ -710,4 +745,181 @@ Deno.test('public adapter uses bounded credential-free HTTPS without gh configur
     Error,
     'invalid GitHub metadata JSON',
   )
+})
+
+Deno.test('promotion never adopts or overwrites a conflicting preexisting tag', async () => {
+  const m = fixture(), tag = qualificationTag(m), api = adapter(m)
+  assertEquals(
+    await verifyQualificationTagForPromotion(tag, commit, api),
+    'matching',
+  )
+  api.tagCommit = () => Promise.resolve(null)
+  assertEquals(
+    await verifyQualificationTagForPromotion(tag, commit, api),
+    'absent',
+  )
+  api.tagCommit = () => Promise.resolve('d'.repeat(40))
+  await assertRejects(
+    () => verifyQualificationTagForPromotion(tag, commit, api),
+    Error,
+    'tag conflicts',
+  )
+  api.tagCommit = () => Promise.reject(new Error('tag lookup unavailable'))
+  await assertRejects(
+    () => verifyQualificationTagForPromotion(tag, commit, api),
+    Error,
+    'lookup unavailable',
+  )
+  const draft = { ...published(m), draft: true, immutable: false }
+  const absent = adapter(m)
+  absent.tagCommit = () => Promise.resolve(null)
+  assertEquals(
+    (await verifyQualificationDraft(m, draft, commit, absent, true))
+      .missing_assets,
+    [],
+  )
+  const wrong = adapter(m)
+  wrong.tagCommit = () => Promise.resolve('d'.repeat(40))
+  let downloaded = 0
+  wrong.downloadReleaseAsset = () => {
+    downloaded++
+    throw new Error('must not download')
+  }
+  await assertRejects(
+    () => verifyQualificationDraft(m, draft, commit, wrong, true),
+    Error,
+    'tag conflicts',
+  )
+  assertEquals(downloaded, 0)
+  const raced = adapter(m)
+  let reads = 0
+  raced.tagCommit = () =>
+    Promise.resolve(++reads === 1 ? commit : 'd'.repeat(40))
+  await assertRejects(
+    () => verifyQualificationDraft(m, draft, commit, raced, true),
+    Error,
+    'tag conflicts',
+  )
+  assertEquals(reads, 2)
+})
+Deno.test('tag adapter distinguishes exact 404 absence from metadata and annotated-object errors', async () => {
+  const missing = githubQualificationAdapter({
+    token: null,
+    fetch: () => Promise.resolve(new Response('', { status: 404 })),
+  })
+  assertEquals(await missing.tagCommit('runtime-test'), null)
+  for (const status of [401, 403, 429, 500]) {
+    const failed = githubQualificationAdapter({
+      token: null,
+      fetch: () => Promise.resolve(new Response('not absence', { status })),
+    })
+    await assertRejects(
+      () => failed.tagCommit('runtime-test'),
+      Error,
+      `(${status})`,
+    )
+  }
+  const malformed = githubQualificationAdapter({
+    token: null,
+    fetch: () =>
+      Promise.resolve(Response.json({ object: { type: 'blob', sha: commit } })),
+  })
+  await assertRejects(
+    () => malformed.tagCommit('runtime-test'),
+    Error,
+    'does not identify a commit',
+  )
+  let calls = 0
+  const broken = githubQualificationAdapter({
+    token: null,
+    fetch: () =>
+      Promise.resolve(
+        ++calls === 1
+          ? Response.json({ object: { type: 'tag', sha: commit } })
+          : new Response('', { status: 404 }),
+      ),
+  })
+  await assertRejects(
+    () => broken.tagCommit('runtime-test'),
+    Error,
+    'annotated tag object is missing',
+  )
+})
+
+Deno.test('published qualification survives expired CI and unavailable original PR objects', async () => {
+  const m = fixture(), api = adapter(m)
+  let originalReads = 0
+  api.verifyOriginalLineage = () => {
+    originalReads++
+    return Promise.reject(new Error('original PR object no longer available'))
+  }
+  api.run = () => {
+    originalReads++
+    return Promise.reject(new Error('original run unavailable'))
+  }
+  api.artifact = () => {
+    originalReads++
+    return Promise.reject(new Error('original artifact expired'))
+  }
+  // Independently fetched immutable assets and hosted attestation remain the
+  // final trust boundary. No original Actions/PR endpoint may be consulted.
+  await verifyPublishedQualification(m, api)
+  assertEquals(originalReads, 0)
+  await assertRejects(
+    () => verifyCandidateProvenance(m, api),
+    Error,
+    'original PR object no longer available',
+  )
+  assertEquals(originalReads, 1)
+  const expired = adapter(m)
+  const originalArtifact = expired.artifact
+  expired.artifact = async (id) => ({
+    ...await originalArtifact(id),
+    expired: true,
+  })
+  await assertRejects(
+    () => verifyCandidateProvenance(m, expired),
+    Error,
+    'expired',
+  )
+})
+
+Deno.test('fresh main revocation added after an earlier acceptance prevents final qualification and publication', async () => {
+  const m = fixture(), api = adapter(m), selected = qualificationIdentity(m)
+  await verifyPublishedQualificationProduction(m, api, [], allowPolicy)
+  const newlyRevoked = {
+    fetch: () =>
+      Promise.resolve(
+        Response.json({ schema_version: 1, revoked_identities: [selected] }),
+      ),
+  }
+  await assertRejects(
+    () => verifyPublishedQualificationProduction(m, api, [], newlyRevoked),
+    Error,
+    'revoked',
+  )
+  const fullDraft = { ...published(m), draft: true, immutable: false }
+  await assertRejects(
+    () =>
+      verifyQualificationDraftProduction(
+        m,
+        fullDraft,
+        commit,
+        api,
+        true,
+        newlyRevoked,
+      ),
+    Error,
+    'revoked',
+  )
+  const unrelatedPolicy = {
+    fetch: () =>
+      Promise.resolve(
+        Response.json({
+          schema_version: 1,
+          revoked_identities: ['f'.repeat(64)],
+        }),
+      ),
+  }
+  await verifyPublishedQualificationProduction(m, api, [], unrelatedPolicy)
 })

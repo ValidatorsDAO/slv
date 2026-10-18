@@ -73,6 +73,16 @@ compiler frontend, current source, notices, SBOM, and executable archive. The
 qualification tag starts with `runtime-deno-`; it is not an installable SLV
 version and never replaces the latest application release.
 
+`source-materials/runtime-revocations.json` is a reviewed deny-only list of
+qualification identities. Candidate checks use the exact checked-out policy;
+main promotion, final build/package acceptance, and publication also check the
+current policy at its fixed public `main` URL. Online installation, upgrade,
+and skill synchronization fetch that policy independently before accepting
+the selected runtime. A listed identity or an unavailable or invalid policy
+fails that acceptance attempt; an empty list never replaces signature, source,
+or hash verification. The recorded policy digest and fetch time identify an
+observed mutable policy, not an immutable or atomic view of future updates.
+
 The three source archives (`slv-source.tar.gz`,
 `deno-source.tar.gz`, and `deno-cargo-vendor.tar.gz`) are verified release
 identities for source and relink work. They are not installation or upgrade

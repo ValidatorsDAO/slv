@@ -12,7 +12,16 @@ import {
   verifyLicenses,
 } from './release.ts'
 import { verifyLinuxProduct } from '../../source-rebuild/verify-linux-product.ts'
-import { verifyQualificationBinding } from './runtime-qualification.ts'
+import {
+  qualificationIdentity,
+  readQualificationManifest,
+  verifyQualificationBinding,
+} from './runtime-qualification.ts'
+import {
+  checkFreshRuntimeRevocation,
+  checkReviewedRuntimeRevocation,
+  verifyRuntimeRevocationBinding,
+} from './runtime-revocations.ts'
 
 export type ProductTarget = (typeof TARGETS)[number]
 export type QualificationState = 'candidate-validation' | 'final-qualified'
@@ -479,6 +488,10 @@ export async function verifyCurrentProductFiles(
     buildReceipt: { sha256: string }
   },
 ): Promise<CurrentProductReceipt> {
+  const reviewedPolicy = await checkReviewedRuntimeRevocation(
+    qualification.identity,
+    root,
+  )
   const base = `${root}/dist/release-inputs/product-runtime/${target}`
   const r = parseCurrentProductReceipt(
     JSON.parse(await Deno.readTextFile(`${base}/product-runtime-receipt.json`)),
@@ -527,6 +540,18 @@ export async function verifyCurrentProductFiles(
     await hashFile(`${base}/product-verification.json`) !==
       r.output.verification_sha256
   ) fail('current product output bytes differ')
+  const verification = JSON.parse(
+    await Deno.readTextFile(`${base}/product-verification.json`),
+  )
+  verifyRuntimeRevocationBinding(verification.runtime_revocation, {
+    identity: qualification.identity,
+    mode: qualification.state,
+    reviewedPolicySha256: reviewedPolicy.policy_sha256,
+    sourceCommit: expected.sourceSha,
+  })
+  if (qualification.state === 'final-qualified') {
+    await checkFreshRuntimeRevocation(qualification.identity)
+  }
   return r
 }
 
@@ -574,6 +599,13 @@ export async function buildProduct(
   options: BuildOptions,
 ): Promise<CurrentProductReceipt> {
   const o = options, target = o.target, root = await Deno.realPath(o.root)
+  const selectedQualification = await readQualificationManifest(
+    `${root}/source-materials/runtime-qualification.json`,
+  )
+  await checkReviewedRuntimeRevocation(
+    qualificationIdentity(selectedQualification),
+    root,
+  )
   assertProductHost(target)
   if (
     o.state === 'final-qualified' &&
@@ -793,9 +825,25 @@ export async function buildProduct(
       native_execution: 'not_performed',
     }
   }
+  const runtimeRevocation = {
+    reviewed_checkout_policy: await checkReviewedRuntimeRevocation(
+      binding.identity,
+      root,
+    ),
+    current_main_policy: o.state === 'final-qualified'
+      ? await checkFreshRuntimeRevocation(binding.identity)
+      : null,
+  }
   await Deno.writeTextFile(
     `${base}/product-verification.json`,
-    JSON.stringify(verification, null, 2) + '\n',
+    JSON.stringify(
+      {
+        ...(verification as Record<string, unknown>),
+        runtime_revocation: runtimeRevocation,
+      },
+      null,
+      2,
+    ) + '\n',
   )
   await packExecutable(executable, `${executable}.tar.gz`, `slv-${target}-exe`)
   const timestamp = decode.decode(

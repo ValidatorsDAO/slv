@@ -1668,12 +1668,22 @@ jobs:
             cp "$BUNDLE" dist/release-inputs/runtime-qualification/runtime-qualification.json.intoto.jsonl
             gh release upload "$tag" --repo "$GH_REPO" dist/release-inputs/runtime-qualification/runtime-qualification.json.intoto.jsonl
           fi
-          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts verify-draft source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts verify-draft source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE" "$RUNNER_TEMP/qualification-publication-policy.json"
           gh release edit "$tag" --repo "$GH_REPO" --draft=false --latest=false
       - name: Independently re-download and verify the final public qualification
         run: |
           set -euo pipefail
           deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts verify source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE" final-qualified "$RUNNER_TEMP/promotion-verification.json"
+      - name: Preserve qualification publication policy observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-qualification-publication-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/qualification-publication-policy.json
+            ${{ runner.temp }}/promotion-verification.json
+          if-no-files-found: warn
+          retention-days: 7
 
   runtime-qualification:
     needs: [resolve, qualification-inputs, qualification-promotion]
@@ -1690,6 +1700,7 @@ jobs:
       producer_attempt: ${{ github.run_attempt }}
       receipt_sha256: ${{ steps.bind.outputs.receipt_sha256 }}
       qualification_state: ${{ steps.bind.outputs.qualification_state }}
+      qualification_identity: ${{ steps.bind.outputs.qualification_identity }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -1722,6 +1733,7 @@ jobs:
           test "$(sha256sum dist/release-inputs/runtime-qualification/qualification-state.json | cut -d ' ' -f 1)" = '${{ needs.qualification-inputs.outputs.receipt_sha256 }}'
           deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts verify source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE" "$state" dist/release-inputs/runtime-qualification/verification-receipt.json
           echo "qualification_state=$state" >> "$GITHUB_OUTPUT"
+          echo "qualification_identity=$(jq -er .identity dist/release-inputs/runtime-qualification/verification-receipt.json)" >> "$GITHUB_OUTPUT"
           echo "receipt_sha256=$(sha256sum dist/release-inputs/runtime-qualification/verification-receipt.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -2015,6 +2027,224 @@ jobs:
             dist/slv-aarch64-apple-darwin-exe.tar.gz
             dist/release-inputs/product-runtime/aarch64-apple-darwin
           compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  validation-smoke-x86_64-apple-darwin:
+    name: validation-smoke-x86_64-apple-darwin
+    needs: [resolve, runtime-qualification, test, build-x86_64-apple-darwin]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.operation == 'release-build-validation' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.result == 'success' && needs.runtime-qualification.result == 'success' && needs.test.result == 'success' && needs.build-x86_64-apple-darwin.result == 'success' && needs.resolve.outputs.mode == 'release-build-validation' && needs.resolve.outputs.publication == 'none' && needs.runtime-qualification.outputs.qualification_state == 'candidate-validation' }}
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.upload-smoke.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-smoke.outputs.artifact-digest }}
+    env:
+      SLV_OPERATION: ${{ inputs.operation }}
+      SLV_RESOLVED_MODE: ${{ needs.resolve.outputs.mode }}
+      SLV_PUBLICATION: ${{ needs.resolve.outputs.publication }}
+      SLV_RESOLVED_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      NEEDS_JSON: ${{ toJSON(needs) }}
+      TARGET: x86_64-apple-darwin
+    steps:
+      - name: Require the exact reviewed validation and successful current producers
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          set -o noclobber
+          jq -n --arg source "$REVIEWED_SHA" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg target "$TARGET" '
+            def safe($pattern): if test($pattern) then . else null end;
+            {schema_version: 1, kind: "slv-darwin-validation-smoke", publication: "none", status: "incomplete", stage: "preflight",
+             source: {commit: ($source | safe("^[a-f0-9]{40}$"))},
+             workflow: {run_id: ($run | safe("^[1-9][0-9]*$")), run_attempt: ($attempt | safe("^[1-9][0-9]*$"))},
+             target: ($target | if . == "x86_64-apple-darwin" or . == "aarch64-apple-darwin" then . else null end), started_at: (now | todateiso8601)}
+          ' > "$RUNNER_TEMP/darwin-smoke-receipt.json"
+          test "$GITHUB_REPOSITORY" = ValidatorsDAO/slv
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$SLV_OPERATION" = release-build-validation
+          test "$SLV_RESOLVED_MODE" = release-build-validation
+          test "$SLV_PUBLICATION" = none
+          test "$GITHUB_REF" = refs/heads/codex/slv-linux-all-targets
+          test "$GITHUB_WORKFLOW_REF" = "ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@$GITHUB_REF"
+          [[ "$REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$REVIEWED_SHA" = "$SLV_RESOLVED_SOURCE_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_WORKFLOW_SHA"
+          test "$GITHUB_JOB" = "validation-smoke-$TARGET"
+          jq -e --slurp --arg target "$TARGET" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg source "$REVIEWED_SHA" '
+            def positive: type == "string" and test("^[1-9][0-9]*$");
+            def hash: type == "string" and test("^[a-f0-9]{64}$");
+            def digest: type == "string" and (sub("^sha256:"; "") | hash);
+            def producer($prefix):
+              (.[$prefix + "artifact_id"] | positive) and
+              (.[$prefix + "artifact_digest"] | digest) and
+              .[$prefix + "producer_run_id"] == $run and
+              .[$prefix + "producer_attempt"] == $attempt;
+            length == 1 and (.[0] |
+              ($run | positive) and ($attempt | positive) and
+              (keys == (["resolve", "runtime-qualification", "test", "build-" + $target] | sort)) and
+              all(.[]; .result == "success") and
+              (.resolve.outputs | .mode == "release-build-validation" and .publication == "none" and .release_required == "false" and .source_sha == $source) and
+              (."runtime-qualification".outputs | .qualification_state == "candidate-validation" and (.qualification_identity | hash) and .producer_run_id == $run and .producer_attempt == $attempt) and
+              (.test.outputs | producer("license_") and (.license_notice_sha256 | hash)) and
+              (.["build-" + $target].outputs | producer("") and (.receipt_sha256 | hash)))
+          ' <<< "$NEEDS_JSON" >/dev/null
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Acquire and verify the exact Linux product and canonical notice artifacts
+        id: acquire
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          title="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" --jq .display_title)"
+          test "$title" = "SLV release build validation $REVIEWED_SHA"
+          jq -n --arg target "$TARGET" --arg source "$REVIEWED_SHA" --arg workflow "$GITHUB_WORKFLOW_SHA" --arg ref "$GITHUB_REF" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg title "$title" --argjson needs "$NEEDS_JSON" '
+            {target: $target, source_sha: $source, workflow_sha: $workflow, ref: $ref, run_id: $run, run_attempt: $attempt, reviewed_sha: $source, title: $title,
+             qualification_identity: $needs["runtime-qualification"].outputs.qualification_identity,
+             product: ($needs["build-" + $target].outputs | {artifact_id: .artifact_id, artifact_sha256: (.artifact_digest | sub("^sha256:"; "")), receipt_sha256: .receipt_sha256, producer_attempt: .producer_attempt}),
+             notices: ($needs.test.outputs | {artifact_id: .license_artifact_id, artifact_sha256: (.license_artifact_digest | sub("^sha256:"; "")), producer_attempt: .license_producer_attempt, sha256: .license_notice_sha256})}
+          ' > "$RUNNER_TEMP/darwin-smoke-input.json"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts acquire "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Execute the unchanged product and current bridge on the native architecture
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts execute "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Preserve sanitized same-byte smoke evidence
+        id: upload-smoke
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-darwin-validation-smoke-x86_64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/darwin-smoke-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  validation-smoke-aarch64-apple-darwin:
+    name: validation-smoke-aarch64-apple-darwin
+    needs: [resolve, runtime-qualification, test, build-aarch64-apple-darwin]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.operation == 'release-build-validation' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.result == 'success' && needs.runtime-qualification.result == 'success' && needs.test.result == 'success' && needs.build-aarch64-apple-darwin.result == 'success' && needs.resolve.outputs.mode == 'release-build-validation' && needs.resolve.outputs.publication == 'none' && needs.runtime-qualification.outputs.qualification_state == 'candidate-validation' }}
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.upload-smoke.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-smoke.outputs.artifact-digest }}
+    env:
+      SLV_OPERATION: ${{ inputs.operation }}
+      SLV_RESOLVED_MODE: ${{ needs.resolve.outputs.mode }}
+      SLV_PUBLICATION: ${{ needs.resolve.outputs.publication }}
+      SLV_RESOLVED_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      NEEDS_JSON: ${{ toJSON(needs) }}
+      TARGET: aarch64-apple-darwin
+    steps:
+      - name: Require the exact reviewed validation and successful current producers
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          set -o noclobber
+          jq -n --arg source "$REVIEWED_SHA" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg target "$TARGET" '
+            def safe($pattern): if test($pattern) then . else null end;
+            {schema_version: 1, kind: "slv-darwin-validation-smoke", publication: "none", status: "incomplete", stage: "preflight",
+             source: {commit: ($source | safe("^[a-f0-9]{40}$"))},
+             workflow: {run_id: ($run | safe("^[1-9][0-9]*$")), run_attempt: ($attempt | safe("^[1-9][0-9]*$"))},
+             target: ($target | if . == "x86_64-apple-darwin" or . == "aarch64-apple-darwin" then . else null end), started_at: (now | todateiso8601)}
+          ' > "$RUNNER_TEMP/darwin-smoke-receipt.json"
+          test "$GITHUB_REPOSITORY" = ValidatorsDAO/slv
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$SLV_OPERATION" = release-build-validation
+          test "$SLV_RESOLVED_MODE" = release-build-validation
+          test "$SLV_PUBLICATION" = none
+          test "$GITHUB_REF" = refs/heads/codex/slv-linux-all-targets
+          test "$GITHUB_WORKFLOW_REF" = "ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@$GITHUB_REF"
+          [[ "$REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$REVIEWED_SHA" = "$SLV_RESOLVED_SOURCE_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_WORKFLOW_SHA"
+          test "$GITHUB_JOB" = "validation-smoke-$TARGET"
+          jq -e --slurp --arg target "$TARGET" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg source "$REVIEWED_SHA" '
+            def positive: type == "string" and test("^[1-9][0-9]*$");
+            def hash: type == "string" and test("^[a-f0-9]{64}$");
+            def digest: type == "string" and (sub("^sha256:"; "") | hash);
+            def producer($prefix):
+              (.[$prefix + "artifact_id"] | positive) and
+              (.[$prefix + "artifact_digest"] | digest) and
+              .[$prefix + "producer_run_id"] == $run and
+              .[$prefix + "producer_attempt"] == $attempt;
+            length == 1 and (.[0] |
+              ($run | positive) and ($attempt | positive) and
+              (keys == (["resolve", "runtime-qualification", "test", "build-" + $target] | sort)) and
+              all(.[]; .result == "success") and
+              (.resolve.outputs | .mode == "release-build-validation" and .publication == "none" and .release_required == "false" and .source_sha == $source) and
+              (."runtime-qualification".outputs | .qualification_state == "candidate-validation" and (.qualification_identity | hash) and .producer_run_id == $run and .producer_attempt == $attempt) and
+              (.test.outputs | producer("license_") and (.license_notice_sha256 | hash)) and
+              (.["build-" + $target].outputs | producer("") and (.receipt_sha256 | hash)))
+          ' <<< "$NEEDS_JSON" >/dev/null
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Acquire and verify the exact Linux product and canonical notice artifacts
+        id: acquire
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          title="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" --jq .display_title)"
+          test "$title" = "SLV release build validation $REVIEWED_SHA"
+          jq -n --arg target "$TARGET" --arg source "$REVIEWED_SHA" --arg workflow "$GITHUB_WORKFLOW_SHA" --arg ref "$GITHUB_REF" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg title "$title" --argjson needs "$NEEDS_JSON" '
+            {target: $target, source_sha: $source, workflow_sha: $workflow, ref: $ref, run_id: $run, run_attempt: $attempt, reviewed_sha: $source, title: $title,
+             qualification_identity: $needs["runtime-qualification"].outputs.qualification_identity,
+             product: ($needs["build-" + $target].outputs | {artifact_id: .artifact_id, artifact_sha256: (.artifact_digest | sub("^sha256:"; "")), receipt_sha256: .receipt_sha256, producer_attempt: .producer_attempt}),
+             notices: ($needs.test.outputs | {artifact_id: .license_artifact_id, artifact_sha256: (.license_artifact_digest | sub("^sha256:"; "")), producer_attempt: .license_producer_attempt, sha256: .license_notice_sha256})}
+          ' > "$RUNNER_TEMP/darwin-smoke-input.json"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts acquire "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Execute the unchanged product and current bridge on the native architecture
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts execute "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Preserve sanitized same-byte smoke evidence
+        id: upload-smoke
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-darwin-validation-smoke-aarch64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/darwin-smoke-receipt.json
           if-no-files-found: error
           retention-days: 7
 
@@ -4235,6 +4465,14 @@ jobs:
           path: dist/release
           if-no-files-found: error
           retention-days: 7
+      - name: Preserve package policy observations outside release payloads
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-package-runtime-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/release-inputs/package-runtime-revocation.json
+          if-no-files-found: warn
+          retention-days: 7
 
   attest:
     needs: [resolve, package, runtime-qualification]
@@ -4285,6 +4523,14 @@ jobs:
           name: release-provenance
           path: provenance
           if-no-files-found: error
+          retention-days: 7
+      - name: Preserve the runtime policy checked before attestation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-attestation-runtime-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/release-inputs/publication-runtime-revocation.json
+          if-no-files-found: warn
           retention-days: 7
 
   activation-required:
@@ -4346,6 +4592,13 @@ jobs:
           while IFS= read -r subject; do
             gh attestation verify "downloaded/$subject" --bundle "downloaded/$subject.intoto.jsonl" --repo "$GH_REPO" --signer-workflow ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml --source-ref "$ATTESTED_SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done < subjects
+
+      - name: Reverify the immutable runtime and current policy for the signed application
+        run: |
+          set -euo pipefail
+          producer_run="$(jq -er .workflow.run_id downloaded/release-manifest.json)"
+          producer_attempt="$(jq -er .workflow.run_attempt downloaded/release-manifest.json)"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/release.ts verify-qualified-publication downloaded "$SOURCE_SHA" "$producer_run" "$producer_attempt" "$SOURCE_SHA" "$RUNNER_TEMP/existing-release-policy.json"
 
   publish:
     needs: [resolve, package, attest, activation-required, runtime-qualification]
@@ -4472,8 +4725,20 @@ jobs:
           while IFS= read -r subject; do
             gh attestation verify "downloaded/$subject" --bundle "downloaded/$subject.intoto.jsonl" --repo "$GH_REPO" --signer-workflow ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml --source-ref "$ATTESTED_SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done < subjects
+          qualification_identity="$(jq -er '.runtime_qualification.identity' downloaded/release-manifest.json)"
+          deno run --frozen --no-prompt --allow-net=raw.githubusercontent.com --allow-write="$RUNNER_TEMP" scripts/release/runtime-revocations.ts fresh "$qualification_identity" "$RUNNER_TEMP/application-publication-policy.json"
           gh release edit "$TAG" --repo "$GH_REPO" --draft=false
       - name: Assert the published release is immutable without mutation
         run: |
           set -euo pipefail
           test "$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '.immutable // false')" = true
+      - name: Preserve the policy observed immediately before publication
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-publication-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/application-publication-policy.json
+            dist/release-inputs/publication-runtime-revocation.json
+          if-no-files-found: warn
+          retention-days: 7

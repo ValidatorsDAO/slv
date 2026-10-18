@@ -1530,7 +1530,7 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
       /^  ([a-z][a-z0-9_-]*):\n/gm,
     ),
   ].map((match) => match[1])
-  assertEquals(jobNames.length, 30)
+  assertEquals(jobNames.length, 32)
   for (const job of jobNames) {
     if (job === 'source-native-diagnostic') continue
     const expression = jobIf(jobSection(workflow, job))!.replace(
@@ -1559,7 +1559,7 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     permissions.trim(),
     'permissions:\n      contents: read\n      actions: read',
   )
-  assertEquals(count(workflow, 'actions: read'), 3)
+  assertEquals(count(workflow, 'actions: read'), 5)
   assert(!diagnostic.includes('environment:'))
   assert(!diagnostic.includes('secrets.'))
   assert(!diagnostic.includes('outputs:'))
@@ -5015,6 +5015,66 @@ Deno.test('qualification promotion requires activation before any publication wo
   }
 })
 
+Deno.test('application publication rechecks current runtime policy immediately before publishing', async () => {
+  const section = jobSection(await releaseWorkflow(), 'publish')
+  const shell = stepShell(
+    section,
+    'Re-download every staged asset and verify provenance before publication',
+  )
+  const start = shell.indexOf('qualification_identity=')
+  assert(start > shell.indexOf('gh attestation verify'))
+  const finalGuard = shell.slice(start)
+  assert(finalGuard.includes('scripts/release/runtime-revocations.ts fresh'))
+  assert(finalGuard.includes('--allow-net=raw.githubusercontent.com'))
+  assert(
+    finalGuard.indexOf('runtime-revocations.ts') <
+      finalGuard.indexOf('gh release edit'),
+  )
+  const directory = await Deno.makeTempDir({ prefix: 'slv-publish-policy-' })
+  try {
+    const log = `${directory}/calls`
+    await Deno.writeTextFile(
+      `${directory}/jq`,
+      '#!/bin/sh\nprintf "%064d\\n" 0\n',
+    )
+    await Deno.writeTextFile(
+      `${directory}/deno`,
+      '#!/bin/sh\nprintf "policy-check\\n" >> "$CALL_LOG"\n[ "$POLICY_DENY" = false ] || exit 47\n',
+    )
+    await Deno.writeTextFile(
+      `${directory}/gh`,
+      '#!/bin/sh\n[ "$1 $2" = "release edit" ] || exit 48\nprintf "publish\\n" >> "$CALL_LOG"\n',
+    )
+    for (const name of ['jq', 'deno', 'gh']) {
+      await Deno.chmod(`${directory}/${name}`, 0o700)
+    }
+    for (const deny of [true, false]) {
+      await Deno.writeTextFile(log, '')
+      const result = await new Deno.Command('/bin/bash', {
+        args: ['-ceu', finalGuard],
+        clearEnv: true,
+        env: {
+          PATH: directory,
+          CALL_LOG: log,
+          POLICY_DENY: String(deny),
+          RUNNER_TEMP: directory,
+          TAG: 'v2026.10.17.2011',
+          GH_REPO: 'ValidatorsDAO/slv',
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      assertEquals(result.success, !deny)
+      assertEquals(
+        await Deno.readTextFile(log),
+        deny ? 'policy-check\n' : 'policy-check\npublish\n',
+      )
+    }
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
+})
+
 Deno.test('qualification publication resumes only missing assets and verifies complete draft before publish', async () => {
   const section = jobSection(await releaseWorkflow(), 'qualification-promotion')
   assert(section.includes("if: steps.plan.outputs.needs_attestation == 'true'"))
@@ -5079,6 +5139,7 @@ Deno.test('qualification publication resumes only missing assets and verifies co
             GH_TOKEN: 'fixture-token',
             SLV_RELEASE_SOURCE_SHA: SHA,
             GITHUB_WORKSPACE: work,
+            RUNNER_TEMP: directory,
             RUNNER_ENVIRONMENT: 'github-hosted',
             BUNDLE: needsAttestation ? `${directory}/bundle` : '',
           },
@@ -5114,6 +5175,401 @@ Deno.test('qualification publication resumes only missing assets and verifies co
         if (!failDraft) {
           assert(publish > calls.findIndex((x) => x[0] === 'verify-draft'))
         }
+      }
+    }
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
+})
+
+function darwinSmokeNeeds(target: string): ProductNeeds {
+  const product = `build-${target}`
+  const needs = qualificationNeeds('product')
+  delete needs['source-materials']
+  needs[product] = {
+    result: 'success',
+    outputs: {
+      artifact_id: '83',
+      artifact_digest: 'sha256:' + 'b'.repeat(64),
+      producer_run_id: '123',
+      producer_attempt: '2',
+      receipt_sha256: 'c'.repeat(64),
+    },
+  }
+  needs.test.outputs.license_producer_attempt = '2'
+  needs.resolve.outputs.publication = 'none'
+  needs['runtime-qualification'].outputs.qualification_identity = 'a'.repeat(64)
+  return needs
+}
+function darwinSmokeEnv(target: string): Record<string, string> {
+  return {
+    GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/codex/slv-linux-all-targets',
+    GITHUB_WORKFLOW_REF:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/codex/slv-linux-all-targets',
+    GITHUB_SHA: SHA,
+    GITHUB_WORKFLOW_SHA: SHA,
+    GITHUB_RUN_ID: '123',
+    GITHUB_RUN_ATTEMPT: '2',
+    GITHUB_JOB: `validation-smoke-${target}`,
+    TARGET: target,
+    REVIEWED_SHA: SHA,
+    SLV_OPERATION: 'release-build-validation',
+    SLV_RESOLVED_MODE: 'release-build-validation',
+    SLV_PUBLICATION: 'none',
+    SLV_RESOLVED_SOURCE_SHA: SHA,
+    NEEDS_JSON: JSON.stringify(darwinSmokeNeeds(target)),
+  }
+}
+
+Deno.test('exact two Darwin smoke jobs are validation-only and never enter ordinary release dependencies', async () => {
+  const workflow = await releaseWorkflow()
+  const names = [...workflow.matchAll(/^  (validation-smoke-[\w-]+):$/gm)].map(
+    (x) => x[1],
+  )
+  assertEquals(names, [
+    'validation-smoke-x86_64-apple-darwin',
+    'validation-smoke-aarch64-apple-darwin',
+  ])
+  const expression = (
+    value: string,
+    needs: ProductNeeds,
+    changes: Record<string, string> = {},
+    cancelled = false,
+  ) =>
+    new Function(
+      'github',
+      'inputs',
+      'needs',
+      'cancelled',
+      `return (${value.replace(/needs\.([\w-]+)/g, 'needs["$1"]')})`,
+    )(
+      {
+        event_name: 'workflow_dispatch',
+        repository: 'ValidatorsDAO/slv',
+        ref: 'refs/heads/codex/slv-linux-all-targets',
+        ...changes,
+      },
+      { operation: changes.operation ?? 'release-build-validation' },
+      needs,
+      () => cancelled,
+    )
+  for (
+    const [target, host] of [['x86_64-apple-darwin', 'macos-15-intel'], [
+      'aarch64-apple-darwin',
+      'macos-15',
+    ]]
+  ) {
+    const section = jobSection(workflow, `validation-smoke-${target}`),
+      needs = darwinSmokeNeeds(target)
+    const condition = jobIf(section)!.slice(4, -3)
+    assertEquals(expression(condition, needs), true)
+    assertEquals(expression(condition, needs, {}, true), false)
+    for (
+      const change of [
+        { event_name: 'pull_request' },
+        { event_name: 'push' },
+        { repository: 'other/slv' },
+        { ref: 'refs/heads/main' },
+        ...[
+          'release',
+          'runtime-qualification',
+          'source-build-validation',
+          'source-native-diagnostic',
+        ].map((operation) => ({ operation })),
+      ] as Record<string, string>[]
+    ) assertEquals(expression(condition, needs, change), false)
+    for (const job of Object.keys(needs)) {
+      for (const result of ['skipped', 'failure', 'cancelled']) {
+        const changed = structuredClone(needs)
+        changed[job].result = result
+        assertEquals(
+          expression(condition, changed),
+          false,
+          `${target}:${job}:${result}`,
+        )
+      }
+    }
+    for (
+      const [job, field, value] of [['resolve', 'mode', 'main-release'], [
+        'resolve',
+        'publication',
+        'initial',
+      ], ['runtime-qualification', 'qualification_state', 'final-qualified']]
+    ) {
+      const changed = structuredClone(needs)
+      changed[job].outputs[field] = value
+      assertEquals(expression(condition, changed), false)
+    }
+    assert(section.includes(`name: validation-smoke-${target}\n`))
+    assert(
+      section.includes(
+        `needs: [resolve, runtime-qualification, test, build-${target}]`,
+      ),
+    )
+    assert(section.includes(`runs-on: ${host}\n`))
+    assert(section.includes('timeout-minutes: 10'))
+    assertEquals(
+      section.slice(
+        section.indexOf('    permissions:'),
+        section.indexOf('    outputs:'),
+      ).trim(),
+      'permissions:\n      contents: read\n      actions: read',
+    )
+    assert(!section.includes('id-token:'))
+    assert(!section.includes('secrets.'))
+    assert(!section.includes('environment:'))
+    assert(!section.includes('slv-build-'))
+    assert(!section.includes('deno install'))
+    assert(!section.includes('deno compile'))
+    assert(!section.includes('verify-native.ts'))
+    assert(!section.includes('prepare-tools'))
+    assert(section.includes('persist-credentials: false'))
+    assert(section.includes('deno-version: v2.9.3'))
+    assertEquals(count(section, 'GH_TOKEN:'), 1)
+    const execute = section.slice(
+      section.indexOf('      - name: Execute the unchanged'),
+      section.indexOf('      - name: Preserve sanitized'),
+    )
+    assert(execute.includes('if: ${{ always() && !cancelled() }}'))
+    assert(execute.includes('timeout-minutes: 3'))
+    assert(!execute.includes('GH_TOKEN'))
+    assert(!execute.includes('HOME='))
+    assert(!execute.includes('--allow-net'))
+    const upload = section.slice(
+      section.indexOf('      - name: Preserve sanitized'),
+    )
+    assert(upload.includes('timeout-minutes: 2'))
+    assert(upload.includes('if-no-files-found: error'))
+    assert(upload.includes('if: ${{ always() && !cancelled() }}'))
+    assert(upload.includes('retention-days: 7'))
+  }
+  for (
+    const job of [
+      'qualification-inputs',
+      'qualification-promotion',
+      'runtime-qualification',
+      ...currentProductJobs,
+      'package',
+      'attest',
+      'publish',
+      'activation-required',
+    ]
+  ) assert(!jobSection(workflow, job).includes('validation-smoke-'), job)
+  assert(
+    jobSection(workflow, 'runtime-qualification').includes(
+      'qualification_identity: ${{ steps.bind.outputs.qualification_identity }}',
+    ),
+  )
+})
+
+Deno.test('Darwin smoke first guard rejects wrong identity, stale attempts and absent producer outputs before acquisition', async () => {
+  const workflow = await releaseWorkflow()
+  for (const target of ['x86_64-apple-darwin', 'aarch64-apple-darwin']) {
+    const section = jobSection(workflow, `validation-smoke-${target}`)
+    const title =
+      'Require the exact reviewed validation and successful current producers'
+    assert(section.indexOf(title) < section.indexOf('uses: actions/checkout@'))
+    const shell = stepShell(section, title), valid = darwinSmokeEnv(target)
+    const run = async (changes: Record<string, string> = {}) => {
+      const directory = await Deno.makeTempDir({ prefix: 'slv-smoke-guard-' })
+      try {
+        const result = await runDiagnosticGuard(shell, {
+          ...valid,
+          ...changes,
+          RUNNER_TEMP: directory,
+        })
+        const receiptText = await Deno.readTextFile(
+          `${directory}/darwin-smoke-receipt.json`,
+        )
+        const receipt = JSON.parse(receiptText)
+        assertEquals(receipt.status, 'incomplete')
+        assertEquals(receipt.stage, 'preflight')
+        assertEquals(receipt.publication, 'none')
+        assert(!receiptText.includes(directory))
+        for (const [key, value] of Object.entries(changes)) {
+          if (
+            ['REVIEWED_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'TARGET']
+              .includes(key) && value === 'private-test-marker'
+          ) assert(!receiptText.includes(value))
+        }
+        return result
+      } finally {
+        await Deno.remove(directory, { recursive: true })
+      }
+    }
+    const passed = await run()
+    assert(passed.success, new TextDecoder().decode(passed.stderr))
+    for (
+      const [key, value] of Object.entries({
+        GITHUB_REPOSITORY: 'other/slv',
+        GITHUB_EVENT_NAME: 'pull_request',
+        SLV_OPERATION: 'release',
+        SLV_RESOLVED_MODE: 'ci',
+        SLV_PUBLICATION: 'initial',
+        GITHUB_REF: 'refs/heads/main',
+        GITHUB_WORKFLOW_REF: 'other/workflow',
+        REVIEWED_SHA: SHA.slice(0, 12),
+        GITHUB_SHA: BEFORE,
+        GITHUB_WORKFLOW_SHA: BEFORE,
+        SLV_RESOLVED_SOURCE_SHA: BEFORE,
+        GITHUB_JOB: 'other',
+        GITHUB_RUN_ID: '0',
+        GITHUB_RUN_ATTEMPT: '0',
+      })
+    ) assert(!(await run({ [key]: value })).success, key)
+    for (
+      const field of [
+        'REVIEWED_SHA',
+        'GITHUB_RUN_ID',
+        'GITHUB_RUN_ATTEMPT',
+        'TARGET',
+      ]
+    ) {
+      assert(!(await run({ [field]: 'private-test-marker' })).success)
+    }
+    const needs = darwinSmokeNeeds(target)
+    for (const job of Object.keys(needs)) {
+      const missing = structuredClone(needs)
+      delete missing[job]
+      assert(!(await run({ NEEDS_JSON: JSON.stringify(missing) })).success, job)
+      for (const result of ['failure', 'skipped', 'cancelled']) {
+        const bad = structuredClone(needs)
+        bad[job].result = result
+        assert(
+          !(await run({ NEEDS_JSON: JSON.stringify(bad) })).success,
+          `${job}:${result}`,
+        )
+      }
+    }
+    for (
+      const [job, prefix] of [[`build-${target}`, ''], ['test', 'license_']]
+    ) {
+      for (
+        const [field, values] of [
+          [prefix + 'artifact_id', ['', '0', '1,2']],
+          [prefix + 'artifact_digest', ['', 'sha256:', 'g'.repeat(64)]],
+          [prefix + 'producer_run_id', ['', '124']],
+          [prefix + 'producer_attempt', ['1', '3', '']],
+          [prefix ? 'license_notice_sha256' : 'receipt_sha256', [
+            '',
+            'a'.repeat(63),
+          ]],
+        ] as const
+      ) {
+        for (const value of values) {
+          const bad = structuredClone(needs)
+          bad[job].outputs[field] = value
+          assert(
+            !(await run({ NEEDS_JSON: JSON.stringify(bad) })).success,
+            `${job}:${field}:${value}`,
+          )
+        }
+      }
+    }
+    for (
+      const [job, field, value] of [
+        ['runtime-qualification', 'qualification_identity', ''],
+        ['runtime-qualification', 'qualification_state', 'final-qualified'],
+        ['runtime-qualification', 'producer_attempt', '1'],
+        ['runtime-qualification', 'producer_run_id', '124'],
+        ['resolve', 'source_sha', BEFORE],
+        ['resolve', 'release_required', 'true'],
+        ['resolve', 'publication', 'initial'],
+      ]
+    ) {
+      const bad = structuredClone(needs)
+      bad[job].outputs[field] = value
+      assert(
+        !(await run({ NEEDS_JSON: JSON.stringify(bad) })).success,
+        `${job}:${field}`,
+      )
+    }
+    for (const malformed of ['null', '[]', '{}', valid.NEEDS_JSON + '\n{}']) {
+      assert(!(await run({ NEEDS_JSON: malformed })).success)
+    }
+  }
+})
+
+Deno.test('Darwin acquisition binds actual API title and checkout before passing normalized exact inputs to helper', async () => {
+  const workflow = await releaseWorkflow(),
+    directory = await Deno.makeTempDir({ prefix: 'slv-smoke-input-' })
+  try {
+    const bin = `${directory}/bin`
+    await Deno.mkdir(bin)
+    await Deno.writeTextFile(
+      `${bin}/git`,
+      '#!/bin/sh\n[ "$*" = "rev-parse HEAD" ] || exit 41\nprintf "%s\\n" "$FIXTURE_HEAD"\n',
+    )
+    await Deno.writeTextFile(
+      `${bin}/gh`,
+      '#!/bin/sh\n[ "$GH_TOKEN" = fixture-token ] || exit 42\n[ "$*" = "api repos/ValidatorsDAO/slv/actions/runs/123/attempts/2 --jq .display_title" ] || exit 43\nprintf "%s\\n" "$FIXTURE_TITLE"\n',
+    )
+    await Deno.writeTextFile(
+      `${bin}/deno`,
+      `#!/usr/bin/env python3\nimport json, os, sys\na=sys.argv[1:]\nassert a[:2]==['run','--frozen']\nassert '--allow-net' not in a\ni=a.index('acquire'); assert i>0\nassert a[i+2]==os.environ['RUNNER_TEMP']+'/darwin-smoke-work'\nassert a[i+3]==os.environ['RUNNER_TEMP']+'/darwin-smoke-receipt.json'\nwith open(a[i+1]) as f: v=json.load(f)\nwith open(os.environ['CALL_RECORD'],'w') as f: json.dump(v,f)\n`,
+    )
+    for (const tool of ['git', 'gh', 'deno']) {
+      await Deno.chmod(`${bin}/${tool}`, 0o700)
+    }
+    for (const target of ['x86_64-apple-darwin', 'aarch64-apple-darwin']) {
+      const section = jobSection(workflow, `validation-smoke-${target}`)
+      const shell = stepShell(
+        section,
+        'Acquire and verify the exact Linux product and canonical notice artifacts',
+      )
+      for (
+        const changed of [{}, { FIXTURE_HEAD: BEFORE }, {
+          FIXTURE_TITLE: 'SLV verified release',
+        }, { FIXTURE_TITLE: `SLV release build validation ${BEFORE}` }]
+      ) {
+        const record = `${directory}/called`
+        await Deno.remove(record).catch(() => {})
+        const result = await runDiagnosticGuard(shell, {
+          ...darwinSmokeEnv(target),
+          PATH: `${bin}:${Deno.env.get('PATH') ?? ''}`,
+          RUNNER_TEMP: directory,
+          GH_TOKEN: 'fixture-token',
+          FIXTURE_HEAD: SHA,
+          FIXTURE_TITLE: `SLV release build validation ${SHA}`,
+          CALL_RECORD: record,
+          ...changed,
+        })
+        const valid = Object.keys(changed).length === 0
+        assertEquals(
+          result.success,
+          valid,
+          new TextDecoder().decode(result.stderr),
+        )
+        if (!valid) {
+          await assertRejects(() => Deno.stat(record), Deno.errors.NotFound)
+          continue
+        }
+        const input = JSON.parse(await Deno.readTextFile(record))
+        assertEquals(input, {
+          target,
+          source_sha: SHA,
+          workflow_sha: SHA,
+          ref: 'refs/heads/codex/slv-linux-all-targets',
+          run_id: '123',
+          run_attempt: '2',
+          reviewed_sha: SHA,
+          title: `SLV release build validation ${SHA}`,
+          qualification_identity: 'a'.repeat(64),
+          product: {
+            artifact_id: '83',
+            artifact_sha256: 'b'.repeat(64),
+            receipt_sha256: 'c'.repeat(64),
+            producer_attempt: '2',
+          },
+          notices: {
+            artifact_id: '9',
+            artifact_sha256: 'b'.repeat(64),
+            producer_attempt: '2',
+            sha256: 'c'.repeat(64),
+          },
+        })
       }
     }
   } finally {
