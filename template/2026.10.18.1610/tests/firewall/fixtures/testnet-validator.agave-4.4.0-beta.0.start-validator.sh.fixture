@@ -1,0 +1,25 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/jinja/testnet-validator/start-validator.sh.j2
+# source-sha256: e7ed936c79d132cd886d8770b66a8279d34790e1ed09e75c6691642e3d79bcb7
+# source-state: unmodified (identical to HEAD d9dea6c89024e705d4012c918ce7755bd76e99a8)
+# vars: {"agave_version": "4.4.0-beta.0", "dynamic_port_range": "8900-8930", "port_rpc": 7211, "validator_type": "agave", "vote_account": "YOUR_VOTE_ACCOUNT"}
+# render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
+# slv-fixture: body
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--vote-account YOUR_VOTE_ACCOUNT \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--entrypoint entrypoint.testnet.solana.com:8001 \
+--entrypoint entrypoint2.testnet.solana.com:8001 \
+--entrypoint entrypoint3.testnet.solana.com:8001 \
+--known-validator 5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on \
+--dynamic-port-range 8900-8930 \
+--rpc-port 7211 \
+--wal-recovery-mode skip_any_corrupted_record \
+--expected-shred-version 57087 \
+--limit-ledger-size 200000000 \
+--no-port-check \
+--no-xdp \

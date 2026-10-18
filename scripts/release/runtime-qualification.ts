@@ -888,7 +888,7 @@ export interface QualificationGitHub {
   verifyOriginalLineage(
     producer: QualificationManifest['producer'],
   ): Promise<void>
-  verifyMainAncestor(commit: string): Promise<void>
+  verifyMainAncestor(commit: string, descendant?: string): Promise<void>
   tagCommit(tag: string): Promise<string | null>
   artifact(id: number): Promise<Record<string, any>>
   run(id: number, attempt: number): Promise<Record<string, any>>
@@ -1133,9 +1133,14 @@ export function githubQualificationAdapter(options: {
       string(item.sha, COMMIT, 'tag commit')
       return item.sha
     },
-    async verifyMainAncestor(commit) {
+    async verifyMainAncestor(commit, descendant) {
       string(commit, COMMIT, 'promotion source')
-      const comparison = await api(`compare/${commit}...main`)
+      if (descendant !== undefined) {
+        string(descendant, COMMIT, 'promotion executor source')
+      }
+      const comparison = await api(
+        `compare/${commit}...${descendant ?? 'main'}`,
+      )
       if (
         !['ahead', 'identical'].includes(comparison.status) ||
         comparison.merge_base_commit?.sha !== commit
@@ -1488,16 +1493,20 @@ export async function verifyQualificationDraft(
   }
   const bundleName = `${QUALIFICATION_MANIFEST}.intoto.jsonl`
   const seen = new Set<string>()
+  const assetIds = new Set<number>()
   const temporary = await Deno.realPath(
     await Deno.makeTempDir({ prefix: 'slv-qualification-draft-' }),
   )
   try {
     for (const row of release.assets) {
+      positive(row.id, 'release asset ID')
       if (
         seen.has(row.name) ||
+        assetIds.has(row.id) ||
         (!(row.name in expected) && row.name !== bundleName)
       ) fail('existing draft has unknown or duplicate assets')
       seen.add(row.name)
+      assetIds.add(row.id)
       const wanted = expected[row.name]
       if (
         !/^sha256:[a-f0-9]{64}$/.test(row.digest) || row.size <= 0 ||
@@ -1505,11 +1514,10 @@ export async function verifyQualificationDraft(
           ? row.size !== wanted.size || row.digest !== `sha256:${wanted.sha256}`
           : row.size > 16 * 1024 * 1024)
       ) fail('existing draft asset conflicts with pinned bytes')
-      if (
-        row.browser_download_url !==
-          `https://github.com/${QUALIFICATION_REPOSITORY}/releases/download/${tag}/${row.name}`
-      ) fail('existing draft asset URL differs')
-      // Draft assets need the hosted publisher's read token via their API ID.
+      // GitHub uses an untagged preview URL while a release is a draft.
+      // That informational URL is never a download authority here: use only
+      // the authenticated inventory's ID at the fixed repository API endpoint,
+      // then verify the actual bytes. Published URLs remain checked separately.
       await github.downloadReleaseAsset(row.id, join(temporary, row.name))
       await verifyFile(
         join(temporary, row.name),
@@ -1559,6 +1567,42 @@ export async function verifyQualificationDraft(
     await Deno.remove(temporary, { recursive: true })
   }
 }
+
+/** Preserve an earlier main producer only when its signed draft is complete. */
+export async function verifyPromotionDraft(
+  m: QualificationManifest,
+  release: QualificationRelease,
+  context: PromotionContext,
+  github: QualificationGitHub,
+  requireComplete = false,
+  revocationTransport: RuntimeRevocationTransport = {},
+) {
+  assertPromotionContext(context)
+  await github.verifyMainAncestor(context.source_sha)
+  const source = release.target_commitish
+  string(source, COMMIT, 'draft promotion source')
+  const priorSource = source !== context.source_sha
+  if (priorSource) {
+    // Bind ancestry to this exact authorized executor, not a moving main ref.
+    await github.verifyMainAncestor(source, context.source_sha)
+  }
+  const verified = await verifyQualificationDraft(
+    m,
+    release,
+    source,
+    github,
+    requireComplete || priorSource,
+    revocationTransport,
+  )
+  return {
+    ...verified,
+    recovery_mode: priorSource
+      ? 'complete-attested-ancestor' as const
+      : 'same-source' as const,
+    source_sha: context.source_sha,
+    attested_source_sha: source,
+  }
+}
 /** Prepares an exact publication plan; publishing remains an explicit hosted workflow step. */
 export async function planQualificationPromotion(
   options: {
@@ -1575,7 +1619,15 @@ export async function planQualificationPromotion(
     identity: string
     assets: string[]
     needs_attestation: boolean
+    /** Authorized executor; used as a new tag target only for action=create. */
     source_sha: string
+    /** Original signer/tag source, never relabelled during recovery or reuse. */
+    attested_source_sha: string
+    recovery_mode:
+      | 'create'
+      | 'same-source'
+      | 'complete-attested-ancestor'
+      | 'reuse'
     revocation: {
       reviewed_checkout_policy: RuntimeRevocationObservation
       current_main_policy: RuntimeRevocationObservation
@@ -1598,15 +1650,16 @@ export async function planQualificationPromotion(
   )
   if (existing?.draft === true) {
     await verifyCandidateProvenance(options.manifest, options.github)
-    const recovery = await verifyQualificationDraft(
+    const recovery = await verifyPromotionDraft(
       options.manifest,
       existing,
-      options.context.source_sha,
+      options.context,
       options.github,
     )
-    const currentPolicy = await checkFreshRuntimeRevocation(
-      qualificationIdentity(options.manifest),
-    )
+    const currentPolicy = recovery.current_main_policy ??
+      await checkFreshRuntimeRevocation(
+        qualificationIdentity(options.manifest),
+      )
     return {
       action: 'resume',
       revocation: {
@@ -1617,7 +1670,9 @@ export async function planQualificationPromotion(
       identity: qualificationIdentity(options.manifest),
       assets: recovery.missing_assets,
       needs_attestation: recovery.needs_attestation,
-      source_sha: existing.target_commitish,
+      source_sha: recovery.source_sha,
+      attested_source_sha: recovery.attested_source_sha,
+      recovery_mode: recovery.recovery_mode,
       tag_protection: tagProtection,
     }
   }
@@ -1636,7 +1691,9 @@ export async function planQualificationPromotion(
       identity: qualificationIdentity(options.manifest),
       assets: [],
       needs_attestation: false,
-      source_sha: existing.target_commitish,
+      source_sha: options.context.source_sha,
+      attested_source_sha: existing.target_commitish,
+      recovery_mode: 'reuse',
       tag_protection: tagProtection,
     }
   }
@@ -1663,6 +1720,8 @@ export async function planQualificationPromotion(
       ...Object.keys(options.manifest.assets).sort(),
     ],
     source_sha: options.context.source_sha,
+    attested_source_sha: options.context.source_sha,
+    recovery_mode: 'create',
     tag_protection: tagProtection,
   }
 }
@@ -1834,15 +1893,18 @@ if (import.meta.main) {
     )
     const release = await github.release(qualificationTag(m))
     if (!release) fail('draft qualification not found')
-    const result = await verifyQualificationDraft(
+    const result = await verifyPromotionDraft(
       m,
       release,
-      context.source_sha,
+      context,
       github,
       true,
     )
     const receipt = canonicalQualificationBytes({
       identity: qualificationIdentity(m),
+      executor_source_sha: context.source_sha,
+      attested_source_sha: result.attested_source_sha,
+      recovery_mode: result.recovery_mode,
       revocation: {
         reviewed_checkout_policy: reviewedPolicy,
         current_main_policy: result.current_main_policy,

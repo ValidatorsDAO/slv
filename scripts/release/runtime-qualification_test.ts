@@ -22,6 +22,7 @@ import {
   readQualificationManifest,
   stageQualificationEvidenceFile,
   verifyCandidateProvenance,
+  verifyPromotionDraft,
   verifyPublishedQualification as verifyPublishedQualificationProduction,
   verifyQualificationArchiveBindings,
   verifyQualificationAttestationResult,
@@ -664,6 +665,226 @@ Deno.test('draft resume validates present bytes and original attestation, return
     Error,
     'wrong signer',
   )
+})
+
+Deno.test('draft preview URLs never select transport and published URLs remain exact', async () => {
+  const m = fixture(), api = adapter(m)
+  const draft = { ...published(m), draft: true, immutable: false }
+  for (const row of draft.assets) {
+    row.browser_download_url =
+      `https://github.com/${QUALIFICATION_REPOSITORY}/releases/download/untagged-0123456789abcdefabcd/${row.name}`
+  }
+  const ids: number[] = [], read = api.downloadReleaseAsset
+  api.download = () => {
+    throw new Error('must not fetch browser URL')
+  }
+  api.downloadReleaseAsset = async (id, path) => {
+    ids.push(id)
+    await read(id, path)
+  }
+  const result = await verifyQualificationDraft(m, draft, commit, api, true)
+  assertEquals(result.missing_assets, [])
+  assertEquals(ids, draft.assets.map((row) => row.id))
+  // Even untrusted informational metadata cannot redirect the fixed API read.
+  draft.assets[0].browser_download_url = 'https://example.invalid/ignored'
+  await verifyQualificationDraft(m, draft, commit, api, true)
+  for (const id of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const bad = structuredClone(draft)
+    bad.assets[0].id = id
+    await assertRejects(
+      () => verifyQualificationDraft(m, bad, commit, api),
+      Error,
+      'invalid release asset ID',
+    )
+  }
+  const duplicate = structuredClone(draft)
+  duplicate.assets[1].id = duplicate.assets[0].id
+  await assertRejects(
+    () => verifyQualificationDraft(m, duplicate, commit, api),
+    Error,
+    'duplicate',
+  )
+  api.release = () =>
+    Promise.resolve({ ...draft, draft: false, immutable: true })
+  await assertRejects(
+    () => verifyPublishedQualification(m, api),
+    Error,
+    'asset',
+  )
+})
+
+function promotionContext(source = commit): PromotionContext {
+  return {
+    repository: QUALIFICATION_REPOSITORY,
+    event: 'push',
+    ref: 'refs/heads/main',
+    source_sha: source,
+    workflow_sha: source,
+    workflow_ref:
+      `${QUALIFICATION_REPOSITORY}/${QUALIFICATION_WORKFLOW}@refs/heads/main`,
+    operation: 'release',
+    runner_environment: 'github-hosted',
+  }
+}
+
+Deno.test('later hosted main can finish only a complete draft with its original ancestor signature', async () => {
+  const m = fixture(), full = { ...published(m), draft: true, immutable: false }
+  const current = 'c'.repeat(40), context = promotionContext(current)
+  const api = adapter(m), ancestry: [string, string | undefined][] = []
+  api.verifyMainAncestor = (source, descendant) => {
+    ancestry.push([source, descendant])
+    return Promise.resolve()
+  }
+  const before = structuredClone(full)
+  const result = await verifyPromotionDraft(
+    m,
+    full,
+    context,
+    api,
+    false,
+    allowPolicy,
+  )
+  assertEquals(result.recovery_mode, 'complete-attested-ancestor')
+  assertEquals(result.source_sha, current)
+  assertEquals(result.attested_source_sha, commit)
+  assertEquals(result.missing_assets, [])
+  assertEquals(result.needs_attestation, false)
+  assertEquals(result.current_main_policy?.outcome, 'allow')
+  assertEquals(ancestry, [[current, undefined], [commit, current]])
+  assertEquals(full, before)
+
+  for (const name of ['zip-0', `${QUALIFICATION_MANIFEST}.intoto.jsonl`]) {
+    const partial = {
+      ...full,
+      assets: full.assets.filter((row) => row.name !== name),
+    }
+    await assertRejects(
+      () => verifyPromotionDraft(m, partial, context, api, false, allowPolicy),
+      Error,
+      'incomplete',
+    )
+    const same = await verifyPromotionDraft(
+      m,
+      partial,
+      promotionContext(),
+      api,
+      false,
+      allowPolicy,
+    )
+    assertEquals(same.recovery_mode, 'same-source')
+    assertEquals(same.source_sha, commit)
+    assertEquals(same.attested_source_sha, commit)
+    assertEquals(same.current_main_policy, null)
+  }
+  for (const failure of ['ancestry', 'signature', 'bytes', 'tag']) {
+    const bad = adapter(m)
+    let downloads = 0
+    const read = bad.downloadReleaseAsset
+    bad.downloadReleaseAsset = async (id, path) => {
+      downloads++
+      await read(id, path)
+    }
+    if (failure === 'ancestry') {
+      bad.verifyMainAncestor = (_source, descendant) =>
+        descendant
+          ? Promise.reject(new Error('not executor ancestor'))
+          : Promise.resolve()
+    }
+    if (failure === 'signature') {
+      bad.verifyAttestation = () =>
+        Promise.reject(new Error('wrong original signer'))
+    }
+    if (failure === 'bytes') {
+      bad.downloadReleaseAsset = (_id, path) =>
+        Deno.writeTextFile(path, 'changed')
+    }
+    if (failure === 'tag') bad.tagCommit = () => Promise.resolve(current)
+    await assertRejects(() =>
+      verifyPromotionDraft(m, full, context, bad, false, allowPolicy)
+    )
+    if (failure === 'ancestry' || failure === 'tag') assertEquals(downloads, 0)
+  }
+  for (
+    const change of [
+      { event: 'pull_request' },
+      { runner_environment: 'self-hosted' },
+      { workflow_sha: commit },
+      { ref: 'refs/tags/example' },
+    ]
+  ) {
+    const bad = adapter(m)
+    bad.verifyMainAncestor = () => {
+      throw new Error('context must reject before API')
+    }
+    await assertRejects(
+      () =>
+        verifyPromotionDraft(
+          m,
+          full,
+          { ...context, ...change },
+          bad,
+          false,
+          allowPolicy,
+        ),
+      Error,
+      'trusted hosted main',
+    )
+  }
+  await assertRejects(
+    () =>
+      verifyPromotionDraft(m, full, context, api, true, {
+        fetch: () =>
+          Promise.resolve(
+            Response.json({
+              schema_version: 1,
+              revoked_identities: [qualificationIdentity(m)],
+            }),
+          ),
+      }),
+    Error,
+    'revoked',
+  )
+})
+
+Deno.test('ancestor adapter binds an earlier producer to the exact executor commit', async () => {
+  const current = 'c'.repeat(40), calls: string[] = []
+  const api = githubQualificationAdapter({
+    token: null,
+    fetch: (input) => {
+      calls.push(String(input))
+      return Promise.resolve(
+        Response.json({ status: 'ahead', merge_base_commit: { sha: commit } }),
+      )
+    },
+  })
+  await api.verifyMainAncestor(commit, current)
+  assertEquals(calls, [
+    `https://api.github.com/repos/${QUALIFICATION_REPOSITORY}/compare/${commit}...${current}`,
+  ])
+  for (const value of ['main', '../main', current + '?page=1']) {
+    await assertRejects(
+      () => api.verifyMainAncestor(commit, value),
+      Error,
+      'invalid promotion executor source',
+    )
+  }
+  for (
+    const response of [
+      { status: 'behind', merge_base_commit: { sha: commit } },
+      { status: 'diverged', merge_base_commit: { sha: commit } },
+      { status: 'ahead', merge_base_commit: { sha: current } },
+    ]
+  ) {
+    const bad = githubQualificationAdapter({
+      token: null,
+      fetch: () => Promise.resolve(Response.json(response)),
+    })
+    await assertRejects(
+      () => bad.verifyMainAncestor(commit, current),
+      Error,
+      'not on main',
+    )
+  }
 })
 
 Deno.test('public adapter uses bounded credential-free HTTPS without gh configuration', async () => {

@@ -1,0 +1,116 @@
+---
+- name: Update Startup Validator Config
+  hosts: all
+  become: true
+  # versions.yml is read when it exists; -e agave_version, jito_version or
+  # allnodes_jito_version also give the start script its agave version.
+  vars_files:
+    - ["~/.slv/versions.yml", "/dev/null"]
+  tasks:
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it in the inventory to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+    # The XDP flags have to suit the agave that starts next, so the version comes
+    # from the agave-validator installed on this host, found the way the solv unit
+    # finds it. Without an installed binary the configured version applies.
+    - name: Read the version of the agave-validator installed on this host
+      shell: |
+        unit_path=$(systemctl show solv --property=Environment --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^PATH=//p' | tail -n 1)
+        unit_path=${unit_path:-/home/solv/.local/share/solana/install/active_release/bin}
+        binary=
+        for dir in $(printf '%s' "$unit_path" | tr ':' ' '); do
+          if [ -e "$dir/agave-validator" ] || [ -L "$dir/agave-validator" ]; then
+            binary="$dir/agave-validator"
+            break
+          fi
+        done
+        [ -n "$binary" ] || exit 0
+        output=$("$binary" --version 2>&1)
+        status=$?
+        version=$(printf '%s\n' "$output" | sed -n 's/^[A-Za-z][A-Za-z0-9_.-]* v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)
+        if [ "$status" -ne 0 ] || [ -z "$version" ]; then
+          printf 'The agave-validator at %s did not report a version (exit %s). It printed: "%s".\n' "$binary" "$status" "$output" >&2
+          exit 1
+        fi
+        printf '%s\n' "$version"
+      args:
+        executable: /bin/bash
+      register: agave_installed
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Stop when the installed agave-validator does not report its version
+      fail:
+        msg: 'Nothing was changed on {{ inventory_hostname }}. {{ agave_installed.stderr | trim }} Reinstall the agave-validator that the solv service runs, then run this again.'
+      when:
+        - validator_type in ['agave', 'jito', 'allnodes-jito']
+        - agave_installed.rc != 0
+
+    - name: Updatge start-validator.sh from template for Agave
+      template:
+        src: ~/.slv/testnet-validator/start-validator-agave.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+        installed_agave_version: '{{ agave_installed.stdout | trim }}'
+      when: validator_type == 'agave'
+
+    - name: Updatge start-validator.sh from template for Jito
+      template:
+        src: ~/.slv/testnet-validator/start-validator-jito.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+        installed_agave_version: '{{ agave_installed.stdout | trim }}'
+      when: validator_type == 'jito'
+
+    # allnodes-jito takes the start script that init deploys (deploy-start-validator-sh.yml): the generic one
+    - name: Update start-validator.sh from template for Allnodes-Jito
+      template:
+        src: ~/.slv/testnet-validator/start-validator.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+        installed_agave_version: '{{ agave_installed.stdout | trim }}'
+      when: validator_type == 'allnodes-jito'
+
+    - name: Update firedancer-config.toml from template for Jito
+      template:
+        src: ~/.slv/testnet-validator/firedancer-config-jito.toml.j2
+        dest: /home/solv/firedancer-config.toml
+        owner: solv
+        group: solv
+        mode: "0644"
+      vars:
+        block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
+        vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
+        commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
+      when: validator_type == 'firedancer-jito'
+
+    - name: Update firedancer-config.toml from template for Agave
+      template:
+        src: ~/.slv/testnet-validator/firedancer-config-agave.toml.j2
+        dest: /home/solv/firedancer-config.toml
+        owner: solv
+        group: solv
+        mode: "0644"
+      vars:
+        block_engine_region: "{{ hostvars[inventory_hostname].block_engine_region }}"
+        vote_account: "{{ hostvars[inventory_hostname].vote_account }}"
+        commission_bps: "{{ hostvars[inventory_hostname].commission_bps }}"
+      when: validator_type == 'firedancer-agave'
