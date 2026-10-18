@@ -156,6 +156,10 @@ const harness = (
     info: (line) => h.info.push(line),
     error: (line) => h.errors.push(line),
     setExitCode: (code) => h.exitCodes.push(code),
+    // The cluster runs TowerBFT, as it does on mainnet until the activation.
+    readState: () =>
+      Promise.resolve({ state: 'towerbft', detail: '', marginSlots: 3000 }),
+    ask: () => Promise.reject(new Error('no question expected in this test')),
   }
   return h
 }
@@ -261,6 +265,29 @@ Deno.test('set:identity on mainnet does nothing when the user answers no', async
   assertEquals(ok, false)
   assertEquals(h.runs, [])
   assertEquals(h.prechecks.length, 1)
+})
+
+Deno.test('set:identity on mainnet exits 1 when the user answers no', async () => {
+  const h = harness({ answer: false })
+  const ok = await runSetIdentity(
+    { network: 'mainnet', pubkey: 'val-a' },
+    h.deps,
+  )
+  assertEquals(ok, false)
+  assertEquals(h.runs, [])
+  assertStringIncludes(h.info.join('\n'), 'Cancelled')
+  assertEquals(h.exitCodes, [1])
+})
+
+Deno.test('set:identity exits 1 when the playbook fails', async () => {
+  const h = harness({ runResult: false })
+  const ok = await runSetIdentity(
+    { network: 'testnet', pubkey: 'val-a' },
+    h.deps,
+  )
+  assertEquals(ok, false)
+  assertEquals(h.runs.length, 1)
+  assertEquals(h.exitCodes, [1])
 })
 
 Deno.test('set:identity passes first_activation and the peer-down flag through', async () => {

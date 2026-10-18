@@ -81,7 +81,7 @@ export const mainnetInitRpc = async (
   }
 
   // Set solv password
-  await genPasswordYml()
+  if (!await genPasswordYml()) return
   const identity_account = await genIdentityKey()
   const rpcTypes = await prompt([
     {

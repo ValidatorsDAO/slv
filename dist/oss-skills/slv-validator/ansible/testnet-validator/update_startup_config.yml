@@ -43,13 +43,13 @@
       changed_when: false
       failed_when: false
       check_mode: false
-      when: validator_type in ['agave', 'jito']
+      when: validator_type in ['agave', 'jito', 'allnodes-jito']
 
     - name: Stop when the installed agave-validator does not report its version
       fail:
         msg: 'Nothing was changed on {{ inventory_hostname }}. {{ agave_installed.stderr | trim }} Reinstall the agave-validator that the solv service runs, then run this again.'
       when:
-        - validator_type in ['agave', 'jito']
+        - validator_type in ['agave', 'jito', 'allnodes-jito']
         - agave_installed.rc != 0
 
     - name: Updatge start-validator.sh from template for Agave
@@ -75,6 +75,19 @@
         vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
         installed_agave_version: '{{ agave_installed.stdout | trim }}'
       when: validator_type == 'jito'
+
+    # allnodes-jito takes the start script that init deploys (deploy-start-validator-sh.yml): the generic one
+    - name: Update start-validator.sh from template for Allnodes-Jito
+      template:
+        src: ~/.slv/testnet-validator/start-validator.sh.j2
+        dest: /home/solv/start-validator.sh
+        mode: "0755"
+        owner: solv
+        group: solv
+      vars:
+        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+        installed_agave_version: '{{ agave_installed.stdout | trim }}'
+      when: validator_type == 'allnodes-jito'
 
     - name: Update firedancer-config.toml from template for Jito
       template:

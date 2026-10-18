@@ -21,6 +21,20 @@
       when: conn_check.unreachable | default(false) or conn_check.failed | default(false)
 
   tasks:
+    # doublezero-solana signs with the key file it is given, and deploy puts no staked key on a node any more
+    - name: Look for the key file the deposit is signed with
+      ansible.builtin.stat:
+        path: '{{ doublezero_keypair_path }}'
+      register: dz_keypair
+
+    - name: Stop when the key file the deposit is signed with is not on the node
+      ansible.builtin.fail:
+        msg: >-
+          {{ doublezero_keypair_path }} does not exist on {{ inventory_hostname }}, so there is no key to sign the deposit
+          with: slv does not put the staked key on a node, it stays on the controller. Nothing was changed on
+          {{ inventory_hostname }}.
+      when: not dz_keypair.stat.exists
+
     - name: Deposit validator funds
       ansible.builtin.command:
         argv:

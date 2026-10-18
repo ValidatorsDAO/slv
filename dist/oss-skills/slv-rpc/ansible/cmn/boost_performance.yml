@@ -11,7 +11,8 @@
   vars:
     boost_marker_file: /var/lib/slv/.boost_applied
     grub_default: /etc/default/grub
-    amd_pstate_mode: "{{ amd_pstate_mode | default('active') }}"
+    # reads amd_pstate_mode of the caller (-e or inventory): a play variable that read its own name would loop
+    slv_amd_pstate_mode: "{{ amd_pstate_mode | default('active') }}"
     min_kernel_major: 6
     min_kernel_minor: 14
   tasks:
@@ -106,7 +107,7 @@
         CLEAN=$(echo "$CURRENT" \
           | sed 's/amd_pstate=[^ ]*//g; s/processor\.max_cstate=[^ ]*//g; s/cpufreq\.default_governor=[^ ]*//g' \
           | sed 's/  */ /g; s/^ //; s/ $//')
-        NEW="$CLEAN amd_pstate={{ amd_pstate_mode }} processor.max_cstate=0 cpufreq.default_governor=performance"
+        NEW="$CLEAN amd_pstate={{ slv_amd_pstate_mode }} processor.max_cstate=0 cpufreq.default_governor=performance"
         NEW=$(echo "$NEW" | sed 's/  */ /g; s/^ //; s/ $//')
         if [ "$NEW" != "$CURRENT" ]; then
           sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$NEW\"|" {{ grub_default }}
@@ -135,7 +136,7 @@
     - name: Apply amd_pstate runtime mode (if sysfs present)
       ansible.builtin.shell: |
         if [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
-          echo {{ amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
+          echo {{ slv_amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
         fi
       args:
         executable: /bin/bash
@@ -201,7 +202,7 @@
           # SLV CPU boost runtime apply — runs on every boot.
           set +e
           if [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
-            echo {{ amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null
+            echo {{ slv_amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null
           fi
           for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
             [ -w "$f" ] && echo performance > "$f"
@@ -252,7 +253,7 @@
     - name: Mark boost applied
       ansible.builtin.copy:
         dest: "{{ boost_marker_file }}"
-        content: "applied at {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }} mode={{ amd_pstate_mode }} kernel={{ kernel_version.stdout }}\n"
+        content: "applied at {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }} mode={{ slv_amd_pstate_mode }} kernel={{ kernel_version.stdout }}\n"
         mode: "0644"
 
     - name: Set need_reboot fact (HWE kernel install or AMD GRUB change)

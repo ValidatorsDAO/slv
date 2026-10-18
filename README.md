@@ -51,7 +51,9 @@ Jinja templates. AI is optional.
 | **Geyser streaming** | Yellowstone gRPC |
 
 The current mainnet deployment guards refuse Firedancer and Frankendancer voting
-validators. Review the selected client, network, version pins, and server
+validators. Testnet Firedancer variants can be deployed with an unstaked identity,
+but SLV's staked-identity activation and migration commands refuse them.
+Review the selected client, network, version pins, and server
 requirements before deployment. See the [validator](dist/oss-skills/slv-validator/)
 and [RPC](dist/oss-skills/slv-rpc/) packages for the available playbooks.
 
@@ -157,6 +159,7 @@ Example requests:
 | --- | --- |
 | List mainnet validators | `slv validator list --network mainnet` |
 | List mainnet RPC nodes | `slv rpc list --network mainnet` |
+| Check mainnet Alpenglow readiness | `slv validator check:alpenglow --network mainnet` |
 | Explore validator operations | `slv validator --help` |
 | Explore RPC operations | `slv rpc --help` |
 | Build a validator client from source | `slv validator build:solana --network mainnet --pubkey "<inventory-host>"` |
@@ -164,6 +167,10 @@ Example requests:
 | Upgrade SLV, templates, and skills | `slv upgrade` |
 | Restore skills for the installed CLI release | `slv skills sync` |
 | Read embedded third-party notices | `slv licenses` |
+
+`check:alpenglow` reads inventory, version pins, and public RPC data and reports
+OK, WARN, or FAIL without SSH or transactions. It exits with status 1 when a
+check fails or cannot run.
 
 **SLV updates and node-client updates are separate operations.** `slv upgrade`
 updates the management tool, its versioned templates, and its skills. Validator
@@ -203,10 +210,17 @@ controls do not by themselves establish that a release has passed live acceptanc
 
 **SLV currently uses local credential storage.** `slv login` writes ERPC access
 and refresh tokens to `~/.slv/api.yml` with mode `0600`; configured API keys can
-also be stored there. Deployment workflows use keypair files on the management
-machine or target node, depending on the operation.
+also be stored there.
+
+Validator deployment starts nodes with an unstaked identity and does not copy
+the staked identity key to them. Supported Agave-family identity activation and
+migration commands read `~/.slv/keys/<identity_account>.json` on the management
+machine and pass it through stdin. Older node-side copies are not automatically
+removed. RPC deployment still uses a copied identity keypair file.
 
 SLV has no built-in 1Password credential provider or `op://` reference resolver.
+The optional validator `identity_ref` field stores metadata only; SLV does not
+resolve it.
 Using 1Password or an SSH agent does not eliminate SLV's other on-disk credentials.
 Keep secret values out of AI conversations, source control, and command examples.
 

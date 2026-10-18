@@ -1,43 +1,22 @@
 ---
-- name: Change Identity and Restart firedancer.service
+# This playbook is retired. It linked /home/solv/identity.json to the staked key on the node
+# (/home/solv/testnet-validator-keypair.json) and restarted firedancer.service, so that every restart of the node
+# started with the staked identity. Deploy never copies that key to a node (a node that an earlier slv deployed may
+# still hold it): the staked key stays on the controller (~/.slv/keys/<identity>.json) and reaches an agave, jito or
+# allnodes-jito node on stdin during slv v set:identity and slv v switch, which refuse a Firedancer host of testnet, and
+# a restarted node comes back on its unstaked identity. So this play only refuses: its first task fails and nothing
+# else runs.
+- name: Change Identity and Restart firedancer.service (retired)
   hosts: all
-  become: true
-  become_user: solv
-
+  gather_facts: no
   tasks:
-    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
-      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
-      vars:
-        slv_alpenglow_network: testnet
-        slv_alpenglow_freeze: true
-
-    - name: Stop firedancer.service
-      ansible.builtin.systemd:
-        name: firedancer.service
-        state: stopped
-      become: true
-      become_user: root
-      register: stop_service_result
-
-    - name: Remove all files in /mnt/ledger/ using rm -rf
-      shell: sudo find /mnt/ledger/ -mindepth 1 -not -name 'tower-1_9-*' -not -name 'vote_history-*' -not -name 'contact-info.bin' -delete
-      become: true
-      become_user: root
-
-    - name: Remove all files in /mnt/snapshot/ using rm -rf
-      ansible.builtin.shell: rm -rf /mnt/snapshot/*
-      become: true
-      become_user: root
-
-    - name: Change Symbolic Link to Authoried Identity
-      shell: ln -sf /home/solv/testnet-validator-keypair.json /home/solv/identity.json
-      become: true
-      become_user: solv
-
-    - name: Start firedancer.service
-      ansible.builtin.systemd:
-        name: firedancer.service
-        state: started
-      become: true
-      become_user: root
-      register: start_service_result
+    - name: Refuse to link the identity to a key on the node
+      ansible.builtin.fail:
+        msg: >-
+          SLV_KEYLESS_REFUSED: change_identity_and_restart.yml is retired. It linked the identity of the node to a
+          staked key on the node and restarted firedancer.service, so that every restart started with the staked
+          identity, and deploy never copies the staked key to a node: it stays on the controller and reaches an agave,
+          jito or allnodes-jito node on stdin. Nothing was changed on {{ inventory_hostname }}. Use
+          slv v set:identity -n testnet -p <host>, or
+          slv v switch -n testnet to move the identity from one agave, jito or allnodes-jito host to another; both
+          refuse a Firedancer host of testnet, which takes the staked key from a file on the node.

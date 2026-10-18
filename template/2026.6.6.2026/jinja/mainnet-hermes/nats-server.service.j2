@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=solv
 Group=solv
-ExecStart=/usr/local/bin/nats-server --jetstream --store_dir=/home/solv/nats-data --port={{ nats_port }}
+ExecStart=/usr/local/bin/nats-server --jetstream --store_dir=/home/solv/nats-data --port={{ slv_nats_port }}
 Restart=always
 RestartSec=5
 LimitNOFILE=65536

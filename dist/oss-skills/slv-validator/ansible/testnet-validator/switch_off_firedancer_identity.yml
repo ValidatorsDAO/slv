@@ -6,17 +6,26 @@
   gather_facts: no
   any_errors_fatal: true
   tasks:
+    - name: Refuse an identity_account that is not a base58 public key, it names files on the controller
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the tower file on the controller. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
       ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
       vars:
         slv_alpenglow_network: testnet
         slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ validator_type | default('') }}"
 
     - name: Refuse to move a TowerBFT tower file on a cluster that runs Alpenglow
       ansible.builtin.assert:
         that:
           - slv_alpenglow_state == 'towerbft'
-        fail_msg: "This switch moves a TowerBFT tower file, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate). Moving the vote history file between hosts is not part of this version of slv yet. Nothing was changed on {{ inventory_hostname }}."
+        fail_msg: "This switch moves a TowerBFT tower file with fdctl, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate): Firedancer and Frankendancer cannot move a vote history file yet. Nothing was changed on {{ inventory_hostname }}."
         quiet: true
       run_once: true
 
@@ -39,19 +48,30 @@
       args:
         executable: /bin/bash
 
+    - name: Note the time right before the cluster is asked about the demotion
+      ansible.builtin.set_fact:
+        slv_pre_demotion_probe_at: "{{ now(utc=true).timestamp() | int }}"
+
     - name: Ask the cluster again right before the demotion
       ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
       vars:
         slv_alpenglow_network: testnet
         slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ validator_type | default('') }}"
 
     - name: Refuse to demote unless the cluster still runs TowerBFT
       ansible.builtin.assert:
         that:
           - slv_alpenglow_state == 'towerbft'
-        fail_msg: "This switch moves a TowerBFT tower file, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate). Moving the vote history file between hosts is not part of this version of slv yet. Nothing was changed on {{ inventory_hostname }}."
+        fail_msg: "This switch moves a TowerBFT tower file with fdctl, and the cluster runs Alpenglow (getAgGenesisCert returned a certificate): Firedancer and Frankendancer cannot move a vote history file yet. Nothing was changed on {{ inventory_hostname }}."
         quiet: true
       run_once: true
+
+    - name: Remember what the cluster ran when the source is demoted, for the switch_on that follows
+      ansible.builtin.set_fact:
+        slv_pre_demotion_state: "{{ slv_alpenglow_state }}"
+        slv_pre_demotion_feature: "{{ slv_ag_feature_kind | default('') }}"
 
     - name: Set Identity to Unstaked Key
       shell: |
