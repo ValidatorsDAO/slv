@@ -2,6 +2,47 @@
 
 Ansible playbooks and Jinja2 templates for deploying and managing Solana validators (mainnet and testnet).
 
+## Safe startup and activation
+
+First confirm the network, exact inventory host name/address and whether the target
+is local or remote. Use explicit `-n <network>` and `-p <host>` for host changes;
+`-p` selects an inventory entry, not necessarily a public key or an IP.
+
+“Keyless” means initial synchronization under an unstaked identity. It does not
+mean voting without keys, and the current CLI has no `--keyless` option. `slv v init`
+still asks the operator about identity/vote keys; the deployment expects the
+configured key files. The supported template creates/reuses
+`/home/solv/unstaked-identity.json` and links `/home/solv/identity.json` to it for
+startup. Staked files use `/home/solv/testnet-validator-keypair.json` or
+`/home/solv/mainnet-validator-keypair.json`.
+
+The AI must never read, create, copy, print or edit private keys or manually change
+the identity symlink. The operator handles keys in their own terminal through the
+supported CLI. Public keys and non-secret file existence/status are sufficient
+for planning. Do not claim the current deploy can skip key preparation.
+
+Before promotion, verify synchronization, health, the target's active public
+identity, required tower/vote history, and that no other node runs the voting
+identity. Use the target's configured RPC port, not an assumed localhost:8899 on
+the management machine. `slv v set:identity -n <network> -p <host>` promotes one
+inventory host and checks cluster/gossip/recent votes and same-identity peers.
+Mainnet requires terminal confirmation. `--first-activation` is only for an
+identity that has never voted and has no tower/vote history; it is not recovery
+from a lost tower. `--peer-down-confirmed` requires independent operator evidence
+that an unreadable peer is not running this identity. Neither flag is a default,
+and peer-down does not override known-active peers or cluster conflicts.
+
+For an existing running identity, coordinate the handoff with
+`slv v switch -n <network> -f <source-host> -t <target-host>` in the operator's
+terminal after checking both hosts and target synchronization. Do not replace the
+flow with manual key copying, identity symlinks or direct activation playbooks.
+
+`slv v init`, deploy and switch are interactive. Init can also create the solv
+user, prepare keys and tune/reboot the remote host; it is not a read-only wizard.
+Use the operator's terminal for these steps. Deploy has no `--check`, `-y`,
+`--force` or `--localhost` flag; `--localhost` belongs to init. Do not bypass CLI
+confirmations or guards with direct `init.yml`, piped answers or all-host overrides.
+
 ## Supported Validator Types
 
 | Type | Description |
@@ -37,17 +78,17 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 
 | CLI Command | Playbook | Description |
 |---|---|---|
-| `slv v init` | *(no playbook — interactive prompts)* | Generate `~/.slv/inventory.<network>.validators.yml` |
+| `slv v init` | *(interactive setup, including user/key preparation and remote optimization)* | Prepare inventory and target; operator terminal required |
 | `slv v deploy` | `{net}/init.yml` | Full node initialization and deployment |
 | `slv v start` | `{net}/start_node.yml` | Start validator |
 | `slv v stop` | `{net}/stop_node.yml` | Stop validator |
 | `slv v restart` | `{net}/restart_node.yml` | Graceful restart (`agave-validator exit`, then systemd) |
-| `slv v build:solana` | `{net}/install_solana.yml` | Build Solana from source (dispatches by `validator_type`) |
-| `slv v install:solana` | `cmn/install_solana.yml` | Install Solana binary (deprecated, prefer build) |
+| `slv v build:solana` | `{net}/install_solana.yml` then `{net}/update_startup_config.yml` | Build Solana from source and render matching start script |
+| `slv v install:solana` | `cmn/install_solana.yml` then `{net}/update_startup_config.yml` | Install Solana binary and render matching start script |
 | `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer. Testnet only: refused on mainnet (Alpenglow) |
 | `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary. Testnet only: refused on mainnet (Alpenglow) |
 | `slv v update:script` | `{net}/update_startup_config.yml` | Re-render start-validator.sh from template |
-| `slv v set:identity -p <host>` | `{net}/set_identity_key.yml` | Set validator identity key on one host |
+| `slv v set:identity -n <network> -p <host>` | `{net}/set_identity_key.yml` | Set validator identity key on one host |
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
 | `slv v register:bls` | *(no playbook — solana CLI)* | Register the BLS pubkey on each vote account (SIMD-0387). Also auto-runs at the end of `slv v deploy` |
 | `slv v get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
@@ -200,12 +241,12 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 ## Three Core Workflows
 
 Almost every validator task is one of these three. Use the `slv v ...` shortcuts
-where possible — they wrap the right ansible command and inventory lookup.
+for operations; they preserve target resolution, version checks and confirmations.
 
 ### A. Initial setup
 ```bash
-slv v init                           # interactive — writes inventory
-slv v deploy -n <network> -p <host>  # ansible: {net}-validator/init.yml
+slv v init                          # operator terminal; may change target state
+slv v deploy -n <network> -p <host> # operator terminal; confirms deployment
 ```
 The `init.yml` playbook handles user creation, package install, disk mount,
 performance tuning, source build, snapshot download, systemd setup, and start.
@@ -215,10 +256,9 @@ performance tuning, source build, snapshot download, systemd setup, and start.
 # 1. Edit ~/.slv/versions.yml (e.g. set version_jito: 4.3.2-jito)
 # 2. Build new binary from source
 slv v build:solana -n <network> -p <host>
-# 3. Re-render start-validator.sh (picks up inventory changes such as bam_url
-#    being added or shred_receiver_address turning into a list)
-slv v update:script -n <network> -p <host>
-# 4. Restart
+# 3. The build also renders start-validator.sh. For config-only changes use:
+# slv v update:script -n <network> -p <host>
+# 4. Restart only after the build and render succeed
 slv v restart -n <network> -p <host>
 ```
 
@@ -284,17 +324,12 @@ URL is not used with BAM. BAM can be enabled/disabled at runtime without a
 restart via `agave-validator -l <ledger> set-bam-config --bam-url [<url>]`.
 A validator only connects to BAM while it is in the leader schedule.
 
-## Direct ansible invocation
+## Runtime commands and templates
 
-If you need to bypass the `slv v` wrapper, the playbooks are designed to run
-directly via `ansible-playbook` with `extra_vars`:
-
-```bash
-ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"allnodes-jito","allnodes_jito_version":"4.3.2-allnodes","snapshot_url":"https://..."}'
-```
-
-No `versions.yml` required when you pass everything via `extra_vars`.
+Use the installed CLI's focused `--help` to verify flags. Runtime templates are
+selected from `~/.slv/template/<CLI version>/`; the skill's playbooks are reference
+copies. Do not choose a directory by sorting version names, or call `init.yml`
+directly to work around CLI target, version, identity or confirmation guards.
 
 ## Interactive Deployment Flow
 
@@ -314,17 +349,17 @@ for the generated output format.
 | `jito_version` | "Jito version?" (if jito; default: 4.3.2-jito on mainnet, the `version_jito` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver with the `-jito` suffix, no leading `v` |
 | `allnodes_jito_version` | "Allnodes-Jito version?" (if allnodes-jito; default: 4.3.2-allnodes on mainnet, the `version_allnodes_jito` pin of `~/.slv/versions.yml`; testnet reads its own section) | Semver, with or without `-allnodes`, no leading `v` |
 | `firedancer_version` | "Firedancer version?" (testnet, if firedancer) | String |
-| `identity_account` | "Validator identity pubkey? (or generate)" | Base58 pubkey or `generate` |
-| `vote_account` | "Vote account pubkey? (or generate)" | Base58 pubkey or `generate` |
-| `snapshot_url` | "Snapshot URL? (auto-detected for ERPC nodes)" | URL (cannot be empty for init) |
+| `identity_account` | "Existing identity public key, or prepare one in your terminal?" | Public key only; operator handles private material |
+| `vote_account` | "Existing vote account public key, or prepare one in your terminal?" | Public key only; operator handles private material |
+| `snapshot_url` | "How will this network obtain a snapshot?" | Use the network-specific CLI/template path; testnet init may leave it empty for discovery |
 
 ### Optional Variables (show defaults, confirm)
 
 | Variable | Default | When Required |
 |---|---|---|
-| `ssh_user` | `solv` (`ubuntu` for fresh servers) | Always |
-| `commission_bps` | `0` | Always |
-| `dynamic_port_range` | `8000-8025` | Always |
+| `ssh_user` | Confirm the actual login user; `solv` is prepared by setup | Always |
+| `commission_bps` | Read saved inventory; init uses `1000` for testnet and prompts Jito mainnet | Review before voting |
+| `dynamic_port_range` | Read saved inventory; current init writes `8900-8930` | Verify role-specific firewall |
 | `limit_ledger_size` | `200000000` | Always |
 | `allowed_ssh_ips` | — | Strongly recommended (UFW) |
 | `allowed_ips` | — | Optional (UFW) |
@@ -342,37 +377,29 @@ for the generated output format.
 |---|---|---|
 | `reference_rpc_url` | Reference RPC endpoint for slot sync comparison (e.g., ERPC) | — |
 
-ERPC API keys are free at https://erpc.global — enables full slot sync monitoring during deployment and updates.
+Use an operator-configured reference RPC for the same network when checking
+synchronization. Keep any credential-bearing URL outside chat and logs; SLV AI
+account access itself uses `slv login` OAuth, not an RPC API key.
 
-### Pre-flight: Fresh Server Setup
+### Run setup and deployment in a terminal
 
-If the target is a new server without a `solv` user:
+After reviewing the target and intended changes, have the operator run:
+
 ```bash
-ansible-playbook -i inventory.yml cmn/add_solv.yml \
-  -e '{"ansible_user":"ubuntu"}' --become
+slv v init
+slv v deploy -n <network> -p <host>
 ```
 
-### Deployment Command
+Select the desired network in init. It prepares inventory, keys through the
+operator's prompts, the solv user and remote optimization. The deploy command
+selects the matching runtime template and asks for confirmation. For local setup,
+use `slv v init --localhost` and then deploy the resulting named inventory entry.
 
-All paths relative to skill's `ansible/` directory:
-```bash
-cd /path/to/slv-validator/ansible/
-ansible-playbook -i inventory.yml {network}-validator/init.yml \
-  -e '{"validator_type":"<type>","<version variable>":"<version>","snapshot_url":"<url>"}'
-```
-`<version variable>` is `agave_version` for `agave`, `jito_version` for `jito` and
-`allnodes_jito_version` for `allnodes-jito`. Write `<version>` without a leading `v` (the
-build adds it), at or above the floor of the network (mainnet 4.3.0, testnet 4.4.0-beta.0):
-`init.yml` stops before it changes anything on an older one. Leave the variable out to build
-the pin of `~/.slv/versions.yml`.
-
-### Dry-Run First
-
-Always offer `--check` mode before actual deployment:
-```bash
-ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","jito_version":"4.3.2-jito"}' --check
-```
+The CLI enforces mainnet 4.3.0 and testnet 4.4.0-beta.0 minimum client versions.
+Read the current network-specific pins rather than assuming example versions
+are current. If the user is uncertain, review the plan and stop before execution;
+there is no deploy `--check` flag, and a direct playbook is not a safe replacement
+for the CLI's checks.
 
 ## Performance Tuning
 

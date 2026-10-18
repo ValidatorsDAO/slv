@@ -1,222 +1,100 @@
 # SLV Firewall Skill
 
-Lock down the SLV host's network perimeter: nftables default-drop,
-fail2ban for brute-force, SSH key-based login with password auth
-off. Non-engineer friendly — three commands, zero file editing.
+Use this skill when the user asks to inspect or change firewall/SSH access. Start
+with the requested task; do not turn ordinary chat into unsolicited hardening.
 
-**Related:** For phone/laptop VPN on top of this, see the
-**slv-wireguard** skill. For automatic HTTPS on the chat UI, see
-`slv install nginx`.
+## Identify the machine and preserve access
 
-Use this skill when the user says anything like:
+`slv install firewall` changes **the machine running SLV**, through a local
+playbook. It has no inventory or remote-host option. A command on the management
+laptop does not configure a remote validator.
 
-- "help me lock down the firewall / SSH"
-- "is my box exposed? / what ports are open?"
-- "allow only my IP" / "whitelist my laptop"
-- "turn off SSH passwords" / "disable password login"
-- "nftables" / "fail2ban" / "brute force"
+Before proposing changes, establish:
 
----
+1. The target machine, its role (management host, VPN endpoint, validator, RPC or
+   application server), and whether SLV is running there.
+2. Its existing firewall, listening services and required ports, including the
+   actual SSH port, validator gossip/TPU/dynamic ports, RPC/gRPC, monitoring,
+   container networking and any VPN forwarding.
+3. A verified SSH session and a recovery route such as the provider console.
+   Keep a second working session open during approved changes.
 
-## EL's walkthrough (run in this order — skipping ahead locks users out)
+Read-only probes such as `ss -lntup`, `sudo nft list ruleset`, and
+`systemctl is-active fail2ban` must run on that confirmed target. Do not dump
+secret-bearing configuration files. Inspect account inventory only when needed
+to resolve the requested target; do not automatically whitelist every server the
+account owns.
 
-### Step 0 — Sanity probe (read-only, parallelizable)
+## Understand the baseline before installing
 
-Fire these in parallel so the rest of the conversation has real
-data to work with:
+The current baseline is for a simple management/development host. It writes
+`/etc/nftables.conf` and uses `flush ruleset`, replacing existing firewall rules.
+Rerunning with different allowed IPs replaces that list; manual rules are not
+preserved. Defaults are:
 
-- `get_premium_vps_my_vps` (MCP) — user's Premium VPS list.
-- `get_super_vps_my_vps` (MCP) — Super VPS list.
-- `get_baremetal_status` (MCP) — BareMetal list.
-- `run_command: curl -s https://api.ipify.org` — THIS host's public IP (so you filter it out of whitelist candidates — no point whitelisting the server to itself).
-- `run_command: sudo nft list ruleset 2>/dev/null | head -3` — is nftables already configured?
-- `run_command: systemctl is-active fail2ban 2>/dev/null` — is fail2ban running?
-- `run_command: sudo grep -r PasswordAuthentication /etc/ssh/` — is password auth still on?
+- Loopback, established/related traffic, ICMP and ICMPv6 accepted.
+- TCP 22, 80 and 443 open to all sources.
+- UDP 51820 open for WireGuard.
+- Sources in `10.0.0.0/24` and explicitly allowed IPv4 addresses accepted on all
+  ports. These source rules do not authenticate a WireGuard handshake themselves.
+- Other inbound traffic dropped; forwarding and outgoing traffic accepted.
+- fail2ban monitors SSH: five failures in ten minutes can cause a one-hour ban.
 
-Use the results to:
+This does **not** make SSH or the web ports private. A source whitelist grants
+broad access; it is not a substitute for service authentication or a full
+role-specific network policy.
 
-- Say what's already on / off.
-- Build the **whitelist candidate list**: every `ip` from the MCP VPS/BM calls that isn't THIS host's IP. Present to the user verbatim:
-  > "Your SLV account has these other hosts — want them whitelisted? You'll still be able to SSH between them after we lock down."
+Do not blindly install this baseline on an active validator/RPC, custom SSH port,
+container network, existing VPN or host with custom rules. It can interrupt node
+traffic and erase NAT rules. The CLI exposes no arbitrary port policy option;
+if the role needs more rules, stop and prepare a separate reviewed policy instead
+of promising this command will preserve them. Do not disable other firewalls or
+change a live node's rules merely to make the generic baseline fit.
 
-### Step 1 — How will the user reach this box from outside?
+## Apply only the reviewed local plan
 
-Before collecting any `--allow` IPs, decide the remote-access
-method with the user. This single question prevents the #1
-support ticket (self-lockout from a rotating home IP).
-
-Ask, in plain language:
-
-> "How do you want to reach this server from home / your phone?
-> For non-engineers we strongly recommend option 1.
->
-> 1. **WireGuard VPN** (recommended) — works on any device (phone,
->    desktop, laptop — all supported). Once you connect to the
->    VPN, the server sees your traffic as coming from the same
->    fixed IP every time. The firewall only has to allow that one
->    IP, so it stops mattering how often your home router's IP
->    rotates, and nobody else can get in. Safe and low-friction
->    for everyday use.
->
-> 2. **Whitelist a fixed public IP** — if you have a business
->    line / office address with a guaranteed-stable IP, register
->    that. **Home internet IPs rotate every few days or weeks
->    depending on the ISP, so whitelisting one will lock you out
->    later.** Only register an IP you can personally guarantee is
->    static.
->
-> 3. **Both** — whitelist your static IP AND set up VPN."
-
-**Default recommendation: option 1.** If the user picks 1 or is
-unsure, proceed with firewall install WITHOUT any `--allow` IPs,
-then immediately hand off to the **slv-wireguard** skill as Step
-1.5 below. If they pick 2 or 3, collect the IPs now.
-
-**Never auto-add the user's current SSH source IP.** Their home
-IP is probably dynamic; hardcoding it leads to "my firewall locked
-me out next Tuesday" support tickets. Invite them to add it
-explicitly only if they swear it's static.
-
-### Step 1.5 — Install the firewall
-
-Combine MCP-derived IPs (from Step 0) + user-supplied IPs, then run:
+After the operator approves the exact target and policy, the supported command is:
 
 ```bash
-slv install firewall --allow <ip1> --allow <ip2> -y
+slv install firewall --allow <trusted-ip> -y
 ```
 
-`--allow` is repeatable. Order doesn't matter. The CLI dedupes.
-If the user picked WireGuard-only (option 1 above), omit `--allow`
-entirely — the box will still be reachable via SSH (port 22 open,
-fail2ban-protected) and via WG once it's up.
+`--allow` accepts repeatable or comma-separated IPv4 addresses. CIDRs are not
+accepted. Omit it only if the baseline's always-open ports and peer-subnet rule
+are the intended policy. `-y` skips the CLI prompt; it is not permission to skip
+user approval. Do not automatically add a dynamic home address or label it static.
+Explain how the user's access survives address changes.
 
-### Step 1.6 — If they picked WireGuard, hand off now
+A VPN is optional. Discuss whether it belongs on this host or a separate endpoint
+without making a purchase a prerequisite. A VPN on another server requires
+explicit routing/proxying to reach this one. See **slv-wireguard** when requested.
 
-After the firewall install succeeds, and BEFORE SSH hardening:
+## SSH hardening: add, verify, then disable
 
-> "Firewall is live. Now let's set up the VPN. I'll switch to
-> the **slv-wireguard** skill — we can't proceed without a
-> separate VPS dedicated to the VPN, so we'll check that first."
+Public SSH keys may be shared; private keys and passphrases stay outside chat.
+Have the operator generate and protect any needed private key on their own
+machine. `slv add:ssh '<public-key>'` updates the **current user's**
+`~/.ssh/authorized_keys`, so verify both the execution host and intended login
+user. It does not distribute the key to an arbitrary remote server.
 
-Invoke the slv-wireguard skill. It will (a) check whether the user
-has a dedicated core1 VPS for the VPN or needs to buy one, and
-(b) walk them through the phone pairing. Once WG is up, come back
-to Step 2 below.
-
-**What this does:**
-- Always-open: SSH (22), HTTP (80), HTTPS (443), WireGuard (51820/udp), lo, WG peer subnet 10.0.0.0/24.
-- Whitelist IPs get ALL ports unconditionally.
-- Everything else silently dropped.
-- fail2ban watches sshd: 5 wrong passwords in 10 min → 1 h ban.
-
-### Step 2 — SSH hardening (ADD → VERIFY → DISABLE, in that order)
-
-This order is load-bearing.
-
-**Step 2a — Install the public key.** Ask:
-
-> "Paste your SSH public key. It's a one-line string starting with `ssh-ed25519` or `ssh-rsa` — usually in `~/.ssh/id_ed25519.pub` on your laptop.
->
-> If you don't have one: run `ssh-keygen -t ed25519` on your laptop first and paste the `.pub` contents here."
-
-Run:
-
-```bash
-slv add:ssh '<the pubkey line>'
-```
-
-**Step 2b — VERIFY in a second terminal.** Tell the user:
-
-> "Open a NEW terminal and try `ssh ubuntu@<this-host-ip>`. If it logs you in without asking for a password, key-based login is working. LEAVE THAT TERMINAL OPEN as a safety net — if the next step goes wrong you can fix it from there."
-
-**Do not proceed until the user confirms this works.** Running
-`slv disable pwd-login` after a bad `slv add:ssh` is how people
-permanently lock themselves out.
-
-**Step 2c — Disable password auth:**
+Before disabling passwords, have the operator confirm a fresh key-authenticated
+login in a second terminal to the correct user, host and SSH port. Keep that
+session and recovery access open. Then, with approval:
 
 ```bash
 slv disable pwd-login
 ```
 
-Frame it: "this removes a huge attack surface — password guessing is now impossible."
+Without `--target`, this changes the host running SLV. For an inventory-managed
+remote host, the registered options are `-t <inventory-group> -p <host>`; never
+omit the host limit for a single-host task. Inspect effective SSH settings and
+verify another fresh login afterward. Do not claim password authentication is
+disabled until the effective configuration and login behavior confirm it.
 
-### Step 3 — Verify + read-back
+## Verify results
 
-State the final posture plainly:
-
-```
-🛡  Firewall + SSH locked down:
-  • nftables: default-drop, SSH/HTTP/HTTPS/WireGuard always open
-  • Whitelist: <ips> (all ports)
-  • fail2ban: sshd jail, 5/10m → 1h ban
-  • SSH: password auth OFF, key-only
-```
-
-Offer to back up the ssh key to the user's laptop if they haven't
-already.
-
-If they also want VPN access from their phone, hand off to the
-**slv-wireguard** skill.
-
----
-
-## Why SSH stays open to the world
-
-Engineer impulse: "whitelist SSH too." Don't. Two reasons:
-
-1. **Non-engineer users on dynamic home IPs lock themselves out.** Their ISP rotates their IP, the firewall rule silently stops matching, they panic. fail2ban + key-only auth is equivalent defense without the foot-gun.
-2. **SSH key auth is already near-unbreakable.** An attacker without the key gets nowhere; an attacker WITH the key would bypass a whitelist (they'd spoof the source IP or tunnel through an allowed host anyway).
-
-Repeat this explanation to every user who asks "why is SSH open?" — it's the #1 security question on this skill.
-
----
-
-## Reference
-
-### `slv install firewall`
-
-```
-slv install firewall [--allow <ip>]... [-y]
-```
-
-- `--allow <ip>` — repeatable. IPv4 dotted-quad. Gets all-port access.
-- `-y` — skip the confirmation prompt.
-- Idempotent: re-running with a different set **overwrites** the ruleset.
-- Playbook: `template/latest/ansible/cmn/software/install-firewall.yaml`.
-
-### `slv add:ssh`
-
-```
-slv add:ssh '<pubkey line>'
-```
-
-- Appends to `~/.ssh/authorized_keys`. De-dupes.
-
-### `slv disable pwd-login`
-
-```
-slv disable pwd-login
-```
-
-- Sets `PasswordAuthentication no` in sshd config, reloads sshd.
-- **Destructive:** if you haven't verified key login, this locks you out.
-
----
-
-## Common failure modes + fixes
-
-| User says | Likely cause | Fix |
-|-----------|-------------|-----|
-| "I ran `slv disable pwd-login` and now I'm locked out" | `slv add:ssh` was skipped or pubkey was malformed | Cloud provider rescue console → re-enable password in `/etc/ssh/sshd_config.d/` or fix `authorized_keys` |
-| "My whitelist IP rotated" | Dynamic home IP changed | `slv install firewall --allow <new-ip> [<rest>]` — idempotent rewrite |
-| "fail2ban banned me" | Typed wrong password 5× | `sudo fail2ban-client set sshd unbanip <your-ip>` |
-| "nftables says default-deny but SSH still works" | Expected — SSH is an always-open exception | Not a bug |
-
----
-
-## Don't do
-
-- Don't disable password auth BEFORE verifying key login works in a second terminal.
-- Don't whitelist `0.0.0.0/0` — it defeats default-deny.
-- Don't auto-add the operator's current SSH source IP — dynamic home IPs rotate.
+Read back the effective rules, listening services and fail2ban status. Verify SSH
+from the user's real access path and confirm that required application/node
+traffic still works. Report observed results and remaining uncertainty, not a
+generic “locked down” success message. If access fails, use the prearranged rescue
+path; do not blindly rerun the installer or flush rules again.
