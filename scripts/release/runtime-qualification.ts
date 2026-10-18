@@ -6,6 +6,8 @@ import {
   type RuntimeRevocationTransport,
 } from './runtime-revocations.ts'
 import { createHash } from 'node:crypto'
+import { constants as fsConstants } from 'node:fs'
+import { copyFile, link as linkFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { scanArchiveForUnsafeMembers } from '../../source-rebuild/verify-native.ts'
 import { canonicalTargetDescriptorBytes } from '../../source-rebuild/prepare-tools.ts'
@@ -539,6 +541,27 @@ async function json(path: string): Promise<Record<string, any>> { // Evidence st
   await regular(path)
   return JSON.parse(await Deno.readTextFile(path))
 }
+/** Stage verified input without requiring scratch storage on its filesystem.
+ * The downstream proof verifier rechecks the staged source/receipt hashes.
+ */
+export async function stageQualificationEvidenceFile(
+  source: string,
+  destination: string,
+): Promise<'hardlink' | 'copy'> {
+  await regular(source)
+  try {
+    await linkFile(source, destination)
+    return 'hardlink'
+  } catch (error) {
+    if (
+      !error || typeof error !== 'object' || !('code' in error) ||
+      error.code !== 'EXDEV'
+    ) throw error
+    await copyFile(source, destination, fsConstants.COPYFILE_EXCL)
+    return 'copy'
+  }
+}
+
 async function verifyOriginalEvidence(
   m: QualificationManifest,
   directory: string,
@@ -659,7 +682,7 @@ async function verifyOriginalEvidence(
     await Deno.mkdir(join(temporary, 'proof'))
     await Deno.mkdir(join(temporary, 'tools'))
     for (const name of SOURCE_NAMES) {
-      await Deno.link(
+      await stageQualificationEvidenceFile(
         path(m.source.archives[name]),
         join(temporary, 'source', name),
       )
@@ -672,8 +695,8 @@ async function verifyOriginalEvidence(
           'build_receipt',
           'build-receipt.json',
         ], ['execution_receipt', 'execution-receipt.json']] as const
-      ) await Deno.link(path(row[key]), join(folder, name))
-      await Deno.link(
+      ) await stageQualificationEvidenceFile(path(row[key]), join(folder, name))
+      await stageQualificationEvidenceFile(
         path(row.tool_pins),
         join(temporary, 'tools', `${row.target}.json`),
       )

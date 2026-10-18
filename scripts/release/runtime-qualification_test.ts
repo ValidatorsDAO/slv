@@ -6,6 +6,7 @@ import {
 } from 'jsr:@std/assert@1'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   assertPromotionContext,
   assertQualificationManifest,
@@ -19,6 +20,7 @@ import {
   qualificationIdentity,
   qualificationTag,
   readQualificationManifest,
+  stageQualificationEvidenceFile,
   verifyCandidateProvenance,
   verifyPublishedQualification as verifyPublishedQualificationProduction,
   verifyQualificationArchiveBindings,
@@ -1031,3 +1033,97 @@ for (const unsafe of ['traversal', 'symlink'] as const) {
       )
     }, unsafe))
 }
+
+Deno.test('qualification evidence keeps same-filesystem hardlinks and rejects existing destinations', async () => {
+  const root = await Deno.realPath(
+    await Deno.makeTempDir({ prefix: 'slv-qualification-link-test-' }),
+  )
+  try {
+    const source = join(root, 'source'), destination = join(root, 'staged')
+    await Deno.writeFile(source, bytes)
+    assertEquals((await Deno.stat(source)).dev, (await Deno.stat(root)).dev)
+    assertEquals(
+      await stageQualificationEvidenceFile(source, destination),
+      'hardlink',
+    )
+    assertEquals(
+      (await Deno.stat(source)).ino,
+      (await Deno.stat(destination)).ino,
+    )
+    assertEquals(await Deno.readFile(destination), bytes)
+    await assertRejects(() =>
+      stageQualificationEvidenceFile(source, destination)
+    )
+    assertEquals(await Deno.readFile(destination), bytes)
+    const linked = join(root, 'source-link')
+    await Deno.symlink(source, linked)
+    await assertRejects(
+      () => stageQualificationEvidenceFile(linked, join(root, 'unsafe')),
+      Error,
+      'symlink',
+    )
+    await assertRejects(() =>
+      stageQualificationEvidenceFile(
+        source,
+        join(root, 'missing-parent', 'file'),
+      )
+    )
+    await assertRejects(
+      () => Deno.stat(join(root, 'missing-parent')),
+      Deno.errors.NotFound,
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+const mountedEvidenceFixture = fileURLToPath(
+  new URL('./runtime-qualification.ts', import.meta.url),
+)
+const hasSeparateMountedFilesystem = Deno.build.os === 'linux' &&
+  (await Deno.stat(mountedEvidenceFixture)).dev !==
+    (await Deno.stat('/tmp')).dev
+Deno.test({
+  name:
+    'qualification evidence copies exclusively from a separate mounted filesystem',
+  ignore: !hasSeparateMountedFilesystem,
+  fn: async () => {
+    const source = mountedEvidenceFixture
+    const scratch = await Deno.realPath(
+      await Deno.makeTempDir({
+        dir: '/tmp',
+        prefix: 'slv-qualification-scratch-',
+      }),
+    )
+    try {
+      const destination = join(scratch, 'staged'),
+        content = await Deno.readFile(source)
+      const sourceInfo = await Deno.stat(source),
+        scratchInfo = await Deno.stat(scratch)
+      if (sourceInfo.dev === scratchInfo.dev) {
+        throw new Error('test requires actual distinct st_dev values')
+      }
+      assertEquals(
+        await stageQualificationEvidenceFile(source, destination),
+        'copy',
+      )
+      assertEquals(await Deno.readFile(destination), content)
+      assertEquals(await Deno.readFile(source), content)
+      assertEquals((await Deno.stat(source)).mode, sourceInfo.mode)
+      await assertRejects(() =>
+        stageQualificationEvidenceFile(source, destination)
+      )
+      assertEquals(await Deno.readFile(destination), content)
+      const marker = join(scratch, 'marker'),
+        collision = join(scratch, 'symlink-collision')
+      await Deno.writeTextFile(marker, 'preserve')
+      await Deno.symlink(marker, collision)
+      await assertRejects(() =>
+        stageQualificationEvidenceFile(source, collision)
+      )
+      assertEquals(await Deno.readTextFile(marker), 'preserve')
+      assertEquals((await Deno.lstat(collision)).isSymlink, true)
+    } finally {
+      await Deno.remove(scratch, { recursive: true })
+    }
+  },
+})
