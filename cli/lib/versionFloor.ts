@@ -168,18 +168,26 @@ const pinnedSectionsOf = (
   })
 }
 
-/** The agave, jito and allnodes values a section sets. */
+/**
+ * The agave, jito and allnodes values a section sets. A key that is there with
+ * nothing in it (`version_agave:`) is a pin that cannot be read; a key that is
+ * not there is no pin.
+ */
 const clientPinsOf = (entry: PinnedSection): ClientPin[] =>
   PINNED_CLIENT_KEYS.flatMap((key) => {
     const suggested = entry.defaults[key]
     const value = entry.pinned[key]
     if (typeof suggested !== 'string') return []
-    if (typeof value !== 'string' && typeof value !== 'number') return []
+    if (
+      value !== null && typeof value !== 'string' && typeof value !== 'number'
+    ) {
+      return []
+    }
     return [{
       section: entry.section,
       key,
       network: entry.network,
-      pinned: String(value),
+      pinned: value === null ? '' : String(value),
       floor: ALPENGLOW_FLOORS[entry.network],
       suggested,
     }]
@@ -234,8 +242,8 @@ const findBelowFloorPins = (
 
 /**
  * The agave, jito and allnodes pins of `sections` that are no version number
- * (they have no X.Y: latest, main, a commit hash), so the floor cannot be
- * checked on them.
+ * (they have no X.Y: latest, main, a commit hash, or nothing at all), so the
+ * floor cannot be checked on them.
  */
 const findUnreadablePins = (
   versions: unknown,
@@ -251,13 +259,19 @@ const whyFloor = (network: NetworkType, floor: string): string =>
     ? `Alpenglow starts on mainnet at epoch 1064 and needs ${floor} or later`
     : `${network} already runs Alpenglow and needs ${floor} or later`
 
-const shown = (value: string): string => value === '' ? "''" : value
+const shown = (value: string): string => value === '' ? '(empty)' : value
 
 /** One line for a pin that is no version number, in a section that only warns. */
 const unreadablePinNotice = (pin: ClientPin): string =>
   `${pin.section}.${pin.key} is ${
     shown(pin.pinned)
   } in ~/.slv/versions.yml, which is not a version (X.Y.Z), so it is not checked against ${pin.floor}, the oldest release Alpenglow runs on ${pin.network}. Set it to ${pin.suggested}.`
+
+/** One line for `slv upgrade`: a pin that mainnet commands refuse because it is no version. */
+const unreadableMainnetPinNotice = (pin: ClientPin): string =>
+  `${pin.section}.${pin.key} is ${
+    shown(pin.pinned)
+  } in ~/.slv/versions.yml, which is not a version (X.Y.Z), so the mainnet commands refuse it: it cannot be checked against ${pin.floor}, the oldest release Alpenglow runs on mainnet. Set it to ${pin.suggested}.`
 
 /** One line for `slv upgrade`: the pin, the floor and the value to set. */
 const belowFloorNotice = (pin: BelowFloorPin): string =>
@@ -377,8 +391,17 @@ const refuseVersionBelowFloor = (
   const floor = ALPENGLOW_FLOORS[floorNetwork]
   const deps = { ...defaultFloorDeps(), ...overrides }
   if (readClientVersion(version) === null) {
+    const defaults = deps.defaults() as unknown as Record<
+      string,
+      Record<string, unknown>
+    >
+    const stops = floorNetwork === 'mainnet'
+      ? ` The playbook stops a mainnet run with a version it cannot read: use ${floor} or later, such as ${
+        defaults[section]?.version_agave
+      } for agave or ${defaults[section]?.version_jito} for jito.`
+      : ''
     deps.info(
-      `⚠️ ${flag} ${version} is not a version (X.Y.Z), so it is not checked against ${floor}, the oldest release Alpenglow runs on ${floorNetwork}.`,
+      `⚠️ ${flag} ${version} is not a version (X.Y.Z), so it is not checked against ${floor}, the oldest release Alpenglow runs on ${floorNetwork}.${stops}`,
     )
     return Promise.resolve(false)
   }
@@ -404,7 +427,9 @@ const refuseVersionBelowFloor = (
 
 /**
  * `slv upgrade` keeps the pins in versions.yml; this says, one line per pin, which
- * of them are below the floor. It never fails the command it runs in.
+ * of them are below the floor, and which pins of a mainnet section are no
+ * version at all (the mainnet commands refuse those). It returns the pins below
+ * the floor. It never fails the command it runs in.
  */
 const noticeBelowFloorPins = async (
   overrides: Partial<FloorDeps> = {},
@@ -413,8 +438,14 @@ const noticeBelowFloorPins = async (
   try {
     const versions = await deps.readVersions()
     if (versions === null) return []
-    const pins = findBelowFloorPins(versions, deps.defaults())
+    const defaults = deps.defaults()
+    const pins = findBelowFloorPins(versions, defaults)
     for (const pin of pins) deps.info(`⚠️ ${belowFloorNotice(pin)}`)
+    for (const pin of findUnreadablePins(versions, defaults)) {
+      if (pin.network === 'mainnet') {
+        deps.info(`⚠️ ${unreadableMainnetPinNotice(pin)}`)
+      }
+    }
     return pins
   } catch {
     return []

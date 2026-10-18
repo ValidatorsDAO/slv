@@ -168,14 +168,9 @@ Deno.test('behavior 2: restart, stop, start and nodowntime_migrate assert the ty
   }
 })
 
-Deno.test('behavior 3: set_identity_key needs the tower or vote history unless first_activation is true', () => {
+Deno.test('behavior 3: set_identity_key needs the tower or vote history unless first_activation is true, asks the cluster before it sets the identity on Alpenglow, and opts out of the vote history only for a confirmed dead primary', () => {
   for (const network of validatorNetworks) {
     const path = `ansible/${network}/set_identity_key.yml`
-    const raw = readText(path)
-    assert(
-      !raw.includes('--do-not-require-vote-history'),
-      `${path}: must not opt out of the vote history requirement`,
-    )
     const tasks = tasksOf(readPlaybook(path)[0])
     const firstSetIdentity = firstIndex(
       tasks,
@@ -204,7 +199,13 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assert(voteStat >= 0 && voteStat < firstSetIdentity, `${path}: vote stat`)
     const towerRegister = String(tasks[towerStat].register)
     const voteRegister = String(tasks[voteStat].register)
+    const firstActivation =
+      'first_activation | default(false) is not sameas true'
+    const alpenglow = "slv_alpenglow_state == 'alpenglow'"
+    const primaryDown = 'primary_down_confirmed | default(false) | bool'
+    const noFile = `not ${voteRegister}.stat.exists`
 
+    // TowerBFT: the tower or the vote history file, as before
     const refusal = tasks.findIndex((task) =>
       hasModule(task, 'fail') &&
       conditionsOf(task).includes(`not ${towerRegister}.stat.exists`)
@@ -213,13 +214,177 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assertEquals(
       new Set(conditionsOf(tasks[refusal])),
       new Set([
-        `not ${voteRegister}.stat.exists`,
+        "slv_alpenglow_state == 'towerbft'",
+        noFile,
         `not ${towerRegister}.stat.exists`,
-        'first_activation | default(false) is not sameas true',
+        firstActivation,
       ]),
       `${path}: refusal conditions`,
     )
 
+    // Alpenglow: only the vote history file counts, a tower file does not stand in for it
+    const alpenglowRefusal = tasks.findIndex((task) =>
+      hasModule(task, 'fail') &&
+      conditionsOf(task).includes(`not (${primaryDown})`)
+    )
+    assert(
+      alpenglowRefusal > voteStat && alpenglowRefusal < firstSetIdentity,
+      `${path}: Alpenglow refusal`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[alpenglowRefusal])),
+      new Set([alpenglow, noFile, firstActivation, `not (${primaryDown})`]),
+      `${path}: Alpenglow refusal conditions`,
+    )
+    assert(
+      normalized(tasks[alpenglowRefusal]).includes('--primary-down'),
+      `${path}: the refusal names the way out for a dead primary`,
+    )
+
+    // the checks (nothing votes with the identity, the host has caught up, gossip): every Alpenglow run,
+    // a first activation included, with the vote history file or without it
+    const checkConditions = [alpenglow]
+    // the one host and the vote history flag: a confirmed dead primary and no file
+    const deadConditions = [alpenglow, noFile, firstActivation, primaryDown]
+    const deadImport = tasks.findIndex((task) =>
+      moduleArgs(task, 'import_tasks') ===
+        '../cmn/tasks/vote_history_dead_primary.yml'
+    )
+    assert(
+      deadImport > alpenglowRefusal && deadImport < firstSetIdentity,
+      `${path}: dead primary checks`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[deadImport])),
+      new Set(checkConditions),
+      `${path}: the checks run on every Alpenglow set, a first activation included, whatever the vote history file`,
+    )
+    const importVars = tasks[deadImport].vars as Entry
+    assertEquals(
+      importVars.slv_alpenglow_network,
+      network.replace('-validator', ''),
+    )
+    // gossip is read on every run that gets the checks: no switch turns it off, and the address named down
+    // is the only address besides the one of the host that the identity may be listed at
+    assertEquals(
+      importVars.slv_dp_check_gossip,
+      undefined,
+      `${path}: gossip is read on every run`,
+    )
+    assert(
+      normalized(importVars.slv_dp_down_address).includes(
+        'primary_down_address',
+      ),
+      `${path}: the address named down is the one the CLI passes`,
+    )
+    const oneHost = tasks.findIndex((task) =>
+      hasModule(task, 'assert') &&
+      normalized(task).includes('ansible_play_hosts_all | length == 1')
+    )
+    assert(
+      oneHost > alpenglowRefusal && oneHost < deadImport,
+      `${path}: one host at a time before the checks`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[oneHost])),
+      new Set([alpenglow, firstActivation, primaryDown]),
+    )
+    // one identity on two hosts of one play: refused before any host passes its own checks
+    const twoHosts = tasks.findIndex((task) =>
+      hasModule(task, 'assert') &&
+      normalized(task).includes('slv_sik_same_identity')
+    )
+    assert(
+      twoHosts > oneHost && twoHosts < deadImport,
+      `${path}: one identity on two hosts is refused before the checks`,
+    )
+    assertEquals(conditionsOf(tasks[twoHosts]), [alpenglow])
+    const sameHosts = tasks.find((task) =>
+      hasModule(task, 'set_fact') &&
+      (moduleArgs(task, 'set_fact') as Entry).slv_sik_same_identity !==
+        undefined
+    )
+    assert(sameHosts, `${path}: the hosts that hold the identity are counted`)
+    assert(
+      normalized(sameHosts).includes('ansible_play_hosts_all') &&
+        normalized(sameHosts).includes('identity_account'),
+      `${path}: the hosts of the whole play are counted by identity_account`,
+    )
+    // a first activation is for a vote account that has not voted since the Alpenglow genesis: agave asks for the
+    // vote history file only when the last vote is after the slot of the genesis certificate, and the play mirrors it
+    const firstActivationIs = 'first_activation | default(false) is sameas true'
+    const genesisSlot = tasks.findIndex((task) =>
+      hasModule(task, 'set_fact') &&
+      (moduleArgs(task, 'set_fact') as Entry).slv_sik_genesis_slot !== undefined
+    )
+    assert(
+      genesisSlot >= 0 && genesisSlot < deadImport,
+      `${path}: the slot of the genesis certificate is read`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[genesisSlot])),
+      new Set([alpenglow, firstActivationIs]),
+    )
+    assert(
+      normalized(tasks[genesisSlot]).includes('slv_ag_cert_reply') &&
+        normalized(tasks[genesisSlot]).includes('block.slot'),
+      `${path}: the slot comes from the answer of getAgGenesisCert`,
+    )
+    const voted = tasks.findIndex((task) =>
+      hasModule(task, 'fail') &&
+      normalized(task).includes('first_activation is for a vote account')
+    )
+    assert(
+      voted > deadImport && voted < firstSetIdentity,
+      `${path}: first activation`,
+    )
+    assertEquals(
+      new Set(conditionsOf(tasks[voted])),
+      new Set([
+        alpenglow,
+        firstActivationIs,
+        '(slv_sik_genesis_slot | int(-1)) < 0 or (slv_dp_last | int(-1)) < 0 or (slv_dp_last | int(-1)) > (slv_sik_genesis_slot | int(-1))',
+      ]),
+    )
+    for (const exit of ['--primary-down', 'vote history file']) {
+      assert(
+        normalized(tasks[voted]).includes(exit),
+        `${path}: the refusal of a first activation names the exits: ${exit}`,
+      )
+    }
+    assert(
+      normalized(tasks[alpenglowRefusal]).includes('--first-activation'),
+      `${path}: the refusal without a file names --first-activation`,
+    )
+    const readers = tasks.filter((task) =>
+      moduleArgs(task, 'import_tasks') ===
+        '../cmn/tasks/vote_history_last_vote.yml'
+    )
+    assertEquals(readers.length, 1, `${path}: one baseline reader`)
+    assertEquals(
+      (readers[0].vars as Entry).slv_lv_identity,
+      '{{ hostvars[inventory_hostname].identity_account }}',
+      `${path}: the vote account has to belong to the identity`,
+    )
+    const deadRefusal = tasks.findIndex((task, index) =>
+      index > deadImport && hasModule(task, 'fail') &&
+      conditionsOf(task).includes('not (slv_dp_ok | bool)')
+    )
+    assert(deadRefusal > deadImport && deadRefusal < firstSetIdentity)
+    assertEquals(
+      new Set(conditionsOf(tasks[deadRefusal])),
+      new Set([...checkConditions, 'not (slv_dp_ok | bool)']),
+    )
+    assert(
+      normalized(tasks[deadRefusal]).includes('slv_dp_reason'),
+      `${path}: the refusal says which check failed`,
+    )
+    assert(
+      normalized(tasks[deadRefusal]).includes('primary_down_address'),
+      `${path}: the refusal names the variable that allows the address of a stopped node`,
+    )
+
+    // --require-tower: the tower is the only file, and the cluster does not run Alpenglow
     const flagTasks = tasks.filter((task) =>
       normalized(task).includes('--require-tower')
     )
@@ -232,14 +397,38 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
     assert(hasModule(flag, 'set_fact'), `${path}: flag must be a fact`)
     assert(
       normalized(flag).includes(
-        `${towerRegister}.stat.exists and not ${voteRegister}.stat.exists`,
+        `slv_alpenglow_state != 'alpenglow' and ${towerRegister}.stat.exists and ${noFile}`,
       ),
-      `${path}: --require-tower only when the tower is the only file`,
+      `${path}: --require-tower only when the tower is the only file and the cluster runs TowerBFT`,
     )
     assert(tasks.indexOf(flag) < firstSetIdentity, `${path}: flag order`)
-    const flagName = Object.keys(
-      moduleArgs(flag, 'set_fact') as Entry,
+    const flagName = Object.keys(moduleArgs(flag, 'set_fact') as Entry)[0]
+
+    // --do-not-require-vote-history: Alpenglow, no file, not a first activation, dead primary confirmed
+    const voteFlagTasks = tasks.filter((task) =>
+      normalized(task).includes('--do-not-require-vote-history')
+    )
+    assertEquals(
+      voteFlagTasks.length,
+      1,
+      `${path}: one task decides --do-not-require-vote-history`,
+    )
+    const voteFlag = voteFlagTasks[0]
+    assert(hasModule(voteFlag, 'set_fact'), `${path}: vote flag must be a fact`)
+    for (const condition of deadConditions) {
+      assert(
+        normalized(voteFlag).includes(condition),
+        `${path}: --do-not-require-vote-history needs: ${condition}`,
+      )
+    }
+    assert(
+      tasks.indexOf(voteFlag) < firstSetIdentity,
+      `${path}: vote flag order`,
+    )
+    const voteFlagName = Object.keys(
+      moduleArgs(voteFlag, 'set_fact') as Entry,
     )[0]
+
     const setIdentityTasks = tasks.filter((task) =>
       /set-identity/.test(commandOf(task))
     )
@@ -250,6 +439,42 @@ Deno.test('behavior 3: set_identity_key needs the tower or vote history unless f
         `${path}: "${task.name}" does not pass the flag`,
       )
     }
+    const [agaveSetIdentity, firedancerSetIdentity] = setIdentityTasks
+    assert(
+      commandOf(agaveSetIdentity).includes(`{{ ${voteFlagName} }}`),
+      `${path}: the agave command passes the vote history flag`,
+    )
+    assert(
+      !commandOf(firedancerSetIdentity).includes(voteFlagName),
+      `${path}: fdctl has no vote history flag`,
+    )
+
+    // on Alpenglow the authorized voter has to be there (Votor derives its BLS key from it)
+    const addVoter = tasks.find((task) =>
+      /authorized-voter add/.test(commandOf(task)) &&
+      gateOf(task)?.includes('agave')
+    )
+    assert(addVoter, `${path}: agave authorized-voter add`)
+    assertEquals(
+      addVoter.failed_when,
+      false,
+      `${path}: the authorized-voter add reports through the task after it, so its own output stays out of the log`,
+    )
+    const addVoterStop = tasks[tasks.indexOf(addVoter) + 1]
+    assert(
+      hasModule(addVoterStop, 'fail'),
+      `${path}: a failed authorized-voter add stops the play on Alpenglow`,
+    )
+    assertEquals(
+      new Set(conditionsOf(addVoterStop)),
+      new Set([
+        alpenglow,
+        'add_voter_agave_result is not skipped',
+        '(add_voter_agave_result.rc | default(1)) != 0',
+        "'Authorized voter already present' not in ((add_voter_agave_result.stdout | default('')) ~ (add_voter_agave_result.stderr | default('')))",
+      ]),
+      `${path}: a failed authorized-voter add stops the play on Alpenglow, and an authorized voter that is already there is not a failure`,
+    )
   }
 })
 
@@ -342,17 +567,19 @@ Deno.test('behavior 4: rm_ledger refuses a live validator and both ledger wipes 
 
 const probeFile = '../cmn/tasks/alpenglow_state.yml'
 
-Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demotion and switch_on requires the tower', () => {
+Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demotion and switch_on requires the tower or the vote history', () => {
   const isGuard = (task: Entry) =>
     hasModule(task, 'assert') || hasModule(task, 'fail')
   for (const network of validatorNetworks) {
-    for (
-      const file of [
-        'switch_off_identity.yml',
-        'switch_off_firedancer_identity.yml',
-      ]
-    ) {
-      const path = `ansible/${network}/${file}`
+    const probeVars = {
+      slv_alpenglow_network: network.replace('-validator', ''),
+      slv_alpenglow_freeze: true,
+      slv_alpenglow_move_types: ["{{ validator_type | default('') }}"],
+    }
+
+    // switch_off_firedancer_identity: an fdctl host moves a tower, so TowerBFT only
+    {
+      const path = `ansible/${network}/switch_off_firedancer_identity.yml`
       const tasks = tasksOf(readPlaybook(path)[0])
       const firstSetIdentity = firstIndex(
         tasks,
@@ -363,14 +590,7 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         (task) => moduleArgs(task, 'import_tasks') === probeFile,
       )
       assert(probe >= 0 && probe < firstSetIdentity, `${path}: probe`)
-      assertEquals(
-        tasks[probe].vars,
-        {
-          slv_alpenglow_network: network.replace('-validator', ''),
-          slv_alpenglow_freeze: true,
-        },
-        `${path}: probe variables`,
-      )
+      assertEquals(tasks[probe].vars, probeVars, `${path}: probe variables`)
 
       const alpenglowGuard = firstIndex(
         tasks,
@@ -439,20 +659,356 @@ Deno.test('behavior 5: switch_off asks the Alpenglow probe, refuses before demot
         `${path}: the second probe is followed by the TowerBFT guard`,
       )
     }
-    for (
-      const file of [
-        'switch_on_identity.yml',
-        'switch_on_firedancer_identity.yml',
-      ]
-    ) {
-      const path = `ansible/${network}/${file}`
-      const setIdentity = tasksOf(readPlaybook(path)[0]).filter((task) =>
+
+    // switch_off_identity: the tower on TowerBFT, the vote history file on Alpenglow
+    {
+      const path = `ansible/${network}/switch_off_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const firstSetIdentity = firstIndex(
+        tasks,
+        (task) => /set-identity/.test(commandOf(task)),
+      )
+      const wait = firstIndex(
+        tasks,
+        (task) => /wait-for-restart-window/.test(commandOf(task)),
+      )
+      const probes = tasks.flatMap((task, index) =>
+        moduleArgs(task, 'import_tasks') === probeFile ? [index] : []
+      )
+      assertEquals(probes.length, 2, `${path}: two probes`)
+      assert(
+        probes[0] < wait,
+        `${path}: the first probe stands before the wait`,
+      )
+      assert(
+        probes[1] > wait && probes[1] < firstSetIdentity,
+        `${path}: the second probe stands between the wait and the demotion`,
+      )
+      assertEquals(tasks[probes[0]].vars, probeVars, `${path}: probe variables`)
+      assertEquals(tasks[probes[1]].vars, probeVars, `${path}: second probe`)
+
+      // the mode the switch moves is fixed by the first probe, and the second probe has to agree
+      const mode = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+      )
+      assert(mode > probes[0] && mode < wait, `${path}: switch mode`)
+      assertEquals(
+        (moduleArgs(tasks[mode], 'set_fact') as Entry).slv_switch_mode,
+        '{{ slv_alpenglow_state }}',
+      )
+      const lateGuard = tasks.findIndex((task, index) =>
+        index > probes[1] && isGuard(task) &&
+        normalized(task).includes('slv_alpenglow_state == slv_switch_mode')
+      )
+      assert(
+        lateGuard > probes[1] && lateGuard < firstSetIdentity,
+        `${path}: the second probe is followed by the guard that the mode did not change`,
+      )
+
+      // the vote account of the inventory has to belong to the identity: asked before the wait and the demotion
+      const voteAccount = firstIndex(
+        tasks,
+        (task) =>
+          moduleArgs(task, 'import_tasks') ===
+            '../cmn/tasks/vote_history_last_vote.yml',
+      )
+      assert(
+        voteAccount > probes[0] && voteAccount < wait,
+        `${path}: the vote account is checked before the source waits or is demoted`,
+      )
+      assertEquals(conditionsOf(tasks[voteAccount]), [
+        "slv_switch_mode == 'alpenglow'",
+      ])
+      assertEquals(
+        (tasks[voteAccount].vars as Entry).slv_lv_identity,
+        '{{ hostvars[inventory_hostname].identity_account }}',
+        `${path}: the vote account has to belong to the identity`,
+      )
+      // and the cluster has to show it: unreadable or not listed, the source is not touched
+      const voteAccountShown = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'fail') &&
+          conditionsOf(task).includes('slv_lv_last | int(-1) < 0'),
+      )
+      assert(
+        voteAccountShown > voteAccount && voteAccountShown < wait,
+        `${path}: a vote account the cluster does not show stops the switch before the source waits or is demoted`,
+      )
+      assertEquals(conditionsOf(tasks[voteAccountShown]), [
+        "slv_switch_mode == 'alpenglow'",
+        'slv_lv_last | int(-1) < 0',
+      ])
+      for (const text of ['slv_lv_detail', 'Nothing was changed on']) {
+        assert(
+          normalized(tasks[voteAccountShown]).includes(text),
+          `${path}: the refusal says why and that nothing was changed: ${text}`,
+        )
+      }
+
+      // the file to carry is checked before the wait and before the demotion
+      for (
+        const [fragment, mode] of [
+          ['tower-1_9-', 'towerbft'],
+          ['vote_history-', 'alpenglow'],
+        ]
+      ) {
+        const stat = firstIndex(
+          tasks,
+          (task) =>
+            hasModule(task, 'stat') &&
+            String((moduleArgs(task, 'stat') as Entry).path).startsWith(
+              `/mnt/ledger/${fragment}`,
+            ) &&
+            String((moduleArgs(task, 'stat') as Entry).path).includes(
+              'identity_account',
+            ),
+        )
+        assert(stat > probes[0] && stat < wait, `${path}: ${fragment} stat`)
+        assertEquals(conditionsOf(tasks[stat]), [
+          `slv_switch_mode == '${mode}'`,
+        ])
+        const guard = firstIndex(
+          tasks,
+          (task) =>
+            isGuard(task) &&
+            normalized(task).includes(`${tasks[stat].register}.stat.exists`),
+        )
+        assert(guard > stat && guard < wait, `${path}: ${fragment} guard`)
+        assertEquals(conditionsOf(tasks[guard]), [
+          `slv_switch_mode == '${mode}'`,
+        ])
+      }
+
+      // after the demotion: the tower is fetched on TowerBFT, the vote history file is taken on Alpenglow
+      const towerFetch = tasks.filter((task) => hasModule(task, 'fetch'))
+      assertEquals(towerFetch.length, 1, `${path}: one fetch`)
+      assert(tasks.indexOf(towerFetch[0]) > firstSetIdentity)
+      assertEquals(conditionsOf(towerFetch[0]), [
+        "slv_switch_mode == 'towerbft'",
+      ])
+      const take = tasks.findIndex((task) =>
+        Array.isArray(task.block) &&
+        (task.block as Entry[]).some((inner) =>
+          moduleArgs(inner, 'import_tasks') ===
+            '../cmn/tasks/vote_history_take.yml'
+        )
+      )
+      assert(
+        take > firstSetIdentity,
+        `${path}: the vote history file is taken after the demotion`,
+      )
+      assertEquals(conditionsOf(tasks[take]), [
+        "slv_switch_mode == 'alpenglow'",
+      ])
+      assert(
+        Array.isArray(tasks[take].rescue),
+        `${path}: a failed take says what is left to do`,
+      )
+    }
+
+    // switch_on_firedancer_identity: an fdctl host takes a tower (the one of testnet is retired and refuses, and is pinned
+    // with the other retired playbooks)
+    if (network === 'mainnet-validator') {
+      const path = `ansible/${network}/switch_on_firedancer_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const setIdentity = tasks.filter((task) =>
         /set-identity/.test(commandOf(task))
       )
       assertEquals(setIdentity.length, 1, `${path}: set-identity task`)
       assert(
         commandOf(setIdentity[0]).includes('--require-tower'),
         `${path}: set-identity must pass --require-tower`,
+      )
+      const probe = firstIndex(
+        tasks,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
+      )
+      assertEquals(tasks[probe].vars, probeVars, `${path}: probe variables`)
+    }
+
+    // switch_on_identity: --require-tower with the tower on TowerBFT, the vote history file on Alpenglow
+    {
+      const path = `ansible/${network}/switch_on_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const probe = firstIndex(
+        tasks,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
+      )
+      assertEquals(tasks[probe].vars, probeVars, `${path}: probe variables`)
+      const mode = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+      )
+      assert(mode > probe, `${path}: switch mode`)
+      assertEquals(
+        (moduleArgs(tasks[mode], 'set_fact') as Entry).slv_switch_mode,
+        '{{ slv_ag_resume_mode if (slv_ag_resume | default(false) | bool) else slv_alpenglow_state }}',
+      )
+
+      const towerSetIdentity = tasks.filter((task) =>
+        /set-identity/.test(commandOf(task))
+      )
+      assertEquals(
+        towerSetIdentity.length,
+        1,
+        `${path}: set-identity on TowerBFT`,
+      )
+      assert(commandOf(towerSetIdentity[0]).includes('--require-tower'))
+      assertEquals(conditionsOf(towerSetIdentity[0]), [
+        "slv_switch_mode == 'towerbft'",
+      ])
+      const upload = tasks.find((task) =>
+        hasModule(task, 'copy') &&
+        String((moduleArgs(task, 'copy') as Entry).src).includes('/tower/')
+      )
+      assert(upload, `${path}: the tower is uploaded`)
+      assertEquals(conditionsOf(upload), ["slv_switch_mode == 'towerbft'"])
+
+      const block = tasks.find((task) => Array.isArray(task.block))
+      assert(block, `${path}: the Alpenglow block`)
+      assertEquals(conditionsOf(block), ["slv_switch_mode == 'alpenglow'"])
+      const inner = block.block as Entry[]
+      assert(
+        Array.isArray(block.rescue),
+        `${path}: a failed step says where the copy is`,
+      )
+      assert(
+        normalized(block.rescue).includes('set_identity_result') &&
+          normalized(block.rescue).includes('slv v set:identity -n') &&
+          normalized(block.rescue).includes('unstaked'),
+        `${path}: the rescue says which hosts are unstaked and the command that passes`,
+      )
+      const innerSetIdentity = inner.filter((task) =>
+        /set-identity/.test(commandOf(task))
+      )
+      assertEquals(innerSetIdentity.length, 1)
+      assert(
+        !commandOf(innerSetIdentity[0]).includes('--require-tower'),
+        `${path}: no tower flag on Alpenglow: agave then requires the vote history file`,
+      )
+      // the checks come before the block, so that a refusal changes nothing and has no rescue note:
+      // the copy exists, it belongs to the identity of the source, and this run took it
+      const blockIndex = tasks.indexOf(block)
+      const outer = (predicate: (task: Entry) => boolean) =>
+        tasks.findIndex(predicate)
+      const stat = outer((task) =>
+        hasModule(task, 'stat') && task.register === 'slv_vh_copy_stat'
+      )
+      assertEquals(
+        (moduleArgs(tasks[stat], 'stat') as Entry).checksum_algorithm,
+        'sha256',
+        `${path}: the copy is read with its sha256`,
+      )
+      const refuse = outer((task) =>
+        isGuard(task) &&
+        normalized(task).includes('slv_vh_copy_stat.stat.exists')
+      )
+      const identityMatch = outer((task) =>
+        isGuard(task) &&
+        normalized(task).includes(
+          'hostvars[slv_alpenglow_demoted_source].identity_account == slv_vh_identity',
+        )
+      )
+      const taken = outer((task) =>
+        isGuard(task) && normalized(task).includes('slv_vh_taken_sha256')
+      )
+      assert(
+        stat >= 0 && stat < refuse && refuse < identityMatch &&
+          identityMatch < taken && taken < blockIndex,
+        `${path}: copy check, source identity, file of this run, then the block`,
+      )
+      for (const index of [stat, refuse, identityMatch, taken]) {
+        assert(
+          conditionsOf(tasks[index]).includes("slv_switch_mode == 'alpenglow'"),
+          `${path}: "${tasks[index].name}" is for Alpenglow`,
+        )
+      }
+      // the file of this run: a source was switched off in this run and the sha256 of the copy is the one its take recorded
+      const takenText = normalized(tasks[taken])
+      for (
+        const part of [
+          "slv_alpenglow_demoted_source | default('', true) != ''",
+          'hostvars[slv_alpenglow_demoted_source].slv_vh_taken_sha256',
+          'slv_vh_copy_stat.stat.checksum',
+          'slv v set:identity -n',
+        ]
+      ) {
+        assert(
+          takenText.includes(part),
+          `${path}: the file of this run: ${part}`,
+        )
+      }
+      const index = (predicate: (task: Entry) => boolean) =>
+        inner.findIndex(predicate)
+      const upload2 = index((task) =>
+        hasModule(task, 'copy') &&
+        String((moduleArgs(task, 'copy') as Entry).dest).startsWith(
+          '/mnt/ledger/vote_history-',
+        )
+      )
+      const set = inner.indexOf(innerSetIdentity[0])
+      const voter = index((task) =>
+        /authorized-voter add/.test(commandOf(task))
+      )
+      const confirm = index((task) =>
+        moduleArgs(task, 'import_tasks') ===
+          '../cmn/tasks/vote_history_confirm.yml'
+      )
+      const remove = index((task) =>
+        hasModule(task, 'file') &&
+        (moduleArgs(task, 'file') as Entry).state === 'absent'
+      )
+      assert(
+        upload2 >= 0 && upload2 < set && set < voter && voter < confirm &&
+          confirm < remove,
+        `${path}: upload, set-identity, authorized voter, confirmation, removal of the copy`,
+      )
+      const reader = index((task) =>
+        moduleArgs(task, 'import_tasks') ===
+          '../cmn/tasks/vote_history_last_vote.yml'
+      )
+      assert(
+        reader >= 0 && reader < set,
+        `${path}: the last vote is read first`,
+      )
+      assertEquals(
+        (inner[reader].vars as Entry).slv_lv_identity,
+        '{{ hostvars[inventory_hostname].identity_account }}',
+        `${path}: the vote account has to belong to the identity`,
+      )
+      const copy = moduleArgs(inner[upload2], 'copy') as Entry
+      assertEquals(
+        [copy.owner, copy.group, copy.mode],
+        ['solv', 'solv', '0644'],
+        `${path}: the file gets the owner and mode agave gives it`,
+      )
+      assertEquals(
+        inner[voter].failed_when,
+        false,
+        `${path}: the authorized-voter add reports through the task after it, so its own output stays out of the log`,
+      )
+      const voterStop = inner[voter + 1]
+      assert(
+        hasModule(voterStop, 'fail') &&
+          conditionsOf(voterStop).includes(
+            '(add_voter_result.rc | default(1)) != 0',
+          ),
+        `${path}: a failed authorized-voter add stops the play on Alpenglow`,
+      )
+      assert(
+        normalized(voterStop).includes('Authorized voter already present'),
+        `${path}: an authorized voter that is already there is not a failure`,
+      )
+      assertEquals(
+        (inner[confirm].vars as Entry).slv_vh_baseline_sha256,
+        '{{ slv_vh_uploaded.stat.checksum }}',
+        `${path}: the baseline of the vote check is the uploaded file`,
       )
     }
   }
@@ -462,6 +1018,7 @@ const freezeText =
   'identity changes wait until getAgGenesisCert returns a certificate'
 const imminentText = 'Run the identity change after the genesis certificate'
 const demotedText = 'are both unstaked now'
+const fdctlMoveText = 'cannot move an identity on a cluster that runs Alpenglow'
 
 const listYamlFiles = (directory: string): string[] =>
   [...Deno.readDirSync(new URL(directory, templateRoot))].flatMap((entry) =>
@@ -471,6 +1028,647 @@ const listYamlFiles = (directory: string): string[] =>
       ? [`${directory}${entry.name}`]
       : []
   )
+
+const base58Alphabet = '[1-9A-HJ-NP-Za-km-z]{32,44}'
+const isBase58Guard = (task: Entry) =>
+  hasModule(task, 'assert') && normalized(task).includes(base58Alphabet) &&
+  normalized(task).includes('is match(')
+
+Deno.test('base58 identity: an identity_account that is not a base58 public key stops the switch playbooks and the vote history take before they name a file on the controller', () => {
+  for (const network of validatorNetworks) {
+    // switch_off: before the file is looked for, the cluster is asked again and the source is demoted
+    {
+      const path = `ansible/${network}/switch_off_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const guard = firstIndex(tasks, isBase58Guard)
+      const wait = firstIndex(
+        tasks,
+        (task) => /wait-for-restart-window/.test(commandOf(task)),
+      )
+      const demotion = firstIndex(
+        tasks,
+        (task) => /set-identity/.test(commandOf(task)),
+      )
+      const mode = firstIndex(
+        tasks,
+        (task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined,
+      )
+      assert(
+        mode >= 0 && guard > mode && guard < wait && wait < demotion,
+        `${path}: the identity is checked before the source waits or is demoted`,
+      )
+      assertEquals(
+        conditionsOf(tasks[guard]),
+        [],
+        `${path}: the identity is checked in every mode`,
+      )
+      assert(
+        normalized(tasks[guard]).includes(
+          'hostvars[inventory_hostname].identity_account',
+        ),
+        `${path}: the guard reads the identity_account of the host`,
+      )
+    }
+    // switch_on: before the key file and the vote history copy are looked for on the controller
+    {
+      const path = `ansible/${network}/switch_on_identity.yml`
+      const tasks = tasksOf(readPlaybook(path)[0])
+      const guard = firstIndex(tasks, isBase58Guard)
+      const slurp = firstIndex(tasks, (task) => hasModule(task, 'slurp'))
+      const block = firstIndex(tasks, (task) => Array.isArray(task.block))
+      const probe = firstIndex(
+        tasks,
+        (task) => moduleArgs(task, 'import_tasks') === probeFile,
+      )
+      assert(
+        guard >= 0 && guard < probe && probe < slurp && slurp < block,
+        `${path}: the identity is checked before the probe, which stats a controller path built from it`,
+      )
+      assertEquals(
+        conditionsOf(tasks[guard]),
+        [],
+        `${path}: the identity is checked in every mode`,
+      )
+    }
+  }
+  // the take: the first task, before the copy path is built from the identity
+  const take = parse(
+    readText('ansible/cmn/tasks/vote_history_take.yml'),
+  ) as Entry[]
+  assert(
+    isBase58Guard(take[0]),
+    'vote_history_take.yml: the identity is checked first',
+  )
+  assert(
+    normalized(take[0]).includes('slv_vh_identity'),
+    'vote_history_take.yml: the guard reads slv_vh_identity',
+  )
+  assert(
+    take.slice(1).every((task) => !isBase58Guard(task)) &&
+      normalized(take[1]).includes('slv_vh_copy'),
+    'vote_history_take.yml: the copy path is built right after the check',
+  )
+})
+
+Deno.test('base58 identity: every other playbook that builds a controller path from identity_account refuses a value that is not a base58 public key first, in every mode', () => {
+  // set_identity_to_active, change_identity_and_restart and switch_on_firedancer_identity of testnet refuse without
+  // reading anything, and the copy_keys.yml of the validators are gone: deploy never copies the staked key to a node
+  const files = [
+    ...validatorNetworks.flatMap((network) =>
+      ['set_identity_key', 'switch_off_firedancer_identity'].map((file) =>
+        `ansible/${network}/${file}.yml`
+      )
+    ),
+    'ansible/mainnet-validator/switch_on_firedancer_identity.yml',
+    'ansible/mainnet-rpc/copy_keys.yml',
+    'ansible/cmn/copy_rpc_keys.yml',
+  ]
+  for (const path of files) {
+    const tasks = tasksOf(readPlaybook(path)[0])
+    const guard = firstIndex(tasks, isBase58Guard)
+    assert(guard >= 0, `${path}: no base58 guard`)
+    assertEquals(
+      conditionsOf(tasks[guard]),
+      [],
+      `${path}: the identity is checked in every mode`,
+    )
+    assert(
+      normalized(tasks[guard]).includes(
+        'hostvars[inventory_hostname].identity_account',
+      ),
+      `${path}: the guard reads the identity_account of the host`,
+    )
+    // before the guard nothing is changed and no controller path is built: the gate on the validator
+    // type, a fact, or another guard
+    for (const before of tasks.slice(0, guard)) {
+      assert(
+        hasModule(before, 'assert') || hasModule(before, 'fail') ||
+          hasModule(before, 'set_fact'),
+        `${path}: "${before.name}" runs before the identity is checked`,
+      )
+      assert(
+        !/identity_account|local_key_path|key_name/.test(normalized(before)),
+        `${path}: "${before.name}" uses the identity before it is checked`,
+      )
+    }
+    // and every task that builds a path from the identity comes after it
+    const firstUse = firstIndex(
+      tasks,
+      (task) =>
+        task !== tasks[guard] &&
+        /identity_account|local_key_path/.test(normalized(task)),
+    )
+    assert(
+      firstUse < 0 || guard < firstUse,
+      `${path}: a path is built from the identity before it is checked`,
+    )
+  }
+})
+
+// The retired playbooks refuse. set_identity_to_active set the identity without the checks that slv v set:identity makes
+// first (for a Firedancer host of testnet it also read a key file on the node); switch_on_firedancer_identity and
+// change_identity_and_restart of testnet took the staked key from a file on the node, which a deploy never copies there:
+// the key stays on the controller and reaches the node on stdin during slv v set:identity and slv v switch. Each is one
+// play with one task that fails with a message that starts with SLV_KEYLESS_REFUSED, so nothing else runs.
+const keylessRefusals: [string, string][] = [
+  ['mainnet-validator', 'set_identity_to_active'],
+  ['testnet-validator', 'set_identity_to_active'],
+  ['testnet-validator', 'switch_on_firedancer_identity'],
+  ['testnet-validator', 'change_identity_and_restart'],
+]
+const isKeylessRefusal = (network: string, file: string): boolean =>
+  keylessRefusals.some(([n, f]) => n === network && f === file)
+
+Deno.test('keyless: the retired playbooks are one play with one task that refuses', () => {
+  for (const [directory, file] of keylessRefusals) {
+    const path = `ansible/${directory}/${file}.yml`
+    const plays = readPlaybook(path)
+    assertEquals(plays.length, 1, `${path}: one play`)
+    const tasks = tasksOf(plays[0])
+    assertEquals(tasks.length, 1, `${path}: one task, so nothing else runs`)
+    assert(hasModule(tasks[0], 'fail'), `${path}: the task fails`)
+    assertEquals(conditionsOf(tasks[0]), [], `${path}: it always fails`)
+    assertEquals(
+      plays[0].become,
+      undefined,
+      `${path}: nothing is run as another user`,
+    )
+    const message = String((moduleArgs(tasks[0], 'fail') as Entry).msg)
+    assert(
+      message.startsWith('SLV_KEYLESS_REFUSED'),
+      `${path}: the message starts with SLV_KEYLESS_REFUSED`,
+    )
+    const network = directory.replace('-validator', '')
+    // the two Firedancer-only playbooks cannot name their own host: slv v set:identity refuses a Firedancer host of testnet
+    const host = file === 'set_identity_to_active'
+      ? '{{ inventory_hostname }}'
+      : '<host>'
+    for (
+      const part of [
+        'Nothing was changed on {{ inventory_hostname }}',
+        `slv v set:identity -n ${network} -p ${host}`,
+        `slv v switch -n ${network}`,
+        `${file}.yml is retired.`,
+      ]
+    ) {
+      assert(message.includes(part), `${path}: the message says: ${part}`)
+    }
+    // set_identity_to_active passed the staked key of the controller on stdin for its agave and jito hosts: it is retired
+    // for the checks it left out, and the message must not say it read a key on the node
+    assertEquals(
+      message.includes('sets the identity from a staked key on the node'),
+      false,
+      `${path}: the message gives a reason that does not hold`,
+    )
+    if (file === 'set_identity_to_active') {
+      assert(
+        message.includes(
+          'set the identity without the checks that the set:identity command of slv makes first',
+        ),
+        `${path}: the message gives the checks it left out`,
+      )
+    }
+  }
+  // nodowntime_migrate imports the play of testnet switch_on_firedancer_identity: one host that fails ends the run
+  assertEquals(
+    readPlaybook(
+      'ansible/testnet-validator/switch_on_firedancer_identity.yml',
+    )[0]
+      .any_errors_fatal,
+    true,
+  )
+})
+
+Deno.test('keyless: no task of the template writes the staked key to a node', () => {
+  const written: string[] = []
+  for (const file of listYamlFiles('ansible/')) {
+    for (const list of taskLists(parse(readText(file)))) {
+      for (const task of list) {
+        for (const module of ['copy', 'template', 'synchronize', 'fetch']) {
+          const args = moduleArgs(task, module) as Entry | undefined
+          if (
+            args &&
+            /(?:mainnet|testnet)-validator-keypair\.json/.test(
+              String(args.dest),
+            )
+          ) {
+            written.push(`${file}: ${task.name}`)
+          }
+        }
+      }
+    }
+  }
+  assertEquals(written, [], 'a staked key is written to a node')
+})
+
+// every task that reads a key file from the controller keeps what it reads out of the log, and a missing key
+// file is still reported by a task of its own
+const taskLists = (value: unknown): Entry[][] => {
+  const lists: Entry[][] = []
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      if (node.every((item) => item !== null && typeof item === 'object')) {
+        lists.push(node as Entry[])
+      }
+      node.forEach(walk)
+    } else if (node !== null && typeof node === 'object') {
+      Object.values(node as Entry).forEach(walk)
+    }
+  }
+  walk(value)
+  return lists
+}
+const readsKeyFile = (task: Entry): boolean => {
+  const slurp = moduleArgs(task, 'slurp') as Entry | undefined
+  if (slurp && /local_key_path|\.slv\/keys/.test(String(slurp.src))) {
+    return true
+  }
+  for (const module of ['copy', 'fetch', 'template']) {
+    const args = moduleArgs(task, module) as Entry | undefined
+    if (args && /\.slv\/keys/.test(String(args.src))) return true
+  }
+  return false
+}
+
+Deno.test('no_log: every task that reads a key file from the controller has it, and a missing key file is reported by a task of its own', () => {
+  let seen = 0
+  const files = listYamlFiles('ansible/').filter((file) =>
+    !file.startsWith('ansible/cmn/firewall/')
+  )
+  for (const file of files) {
+    for (const list of taskLists(parse(readText(file)))) {
+      list.forEach((task, index) => {
+        if (!readsKeyFile(task)) return
+        seen += 1
+        assertEquals(
+          task.no_log,
+          true,
+          `${file}: "${task.name}" reads a key file and must not log it`,
+        )
+        const missing = list.slice(0, index).some((before) =>
+          hasModule(before, 'fail') &&
+          normalized(before).includes('Key file not found')
+        )
+        assert(
+          missing,
+          `${file}: "${task.name}" has no stop for a missing key file before it`,
+        )
+      })
+    }
+  }
+  // set_identity_key and switch_on_identity of both networks read the key with slurp; mainnet-rpc/copy_keys and
+  // cmn/copy_rpc_keys copy the key of an RPC node. The validators have no copy_keys.yml (deploy never copies a staked key
+  // to a node), and set_identity_to_active is retired.
+  assertEquals(seen, 6, 'the tasks that read a key file')
+})
+
+// a task that passes a key on stdin keeps its arguments out of the log (ansible-core 2.16 prints them at -vvv, and
+// stdin is the key), does not fail by itself, and the task after it fails when the return code is not 0 and says
+// what the command printed, so that what agave said stays visible and the key does not. The authorized-voter add of
+// the TowerBFT paths is the exception: it never stops a run on a return code, and the task after it says when the step
+// did not run to its end
+const listAnsibleFiles = (directory: string): string[] =>
+  [...Deno.readDirSync(new URL(directory, templateRoot))].flatMap((entry) =>
+    entry.isDirectory
+      ? listAnsibleFiles(`${directory}${entry.name}/`)
+      : /\.ya?ml$/.test(entry.name)
+      ? [`${directory}${entry.name}`]
+      : []
+  )
+// the lists of tasks that sit in a block with a rescue: a task that fails there is reported by the rescue
+const rescuedLists = (value: unknown): Set<Entry[]> => {
+  const lists = new Set<Entry[]>()
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk)
+    } else if (node !== null && typeof node === 'object') {
+      const entry = node as Entry
+      if (Array.isArray(entry.block) && Array.isArray(entry.rescue)) {
+        lists.add(entry.block as Entry[])
+      }
+      Object.values(entry).forEach(walk)
+    }
+  }
+  walk(value)
+  return lists
+}
+const stdinOf = (task: Entry): unknown => {
+  for (const value of Object.values(task)) {
+    if (
+      value !== null && typeof value === 'object' && !Array.isArray(value) &&
+      'stdin' in value
+    ) {
+      return (value as Entry).stdin
+    }
+  }
+  return undefined
+}
+
+Deno.test('no_log: every task that passes a key on stdin has it and does not fail by itself, and the task after it fails with what the command printed', () => {
+  const seen: string[] = []
+  const lenient: string[] = []
+  const files = listAnsibleFiles('ansible/').filter((file) =>
+    !file.startsWith('ansible/cmn/firewall/')
+  )
+  for (const file of files) {
+    const parsed = parse(readText(file))
+    const rescued = rescuedLists(parsed)
+    for (const list of taskLists(parsed)) {
+      list.forEach((task, index) => {
+        if (stdinOf(task) === undefined) return
+        const label = `${file}: ${task.name}`
+        seen.push(label)
+        assertEquals(
+          task.no_log,
+          true,
+          `${label} passes a key on stdin and must not log its arguments`,
+        )
+        assertEquals(
+          task.failed_when,
+          false,
+          `${label} must not fail by itself, its failure would show nothing`,
+        )
+        const register = String(task.register ?? '')
+        const next = list[index + 1]
+        const text = next === undefined ? '' : normalized(next)
+        const reports = register.length > 0 && next !== undefined &&
+          hasModule(next, 'fail') &&
+          conditionsOf(next).includes(`(${register}.rc | default(1)) != 0`) &&
+          [`${register}.stdout`, `${register}.stderr`].every((part) =>
+            text.includes(part)
+          )
+        if (!reports) {
+          // the authorized-voter add of the TowerBFT paths never stops a run on a return code; a step that did not run
+          // to its end (no return code) is reported by the task after it
+          lenient.push(label)
+          assertEquals(
+            task.ignore_errors,
+            true,
+            `${label} never stops the play on a return code, and a step that does not run to its end is reported by the task after it`,
+          )
+          assert(
+            register.length > 0 && next !== undefined &&
+              hasModule(next, 'fail') &&
+              conditionsOf(next).includes(`${register} is failed`) &&
+              text.includes(`${register}.msg`),
+            `${label}: the task after it says what the step said when it did not run to its end`,
+          )
+        }
+        // a step that runs out of time (timeout) has no return code, and the failure of the step itself would show nothing:
+        // outside a rescue the task after it reports that too
+        if (reports && task.timeout !== undefined && !rescued.has(list)) {
+          assertEquals(
+            task.ignore_errors,
+            true,
+            `${label} runs out of time without a return code, and the task after it says so`,
+          )
+        }
+      })
+    }
+  }
+  // set_identity_key (2) and switch_on_identity (4) of both networks, and the public key of WireGuard
+  assertEquals(seen.length, 13, 'the tasks that pass a key on stdin')
+  // the authorized-voter add of the TowerBFT path of switch_on_identity never stopped a run on a return code, it still does not
+  assertEquals(
+    lenient.sort(),
+    validatorNetworks.map((network) =>
+      `ansible/${network}/switch_on_identity.yml: Add Authorized Voter via stdin`
+    ).sort(),
+    'the tasks that do not stop the play on a return code',
+  )
+})
+
+// the WireGuard tasks that handle the private key: no_log keeps the key out of the log (a result prints at -v), the two
+// copies that write it return no diff (copy masks `content` in its arguments, but --diff shows it), and a failure that
+// no_log hides is reported by the task after it
+Deno.test('no_log: the WireGuard tasks that handle the private key keep it out of the log, and a failure they would hide is reported by the task after them', () => {
+  const tasks = (parse(
+    readText('ansible/cmn/software/install-wireguard.yaml'),
+  ) as Entry[]).flatMap(tasksOf)
+  const handlesKey = (task: Entry): boolean =>
+    /wg_private_key_value|existing_priv|new_priv|wg genkey|wg_private_key_path/
+      .test(JSON.stringify(task))
+  const handled: string[] = []
+  for (const task of tasks) {
+    // the stops and the assert say a text of their own, never a value
+    if (hasModule(task, 'fail') || hasModule(task, 'assert')) continue
+    if (!handlesKey(task) && stdinOf(task) === undefined) continue
+    handled.push(String(task.name))
+    const copy = moduleArgs(task, 'copy') as Entry | undefined
+    if (copy?.content !== undefined) {
+      assertEquals(
+        task.diff,
+        false,
+        `${task.name} writes the private key and must not return a diff`,
+      )
+      continue
+    }
+    assertEquals(
+      task.no_log,
+      true,
+      `${task.name} handles the private key and must not log it`,
+    )
+  }
+  assertEquals(handled, [
+    'Read existing private key if present',
+    'Set private key if exists',
+    'Generate new private key if missing or invalid',
+    'Set private key from newly generated key',
+    'Save private key',
+    'Generate public key',
+    'Create WireGuard config',
+  ])
+  const after = (name: string): Entry => {
+    const index = tasks.findIndex((task) => task.name === name)
+    assert(index >= 0, name)
+    return tasks[index + 1]
+  }
+  const named = (name: string): Entry => {
+    const task = tasks.find((candidate) => candidate.name === name)
+    assert(task, name)
+    return task
+  }
+  // the key in the file: a missing file is no failure (the key is generated), a fact that fails says why
+  assertEquals(
+    named('Read existing private key if present').ignore_errors,
+    true,
+  )
+  const fact = named('Set private key if exists')
+  assertEquals([fact.register, fact.ignore_errors], ['wg_existing_key', true])
+  const factStop = after('Set private key if exists')
+  assert(
+    hasModule(factStop, 'fail') &&
+      conditionsOf(factStop).includes('wg_existing_key is failed') &&
+      normalized(factStop).includes('wg_existing_key.msg'),
+    'a private key in the file that cannot be read is reported',
+  )
+  // wg genkey prints the key: its stop shows the return code and what went wrong, never its stdout
+  const genkey = named('Generate new private key if missing or invalid')
+  assertEquals([genkey.register, genkey.failed_when], ['new_priv', false])
+  const genkeyStop = after('Generate new private key if missing or invalid')
+  assert(
+    hasModule(genkeyStop, 'fail') &&
+      conditionsOf(genkeyStop).includes('(new_priv.rc | default(1)) != 0'),
+    'a wg genkey that fails is reported',
+  )
+  assert(
+    !normalized(genkeyStop).includes('new_priv.stdout') &&
+      normalized(genkeyStop).includes('new_priv.stderr'),
+    'the report of wg genkey never shows its stdout, which is the key',
+  )
+})
+
+// copy masks `content` in its arguments, but --diff prints it: a copy that writes a private key returns no diff
+Deno.test('no_log: every copy that writes a private key from its content returns no diff', () => {
+  const writesKey = /private key|origin_key|wg_private_key_value|PrivateKey/i
+  const found: string[] = []
+  const files = listAnsibleFiles('ansible/').filter((file) =>
+    !file.startsWith('ansible/cmn/firewall/')
+  )
+  for (const file of files) {
+    for (const list of taskLists(parse(readText(file)))) {
+      for (const task of list) {
+        const copy = moduleArgs(task, 'copy') as Entry | undefined
+        if (copy?.content === undefined) continue
+        if (!writesKey.test(JSON.stringify(task))) continue
+        found.push(`${file}: ${task.name}`)
+        assertEquals(
+          task.diff,
+          false,
+          `${file}: "${task.name}" writes a private key and must not return a diff`,
+        )
+      }
+    }
+  }
+  assertEquals(found.sort(), [
+    'ansible/cmn/software/install-nginx.yaml: Write caller-supplied origin private key',
+    'ansible/cmn/software/install-wireguard.yaml: Create WireGuard config',
+    'ansible/cmn/software/install-wireguard.yaml: Save private key',
+  ])
+})
+
+Deno.test('the last vote reader refuses a vote account of another identity, and every caller says whose it is', () => {
+  const reader = readText('ansible/cmn/tasks/vote_history_last_vote.yml')
+  const tasks = parse(reader) as Entry[]
+  const refusal = tasks.find((task) =>
+    hasModule(task, 'fail') && normalized(task).includes('nodePubkey')
+  )
+  assert(refusal, 'the reader refuses a vote account of another identity')
+  assertEquals(conditionsOf(refusal), [
+    "slv_lv_identity | default('', true) | length > 0",
+    "slv_lv_node | default('', true) | length > 0",
+    'slv_lv_node != slv_lv_identity',
+  ])
+  const deadPrimary = parse(
+    readText('ansible/cmn/tasks/vote_history_dead_primary.yml'),
+  ) as Entry[]
+  const read = deadPrimary.find((task) =>
+    moduleArgs(task, 'import_tasks') === 'vote_history_last_vote.yml'
+  )
+  assert(read, 'the dead primary checks read the last vote')
+  assertEquals((read.vars as Entry).slv_lv_identity, '{{ slv_dp_identity }}')
+})
+
+Deno.test('the dead primary checks read the last vote from the RPC of the host as well and use the larger one', () => {
+  const tasks = parse(
+    readText('ansible/cmn/tasks/vote_history_dead_primary.yml'),
+  ) as Entry[]
+  const own = tasks.find((task) =>
+    hasModule(task, 'uri') &&
+    normalized(task).includes('getVoteAccounts') &&
+    normalized(task).includes('slv_target_rpc_url')
+  )
+  assert(own, 'this host is asked for the last vote of the vote account')
+  assertEquals(own.no_log, true)
+  const larger = tasks.find((task) =>
+    hasModule(task, 'set_fact') &&
+    (moduleArgs(task, 'set_fact') as Entry).slv_dp_last !== undefined
+  )
+  assert(larger, 'the larger last vote is kept')
+  assert(
+    normalized(larger).includes('slv_lv_last') &&
+      normalized(larger).includes('slv_dp_own_last') &&
+      normalized(larger).includes('| max'),
+    'the cluster and the host are compared with max',
+  )
+  // an unreadable answer of the cluster still stops the play: the host cannot make up for it
+  assert(
+    normalized(larger).includes('if (slv_lv_last | int(-1)) >= 0 else -1'),
+    'the host does not stand in for an unreadable answer of the cluster',
+  )
+  for (
+    const name of [
+      'Check that nothing votes with the identity',
+      'Check that this host has caught up',
+    ]
+  ) {
+    const check = tasks.find((task) => task.name === name)
+    assert(check, name)
+    assert(
+      normalized(check).includes('slv_dp_last | int(-1)') &&
+        !normalized(check).includes('slv_lv_last'),
+      `${name}: judged on the larger last vote`,
+    )
+  }
+  // the host is the second opinion, not an extra: an answer of the host that cannot be read, or that does not list the
+  // vote account, fails check 1 and is not made up for by the value of the cluster
+  const quiet = normalized(
+    tasks.find((task) =>
+      task.name === 'Check that nothing votes with the identity'
+    ),
+  )
+  assert(
+    quiet.includes('(slv_dp_own_last | int(-1)) < 0'),
+    'check 1 fails when the host shows no last vote',
+  )
+  for (
+    const text of [
+      'the RPC of this host did not give a readable answer to getVoteAccounts',
+      'the RPC of this host does not list the vote account',
+    ]
+  ) {
+    assert(quiet.includes(text), `check 1 says what the host did: ${text}`)
+  }
+})
+
+Deno.test('the gossip check compares the gossip socket of the entry of the identity only', () => {
+  const text = readText('ansible/cmn/tasks/vote_history_dead_primary.yml')
+  const code = text.split('\n').filter((line) => !line.trim().startsWith('#'))
+    .join('\n')
+  assert(code.includes("node['gossip']"), 'the gossip socket is read')
+  for (
+    const socket of [
+      'tpuQuic',
+      'tpuForwards',
+      'tpuVote',
+      'serveRepair',
+      'pubsub',
+    ]
+  ) {
+    assert(!code.includes(socket), `no code compares the ${socket} socket`)
+  }
+})
+
+Deno.test('the texts of the playbooks that name slv v set:identity or slv v switch name the network of the run', () => {
+  for (const file of listYamlFiles('ansible/')) {
+    if (file.startsWith('ansible/cmn/firewall/')) continue
+    const lines = readText(file).split('\n')
+    lines.forEach((line, number) => {
+      if (line.trim().startsWith('#')) return
+      for (const match of line.matchAll(/slv v (set:identity|switch)/g)) {
+        const rest = line.slice((match.index ?? 0) + match[0].length)
+        assert(
+          rest.startsWith(' -n '),
+          `${file}:${number + 1}: "${match[0]}" is named without -n: ${
+            line.trim().slice(0, 120)
+          }`,
+        )
+      }
+    })
+  }
+})
 
 Deno.test('alpenglow state: the probe asks the cluster from the controller and the freeze is written once', () => {
   const path = 'ansible/cmn/tasks/alpenglow_state.yml'
@@ -527,19 +1725,38 @@ Deno.test('alpenglow state: the probe asks the cluster from the controller and t
   ) {
     assert(text.includes(url), `${path}: public RPC ${url}`)
   }
-  const refusals = tasks.slice(-2)
+  const refusals = tasks.filter((task) =>
+    /^Stop (the|an) identity change/.test(String(task.name))
+  )
+  assertEquals(refusals.length, 3, `${path}: three refusals`)
+  const freeze = 'slv_alpenglow_freeze | default(false) | bool'
   for (const refusal of refusals) {
-    assert(hasModule(refusal, 'assert'), `${path}: the last tasks are refusals`)
-    assertEquals(conditionsOf(refusal), [
-      'slv_alpenglow_freeze | default(false) | bool',
-    ])
+    assert(hasModule(refusal, 'assert'), `${path}: the refusals are asserts`)
   }
+  // unknown does not stop a promotion that goes on without a reading (see the demotion test)
+  assertEquals(conditionsOf(refusals[0]), [
+    freeze,
+    'not (slv_ag_resume | default(false) | bool)',
+  ])
+  assertEquals(conditionsOf(refusals[1]), [freeze])
+  assertEquals(conditionsOf(refusals[2]), [freeze])
   assert(normalized(refusals[0]).includes(freezeText))
   assert(normalized(refusals[0]).includes("not in ['window', 'unknown']"))
   assert(normalized(refusals[1]).includes(imminentText))
   assert(normalized(refusals[1]).includes("slv_alpenglow_state != 'imminent'"))
+  assert(normalized(refusals[2]).includes(fdctlMoveText))
+  assert(
+    normalized(refusals[2]).includes(
+      "slv_alpenglow_state != 'alpenglow' or (slv_alpenglow_move_types | default([])",
+    ),
+  )
+  for (const type of ['firedancer-agave', 'firedancer-jito', 'frankendancer']) {
+    assert(normalized(refusals[2]).includes(`'${type}'`), `refuses ${type}`)
+  }
 
-  for (const sentence of [freezeText, imminentText, demotedText]) {
+  for (
+    const sentence of [freezeText, imminentText, demotedText, fdctlMoveText]
+  ) {
     const writers = listYamlFiles('ansible/').filter((file) =>
       readText(file).includes(sentence)
     )
@@ -569,6 +1786,158 @@ Deno.test('alpenglow demotion: nodowntime_migrate tells the switch_on plays whic
   }
 })
 
+Deno.test('alpenglow demotion: the probe is patient after a demotion, and a promotion goes on with the tower or the vote history file only when the cluster stays unread and the run is young', () => {
+  const path = 'ansible/cmn/tasks/alpenglow_state.yml'
+  const tasks = readPlaybook(path)
+  const named = (prefix: string): number => {
+    const index = tasks.findIndex((task) =>
+      String(task.name).startsWith(prefix)
+    )
+    assert(index >= 0, `${path}: no task named "${prefix}"`)
+    return index
+  }
+
+  // patience: only for a probe with the freeze on after a demotion that followed a reading
+  const patience = named(
+    'Work out how long a call that cannot be read is retried',
+  )
+  const facts = moduleArgs(tasks[patience], 'set_fact') as Entry
+  for (
+    const part of [
+      'slv_alpenglow_freeze | default(false) | bool',
+      "slv_alpenglow_demoted_source | default('', true) != ''",
+      "hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) in ['towerbft', 'alpenglow']",
+      'slv_alpenglow_patience_seconds | default(60)',
+    ]
+  ) {
+    assert(
+      normalized(facts.slv_ag_give_up_at).includes(part),
+      `patience: ${part}`,
+    )
+  }
+  assert(
+    normalized(facts.slv_ag_patient_retries).includes(
+      'slv_alpenglow_rpc_delay',
+    ),
+    'patience: retries follow the delay',
+  )
+  const requests = tasks.filter((task) => hasModule(task, 'uri'))
+  assertEquals(requests.length, 3)
+  for (const task of requests) {
+    assert(
+      tasks.indexOf(task) > patience,
+      `${task.name}: asked after the patience is set`,
+    )
+    assert(
+      normalized(task.until).includes('slv_ag_give_up_at'),
+      `${task.name}: the deadline ends the retries`,
+    )
+    assert(
+      normalized(task.retries).includes('slv_ag_patient_retries'),
+      `${task.name}: patient retries`,
+    )
+  }
+
+  // the decision: unknown, after a TowerBFT or an Alpenglow reading, less than half of the margin
+  // at 0.4 s a slot, and never into the vote history path with a Firedancer host
+  const decide = named('Decide which consensus the cluster runs')
+  const resume = named(
+    'Work out whether the promotion goes on although the cluster could not be read',
+  )
+  assert(resume > decide, `${path}: the decision follows the state`)
+  const resumeFacts = moduleArgs(tasks[resume], 'set_fact') as Entry
+  for (
+    const part of [
+      "slv_alpenglow_state == 'unknown'",
+      'slv_ag_give_up_at | default(0) | int) > 0',
+      "hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state | default('')) in ['towerbft', 'alpenglow']",
+      'slv_pre_demotion_probe_at',
+      '(slv_alpenglow_margin_slots | default(3000) | int) * (slv_alpenglow_min_slot_seconds | default(0.2) | float) / 2',
+      "== 'towerbft' or (slv_alpenglow_move_types | default([]) | intersect(['firedancer-agave', 'firedancer-jito', 'frankendancer']) | length) == 0",
+    ]
+  ) {
+    assert(
+      String(resumeFacts.slv_ag_resume).replaceAll(/\s+/g, ' ').includes(part),
+      `resume: ${part}`,
+    )
+  }
+  assert(
+    normalized(resumeFacts.slv_ag_resume_mode).includes(
+      'hostvars[slv_alpenglow_demoted_source].slv_pre_demotion_state',
+    ),
+    'resume: the mode is what the cluster ran at the reading',
+  )
+  const refusal = named('Stop the identity change while the cluster is between')
+  assert(refusal > resume, `${path}: the decision comes before the refusals`)
+  const say = named(
+    'Say that the promotion goes on although the cluster could not be read',
+  )
+  assertEquals(conditionsOf(tasks[say]), [
+    'slv_alpenglow_freeze | default(false) | bool',
+    'slv_ag_resume | default(false) | bool',
+  ])
+
+  // the switch_off plays keep the reading right before the demotion; switch_on follows it
+  for (const network of validatorNetworks) {
+    for (
+      const file of ['switch_off_identity', 'switch_off_firedancer_identity']
+    ) {
+      const playbook = `ansible/${network}/${file}.yml`
+      const list = tasksOf(readPlaybook(playbook)[0])
+      const factOf = (name: string): number =>
+        list.findIndex((task) =>
+          hasModule(task, 'set_fact') &&
+          (moduleArgs(task, 'set_fact') as Entry)[name] !== undefined
+        )
+      const probes = list.flatMap((task, index) =>
+        moduleArgs(task, 'import_tasks') === probeFile ? [index] : []
+      )
+      const at = factOf('slv_pre_demotion_probe_at')
+      const state = factOf('slv_pre_demotion_state')
+      const demotion = firstIndex(
+        list,
+        (task) => /set-identity/.test(commandOf(task)),
+      )
+      assert(
+        at >= 0 && at < probes[1] && at > probes[0],
+        `${playbook}: the time is taken before the probe right before the demotion`,
+      )
+      assertEquals(
+        (moduleArgs(list[at], 'set_fact') as Entry).slv_pre_demotion_probe_at,
+        '{{ now(utc=true).timestamp() | int }}',
+      )
+      assert(
+        state > probes[1] && state < demotion,
+        `${playbook}: the state is kept after the probe and before the demotion`,
+      )
+      assertEquals(
+        (moduleArgs(list[state], 'set_fact') as Entry).slv_pre_demotion_state,
+        '{{ slv_alpenglow_state }}',
+      )
+      // nothing is kept for a demotion that the guards refuse
+      assert(
+        list.slice(probes[1] + 1, state).some((task) =>
+          hasModule(task, 'assert')
+        ),
+        `${playbook}: a guard stands between the probe and the facts`,
+      )
+    }
+    const onTasks = tasksOf(
+      readPlaybook(`ansible/${network}/switch_on_identity.yml`)[0],
+    )
+    const mode = onTasks.find((task) =>
+      hasModule(task, 'set_fact') &&
+      (moduleArgs(task, 'set_fact') as Entry).slv_switch_mode !== undefined
+    )
+    assert(mode)
+    assertEquals(
+      (moduleArgs(mode, 'set_fact') as Entry).slv_switch_mode,
+      '{{ slv_ag_resume_mode if (slv_ag_resume | default(false) | bool) else slv_alpenglow_state }}',
+      `${network}: switch_on takes the path of the reading before the demotion when the promotion goes on without a reading`,
+    )
+  }
+})
+
 const identityPlaybooks = [
   'switch_off_identity',
   'switch_off_firedancer_identity',
@@ -580,12 +1949,36 @@ const identityPlaybooks = [
   'nodowntime_migrate',
 ]
 
+// the validator types that take part in an identity move: the probe stops a Firedancer or
+// Frankendancer host in one while the cluster runs Alpenglow
+const moveTypesOf = (file: string): Entry => {
+  if (
+    [
+      'switch_off_identity',
+      'switch_off_firedancer_identity',
+      'switch_on_identity',
+      'switch_on_firedancer_identity',
+      'set_identity_key',
+    ].includes(file)
+  ) {
+    return { slv_alpenglow_move_types: ["{{ validator_type | default('') }}"] }
+  }
+  if (file === 'nodowntime_migrate') {
+    return {
+      slv_alpenglow_move_types: [
+        "{{ hostvars[source_host].validator_type | default('') }}",
+        "{{ hostvars[target_host].validator_type | default('') }}",
+      ],
+    }
+  }
+  return {}
+}
+
 Deno.test('alpenglow freeze: every identity playbook imports the probe with the freeze on before it changes anything', () => {
   for (const network of validatorNetworks) {
-    const files = network === 'testnet-validator'
-      ? [...identityPlaybooks, 'change_identity_and_restart']
-      : identityPlaybooks
-    for (const file of files) {
+    for (const file of identityPlaybooks) {
+      // a playbook that only refuses changes no identity and asks the cluster nothing
+      if (isKeylessRefusal(network, file)) continue
       const path = `ansible/${network}/${file}.yml`
       const tasks = tasksOf(readPlaybook(path)[0])
       const probe = firstIndex(
@@ -598,6 +1991,7 @@ Deno.test('alpenglow freeze: every identity playbook imports the probe with the 
         {
           slv_alpenglow_network: network.replace('-validator', ''),
           slv_alpenglow_freeze: true,
+          ...moveTypesOf(file),
         },
         `${path}: probe variables`,
       )
@@ -642,7 +2036,7 @@ Deno.test('alpenglow fdctl: mainnet refuses Firedancer and Frankendancer as an i
   assert(hasModule(unconditional, 'fail'))
   assertEquals(conditionsOf(unconditional), [])
 
-  for (const file of ['set_identity_key', 'set_identity_to_active']) {
+  for (const file of ['set_identity_key']) {
     const task = refusalOf(
       mainnet(file),
       tasksOf(readPlaybook(mainnet(file))[0]),
@@ -1110,7 +2504,6 @@ Deno.test('addendum 10: the testnet validator wipes and both validator restarter
       'rm_ledger.yml',
       'restart_agave_with_rm_ledger.yml',
       'restart_firedancer_with_rm_ledger.yml',
-      'change_identity_and_restart.yml',
     ]
   ) {
     const path = `${testnet}/${file}`
@@ -1225,6 +2618,10 @@ const changedTemplates = [
   ),
   'ansible/mainnet-validator/install_allnodes_jito.yml',
   'ansible/cmn/tasks/alpenglow_state.yml',
+  'ansible/cmn/tasks/vote_history_take.yml',
+  'ansible/cmn/tasks/vote_history_confirm.yml',
+  'ansible/cmn/tasks/vote_history_last_vote.yml',
+  'ansible/cmn/tasks/vote_history_dead_primary.yml',
   ...[
     'rm_ledger',
     'restart_agave_with_rm_ledger',
@@ -1893,4 +3290,79 @@ Deno.test('display names: no template playbook reads the host name var without a
       `${path} must print the host name with a default`,
     )
   }
+})
+
+// A `vars:` entry of a play, block or task that reads its own name ("x: {{ x | default('a') }}") fails on every run with
+// "recursive loop detected in template string", whether or not the inventory sets x: the entry is x, so x reads itself.
+// The way to take a value from the caller with a default is an entry of its own name that reads the caller's variable
+// (slv_x: "{{ x | default('a') }}"). A set_fact is not a `vars:` entry: it stores the value it reads, and may read its own name.
+const jinjaSegments = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
+const stringLiterals = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g
+const stringsOf = (value: unknown): string[] =>
+  typeof value === 'string'
+    ? [value]
+    : Array.isArray(value)
+    ? value.flatMap(stringsOf)
+    : value !== null && typeof value === 'object'
+    ? Object.values(value).flatMap(stringsOf)
+    : []
+const readsItself = (name: string, value: unknown): boolean => {
+  // the name as a variable of an expression: not behind a dot (an attribute), not inside a string literal
+  const read = new RegExp(
+    `(?<![\\w.])${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`,
+  )
+  return stringsOf(value).some((text) =>
+    (text.match(jinjaSegments) ?? []).some((segment) =>
+      read.test(segment.replaceAll(stringLiterals, "''"))
+    )
+  )
+}
+const varsReadingThemselves = (node: unknown): string[] => {
+  if (Array.isArray(node)) return node.flatMap(varsReadingThemselves)
+  if (node === null || typeof node !== 'object') return []
+  const entry = node as Entry
+  const own = entry.vars !== null && typeof entry.vars === 'object' &&
+      !Array.isArray(entry.vars)
+    ? Object.entries(entry.vars as Entry)
+      .filter(([name, value]) => readsItself(name, value))
+      .map(([name]) => name)
+    : []
+  return [...own, ...Object.values(entry).flatMap(varsReadingThemselves)]
+}
+
+Deno.test('vars: no play, block or task variable of the template reads its own name', () => {
+  // what the detector refuses and what it lets through, so that an empty result below means something
+  assertEquals(
+    varsReadingThemselves(parse(`
+- hosts: all
+  vars:
+    loops: "{{ loops | default('a') }}"
+    loops_in_a_list: ["{{ loops_in_a_list }}"]
+    loops_in_a_block: "{% if loops_in_a_block %}x{% endif %}"
+    fine_other_name: "{{ loops_in_a_block | default('b') }}"
+    fine_attribute: "{{ item.fine_attribute }}"
+    fine_hostvars: "{{ hostvars[inventory_hostname].fine_hostvars }}"
+    fine_text: "fine_text is a name, not an expression"
+    fine_literal: "{{ other | default('fine_literal') }}"
+    fine_prefix: "{{ fine_prefix_of_another }}"
+  tasks:
+    - name: a task
+      ansible.builtin.set_fact:
+        validator_type: "{{ validator_type | default('agave') }}"
+      vars:
+        task_loops: "{{ task_loops }}"
+`)),
+    ['loops', 'loops_in_a_list', 'loops_in_a_block', 'task_loops'],
+  )
+  const found: string[] = []
+  for (const file of listAnsibleFiles('')) {
+    for (const name of varsReadingThemselves(parse(readText(file)))) {
+      found.push(`${file}: ${name}`)
+    }
+  }
+  assertEquals(
+    found,
+    [],
+    'an entry of vars: that reads its own name fails with "recursive loop detected in template string": give it a name of its own that reads the caller variable',
+  )
 })

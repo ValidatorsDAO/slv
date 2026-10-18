@@ -1,6 +1,8 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert'
 import type { CmnType } from '@cmn/types/config.ts'
+import { VERSIONS_PATH } from '@cmn/constants/path.ts'
 import { defaultVersionsObject } from '/lib/config/defaultVersionsYml.ts'
+import { defaultStartScriptDeps } from '/lib/startScript.ts'
 import {
   ALPENGLOW_FLOORS,
   compareClientVersions,
@@ -536,7 +538,7 @@ const indexOfCall = (source: string, call: string, label: string): number => {
   return index
 }
 
-Deno.test('every deploy, init and update:geyser entry calls the version floor before it does anything else', async () => {
+Deno.test('every deploy, init and update:geyser entry stops when the version floor refuses, before it does anything else', async () => {
   const entries: Array<[string, string, string[]]> = [
     [
       'src/validator/deploy/deployValidatorMainnet.ts',
@@ -577,6 +579,12 @@ Deno.test('every deploy, init and update:geyser entry calls the version floor be
   for (const [path, guard, later] of entries) {
     const source = await read(path)
     const at = indexOfCall(source, guard, path)
+    // The refusal has to end the command, not only be awaited.
+    assertStringIncludes(
+      source,
+      `if (await ${guard}) return`,
+      `${path}: a refusal of the floor does not stop it`,
+    )
     for (const call of later) {
       assert(
         at < indexOfCall(source, call, path),
@@ -597,6 +605,75 @@ Deno.test('every deploy, init and update:geyser entry calls the version floor be
     geyserAt < indexOfCall(geyser, 'runAnsilbe(', 'update:geyser'),
     'update:geyser: the floor comes after ansible',
   )
+  assertStringIncludes(
+    geyser,
+    "if (await refuseBelowFloorPins(options.network, 'rpc')) return",
+    'update:geyser: a refusal of the floor does not stop it',
+  )
+})
+
+// install:solana, build:solana and patch:sha256 reach the floor through the
+// default dependencies of the start script play.
+const STALE_VERSIONS = `mainnet_validators:
+  version_agave: 4.2.2
+  version_jito: 4.2.2-jito
+`
+
+Deno.test('the start script play calls the real version floor: a stale pin and a version below the floor stop it, and a version at the floor does not', async () => {
+  const deps = defaultStartScriptDeps()
+  const patched = Deno as unknown as { readTextFile: typeof Deno.readTextFile }
+  const realRead = Deno.readTextFile
+  const realError = console.error
+  const exitCode = Deno.exitCode
+  const said: string[] = []
+  console.error = (...args: unknown[]) => {
+    said.push(args.join(' '))
+  }
+  // versions.yml is served from here, the rest of the files from the disk.
+  patched.readTextFile =
+    ((path: string | URL, options?: Deno.ReadFileOptions) =>
+      String(path) === VERSIONS_PATH
+        ? Promise.resolve(STALE_VERSIONS)
+        : realRead(path, options)) as typeof Deno.readTextFile
+  try {
+    assertEquals(await deps.refuseBelowFloor('mainnet', 'validator'), true)
+    assertEquals(Deno.exitCode, 1)
+    assertStringIncludes(
+      said.join('\n'),
+      'mainnet_validators.version_agave: 4.2.2 -> 4.3.2',
+    )
+
+    Deno.exitCode = 0
+    said.length = 0
+    assertEquals(
+      await deps.refuseVersionBelowFloor(
+        'mainnet',
+        'rpc',
+        '3.1.10',
+        'install:solana -v',
+      ),
+      true,
+    )
+    assertEquals(Deno.exitCode, 1)
+    assertStringIncludes(said.join('\n'), 'install:solana -v 3.1.10')
+
+    Deno.exitCode = 0
+    said.length = 0
+    assertEquals(
+      await deps.refuseVersionBelowFloor(
+        'mainnet',
+        'rpc',
+        '4.3.2',
+        'install:solana -v',
+      ),
+      false,
+    )
+    assertEquals([said, Deno.exitCode], [[], 0])
+  } finally {
+    patched.readTextFile = realRead
+    console.error = realError
+    Deno.exitCode = exitCode
+  }
 })
 
 Deno.test('slv v switch does not read the version floor: it installs nothing, and a failover is not held up by a stale pin', async () => {
@@ -605,8 +682,12 @@ Deno.test('slv v switch does not read the version floor: it installs nothing, an
   assert(start > 0, 'no switch command')
   const end = index.indexOf('registerDoubleZeroCommands(', start)
   const switchBlock = index.slice(start, end)
-  assertStringIncludes(switchBlock, 'switchValidator(')
+  assertStringIncludes(switchBlock, 'runSwitchCommand(')
   assertEquals(switchBlock.includes('Floor'), false)
+  const command = await read('src/validator/switch/switchCommand.ts')
+  assertStringIncludes(command, 'switchValidator')
+  assertEquals(command.includes('Floor'), false)
+  assertEquals(command.includes('versionFloor'), false)
   const switchModule = await read('src/validator/switch/switchValidator.ts')
   assertEquals(switchModule.includes('versionFloor'), false)
 })

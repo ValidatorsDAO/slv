@@ -5,6 +5,7 @@ import {
   findBelowFloorPins,
   type FloorDeps,
   isBelowFloor,
+  noticeBelowFloorPins,
   readClientVersion,
   refuseBelowFloorPins,
   refuseVersionBelowFloor,
@@ -177,6 +178,98 @@ Deno.test('a version typed on the command line is read the same way, and one wit
       assertEquals(rec.info.length, 1, `${network} ${version}`)
       assertStringIncludes(rec.info[0], `install:solana -v ${version}`)
     }
+  }
+})
+
+Deno.test('a pin set to nothing (version_agave:) is a pin that cannot be read: refused in a mainnet section and only warned about in the others', async () => {
+  for (
+    const [network, role, section] of [
+      ['mainnet', 'validator', 'mainnet_validators'],
+      ['mainnet', 'rpc', 'mainnet_rpcs'],
+    ] as const
+  ) {
+    const rec = recorder({ [section]: { version_agave: null } })
+    assertEquals(await refuseBelowFloorPins(network, role, rec.deps), true)
+    assertEquals(rec.exitCodes, [1], section)
+    assertStringIncludes(
+      rec.errors.join('\n'),
+      `${section}.version_agave: (empty) -> 4.3.2`,
+    )
+  }
+  for (
+    const [network, role, section] of [
+      ['testnet', 'validator', 'testnet_validators'],
+      ['testnet', 'rpc', 'testnet_rpcs'],
+      ['devnet', 'rpc', 'devnet_rpcs'],
+    ] as const
+  ) {
+    const rec = recorder({ [section]: { version_agave: null } })
+    assertEquals(await refuseBelowFloorPins(network, role, rec.deps), false)
+    assertEquals([rec.errors, rec.exitCodes], [[], []], section)
+    assertEquals(rec.info.length, 1, section)
+    assertStringIncludes(rec.info[0], `${section}.version_agave is (empty)`)
+  }
+  // A key that is not there is no pin at all.
+  const absent = recorder({
+    mainnet_validators: { version_jito: '4.3.2-jito' },
+  })
+  assertEquals(
+    await refuseBelowFloorPins('mainnet', 'validator', absent.deps),
+    false,
+  )
+  assertEquals([absent.errors, absent.info, absent.exitCodes], [[], [], []])
+})
+
+Deno.test('slv upgrade names the pins of a mainnet section that are no version and says the mainnet commands refuse them', async () => {
+  const rec = recorder({
+    mainnet_validators: {
+      version_agave: 'latest',
+      version_jito: null,
+      version_allnodes_jito: '4.3.2-allnodes',
+    },
+    testnet_validators: { version_agave: 'main' },
+  })
+  assertEquals(await noticeBelowFloorPins(rec.deps), [])
+  assertEquals(rec.info.length, 2)
+  assertStringIncludes(
+    rec.info[0],
+    'mainnet_validators.version_agave is latest in ~/.slv/versions.yml',
+  )
+  assertStringIncludes(rec.info[0], 'the mainnet commands refuse it')
+  assertStringIncludes(rec.info[0], 'Set it to 4.3.2.')
+  assertStringIncludes(
+    rec.info[1],
+    'mainnet_validators.version_jito is (empty)',
+  )
+  assertStringIncludes(rec.info[1], 'Set it to 4.3.2-jito.')
+  assertEquals([rec.errors, rec.exitCodes], [[], []])
+})
+
+Deno.test('the warning about a version with no X.Y after a flag says on mainnet that the playbook stops the run, and only there', async () => {
+  const warned = async (network: string): Promise<string> => {
+    const rec = recorder(null)
+    await refuseVersionBelowFloor(
+      network,
+      'rpc',
+      'latest',
+      'install:solana -v',
+      rec.deps,
+    )
+    return rec.info.join('\n')
+  }
+  const mainnet = await warned('mainnet')
+  assertStringIncludes(
+    mainnet,
+    'The playbook stops a mainnet run with a version it cannot read',
+  )
+  assertStringIncludes(
+    mainnet,
+    'use 4.3.0 or later, such as 4.3.2 for agave or 4.3.2-jito for jito',
+  )
+  for (const network of ['testnet', 'devnet']) {
+    const text = await warned(network)
+    assertStringIncludes(text, 'is not a version (X.Y.Z)')
+    assertEquals(text.includes('playbook'), false, network)
   }
 })
 
