@@ -1,4 +1,5 @@
 name: SLV verified release
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'source-build-validation' && format('SLV Linux source validation {0}', inputs.reviewed_sha) || 'SLV verified release' }}
 
 on:
   push:
@@ -13,7 +14,7 @@ on:
         required: true
         type: string
       operation:
-        description: Normal release flow, the explicitly reviewed legacy-bootstrap transition mode, or the bounded native diagnostic
+        description: Normal release flow, the explicitly reviewed legacy-bootstrap transition mode, or a bounded source validation
         required: false
         default: release
         type: choice
@@ -22,9 +23,10 @@ on:
           legacy-bootstrap-preflight,
           legacy-bootstrap-apply,
           source-native-diagnostic,
+          source-build-validation,
         ]
       reviewed_sha:
-        description: Exact reviewed commit for the bounded native diagnostic
+        description: Exact reviewed commit for a bounded source validation
         required: false
         type: string
       source_sha:
@@ -106,6 +108,7 @@ jobs:
       contents: read
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
+      linux_validation: ${{ steps.resolve.outputs.linux_validation }}
       release_required: ${{ steps.resolve.outputs.release_required }}
       version: ${{ steps.resolve.outputs.version }}
       tag: ${{ steps.resolve.outputs.tag }}
@@ -128,6 +131,11 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           GH_REPO: ValidatorsDAO/slv
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1538,7 +1546,7 @@ jobs:
       source-arm-build,
       source-arm-merge,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.source-native-linux-x64.result == 'success' && needs.source-arm-build.result == 'success' && needs.source-arm-merge.result == 'success' && ((needs.resolve.outputs.linux_validation == 'true' && needs.source-native-macos-x64.result == 'skipped' && needs.source-native-macos-arm64.result == 'skipped') || (needs.resolve.outputs.linux_validation != 'true' && needs.source-native-macos-x64.result == 'success' && needs.source-native-macos-arm64.result == 'success')) }}
     name: build-${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -1546,22 +1554,51 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-26.04
-            apple: false
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-26.04-arm
-            apple: false
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-            apple: true
-          - target: aarch64-apple-darwin
-            runner: macos-15
-            apple: true
+        include: ${{ fromJSON(needs.resolve.outputs.linux_validation == 'true' && '[{"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-26.04","apple":false},{"target":"aarch64-unknown-linux-gnu","runner":"ubuntu-26.04-arm","apple":false}]' || '[{"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-26.04","apple":false},{"target":"aarch64-unknown-linux-gnu","runner":"ubuntu-26.04-arm","apple":false},{"target":"x86_64-apple-darwin","runner":"macos-15-intel","apple":true},{"target":"aarch64-apple-darwin","runner":"macos-15","apple":true}]') }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
     steps:
+      - name: Require the exact native product prerequisites
+        timeout-minutes: 1
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          jq -e --slurp --argjson expected '["resolve","test","source-materials","source-native-linux-x64","source-native-macos-x64","source-native-macos-arm64","source-arm-build","source-arm-merge"]' \
+            'length == 1 and (.[0] | . as $needs | type == "object" and (keys == ($expected | sort)) and
+              all(to_entries[]; (.value | type == "object") and .value.result ==
+                (if (.key == "source-native-macos-x64" or .key == "source-native-macos-arm64") and $needs.resolve.outputs.linux_validation == "true" then "skipped" else "success" end)))' \
+            <<< "$NEEDS_JSON" > /dev/null
+      - name: Validate exact Linux validation artifact identities
+        if: needs.resolve.outputs.linux_validation == 'true'
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          TARGET: ${{ matrix.target }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          CURRENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          jq -e --arg target "$TARGET" --arg run "$CURRENT_RUN_ID" --arg attempt "$CURRENT_RUN_ATTEMPT" '
+            def positive: type == "string" and test("^[1-9][0-9]*$");
+            def hash: type == "string" and test("^[0-9a-f]{64}$");
+            def digest: type == "string" and (sub("^sha256:"; "") | hash);
+            def identity($prefix; $id; $digest_key):
+              (.[$id] | positive) and (.[$digest_key] | digest) and
+              (.[$prefix + "producer_run_id"] == $run) and
+              (.[$prefix + "producer_attempt"] | positive and (tonumber <= ($attempt | tonumber)));
+            ($run | positive) and ($attempt | positive) and
+            (.test.outputs | identity("license_"; "license_artifact_id"; "license_artifact_digest") and (.license_notice_sha256 | hash)) and
+            (."source-materials".outputs | identity(""; "artifact_id"; "artifact_digest") and (.receipt_sha256 | hash)) and
+            (."source-native-linux-x64".outputs | identity(""; "artifact_id"; "artifact_digest") and (.proof_sha256 | hash)) and
+            (."source-arm-merge".outputs | identity(""; "artifact_id"; "artifact_digest") and (.proof_sha256 | hash)) and
+            ((if $target == "x86_64-unknown-linux-gnu" then ."source-native-linux-x64".outputs
+              elif $target == "aarch64-unknown-linux-gnu" then ."source-arm-build".outputs
+              else error("unexpected Linux validation target") end) |
+              identity(""; "runtime_artifact_id"; "runtime_artifact_digest") and
+              (.build_receipt_sha256 | hash) and (.baseline_runtime_sha256 | hash) and (.baseline_derived_lock_sha256 | hash))
+          ' <<< "$NEEDS_JSON" > /dev/null
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.resolve.outputs.source_sha }}
@@ -1594,7 +1631,7 @@ jobs:
       - name: Download exact target proof records
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          artifact-ids: ${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-native-linux-x64.outputs.artifact_id }},${{ needs.source-native-macos-x64.outputs.artifact_id }},${{ needs.source-native-macos-arm64.outputs.artifact_id }},${{ needs.source-arm-merge.outputs.artifact_id }}
+          artifact-ids: ${{ needs.resolve.outputs.linux_validation == 'true' && format('{0},{1},{2}', needs.source-materials.outputs.artifact_id, needs.source-native-linux-x64.outputs.artifact_id, needs.source-arm-merge.outputs.artifact_id) || format('{0},{1},{2},{3},{4}', needs.source-materials.outputs.artifact_id, needs.source-native-linux-x64.outputs.artifact_id, needs.source-native-macos-x64.outputs.artifact_id, needs.source-native-macos-arm64.outputs.artifact_id, needs.source-arm-merge.outputs.artifact_id) }}
           merge-multiple: true
           path: dist/release-inputs
       - name: Download Linux x64 baseline runtime by exact artifact ID
@@ -1626,12 +1663,24 @@ jobs:
           merge-multiple: true
           path: dist/release-inputs/runtime-source/aarch64-apple-darwin
       - name: Compile and execute the source-bound native target
+        env:
+          LINUX_VALIDATION: ${{ needs.resolve.outputs.linux_validation }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
           deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
           test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
           deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
-          deno run --frozen --allow-read scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          if [ "$LINUX_VALIDATION" = true ]; then
+            sha256_file() { sha256sum "$1" | cut -d ' ' -f 1; }
+            expected_hash() { jq -er --arg job "$1" --arg field "$2" '.[$job].outputs[$field]' <<< "$NEEDS_JSON"; }
+            test "$(sha256_file dist/release-inputs/source-materials-receipt.json)" = "$(expected_hash source-materials receipt_sha256)"
+            test "$(sha256_file dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/native-proof.json)" = "$(expected_hash source-native-linux-x64 proof_sha256)"
+            test "$(sha256_file dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/native-proof.json)" = "$(expected_hash source-arm-merge proof_sha256)"
+            deno run --frozen --allow-read scripts/release/source-materials.ts verify-linux-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          else
+            deno run --frozen --allow-read scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
+          fi
           deno run --frozen --allow-read scripts/release/workflow.ts verify-baseline-runtime '${{ matrix.target }}' '${{ needs.resolve.outputs.source_sha }}' dist/release-inputs/source-materials-receipt.json "dist/release-inputs/source-proofs/${{ matrix.target }}/native-proof.json" "dist/release-inputs/runtime-source/${{ matrix.target }}" > runtime.env
           runtime_value() { sed -n "s/^$1=//p" runtime.env | head -n 1; }
           runtime_path="$(runtime_value runtime_path)"
@@ -1644,6 +1693,13 @@ jobs:
           native_proof_sha256="$(runtime_value native_proof_sha256)"
           build_receipt_sha256="$(runtime_value build_receipt_sha256)"
           for value in "$runtime_path" "$baseline_denort_sha256" "$bridge_path" "$baseline_bridge_sha256" "$source_selected_cargo_lock_sha256" "$derived_relink_cargo_lock_sha256" "$source_receipt_sha256" "$native_proof_sha256" "$build_receipt_sha256"; do test -n "$value"; done
+          if [ "$LINUX_VALIDATION" = true ]; then
+            runtime_producer=source-native-linux-x64
+            if [ '${{ matrix.target }}' = aarch64-unknown-linux-gnu ]; then runtime_producer=source-arm-build; fi
+            test "$build_receipt_sha256" = "$(expected_hash "$runtime_producer" build_receipt_sha256)"
+            test "$baseline_denort_sha256" = "$(expected_hash "$runtime_producer" baseline_runtime_sha256)"
+            test "$derived_relink_cargo_lock_sha256" = "$(expected_hash "$runtime_producer" baseline_derived_lock_sha256)"
+          fi
           test -f "$runtime_path"
           test -f "$bridge_path"
           if command -v sha256sum >/dev/null; then runtime_sha256="$(sha256sum "$runtime_path" | awk '{print $1}')"; else runtime_sha256="$(shasum -a 256 "$runtime_path" | awk '{print $1}')"; fi
@@ -1659,7 +1715,14 @@ jobs:
           deno check --frozen cli/src/index.ts
           mkdir -p dist "dist/release-inputs/product-runtime/${{ matrix.target }}"
           DENORT_BIN="$runtime_path" deno compile --frozen --cached-only -A --include cli/lib/release/engine.py --include dist/release-inputs/THIRD_PARTY_NOTICES --target '${{ matrix.target }}' --output 'dist/slv-${{ matrix.target }}-exe' cli/src/index.ts
-          'dist/slv-${{ matrix.target }}-exe' --version
+          if [ "$LINUX_VALIDATION" = true ]; then
+            source_version="$(deno run --frozen --allow-read scripts/release/release.ts source-version)"
+            printf 'slv %s\n' "$source_version" > 'dist/slv-${{ matrix.target }}-expected-version'
+            NO_COLOR=1 'dist/slv-${{ matrix.target }}-exe' --version > 'dist/slv-${{ matrix.target }}-version'
+            cmp 'dist/slv-${{ matrix.target }}-expected-version' 'dist/slv-${{ matrix.target }}-version'
+          else
+            'dist/slv-${{ matrix.target }}-exe' --version
+          fi
           private_home="$RUNNER_TEMP/slv-licenses-${{ matrix.target }}"
           mkdir -p "$private_home"
           env -i PATH="$PATH" HOME="$private_home" 'dist/slv-${{ matrix.target }}-exe' licenses > 'dist/slv-${{ matrix.target }}-licenses'
@@ -1682,6 +1745,9 @@ jobs:
           executable_sha256="$(if command -v sha256sum >/dev/null; then sha256sum 'dist/slv-${{ matrix.target }}-exe' | awk '{print $1}'; else shasum -a 256 'dist/slv-${{ matrix.target }}-exe' | awk '{print $1}'; fi)"
           executable_tar_sha256="$(if command -v sha256sum >/dev/null; then sha256sum 'dist/slv-${{ matrix.target }}-exe.tar.gz' | awk '{print $1}'; else shasum -a 256 'dist/slv-${{ matrix.target }}-exe.tar.gz' | awk '{print $1}'; fi)"
           jq -n --arg target '${{ matrix.target }}' --arg executable_sha256 "$executable_sha256" --arg executable_tar_sha256 "$executable_tar_sha256" --arg baseline_denort_sha256 "$baseline_denort_sha256" --arg source_selected_cargo_lock_sha256 "$source_selected_cargo_lock_sha256" --arg derived_relink_cargo_lock_sha256 "$derived_relink_cargo_lock_sha256" --arg source_receipt_sha256 "$source_receipt_sha256" --arg native_proof_sha256 "$native_proof_sha256" --arg build_receipt_sha256 "$build_receipt_sha256" '{schema_version: 1, kind: "slv-product-runtime-receipt", target: $target, executable_sha256: $executable_sha256, executable_tar_sha256: $executable_tar_sha256, baseline_denort_sha256: $baseline_denort_sha256, source_selected_cargo_lock_sha256: $source_selected_cargo_lock_sha256, derived_relink_cargo_lock_sha256: $derived_relink_cargo_lock_sha256, source_receipt_sha256: $source_receipt_sha256, native_proof_sha256: $native_proof_sha256, build_receipt_sha256: $build_receipt_sha256}' > "dist/release-inputs/product-runtime/${{ matrix.target }}/product-runtime-receipt.json"
+          if [ "$LINUX_VALIDATION" = true ]; then
+            deno run --frozen --allow-read --allow-run scripts/release/release.ts verify-linux-validation '${{ matrix.target }}' '${{ needs.resolve.outputs.source_sha }}'
+          fi
       - name: Persist the exact target archive and runtime receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -1694,7 +1760,7 @@ jobs:
 
   source-materials:
     needs: [resolve, test]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     permissions:
@@ -1772,8 +1838,8 @@ jobs:
   # artifact ID, archive digest, producer identity, and proof checksum.
   source-linux-x64-baseline:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
-    runs-on: ubuntu-26.04
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-linux-x64-baseline', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -1788,6 +1854,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
       TARGET: x86_64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: baseline
@@ -1858,7 +1925,13 @@ jobs:
           variant_out="dist/release-inputs/source-variants/$TARGET/$VARIANT"
           test ! -e "$variant_out"
           common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "$variant_out" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
-          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" --jobs 2 --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
+          build_args=(--jobs 2)
+          case "$LINUX_BUILD_PROFILE" in
+            linux-16) build_args=(--build-profile linux-16 --jobs 16) ;;
+            '') ;;
+            *) echo 'Unsupported Linux build profile' >&2; exit 64 ;;
+          esac
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" "${build_args[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
           cp "dist/release-inputs/tool-pins/$TARGET.json" "$variant_out/tool-pin.json"
           test "$(sha256_file "$variant_out/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$variant_out/variant-receipt.json")"
           test "$(sha256_file "$variant_out/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$variant_out/variant-receipt.json")"
@@ -1892,8 +1965,8 @@ jobs:
 
   source-linux-x64-modified:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
-    runs-on: ubuntu-26.04
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-linux-x64-modified', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -1908,6 +1981,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
       TARGET: x86_64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: modified
@@ -1978,7 +2052,13 @@ jobs:
           variant_out="dist/release-inputs/source-variants/$TARGET/$VARIANT"
           test ! -e "$variant_out"
           common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "$variant_out" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
-          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" --jobs 2 --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
+          build_args=(--jobs 2)
+          case "$LINUX_BUILD_PROFILE" in
+            linux-16) build_args=(--build-profile linux-16 --jobs 16) ;;
+            '') ;;
+            *) echo 'Unsupported Linux build profile' >&2; exit 64 ;;
+          esac
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" "${build_args[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
           cp "dist/release-inputs/tool-pins/$TARGET.json" "$variant_out/tool-pin.json"
           test "$(sha256_file "$variant_out/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$variant_out/variant-receipt.json")"
           test "$(sha256_file "$variant_out/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$variant_out/variant-receipt.json")"
@@ -2018,7 +2098,7 @@ jobs:
       source-linux-x64-baseline,
       source-linux-x64-modified,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -2249,8 +2329,8 @@ jobs:
   # below remain the required checks consumed by the release graph.
   source-arm-baseline:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
-    runs-on: ubuntu-26.04
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-arm-baseline', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -2265,6 +2345,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
       TARGET: aarch64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: baseline
@@ -2335,7 +2416,13 @@ jobs:
           variant_out="dist/release-inputs/source-variants/$TARGET/$VARIANT"
           test ! -e "$variant_out"
           common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "$variant_out" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
-          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" --jobs 4 --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
+          build_args=(--jobs 4)
+          case "$LINUX_BUILD_PROFILE" in
+            linux-16) build_args=(--build-profile linux-16 --jobs 16) ;;
+            '') ;;
+            *) echo 'Unsupported Linux build profile' >&2; exit 64 ;;
+          esac
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" "${build_args[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
           cp "dist/release-inputs/tool-pins/$TARGET.json" "$variant_out/tool-pin.json"
           test "$(sha256_file "$variant_out/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$variant_out/variant-receipt.json")"
           test "$(sha256_file "$variant_out/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$variant_out/variant-receipt.json")"
@@ -2369,8 +2456,8 @@ jobs:
 
   source-arm-modified:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
-    runs-on: ubuntu-26.04
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-arm-modified', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -2385,6 +2472,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
       TARGET: aarch64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: modified
@@ -2455,7 +2543,13 @@ jobs:
           variant_out="dist/release-inputs/source-variants/$TARGET/$VARIANT"
           test ! -e "$variant_out"
           common=(--target "$TARGET" --build-host "$BUILD_HOST" --out "$variant_out" --pins source-materials/pins.json --source-receipt dist/release-inputs/source-materials-receipt.json --slv-source dist/release-inputs/source-materials/slv-source.tar.gz --deno-source dist/release-inputs/source-materials/deno-source.tar.gz --cargo-vendor dist/release-inputs/source-materials/deno-cargo-vendor.tar.gz --notice-file dist/release-inputs/THIRD_PARTY_NOTICES)
-          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" --jobs 4 --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
+          build_args=(--jobs 4)
+          case "$LINUX_BUILD_PROFILE" in
+            linux-16) build_args=(--build-profile linux-16 --jobs 16) ;;
+            '') ;;
+            *) echo 'Unsupported Linux build profile' >&2; exit 64 ;;
+          esac
+          deno run --frozen --allow-read --allow-write --allow-run --allow-env source-rebuild/verify-native.ts --phase build-variant "${common[@]}" --variant "$VARIANT" "${build_args[@]}" --source-root "$RUNNER_TEMP/build-source-root" --work-dir "$RUNNER_TEMP/build-work" --tools-receipt "$RUNNER_TEMP/build-tools.json" --producer-context "$RUNNER_TEMP/producer-context.json" --evidence-out "$RUNNER_TEMP/source-logs/source-evidence-$VARIANT" 2>&1 | tee "$RUNNER_TEMP/source-logs/build-$VARIANT.log"
           cp "dist/release-inputs/tool-pins/$TARGET.json" "$variant_out/tool-pin.json"
           test "$(sha256_file "$variant_out/build-tools-receipt.json")" = "$(jq -er '.tools_receipt_sha256' "$variant_out/variant-receipt.json")"
           test "$(sha256_file "$variant_out/tool-pin.json")" = "$(jq -er '.tool_pin_sha256' "$variant_out/variant-receipt.json")"
@@ -3173,7 +3267,7 @@ jobs:
       source-arm-baseline,
       source-arm-modified,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -3385,7 +3479,7 @@ jobs:
 
   source-arm-execute:
     needs: [resolve, test, source-materials, source-arm-build]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 30
     permissions:
@@ -3483,7 +3577,7 @@ jobs:
       source-arm-build,
       source-arm-execute,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:

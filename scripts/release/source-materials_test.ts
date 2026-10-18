@@ -12,7 +12,9 @@ import {
   pruneDenoEphemeralCache,
   sha256,
   SOURCE_PROOF_TARGETS,
+  validateNativeBuildProfile,
   verifyInventory,
+  verifyLinuxSourceProofSet,
   verifyNativeSourceRebuildProof,
   verifyPinnedArchive,
   verifyReceiptFiles,
@@ -1167,8 +1169,17 @@ function testArtifacts() {
   }
 }
 
-Deno.test('four target proofs bind source bytes and reject a transported-artifact mismatch', async () => {
-  const root = await Deno.makeTempDir()
+async function checkSourceProofSet(linuxOnly: boolean): Promise<void> {
+  const targets = linuxOnly
+    ? SOURCE_PROOF_TARGETS.slice(0, 2)
+    : SOURCE_PROOF_TARGETS
+  const verifyProofs = linuxOnly
+    ? verifyLinuxSourceProofSet
+    : verifySourceProofSet
+  const action = linuxOnly
+    ? 'verify-linux-source-proofs'
+    : 'verify-source-proofs'
+  const root = await Deno.realPath(await Deno.makeTempDir())
   const commit = 'd'.repeat(40)
   const sha = 'e'.repeat(64)
   const sourceDirectory = `${root}/source-materials`
@@ -1284,7 +1295,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
     }
     await Deno.writeTextFile(receiptPath, JSON.stringify(receipt))
     const receiptHash = await sha256(receiptPath)
-    for (const target of SOURCE_PROOF_TARGETS) {
+    for (const target of targets) {
       const targetRoot = `${proofDirectory}/${target}`
       await Deno.mkdir(targetRoot, { recursive: true })
       const toolPin = `${toolPinsDirectory}/${target}.json`
@@ -1378,7 +1389,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
         }),
       )
     }
-    await verifySourceProofSet({
+    await verifyProofs({
       sourceReceiptPath: receiptPath,
       sourceDirectory,
       proofDirectory,
@@ -1401,7 +1412,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
           `--allow-read=${root}`,
           ...(denyReviewed ? [`--deny-read=${reviewedToolPinsPath}`] : []),
           new URL('./source-materials.ts', import.meta.url).pathname,
-          'verify-source-proofs',
+          action,
           receiptPath,
           sourceDirectory,
           proofDirectory,
@@ -1477,7 +1488,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
       ])
     const originalProof = JSON.parse(await Deno.readTextFile(proofPath))
     const verifyProofSet = () =>
-      verifySourceProofSet({
+      verifyProofs({
         sourceReceiptPath: receiptPath,
         sourceDirectory,
         proofDirectory,
@@ -1487,6 +1498,117 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
         canonicalNoticePath: noticePath,
         reviewedToolPinsPath,
       })
+    const options = {
+      sourceReceiptPath: receiptPath,
+      sourceDirectory,
+      proofDirectory,
+      sourceCommit: commit,
+      sourcePinsPath: pinsPath,
+      toolPinsDirectory,
+      canonicalNoticePath: noticePath,
+      reviewedToolPinsPath,
+    }
+    await assertRejects(
+      () =>
+        (linuxOnly ? verifySourceProofSet : verifyLinuxSourceProofSet)(options),
+      Error,
+      linuxOnly
+        ? 'exactly four target proofs'
+        : 'exactly two Linux target proofs',
+    )
+    const extraRoot = `${proofDirectory}/unexpected-target`
+    for (const kind of ['directory', 'file', 'symlink']) {
+      if (kind === 'directory') await Deno.mkdir(extraRoot)
+      else if (kind === 'file') await Deno.writeTextFile(extraRoot, 'extra')
+      else await Deno.symlink(targetProofRoot, extraRoot)
+      try {
+        await assertRejects(verifyProofSet, Error, 'source proof directory')
+      } finally {
+        await Deno.remove(extraRoot)
+      }
+    }
+    const missingTarget = `${proofDirectory}/${targets[1]}`
+    const savedTarget = `${root}/saved-proof`
+    await Deno.rename(missingTarget, savedTarget)
+    try {
+      await assertRejects(
+        verifyProofSet,
+        Error,
+        'source proof directory must contain exactly',
+      )
+    } finally {
+      await Deno.rename(savedTarget, missingTarget)
+    }
+    for (
+      const [field, expected] of [
+        ['source_receipt_sha256', 'native target proof is stale or mismatched'],
+        [
+          'source_selected_cargo_lock_sha256',
+          'selected Cargo.lock differs from source receipt',
+        ],
+      ]
+    ) {
+      const changed = structuredClone(originalProof)
+      changed[field] = '0'.repeat(64)
+      await Deno.writeTextFile(proofPath, JSON.stringify(changed))
+      try {
+        await assertRejects(verifyProofSet, Error, expected)
+      } finally {
+        await Deno.writeTextFile(proofPath, originalProofText)
+      }
+    }
+    for (const path of [buildPath, executionPath]) {
+      const original = await Deno.readTextFile(path)
+      await Deno.writeTextFile(path, original + '\n')
+      try {
+        await assertRejects(
+          verifyProofSet,
+          Error,
+          'phase receipt checksum differs',
+        )
+      } finally {
+        await Deno.writeTextFile(path, original)
+      }
+    }
+    const otherProofPath = `${proofDirectory}/${targets[1]}/native-proof.json`
+    const otherProofText = await Deno.readTextFile(otherProofPath)
+    const otherPatch = JSON.parse(otherProofText)
+    otherPatch.patch_sha256 = '1'.repeat(64)
+    await Deno.writeTextFile(otherProofPath, JSON.stringify(otherPatch))
+    try {
+      await assertRejects(verifyProofSet, Error, 'one sentinel patch identity')
+    } finally {
+      await Deno.writeTextFile(otherProofPath, otherProofText)
+    }
+    for (const omitBuildProfile of [false, true]) {
+      const build = JSON.parse(originalBuildText)
+      const execution = JSON.parse(originalExecutionText)
+      const proof = JSON.parse(originalProofText)
+      try {
+        build.jobs = proof.jobs = '16'
+        proof.build_profile = 'linux-16'
+        if (!omitBuildProfile) build.build_profile = 'linux-16'
+        await Deno.writeTextFile(buildPath, JSON.stringify(build))
+        execution.build_receipt_sha256 = await sha256(buildPath)
+        await Deno.writeTextFile(executionPath, JSON.stringify(execution))
+        proof.build_receipt_sha256 = await sha256(buildPath)
+        proof.execution_receipt_sha256 = await sha256(executionPath)
+        await Deno.writeTextFile(proofPath, JSON.stringify(proof))
+        if (omitBuildProfile) {
+          await assertRejects(
+            verifyProofSet,
+            Error,
+            'native build receipt does not bind',
+          )
+        } else await verifyProofSet()
+      } finally {
+        await Promise.all([
+          Deno.writeTextFile(buildPath, originalBuildText),
+          Deno.writeTextFile(executionPath, originalExecutionText),
+          Deno.writeTextFile(proofPath, originalProofText),
+        ])
+      }
+    }
     const rejectCoherentFingerprintMutation = async (
       mutate: (
         buildChecks: Record<string, unknown>,
@@ -1643,25 +1765,27 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
       }
     }
     await rejectBuildFingerprintCopyMutation()
-    const macProof = JSON.parse(
-      await Deno.readTextFile(
-        `${proofDirectory}/x86_64-apple-darwin/native-proof.json`,
-      ),
-    )
-    const extraMacTarget = structuredClone(macProof)
-    const extraRecord = structuredClone(
-      extraMacTarget.checks.baseline_build.cargo_fingerprints.records[0],
-    )
-    extraRecord.context = 'target-release'
-    extraRecord.path = 'baseline-target-release/stale.json'
-    extraMacTarget.checks.baseline_build.cargo_fingerprints.records.push(
-      extraRecord,
-    )
-    assertThrows(
-      () => verifyNativeSourceRebuildProof(extraMacTarget),
-      Error,
-      'Cargo fingerprint contexts differ',
-    )
+    if (!linuxOnly) {
+      const macProof = JSON.parse(
+        await Deno.readTextFile(
+          `${proofDirectory}/x86_64-apple-darwin/native-proof.json`,
+        ),
+      )
+      const extraMacTarget = structuredClone(macProof)
+      const extraRecord = structuredClone(
+        extraMacTarget.checks.baseline_build.cargo_fingerprints.records[0],
+      )
+      extraRecord.context = 'target-release'
+      extraRecord.path = 'baseline-target-release/stale.json'
+      extraMacTarget.checks.baseline_build.cargo_fingerprints.records.push(
+        extraRecord,
+      )
+      assertThrows(
+        () => verifyNativeSourceRebuildProof(extraMacTarget),
+        Error,
+        'Cargo fingerprint contexts differ',
+      )
+    }
     const badProbe = structuredClone(originalProof)
     badProbe.checks.modified_probe.sentinel.output = 0.499
     assertThrows(
@@ -1676,6 +1800,27 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
       Error,
       'baseline build Linux runtime ABI exceeds GLIBC 2.27',
     )
+    const linux16 = {
+      ...structuredClone(originalProof),
+      jobs: '16',
+      build_profile: 'linux-16',
+    }
+    verifyNativeSourceRebuildProof(linux16)
+    for (
+      const bad of [
+        { ...linux16, build_profile: undefined },
+        { ...linux16, build_profile: 'linux-32' },
+        { ...linux16, jobs: '4' },
+        { ...linux16, build_host: { os: 'linux', arch: 'arm64' } },
+        { ...linux16, target: 'x86_64-apple-darwin' },
+      ]
+    ) {
+      assertThrows(
+        () => verifyNativeSourceRebuildProof(bad),
+        Error,
+        'build profile',
+      )
+    }
     const invalidJobs = structuredClone(originalProof)
     invalidJobs.jobs = '17'
     assertThrows(
@@ -1688,7 +1833,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
     await Deno.writeTextFile(proofPath, JSON.stringify(badLicense))
     await assertRejects(
       () =>
-        verifySourceProofSet({
+        verifyProofs({
           sourceReceiptPath: receiptPath,
           sourceDirectory,
           proofDirectory,
@@ -1707,7 +1852,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
     await Deno.writeTextFile(proofPath, JSON.stringify(phaseJobsMismatch))
     await assertRejects(
       () =>
-        verifySourceProofSet({
+        verifyProofs({
           sourceReceiptPath: receiptPath,
           sourceDirectory,
           proofDirectory,
@@ -1726,7 +1871,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
     await Deno.writeTextFile(descriptorPath, 'altered descriptor\n')
     await assertRejects(
       () =>
-        verifySourceProofSet({
+        verifyProofs({
           sourceReceiptPath: receiptPath,
           sourceDirectory,
           proofDirectory,
@@ -1747,7 +1892,7 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
     await Deno.writeTextFile(proofPath, JSON.stringify(altered))
     await assertRejects(
       () =>
-        verifySourceProofSet({
+        verifyProofs({
           sourceReceiptPath: receiptPath,
           sourceDirectory,
           proofDirectory,
@@ -1763,4 +1908,45 @@ Deno.test('four target proofs bind source bytes and reject a transported-artifac
   } finally {
     await Deno.remove(root, { recursive: true })
   }
+}
+
+Deno.test('four target proofs bind source bytes and reject a transported-artifact mismatch', () =>
+  checkSourceProofSet(false))
+Deno.test('two Linux proofs retain every source binding and reject partial or release proof sets', () =>
+  checkSourceProofSet(true))
+
+Deno.test({
+  name: 'linux-16 profile contract needs no runtime permissions',
+  permissions: 'none',
+  fn() {
+    for (
+      const target of ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu']
+    ) {
+      validateNativeBuildProfile('linux-16', '16', target, {
+        os: 'linux',
+        arch: 'x64',
+      })
+    }
+    for (
+      const [profile, jobs, target, os, arch] of [
+        [undefined, '16', 'x86_64-unknown-linux-gnu', 'linux', 'x64'],
+        ['linux-16', '4', 'x86_64-unknown-linux-gnu', 'linux', 'x64'],
+        ['linux-16', '16', 'aarch64-unknown-linux-gnu', 'linux', 'arm64'],
+        ['linux-16', '16', 'x86_64-apple-darwin', 'darwin', 'x64'],
+        ['invalid', '16', 'x86_64-unknown-linux-gnu', 'linux', 'x64'],
+      ] as const
+    ) {
+      assertThrows(() =>
+        validateNativeBuildProfile(profile, jobs, target, { os, arch })
+      )
+    }
+    validateNativeBuildProfile(undefined, '2', 'x86_64-unknown-linux-gnu', {
+      os: 'linux',
+      arch: 'x64',
+    })
+    validateNativeBuildProfile(undefined, '4', 'x86_64-apple-darwin', {
+      os: 'darwin',
+      arch: 'x64',
+    })
+  },
 })

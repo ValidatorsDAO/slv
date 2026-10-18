@@ -1805,6 +1805,49 @@ Deno.test('split native CLI requires explicit role, target-fixed jobs, context, 
     'producer.json',
   ]
   for (
+    const target of ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu']
+  ) {
+    const parsed = parseNativeArgs([
+      ...producer(target, '16'),
+      '--build-profile',
+      'linux-16',
+    ])
+    requireFixture(parsed['--jobs'] === '16', 'linux-16 jobs were dropped')
+  }
+  for (
+    const args of [
+      [...producer('x86_64-apple-darwin', '16'), '--build-profile', 'linux-16'],
+      [
+        ...producer('x86_64-unknown-linux-gnu', '2'),
+        '--build-profile',
+        'linux-16',
+      ],
+      [
+        ...producer('x86_64-unknown-linux-gnu', '16'),
+        '--build-profile',
+        'unknown',
+      ],
+      producer('x86_64-unknown-linux-gnu', '16'),
+      [
+        ...producer('aarch64-unknown-linux-gnu', '16').map((value) =>
+          value === 'x86_64-unknown-linux-gnu'
+            ? 'aarch64-unknown-linux-gnu'
+            : value
+        ),
+        '--build-profile',
+        'linux-16',
+      ],
+    ]
+  ) {
+    let rejected = false
+    try {
+      parseNativeArgs(args)
+    } catch {
+      rejected = true
+    }
+    requireFixture(rejected, 'invalid build profile was accepted')
+  }
+  for (
     const [target, jobs] of [
       ['x86_64-unknown-linux-gnu', '2'],
       ['aarch64-unknown-linux-gnu', '4'],
@@ -2157,7 +2200,13 @@ async function archiveFixtureRoot(
   const result = await new Deno.Command('/usr/bin/tar', {
     args: ['-C', stage, '-czf', archive, root],
     clearEnv: true,
-    env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
+    env: {
+      PATH: '/usr/bin:/bin',
+      LANG: 'C',
+      LC_ALL: 'C',
+      TZ: 'UTC',
+      COPYFILE_DISABLE: '1',
+    },
     stdout: 'piped',
     stderr: 'piped',
   }).output()
@@ -3546,6 +3595,30 @@ Deno.test('merge emitter carries bounded build jobs through the unchanged releas
     throw new Error('merge emitter dropped the build receipt jobs value')
   }
   verifyNativeSourceRebuildProof(proof)
+  const profiled = structuredClone(build)
+  profiled.value.jobs = '16'
+  profiled.value.build_host = { os: 'linux', arch: 'x64' }
+  Object.assign(profiled.value, { build_profile: 'linux-16' })
+  const profiledProof = emitNativeTargetProof(
+    'x86_64-unknown-linux-gnu',
+    {
+      sourceCommit: 'f'.repeat(40),
+      sourceReceiptSha256: hash('7'),
+      sourceAssets: [
+        { name: 'slv-source.tar.gz', sha256: hash('8'), size: 1 },
+        { name: 'deno-source.tar.gz', sha256: hash('9'), size: 1 },
+        { name: 'deno-cargo-vendor.tar.gz', sha256: hash('a'), size: 1 },
+      ],
+      sourcePinSha256: hash('b'),
+    },
+    profiled,
+    execution,
+    hash('c'),
+  )
+  requireFixture(
+    profiledProof.build_profile === 'linux-16' && profiledProof.jobs === '16',
+    'emitter dropped linux-16 profile',
+  )
   build.value.jobs = '17'
   let rejected = false
   try {
@@ -6668,6 +6741,82 @@ print(json.dumps({'phase': phase, 'missing_hash': missing_hash, 'reverse_time': 
         value.memory.swap.fields?.free?.available === true,
       'malformed swap field aborted observation or discarded valid fields',
     )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('linux-16 joins retain profile and reject mixed or missing declarations', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'slv-linux-profile-' })
+  try {
+    for (
+      const target of ['x86_64-unknown-linux-gnu'] as const
+    ) {
+      for (const scenario of ['valid', 'mixed', 'missing', 'malformed']) {
+        const fixture = await createNativeJoinFixture(
+          `${root}/${target}-${scenario}`,
+          target,
+        )
+        for (const variant of ['baseline', 'modified'] as const) {
+          await rewriteFixtureRole(fixture, variant, (receipt) => {
+            if (variant === 'modified' && scenario === 'mixed') return
+            receipt.jobs = '16'
+            if (variant === 'modified' && scenario === 'missing') return
+            receipt.build_profile = scenario === 'malformed'
+              ? 'linux-32'
+              : 'linux-16'
+          })
+        }
+        if (scenario !== 'valid') {
+          await expectJoinFixtureRejection(fixture)
+          continue
+        }
+        await verifyNative(fixture.args)
+        const build = JSON.parse(
+          await Deno.readTextFile(`${fixture.out}/build-receipt.json`),
+        )
+        requireFixture(
+          build.jobs === '16' && build.build_profile === 'linux-16',
+          'join dropped profile',
+        )
+        const sourceReceipt = JSON.parse(
+          await Deno.readTextFile(fixture.sourceReceipt),
+        )
+        const manifest = JSON.parse(
+          await Deno.readTextFile(`${fixture.out}/transport/manifest.json`),
+        )
+        const inputs = {
+          assembly: sourceReceipt,
+          assemblyReceiptSha256: await fixtureFileSha256(fixture.sourceReceipt),
+          pinsSha256: await fixtureFileSha256(fixture.pins),
+          noticeSha256: await fixtureFileSha256(fixture.notice),
+          sourceAssets: sourceReceipt.assets.map((
+            { name, sha256, size }: Record<string, unknown>,
+          ) => ({ name, sha256, size })),
+        }
+        await verifySplitBuildEvidence(
+          build.split_build,
+          build,
+          inputs as never,
+          target,
+          build.artifacts,
+          manifest.entries,
+        )
+        delete build.build_profile
+        await expectLayoutRejection(
+          () =>
+            verifySplitBuildEvidence(
+              build.split_build,
+              build,
+              inputs as never,
+              target,
+              build.artifacts,
+              manifest.entries,
+            ),
+          'fixed jobs',
+        )
+      }
+    }
   } finally {
     await Deno.remove(root, { recursive: true })
   }

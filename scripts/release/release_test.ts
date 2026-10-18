@@ -22,11 +22,13 @@ import {
   prepareLicenses,
   readTar,
   requireLicenses,
+  reviewedSourceVersion,
   sbomFromLock,
   SOURCE_ASSET_MAX_BYTES,
   SOURCE_ASSETS,
   thirdPartyNotices,
   verifyLicenses,
+  verifyLinuxValidation,
 } from './release.ts'
 import { CANONICAL_NOTICE_NAME } from './source-materials.ts'
 import { canonicalTargetDescriptorBytes } from '../../source-rebuild/prepare-tools.ts'
@@ -910,6 +912,38 @@ async function fixture(): Promise<string> {
   return root
 }
 
+const LINUX_VALIDATION_TARGETS = PROOF_TARGETS.slice(0, 2)
+
+async function linuxValidationFixture(
+  target = LINUX_VALIDATION_TARGETS[0],
+): Promise<string> {
+  const root = await Deno.realPath(await fixture())
+  await Deno.mkdir(`${root}/cli`, { recursive: true })
+  await Deno.mkdir(`${root}/cmn/constants`, { recursive: true })
+  await Deno.writeTextFile(
+    `${root}/cli/deno.json`,
+    JSON.stringify({ version: VERSION }),
+  )
+  await Deno.writeTextFile(
+    `${root}/cmn/constants/version.ts`,
+    `export const VERSION = '${VERSION}'\n`,
+  )
+  for (const other of PROOF_TARGETS) {
+    if (other.includes('apple')) {
+      await Deno.remove(`${root}/dist/release-inputs/source-proofs/${other}`, {
+        recursive: true,
+      })
+    }
+    if (other !== target) {
+      await Deno.remove(
+        `${root}/dist/release-inputs/product-runtime/${other}`,
+        { recursive: true },
+      )
+    }
+  }
+  return root
+}
+
 Deno.test('CalVer and manifest enforce the exact 21-payload release contract', () => {
   assertVersion(VERSION)
   assertThrows(() => assertVersion('2026.2.30.2026'))
@@ -1180,8 +1214,12 @@ Deno.test('CI packages use the identical payload inventory but cannot pass a pro
   }
 })
 
-Deno.test('pack rejects source material with a mismatched identity, proof, or bytes', async () => {
-  const root = await fixture()
+async function checkProductTampering(linuxOnly: boolean): Promise<void> {
+  const root = await (linuxOnly ? linuxValidationFixture() : fixture())
+  const verify = () =>
+    linuxOnly
+      ? verifyLinuxValidation([LINUX_VALIDATION_TARGETS[0], SHA], { root })
+      : pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root })
   const receiptPath =
     `${root}/dist/release-inputs/source-materials-receipt.json`
   try {
@@ -1192,7 +1230,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
     wrongIdentity.source.commit = 'b'.repeat(40)
     await Deno.writeTextFile(receiptPath, JSON.stringify(wrongIdentity))
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'source receipt commit differs',
     )
@@ -1201,7 +1239,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
     delete missingProof.rebuild_proof
     await Deno.writeTextFile(receiptPath, JSON.stringify(missingProof))
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'invalid rebuild proof binding',
     )
@@ -1214,7 +1252,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
     staleProof.source_commit = 'b'.repeat(40)
     await Deno.writeTextFile(proofPath, JSON.stringify(staleProof))
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'native target proof is stale or mismatched',
     )
@@ -1231,7 +1269,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
       JSON.stringify(changedProductReceipt),
     )
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'product runtime receipt differs',
     )
@@ -1251,7 +1289,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
       JSON.stringify(failedCompatibility),
     )
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'invalid Linux compatibility receipt identity',
     )
@@ -1261,7 +1299,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
     const originalBridge = await Deno.readTextFile(bridgePath)
     await Deno.writeTextFile(bridgePath, 'altered bridge bytes\n')
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'Linux compatibility bridge bytes differ',
     )
@@ -1284,7 +1322,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
       JSON.stringify(excessiveGlibcReceipt),
     )
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'Linux compatibility runtime requires GLIBC above 2.27',
     )
@@ -1305,7 +1343,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
       JSON.stringify(absoluteHelperPath),
     )
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'Linux compatibility runtime ELF version is not relative to its evidence directory',
     )
@@ -1325,7 +1363,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
       JSON.stringify(unexpectedCommand),
     )
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'Linux compatibility runtime ELF version has an unexpected readelf command',
     )
@@ -1334,7 +1372,7 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
     const unexpectedEvidence = `${linuxDirectory}/unexpected-evidence`
     await Deno.writeTextFile(unexpectedEvidence, 'not admitted')
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'product runtime target has an unexpected evidence set',
     )
@@ -1344,14 +1382,19 @@ Deno.test('pack rejects source material with a mismatched identity, proof, or by
       'changed source material',
     )
     await assertRejects(
-      () => pack([VERSION, SHA, 'refs/heads/main', '55', '2', WHEN], { root }),
+      verify,
       Error,
       'source archive bytes differ from receipt',
     )
   } finally {
     await Deno.remove(root, { recursive: true })
   }
-})
+}
+
+Deno.test('pack rejects source material with a mismatched identity, proof, or bytes', () =>
+  checkProductTampering(false))
+Deno.test('Linux validation retains integrated source, product, bridge and ELF tamper controls', () =>
+  checkProductTampering(true))
 
 Deno.test('canonical notices bind a producer and are copied unchanged into template and skills', async () => {
   const root = await fixture()
@@ -1593,6 +1636,316 @@ Deno.test('archive validation rejects links through its binary tar parser', asyn
       Error,
       'forbidden tar entry type',
     )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('Linux validation accepts each isolated row through read-only CLI and never admits a partial release', async () => {
+  for (const target of LINUX_VALIDATION_TARGETS) {
+    const root = await linuxValidationFixture(target)
+    try {
+      assertEquals(await reviewedSourceVersion(root), VERSION)
+      await verifyLinuxValidation([target, SHA], { root })
+      const cli = async (args: string[], denyRead?: string) => {
+        const output = await new Deno.Command(Deno.execPath(), {
+          cwd: root,
+          args: [
+            'run',
+            '--cached-only',
+            '--frozen',
+            '--no-prompt',
+            '--config',
+            new URL('../../deno.json', import.meta.url).pathname,
+            `--allow-read=${root}`,
+            ...(denyRead ? [`--deny-read=${denyRead}`] : []),
+            new URL('./release.ts', import.meta.url).pathname,
+            ...args,
+          ],
+          stdout: 'piped',
+          stderr: 'piped',
+        }).output()
+        return { ...output, error: new TextDecoder().decode(output.stderr) }
+      }
+      const version = await cli(['source-version'])
+      assert(version.success, version.error)
+      assertEquals(new TextDecoder().decode(version.stdout), `${VERSION}\n`)
+      const accepted = await cli(['verify-linux-validation', target, SHA])
+      assert(accepted.success, accepted.error)
+      const denied = await cli(
+        ['verify-linux-validation', target, SHA],
+        `${root}/dist/release-inputs/source-proofs/${target}/native-proof.json`,
+      )
+      assert(!denied.success)
+      assert(denied.error.includes('Requires read access'), denied.error)
+      for (
+        const args of [
+          ['x86_64-apple-darwin', SHA],
+          [target, SHA, 'aarch64-unknown-linux-gnu'],
+          [target, 'invalid'],
+        ]
+      ) {
+        await assertRejects(
+          () => verifyLinuxValidation(args, { root }),
+          Error,
+          'usage:',
+        )
+      }
+      for (
+        const [build, ref] of [
+          [pack, 'refs/heads/main'],
+          [packCi, 'refs/pull/7/merge'],
+        ] as const
+      ) {
+        await assertRejects(
+          () => build([VERSION, SHA, ref, '55', '2', WHEN], { root }),
+          Error,
+          'exactly four target proofs',
+        )
+      }
+      await Deno.writeTextFile(
+        `${root}/cli/deno.json`,
+        JSON.stringify({ version: '2026.1.1.0001' }),
+      )
+      await assertRejects(
+        () => reviewedSourceVersion(root),
+        Error,
+        'version differs',
+      )
+      await assertRejects(
+        () => verifyLinuxValidation([target, SHA], { root }),
+        Error,
+        'version differs',
+      )
+    } finally {
+      await Deno.remove(root, { recursive: true })
+    }
+  }
+})
+
+Deno.test('Linux validation rejects extra, missing and symlinked product rows and evidence', async () => {
+  const target = LINUX_VALIDATION_TARGETS[0]
+  const root = await linuxValidationFixture(target)
+  const base = `${root}/dist/release-inputs/product-runtime`
+  const selected = `${base}/${target}`
+  const verify = () => verifyLinuxValidation([target, SHA], { root })
+  try {
+    for (
+      const other of [
+        'aarch64-unknown-linux-gnu',
+        'x86_64-apple-darwin',
+        'unexpected',
+      ]
+    ) {
+      await Deno.mkdir(`${base}/${other}`)
+      try {
+        await assertRejects(
+          verify,
+          Error,
+          'exactly the selected product runtime directory',
+        )
+      } finally {
+        await Deno.remove(`${base}/${other}`)
+      }
+    }
+    const saved = `${root}/saved-product`
+    await Deno.rename(selected, saved)
+    try {
+      await assertRejects(
+        verify,
+        Error,
+        'exactly the selected product runtime directory',
+      )
+      await Deno.symlink(saved, selected)
+      try {
+        await assertRejects(
+          verify,
+          Error,
+          'exactly the selected product runtime directory',
+        )
+      } finally {
+        await Deno.remove(selected)
+      }
+    } finally {
+      await Deno.rename(saved, selected)
+    }
+    const receipt = `${selected}/product-runtime-receipt.json`
+    const savedReceipt = `${root}/saved-receipt.json`
+    await Deno.rename(receipt, savedReceipt)
+    try {
+      await assertRejects(verify, Error, 'unexpected evidence set')
+      await Deno.mkdir(receipt)
+      try {
+        await assertRejects(verify, Error, 'not a regular file')
+      } finally {
+        await Deno.remove(receipt)
+      }
+      await Deno.symlink(savedReceipt, receipt)
+      try {
+        await assertRejects(verify, Error, 'contains a symlink')
+      } finally {
+        await Deno.remove(receipt)
+      }
+    } finally {
+      await Deno.rename(savedReceipt, receipt)
+    }
+    // Even the other architecture's native proof is mandatory and current.
+    const otherProof = `${root}/dist/release-inputs/source-proofs/${
+      LINUX_VALIDATION_TARGETS[1]
+    }/native-proof.json`
+    const original = await Deno.readTextFile(otherProof)
+    const stale = JSON.parse(original)
+    stale.source_commit = 'b'.repeat(40)
+    await Deno.writeTextFile(otherProof, JSON.stringify(stale))
+    await assertRejects(
+      verify,
+      Error,
+      'native target proof is stale or mismatched',
+    )
+    await Deno.writeTextFile(otherProof, original)
+    await verify()
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('Linux validation binds every product identity and strictly checks rehashed archives', async () => {
+  const target = LINUX_VALIDATION_TARGETS[0]
+  const root = await linuxValidationFixture(target)
+  const receiptPath =
+    `${root}/dist/release-inputs/product-runtime/${target}/product-runtime-receipt.json`
+  const archivePath = `${root}/dist/slv-${target}-exe.tar.gz`
+  const verify = () => verifyLinuxValidation([target, SHA], { root })
+  try {
+    const original = await Deno.readTextFile(receiptPath)
+    for (
+      const field of [
+        'target',
+        'executable_sha256',
+        'executable_tar_sha256',
+        'baseline_denort_sha256',
+        'source_selected_cargo_lock_sha256',
+        'derived_relink_cargo_lock_sha256',
+        'source_receipt_sha256',
+        'native_proof_sha256',
+        'build_receipt_sha256',
+      ]
+    ) {
+      const receipt = JSON.parse(original)
+      receipt[field] = field === 'target'
+        ? LINUX_VALIDATION_TARGETS[1]
+        : '0'.repeat(64)
+      await Deno.writeTextFile(receiptPath, JSON.stringify(receipt))
+      await assertRejects(verify, Error, 'product runtime receipt differs')
+    }
+    await Deno.writeTextFile(receiptPath, original)
+    const originalArchive = await Deno.readFile(archivePath)
+    await Deno.writeTextFile(archivePath, 'changed archive bytes')
+    await assertRejects(verify, Error, 'product runtime receipt differs')
+    const executableName = `slv-${target}-exe`
+    const binary = `${root}/${executableName}`
+    await Deno.writeTextFile(binary, 'different executable bytes')
+    await packExecutable(binary, archivePath, executableName)
+    const receipt = JSON.parse(original)
+    receipt.executable_tar_sha256 = await hashFile(archivePath)
+    await Deno.writeTextFile(receiptPath, JSON.stringify(receipt))
+    await assertRejects(verify, Error, 'product runtime receipt differs')
+    await Deno.writeTextFile(`${root}/extra`, 'extra archive member')
+    await run(
+      'tar',
+      [
+        '--format=ustar',
+        '-C',
+        root,
+        '-czf',
+        archivePath,
+        executableName,
+        'extra',
+      ],
+      root,
+    )
+    receipt.executable_tar_sha256 = await hashFile(archivePath)
+    await Deno.writeTextFile(receiptPath, JSON.stringify(receipt))
+    await assertRejects(verify, Error, 'entry outside')
+    await Deno.remove(binary)
+    await Deno.symlink('extra', binary)
+    await run('tar', [
+      '--format=ustar',
+      '-C',
+      root,
+      '-czf',
+      archivePath,
+      executableName,
+    ], root)
+    receipt.executable_tar_sha256 = await hashFile(archivePath)
+    await Deno.writeTextFile(receiptPath, JSON.stringify(receipt))
+    await assertRejects(verify, Error, 'forbidden tar entry type')
+    await Deno.writeFile(archivePath, originalArchive)
+    await Deno.writeTextFile(receiptPath, original)
+    await verify()
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('Linux validation checks pinned sysroots, license bytes and native runtime smoke evidence', async () => {
+  const target = LINUX_VALIDATION_TARGETS[0]
+  const root = await linuxValidationFixture(target)
+  const base = `${root}/dist/release-inputs/product-runtime/${target}`
+  const path = `${base}/linux-compatibility-receipt.json`
+  const verify = () => verifyLinuxValidation([target, SHA], { root })
+  try {
+    const original = await Deno.readTextFile(path)
+    for (
+      const field of ['deno_sysroot_archive_sha256', 'deno_sysroot_env_sha256']
+    ) {
+      const receipt = JSON.parse(original)
+      receipt.toolchain[field] = '0'.repeat(64)
+      await Deno.writeTextFile(path, JSON.stringify(receipt))
+      await assertRejects(verify, Error, 'differs from target evidence')
+    }
+    const wrongLibraries = JSON.parse(original)
+    wrongLibraries.toolchain.library_path = '/lib:/usr/lib'
+    await Deno.writeTextFile(path, JSON.stringify(wrongLibraries))
+    await assertRejects(verify, Error, 'invalid pinned sysroot')
+    const licenses = JSON.parse(original)
+    const licensePath = `${base}/linux-compatibility/licenses.log`
+    const licenseBytes = await Deno.readFile(licensePath)
+    await Deno.writeTextFile(licensePath, 'different license bytes\n')
+    licenses.checks.older_loader_licenses.log_sha256 = await hashFile(
+      licensePath,
+    )
+    await Deno.writeTextFile(path, JSON.stringify(licenses))
+    await assertRejects(
+      verify,
+      Error,
+      'licenses bytes differ from canonical notice',
+    )
+    await Deno.writeFile(licensePath, licenseBytes)
+    for (const phase of ['compile', 'execute']) {
+      const receipt = JSON.parse(original)
+      receipt.checks.source_built_runtime_crypto_subprocess_loopback_tls[phase]
+        .command = ['/bin/true']
+      await Deno.writeTextFile(path, JSON.stringify(receipt))
+      await assertRejects(
+        verify,
+        Error,
+        phase === 'compile'
+          ? 'unexpected compile command'
+          : 'unexpected loader command',
+      )
+    }
+    await Deno.writeTextFile(path, original)
+    const smokeLog = `${base}/linux-compatibility/smoke-execute.log`
+    const smokeBytes = await Deno.readFile(smokeLog)
+    await Deno.writeTextFile(smokeLog, 'tampered smoke output\n')
+    await assertRejects(
+      verify,
+      Error,
+      'runtime smoke execute log checksum differs',
+    )
+    await Deno.writeFile(smokeLog, smokeBytes)
+    await verify()
   } finally {
     await Deno.remove(root, { recursive: true })
   }

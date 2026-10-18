@@ -2,6 +2,7 @@
  * Network mutation remains in the workflow; this module makes its decisions
  * testable without a GitHub credential. */
 import { type Asset, hashFile, manifest, payloadSpecs } from './release.ts'
+import { validateNativeBuildProfile } from './source-materials.ts'
 
 const SHA = /^[a-f0-9]{40}$/
 const SHA256 = /^[a-f0-9]{64}$/
@@ -15,11 +16,17 @@ const PRODUCT_TARGETS = new Set([
 const SELECTED_CARGO_LOCK_SHA256 =
   '09afc50a2481cea2e77e0d27eff26db844362067bfbc51357f3927d49cbf815d'
 export type ReleaseState = 'absent' | 'draft' | 'immutable'
-export type ReleaseMode = 'ci' | 'main-release' | 'tag-release' | 'tag-recovery'
+export type ReleaseMode =
+  | 'ci'
+  | 'main-release'
+  | 'tag-release'
+  | 'tag-recovery'
+  | 'source-build-validation'
 export type Publication = 'none' | 'initial' | 'recover' | 'verify'
 export type Resolution = {
   mode: ReleaseMode
   release_required: boolean
+  linux_validation: boolean
   version: string
   tag: string
   source_sha: string
@@ -159,6 +166,25 @@ export async function verifyBaselineRuntime(
       'runtime transport manifest',
     ),
   ])
+  if (
+    buildReceipt.build_profile !== undefined ||
+    proof.build_profile !== undefined ||
+    buildReceipt.jobs === '16' || proof.jobs === '16'
+  ) {
+    for (const receipt of [buildReceipt, proof]) {
+      const host = record(receipt.build_host, 'profiled build host')
+      validateNativeBuildProfile(receipt.build_profile, receipt.jobs, target, {
+        os: String(host.os),
+        arch: String(host.arch),
+      })
+    }
+    if (
+      buildReceipt.build_profile !== proof.build_profile ||
+      buildReceipt.jobs !== proof.jobs
+    ) {
+      fail('baseline runtime proof does not bind its build profile and jobs')
+    }
+  }
   const sourceReceiptSha256 = await regularHash(
     sourceReceiptPath,
     'source materials receipt',
@@ -413,6 +439,42 @@ export async function resolveRelease(
   const before = runtime.env('BEFORE') ?? ''
   const after = runtime.env('AFTER') ?? ''
   const inputVersion = runtime.env('INPUT_VERSION') ?? ''
+  const operation = runtime.env('INPUT_OPERATION') ?? ''
+  if (operation === 'source-build-validation') {
+    const reviewed = runtime.env('INPUT_REVIEWED_SHA') ?? ''
+    const validationRef = 'refs/heads/codex/slv-linux-ephemeral-release'
+    if (
+      event !== 'workflow_dispatch' ||
+      runtime.env('GITHUB_REPOSITORY') !== 'ValidatorsDAO/slv' ||
+      ref !== validationRef || !SHA.test(reviewed) || githubSha !== reviewed ||
+      runtime.env('GITHUB_WORKFLOW_SHA') !== reviewed ||
+      runtime.env('GITHUB_WORKFLOW_REF') !==
+        `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${validationRef}`
+    ) {
+      fail(
+        'source-build-validation requires the exact reviewed workflow dispatch and full SHA',
+      )
+    }
+    if (await must(runtime, 'git', ['rev-parse', 'HEAD']) !== reviewed) {
+      fail(
+        'source-build-validation reviewed SHA must equal the checked-out source',
+      )
+    }
+    return {
+      mode: 'source-build-validation',
+      linux_validation: true,
+      release_required: false,
+      publication: 'none',
+      version: '',
+      tag: '',
+      source_sha: reviewed,
+      source_ref: ref,
+      source_timestamp: await timestampAt(runtime, reviewed),
+    }
+  }
+  if (operation !== '' && operation !== 'release') {
+    fail('unsupported workflow operation')
+  }
   if (event === 'push' && ref === 'refs/heads/main') {
     if (!SHA.test(before) || !SHA.test(after) || githubSha !== after) {
       fail('main push requires matching usable before, after, and GITHUB_SHA')
@@ -423,6 +485,7 @@ export async function resolveRelease(
     if (version === previous) {
       return {
         mode: 'ci',
+        linux_validation: false,
         release_required: false,
         version: '',
         tag: '',
@@ -438,6 +501,7 @@ export async function resolveRelease(
     const action = publicationFor(state)
     return {
       mode: 'main-release',
+      linux_validation: false,
       release_required: action.releaseRequired,
       version,
       tag: `v${version}`,
@@ -471,6 +535,7 @@ export async function resolveRelease(
     const action = publicationFor(state)
     return {
       mode: 'tag-release',
+      linux_validation: false,
       release_required: action.releaseRequired,
       version: tagMatch[1],
       tag,
@@ -504,6 +569,7 @@ export async function resolveRelease(
     const action = publicationFor(state)
     return {
       mode: 'tag-recovery',
+      linux_validation: false,
       release_required: action.releaseRequired,
       version: inputVersion,
       tag,
@@ -523,6 +589,7 @@ export async function resolveRelease(
     }
     return {
       mode: 'ci',
+      linux_validation: false,
       release_required: false,
       version: await versionAt(runtime, sourceSha),
       tag: '',
@@ -734,7 +801,8 @@ if (import.meta.main) {
   const [command, ...args] = Deno.args
   if (command === 'resolve') {
     const provisional = await resolveRelease(shellRuntime, 'absent')
-    const resolution = provisional.mode === 'ci'
+    const resolution = (provisional.mode === 'ci' ||
+        provisional.mode === 'source-build-validation')
       ? provisional
       : await resolveRelease(
         shellRuntime,

@@ -320,8 +320,8 @@ Deno.test('workflow compiles each official target only from its exact source-bui
       'source-arm-merge',
     ]
   ) assert(build.includes(need))
-  assert(build.includes('runner: macos-15'))
-  assert(!build.includes('runner: macos-14'))
+  assert(build.includes('"runner":"macos-15"'))
+  assert(!build.includes('"runner":"macos-14"'))
   assert(build.includes('if: matrix.apple'))
   assert(
     build.includes(
@@ -922,7 +922,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
   ) {
     const section = jobSection(workflow, job)
     assert(section.includes('needs: [resolve, test, source-materials]'))
-    assert(section.includes(`runs-on: ${runner}`))
+    assert(
+      section.includes(
+        runner === 'ubuntu-26.04'
+          ? "|| 'ubuntu-26.04' }}"
+          : `runs-on: ${runner}`,
+      ),
+    )
     assert(section.includes('timeout-minutes: 350'))
     assert(section.includes('contents: read'))
     assert(section.includes(`TARGET: ${target}`))
@@ -930,7 +936,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
     assert(section.includes(`VARIANT: ${variant}`))
     assert(section.includes(`id: variant\n        timeout-minutes: ${timeout}`))
     assert(section.includes('--phase build-variant'))
-    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(
+      section.includes(
+        target.endsWith('linux-gnu')
+          ? 'build_args=(--jobs 4)'
+          : '--variant "$VARIANT" --jobs 4',
+      ),
+    )
     assert(section.includes('--purpose build'))
     assert(section.includes('producer-context.json'))
     assert(section.includes('variant_receipt_sha256'))
@@ -983,7 +995,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
     const section = jobSection(workflow, job)
     assert(
       section.includes(
-        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}",
+        ("if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}")
+          .replace(
+            " || github.event_name == 'pull_request'",
+            job === 'source-arm-build'
+              ? " || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true'"
+              : " || github.event_name == 'pull_request'",
+          ),
       ),
     )
     assert(section.includes(`timeout-minutes: ${joinTimeout}`))
@@ -1087,10 +1105,10 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
     assert(section.includes('needs: [resolve, test, source-materials]'))
     assert(
       section.includes(
-        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}",
+        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}",
       ),
     )
-    assert(section.includes('runs-on: ubuntu-26.04'))
+    assert(section.includes("|| 'ubuntu-26.04' }}"))
     assert(section.includes('timeout-minutes: 350'))
     assert(section.includes('contents: read'))
     assert(section.includes(`TARGET: ${target}`))
@@ -1098,7 +1116,8 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
     assert(section.includes(`VARIANT: ${variant}`))
     assert(section.includes('id: variant\n        timeout-minutes: 320'))
     assert(section.includes('--phase build-variant'))
-    assert(section.includes('--variant "$VARIANT" --jobs 2'))
+    assert(section.includes('build_args=(--jobs 2)'))
+    assert(section.includes('--variant "$VARIANT" "${build_args[@]}"'))
     assert(section.includes('test ! -e "$variant_out"'))
     assert(section.includes('producer-context.json'))
     assert(section.includes('variant_receipt_sha256'))
@@ -1131,7 +1150,7 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
   ]
   assert(
     facade.includes(
-      "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}",
+      "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true')) }}",
     ),
   )
   assert(facade.includes('timeout-minutes: 350'))
@@ -1277,7 +1296,7 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
   for (const job of ['source-arm-baseline', 'source-arm-modified']) {
     const section = jobSection(workflow, job)
     assert(section.includes('id: variant\n        timeout-minutes: 320'))
-    assert(section.includes('--variant "$VARIANT" --jobs 4'))
+    assert(section.includes('build_args=(--jobs 4)'))
   }
 })
 
@@ -1381,7 +1400,8 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
     assert(diagnostic.includes('if-no-files-found: warn'))
     assert(diagnostic.includes('retention-days: 7'))
 
-    const expectedArguments = (runnerTemp: string) => [
+    const profileSetup = shell.match(/^build_args=\(.*?^esac$/ms)?.[0] ?? ''
+    const expectedArguments = (runnerTemp: string, profile: string) => [
       'run',
       '--frozen',
       '--allow-read',
@@ -1411,8 +1431,9 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
       'dist/release-inputs/THIRD_PARTY_NOTICES',
       '--variant',
       variant,
+      ...(profile === 'linux-16' ? ['--build-profile', 'linux-16'] : []),
       '--jobs',
-      jobs,
+      profile === 'linux-16' ? '16' : jobs,
       '--source-root',
       `${runnerTemp}/build-source-root`,
       '--work-dir',
@@ -1428,6 +1449,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
       commandPreamble: string,
       exitCode: number,
       label: string,
+      profile = '',
     ) => {
       const directory = await Deno.makeTempDir({
         prefix: 'slv evidence carrier ',
@@ -1446,7 +1468,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
         const result = await new Deno.Command('bash', {
           args: [
             '-ceu',
-            `${commandPreamble}\n${variantOut}\n${common}\n${command}`,
+            `${commandPreamble}\n${variantOut}\n${common}\n${profileSetup}\n${command}`,
           ],
           cwd: directory,
           clearEnv: true,
@@ -1458,6 +1480,7 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
             VARIANT: variant,
             ARGV_CAPTURE: argvPath,
             CARRIER_LABEL: label,
+            LINUX_BUILD_PROFILE: profile,
             CARRIER_EXIT: String(exitCode),
           },
           stdout: 'piped',
@@ -1471,11 +1494,17 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
             `${runnerTemp}/source-logs/build-${variant}.log`,
           ),
           argv: (await Deno.readTextFile(argvPath)).split('\0').slice(0, -1),
-          expectedArguments: expectedArguments(runnerTemp),
+          expectedArguments: expectedArguments(runnerTemp, profile),
         }
       } finally {
         await Deno.remove(directory, { recursive: true })
       }
+    }
+
+    if (target.endsWith('linux-gnu')) {
+      const accelerated = await executeCarrier(preamble, 0, job, 'linux-16')
+      assertEquals(accelerated.code, 0)
+      assertEquals(accelerated.argv, accelerated.expectedArguments)
     }
 
     for (const exitCode of [0, 17]) {
@@ -1516,7 +1545,7 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     "!(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic')"
   assert(
     workflow.includes(
-      'source-native-diagnostic,\n        ]\n      reviewed_sha:',
+      'source-native-diagnostic,\n          source-build-validation,\n        ]\n      reviewed_sha:',
     ),
   )
   const expectedOldJobs = [
@@ -1632,7 +1661,25 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     ['verify-existing', "needs.resolve.outputs.publication == 'verify'"],
     ['publish', "needs.resolve.outputs.release_required == 'true'"],
   ]
-  for (const [job, oldCondition] of oldConditions) {
+  const validationJobs = new Set([
+    'source-materials',
+    'source-linux-x64-baseline',
+    'source-linux-x64-modified',
+    'source-native-linux-x64',
+    'source-arm-baseline',
+    'source-arm-modified',
+    'source-arm-build',
+    'source-arm-execute',
+    'source-arm-merge',
+  ])
+  for (const [job, previousCondition] of oldConditions) {
+    if (job === 'build') continue // Its conditional needs are exercised below.
+    const oldCondition = validationJobs.has(job)
+      ? previousCondition?.replace(
+        " || github.event_name == 'pull_request'",
+        " || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true'",
+      )
+      : previousCondition
     const section = jobSection(workflow, job)
     assert(section.includes(diagnosticExclusion))
     assertEquals(
@@ -3666,6 +3713,7 @@ Deno.test('PR resolver binds CI packaging to the checked-out merge commit withou
   )
   assertEquals(result, {
     mode: 'ci',
+    linux_validation: false,
     release_required: false,
     version: '2026.6.6.2026',
     tag: '',
@@ -3772,5 +3820,916 @@ Deno.test('draft recovery only accepts the original manifest artifact attempt', 
     )
   } finally {
     await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('source-build-validation requires exact reviewed workflow and source without publication', async () => {
+  const ref = 'refs/heads/codex/slv-linux-ephemeral-release'
+  const values = {
+    EVENT: 'workflow_dispatch',
+    REF: ref,
+    GITHUB_SHA: SHA,
+    INPUT_OPERATION: 'source-build-validation',
+    INPUT_REVIEWED_SHA: SHA,
+    GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+    GITHUB_WORKFLOW_SHA: SHA,
+    GITHUB_WORKFLOW_REF:
+      `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${ref}`,
+  }
+  const responses = {
+    'git rev-parse HEAD': ok(SHA),
+    [`git show -s --format=%cI ${SHA}`]: ok('2026-10-18T00:00:00Z'),
+  }
+  const resolved = await resolveRelease(runtime(values, responses), 'absent')
+  assertEquals(resolved.mode, 'source-build-validation')
+  assertEquals(resolved.linux_validation, true)
+  assertEquals(resolved.release_required, false)
+  assertEquals(resolved.publication, 'none')
+  assertEquals(resolved.source_sha, SHA)
+  for (
+    const overrides of [
+      { EVENT: 'push' },
+      { EVENT: 'pull_request' },
+      { GITHUB_REPOSITORY: 'other/slv' },
+      { INPUT_REVIEWED_SHA: SHA.slice(0, 12) },
+      { INPUT_REVIEWED_SHA: BEFORE },
+      { GITHUB_SHA: BEFORE },
+      { GITHUB_WORKFLOW_SHA: BEFORE },
+      { GITHUB_WORKFLOW_REF: 'other/workflow' },
+      { REF: 'refs/heads/main' },
+    ]
+  ) {
+    await assertRejects(() =>
+      resolveRelease(runtime({ ...values, ...overrides }, responses), 'absent')
+    )
+  }
+  await assertRejects(() =>
+    resolveRelease(
+      runtime(values, { ...responses, 'git rev-parse HEAD': ok(BEFORE) }),
+      'absent',
+    )
+  )
+})
+
+Deno.test('Linux routing binds each build label and profile to the trusted release or reviewed validation', async () => {
+  const workflow = await releaseWorkflow()
+  assert(
+    workflow.includes(
+      "run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'source-build-validation' && format('SLV Linux source validation {0}', inputs.reviewed_sha) || 'SLV verified release' }}",
+    ),
+  )
+  const heavy = [
+    'source-linux-x64-baseline',
+    'source-linux-x64-modified',
+    'source-arm-baseline',
+    'source-arm-modified',
+  ]
+  assertEquals(count(workflow, "format('slv-build-{0}-{1}-"), 4)
+  const evaluate = (
+    expression: string,
+    event: string,
+    ref: string,
+    enabled: string,
+    validation: string,
+    release: string,
+    repository = 'ValidatorsDAO/slv',
+  ) =>
+    new Function('github', 'vars', 'needs', 'format', `return (${expression})`)(
+      { event_name: event, ref, repository, run_id: '123', run_attempt: '2' },
+      { SLV_LINUX_BUILDERS_ENABLED: enabled },
+      {
+        resolve: {
+          outputs: { linux_validation: validation, release_required: release },
+        },
+      },
+      (value: string, ...args: string[]) =>
+        value.replace(/\{(\d+)\}/g, (_, n) => args[Number(n)]),
+    )
+  for (const job of heavy) {
+    const section = jobSection(workflow, job)
+    const route = section.match(/^    runs-on: \$\{\{ (.+) \}\}$/m)?.[1]
+    const profile = section.match(
+      /^      LINUX_BUILD_PROFILE: \$\{\{ (.+) \}\}$/m,
+    )?.[1]
+    assert(route && profile)
+    for (
+      const [event, ref, enabled, validation, release, repository, admitted]
+        of [
+          [
+            'push',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            true,
+          ],
+          [
+            'workflow_dispatch',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            true,
+          ],
+          [
+            'push',
+            'refs/heads/main',
+            'false',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'pull_request',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'push',
+            'refs/tags/v2026.1.1.0',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'workflow_dispatch',
+            'refs/heads/other',
+            'true',
+            'false',
+            'true',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'push',
+            'refs/heads/main',
+            'true',
+            'false',
+            'true',
+            'example/fork',
+            false,
+          ],
+          [
+            'push',
+            'refs/heads/main',
+            'true',
+            'false',
+            'false',
+            'ValidatorsDAO/slv',
+            false,
+          ],
+          [
+            'workflow_dispatch',
+            'refs/heads/codex/slv-linux-ephemeral-release',
+            'false',
+            'true',
+            'false',
+            'ValidatorsDAO/slv',
+            true,
+          ],
+        ] as const
+    ) {
+      assertEquals(
+        evaluate(route, event, ref, enabled, validation, release, repository),
+        admitted ? `slv-build-123-2-${job}` : 'ubuntu-26.04',
+      )
+      assertEquals(
+        evaluate(profile, event, ref, enabled, validation, release, repository),
+        admitted ? 'linux-16' : '',
+      )
+    }
+    assert(
+      section.includes(
+        'linux-16) build_args=(--build-profile linux-16 --jobs 16)',
+      ),
+    )
+    assert(section.includes('timeout-minutes: 350'))
+    assert(section.includes('id: variant\n        timeout-minutes: 320'))
+    assert(!section.includes('secrets.'))
+  }
+  const admitted = [
+    'build',
+    'source-materials',
+    ...heavy,
+    'source-native-linux-x64',
+    'source-arm-build',
+    'source-arm-execute',
+    'source-arm-merge',
+  ]
+  for (const job of admitted) {
+    assert(
+      jobIf(jobSection(workflow, job))?.includes(
+        "needs.resolve.outputs.linux_validation == 'true'",
+      ),
+      job,
+    )
+  }
+  for (
+    const job of [
+      'source-macos-x64-baseline',
+      'source-macos-x64-modified',
+      'source-native-macos-x64',
+      'source-native-macos-arm64',
+      'package',
+      'attest',
+      'publish',
+      'activation-required',
+      'verify-existing',
+      'legacy-bootstrap',
+    ]
+  ) {
+    const condition = jobIf(jobSection(workflow, job))
+    assert(condition && !condition.includes('linux_validation'), job)
+  }
+  assert(
+    jobSection(workflow, 'source-arm-execute').includes(
+      'runs-on: ubuntu-26.04-arm',
+    ),
+  )
+  for (
+    const job of [
+      'resolve',
+      'source-native-linux-x64',
+      'source-arm-build',
+      'source-arm-merge',
+      'attest',
+      'publish',
+    ]
+  ) {
+    assert(jobSection(workflow, job).includes('runs-on: ubuntu-26.04'), job)
+  }
+  const resolver = jobSection(workflow, 'resolve')
+  for (
+    const binding of [
+      'INPUT_OPERATION: ${{ inputs.operation }}',
+      'INPUT_REVIEWED_SHA: ${{ inputs.reviewed_sha }}',
+      'GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}',
+      'GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}',
+      'GITHUB_REPOSITORY: ${{ github.repository }}',
+    ]
+  ) assert(resolver.includes(binding))
+  assertEquals(count(workflow, '--deny-self-hosted-runners'), 2)
+})
+
+Deno.test('validation resolver CLI emits no publication and never queries release credentials', async () => {
+  const directory = await Deno.makeTempDir({
+    prefix: 'slv-validation-resolver-',
+  })
+  try {
+    const bin = `${directory}/bin`
+    await Deno.mkdir(bin)
+    await Deno.writeTextFile(
+      `${bin}/git`,
+      `#!/bin/sh\ncase "$*" in\n  'rev-parse HEAD') printf '%s\\n' '${SHA}' ;;\n  'show -s --format=%cI ${SHA}') printf '%s\\n' '2026-10-18T00:00:00+00:00' ;;\n  *) exit 91 ;;\nesac\n`,
+    )
+    await Deno.writeTextFile(
+      `${bin}/gh`,
+      `#!/bin/sh\nprintf forbidden > '${directory}/gh-called'\nexit 92\n`,
+    )
+    await Deno.chmod(`${bin}/git`, 0o755)
+    await Deno.chmod(`${bin}/gh`, 0o755)
+    const outputPath = `${directory}/output`
+    const ref = 'refs/heads/codex/slv-linux-ephemeral-release'
+    const result = await new Deno.Command(Deno.execPath(), {
+      args: [
+        'run',
+        '--frozen',
+        '--allow-read',
+        '--allow-write',
+        '--allow-env',
+        '--allow-run',
+        new URL('./workflow.ts', import.meta.url).pathname,
+        'resolve',
+      ],
+      clearEnv: true,
+      env: {
+        PATH: `${bin}:${Deno.env.get('PATH') ?? ''}`,
+        HOME: Deno.env.get('HOME') ?? '',
+        ...(Deno.env.get('DENO_DIR')
+          ? { DENO_DIR: Deno.env.get('DENO_DIR')! }
+          : {}),
+        EVENT: 'workflow_dispatch',
+        REF: ref,
+        GITHUB_SHA: SHA,
+        INPUT_OPERATION: 'source-build-validation',
+        INPUT_REVIEWED_SHA: SHA,
+        GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+        GITHUB_WORKFLOW_SHA: SHA,
+        GITHUB_WORKFLOW_REF:
+          `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${ref}`,
+        GITHUB_OUTPUT: outputPath,
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    assert(result.success, new TextDecoder().decode(result.stderr))
+    const output = await Deno.readTextFile(outputPath)
+    for (
+      const field of [
+        'mode=source-build-validation',
+        'linux_validation=true',
+        'release_required=false',
+        'publication=none',
+        `source_sha=${SHA}`,
+      ]
+    ) assert(output.split('\n').includes(field))
+    await assertRejects(
+      () => Deno.stat(`${directory}/gh-called`),
+      Deno.errors.NotFound,
+    )
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
+})
+
+const productNeeds = [
+  'resolve',
+  'test',
+  'source-materials',
+  'source-native-linux-x64',
+  'source-native-macos-x64',
+  'source-native-macos-arm64',
+  'source-arm-build',
+  'source-arm-merge',
+]
+const linuxProductRows = [
+  { target: 'x86_64-unknown-linux-gnu', runner: 'ubuntu-26.04', apple: false },
+  {
+    target: 'aarch64-unknown-linux-gnu',
+    runner: 'ubuntu-26.04-arm',
+    apple: false,
+  },
+]
+const ordinaryProductRows = [
+  ...linuxProductRows,
+  { target: 'x86_64-apple-darwin', runner: 'macos-15-intel', apple: true },
+  { target: 'aarch64-apple-darwin', runner: 'macos-15', apple: true },
+]
+type ProductNeeds = Record<
+  string,
+  { result: string; outputs: Record<string, string> }
+>
+
+function productNeedsFixture(validation = true): ProductNeeds {
+  const needs: ProductNeeds = Object.fromEntries(
+    productNeeds.map((job, index) => [job, {
+      result: validation && job.startsWith('source-native-macos-')
+        ? 'skipped'
+        : 'success',
+      outputs: {
+        artifact_id: String(100 + index),
+        artifact_digest: `sha256:${'d'.repeat(64)}`,
+        producer_run_id: '123',
+        producer_attempt: '2',
+        proof_sha256: 'e'.repeat(64),
+        receipt_sha256: 'f'.repeat(64),
+        runtime_artifact_id: String(200 + index),
+        runtime_artifact_digest: 'a'.repeat(64),
+        build_receipt_sha256: 'b'.repeat(64),
+        baseline_runtime_sha256: 'c'.repeat(64),
+        baseline_derived_lock_sha256: 'd'.repeat(64),
+      },
+    }]),
+  )
+  if (validation) {
+    needs['source-native-macos-x64'].outputs = {}
+    needs['source-native-macos-arm64'].outputs = {}
+  }
+  needs.resolve.outputs = {
+    linux_validation: validation ? 'true' : 'false',
+    release_required: validation ? 'false' : 'true',
+    source_sha: SHA,
+    version: '',
+    tag: '',
+    publication: 'none',
+  }
+  needs.test.outputs = {
+    license_artifact_id: '301',
+    license_artifact_digest: 'e'.repeat(64),
+    license_producer_run_id: '123',
+    license_producer_attempt: '1',
+    license_notice_sha256: 'f'.repeat(64),
+  }
+  return needs
+}
+
+function productExpression(
+  expression: string,
+  needs: ProductNeeds,
+  options: {
+    cancelled?: boolean
+    event?: string
+    operation?: string
+    target?: string
+  } = {},
+) {
+  return new Function(
+    'needs',
+    'github',
+    'inputs',
+    'matrix',
+    'cancelled',
+    'fromJSON',
+    'format',
+    `return (${expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]')})`,
+  )(
+    needs,
+    {
+      event_name: options.event ?? 'workflow_dispatch',
+      run_id: '123',
+      run_attempt: '3',
+    },
+    { operation: options.operation ?? 'source-build-validation' },
+    { target: options.target ?? linuxProductRows[0].target },
+    () => options.cancelled ?? false,
+    JSON.parse,
+    (value: string, ...args: string[]) =>
+      value.replace(/\{(\d+)\}/g, (_, n) => args[Number(n)]),
+  )
+}
+
+Deno.test('Linux validation product routing requires six successful Linux prerequisites and two skipped Macs', async () => {
+  const workflow = await releaseWorkflow()
+  const build = jobSection(workflow, 'build')
+  const condition = jobIf(build)?.match(/^\$\{\{ (.*) \}\}$/)?.[1]
+  const matrix = build.match(/^        include: \$\{\{ (.+) \}\}$/m)?.[1]
+  assert(condition && matrix)
+  assertEquals(
+    build.match(/    needs: \[([\s\S]*?)\]/)?.[1].match(/[\w-]+/g),
+    productNeeds,
+  )
+  const shell = stepShell(
+    build,
+    'Require the exact native product prerequisites',
+  )
+  const accepted = productNeedsFixture()
+  for (
+    const job of [
+      'source-macos-x64-baseline',
+      'source-macos-x64-modified',
+      'source-native-macos-x64',
+      'source-native-macos-arm64',
+      'package',
+      'attest',
+      'publish',
+      'activation-required',
+      'verify-existing',
+      'legacy-bootstrap',
+    ]
+  ) {
+    const excluded = jobIf(jobSection(workflow, job))?.match(
+      /^\$\{\{ (.*) \}\}$/,
+    )?.[1]
+    assert(excluded, job)
+    assertEquals(productExpression(excluded, accepted), false, job)
+  }
+  assertEquals(productExpression(condition, accepted), true)
+  assertEquals(productExpression(matrix, accepted), linuxProductRows)
+  assert((await runPrerequisiteShell(shell, JSON.stringify(accepted))).success)
+  assertEquals(
+    productExpression(condition, accepted, { cancelled: true }),
+    false,
+  )
+  assertEquals(
+    productExpression(condition, accepted, {
+      operation: 'source-native-diagnostic',
+    }),
+    false,
+  )
+  for (const job of productNeeds) {
+    for (
+      const result of [
+        'failure',
+        'cancelled',
+        job.includes('macos') ? 'success' : 'skipped',
+      ]
+    ) {
+      const invalid = structuredClone(accepted)
+      invalid[job].result = result
+      assertEquals(
+        productExpression(condition, invalid),
+        false,
+        `${job}:${result}`,
+      )
+      assert(
+        !(await runPrerequisiteShell(shell, JSON.stringify(invalid))).success,
+        `${job}:${result}`,
+      )
+    }
+    const missing = structuredClone(accepted)
+    delete missing[job]
+    assert(
+      !(await runPrerequisiteShell(shell, JSON.stringify(missing))).success,
+      job,
+    )
+  }
+  for (
+    const invalid of [
+      'null',
+      '[]',
+      '{}',
+      JSON.stringify(accepted) + '\n{}',
+      JSON.stringify({ ...accepted, extra: { result: 'success' } }),
+    ]
+  ) {
+    assert(!(await runPrerequisiteShell(shell, invalid)).success, invalid)
+  }
+  const normal = productNeedsFixture(false)
+  assertEquals(
+    productExpression(condition, normal, { operation: 'release' }),
+    true,
+  )
+  assertEquals(productExpression(matrix, normal), ordinaryProductRows)
+  assert((await runPrerequisiteShell(shell, JSON.stringify(normal))).success)
+  normal.resolve.outputs.release_required = 'false'
+  assertEquals(
+    productExpression(condition, normal, { event: 'pull_request' }),
+    true,
+  )
+  assertEquals(productExpression(condition, normal, { event: 'push' }), false)
+  for (const job of productNeeds.filter((job) => job.includes('macos'))) {
+    const invalid = structuredClone(normal)
+    invalid[job].result = 'skipped'
+    assertEquals(
+      productExpression(condition, invalid, { event: 'pull_request' }),
+      false,
+    )
+    assert(
+      !(await runPrerequisiteShell(shell, JSON.stringify(invalid))).success,
+    )
+  }
+})
+
+Deno.test('Linux validation selects only exact current-run artifact identities and persisted attempts', async () => {
+  const build = jobSection(await releaseWorkflow(), 'build')
+  const shell = stepShell(
+    build,
+    'Validate exact Linux validation artifact identities',
+  )
+  const needs = productNeedsFixture()
+  const expression = build.match(
+    /      - name: Download exact target proof records[\s\S]*?artifact-ids: \$\{\{ (.+) \}\}/,
+  )?.[1]
+  assert(expression)
+  assertEquals(productExpression(expression, needs), '102,103,107')
+  assertEquals(
+    productExpression(expression, productNeedsFixture(false)),
+    '102,103,104,105,107',
+  )
+  const run = (
+    input: ProductNeeds,
+    target: string,
+    extra: Record<string, string> = {},
+  ) =>
+    runDiagnosticGuard(shell, {
+      NEEDS_JSON: JSON.stringify(input),
+      TARGET: target,
+      CURRENT_RUN_ID: '123',
+      CURRENT_RUN_ATTEMPT: '3',
+      ...extra,
+    })
+  for (const { target } of linuxProductRows) {
+    const activeDownloads = build.split('      - ').filter((step) => {
+      if (!step.includes('uses: actions/download-artifact@')) return false
+      const condition = step.match(/^        if: (.+)$/m)?.[1]
+      return !condition || productExpression(condition, needs, { target })
+    })
+    const selectedIds = activeDownloads.flatMap((step) => {
+      const value = step.match(/^          artifact-ids: (.+)$/m)?.[1]
+      assert(value)
+      return value.replace(
+        /\$\{\{ (.+?) \}\}/g,
+        (_, expression) => productExpression(expression, needs, { target }),
+      ).split(',')
+    })
+    assertEquals(selectedIds, [
+      '301',
+      '102',
+      '103',
+      '107',
+      target.startsWith('x86_64') ? '203' : '206',
+    ])
+    assertEquals(activeDownloads.length, 3)
+    assert((await run(needs, target)).success)
+    const runtimeJob = target.startsWith('x86_64')
+      ? 'source-native-linux-x64'
+      : 'source-arm-build'
+    const identities = [
+      ['test', 'license_', 'license_artifact_id', 'license_artifact_digest'],
+      ['source-materials', '', 'artifact_id', 'artifact_digest'],
+      ['source-native-linux-x64', '', 'artifact_id', 'artifact_digest'],
+      ['source-arm-merge', '', 'artifact_id', 'artifact_digest'],
+      [runtimeJob, '', 'runtime_artifact_id', 'runtime_artifact_digest'],
+    ]
+    for (const [job, prefix, id, digest] of identities) {
+      for (
+        const [field, values] of [
+          [id, ['', '0', '-1', '01', '12,13']],
+          [digest, [
+            '',
+            'sha256:',
+            'g'.repeat(64),
+            'sha256:sha256:' + 'a'.repeat(64),
+          ]],
+          [`${prefix}producer_run_id`, ['', '124']],
+          [`${prefix}producer_attempt`, ['', '0', '4', '1.5']],
+        ] as const
+      ) {
+        for (const value of values) {
+          const invalid = structuredClone(needs)
+          invalid[job].outputs[field] = value
+          assert(
+            !(await run(invalid, target)).success,
+            `${target}:${job}:${field}:${value}`,
+          )
+        }
+      }
+    }
+    for (
+      const [job, fields] of [
+        ['test', ['license_notice_sha256']],
+        ['source-materials', ['receipt_sha256']],
+        ['source-native-linux-x64', ['proof_sha256']],
+        ['source-arm-merge', ['proof_sha256']],
+        [runtimeJob, [
+          'build_receipt_sha256',
+          'baseline_runtime_sha256',
+          'baseline_derived_lock_sha256',
+        ]],
+      ] as const
+    ) {
+      for (const field of fields) {
+        const invalid = structuredClone(needs)
+        invalid[job].outputs[field] = ''
+        assert(!(await run(invalid, target)).success, `${job}:${field}`)
+      }
+    }
+    assert(!(await run(needs, target, { CURRENT_RUN_ID: '0' })).success)
+    assert(!(await run(needs, target, { CURRENT_RUN_ATTEMPT: '0' })).success)
+  }
+  assert(!(await run(needs, 'aarch64-apple-darwin')).success)
+  assert(build.indexOf(shell) < build.indexOf('actions/download-artifact'))
+})
+
+Deno.test('validation compile phase binds proofs and version bytes before its per-row archive consumer', async () => {
+  const build = jobSection(await releaseWorkflow(), 'build')
+  const originalShell = stepShell(
+    build,
+    'Compile and execute the source-bound native target',
+  )
+  const directory = await Deno.makeTempDir({
+    prefix: 'slv-validation-product-',
+  })
+  const text = new TextDecoder()
+  const sha256 = async (value: string) =>
+    [
+      ...new Uint8Array(
+        await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)),
+      ),
+    ].map((n) => n.toString(16).padStart(2, '0')).join('')
+  try {
+    await Deno.mkdir(`${directory}/bin`)
+    await Deno.writeTextFile(
+      `${directory}/bin/deno`,
+      `#!/usr/bin/env python3
+import json, os, pathlib, shutil, sys
+args = sys.argv[1:]
+with open(os.environ['CALLS'], 'a') as log:
+    log.write(json.dumps(args) + '\\n')
+if args[0] in ('install', 'check'): sys.exit(0)
+if args[0] == 'compile':
+    assert os.environ['DENORT_BIN'] == os.environ['RUNTIME_PATH']
+    shutil.copyfile(os.environ['NATIVE_FIXTURE'], args[args.index('--output') + 1])
+    pathlib.Path(args[args.index('--output') + 1]).chmod(0o755)
+    sys.exit(0)
+script = next(a for a in args if a.endswith('.ts'))
+command = args[args.index(script) + 1:]
+if command and command[0] == os.environ.get('FAIL_COMMAND'): sys.exit(17)
+if command and command[0] == 'verify-baseline-runtime':
+    print(pathlib.Path(os.environ['RUNTIME_ENV']).read_text(), end='')
+elif command and command[0] == 'source-version': print('2026.10.17.2011')
+elif script.endswith('/verify-linux-product.ts'):
+    out = pathlib.Path(command[command.index('--out') + 1]); out.mkdir(parents=True)
+    (out / 'linux-compatibility-receipt.json').write_text('{}')
+elif command and command[0] == 'executable': pathlib.Path(command[2]).write_text('archive')
+elif command and command[0] == 'verify-linux-validation':
+    target = command[1]
+    assert len(command) == 3
+    assert pathlib.Path('dist/slv-' + target + '-exe.tar.gz').is_file()
+    assert pathlib.Path('dist/release-inputs/product-runtime/' + target + '/product-runtime-receipt.json').is_file()
+`,
+    )
+    await Deno.chmod(`${directory}/bin/deno`, 0o755)
+    const native = `${directory}/native`
+    await Deno.writeTextFile(
+      native,
+      `#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  --version) if [ "$LINUX_VALIDATION" = true ]; then test "$NO_COLOR" = 1; fi; printf '%s' "$NATIVE_VERSION" ;;
+  licenses) cat dist/release-inputs/THIRD_PARTY_NOTICES ;;
+  --help) exit 0 ;;
+  *) exit 2 ;;
+esac
+`,
+    )
+    for (const { target } of linuxProductRows) {
+      const root = `${directory}/${target}`
+      const input = `${root}/dist/release-inputs`
+      const transport = `${input}/runtime-source/${target}/transport`
+      await Deno.mkdir(transport, { recursive: true })
+      const runtimePath = `${transport}/baseline-denort`
+      const bridgePath = `${transport}/baseline-bridge`
+      const runtimeBytes = 'source built runtime'
+      const bridgeBytes = '#!/usr/bin/env bash\nexit 0\n'
+      await Deno.writeTextFile(runtimePath, runtimeBytes)
+      await Deno.writeTextFile(bridgePath, bridgeBytes)
+      await Deno.writeTextFile(`${input}/THIRD_PARTY_NOTICES`, 'notices\n')
+      const needs = productNeedsFixture()
+      for (
+        const [relative, job, field] of [
+          [
+            'source-materials-receipt.json',
+            'source-materials',
+            'receipt_sha256',
+          ],
+          [
+            'source-proofs/x86_64-unknown-linux-gnu/native-proof.json',
+            'source-native-linux-x64',
+            'proof_sha256',
+          ],
+          [
+            'source-proofs/aarch64-unknown-linux-gnu/native-proof.json',
+            'source-arm-merge',
+            'proof_sha256',
+          ],
+        ]
+      ) {
+        const path = `${input}/${relative}`
+        await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), {
+          recursive: true,
+        })
+        await Deno.writeTextFile(path, relative)
+        needs[job].outputs[field] = await sha256(relative)
+      }
+      const runtimeJob = target.startsWith('x86_64')
+        ? 'source-native-linux-x64'
+        : 'source-arm-build'
+      needs[runtimeJob].outputs.baseline_runtime_sha256 = await sha256(
+        runtimeBytes,
+      )
+      const bindings: Record<string, string> = {
+        runtime_path: runtimePath,
+        baseline_denort_sha256: await sha256(runtimeBytes),
+        bridge_path: bridgePath,
+        baseline_bridge_sha256: await sha256(bridgeBytes),
+        source_selected_cargo_lock_sha256: 'e'.repeat(64),
+        derived_relink_cargo_lock_sha256:
+          needs[runtimeJob].outputs.baseline_derived_lock_sha256,
+        source_receipt_sha256: needs['source-materials'].outputs.receipt_sha256,
+        native_proof_sha256: needs[
+          target.startsWith('x86_64')
+            ? 'source-native-linux-x64'
+            : 'source-arm-merge'
+        ].outputs.proof_sha256,
+        build_receipt_sha256: needs[runtimeJob].outputs.build_receipt_sha256,
+      }
+      const envFile = `${root}/verified-runtime.env`
+      const log = `${root}/calls.jsonl`
+      const shell = originalShell.replace(
+        /\$\{\{ (.+?) \}\}/g,
+        (_, expression) => productExpression(expression, needs, { target }),
+      )
+      const run = async (
+        inputNeeds = needs,
+        overrides: Record<string, string> = {},
+      ) => {
+        await Deno.writeTextFile(log, '')
+        await Deno.writeTextFile(
+          envFile,
+          Object.entries(bindings).map(([k, v]) => `${k}=${v}\n`).join(''),
+        )
+        await Deno.chmod(runtimePath, 0o644)
+        await Deno.chmod(bridgePath, 0o644)
+        await Deno.remove(`${input}/product-runtime`, { recursive: true })
+          .catch(() => {})
+        const result = await new Deno.Command('bash', {
+          args: ['-ceu', shell],
+          cwd: root,
+          clearEnv: true,
+          env: {
+            PATH: `${directory}/bin:${Deno.env.get('PATH') ?? ''}`,
+            RUNNER_TEMP: `${root}/temp`,
+            LINUX_VALIDATION: 'true',
+            NEEDS_JSON: JSON.stringify(inputNeeds),
+            NATIVE_FIXTURE: native,
+            NATIVE_VERSION: 'slv 2026.10.17.2011\n',
+            CALLS: log,
+            RUNTIME_ENV: envFile,
+            RUNTIME_PATH: runtimePath,
+            ...overrides,
+          },
+          stdout: 'piped',
+          stderr: 'piped',
+        }).output()
+        const calls = (await Deno.readTextFile(log)).trim().split('\n').filter(
+          Boolean,
+        ).map((line) => JSON.parse(line) as string[])
+        return { result, calls }
+      }
+      const valid = await run()
+      assert(valid.result.success, text.decode(valid.result.stderr))
+      const proofCall = valid.calls.find((args) =>
+        args.includes('verify-linux-source-proofs')
+      )
+      assert(proofCall)
+      assertEquals(
+        proofCall.slice(proofCall.indexOf('verify-linux-source-proofs') + 1),
+        [
+          'dist/release-inputs/source-materials-receipt.json',
+          'dist/release-inputs/source-materials',
+          'dist/release-inputs/source-proofs',
+          SHA,
+          'source-materials/pins.json',
+          'dist/release-inputs/tool-pins',
+          'dist/release-inputs/THIRD_PARTY_NOTICES',
+        ],
+      )
+      const consumer = valid.calls.find((args) =>
+        args.includes('verify-linux-validation')
+      )
+      assert(consumer)
+      assertEquals(
+        consumer.slice(consumer.indexOf('verify-linux-validation') + 1),
+        [target, SHA],
+      )
+      assertEquals(valid.calls.at(-1), consumer)
+      assert(!valid.calls.some((args) => args.includes('verify-source-proofs')))
+      for (
+        const [job, field] of [
+          ['source-materials', 'receipt_sha256'],
+          ['source-native-linux-x64', 'proof_sha256'],
+          ['source-arm-merge', 'proof_sha256'],
+          [runtimeJob, 'build_receipt_sha256'],
+          [runtimeJob, 'baseline_runtime_sha256'],
+          [runtimeJob, 'baseline_derived_lock_sha256'],
+        ]
+      ) {
+        const invalid = structuredClone(needs)
+        invalid[job].outputs[field] = '0'.repeat(64)
+        const failed = await run(invalid)
+        assert(!failed.result.success, `${target}:${field}`)
+        assert(!failed.calls.some((args) => args[0] === 'compile'))
+        assertEquals((await Deno.stat(runtimePath)).mode! & 0o111, 0)
+        assertEquals((await Deno.stat(bridgePath)).mode! & 0o111, 0)
+      }
+      for (
+        const output of [
+          'slv wrong\n',
+          'slv 2026.10.17.2011',
+          'slv 2026.10.17.2011\n\n',
+          '\x1b[32mslv 2026.10.17.2011\x1b[0m\n',
+        ]
+      ) {
+        const failed = await run(needs, { NATIVE_VERSION: output })
+        assert(!failed.result.success, JSON.stringify(output))
+        assert(
+          !failed.calls.some((args) =>
+            args.includes('verify-linux-validation')
+          ),
+        )
+      }
+      for (
+        const command of [
+          'verify-linux-source-proofs',
+          'verify-baseline-runtime',
+          'verify-linux-validation',
+        ]
+      ) {
+        const failed = await run(needs, { FAIL_COMMAND: command })
+        assert(!failed.result.success, command)
+      }
+      const normal = await run(needs, { LINUX_VALIDATION: 'false' })
+      assert(normal.result.success, text.decode(normal.result.stderr))
+      assert(normal.calls.some((args) => args.includes('verify-source-proofs')))
+      assert(
+        !normal.calls.some((args) =>
+          args.includes('verify-linux-source-proofs') ||
+          args.includes('source-version') ||
+          args.includes('verify-linux-validation')
+        ),
+      )
+    }
+  } finally {
+    await Deno.remove(directory, { recursive: true })
   }
 })

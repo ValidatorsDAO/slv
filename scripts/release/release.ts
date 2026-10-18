@@ -6,6 +6,7 @@ import {
   CANONICAL_NOTICE_NAME,
   readPins,
   type SourceMaterialsReceipt,
+  verifyLinuxSourceProofSet,
   verifyReceiptFiles,
   verifySourceMaterialsReceipt,
   verifySourceProofSet,
@@ -1362,6 +1363,22 @@ function sourceVersion(source: string): string {
   return match[1]
 }
 
+/** Read the product version from the reviewed checkout, without a release tag. */
+export async function reviewedSourceVersion(
+  root = Deno.cwd(),
+): Promise<string> {
+  const version = sourceVersion(
+    await Deno.readTextFile(join(root, 'cmn/constants/version.ts')),
+  )
+  const cli = JSON.parse(await Deno.readTextFile(join(root, 'cli/deno.json')))
+  if (cli.version !== version) {
+    throw new Error(
+      'cli/deno.json version differs from cmn/constants/version.ts',
+    )
+  }
+  return version
+}
+
 function parseLicenseBundle(value: unknown): LicenseBundle {
   if (!value || typeof value !== 'object') {
     throw new Error('invalid canonical license bundle')
@@ -1417,6 +1434,33 @@ async function copyVerifiedSourceMaterials(
   sourceSha: string,
   bundle: LicenseBundle,
 ): Promise<{ receipt: SourceMaterialsReceipt; rawReceipt: string }> {
+  const { receipt, rawReceipt } = await readVerifiedSourceMaterials(
+    root,
+    sourceSha,
+    bundle,
+  )
+  const sourceDirectory = join(root, SOURCE_MATERIALS_DIRECTORY)
+  const assets = new Map(receipt.assets.map((asset) => [asset.name, asset]))
+  for (const name of SOURCE_ASSETS) {
+    const asset = assets.get(name)
+    if (!asset) throw new Error(`source receipt is missing ${name}`)
+    const source = join(sourceDirectory, name)
+    const destination = join(releaseDirectory, name)
+    await Deno.copyFile(source, destination)
+    const info = await Deno.stat(destination)
+    if (
+      !info.isFile || info.size !== asset.size ||
+      await hashFile(destination) !== asset.sha256
+    ) throw new Error(`copied source archive differs from receipt: ${name}`)
+  }
+  return { receipt, rawReceipt }
+}
+
+async function readVerifiedSourceMaterials(
+  root: string,
+  sourceSha: string,
+  bundle: LicenseBundle,
+): Promise<{ receipt: SourceMaterialsReceipt; rawReceipt: string }> {
   const receiptPath = join(root, SOURCE_MATERIALS_RECEIPT)
   let rawReceipt: string
   let receiptValue: unknown
@@ -1460,19 +1504,6 @@ async function copyVerifiedSourceMaterials(
         `source receipt ${name} pin differs from reviewed source pins`,
       )
     }
-  }
-  const assets = new Map(receipt.assets.map((asset) => [asset.name, asset]))
-  for (const name of SOURCE_ASSETS) {
-    const asset = assets.get(name)
-    if (!asset) throw new Error(`source receipt is missing ${name}`)
-    const source = join(sourceDirectory, name)
-    const destination = join(releaseDirectory, name)
-    await Deno.copyFile(source, destination)
-    const info = await Deno.stat(destination)
-    if (
-      !info.isFile || info.size !== asset.size ||
-      await hashFile(destination) !== asset.sha256
-    ) throw new Error(`copied source archive differs from receipt: ${name}`)
   }
   return { receipt, rawReceipt }
 }
@@ -2344,101 +2375,167 @@ async function verifyProductRuntimeReceipts(
     join(root, SOURCE_MATERIALS_RECEIPT),
   )
   for (const target of TARGETS) {
-    const targetDirectory = join(base, target)
-    const isLinux = (LINUX_TARGETS as readonly string[]).includes(target)
-    const expectedEntries = isLinux
-      ? [
-        'product-runtime-receipt.json',
-        'linux-compatibility-receipt.json',
-        'release-bridge-smoke',
-        'linux-compatibility',
-      ]
-      : ['product-runtime-receipt.json']
-    const entries: string[] = []
-    for await (const entry of Deno.readDir(targetDirectory)) {
-      if (entry.isSymlink) {
-        throw new Error(`product runtime target contains a symlink: ${target}`)
-      }
-      entries.push(entry.name)
-    }
-    if (
-      entries.length !== expectedEntries.length ||
-      entries.sort().some((entry, index) =>
-        entry !== [...expectedEntries].sort()[index]
-      )
-    ) {
-      throw new Error(
-        `product runtime target has an unexpected evidence set: ${target}`,
-      )
-    }
-    const receiptPath = join(targetDirectory, 'product-runtime-receipt.json')
-    const productReceiptInfo = await Deno.lstat(receiptPath).catch(() =>
-      undefined
-    )
-    if (!productReceiptInfo?.isFile || productReceiptInfo.isSymlink) {
-      throw new Error(
-        `product runtime receipt is not a regular file: ${target}`,
-      )
-    }
-    const productReceipt = parseProductRuntimeReceipt(JSON.parse(
-      await Deno.readTextFile(receiptPath),
-    ))
-    const proofPath = join(
+    await verifyProductRuntimeReceipt(
       root,
-      'dist/release-inputs/source-proofs',
+      receipt,
+      sourceReceiptSha256,
       target,
-      'native-proof.json',
     )
-    const buildReceiptPath = join(
-      root,
-      'dist/release-inputs/source-proofs',
-      target,
-      'build-receipt.json',
-    )
-    const tarPath = join(root, 'dist', 'slv-' + target + '-exe.tar.gz')
-    const executableName = 'slv-' + target + '-exe'
-    const proof = sourceProofBaseline(
-      JSON.parse(await Deno.readTextFile(proofPath)),
-    )
-    if (
-      productReceipt.target !== target ||
-      productReceipt.executableTarSha256 !== await hashFile(tarPath) ||
-      productReceipt.executableSha256 !==
-        await executableDigestFromArchive(tarPath, executableName) ||
-      productReceipt.baselineDenortSha256 !== proof.denort ||
-      productReceipt.derivedRelinkCargoLockSha256 !== proof.derivedRelinkLock ||
-      productReceipt.sourceSelectedCargoLockSha256 !== proof.selectedLock ||
-      productReceipt.sourceSelectedCargoLockSha256 !==
-        receipt.runtime_security.selected.cargo_lock.sha256 ||
-      productReceipt.sourceReceiptSha256 !== sourceReceiptSha256 ||
-      productReceipt.nativeProofSha256 !== await hashFile(proofPath) ||
-      productReceipt.buildReceiptSha256 !== await hashFile(buildReceiptPath)
-    ) {
-      throw new Error(
-        'product runtime receipt differs from source proof or executable: ' +
-          target,
-      )
-    }
-    if (isLinux) {
-      const compatibilityDirectory = join(
-        targetDirectory,
-        'linux-compatibility',
-      )
-      const compatibilityInfo = await Deno.lstat(compatibilityDirectory).catch(
-        () => undefined,
-      )
-      if (!compatibilityInfo?.isDirectory || compatibilityInfo.isSymlink) {
-        throw new Error(`Linux compatibility evidence is missing: ${target}`)
-      }
-      await verifyLinuxCompatibilityReceipt(
-        root,
-        targetDirectory,
-        target as (typeof LINUX_TARGETS)[number],
-        productReceipt,
-        proof,
-      )
-    }
   }
+}
+
+async function verifyProductRuntimeReceipt(
+  root: string,
+  receipt: SourceMaterialsReceipt,
+  sourceReceiptSha256: string,
+  target: (typeof TARGETS)[number],
+): Promise<void> {
+  const base = join(root, 'dist/release-inputs/product-runtime')
+  const targetDirectory = join(base, target)
+  const isLinux = (LINUX_TARGETS as readonly string[]).includes(target)
+  const expectedEntries = isLinux
+    ? [
+      'product-runtime-receipt.json',
+      'linux-compatibility-receipt.json',
+      'release-bridge-smoke',
+      'linux-compatibility',
+    ]
+    : ['product-runtime-receipt.json']
+  const entries: string[] = []
+  for await (const entry of Deno.readDir(targetDirectory)) {
+    if (entry.isSymlink) {
+      throw new Error(`product runtime target contains a symlink: ${target}`)
+    }
+    entries.push(entry.name)
+  }
+  if (
+    entries.length !== expectedEntries.length ||
+    entries.sort().some((entry, index) =>
+      entry !== [...expectedEntries].sort()[index]
+    )
+  ) {
+    throw new Error(
+      `product runtime target has an unexpected evidence set: ${target}`,
+    )
+  }
+  const receiptPath = join(targetDirectory, 'product-runtime-receipt.json')
+  const productReceiptInfo = await Deno.lstat(receiptPath).catch(() =>
+    undefined
+  )
+  if (!productReceiptInfo?.isFile || productReceiptInfo.isSymlink) {
+    throw new Error(
+      `product runtime receipt is not a regular file: ${target}`,
+    )
+  }
+  const productReceipt = parseProductRuntimeReceipt(JSON.parse(
+    await Deno.readTextFile(receiptPath),
+  ))
+  const proofPath = join(
+    root,
+    'dist/release-inputs/source-proofs',
+    target,
+    'native-proof.json',
+  )
+  const buildReceiptPath = join(
+    root,
+    'dist/release-inputs/source-proofs',
+    target,
+    'build-receipt.json',
+  )
+  const tarPath = join(root, 'dist', 'slv-' + target + '-exe.tar.gz')
+  const executableName = 'slv-' + target + '-exe'
+  const proof = sourceProofBaseline(
+    JSON.parse(await Deno.readTextFile(proofPath)),
+  )
+  if (
+    productReceipt.target !== target ||
+    productReceipt.executableTarSha256 !== await hashFile(tarPath) ||
+    productReceipt.executableSha256 !==
+      await executableDigestFromArchive(tarPath, executableName) ||
+    productReceipt.baselineDenortSha256 !== proof.denort ||
+    productReceipt.derivedRelinkCargoLockSha256 !== proof.derivedRelinkLock ||
+    productReceipt.sourceSelectedCargoLockSha256 !== proof.selectedLock ||
+    productReceipt.sourceSelectedCargoLockSha256 !==
+      receipt.runtime_security.selected.cargo_lock.sha256 ||
+    productReceipt.sourceReceiptSha256 !== sourceReceiptSha256 ||
+    productReceipt.nativeProofSha256 !== await hashFile(proofPath) ||
+    productReceipt.buildReceiptSha256 !== await hashFile(buildReceiptPath)
+  ) {
+    throw new Error(
+      'product runtime receipt differs from source proof or executable: ' +
+        target,
+    )
+  }
+  if (isLinux) {
+    const compatibilityDirectory = join(
+      targetDirectory,
+      'linux-compatibility',
+    )
+    const compatibilityInfo = await Deno.lstat(compatibilityDirectory).catch(
+      () => undefined,
+    )
+    if (!compatibilityInfo?.isDirectory || compatibilityInfo.isSymlink) {
+      throw new Error(`Linux compatibility evidence is missing: ${target}`)
+    }
+    await verifyLinuxCompatibilityReceipt(
+      root,
+      targetDirectory,
+      target as (typeof LINUX_TARGETS)[number],
+      productReceipt,
+      proof,
+    )
+  }
+}
+
+/** Verify one Linux product row without creating release or CI package assets. */
+export async function verifyLinuxValidation(
+  args: string[],
+  options: { root?: string } = {},
+): Promise<void> {
+  const [target, sourceSha] = args
+  if (
+    args.length !== 2 ||
+    !(LINUX_TARGETS as readonly string[]).includes(target) ||
+    !SHA40.test(sourceSha ?? '')
+  ) {
+    throw new Error(
+      'usage: release.ts verify-linux-validation LINUX_TARGET SOURCE_SHA',
+    )
+  }
+  const root = options.root ?? Deno.cwd()
+  await reviewedSourceVersion(root)
+  const { bundle } = await canonicalLicenseBundle(root, sourceSha)
+  const { receipt } = await readVerifiedSourceMaterials(root, sourceSha, bundle)
+  await verifyLinuxSourceProofSet({
+    sourceReceiptPath: join(root, SOURCE_MATERIALS_RECEIPT),
+    sourceDirectory: join(root, SOURCE_MATERIALS_DIRECTORY),
+    proofDirectory: join(root, 'dist/release-inputs/source-proofs'),
+    sourceCommit: sourceSha,
+    sourcePinsPath: join(root, SOURCE_MATERIALS_PINS),
+    toolPinsDirectory: join(root, 'dist/release-inputs/tool-pins'),
+    canonicalNoticePath: canonicalNoticePath(root),
+  })
+  const base = join(root, 'dist/release-inputs/product-runtime')
+  const directories = []
+  for await (const entry of Deno.readDir(base)) {
+    if (!entry.isDirectory || entry.isSymlink || entry.name !== target) {
+      throw new Error(
+        'Linux validation requires exactly the selected product runtime directory',
+      )
+    }
+    directories.push(entry.name)
+  }
+  if (directories.length !== 1) {
+    throw new Error(
+      'Linux validation requires exactly the selected product runtime directory',
+    )
+  }
+  await verifyProductRuntimeReceipt(
+    root,
+    receipt,
+    await hashFile(join(root, SOURCE_MATERIALS_RECEIPT)),
+    target as (typeof LINUX_TARGETS)[number],
+  )
 }
 
 export type PrepareLicensesOptions = { root?: string; version?: string }
@@ -2968,6 +3065,10 @@ if (import.meta.main) {
     await pack(args)
   } else if (command === 'pack-ci') {
     await packCi(args)
+  } else if (command === 'verify-linux-validation') {
+    await verifyLinuxValidation(args)
+  } else if (command === 'source-version' && args.length === 0) {
+    console.log(await reviewedSourceVersion())
   } else if (command === 'prepare-licenses') {
     await prepareLicenses(args)
   } else if (command === 'verify-licenses') {
@@ -2985,7 +3086,7 @@ if (import.meta.main) {
     await packExecutable(args[0], args[1], args[2])
   } else {
     throw new Error(
-      'usage: release.ts pack|pack-ci VERSION SOURCE_SHA SOURCE_REF RUN_ID RUN_ATTEMPT SOURCE_TIMESTAMP | prepare-licenses SOURCE_SHA RUN_ID RUN_ATTEMPT | verify-licenses|materialize-licenses SOURCE_SHA RUN_ID PRODUCER_ATTEMPT EXPECTED_SHA256 | require-licenses SOURCE_SHA | graph DENO_INFO_JSON | executable INPUT OUTPUT ARCHIVE_NAME',
+      'usage: release.ts pack|pack-ci VERSION SOURCE_SHA SOURCE_REF RUN_ID RUN_ATTEMPT SOURCE_TIMESTAMP | verify-linux-validation LINUX_TARGET SOURCE_SHA | source-version | prepare-licenses SOURCE_SHA RUN_ID RUN_ATTEMPT | verify-licenses|materialize-licenses SOURCE_SHA RUN_ID PRODUCER_ATTEMPT EXPECTED_SHA256 | require-licenses SOURCE_SHA | graph DENO_INFO_JSON | executable INPUT OUTPUT ARCHIVE_NAME',
     )
   }
 }
