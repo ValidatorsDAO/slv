@@ -202,6 +202,25 @@ function published(m: QualificationManifest): QualificationRelease {
     })),
   }
 }
+// A draft has no tag yet: GitHub serves its assets from untagged-<hex>, one
+// directory for all of them, and gives the tag its name when it is published.
+const UNTAGGED = 'untagged-9be5bf5205f8313f4a2c'
+function draftRelease(
+  m: QualificationManifest,
+  directory = UNTAGGED,
+): QualificationRelease {
+  const release = published(m)
+  return {
+    ...release,
+    draft: true,
+    immutable: false,
+    assets: release.assets.map((x) => ({
+      ...x,
+      browser_download_url:
+        `https://github.com/${QUALIFICATION_REPOSITORY}/releases/download/${directory}/${x.name}`,
+    })),
+  }
+}
 function adapter(m: QualificationManifest): QualificationGitHub {
   return {
     release: () => Promise.resolve(published(m)),
@@ -595,7 +614,7 @@ Deno.test('verified attestation JSON binds exactly the runtime manifest subject'
 Deno.test('draft resume validates present bytes and original attestation, returns only missing assets', async () => {
   const m = fixture(),
     api = adapter(m),
-    full = { ...published(m), draft: true, immutable: false }
+    full = draftRelease(m)
   const complete = await verifyQualificationDraft(m, full, commit, api, true)
   assertEquals(complete.missing_assets, [])
   assertEquals(complete.needs_attestation, false)
@@ -666,6 +685,102 @@ Deno.test('draft resume validates present bytes and original attestation, return
   )
 })
 
+Deno.test('a draft is accepted with its assets where GitHub puts those of a draft, in one directory, and with no other URL', async () => {
+  const m = fixture(), api = adapter(m), tag = qualificationTag(m)
+  const given = draftRelease(m)
+  const moved = (
+    release: QualificationRelease,
+    edit: (url: string, name: string, index: number) => string,
+  ): QualificationRelease => ({
+    ...release,
+    assets: release.assets.map((x, i) => ({
+      ...x,
+      browser_download_url: edit(x.browser_download_url, x.name, i),
+    })),
+  })
+  const accepted: [string, QualificationRelease][] = [
+    ['the directory of a draft', given],
+    [
+      'another hex directory of a draft',
+      draftRelease(m, `untagged-${'0123456789abcdef'.repeat(2)}`),
+    ],
+    [
+      'the tag, where the assets are those of a published release',
+      draftRelease(m, tag),
+    ],
+  ]
+  for (const [label, release] of accepted) {
+    const audit = await verifyQualificationDraft(m, release, commit, api, true)
+    assertEquals(audit.missing_assets, [], label)
+  }
+  const refused: [string, QualificationRelease][] = [
+    [
+      'one asset in another directory of a draft',
+      moved(
+        given,
+        (url, _name, i) =>
+          i === 0 ? url.replace(UNTAGGED, `untagged-${'f'.repeat(20)}`) : url,
+      ),
+    ],
+    [
+      'one asset at the tag and the others in the directory of a draft',
+      moved(
+        given,
+        (url, _name, i) => i === 0 ? url.replace(UNTAGGED, tag) : url,
+      ),
+    ],
+    [
+      'a directory of a draft with a letter that is not hex',
+      draftRelease(m, `untagged-${'g'.repeat(20)}`),
+    ],
+    [
+      'a directory of a draft in capitals',
+      draftRelease(m, `untagged-${'A'.repeat(20)}`),
+    ],
+    [
+      'a directory of a draft that is too short',
+      draftRelease(m, 'untagged-abc'),
+    ],
+    [
+      'a directory that is not that of a draft',
+      draftRelease(m, `latest-${'a'.repeat(20)}`),
+    ],
+    [
+      'the tag of another qualification',
+      draftRelease(m, `runtime-deno-v0.0.0-${'a'.repeat(64)}`),
+    ],
+    [
+      'another repository',
+      moved(given, (url) => url.replace(QUALIFICATION_REPOSITORY, 'other/slv')),
+    ],
+    ['plain http', moved(given, (url) => url.replace('https:', 'http:'))],
+    [
+      'the name of another asset',
+      moved(given, (url, name) => url.replace(`/${name}`, '/another-asset')),
+    ],
+    [
+      'a path below the directory',
+      moved(given, (url) => url.replace(`${UNTAGGED}/`, `${UNTAGGED}/below/`)),
+    ],
+    ['a query', moved(given, (url) => `${url}?download=1`)],
+    [
+      'no directory',
+      moved(
+        given,
+        (_url, name) =>
+          `https://github.com/${QUALIFICATION_REPOSITORY}/releases/download/${name}`,
+      ),
+    ],
+  ]
+  for (const [label, release] of refused) {
+    await assertRejects(
+      () => verifyQualificationDraft(m, release, commit, api),
+      Error,
+      'asset URL differs',
+      label,
+    )
+  }
+})
 Deno.test('public adapter uses bounded credential-free HTTPS without gh configuration', async () => {
   const calls: { url: string; authorization: string | null }[] = []
   const fetcher: typeof fetch = (input, init) => {
@@ -774,7 +889,7 @@ Deno.test('promotion never adopts or overwrites a conflicting preexisting tag', 
     Error,
     'lookup unavailable',
   )
-  const draft = { ...published(m), draft: true, immutable: false }
+  const draft = draftRelease(m)
   const absent = adapter(m)
   absent.tagCommit = () => Promise.resolve(null)
   assertEquals(
@@ -902,7 +1017,7 @@ Deno.test('fresh main revocation added after an earlier acceptance prevents fina
     Error,
     'revoked',
   )
-  const fullDraft = { ...published(m), draft: true, immutable: false }
+  const fullDraft = draftRelease(m)
   await assertRejects(
     () =>
       verifyQualificationDraftProduction(

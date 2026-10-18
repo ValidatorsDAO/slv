@@ -1456,6 +1456,19 @@ export async function verifyQualificationTagForPromotion(
   return 'matching'
 }
 
+const DOWNLOAD_BASE =
+  `https://github.com/${QUALIFICATION_REPOSITORY}/releases/download/`
+/** What GitHub calls the directory of the assets of a draft, which has no tag yet. */
+const DRAFT_DIRECTORY = /^untagged-[0-9a-f]{16,64}$/
+/** The directory of the URL of a release asset: what lies between releases/download/ and the name, or null when the URL is anywhere else. */
+function assetDirectory(url: string, name: string): string | null {
+  const suffix = `/${name}`
+  return url.startsWith(DOWNLOAD_BASE) && url.endsWith(suffix) &&
+      url.length > DOWNLOAD_BASE.length + suffix.length
+    ? url.slice(DOWNLOAD_BASE.length, url.length - suffix.length)
+    : null
+}
+
 /** Read-only recovery audit. Existing asset bytes are never replaced. */
 export async function verifyQualificationDraft(
   m: QualificationManifest,
@@ -1488,6 +1501,8 @@ export async function verifyQualificationDraft(
   }
   const bundleName = `${QUALIFICATION_MANIFEST}.intoto.jsonl`
   const seen = new Set<string>()
+  // The directory of the URLs of the assets, the same for all of them.
+  let directory: string | null = null
   const temporary = await Deno.realPath(
     await Deno.makeTempDir({ prefix: 'slv-qualification-draft-' }),
   )
@@ -1505,10 +1520,19 @@ export async function verifyQualificationDraft(
           ? row.size !== wanted.size || row.digest !== `sha256:${wanted.sha256}`
           : row.size > 16 * 1024 * 1024)
       ) fail('existing draft asset conflicts with pinned bytes')
+      // GitHub gives the tag its name in the URL of an asset when the release
+      // is published, which assertPublishedRelease checks. While the release is
+      // a draft the assets are served from untagged-<hex>, one directory for
+      // the whole draft. Either way every asset of the draft is in this
+      // repository, under its own name and in the same directory. The bytes are
+      // not read from the URL: they are fetched by asset ID and checked against
+      // the pinned digest.
+      const where = assetDirectory(row.browser_download_url, row.name)
       if (
-        row.browser_download_url !==
-          `https://github.com/${QUALIFICATION_REPOSITORY}/releases/download/${tag}/${row.name}`
+        where === null || (where !== tag && !DRAFT_DIRECTORY.test(where)) ||
+        (directory !== null && where !== directory)
       ) fail('existing draft asset URL differs')
+      directory = where
       // Draft assets need the hosted publisher's read token via their API ID.
       await github.downloadReleaseAsset(row.id, join(temporary, row.name))
       await verifyFile(
