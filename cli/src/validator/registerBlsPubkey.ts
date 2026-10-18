@@ -111,17 +111,19 @@ const readBlsHosts = async (
 
 // Registers the BLS public key on each validator's vote account.
 // The authorized voter defaults to the validator identity, so the identity
-// keypair signs and pays, and `vote-authorize-voter-checked` (voter unchanged)
-// fills in the derived BLS pubkey. Nothing here throws for a host that is not
-// registered: that is an error line for the host and a false result.
+// keypair signs and pays, and `vote-authorize-voter-checked` with the identity
+// as the current and the new voter fills in the BLS pubkey derived from it.
+// The identity becomes the authorized voter, or stays it when it already is.
+// Nothing here throws for a host that is not registered: that is an error line
+// for the host and a false result.
 const registerBlsOnHosts = async (
   network: NetworkType,
   limit?: string,
 ): Promise<boolean> => {
   if (network !== 'testnet' && network !== 'mainnet') {
-    console.warn(
-      colors.yellow(
-        `⚠️ BLS registration supports testnet/mainnet only (got "${network}") — skipping.`,
+    console.error(
+      colors.red(
+        `❌ BLS registration supports testnet and mainnet only (got "${network}"), so no BLS public key was registered.`,
       ),
     )
     return false
@@ -140,7 +142,11 @@ const registerBlsOnHosts = async (
 
   const { hosts, skipped } = await readBlsHosts(inventoryType, limit)
   if (hosts.length === 0) {
-    console.log(colors.yellow('⚠️ No hosts to register BLS pubkey for'))
+    console.error(
+      colors.red(
+        `❌ No hosts to register BLS pubkey for (${network}), so no BLS public key was registered.`,
+      ),
+    )
     return false
   }
 
@@ -165,7 +171,8 @@ const registerBlsOnHosts = async (
     // feature gate is inactive the tx fails cleanly at simulation WITHOUT
     // mutating state — unlike the auto-detect path, which silently falls back
     // to a plain voter re-authorization (a wasted tx that also burns the
-    // once-per-epoch voter-change slot). The authorized voter is unchanged.
+    // once-per-epoch voter-change slot). The identity becomes the authorized
+    // voter, or stays it when it already is.
     // Use an argv array (not a shell string) so keypair paths containing
     // spaces are passed as a single argument rather than word-split.
     // The identity pays the fee (--fee-payer). Without it the solana CLI takes
@@ -196,7 +203,7 @@ const registerBlsOnHosts = async (
         colors.red(
           `❌ ${h.name}: could not run solana (${
             error instanceof Error ? error.message : error
-          }). Install the solana CLI, 4.3.0 or later, and put it on PATH, then ` +
+          }). Install the solana CLI, 4.1.0 or later, and put it on PATH, then ` +
             `run \`${again}\` again.`,
         ),
       )
@@ -209,7 +216,7 @@ const registerBlsOnHosts = async (
           [
             `❌ ${h.name}: the BLS public key of ${h.vote_account} was not registered: the solana command failed (see above). Check that:`,
             `   - ${keypair} is here and is the key of the authorized voter or the authorized withdrawer of the vote account`,
-            `   - the solana CLI is 4.3.0 or later (solana --version): the instruction that registers the key is in 4.3.0 and later`,
+            `   - the solana CLI is 4.1.0 or later (solana --version): setting the BLS public key needs that version`,
             `   - the identity ${h.identity_account} has SOL: it pays the fee of the transaction`,
             `   - the voter of the vote account was not changed in this epoch: one voter change is accepted per epoch, and this registration is one`,
             `   Then run \`${again}\` again.`,

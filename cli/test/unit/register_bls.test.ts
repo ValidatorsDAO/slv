@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert'
 import { stringify } from '@std/yaml'
 import { getInventoryPath } from '@cmn/constants/path.ts'
+import type { NetworkType } from '@cmn/types/config.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
 import { registerBlsAfterDeploy } from '/src/validator/deploy/registerBlsAfterDeploy.ts'
 
@@ -56,9 +57,13 @@ type Setup = {
   limit?: string
   /** Whether the caller asks for exit codes, as slv v register:bls does. */
   exitCodes?: boolean
+  /** The network to register on; mainnet unless the test says otherwise. */
+  network?: NetworkType
+  /** The HOME of the person who runs it; null leaves HOME unset. */
+  home?: string | null
 }
 
-/** Runs the registration on mainnet and says what it did and printed. */
+/** Runs the registration, on mainnet unless the setup says otherwise, and says what it did and printed. */
 const register = async (setup: Setup) => {
   const calls: string[][] = []
   const out = {
@@ -101,7 +106,8 @@ const register = async (setup: Setup) => {
   }
   const replaced = Deno as unknown as Record<string, unknown>
   try {
-    Deno.env.set('HOME', HOME)
+    if (setup.home === null) Deno.env.delete('HOME')
+    else Deno.env.set('HOME', setup.home ?? HOME)
     replaced.Command = FakeCommand
     replaced.readTextFile = (path: string | URL, ...rest: unknown[]) =>
       String(path) === inventoryPath
@@ -116,7 +122,7 @@ const register = async (setup: Setup) => {
       }
     }
     const result = await registerBlsPubkey(
-      'mainnet',
+      setup.network ?? 'mainnet',
       setup.limit,
       setup.exitCodes === false
         ? {}
@@ -140,6 +146,12 @@ const sends = (calls: string[][]) =>
 // What no output of a registration says on mainnet, where SIMD-0387 is active.
 const INACTIVE_CLAIM =
   /not active|inactive|likely not|after activation|may not/i
+
+// The minimum solana CLI for the registration is 4.1.0: an output that names a
+// version names that one.
+const versionsNamed = (text: string) => [
+  ...new Set(text.match(/\d+\.\d+\.\d+/g)),
+]
 
 Deno.test('the registration is sent with the identity key as the authorized voter, the new voter and the fee payer, so solana needs no default keypair', async () => {
   const run = await register({
@@ -195,7 +207,7 @@ Deno.test('a send that fails is an error with exit code 1 that says what to chec
       'authorized voter',
       'authorized withdrawer',
       KEYPAIR_A,
-      '4.3.0',
+      '4.1.0',
       `identity ${IDENTITY_A} has SOL`,
       'fee',
       'one voter change is accepted per epoch',
@@ -204,6 +216,7 @@ Deno.test('a send that fails is an error with exit code 1 that says what to chec
   ) {
     assertStringIncludes(error, fact)
   }
+  assertEquals(versionsNamed(error), ['4.1.0'])
   const everything = [...run.out.log, ...run.out.warn, ...run.out.error]
   for (const line of everything) {
     assert(!INACTIVE_CLAIM.test(line), line)
@@ -235,7 +248,7 @@ Deno.test('a transaction that was sent but leaves the vote account without a BLS
   assert(!run.out.log.some((line) => line.includes('BLS public key set')))
 })
 
-Deno.test('solana that cannot be started is an error with exit code 1 that says to install 4.3.0 or later, and it does not throw', async () => {
+Deno.test('solana that cannot be started is an error with exit code 1 that says to install 4.1.0 or later, and it does not throw', async () => {
   const run = await register({
     inventory: ONE_HOST,
     solana: () => 'cannot start',
@@ -248,13 +261,14 @@ Deno.test('solana that cannot be started is an error with exit code 1 that says 
       'val-a',
       'could not run solana',
       'No such file or directory',
-      '4.3.0 or later',
+      '4.1.0 or later',
       'PATH',
       'slv v register:bls -n mainnet -p val-a',
     ]
   ) {
     assertStringIncludes(error, fact)
   }
+  assertEquals(versionsNamed(error), ['4.1.0'])
 })
 
 Deno.test('a host that the inventory does not have, or has no accounts for, fails the run even when another host is registered', async () => {
@@ -279,6 +293,42 @@ Deno.test('a host that the inventory does not have, or has no accounts for, fail
   assert(
     run.out.log.some((line) => line.includes('✔︎ val-a: BLS public key set')),
   )
+})
+
+Deno.test('a network that is not supported, an inventory with no host and an unset HOME are errors with exit code 1: nothing is sent and no warning is printed', async () => {
+  const cases: Array<[string, Partial<Setup>, string[]]> = [
+    [
+      'a network that is not supported',
+      { network: 'devnet' },
+      [
+        'testnet and mainnet only',
+        'got "devnet"',
+        'no BLS public key was registered',
+      ],
+    ],
+    [
+      'an inventory with no host',
+      { inventory: inventory({}) },
+      [
+        'No hosts to register BLS pubkey for',
+        'no BLS public key was registered',
+      ],
+    ],
+    ['an unset HOME', { home: null }, ['HOME is not set']],
+  ]
+  for (const [label, change, facts] of cases) {
+    const run = await register({
+      inventory: ONE_HOST,
+      solana: solana([null], {}),
+      ...change,
+    })
+    assertEquals(run.result, false, label)
+    assertEquals(run.exitCodes, [1], label)
+    assertEquals(run.calls, [], label)
+    assertEquals(run.out.warn, [], label)
+    const error = run.out.error.join('\n')
+    for (const fact of facts) assertStringIncludes(error, fact, label)
+  }
 })
 
 Deno.test('a caller that does not ask for exit codes, as the deploy does not, gets the result and the error lines and no exit code', async () => {
