@@ -1,4 +1,51 @@
 export const messages: Record<string, string> = {
+  'Complete account activation in the ERPC dashboard before using SLV AI.':
+    'Hoàn tất kích hoạt tài khoản trong bảng điều khiển ERPC trước khi dùng SLV AI.',
+  'Could not verify your account is ready for AI. Your settings will be saved.':
+    'Không thể xác nhận tài khoản đã sẵn sàng dùng AI. Cài đặt sẽ được lưu.',
+
+  // Quick onboarding
+  'Build and operate Solana, through conversation.':
+    'Xây dựng và vận hành Solana qua hội thoại.',
+  'Connect your account': 'Kết nối tài khoản',
+  'Continue with guided setup?': 'Tiếp tục thiết lập theo hướng dẫn?',
+  'Could not verify your AI balance. Your settings will be saved.':
+    'Không thể xác minh số dư AI. Cài đặt của bạn vẫn sẽ được lưu.',
+  'ERPC connected, but no AI tokens are available. Run `slv ai product` to review your options.':
+    'Đã kết nối ERPC nhưng không còn token AI khả dụng. Chạy `slv ai product` để xem các lựa chọn.',
+  'ERPC connected. AI balance: {count} tokens.':
+    'Đã kết nối ERPC. Số dư AI: {count} token.',
+  'Enable browser chat on this machine?':
+    'Bật trò chuyện trên trình duyệt cho máy này?',
+  'Existing sudoers file at {path} was not installed by slv — leaving it alone.':
+    'Tệp sudoers tại {path} không do slv tạo nên sẽ được giữ nguyên.',
+  'Finish signing in or checking your AI balance, then run `slv ai`.':
+    'Hoàn tất đăng nhập hoặc kiểm tra số dư AI, sau đó chạy `slv ai`.',
+  'Keep private keys and passwords out of the conversation.':
+    'Không đưa khóa riêng tư hoặc mật khẩu vào cuộc trò chuyện.',
+  'Keeping your existing AI provider: {provider}.':
+    'Giữ nhà cung cấp AI hiện tại của bạn: {provider}.',
+  'Language ready': 'Đã thiết lập ngôn ngữ',
+  'Personalization, notifications and browser access: `slv onboard --advanced`.':
+    'Cá nhân hóa, thông báo và truy cập qua trình duyệt: `slv onboard --advanced`.',
+  'Ready to chat': 'Sẵn sàng trò chuyện',
+  'SLV AI uses a cloud AI service. Commands that change your environment require confirmation.':
+    'SLV AI sử dụng dịch vụ AI trên đám mây. Các lệnh thay đổi môi trường cần được xác nhận trước khi thực hiện.',
+  'Settings can be saved now. Run `slv login` before starting SLV AI.':
+    'Bạn có thể lưu cài đặt ngay. Chạy `slv login` trước khi bắt đầu dùng SLV AI.',
+  'Settings saved': 'Đã lưu cài đặt',
+  'Start a conversation with `slv ai`.': 'Chạy `slv ai` để bắt đầu trò chuyện.',
+  'Sudoers install failed:': 'Cài đặt sudoers thất bại:',
+  'Try asking: "What subscriptions do I have?" or "Help me prepare a testnet validator."':
+    'Ví dụ: “Tôi có những gói đăng ký nào?” hoặc “Giúp tôi chuẩn bị validator trên testnet”.',
+  '{count} specialist agents are available. SLV chooses the right one for your request.':
+    'Có {count} trợ lý chuyên môn sẵn sàng. SLV sẽ chọn trợ lý phù hợp với yêu cầu của bạn.',
+  // First conversation
+  "I'm {agent}, your SLV assistant.": 'Tôi là {agent}, trợ lý SLV của bạn.',
+  'Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".':
+    'Ví dụ: “Xem các gói đăng ký ERPC của tôi” hoặc “Giúp tôi chuẩn bị validator trên testnet”.',
+  'Following your current request. Use /focus to set a preference.':
+    'Làm theo yêu cầu hiện tại của bạn. Dùng /focus để đặt lĩnh vực ưu tiên.',
   'SLV AI Onboarding': 'Cài đặt SLV AI',
   'Select your language': 'Chọn ngôn ngữ của bạn',
   'Language saved. Please run `slv onboard` again to continue.':
@@ -10,7 +57,8 @@ export const messages: Record<string, string> = {
   'A bad prompt can trick it into doing unsafe things.':
     'Một prompt xấu có thể khiến nó thực hiện những việc không an toàn.',
   'Recommended:': 'Khuyến nghị:',
-  "- Don't paste untrusted prompts.": '- Không dán các prompt không đáng tin cậy.',
+  "- Don't paste untrusted prompts.":
+    '- Không dán các prompt không đáng tin cậy.',
   '- `slv bot init` ships a Solana transaction sample designed to be improved with your AI before real use. When using real SOL, assets may decrease — use at your own risk.':
     '- `slv bot init` cung cấp mẫu giao dịch Solana, được thiết kế để bạn cải tiến bằng AI của mình trước khi sử dụng thực tế. Khi dùng SOL thật, tài sản có thể giảm — vui lòng tự chịu rủi ro khi sử dụng.',
   '- Keep secrets out of the conversation.':
@@ -21,14 +69,11 @@ export const messages: Record<string, string> = {
   'No': 'Không',
   'Setup cancelled.': 'Đã hủy cài đặt.',
 
-  'ERPC Login':
-    'Đăng nhập ERPC',
+  'ERPC Login': 'Đăng nhập ERPC',
   'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
     'Đăng nhập ERPC trên trình duyệt để dùng SLV AI và tài khoản ERPC của bạn từ máy này.',
-  'Sign in to ERPC now?':
-    'Đăng nhập ERPC ngay bây giờ?',
-  'Signed in to ERPC.':
-    'Đã đăng nhập ERPC.',
+  'Sign in to ERPC now?': 'Đăng nhập ERPC ngay bây giờ?',
+  'Signed in to ERPC.': 'Đã đăng nhập ERPC.',
   'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
     'Chưa đăng nhập ERPC. Hãy chạy `slv login` trên máy này để dùng SLV AI và HTTPS.',
   'Skipped. You can run `slv login` later.':
@@ -72,8 +117,7 @@ export const messages: Record<string, string> = {
     'Đã lưu Discord Webhook vào ~/.slv/api.yml',
   'Skipped.': 'Đã bỏ qua.',
 
-  'Agent files saved to ~/.slv/agent/':
-    'Đã lưu tệp agent vào ~/.slv/agent/',
+  'Agent files saved to ~/.slv/agent/': 'Đã lưu tệp agent vào ~/.slv/agent/',
   'AI configuration saved to ~/.slv/api.yml':
     'Đã lưu cấu hình AI vào ~/.slv/api.yml',
   'Agent:': 'Agent:',
@@ -101,8 +145,7 @@ export const messages: Record<string, string> = {
   "I'm {agent}, your SLV commander.": 'Tôi là {agent}, chỉ huy SLV của bạn.',
   "I'm your SLV assistant.": 'Tôi là trợ lý SLV của bạn.',
   "Here's my crew:": 'Đây là đội của tôi:',
-  'What would you like to work on today?':
-    'Hôm nay bạn muốn làm gì?',
+  'What would you like to work on today?': 'Hôm nay bạn muốn làm gì?',
   'Solana Validator deployments & management':
     'Triển khai & quản lý Solana Validator',
   'RPC nodes (Index RPC, gRPC Geyser, combos)':
@@ -110,8 +153,7 @@ export const messages: Record<string, string> = {
   'Trading bots & Solana apps': 'Bot giao dịch & ứng dụng Solana',
   'Find optimized Solana server resources':
     'Tìm tài nguyên máy chủ Solana tối ưu',
-  'Benchmarks & connectivity testing':
-    'Kiểm thử hiệu năng & kết nối',
+  'Benchmarks & connectivity testing': 'Kiểm thử hiệu năng & kết nối',
   'Goodbye!': 'Tạm biệt!',
 
   "Focused on Solana App Development. Say 'new trade bot' when you're ready.":
@@ -132,8 +174,7 @@ export const messages: Record<string, string> = {
   '🎓 Intent detected: {intent}': '🎓 Đã phát hiện ý định: {intent}',
   '🧰 Enabling tools: {tools}': '🧰 Đang bật công cụ: {tools}',
   '📚 Loading context: {modules}': '📚 Đang tải ngữ cảnh: {modules}',
-  '🤖 Loading specialist: {specialist}':
-    '🤖 Đang tải chuyên gia: {specialist}',
+  '🤖 Loading specialist: {specialist}': '🤖 Đang tải chuyên gia: {specialist}',
   '📚 Loading {context}…': '📚 Đang tải {context}…',
 
   'general conversation': 'trò chuyện chung',
@@ -184,8 +225,7 @@ export const messages: Record<string, string> = {
   '⚠ Failed to set focus: {error}': '⚠ Không thể đặt focus: {error}',
   'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto':
     'Focus không xác định "{focus}". Dùng: validator | rpc | app | mixed | auto',
-  '⚠ Profile refresh failed: {error}':
-    '⚠ Làm mới hồ sơ thất bại: {error}',
+  '⚠ Profile refresh failed: {error}': '⚠ Làm mới hồ sơ thất bại: {error}',
 
   '⏳ {agent} is still working ({elapsed} elapsed).':
     '⏳ {agent} vẫn đang làm việc (đã trôi qua {elapsed}).',
@@ -234,10 +274,8 @@ export const messages: Record<string, string> = {
   'save configuration or update memory': 'lưu cấu hình hoặc cập nhật bộ nhớ',
   'inspect available files before acting':
     'kiểm tra tệp có sẵn trước khi thực hiện',
-  'notify you when a long task finishes':
-    'thông báo khi tác vụ dài hoàn tất',
-  'hand work to a specialist agent':
-    'chuyển công việc cho agent chuyên trách',
+  'notify you when a long task finishes': 'thông báo khi tác vụ dài hoàn tất',
+  'hand work to a specialist agent': 'chuyển công việc cho agent chuyên trách',
 
   '(exit code {code})': '(mã thoát {code})',
   'Error: {message}': 'Lỗi: {message}',
@@ -271,7 +309,8 @@ export const messages: Record<string, string> = {
   'auth failed — check token': 'xác thực thất bại — kiểm tra token',
   '⏸ aborted': '⏸ đã hủy',
   '❌ error': '❌ lỗi',
-  '[disconnected — reply interrupted]': '[đã ngắt kết nối — phản hồi bị gián đoạn]',
+  '[disconnected — reply interrupted]':
+    '[đã ngắt kết nối — phản hồi bị gián đoạn]',
 
   // --- Đính kèm ảnh trong chat trình duyệt ---
   'Attach image': 'Đính kèm ảnh',
@@ -307,8 +346,7 @@ export const messages: Record<string, string> = {
     'Cài dịch vụ chạy nền để bạn có thể trò chuyện với SLV từ trình duyệt tại http://127.0.0.1:{port}/ui/ mà không cần mở terminal.',
   'Not supported on this platform — skipped.':
     'Không hỗ trợ trên nền tảng này — đã bỏ qua.',
-  'Could not probe gateway status:':
-    'Không kiểm tra được trạng thái cổng:',
+  'Could not probe gateway status:': 'Không kiểm tra được trạng thái cổng:',
   'Gateway is already running at http://127.0.0.1:{port}/ui/':
     'Cổng đang chạy tại http://127.0.0.1:{port}/ui/',
   'Install and start the gateway now?':
@@ -380,8 +418,7 @@ export const messages: Record<string, string> = {
   'Enable remote IP access now?': 'Bật truy cập từ xa bằng IP ngay?',
   'Remote IP access enabled — gateway restarted.':
     'Đã bật truy cập từ xa bằng IP — cổng được khởi động lại.',
-  'Failed to enable remote IP access:':
-    'Không thể bật truy cập từ xa bằng IP:',
+  'Failed to enable remote IP access:': 'Không thể bật truy cập từ xa bằng IP:',
   'You can run `slv gateway config set-mode lan` later.':
     'Bạn có thể chạy `slv gateway config set-mode lan` sau.',
   'Kept loopback-only. Run `slv gateway config set-mode lan` later to enable remote access.':
@@ -402,6 +439,5 @@ export const messages: Record<string, string> = {
   'Discord webhook post returned': 'Phản hồi từ Discord webhook:',
   'Check the webhook URL in ~/.slv/api.yml.':
     'Kiểm tra URL webhook trong ~/.slv/api.yml.',
-  'Could not reach Discord webhook:':
-    'Không kết nối được Discord webhook:',
+  'Could not reach Discord webhook:': 'Không kết nối được Discord webhook:',
 }

@@ -1,10 +1,58 @@
 export const messages: Record<string, string> = {
+  'Complete account activation in the ERPC dashboard before using SLV AI.':
+    'Перед использованием SLV AI завершите активацию аккаунта в панели ERPC.',
+  'Could not verify your account is ready for AI. Your settings will be saved.':
+    'Не удалось проверить готовность аккаунта к использованию AI. Настройки будут сохранены.',
+
+  // Quick onboarding
+  'Build and operate Solana, through conversation.':
+    'Создавайте и обслуживайте инфраструктуру Solana через диалог.',
+  'Connect your account': 'Подключите свой аккаунт',
+  'Continue with guided setup?': 'Продолжить пошаговую настройку?',
+  'Could not verify your AI balance. Your settings will be saved.':
+    'Не удалось проверить баланс AI. Настройки будут сохранены.',
+  'ERPC connected, but no AI tokens are available. Run `slv ai product` to review your options.':
+    'ERPC подключён, но доступных AI-токенов нет. Выполните `slv ai product`, чтобы посмотреть варианты.',
+  'ERPC connected. AI balance: {count} tokens.':
+    'ERPC подключён. Баланс AI: {count} токенов.',
+  'Enable browser chat on this machine?':
+    'Включить чат в браузере на этом устройстве?',
+  'Existing sudoers file at {path} was not installed by slv — leaving it alone.':
+    'Файл sudoers по пути {path} создан не slv и останется без изменений.',
+  'Finish signing in or checking your AI balance, then run `slv ai`.':
+    'Завершите вход или проверку баланса AI, затем выполните `slv ai`.',
+  'Keep private keys and passwords out of the conversation.':
+    'Не отправляйте приватные ключи и пароли в чат.',
+  'Keeping your existing AI provider: {provider}.':
+    'Сохраняем выбранного поставщика AI: {provider}.',
+  'Language ready': 'Язык настроен',
+  'Personalization, notifications and browser access: `slv onboard --advanced`.':
+    'Персонализация, уведомления и доступ через браузер: `slv onboard --advanced`.',
+  'Ready to chat': 'Всё готово для общения',
+  'SLV AI uses a cloud AI service. Commands that change your environment require confirmation.':
+    'SLV AI использует облачный AI-сервис. Команды, изменяющие окружение, требуют подтверждения.',
+  'Settings can be saved now. Run `slv login` before starting SLV AI.':
+    'Настройки можно сохранить сейчас. Перед запуском SLV AI выполните `slv login`.',
+  'Settings saved': 'Настройки сохранены',
+  'Start a conversation with `slv ai`.': 'Начните диалог командой `slv ai`.',
+  'Sudoers install failed:': 'Не удалось установить sudoers:',
+  'Try asking: "What subscriptions do I have?" or "Help me prepare a testnet validator."':
+    'Например: «Какие у меня подписки?» или «Помоги подготовить валидатор тестовой сети».',
+  '{count} specialist agents are available. SLV chooses the right one for your request.':
+    'Доступно специалистов: {count}. SLV выберет подходящего для вашего запроса.',
+  // First conversation
+  "I'm {agent}, your SLV assistant.": 'Я {agent}, ваш помощник SLV.',
+  'Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".':
+    'Например: «Покажи мои подписки ERPC» или «Помоги подготовить валидатор тестовой сети».',
+  'Following your current request. Use /focus to set a preference.':
+    'Следую вашему текущему запросу. Команда /focus задаёт предпочтительное направление.',
   'SLV AI Onboarding': 'Настройка SLV AI',
   'Select your language': 'Выберите язык',
   'Language saved. Please run `slv onboard` again to continue.':
     'Язык сохранён. Пожалуйста, запустите `slv onboard` снова, чтобы продолжить.',
 
-  'Security warning — please read.': 'Предупреждение о безопасности — прочтите.',
+  'Security warning — please read.':
+    'Предупреждение о безопасности — прочтите.',
   'SLV AI Console can execute commands on your system.':
     'SLV AI Console может выполнять команды в вашей системе.',
   'A bad prompt can trick it into doing unsafe things.':
@@ -13,22 +61,18 @@ export const messages: Record<string, string> = {
   "- Don't paste untrusted prompts.": '- Не вставляйте непроверенные запросы.',
   '- `slv bot init` ships a Solana transaction sample designed to be improved with your AI before real use. When using real SOL, assets may decrease — use at your own risk.':
     '- `slv bot init` предоставляет образец транзакций Solana, который предполагается доработать вашим ИИ перед реальным использованием. При использовании настоящих SOL активы могут уменьшиться — используйте на свой страх и риск.',
-  '- Keep secrets out of the conversation.':
-    '- Не включайте секреты в диалог.',
+  '- Keep secrets out of the conversation.': '- Не включайте секреты в диалог.',
   'I understand this is powerful and inherently risky. Continue?':
     'Я понимаю, что это мощный и рискованный инструмент. Продолжить?',
   'Yes': 'Да',
   'No': 'Нет',
   'Setup cancelled.': 'Настройка отменена.',
 
-  'ERPC Login':
-    'Вход в ERPC',
+  'ERPC Login': 'Вход в ERPC',
   'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
     'Войдите в ERPC в браузере, чтобы пользоваться SLV AI и аккаунтом ERPC с этой машины.',
-  'Sign in to ERPC now?':
-    'Войти в ERPC сейчас?',
-  'Signed in to ERPC.':
-    'Вход в ERPC выполнен.',
+  'Sign in to ERPC now?': 'Войти в ERPC сейчас?',
+  'Signed in to ERPC.': 'Вход в ERPC выполнен.',
   'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
     'Вход в ERPC не выполнен. Запустите `slv login` на этой машине, чтобы пользоваться SLV AI и HTTPS.',
   'Skipped. You can run `slv login` later.':
@@ -101,8 +145,7 @@ export const messages: Record<string, string> = {
   "I'm {agent}, your SLV commander.": 'Я {agent}, ваш SLV командир.',
   "I'm your SLV assistant.": 'Я ваш SLV ассистент.',
   "Here's my crew:": 'Вот моя команда:',
-  'What would you like to work on today?':
-    'Над чем хотите поработать сегодня?',
+  'What would you like to work on today?': 'Над чем хотите поработать сегодня?',
   'Solana Validator deployments & management':
     'Развёртывание и управление валидаторами Solana',
   'RPC nodes (Index RPC, gRPC Geyser, combos)':
@@ -110,8 +153,7 @@ export const messages: Record<string, string> = {
   'Trading bots & Solana apps': 'Торговые боты и приложения Solana',
   'Find optimized Solana server resources':
     'Поиск оптимальных серверных ресурсов Solana',
-  'Benchmarks & connectivity testing':
-    'Бенчмарки и тестирование соединения',
+  'Benchmarks & connectivity testing': 'Бенчмарки и тестирование соединения',
   'Goodbye!': 'До свидания!',
 
   "Focused on Solana App Development. Say 'new trade bot' when you're ready.":
@@ -144,8 +186,7 @@ export const messages: Record<string, string> = {
   'validator operations': 'эксплуатация валидатора',
   'RPC deployment': 'развёртывание RPC',
   'RPC operations': 'эксплуатация RPC',
-  'benchmark or connectivity testing':
-    'бенчмарк или тестирование соединения',
+  'benchmark or connectivity testing': 'бенчмарк или тестирование соединения',
   'app or bot development': 'разработка приложения или бота',
   'CLI or file operation': 'команда CLI или работа с файлами',
   'needs clarification': 'требуется уточнение',
@@ -184,8 +225,7 @@ export const messages: Record<string, string> = {
   '⚠ Failed to set focus: {error}': '⚠ Не удалось установить фокус: {error}',
   'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto':
     'Неизвестный фокус "{focus}". Используйте: validator | rpc | app | mixed | auto',
-  '⚠ Profile refresh failed: {error}':
-    '⚠ Не удалось обновить профиль: {error}',
+  '⚠ Profile refresh failed: {error}': '⚠ Не удалось обновить профиль: {error}',
 
   '⏳ {agent} is still working ({elapsed} elapsed).':
     '⏳ {agent} всё ещё работает (прошло {elapsed}).',
@@ -202,8 +242,7 @@ export const messages: Record<string, string> = {
   'The system': 'Система',
   'a moment': 'немного времени',
 
-  '⚠️  Missing dependencies: {deps}':
-    '⚠️  Отсутствуют зависимости: {deps}',
+  '⚠️  Missing dependencies: {deps}': '⚠️  Отсутствуют зависимости: {deps}',
   'Install now? (Y/n) ': 'Установить сейчас? (Y/n) ',
   'Skipping installation. Some features may not work.':
     'Установка пропущена. Некоторые функции могут не работать.',
@@ -229,8 +268,7 @@ export const messages: Record<string, string> = {
   '🔗 Calling SLV Cloud API': '🔗 Вызываю SLV Cloud API',
   'inspect or operate the local/remote SLV environment':
     'проверить или управлять локальным / удалённым окружением SLV',
-  'inspect focused local SLV files':
-    'проверить связанные локальные файлы SLV',
+  'inspect focused local SLV files': 'проверить связанные локальные файлы SLV',
   'check subscriptions or fetch SLV Cloud data':
     'проверить подписки или получить данные SLV Cloud',
   'save configuration or update memory':
@@ -310,12 +348,10 @@ export const messages: Record<string, string> = {
     'Устанавливает фоновый сервис, чтобы вы могли общаться с SLV из любого браузера по адресу http://127.0.0.1:{port}/ui/, не держа терминал открытым.',
   'Not supported on this platform — skipped.':
     'Не поддерживается на этой платформе — пропущено.',
-  'Could not probe gateway status:':
-    'Не удалось проверить статус шлюза:',
+  'Could not probe gateway status:': 'Не удалось проверить статус шлюза:',
   'Gateway is already running at http://127.0.0.1:{port}/ui/':
     'Шлюз уже работает по адресу http://127.0.0.1:{port}/ui/',
-  'Install and start the gateway now?':
-    'Установить и запустить шлюз сейчас?',
+  'Install and start the gateway now?': 'Установить и запустить шлюз сейчас?',
   'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
     'Пропущено. Запустите `slv gateway install && slv gateway start` позже, чтобы включить браузерный интерфейс.',
   'Gateway install failed — run `slv gateway install` manually to retry.':

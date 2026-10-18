@@ -1,7 +1,11 @@
 import {
-  VERSION,
-  VERSION_JITO_VALIDATOR_TESTNET,
-} from '@cmn/constants/version.ts'
+  BACKUP_GUIDANCE,
+  COMMAND_REFERENCE,
+  FIREWALL_GUIDANCE,
+  VALIDATOR_GUIDANCE,
+  WIREGUARD_GUIDANCE,
+} from '@/ai/console/operationalGuidance.ts'
+import { VERSION } from '@cmn/constants/version.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { readLang } from '@/ai/config.ts'
 import { detectProfile, profilePromptBlock } from '@/ai/console/profile.ts'
@@ -40,7 +44,9 @@ export function loadContextModules(modules: string[]): string {
 }
 
 export function filterUnloadedContextModules(modules: string[]): string[] {
-  return modules.filter((mod) => CONTEXT_MODULES[mod] && !loadedModules.has(mod))
+  return modules.filter((mod) =>
+    CONTEXT_MODULES[mod] && !loadedModules.has(mod)
+  )
 }
 
 // --- Lazy-loaded skill docs registry/cache ---
@@ -133,113 +139,32 @@ export const CONTEXT_MODULES: Record<string, string> = {
 - For Solana app/bot tasks (trade bot, app templates) → delegate_to_agent with agent="Setzer"
 - For server procurement, bare metal inventory, server availability, and validator hardware sizing/recommendation → delegate_to_agent with agent="Figaro"
 
-### Deployment question flow (STRICT ORDER)
-1. **First**: "Do you already have a server? (yes / no / I need to buy one)"
-   - If NO/buy → ask preferred region, then delegate to Figaro
-   - If YES → continue to step 2
-2. Server IP
-3. SSH login user (default: solv)
-4. SSH CHECK → load the \`ssh_check\` context module for full procedure
-5. Network (mainnet/testnet)
-6. Region (amsterdam/frankfurt/tokyo/ny)
-7. Validator type (jito/agave on any network; firedancer-agave/firedancer-jito on testnet only, mainnet refuses them)
-8. Identity + Vote account
+### Deployment flow
+- Identify the workload (validator, RPC, app), its network and exact target host first.
+- For a validator, load validator guidance. Validator types: jito/agave/allnodes-jito; firedancer-agave/firedancer-jito on testnet only, mainnet refuses them.
+- For RPC work, use the selected mainnet/testnet/devnet RPC workflow and RPC inventory. Do not ask for vote accounts or promote a voting identity as part of RPC setup.
+- Ask only the next missing detail. A status question does not authorize setup, deployment, firewall changes or procurement.
+- Use the supported CLI and its target/key/confirmation guards. Hand interactive steps to the operator's terminal rather than bypassing them.
+- Load firewall, wireguard or backup guidance only when that operation is requested.
+`,
 
-IMPORTANT: Before any deployment, call load_context with modules "ssh_check" and "deploy" for SSH check procedure and deployment rules.
+  ssh_check: `## Verify the target before remote work
+- Establish the intended host, network, login user and whether the operation targets this machine or a remote inventory host.
+- Use only public connection details. Never read or request private SSH keys.
+- An SSH or Ansible operation still requires the operator's terminal approval. Do not create users, change sudo rules or disable passwords as an implicit connectivity check.
+- Interactive SLV init belongs in the operator's terminal; it handles the supported setup flow. Confirm successful access before a deployment or firewall change.`,
 
-### Deployment Flow
-When a user asks to deploy:
-1. First ask: "Do you already have a server, or do you need one?"
-2. If NO server → delegate to Figaro with region preference
-3. If YES server → proceed with IP/SSH user/etc.`,
-
-  ssh_check: `## SSH Check Procedure
-After getting IP and SSH user, IMMEDIATELY run these commands yourself (do NOT delegate):
-a) FIRST try solv: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o PasswordAuthentication=no solv@<ip> 'echo SOLV_OK'\`
-   - If solv works → great, skip to step d).
-b) If solv fails, try the provided ssh_user (e.g. root, ubuntu):
-   \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o PasswordAuthentication=no <ssh_user>@<ip> 'echo SSH_OK'\`
-   - If this also fails → tell the user "Cannot connect to the server. Please check SSH access." STOP HERE.
-c) Create solv user:
-   \`TEMPLATE_DIR=$(ls -d ~/.slv/template/*/ | sort -V | tail -1) && ansible-playbook -i '<ip>,' -e 'ansible_user=<ssh_user> ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new -o PasswordAuthentication=no"' --become \${TEMPLATE_DIR}ansible/cmn/add_solv.yml\`
-   Then verify: \`ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o PasswordAuthentication=no solv@<ip> 'echo SOLV_OK'\`
-   - If it fails → tell the user "Could not set up the solv user." STOP HERE.
-d) Tell the user: "✅ Server connected and ready!" Then continue.
-
-CRITICAL: ALWAYS use \`-o PasswordAuthentication=no\` on ALL ssh commands.`,
-
-  deploy: `## Deploy Context
-
-### Template Path
-- Ansible templates are at: \`~/.slv/template/{version}/ansible/\`
-- To find the latest version directory: \`ls -d ~/.slv/template/*/ | sort -V | tail -1\`
-- Always resolve the latest version dynamically before running ansible commands.
-
-### Deployment rules
-- Snapshot URL is auto-detected by the sub-agent (nearest region ping test). No need to ask the user.
-- Available snapshot regions: Amsterdam, Frankfurt, London, NY, Chicago, Singapore, Tokyo
-- When showing the deploy summary, include the Solana version from ~/.slv/versions.yml.
-  Read it via read_file and show e.g. "Solana Version: ${VERSION_JITO_VALIDATOR_TESTNET} (from versions.yml)"
-- Do NOT ask for version — Cecil reads defaults from ~/.slv/versions.yml automatically.
-- Do NOT ask for snapshot URL, commission, port range — defaults are used.
-- Do NOT offer dry-runs. Just deploy when the user confirms.
-- Before starting a deploy, tell the user: "This will take 20-40 minutes (build + snapshot download). I'll notify you when it's done."
-- After a deploy completes (success or failure), ALWAYS call send_notification with a summary.
-  - Success: "✅ Deployment complete! Testnet validator deployed at 1.2.3.4 — identity: <pubkey>"
-  - Failure: "❌ Deployment failed for 1.2.3.4 — <error summary>"
-- For jito: only ask type once. Version is automatic.`,
-
-  validator: `## Identity Key Structure (IMPORTANT)
-After deployment, the target node has this key layout:
-- \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup (prevents double-voting).
-- \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`. It is changed only by the slv commands below, never by hand.
-- The staked key stays on the controller (this machine) at \`~/.slv/keys/<identity>.json\`, on testnet and on mainnet: deploy never copies it to the node, and \`slv v set:identity -p <host>\` and \`slv v switch\` send it to the node only on stdin. A node deployed by an older slv may still hold a copy.
-- To switch a staked/unstaked pair: \`slv v switch\`
-- To promote a single node to the staked identity: \`slv v set:identity -p <host>\`
-- Keys are generated by the operator with \`slv v init\` in their own terminal, outside the console. Never generate keys in the console.
-- The file "staked-identity.json" does NOT exist. Never reference it.`,
-
-  cli_reference:
-    `## SLV CLI Reference (you already know this — do NOT run slv --help)
-
-### Validator commands (\`slv v\` or \`slv validator\`)
-| Command | Description |
-|---|---|
-| \`slv v init\` | Interactive validator config initialization — asks for IP, network (mainnet/testnet), validator type (jito/agave on any network, firedancer on testnet only), etc. |
-| \`slv v deploy\` | Full deployment (runs Ansible playbook; never copies the staked identity key to the node) |
-| \`slv v start\` | Start validator |
-| \`slv v stop\` | Stop validator |
-| \`slv v restart\` | Restart validator |
-| \`slv v build:solana\` | Build Solana binary from source |
-| \`slv v update:script\` | Update start-validator.sh from template |
-| \`slv v set:identity -p <host>\` | Set the validator identity on one host (the staked key is sent from the controller on stdin) |
-| \`slv v set:unstaked\` | Switch to unstaked identity |
-| \`slv v get:snapshot\` | Download snapshot via aria2c |
-| \`slv v cleanup\` | Remove ledger/snapshot files |
-| \`slv v switch\` | Zero-downtime identity migration (the staked key is sent from the controller on stdin) |
-| \`slv v list\` | List validators |
-
-### RPC commands (\`slv r\` or \`slv rpc\`)
-| Command | Description |
-|---|---|
-| \`slv r init\` | Interactive RPC config — asks for IP, RPC type, network, etc. |
-| \`slv r deploy\` | Full RPC deployment |
-| \`slv r start\` | Start RPC node |
-| \`slv r stop\` | Stop RPC node |
-| \`slv r restart\` | Restart RPC node |
-| \`slv r build:solana\` | Build Solana binary |
-
-### Other commands
-| Command | Description |
-|---|---|
-| \`slv metal product\` | Browse bare metal servers for purchase |
-| \`slv backup create\` | Create node backup |
-| \`slv backup restore\` | Restore from backup |
-| \`slv storage upload\` | Upload to cloud storage |
-| \`slv storage download\` | Download from cloud storage |
-| \`slv check grpc\` | Check gRPC endpoint latency |
-| \`slv check\` | Check endpoint health |
-| \`slv install\` | Install software (Redis, TiDB, Grafana, etc.) |`,
+  deploy: `## Deployment target and approval
+- Establish validator versus RPC versus app, the selected network and one explicit inventory target. A local chat does not imply a local deployment.
+- For RPC, use the chosen mainnet/testnet/devnet RPC inventory and RPC command flow; do not request a vote account or promote a voting identity.
+- For validators, load the validator module before discussing keyless startup, promotion or migration.
+- Check the installed CLI help, version pins, prerequisites and target. Interactive commands belong in the operator's terminal; do not substitute direct init.yml execution, pipe answers or invent bypass flags.
+- Report the actual result and next verification step. A successful install alone does not prove sync, service reachability or voting readiness.`,
+  validator: VALIDATOR_GUIDANCE,
+  cli_reference: COMMAND_REFERENCE,
+  firewall: FIREWALL_GUIDANCE,
+  wireguard: WIREGUARD_GUIDANCE,
+  backup: BACKUP_GUIDANCE,
 
   mcp_reference: `## SLV Cloud API
 You have access to a fixed set of read-only SLV Cloud endpoints via the
@@ -253,6 +178,12 @@ for any of those actions.
 - call_mcp(tool_name="get_user_dashboard") — Full dashboard data
 - call_mcp(tool_name="get_user_billing_address") — Billing address
 - call_mcp(tool_name="get_user_credit_snapshot") — Current credit balance snapshot
+
+### SLV AI plan and tokens
+- call_mcp(tool_name="get_ai_usage", arguments={boost: 1}) — Current AI entitlement, token allowance and remaining balance
+- For AI plan/usage questions, use the current SLV AI usage context or refresh this tool. Report the returned plan and remaining tokens separately from ERPC RPC tokens and monetary credit.
+- Billing contract lists describe paid contracts, not all usable AI entitlements. An empty list must not override the AI usage response or imply that AI is inactive.
+- If AI usage cannot be fetched, say that it could not be verified. Do not substitute a plan or balance from memory, an RPC subscription, or the absence of billing contracts.
 
 ### BareMetal Servers
 - call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "APP"}) — Testnet validators, dev, apps
@@ -290,7 +221,7 @@ https://dashboard.erpc.global to complete checkout and any IP registration.
 - call_mcp(tool_name="get_dedicated_status") — Dedicated gRPC/Shreds status
 
 ### Billing
-- call_mcp(tool_name="get_billing_my_subscriptions") — All active subscriptions
+- call_mcp(tool_name="get_billing_my_subscriptions") — Active paid billing contracts; use get_ai_usage for current AI entitlement and tokens
 - call_mcp(tool_name="get_billing_credit_balance") — Credit balance
 - call_mcp(tool_name="get_billing_credit_transactions") — Credit transaction history
 
@@ -326,37 +257,7 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
   const userMd = ctx.user?.raw ?? ''
   const memoryMd = ctx.memory?.raw ?? ''
 
-  // Always-on non-interactive command reference for `slv backup` and
-  // `slv storage`. Loaded directly into the main agent prompt so the
-  // console never hangs on a TTY prompt when users ask to back up or
-  // manage storage. Falls back silently if the skill hasn't been synced
-  // yet (the short Core Rules line below still covers that case).
-  let backupSkillMd = ''
-  try {
-    backupSkillMd = await Deno.readTextFile(
-      resolveSkillMdPath('slv-backup', home),
-    )
-  } catch { /* skill not synced yet — Core Rules line still applies */ }
-
-  // EL-owned operational skills: firewall + WireGuard. These aren't
-  // delegated to a specialist agent — EL walks the user through them
-  // directly, so the full SKILL.md has to be in the main prompt.
-  let firewallSkillMd = ''
-  try {
-    firewallSkillMd = await Deno.readTextFile(
-      resolveSkillMdPath('slv-firewall', home),
-    )
-  } catch { /* not synced yet */ }
-  let wireguardSkillMd = ''
-  try {
-    wireguardSkillMd = await Deno.readTextFile(
-      resolveSkillMdPath('slv-wireguard', home),
-    )
-  } catch { /* not synced yet */ }
-
-  // Detect the user's primary focus (validator / rpc / app / mixed) so the
-  // main agent can bias its proactive suggestions. See profile.ts for the
-  // exact signal hierarchy.
+  // Honor an explicit focus without scanning projects or guessing a task.
   const userProfile = await detectProfile().catch(() => null)
   const profileBlock = userProfile ? profilePromptBlock(userProfile) : ''
 
@@ -410,9 +311,7 @@ async function buildCorePrompt(userContext?: string): Promise<string> {
 ## Deployment Mode: LOCAL
 This user operates in LOCAL mode. All deployments target the local machine.
 - Do NOT ask for server IP or SSH credentials.
-- Use \`--localhost\` flag for all init/deploy commands.
-- Example: \`slv v init --localhost\`, \`slv r init --localhost\`, \`slv bot deploy --localhost\`
-- Ansible runs locally with \`ansible_connection: local\`.
+- Use --localhost only where the exact init command supports it. Deploy commands select the configured inventory host; do not append --localhost to them. Verify syntax with get_command_help.
 - For bot deploy, binaries are copied locally (no SCP).
 `
     : `
@@ -436,7 +335,9 @@ This user operates in REMOTE mode. Deployments target remote servers via SSH.
 
   return `You are the main SLV assistant for Solana node operators.
 You are the user's only visible point of contact.
-If SOUL.md defines a name, use it. Otherwise introduce yourself as "your SLV assistant".
+Assistant name: ${JSON.stringify(ctx.soul?.name ?? 'SLV')}
+Preferred response language: ${JSON.stringify(preferredLang)}
+Use the configured assistant name when relevant. The local welcome already introduced you; do not introduce yourself again.
 
 ${soulMd ? `## Identity\n${soulMd}\n` : ''}
 ${userMd ? `## User\n${userMd}\n` : ''}
@@ -444,13 +345,16 @@ ${memoryMd ? `## Memory\n${memoryMd}\n` : ''}
 ${modeSection}
 ${profileBlock ? `\n${profileBlock}\n` : ''}
 ## Core Rules
+- Answer the current request directly. Greetings and thanks need at most one or two short sentences.
+- Do not turn small talk into project discovery, a checklist, a backup reminder, or a sales pitch.
+- Profile and memory are background facts, not a request to resume work. Do not announce local files or projects unless relevant to the user's request.
+- Do not repeat the welcome or self-introduction, even if old profile notes ask you to greet the user.
 - Keep replies short, practical, and natural.
 - Ask one question at a time.
-- Do not run \`slv --help\` or wander the filesystem.
+- For command syntax, use the focused command reference or inspect the exact subcommand help. Never guess flags or bypass a CLI safeguard by running its playbook directly. Do not wander the filesystem.
 - Use bullet points instead of markdown tables.
 - Show payment or purchase links as the full URL on its own line.
 - Warn before destructive actions.
-- **Proactive backup reminders**: periodically remind the user about \`slv backup create --restic -y -r <region>\` — especially (a) at the end of a successful deployment, config change, or validator upgrade, (b) when they tell you they're about to make a risky change, (c) when they open a new session and you see no recent backup-related chatter in MEMORY.md. Never run it for them silently; always phrase it as a suggestion the user can accept or decline.
 - **Always respond after every tool call**: once ANY tool returns — \`run_command\`, \`delegate_to_agent\`, \`read_file\`, \`call_mcp\`, \`send_notification\`, etc. — you MUST emit a user-facing text response summarizing what happened before your turn ends. Never leave a tool call as the final action of a turn without a human-readable follow-up. If a tool returns "Command stopped — no output for N seconds" or similar "still running / timed out" wording, treat that as a real event: tell the user plainly ("そのコマンドは応答なしで停止しました、…") and propose the next step. Silence = bug from the user's point of view.
 - **Incremental memory writes**: the browser chat has no clean "session end" — the user may close the tab, the WS may drop, the VPS may reboot. To make sure nothing notable is lost, call \`write_file\` on \`${agentDir}/MEMORY.md\` **as soon as a notable event settles**, NOT at some imaginary end-of-session. Do this AFTER, not before, replying to the user.
   - What counts as notable: a deployment completed, a bot app was created or started, a config file was written, a subscription/payment was made, an error the user will want to remember, a decision about direction (e.g. "use core2 plan for VPN"), a server IP the user should remember, a Discord webhook or API key was configured.
@@ -465,13 +369,13 @@ ${profileBlock ? `\n${profileBlock}\n` : ''}
 ${languageRule}
 ${
     configPresence.discordWebhook
-      ? `- A Discord webhook is configured (\`notifications.discord_webhook\` in ~/.slv/api.yml). When you produce content the user is likely to save or share — payment links, benchmark summaries, deployment results, important URLs — proactively ask whether to post it to Discord and use \`send_notification\` when they confirm. Do not send silently, and do not read or display the webhook URL itself.`
-      : `- No Discord webhook is configured. If the user asks to send something to Discord, tell them they can set one up with \`slv onboard\`. Do not ask for a webhook URL in chat.`
+      ? `- A Discord webhook is configured (\`notifications.discord_webhook\` in ~/.slv/api.yml). When you produce content the user is likely to save or share — payment links, benchmark summaries, deployment results, important URLs — use \`send_notification\` only when the user asks to send it and confirms. Do not send silently, and do not read or display the webhook URL itself.`
+      : `- No Discord webhook is configured. If the user asks to send something to Discord, tell them they can set one up with \`slv onboard --advanced\`. Do not ask for a webhook URL in chat.`
   }
 
 ## Routing
-- Intent bootstrap already ran before this turn. Respect the staged tools/context that were enabled.
-- Do not rely on keyword heuristics as your main router.
+- Use tools and operational context only when the current request needs them. A greeting does not require classification, tools, local file reads, or specialist delegation.
+- Use the conversation to resolve short follow-ups. Clarify a missing target or ambiguous approval before an operational action.
 - When specialist work is clearly needed, delegate and then relay the result briefly.
 - Validator work usually maps to Cecil.
 - RPC / gRPC / indexer work usually maps to Tina.
@@ -487,9 +391,6 @@ ${
 - Direct the user to ask in Discord for availability or matching:
   ${DISCORD_LINK}
 
-${backupSkillMd ? `## Backup & Storage (non-interactive reference)\n${backupSkillMd}\n` : ''}
-${firewallSkillMd ? `## Firewall (EL walkthrough)\n${firewallSkillMd}\n` : ''}
-${wireguardSkillMd ? `## WireGuard VPN (EL walkthrough)\n${wireguardSkillMd}\n` : ''}
 ## Working Environment
 - Home: ${home}
 - Agent dir: ${agentDir}/
@@ -514,12 +415,12 @@ Startup is intentionally thin.
 - Do not preload inventory contents, subscription data, or skill docs.
 - Read local SLV files only when the active task needs them.
 - Use focused \`read_file\` reads for large files.
-- MCP responses and targeted file reads are cached for the session unless refreshed.
+- MCP responses and targeted file reads can be cached; refresh changing balances/status instead of presenting an old snapshot as current.
 - Specialist skill docs are loaded only when the user's intent clearly points to that domain or when you delegate.
 
 ## Session Notes
 - The local greeting is already shown before the first message. Do not repeat it.
-- Context modules are available through \`load_context\` when needed.
+- Context modules are available through \`load_context\` when needed: validator/deploy for identity or node work, firewall, wireguard, backup, cli_reference and mcp_reference. Load the relevant operational guidance before proposing commands.
 - Use explicit staged loading before pulling heavy context or enabling side-effect tools.
 - Do not assume hidden startup preloads already happened for the current request.
 
@@ -537,4 +438,18 @@ ${
 
 export async function buildSystemPrompt(userContext?: string): Promise<string> {
   return buildCorePrompt(userContext)
+}
+
+/** No project, memory, inventory or operational skill content for small talk. */
+export function buildSmallTalkPrompt(basePrompt: string): string {
+  const name = basePrompt.match(/^Assistant name: ("[^"\n]+")$/m)?.[1] ??
+    '"SLV"'
+  const lang =
+    basePrompt.match(/^Preferred response language: ("[^"\n]+")$/m)?.[1] ??
+      '"en"'
+  return `You are ${name}, the user's SLV assistant.
+The local welcome has already greeted the user. Reply naturally in one or two short sentences; do not introduce yourself again.
+The preferred language is ${lang}. Match a clear language choice in the user's message, but a short ambiguous greeting such as hi or thanks does not require changing their preferred language.
+Do not mention projects, files, accounts, backups, wallets, notifications, or operational tasks unless the user actually asked about them.
+No tools or memory writes are needed for this exchange. Do not resume an earlier task on the strength of a greeting or thanks.`
 }

@@ -5,13 +5,15 @@ import {
 import { resolveHome } from '/lib/getApiKeyFromYml.ts'
 import { updateApiYml } from '/lib/userApi/session.ts'
 
-export type AiProvider = 'openai' | 'anthropic' | 'slv'
-
 export type AiConfig = {
-  provider: AiProvider
-  api_key: string
-  model: string
+  provider: 'slv'
+  model: 'SLV AI'
+  migratedFromLegacy?: boolean
 }
+
+export const DEFAULT_AI_CONFIG: AiConfig = { provider: 'slv', model: 'SLV AI' }
+export const SLV_OAUTH_MIGRATION_MESSAGE =
+  'SLV AI now uses ERPC OAuth only. Personal Claude/OpenAI API keys are no longer used. Run `slv login` to connect your ERPC account.'
 
 // Sections of ~/.slv/api.yml written here: ai, lang, agreed_slv_init_bot and
 // sudoers_nopasswd_installed_at (ISO timestamp of when `slv onboard`
@@ -36,23 +38,22 @@ export const readAiConfig = async (): Promise<AiConfig | null> => {
   const ctx = await loadAgentContext()
   const ai = ctx.raw.api.ai
   if (!ai) return null
-  // Ensure api_key is always a string (may be omitted for provider: slv)
-  return {
-    provider: ai.provider,
-    api_key: ai.api_key ?? '',
-    model: ai.model,
+  if (ai.migration_required) {
+    // The schema keeps only a migration flag, never the old key. Rewrite only
+    // the AI section under the existing credential lock; OAuth stays intact.
+    await writeAiConfig(DEFAULT_AI_CONFIG)
+    return { ...DEFAULT_AI_CONFIG, migratedFromLegacy: true }
   }
+  return { ...DEFAULT_AI_CONFIG }
 }
 
-export const writeAiConfig = (config: AiConfig): Promise<void> =>
+export const writeAiConfig = (
+  _config: AiConfig = DEFAULT_AI_CONFIG,
+): Promise<void> =>
   writeSection((yml) => {
-    // When provider is 'slv', omit api_key from the YAML (the ERPC login from `slv login` is used instead)
-    if (config.provider === 'slv') {
-      const { api_key: _unused, ...rest } = config
-      yml.ai = rest
-    } else {
-      yml.ai = config
-    }
+    // An explicit allowlist prevents runtime callers from persisting a key or
+    // re-enabling a removed provider, even if they bypass TypeScript types.
+    yml.ai = { provider: 'slv', model: 'SLV AI' }
   })
 
 export const readLang = async (): Promise<string> => {
@@ -94,26 +95,3 @@ export const writeSudoersInstalledAt = (iso: string): Promise<void> =>
   })
 
 export const DEFAULT_MAX_TOKENS = 8192
-
-export const OPENAI_MODELS: string[] = [
-  'gpt-4o',
-  'gpt-4o-mini',
-  'o3-mini',
-  'o3',
-  'o4-mini',
-  'Custom (enter model name)',
-]
-
-export const ANTHROPIC_MODELS: string[] = [
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5',
-  'claude-opus-4-20250514',
-  'claude-sonnet-4-20250514',
-  'claude-haiku-4-5-20251001',
-  'Custom (enter model name)',
-]
-
-export const SLV_AI_MODELS: string[] = [
-  'SLV AI',
-]

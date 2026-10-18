@@ -97,7 +97,7 @@ export const runDeviceLogin = async (
   let username: string | null = null
   let res
   try {
-    res = await userApiRequest<{ username?: unknown }>(
+    res = await userApiRequest<unknown>(
       userApiAuthFromAccessToken(polled.tokens.accessToken),
       'GET',
       '/v3/user/get',
@@ -112,11 +112,20 @@ export const runDeviceLogin = async (
       TRY_AGAIN,
     ])
   }
-  // user-api answers 401 when no ERPC account belongs to this sign-in.
+  // A 401 can also mean an expired/invalid token or an issuer mismatch.
+  // It does not establish that the user needs a second account.
   if (res.status === 401) {
     return await dropIssued([
+      'ERPC did not accept this sign-in.',
+      `Check that you can sign in to the same account at ${ERPC_DASHBOARD_URL}.`,
+      'New users: run $ slv signup to complete account registration.',
+      TRY_AGAIN,
+    ])
+  }
+  if (res.status === 404) {
+    return await dropIssued([
       'No ERPC account was found for this sign-in.',
-      `Create your account at ${ERPC_DASHBOARD_URL}, then run $ slv login again.`,
+      'Run $ slv signup to complete registration, then run $ slv login again.',
     ])
   }
   if (!res.ok) {
@@ -125,7 +134,25 @@ export const runDeviceLogin = async (
       TRY_AGAIN,
     ])
   }
-  if (typeof res.data?.username === 'string') username = res.data.username
+  // /v3/user/get returns { success, message, data: { username, ... } }.
+  // A 2xx status alone (or valid JSON such as null) is not account validation.
+  const envelope = res.data
+  if (
+    !envelope || typeof envelope !== 'object' || Array.isArray(envelope) ||
+    !('success' in envelope) || envelope.success !== true ||
+    !('data' in envelope) || !envelope.data ||
+    typeof envelope.data !== 'object' || Array.isArray(envelope.data)
+  ) {
+    return await dropIssued([
+      'Could not check the sign-in (unexpected account response).',
+      TRY_AGAIN,
+    ])
+  }
+  if (
+    'username' in envelope.data && typeof envelope.data.username === 'string'
+  ) {
+    username = envelope.data.username
+  }
 
   let replaced: string | null
   try {
@@ -172,8 +199,10 @@ No account yet? $ slv signup
       } Saved to ~/.slv/api.yml.\n`,
     ),
   )
-  console.log(colors.white(`🚀 Full Features Unlocked\n`))
-  console.log(colors.blue(`👉 $ slv metal product\n`))
+  console.log(
+    colors.white('Next, set up your AI agent, then open the console:\n'),
+  )
+  console.log(colors.blue('$ slv onboard\n$ slv c\n'))
 }
 
 export const loginCmd = new Command()

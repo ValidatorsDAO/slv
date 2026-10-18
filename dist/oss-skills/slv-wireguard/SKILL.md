@@ -1,225 +1,93 @@
 # SLV WireGuard Skill
 
-Stand up a WireGuard VPN on the SLV host and pair it with a
-non-engineer user's phone or laptop. Guided pubkey exchange —
-the private key never leaves the phone; the server's private key
-never leaves the VPS.
+Use for a requested VPN connection to a phone, laptop or other peer. Exchange
+public keys only. Private keys and the contents of `wg0.conf` stay outside chat
+and AI file tools.
 
-**Related:** For nftables / fail2ban / SSH hardening, see the
-**slv-firewall** skill. Run that first if you haven't yet — the
-firewall playbook already opens UDP 51820 for WireGuard, so the
-VPN will work out of the box.
+## Choose the target and routing
 
-Use this skill when the user says anything like:
+Identify the VPN endpoint and the host serving the application. They may be
+different. A separate VPN server is an option for isolation, not a mandatory
+purchase. Connecting to a VPN endpoint does not automatically route to another
+server's private services.
 
-- "set up the phone VPN" / "WireGuard on my iPhone"
-- "I want to access SLV from my phone securely"
-- "how do I VPN into this box"
-- "can I close the gateway from the public internet?"
+Check existing peers, the intended access route, UDP 51820 reachability, subnet
+conflicts and existing firewall/NAT rules on the chosen host. Do not blindly
+install the generic **slv-firewall** baseline on an active validator/RPC or an
+existing VPN: it replaces rules and may erase required ports or NAT.
 
----
+Non-secret checks on the actual target include `systemctl is-active wg-quick@wg0`,
+`ss -lun`, and selected public interface/handshake status. Do not use a WireGuard
+configuration dump, `wg showconf`, or a private-key query. If a tunnel exists,
+explain that this installer replaces its peer list before proceeding.
 
-## EL's walkthrough
+## Prepare the peer locally
 
-### Step 0 — Pick the right VPS to install WireGuard on
+Have the operator use their WireGuard client to create a tunnel and key pair on
+their own device. Only the **public key** is shared. It is 32 bytes encoded as
+44 base64 characters ending in `=`. Never request or generate the client's
+private key through chat. The official installation guide is available at
+https://www.wireguard.com/install/.
 
-Before anything, make sure the user is installing WG on the **right
-box**. Explain this in plain language:
+Collect the peer public key and the exact endpoint inventory target. Do not ask
+for credentials or private configuration files.
 
-> "We recommend installing WireGuard on a small VPS dedicated to
-> being the VPN endpoint. Two reasons:
-> 1. If you put it on your main production box (the one running
->    your validator / SLV chat), then when that box crashes you
->    can't VPN back in to fix it — recovery gets a lot harder.
-> 2. A VPN server only sits there forwarding packets, so the
->    cheapest **core1** plan is more than enough. A dedicated box
->    is a small monthly cost."
-
-Then branch on what the user has. Fire the MCP probes in parallel to
-see their VPS inventory:
-
-- `get_premium_vps_my_vps` (MCP)
-- `get_super_vps_my_vps` (MCP)
-- `get_baremetal_status` (MCP)
-
-**Case A — they already own a spare / VPN-dedicated core1 VPS.**
-Good. Continue to Step 1 on THAT host (not on their main box).
-
-**Case B — they only have their main production box.**
-Strongly recommend buying a dedicated core1 VPS for the VPN endpoint.
-Tell them verbatim, non-engineer friendly:
-
-> "First, grab a VPS dedicated to the VPN.
-> - Log in at https://dashboard.erpc.global and buy one **core1**
->   plan VPS. It's a small monthly cost.
-> - Once the purchase is done, come back and say `set up the VPN`
->   again — I'll pick it up from here."
-
-STOP the WG flow here. Don't try to install on the production box as
-a workaround — the goal is isolation.
-
-**Case C — they don't want to use WireGuard at all.**
-They have two paths:
-
-1. **Static public IP whitelist.** If the user has a known-stable IP
-   (office line, business fiber with a fixed address, a jump host
-   they already control), ask them for that IP and hand off to the
-   **slv-firewall** skill with `--allow <that-ip>`.
-2. **Home ISP IP** — **refuse this**. Tell them explicitly:
-   > "Home router IPs rotate every few days or weeks depending on
-   > the ISP. The moment it changes, the firewall locks you out
-   > and you need physical access to fix it. If you can't name a
-   > fixed IP, WireGuard ends up being easier overall — I'd
-   > recommend going back and buying the dedicated VPN VPS."
-
-Only proceed to Step 1 below once the user is on a dedicated VPN VPS
-(Case A, or Case B after purchase).
-
-### Step 1 — Sanity probe (on the VPN-dedicated VPS)
-
-- `run_command: systemctl is-active wg-quick@wg0 2>/dev/null` — is WG already up?
-- `run_command: command -v wg >/dev/null && wg show 2>&1 | head -20` — current peers, if any.
-- `run_command: ss -lun | grep 51820` — is the server listening?
-
-If WG is already up, read back the current peers and ask whether
-the user wants to add another peer or replace the config.
-
-### Step 2 — Phone side (walk the user through this BEFORE running anything on the server)
-
-Tell the user, verbatim:
-
-> "On your phone:
-> 1. Install the official **WireGuard** app — it's free, made by the WireGuard project itself, purple dragon logo. (Jason A. Donenfeld / Edge Security publisher.)
->    - iPhone: https://apps.apple.com/us/app/wireguard/id1441195209
->    - Android: https://play.google.com/store/apps/details?id=com.wireguard.android
-> 2. Open the app, tap the **+** button, pick **Create from scratch**.
-> 3. Give the tunnel a name like `slv-<short-vps-name>` so you can identify it later.
-> 4. The app auto-generates a key pair. Scroll down to the **Public key** field — it's a 44-character string ending in `=`. Tap it to copy.
->
-> ⚠ Do NOT touch the **Private key** field. That one stays on your phone forever. Pasting it anywhere else (including to me) would invalidate the whole tunnel's security."
-
-Desktop flow is identical: `wireguard` app from https://www.wireguard.com/install/
-→ Add tunnel → From scratch → copy Public key.
-
-Ask them to paste the **public** key.
-
-### Step 3 — Server side
-
-With their public key in hand, run:
+## Run the supported installer in a terminal
 
 ```bash
-slv install wireguard --iphone-pubkey '<the-44-char-pubkey>='
+slv install wireguard -i <inventory.yml> -l <vpn-host> --iphone-pubkey '<peer-public-key>'
 ```
 
-The playbook:
-- Installs `wireguard` via apt.
-- Generates (or reuses) the server's key pair at `/etc/wireguard/server_{private,public}.key`.
-- Writes `/etc/wireguard/wg0.conf` with the user's pubkey as the sole peer.
-- Sets up NAT masquerading (iptables POSTROUTING) so phone traffic can exit through the VPS's public interface.
-- `systemctl enable --now wg-quick@wg0`.
-- Exports the server's public key to `/tmp/slv-wg-server-pubkey.txt` (mode 0644) so the CLI can echo it to you without a second sudo.
+`-i` is required. `-l` limits an inventory file to the intended host. For a single
+literal IP, use Ansible inline inventory with a trailing comma, e.g.
+`-i '<vpn-ip>,'`. Without the comma, Ansible may interpret the value as a file.
+The CLI uses the `solv` SSH user; verify the inventory and access first.
 
-When the playbook finishes, SLV prints the **server public key**
-in a highlighted block. Copy that.
+Even with all options supplied, the command asks “Proceed with WireGuard
+install?” It has **no `-y` option**. Have the operator run it in their terminal;
+do not call it from a noninteractive AI shell, pipe confirmation answers or
+invoke the playbook directly to bypass the prompt.
 
-### Step 4 — Finish the phone-side config
+The supported playbook installs WireGuard, enables IPv4 forwarding, creates or
+reuses the server's private key, writes one peer to `wg0.conf`, configures IPv4
+NAT, and restarts `wg-quick@wg0`. Secret key-processing tasks suppress their
+output and private-key/config writes suppress diffs. Key-generation errors stop
+the playbook; do not enable verbose secret output or regenerate keys manually to
+work around a failure. Defaults:
 
-Back on the user's phone, inside the tunnel they started in
-Step 2, tell them:
+- Server: `10.0.0.1/24`, UDP 51820.
+- One peer: `10.0.0.2/32`.
+- Peer list: replaced on each install. A second run is **not** an add-peer
+  operation and can disconnect the previous device.
 
-> "Fill in these fields:
->
-> **Addresses:** `10.0.0.2/32`
->
-> **DNS servers:** `1.1.1.1` (or any public resolver)
->
-> Then tap **Add peer** and fill:
->
-> - **Public key:** (paste the server key I just showed you)
-> - **Endpoint:** `<this-host-public-ip>:51820`
-> - **Allowed IPs:** choose one:
->   - `10.0.0.0/24` — **split-tunnel** (only SLV traffic goes through the VPN; faster, keeps your regular phone traffic direct). Recommended for most users.
->   - `0.0.0.0/0` — **full-tunnel** (ALL phone traffic goes through the VPS; privacy-first, but slower and counts against your phone's perceived IP).
->
-> Save. Slide the tunnel toggle to ON."
+The server key remains on the server. The AI must not read, copy, create or edit
+private keys or `wg0.conf`. If multiple peers or a different subnet are needed,
+stop and plan an operator-managed configuration; do not overwrite a working VPN
+under the claim of adding a peer.
 
-### Step 5 — Verify
+## Finish and verify the connection
 
-Ask the user to try opening `http://10.0.0.1:20026/ui/` on their
-phone while the VPN is on. If the SLV chat UI loads, the VPN
-works — the phone is now reaching the gateway over the tunnel.
+Use the server public key verified on the intended host. The playbook exports a
+public-key-only file on its target, while the CLI reads the export locally, so a
+remote installation may not display the public key correctly. In that case have
+the operator verify the target's public key from its install output. Do not read
+private configuration to recover it or claim installation failed solely because
+the local export was absent.
 
-If they previously had the gateway in `lan` mode (0.0.0.0 bound),
-suggest flipping back to loopback now:
+On the peer, configure its address, the verified server public key, the actual
+endpoint address/UDP port, and the required routes. `10.0.0.0/24` routes that VPN
+subnet; it does not by itself reach a separate validator or RPC server.
+`0.0.0.0/0` requests a full IPv4 tunnel and needs working forwarding/NAT; it is not
+a claim that IPv6 or every service is covered.
 
-```bash
-slv gateway config set-mode local
-```
+Verify a recent handshake, packet flow and the intended service. A chat gateway
+bound to `127.0.0.1` does **not** listen on `10.0.0.1`. Changing
+`slv gateway config set-mode local` does not make it VPN-accessible. Select an
+explicit proxy, SSH tunnel or reviewed bind/firewall arrangement. LAN mode binds
+all interfaces, so it requires an appropriate firewall; do not open it globally
+as an automatic workaround.
 
-The gateway is no longer directly exposed — only the WireGuard
-peers on 10.0.0.0/24 can reach it. Cloudflare-fronted HTTPS (if
-they ran `slv install nginx`) still works because nginx lives on
-the same box on loopback.
-
----
-
-## Adding a second peer (new phone, laptop, co-worker)
-
-The current playbook only supports ONE peer at a time —
-re-running `slv install wireguard --iphone-pubkey <new-pubkey>`
-**replaces** the peer list. If the user needs multiple peers (e.g.
-phone + laptop + partner's phone), either:
-
-1. Run the playbook once per peer, and tell them only the
-   most-recently-added peer can connect at a time.
-2. Edit `/etc/wireguard/wg0.conf` manually to add more `[Peer]`
-   blocks and run `sudo wg syncconf wg0 <(wg-quick strip wg0)`.
-
-Proper multi-peer CLI is a future improvement tracked as a
-follow-up — for now flag this limitation if the user asks.
-
----
-
-## Reference
-
-### `slv install wireguard`
-
-```
-slv install wireguard --iphone-pubkey '<44-char-pubkey>='
-```
-
-- Prompts interactively if `--iphone-pubkey` is missing.
-- Validates the key is 44 base64 chars (23 bytes + 1 char padding) ending in `=`.
-- Playbook: `template/latest/ansible/cmn/software/install-wireguard.yaml`.
-- Idempotent: the server private key is preserved across runs; only the peer list gets rewritten.
-
-### WireGuard apps (non-engineer friendly)
-
-| Platform | App | Link |
-|----------|-----|------|
-| iOS | WireGuard | https://apps.apple.com/us/app/wireguard/id1441195209 |
-| Android | WireGuard | https://play.google.com/store/apps/details?id=com.wireguard.android |
-| macOS | WireGuard | https://www.wireguard.com/install/ or Mac App Store |
-| Windows | WireGuard | https://www.wireguard.com/install/ |
-| Linux | wireguard-tools | `sudo apt install wireguard` + `wg-quick` |
-
----
-
-## Common failure modes + fixes
-
-| User says | Likely cause | Fix |
-|-----------|-------------|-----|
-| "tunnel's on but I can't reach anything" | Endpoint IP or port wrong on the phone | Double-check `<public-ip>:51820` — `sudo ss -lun \| grep 51820` on the VPS confirms the port |
-| "I copied the wrong key" | Pasted phone's Private key instead of Public | Tell them explicitly: "the *Public* key is the one safe to share" |
-| "connection works but web browsing is broken" | split-tunnel with `10.0.0.0/24` but user wants full-tunnel | Change `Allowed IPs` on the phone to `0.0.0.0/0` |
-| "it worked yesterday, dead today" | VPS's public IP changed | Update **Endpoint** on the phone side to the new IP |
-| "playbook fails `Assert peer public key is present`" | Pasted the wrong string or includes whitespace | Re-copy the exact 44-char line ending in `=`, no extra spaces |
-
----
-
-## Don't do
-
-- Don't paste the phone's **Private key** anywhere off the phone. Only the Public key travels.
-- Don't share the server's private key (`/etc/wireguard/server_private.key`). Only the public key does.
-- Don't run `slv install wireguard` with an empty or obviously wrong pubkey — the `Assert peer public key is present and well-formed` task will fail, but the server's *existing* key pair survives (so re-running with a valid key is safe).
-- Don't whitelist the WireGuard UDP port on nftables to "only your IP" — phones on mobile networks have highly dynamic IPs; the port needs to be reachable from the world. Token-auth + peer-pubkey-auth already gates who can actually use the tunnel.
+If the VPN endpoint and application host differ, configure and verify the
+required route, tunnel or proxy between them with separate approval. Report
+which access path was actually tested and preserve the operator's existing
+recovery route throughout the change.

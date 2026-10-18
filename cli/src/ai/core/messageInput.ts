@@ -9,6 +9,7 @@
  * every layer below — providers just splice them into the
  * Anthropic-compatible content array and forward.
  */
+import type { IntentType } from '@/ai/console/intentClassifier.ts'
 
 /**
  * Mime types accepted by Anthropic's vision API (and therefore by
@@ -38,6 +39,8 @@ export type ImageInput = {
 export type MessageInput = string | {
   text: string
   images?: readonly ImageInput[]
+  /** Validated routing hint from the CLI; never part of model message content. */
+  intent?: IntentType
 }
 
 /** Narrow helper so callers don't have to re-do the discriminant. */

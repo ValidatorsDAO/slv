@@ -12,6 +12,7 @@
  * smuggle an arbitrary parameter onto a request just by naming it.
  */
 import { type UserApiAuth, userApiRequestRaw } from '/lib/userApi/client.ts'
+import { ERPC_LOGIN_REJECTED_MESSAGE } from '/lib/userApi/auth.ts'
 
 export type ReadToolEntry = {
   method: 'GET'
@@ -354,8 +355,13 @@ export const callReadTool = async (
   const fullPath = `${path}${qs ? `?${qs}` : ''}`
 
   const res = await userApiRequestRaw(auth, entry.method, fullPath)
+  if (res.status === 401) {
+    return `Request failed (401).\n${ERPC_LOGIN_REJECTED_MESSAGE}`
+  }
   if (!res.ok) {
-    return `Request failed (${res.status} ${res.statusText}).\n${res.raw}`
+    return `Request failed (${res.status}).\n${
+      res.error?.message ?? 'The API request could not be completed.'
+    }`
   }
   return res.raw
 }

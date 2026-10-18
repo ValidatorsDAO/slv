@@ -1,5 +1,8 @@
 import { getUserApiAuth } from '/lib/getApiKeyFromYml.ts'
-import { userApiAuthHeader } from '/lib/userApi/auth.ts'
+import {
+  ERPC_LOGIN_REJECTED_MESSAGE,
+  userApiAuthHeader,
+} from '/lib/userApi/auth.ts'
 import { colors } from '@cliffy/colors'
 import Kia from 'https://deno.land/x/kia@0.4.1/mod.ts'
 import {
@@ -28,15 +31,23 @@ export const aiUsageAction = async () => {
       const errorData = await response.json().catch(() => null) as
         | Record<string, unknown>
         | null
-      const errorMsg = (errorData?.message as string) ??
-        `HTTP ${response.status}`
+      const errorMsg = response.status === 401
+        ? ERPC_LOGIN_REJECTED_MESSAGE
+        : (errorData?.message as string) ?? `HTTP ${response.status}`
       spinner.fail('Failed to fetch AI usage')
       console.log(colors.red(`  ${errorMsg}`))
+      Deno.exitCode = 1
       return
     }
 
     const data = (await response.json()) as Record<string, unknown>
+    if (!data || data.success === false) {
+      throw new Error('Could not read AI usage (unsuccessful response).')
+    }
     const msg = (data.message ?? data) as Record<string, unknown>
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) {
+      throw new Error('Could not read AI usage (unexpected response).')
+    }
 
     spinner.succeed('AI Token Usage')
 
@@ -89,5 +100,6 @@ export const aiUsageAction = async () => {
   } catch (error) {
     spinner.fail('Failed to fetch AI usage')
     console.log(colors.red(`  ${(error as Error).message}`))
+    Deno.exitCode = 1
   }
 }

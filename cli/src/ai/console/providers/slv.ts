@@ -7,13 +7,18 @@ import {
 } from '@/ai/console/tools.ts'
 import { isAbortLikeError } from '/lib/isAbortError.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
-import { DEFAULT_MAX_TOKENS } from '@/ai/config.ts'
+import { readUserApiError } from '/lib/userApi/httpError.ts'
 import {
   fetchAuthorizationStatus,
   getAuthorizationStatus,
 } from '@/ai/authorization.ts'
 import type { ChatCallbacks } from '@/ai/console/consoleAction.ts'
-import { getModuleContent } from '@/ai/console/systemPrompt.ts'
+import {
+  buildSmallTalkPrompt,
+  getModuleContent,
+} from '@/ai/console/systemPrompt.ts'
+import { type ThinkingEffort, turnPolicy } from '@/ai/console/turnPolicy.ts'
+import type { IntentType } from '@/ai/console/intentClassifier.ts'
 import type { MessageInput } from '@/ai/core/messageInput.ts'
 import { messageInputToContent } from '@/ai/core/messageInput.ts'
 
@@ -165,6 +170,7 @@ export class SLVProvider {
   private messages: MessageParam[] = []
   private systemPrompt: string
   private callbacks: ChatCallbacks
+  private effort: ThinkingEffort = 'medium'
 
   constructor(
     auth: UserApiAuth,
@@ -193,7 +199,17 @@ export class SLVProvider {
     this.callbacks = callbacks
   }
 
-  async chat(userMessage: MessageInput): Promise<void> {
+  async chat(
+    userMessage: MessageInput,
+    options: { intent?: IntentType } = {},
+  ): Promise<void> {
+    const intent = options.intent ??
+      (typeof userMessage === 'string' ? undefined : userMessage.intent)
+    const policy = turnPolicy(userMessage, intent, this.effort)
+    this.effort = policy.effort
+    const smallTalkPrompt = policy.smallTalk
+      ? buildSmallTalkPrompt(this.systemPrompt)
+      : null
     // Convert the widened MessageInput to the Anthropic content
     // shape the erpc proxy expects. For text-only turns this
     // collapses back to a plain string (so the wire payload stays
@@ -222,10 +238,17 @@ export class SLVProvider {
           },
           body: JSON.stringify({
             model: this.model,
-            max_tokens: DEFAULT_MAX_TOKENS,
-            system: this.systemPrompt + getModuleContent(),
-            messages: this.messages,
-            tools: toAnthropicTools(getActiveTools()),
+            max_tokens: policy.maxTokens,
+            output_config: { effort: policy.effort },
+            thinking: { type: 'adaptive', display: 'omitted' },
+            // Stable episodes reuse the normal five-minute prefix cache.
+            // Switching effort or tools intentionally starts a new prefix.
+            cache_control: { type: 'ephemeral' },
+            system: smallTalkPrompt ?? this.systemPrompt + getModuleContent(),
+            messages: policy.smallTalk
+              ? [{ role: 'user', content: messageInputToContent(userMessage) }]
+              : this.messages,
+            tools: policy.smallTalk ? [] : toAnthropicTools(getActiveTools()),
             // stream=true gets text_delta events back as soon as the
             // model produces the first token, rather than holding the
             // whole response hostage until the model is done. Makes
@@ -244,34 +267,19 @@ export class SLVProvider {
       }
 
       if (!response.ok) {
-        try {
-          const errorText = await response.text()
-          let errJson: TokenErrorPayload | null = null
-          try {
-            errJson = JSON.parse(errorText) as TokenErrorPayload
-          } catch {
-            errJson = null
-          }
-
-          const tokenLimitReached = response.status === 529 ||
-            (response.status === 403 &&
-              errorText.includes('ai_token_limit_reached'))
-
-          if (tokenLimitReached) {
-            throw new Error(
-              await buildInsufficientTokenMessage(this.auth, errJson ?? {}),
-            )
-          }
-
-          throw new Error(`SLV AI API error (${response.status}): ${errorText}`)
-        } finally {
-          await response.body?.cancel().catch(() => undefined)
+        const error = await readUserApiError(response)
+        if (error.kind === 'token_limit') {
+          error.message = await buildInsufficientTokenMessage(
+            this.auth,
+            error.payload ?? {},
+          )
         }
+        throw error
       }
 
       // Parse the Anthropic SSE stream. Events we care about:
-      //   - content_block_start  → begin a text or tool_use block
-      //   - content_block_delta  → text_delta or input_json_delta
+      //   - content_block_start  → begin text, thinking or tool_use blocks
+      //   - content_block_delta  → text, thinking, signature or tool JSON
       //   - content_block_stop   → finalize the block
       //   - message_delta        → stop_reason lands here
       //   - message_stop         → end of this turn's stream
@@ -284,15 +292,9 @@ export class SLVProvider {
       const decoder = new TextDecoder()
       let sseBuffer = ''
       let assistantText = ''
-      const finalContent: Array<
-        | { type: 'text'; text: string }
-        | {
-          type: 'tool_use'
-          id: string
-          name: string
-          input: Record<string, unknown>
-        }
-      > = []
+      let stopReason: string | undefined
+      let messageComplete = false
+      const finalContent: Record<string, unknown>[] = []
       const toolUseBlocks: {
         id: string
         name: string
@@ -302,11 +304,25 @@ export class SLVProvider {
       // server uses in content_block_* events.
       type BlockScratch =
         | { kind: 'text'; text: string }
-        | { kind: 'tool_use'; id: string; name: string; partialJson: string }
+        | {
+          kind: 'tool_use'
+          id: string
+          name: string
+          partialJson: string
+          initialInput: unknown
+        }
+        | {
+          kind: 'thinking'
+          block: Record<string, unknown> & {
+            thinking: string
+            signature: string
+          }
+        }
+        | { kind: 'redacted_thinking'; block: Record<string, unknown> }
       const scratch = new Map<number, BlockScratch>()
 
       try {
-        while (true) {
+        streamRead: while (true) {
           const { done, value } = await reader.read()
           if (done) break
           sseBuffer += decoder.decode(value, { stream: true })
@@ -329,17 +345,21 @@ export class SLVProvider {
             let p: {
               type: string
               index?: number
-              content_block?: {
+              content_block?: Record<string, unknown> & {
                 type: string
                 id?: string
                 name?: string
                 text?: string
+                thinking?: string
+                signature?: string
               }
               delta?: {
                 type?: string
                 text?: string
                 partial_json?: string
                 stop_reason?: string
+                thinking?: string
+                signature?: string
               }
               error?: { message?: string }
             }
@@ -351,13 +371,33 @@ export class SLVProvider {
             if (p.type === 'content_block_start' && p.content_block) {
               const idx = p.index ?? 0
               if (p.content_block.type === 'text') {
-                scratch.set(idx, { kind: 'text', text: '' })
+                const initialText = p.content_block.text ?? ''
+                scratch.set(idx, { kind: 'text', text: initialText })
+                if (initialText) {
+                  assistantText += initialText
+                  this.callbacks.onStream(assistantText)
+                }
+              } else if (p.content_block.type === 'thinking') {
+                scratch.set(idx, {
+                  kind: 'thinking',
+                  block: {
+                    ...p.content_block,
+                    thinking: p.content_block.thinking ?? '',
+                    signature: p.content_block.signature ?? '',
+                  },
+                })
+              } else if (p.content_block.type === 'redacted_thinking') {
+                scratch.set(idx, {
+                  kind: 'redacted_thinking',
+                  block: { ...p.content_block },
+                })
               } else if (p.content_block.type === 'tool_use') {
                 scratch.set(idx, {
                   kind: 'tool_use',
                   id: p.content_block.id ?? '',
                   name: p.content_block.name ?? '',
                   partialJson: '',
+                  initialInput: p.content_block.input ?? {},
                 })
               }
             } else if (p.type === 'content_block_delta' && p.delta) {
@@ -373,6 +413,14 @@ export class SLVProvider {
                 // text_delta events for the client.
                 this.callbacks.onStream(assistantText)
               } else if (
+                p.delta.type === 'thinking_delta' && b.kind === 'thinking'
+              ) {
+                b.block.thinking += p.delta.thinking ?? ''
+              } else if (
+                p.delta.type === 'signature_delta' && b.kind === 'thinking'
+              ) {
+                b.block.signature += p.delta.signature ?? ''
+              } else if (
                 p.delta.type === 'input_json_delta' &&
                 b.kind === 'tool_use'
               ) {
@@ -384,26 +432,47 @@ export class SLVProvider {
               if (!b) continue
               if (b.kind === 'text') {
                 finalContent.push({ type: 'text', text: b.text })
+              } else if (
+                b.kind === 'thinking' || b.kind === 'redacted_thinking'
+              ) {
+                // Replay signed blocks exactly, including empty thinking text,
+                // so subsequent tool results retain the provider's context.
+                finalContent.push(b.block)
               } else {
-                let input: Record<string, unknown> = {}
+                let input: unknown
                 try {
-                  input = JSON.parse(b.partialJson || '{}')
+                  input = b.partialJson
+                    ? JSON.parse(b.partialJson)
+                    : b.initialInput
                 } catch {
-                  // Tool args were truncated — surface an empty
-                  // input so the tool layer can error out cleanly
-                  // instead of us throwing here.
+                  throw new Error(
+                    'SLV AI returned incomplete tool arguments. This tool request was not executed.',
+                  )
                 }
-                const tu = { id: b.id, name: b.name, input }
+                if (
+                  !input || typeof input !== 'object' || Array.isArray(input)
+                ) {
+                  throw new Error(
+                    'SLV AI returned invalid tool arguments. This tool request was not executed.',
+                  )
+                }
+                const tu = {
+                  id: b.id,
+                  name: b.name,
+                  input: input as Record<string, unknown>,
+                }
                 toolUseBlocks.push(tu)
                 finalContent.push({ type: 'tool_use', ...tu })
               }
               scratch.delete(idx)
             } else if (p.type === 'error') {
               throw new Error(p.error?.message ?? 'SLV AI stream error')
+            } else if (p.type === 'message_delta') {
+              stopReason = p.delta?.stop_reason
+            } else if (p.type === 'message_stop') {
+              messageComplete = true
+              break streamRead
             }
-            // message_start / message_delta / message_stop / ping
-            // carry no state we need — the stream ends on the
-            // reader's `done` or message_stop (either way).
           }
         }
       } catch (err) {
@@ -420,6 +489,23 @@ export class SLVProvider {
         reader.releaseLock()
       }
 
+      if (!messageComplete || scratch.size > 0) {
+        throw new Error(
+          'The SLV AI response was interrupted before completion. No tool from this incomplete response was executed.',
+        )
+      }
+      if (stopReason === 'max_tokens') {
+        throw new Error(
+          'The SLV AI response reached its output limit. Ask to continue or narrow the task; tools from this response were not executed.',
+        )
+      }
+      if (policy.smallTalk && toolUseBlocks.length > 0) {
+        // Leave no unresolved tool call in history and execute nothing.
+        this.messages.pop()
+        throw new Error(
+          'SLV AI returned an unexpected tool request during small talk.',
+        )
+      }
       // Save assistant message with the reconstructed block array.
       this.messages.push({ role: 'assistant', content: finalContent })
 

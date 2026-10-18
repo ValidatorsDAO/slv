@@ -61,8 +61,10 @@ Deno.test('ApiConfigSchema parses an AI config block', () => {
     lang: 'en',
   })
   assert(parsed.ai)
-  assertEquals(parsed.ai.provider, 'anthropic')
-  assertEquals(parsed.ai.model, 'claude-opus-4-6')
+  assertEquals(parsed.ai.provider, 'slv')
+  assertEquals(parsed.ai.model, 'SLV AI')
+  assertEquals(parsed.ai.migration_required, true)
+  assertEquals(Object.hasOwn(parsed.ai, 'api_key'), false)
   assertEquals(parsed.lang, 'en')
 })
 

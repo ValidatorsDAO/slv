@@ -2,6 +2,53 @@
 // write `t('Some English text')` and fall back cleanly when no translation exists.
 
 export const messages: Record<string, string> = {
+  'Complete account activation in the ERPC dashboard before using SLV AI.':
+    'Complete account activation in the ERPC dashboard before using SLV AI.',
+  'Could not verify your account is ready for AI. Your settings will be saved.':
+    'Could not verify your account is ready for AI. Your settings will be saved.',
+
+  // Quick onboarding
+  'Build and operate Solana, through conversation.':
+    'Build and operate Solana, through conversation.',
+  'Connect your account': 'Connect your account',
+  'Continue with guided setup?': 'Continue with guided setup?',
+  'Could not verify your AI balance. Your settings will be saved.':
+    'Could not verify your AI balance. Your settings will be saved.',
+  'ERPC connected, but no AI tokens are available. Run `slv ai product` to review your options.':
+    'ERPC connected, but no AI tokens are available. Run `slv ai product` to review your options.',
+  'ERPC connected. AI balance: {count} tokens.':
+    'ERPC connected. AI balance: {count} tokens.',
+  'Enable browser chat on this machine?':
+    'Enable browser chat on this machine?',
+  'Existing sudoers file at {path} was not installed by slv — leaving it alone.':
+    'Existing sudoers file at {path} was not installed by slv — leaving it alone.',
+  'Finish signing in or checking your AI balance, then run `slv ai`.':
+    'Finish signing in or checking your AI balance, then run `slv ai`.',
+  'Keep private keys and passwords out of the conversation.':
+    'Keep private keys and passwords out of the conversation.',
+  'Keeping your existing AI provider: {provider}.':
+    'Keeping your existing AI provider: {provider}.',
+  'Language ready': 'Language ready',
+  'Personalization, notifications and browser access: `slv onboard --advanced`.':
+    'Personalization, notifications and browser access: `slv onboard --advanced`.',
+  'Ready to chat': 'Ready to chat',
+  'SLV AI uses a cloud AI service. Commands that change your environment require confirmation.':
+    'SLV AI uses a cloud AI service. Commands that change your environment require confirmation.',
+  'Settings can be saved now. Run `slv login` before starting SLV AI.':
+    'Settings can be saved now. Run `slv login` before starting SLV AI.',
+  'Settings saved': 'Settings saved',
+  'Start a conversation with `slv ai`.': 'Start a conversation with `slv ai`.',
+  'Sudoers install failed:': 'Sudoers install failed:',
+  'Try asking: "What subscriptions do I have?" or "Help me prepare a testnet validator."':
+    'Try asking: "What subscriptions do I have?" or "Help me prepare a testnet validator."',
+  '{count} specialist agents are available. SLV chooses the right one for your request.':
+    '{count} specialist agents are available. SLV chooses the right one for your request.',
+  // First conversation
+  "I'm {agent}, your SLV assistant.": "I'm {agent}, your SLV assistant.",
+  'Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".':
+    'Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".',
+  'Following your current request. Use /focus to set a preference.':
+    'Following your current request. Use /focus to set a preference.',
   // --- Onboard ---
   'SLV AI Onboarding': 'SLV AI Onboarding',
   'Select your language': 'Select your language',
@@ -25,14 +72,11 @@ export const messages: Record<string, string> = {
   'No': 'No',
   'Setup cancelled.': 'Setup cancelled.',
 
-  'ERPC Login':
-    'ERPC Login',
+  'ERPC Login': 'ERPC Login',
   'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
     'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.',
-  'Sign in to ERPC now?':
-    'Sign in to ERPC now?',
-  'Signed in to ERPC.':
-    'Signed in to ERPC.',
+  'Sign in to ERPC now?': 'Sign in to ERPC now?',
+  'Signed in to ERPC.': 'Signed in to ERPC.',
   'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
     'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.',
   'Skipped. You can run `slv login` later.':
@@ -76,8 +120,7 @@ export const messages: Record<string, string> = {
     'Discord Webhook saved to ~/.slv/api.yml',
   'Skipped.': 'Skipped.',
 
-  'Agent files saved to ~/.slv/agent/':
-    'Agent files saved to ~/.slv/agent/',
+  'Agent files saved to ~/.slv/agent/': 'Agent files saved to ~/.slv/agent/',
   'AI configuration saved to ~/.slv/api.yml':
     'AI configuration saved to ~/.slv/api.yml',
   'Agent:': 'Agent:',
@@ -245,8 +288,7 @@ export const messages: Record<string, string> = {
   'inspect focused local SLV files': 'inspect focused local SLV files',
   'check subscriptions or fetch SLV Cloud data':
     'check subscriptions or fetch SLV Cloud data',
-  'save configuration or update memory':
-    'save configuration or update memory',
+  'save configuration or update memory': 'save configuration or update memory',
   'inspect available files before acting':
     'inspect available files before acting',
   'notify you when a long task finishes':
@@ -344,8 +386,7 @@ export const messages: Record<string, string> = {
   'Set up HTTPS now?': 'Set up HTTPS now?',
   'Skipped. Run `slv install nginx` later to enable HTTPS.':
     'Skipped. Run `slv install nginx` later to enable HTTPS.',
-  'HTTPS setup failed ({stage}): {err}':
-    'HTTPS setup failed ({stage}): {err}',
+  'HTTPS setup failed ({stage}): {err}': 'HTTPS setup failed ({stage}): {err}',
   'You can retry later with `slv install nginx`.':
     'You can retry later with `slv install nginx`.',
   'HTTPS is live at {url}': 'HTTPS is live at {url}',
@@ -353,8 +394,7 @@ export const messages: Record<string, string> = {
     'Skipped — SLV API key required. Run `slv login` then `slv install nginx` to enable HTTPS.',
   'Could not read DNS status — run `slv install nginx` later to retry.':
     'Could not read DNS status — run `slv install nginx` later to retry.',
-  'Browser chat UI':
-    'Browser chat UI',
+  'Browser chat UI': 'Browser chat UI',
   'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
   'Signing in to ERPC lets us point your free erpc.global subdomain at this VPS for instant HTTPS.':
