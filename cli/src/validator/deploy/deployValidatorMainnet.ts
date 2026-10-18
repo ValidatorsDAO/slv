@@ -39,7 +39,6 @@ const deployValidatorMainnet = async (limit?: string) => {
     rpcLog(ansibleHosts)
     // SIMD-0387: register the BLS public key on each vote account post-deploy,
     // for the hosts whose identity key is on this machine.
-    // No-op on mainnet until the feature gate is active there.
     await registerBlsAfterDeploy('mainnet', limit)
     return true
   }

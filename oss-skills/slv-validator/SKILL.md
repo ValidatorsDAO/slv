@@ -530,23 +530,38 @@ gossip shows for it.
 
 Voting validators must register the BLS public key derived from their authorized
 voter keypair. Without it the vote account behaves as **unstaked** once SIMD-0357
-(Alpenglow voting) activates. The authorized voter defaults to the validator
+(Alpenglow voting) activates. SIMD-0387 is active on mainnet and testnet, so the
+key can be registered now. The authorized voter defaults to the validator
 identity, so the identity keypair signs and fills the derived BLS key:
 
 ```bash
 slv v register:bls -n <network> -p <host>   # all hosts if -p omitted
 ```
 
-- Runs `solana vote-authorize-voter-checked <vote> <identity> <identity> --use-v2-instruction`.
-  Forcing the v2 instruction means that while the feature gate is still inactive
-  the tx fails cleanly at simulation **without mutating state** (no wasted
-  voter re-authorization). The authorized voter is unchanged.
+- Runs `solana vote-authorize-voter-checked <vote> <identity> <identity> --fee-payer <identity> --use-v2-instruction`
+  with the identity key file in `~/.slv/keys`. `--use-v2-instruction` forces the
+  instruction that carries the BLS public key. The identity signs, is the new
+  voter and pays the fee, so it needs SOL, and the solana CLI needs no default
+  keypair of its own. The identity becomes the authorized voter, or stays it when
+  it already is.
 - Idempotent: skips hosts whose on-chain `blsPubkeyCompressed` is already set and
   re-reads it to confirm success.
-- Auto-runs (non-fatal) at the end of `slv v deploy`. Re-run manually after the
-  feature activates on the target cluster.
-- Requires a solana/agave CLI new enough to expose `vote-authorize-voter-checked
-  --use-v2-instruction` and `solana-keygen bls_pubkey` (v4.x).
+- A registration that does not happen is an error: the command prints it and
+  exits with code 1. That is a send that fails, a transaction that leaves the vote
+  account without a BLS public key, a solana that cannot be started, a host that
+  the inventory does not have or that has no `vote_account` or
+  `identity_account`, no host to register, a network other than testnet or
+  mainnet, and an unset `HOME`. After a failed send the error lists what to
+  check: the key file is the key of the authorized voter or the authorized
+  withdrawer of the vote account, the solana CLI is 4.1.0 or higher, the identity
+  has SOL for the fee, and the voter of the vote account was not changed in this
+  epoch (one voter change is accepted per epoch, and this registration is one).
+  Then run the command again.
+- Auto-runs at the end of `slv v deploy` for the hosts whose identity key file is
+  on the machine that runs slv; for the others it prints the command to run
+  later. It prints the same error lines when a registration does not happen, but
+  it does not change the exit code of the deploy.
+- Requires `solana` version 4.1.0 or higher (`solana --version`).
 
 ### XDP retransmit acceleration
 
