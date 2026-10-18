@@ -14,6 +14,7 @@ import {
   extractQualificationSourceMembers,
   extractQualificationZip,
   githubQualificationAdapter,
+  planQualificationDraft,
   QUALIFICATION_MANIFEST,
   QUALIFICATION_REPOSITORY,
   QUALIFICATION_WORKFLOW,
@@ -22,6 +23,7 @@ import {
   readQualificationManifest,
   stageQualificationEvidenceFile,
   verifyCandidateProvenance,
+  verifyPlannedQualificationDraft,
   verifyPromotionDraft,
   verifyPublishedQualification as verifyPublishedQualificationProduction,
   verifyQualificationArchiveBindings,
@@ -731,6 +733,7 @@ Deno.test('later hosted main can finish only a complete draft with its original 
   const m = fixture(), full = { ...published(m), draft: true, immutable: false }
   const current = 'c'.repeat(40), context = promotionContext(current)
   const api = adapter(m), ancestry: [string, string | undefined][] = []
+  api.release = () => Promise.resolve(structuredClone(full))
   api.verifyMainAncestor = (source, descendant) => {
     ancestry.push([source, descendant])
     return Promise.resolve()
@@ -763,6 +766,7 @@ Deno.test('later hosted main can finish only a complete draft with its original 
       Error,
       'incomplete',
     )
+    api.release = () => Promise.resolve(structuredClone(partial))
     const same = await verifyPromotionDraft(
       m,
       partial,
@@ -775,6 +779,7 @@ Deno.test('later hosted main can finish only a complete draft with its original 
     assertEquals(same.source_sha, commit)
     assertEquals(same.attested_source_sha, commit)
     assertEquals(same.current_main_policy, null)
+    api.release = () => Promise.resolve(structuredClone(full))
   }
   for (const failure of ['ancestry', 'signature', 'bytes', 'tag']) {
     const bad = adapter(m)
@@ -844,6 +849,270 @@ Deno.test('later hosted main can finish only a complete draft with its original 
     Error,
     'revoked',
   )
+})
+
+Deno.test('serialized promotion plan pins release source and existing asset/bundle identities', async () => {
+  const m = fixture(), context = promotionContext('c'.repeat(40))
+  const accepted = { ...published(m), draft: true, immutable: false }
+  let remote = structuredClone(accepted), reads = 0, downloads = 0
+  const api = adapter(m), read = api.downloadReleaseAsset
+  api.release = () => {
+    reads++
+    return Promise.resolve(structuredClone(remote))
+  }
+  api.downloadReleaseAsset = async (id, path) => {
+    downloads++
+    await read(id, path)
+  }
+  const root = await Deno.makeTempDir(),
+    path = join(root, 'promotion-plan.json')
+  try {
+    // Use the production planner's draft branch, serialize it as the shell does,
+    // then run the same file-reading verifier called by verify-draft.
+    const plan = await planQualificationDraft(
+      m,
+      accepted,
+      context,
+      api,
+      allowPolicy,
+    )
+    await Deno.writeFile(path, canonicalQualificationBytes(plan), {
+      createNew: true,
+    })
+    const result = await verifyPlannedQualificationDraft(
+      m,
+      path,
+      context,
+      api,
+      allowPolicy,
+    )
+    assertEquals(result.draft_snapshot.id, accepted.id)
+    assertEquals(result.attested_source_sha, commit)
+    assertEquals(result.recovery_mode, 'complete-attested-ancestor')
+    assertEquals(reads, 3) // planner refresh, verification lookup, transfer refresh
+    for (
+      const [name, change] of [
+        ['replacement release', (r: QualificationRelease) => {
+          r.id++
+        }],
+        ['replacement asset IDs', (r: QualificationRelease) => {
+          for (const a of r.assets) a.id += 1000
+        }],
+        ['another valid ancestor', (r: QualificationRelease) => {
+          r.target_commitish = 'd'.repeat(40)
+        }],
+        ['existing bundle ID', (r: QualificationRelease) => {
+          r.assets.at(-1)!.id += 1000
+        }],
+        ['existing bundle digest', (r: QualificationRelease) => {
+          r.assets.at(-1)!.digest = 'sha256:' + 'f'.repeat(64)
+        }],
+        ['existing asset removed', (r: QualificationRelease) => {
+          r.assets.shift()
+        }],
+        ['draft already published', (r: QualificationRelease) => {
+          r.draft = false
+          r.immutable = true
+        }],
+      ] as const
+    ) {
+      remote = structuredClone(accepted)
+      change(remote)
+      downloads = 0
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'promotion plan',
+        name,
+      )
+      assertEquals(downloads, 0, name)
+    }
+    remote = structuredClone(accepted)
+    // Display metadata and inventory ordering are not preservation identities.
+    remote.assets.reverse()
+    for (const asset of remote.assets) {
+      asset.browser_download_url = 'https://example.invalid/preview'
+    }
+    await verifyPlannedQualificationDraft(m, path, context, api, allowPolicy)
+    await Deno.remove(path)
+    await assertRejects(() =>
+      verifyPlannedQualificationDraft(m, path, context, api, allowPolicy)
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('planned same-source missing-only completion and initial creation keep their source and mode', async () => {
+  const m = fixture(), context = promotionContext(), api = adapter(m)
+  const full = { ...published(m), draft: true, immutable: false }
+  let remote = structuredClone(full)
+  api.release = () => Promise.resolve(structuredClone(remote))
+  const root = await Deno.makeTempDir(),
+    path = join(root, 'promotion-plan.json')
+  try {
+    for (
+      const absent of [['zip-0'], [
+        'zip-0',
+        `${QUALIFICATION_MANIFEST}.intoto.jsonl`,
+      ]]
+    ) {
+      remote = {
+        ...full,
+        assets: full.assets.filter((a) => !absent.includes(a.name)),
+      }
+      const plan = await planQualificationDraft(
+        m,
+        remote,
+        context,
+        api,
+        allowPolicy,
+      )
+      assertEquals(plan.assets, ['zip-0'])
+      await Deno.writeFile(path, canonicalQualificationBytes(plan))
+      remote = structuredClone(full)
+      assertEquals(
+        (await verifyPlannedQualificationDraft(
+          m,
+          path,
+          context,
+          api,
+          allowPolicy,
+        )).recovery_mode,
+        'same-source',
+      )
+      remote.target_commitish = 'd'.repeat(40)
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'promotion plan',
+      )
+      remote = structuredClone(full)
+      await Deno.writeFile(
+        path,
+        canonicalQualificationBytes({
+          ...plan,
+          recovery_mode: 'complete-attested-ancestor',
+        }),
+      )
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'recovery mode',
+      )
+      await Deno.writeFile(
+        path,
+        canonicalQualificationBytes({ ...plan, source_sha: 'e'.repeat(40) }),
+      )
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'executor differs',
+      )
+    }
+    const creation = {
+      action: 'create',
+      tag: qualificationTag(m),
+      identity: qualificationIdentity(m),
+      assets: [QUALIFICATION_MANIFEST, ...Object.keys(m.assets)],
+      needs_attestation: true,
+      source_sha: commit,
+      attested_source_sha: commit,
+      recovery_mode: 'create',
+      draft_snapshot: null,
+    }
+    await Deno.writeFile(path, canonicalQualificationBytes(creation))
+    assertEquals(
+      (await verifyPlannedQualificationDraft(
+        m,
+        path,
+        context,
+        api,
+        allowPolicy,
+      )).recovery_mode,
+      'create',
+    )
+    remote.target_commitish = 'd'.repeat(40)
+    await assertRejects(
+      () => verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+      Error,
+      'source differs',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('planning and final verification refresh release metadata after asset transfers', async () => {
+  const m = fixture(), context = promotionContext('c'.repeat(40))
+  const full = { ...published(m), draft: true, immutable: false }
+  const root = await Deno.makeTempDir(),
+    path = join(root, 'promotion-plan.json')
+  try {
+    for (const phase of ['plan', 'verify']) {
+      for (
+        const change of [
+          (r: QualificationRelease) => {
+            r.id++
+          },
+          (r: QualificationRelease) => {
+            r.target_commitish = 'd'.repeat(40)
+          },
+          (r: QualificationRelease) => {
+            r.assets[0].id += 1000
+          },
+          (r: QualificationRelease) => {
+            r.assets.at(-1)!.digest = 'sha256:' + 'e'.repeat(64)
+          },
+        ]
+      ) {
+        let remote = structuredClone(full), reads = 0
+        const api = adapter(m), download = api.downloadReleaseAsset
+        api.release = () => {
+          reads++
+          return Promise.resolve(structuredClone(remote))
+        }
+        const plan = await planQualificationDraft(
+          m,
+          full,
+          context,
+          api,
+          allowPolicy,
+        )
+        await Deno.writeFile(path, canonicalQualificationBytes(plan))
+        reads = 0
+        let changed = false
+        api.downloadReleaseAsset = async (id, target) => {
+          await download(id, target)
+          if (!changed) {
+            changed = true
+            change(remote)
+          }
+        }
+        await assertRejects(
+          () =>
+            phase === 'plan'
+              ? planQualificationDraft(m, full, context, api, allowPolicy)
+              : verifyPlannedQualificationDraft(
+                m,
+                path,
+                context,
+                api,
+                allowPolicy,
+              ),
+          Error,
+          'draft metadata changed during verification',
+        )
+        assertEquals(reads, phase === 'plan' ? 1 : 2)
+      }
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
 })
 
 Deno.test('ancestor adapter binds an earlier producer to the exact executor commit', async () => {

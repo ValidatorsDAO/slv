@@ -81,7 +81,14 @@ hosted-main signature, all asset bytes, and the original source's ancestry to
 that exact executor. It preserves the original draft target, signature, and
 asset IDs, uploads nothing, and rechecks the current revocation policy and tag
 binding before publication. Executor and attested-source commits are recorded
-separately. Incomplete drafts from another source cannot use this recovery path.
+separately. The local `promotion-plan.json` binds the accepted release ID,
+original source, recovery mode, and every existing asset and signature-bundle
+ID, size, and digest. The pre-publication helper reads that same plan and allows
+only the planned missing uploads; it rejects replacement or retargeting. Planning
+and final verification both refresh release metadata after transfers, rejecting
+changes observed before publication. This does not exclude a privileged write
+after the last check. Incomplete drafts from another source cannot use this
+recovery path.
 The recovery keeps workflow files unchanged from the original target and uses
 the existing `GITHUB_TOKEN` without adding workflow-write credentials. See
 GitHub's [release update permission rules](https://docs.github.com/en/rest/releases/releases#update-a-release).

@@ -1568,6 +1568,35 @@ export async function verifyQualificationDraft(
   }
 }
 
+export type QualificationDraftSnapshot =
+  & Omit<QualificationRelease, 'assets'>
+  & {
+    assets: Omit<
+      QualificationRelease['assets'][number],
+      'browser_download_url'
+    >[]
+  }
+/** Ignore display URLs and array order, never the release or uploaded identities. */
+function draftSnapshot(
+  release: QualificationRelease,
+): QualificationDraftSnapshot {
+  positive(release.id, 'draft release ID')
+  return {
+    id: release.id,
+    tag_name: release.tag_name,
+    target_commitish: release.target_commitish,
+    draft: release.draft,
+    prerelease: release.prerelease,
+    immutable: release.immutable,
+    assets: release.assets.map(({ id, name, size, digest }) => ({
+      id,
+      name,
+      size,
+      digest,
+    })).sort((a, b) => a.name.localeCompare(b.name)),
+  }
+}
+
 /** Preserve an earlier main producer only when its signed draft is complete. */
 export async function verifyPromotionDraft(
   m: QualificationManifest,
@@ -1578,8 +1607,9 @@ export async function verifyPromotionDraft(
   revocationTransport: RuntimeRevocationTransport = {},
 ) {
   assertPromotionContext(context)
+  const accepted = draftSnapshot(release)
   await github.verifyMainAncestor(context.source_sha)
-  const source = release.target_commitish
+  const source = accepted.target_commitish
   string(source, COMMIT, 'draft promotion source')
   const priorSource = source !== context.source_sha
   if (priorSource) {
@@ -1594,8 +1624,15 @@ export async function verifyPromotionDraft(
     requireComplete || priorSource,
     revocationTransport,
   )
+  // Transfers may take minutes. Observe release metadata again before accepting
+  // this snapshot; the later publication check repeats the same observation.
+  const refreshed = await github.release(qualificationTag(m))
+  if (!refreshed || !same(accepted, draftSnapshot(refreshed))) {
+    fail('draft metadata changed during verification')
+  }
   return {
     ...verified,
+    draft_snapshot: accepted,
     recovery_mode: priorSource
       ? 'complete-attested-ancestor' as const
       : 'same-source' as const,
@@ -1603,6 +1640,137 @@ export async function verifyPromotionDraft(
     attested_source_sha: source,
   }
 }
+/** The draft branch shared by the planner and its plan-to-publication tests. */
+export async function planQualificationDraft(
+  m: QualificationManifest,
+  release: QualificationRelease,
+  context: PromotionContext,
+  github: QualificationGitHub,
+  revocationTransport: RuntimeRevocationTransport = {},
+) {
+  const recovery = await verifyPromotionDraft(
+    m,
+    release,
+    context,
+    github,
+    false,
+    revocationTransport,
+  )
+  return {
+    action: 'resume' as const,
+    tag: qualificationTag(m),
+    identity: qualificationIdentity(m),
+    assets: recovery.missing_assets,
+    needs_attestation: recovery.needs_attestation,
+    source_sha: recovery.source_sha,
+    attested_source_sha: recovery.attested_source_sha,
+    recovery_mode: recovery.recovery_mode,
+    draft_snapshot: recovery.draft_snapshot,
+    current_main_policy: recovery.current_main_policy,
+  }
+}
+
+/** Read the exact local plan consumed by the unchanged publication shell. */
+export async function verifyPlannedQualificationDraft(
+  m: QualificationManifest,
+  planPath: string,
+  context: PromotionContext,
+  github: QualificationGitHub,
+  revocationTransport: RuntimeRevocationTransport = {},
+) {
+  assertPromotionContext(context)
+  const plan = await json(planPath)
+  if (
+    !['create', 'resume'].includes(plan.action) ||
+    plan.tag !== qualificationTag(m) ||
+    plan.identity !== qualificationIdentity(m) ||
+    plan.source_sha !== context.source_sha ||
+    !COMMIT.test(plan.attested_source_sha) ||
+    typeof plan.needs_attestation !== 'boolean' || !Array.isArray(plan.assets)
+  ) fail('promotion plan identity or executor differs')
+  const priorSource = plan.attested_source_sha !== context.source_sha
+  const mode = plan.action === 'create'
+    ? 'create'
+    : priorSource
+    ? 'complete-attested-ancestor'
+    : 'same-source'
+  if (
+    plan.recovery_mode !== mode || (plan.action === 'create' && priorSource)
+  ) {
+    fail('promotion plan recovery mode differs')
+  }
+  const release = await github.release(qualificationTag(m))
+  if (!release) fail('draft qualification not found')
+  const actual = draftSnapshot(release)
+  let present: QualificationDraftSnapshot['assets'] = []
+  if (plan.action === 'create') {
+    if (plan.draft_snapshot !== null) {
+      fail('creation plan has an existing draft')
+    }
+  } else {
+    const pinned = object(plan.draft_snapshot, [
+      'id',
+      'tag_name',
+      'target_commitish',
+      'draft',
+      'prerelease',
+      'immutable',
+      'assets',
+    ], 'planned draft snapshot')
+    if (!Array.isArray(pinned.assets)) fail('planned draft inventory missing')
+    present = pinned.assets as QualificationDraftSnapshot['assets']
+    // Missing-only completion may add assets. Every previously accepted entry,
+    // including an existing signature bundle, must retain its API ID and digest.
+    if (!same({ ...pinned, assets: [] }, { ...actual, assets: [] })) {
+      fail('draft identity differs from promotion plan')
+    }
+    const names = new Set<string>(), ids = new Set<number>()
+    for (const entry of present) {
+      const row = object(
+        entry,
+        ['id', 'name', 'size', 'digest'],
+        'planned asset',
+      )
+      positive(row.id, 'planned asset ID')
+      if (names.has(entry.name) || ids.has(entry.id)) {
+        fail('duplicate planned asset')
+      }
+      names.add(entry.name)
+      ids.add(entry.id)
+      const found = actual.assets.find((asset) => asset.name === entry.name)
+      if (!found || !same(entry, found)) {
+        fail('existing asset differs from promotion plan')
+      }
+    }
+  }
+  if (actual.target_commitish !== plan.attested_source_sha) {
+    fail('draft source differs from promotion plan')
+  }
+  const expectedMissing = [QUALIFICATION_MANIFEST, ...Object.keys(m.assets)]
+    .filter((name) => !present.some((row) => row.name === name)).sort()
+  const needsAttestation = !present.some((row) =>
+    row.name === `${QUALIFICATION_MANIFEST}.intoto.jsonl`
+  )
+  if (
+    !same([...plan.assets].sort(), expectedMissing) ||
+    plan.needs_attestation !== needsAttestation ||
+    (priorSource && (expectedMissing.length !== 0 || needsAttestation))
+  ) fail('promotion plan missing-only inventory differs')
+  const verified = await verifyPromotionDraft(
+    m,
+    release,
+    context,
+    github,
+    true,
+    revocationTransport,
+  )
+  if (
+    verified.attested_source_sha !== plan.attested_source_sha ||
+    verified.recovery_mode !== (plan.action === 'create' ? 'same-source' : mode)
+  ) fail('verified draft recovery mode differs from promotion plan')
+  return { ...verified, recovery_mode: mode }
+}
+
 /** Prepares an exact publication plan; publishing remains an explicit hosted workflow step. */
 export async function planQualificationPromotion(
   options: {
@@ -1632,6 +1800,7 @@ export async function planQualificationPromotion(
       reviewed_checkout_policy: RuntimeRevocationObservation
       current_main_policy: RuntimeRevocationObservation
     }
+    draft_snapshot: QualificationDraftSnapshot | null
     tag_protection: { bypass_visibility: 'visible-empty' | 'not-visible' }
   }
 > {
@@ -1650,7 +1819,7 @@ export async function planQualificationPromotion(
   )
   if (existing?.draft === true) {
     await verifyCandidateProvenance(options.manifest, options.github)
-    const recovery = await verifyPromotionDraft(
+    const recovery = await planQualificationDraft(
       options.manifest,
       existing,
       options.context,
@@ -1668,11 +1837,12 @@ export async function planQualificationPromotion(
       },
       tag: qualificationTag(options.manifest),
       identity: qualificationIdentity(options.manifest),
-      assets: recovery.missing_assets,
+      assets: recovery.assets,
       needs_attestation: recovery.needs_attestation,
       source_sha: recovery.source_sha,
       attested_source_sha: recovery.attested_source_sha,
       recovery_mode: recovery.recovery_mode,
+      draft_snapshot: recovery.draft_snapshot,
       tag_protection: tagProtection,
     }
   }
@@ -1694,6 +1864,7 @@ export async function planQualificationPromotion(
       source_sha: options.context.source_sha,
       attested_source_sha: existing.target_commitish,
       recovery_mode: 'reuse',
+      draft_snapshot: null,
       tag_protection: tagProtection,
     }
   }
@@ -1722,6 +1893,7 @@ export async function planQualificationPromotion(
     source_sha: options.context.source_sha,
     attested_source_sha: options.context.source_sha,
     recovery_mode: 'create',
+    draft_snapshot: null,
     tag_protection: tagProtection,
   }
 }
@@ -1891,20 +2063,18 @@ if (import.meta.main) {
       args[1],
       args[2],
     )
-    const release = await github.release(qualificationTag(m))
-    if (!release) fail('draft qualification not found')
-    const result = await verifyPromotionDraft(
+    const result = await verifyPlannedQualificationDraft(
       m,
-      release,
+      join(args[2], 'promotion-plan.json'),
       context,
       github,
-      true,
     )
     const receipt = canonicalQualificationBytes({
       identity: qualificationIdentity(m),
       executor_source_sha: context.source_sha,
       attested_source_sha: result.attested_source_sha,
       recovery_mode: result.recovery_mode,
+      draft_snapshot: result.draft_snapshot,
       revocation: {
         reviewed_checkout_policy: reviewedPolicy,
         current_main_policy: result.current_main_policy,
