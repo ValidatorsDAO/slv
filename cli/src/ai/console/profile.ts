@@ -1,4 +1,3 @@
-import { parse } from '@std/yaml'
 import { dirname, join } from '@std/path'
 import { t } from '@/ai/i18n/index.ts'
 
@@ -126,177 +125,28 @@ export const clearFocusOverride = async (): Promise<void> => {
   }
 }
 
-const scanTradeApps = async (): Promise<TradeAppInventory[]> => {
-  // NOTE: Do NOT confuse `~/slv/` and `~/.slv/` — they have completely
-  // different purposes even though the names look alike.
-  //
-  //   ~/slv/   → user application development code. Each subdirectory is
-  //              a bot / app project scaffolded by `slv bot init` (source
-  //              tree, Cargo.toml, wallet.json, target/, .env, …). These
-  //              are what this function enumerates.
-  //
-  //   ~/.slv/  → SLV CLI infrastructure: agent/ (SOUL.md, USER.md, config.yml,
-  //              MEMORY.md, focus.txt), skills/ (AGENT.md / SKILL.md per skill),
-  //              templates, api.yml, keys, logs, and other SLV-owned state.
-  //              Never scanned here.
-  const slvRoot = join(requireHome(), 'slv')
-  const apps: TradeAppInventory[] = []
-  try {
-    for await (const entry of Deno.readDir(slvRoot)) {
-      if (!entry.isDirectory || entry.name.startsWith('.')) continue
-      const dir = join(slvRoot, entry.name)
-      let hasBinary = false
-      let hasWallet = false
-      try {
-        await Deno.stat(join(dir, 'target/release/trade-app'))
-        hasBinary = true
-      } catch { /* no binary */ }
-      try {
-        await Deno.stat(join(dir, 'wallet.json'))
-        hasWallet = true
-      } catch { /* no wallet */ }
-      apps.push({ name: entry.name, hasBinary, hasWallet })
-    }
-  } catch (err) {
-    // Only swallow NotFound — other errors (permission, etc.) should bubble
-    // so the top-level catch in detectProfile() can log them cleanly.
-    if (!(err instanceof Deno.errors.NotFound)) throw err
-  }
-  return apps
-}
-
-type ConfigSkill = { name: string; enabled: boolean; agent?: string }
-
-const readProfileConfig = async (): Promise<{
-  enabledSkills: ConfigSkill[]
-  focusSource?: 'request'
-}> => {
-  try {
-    const raw = await Deno.readTextFile(
-      join(requireHome(), '.slv/agent/config.yml'),
-    )
-    const cfg = parse(raw) as {
-      skills?: ConfigSkill[]
-      focus_source?: unknown
-    } | null
-    return {
-      enabledSkills: (Array.isArray(cfg?.skills) ? cfg.skills : [])
-        .filter((s) => s && s.enabled),
-      focusSource: cfg?.focus_source === 'request' ? 'request' : undefined,
-    }
-  } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) throw err
-  }
-  return { enabledSkills: [] }
-}
-
-// `mixed` is a derived classification — never a direct signal source — so
-// the scoring map only holds the three concrete roles.
-type ScoredRole = Exclude<PrimaryFocus, 'mixed'>
-const SCORED_ROLES: readonly ScoredRole[] = ['validator', 'rpc', 'app']
-
-// Classify the user into one of the three primary roles.
-//
-// Priority (highest to lowest):
-//   1. Manual override via `/focus <role>` (persisted in
-//      ~/.slv/agent/focus.txt). An invalid file is ignored but surfaced in
-//      signals so the user can spot their typo.
-//   2. focus_source: request — follow the current request, without guessing
-//      from enabled skills or existing projects.
-//   3. Live trade apps under ~/slv/ — if the user has a real trade-bot with
-//      binary+wallet, they're clearly in app-dev mode regardless of what they
-//      picked during onboard.
-//   4. Enabled skills in ~/.slv/agent/config.yml.
-//   5. Default to `validator` (the original SLV focus).
-//
-// Multiple strong signals across different roles → `mixed`.
+/** Follow the active request unless the user explicitly chose /focus.
+ * Existing projects and enabled skills are capabilities, not implied intent.
+ */
 export const detectProfile = async (): Promise<UserProfile> => {
-  const overrideResult = await readFocusOverride()
-  const config = await readProfileConfig()
-  if (config.focusSource === 'request' && overrideResult.kind !== 'valid') {
+  const override = await readFocusOverride()
+  if (override.kind === 'valid') {
     return {
-      primary: 'mixed',
-      focusSource: 'request',
-      overridden: false,
-      apps: [],
-      signals: [
-        'Follow the current request; available skills are capabilities, not a user preference.',
-      ],
-    }
-  }
-  const apps = await scanTradeApps()
-  const enabled = config.enabledSkills
-
-  if (overrideResult.kind === 'valid') {
-    return {
-      primary: overrideResult.focus,
+      primary: override.focus,
       overridden: true,
-      apps,
-      signals: [
-        `Manual focus override: ${overrideResult.focus} (set via /focus)`,
-      ],
+      apps: [],
+      signals: [`Manual focus override: ${override.focus} (set via /focus)`],
     }
   }
-
-  const signals: string[] = []
-
-  // If the override file exists but has a garbage value, surface it so the
-  // user can spot the typo and fix it — but continue to auto-detection so
-  // the session isn't blocked by a bad edit.
-  if (overrideResult.kind === 'invalid') {
-    signals.push(
-      `Invalid focus override in ${overrideResult.path}: ${
-        JSON.stringify(overrideResult.raw)
-      } — expected one of validator / rpc / app / mixed. Ignoring.`,
-    )
+  return {
+    primary: 'mixed',
+    focusSource: 'request',
+    overridden: false,
+    apps: [],
+    signals: [
+      'Follow the current request; skills and local projects do not imply a task.',
+    ],
   }
-
-  const liveApps = apps.filter((a) => a.hasBinary || a.hasWallet)
-  const hasLiveTradeApp = liveApps.length > 0
-  if (hasLiveTradeApp) {
-    signals.push(
-      `Trade app(s) in ~/slv: ${liveApps.map((a) => a.name).join(', ')}`,
-    )
-  }
-
-  const enabledNames = new Set(enabled.map((s) => s.name))
-  const hasValidatorSkill = enabledNames.has('slv-validator')
-  const hasRpcSkill = enabledNames.has('slv-rpc') ||
-    enabledNames.has('slv-grpc-geyser')
-  const hasAppSkill = enabledNames.has('slv-app')
-
-  const roleScore: Record<ScoredRole, number> = {
-    validator: 0,
-    rpc: 0,
-    app: 0,
-  }
-
-  if (hasLiveTradeApp) roleScore.app += 3
-  if (hasAppSkill) roleScore.app += 1
-  if (hasValidatorSkill) roleScore.validator += 1
-  if (hasRpcSkill) roleScore.rpc += 1
-
-  if (hasValidatorSkill) signals.push('Validator skill enabled')
-  if (hasRpcSkill) signals.push('RPC / gRPC skill enabled')
-  if (hasAppSkill && !hasLiveTradeApp) signals.push('App skill enabled')
-
-  const max = Math.max(...SCORED_ROLES.map((r) => roleScore[r]))
-
-  let primary: PrimaryFocus
-  if (max === 0) {
-    primary = 'validator' // fallback — original SLV focus
-    signals.push('No strong signal — defaulting to validator')
-  } else {
-    const leaders = SCORED_ROLES.filter((r) => roleScore[r] === max)
-    if (leaders.length === 1) {
-      primary = leaders[0]
-    } else {
-      primary = 'mixed'
-      signals.push(`Multiple strong signals: ${leaders.join(', ')}`)
-    }
-  }
-
-  return { primary, overridden: false, apps, signals }
 }
 
 // Short human-readable summary for the opening greeting. One line only.

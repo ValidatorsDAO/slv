@@ -127,7 +127,7 @@ Deno.test('manual focus wins over request mode and clearing restores request mod
   })
 })
 
-Deno.test('legacy profiles retain their automatic routing preference', async () => {
+Deno.test('legacy profiles follow the current request without requiring onboarding again', async () => {
   await withHome(null, async (home) => {
     await writeProfiles(home)
     await Deno.writeTextFile(
@@ -135,9 +135,9 @@ Deno.test('legacy profiles retain their automatic routing preference', async () 
       quickConfig.replace('focus_source: request\n', ''),
     )
     const profile = await detectProfile()
-    assertEquals(profile.primary, 'app')
-    assertEquals(profile.focusSource, undefined)
-    assertStringIncludes(profilePromptBlock(profile), 'example-trade-app')
+    assertEquals(profile.primary, 'mixed')
+    assertEquals(profile.focusSource, 'request')
+    assertFalse(profilePromptBlock(profile).includes('example-trade-app'))
   })
 })
 

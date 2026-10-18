@@ -1,5 +1,6 @@
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
 import { readUserApiError } from '/lib/userApi/httpError.ts'
+import { isSmallTalk } from '@/ai/console/turnPolicy.ts'
 
 export type DeploymentMode = 'local' | 'remote'
 export type SpecialistAgent =
@@ -23,6 +24,9 @@ export type ContextModuleName =
   | 'validator'
   | 'cli_reference'
   | 'mcp_reference'
+  | 'firewall'
+  | 'wireguard'
+  | 'backup'
 export type UserContextKind =
   | 'mcp_user_account'
   | 'mcp_ai_usage'
@@ -66,6 +70,7 @@ type ClassifierConfig = {
 
 type ClassifierInput = {
   message: string
+  conversation?: readonly { role: 'user' | 'assistant'; content: string }[]
   deploymentMode: DeploymentMode
   enabledSpecialists: string[]
   currentIntent?: IntentType | null
@@ -104,6 +109,9 @@ const ALLOWED_CONTEXT_MODULES: ContextModuleName[] = [
   'validator',
   'cli_reference',
   'mcp_reference',
+  'firewall',
+  'wireguard',
+  'backup',
 ]
 
 const ALLOWED_USER_CONTEXT_KINDS: UserContextKind[] = [
@@ -113,6 +121,9 @@ const ALLOWED_USER_CONTEXT_KINDS: UserContextKind[] = [
   'inventory_mainnet_validators',
   'inventory_mainnet_rpcs',
 ]
+
+export const isIntentType = (value: unknown): value is IntentType =>
+  typeof value === 'string' && ALLOWED_INTENTS.includes(value as IntentType)
 
 const ALLOWED_SPECIALISTS: SpecialistAgent[] = [
   'Cecil',
@@ -221,6 +232,10 @@ function buildClassifierUserPrompt(input: ClassifierInput): string {
     enabledSpecialists: input.enabledSpecialists,
     currentIntent: input.currentIntent ?? null,
     currentSpecialist: input.currentSpecialist ?? null,
+    recentConversation: input.conversation?.slice(-4).map((turn) => ({
+      role: turn.role,
+      content: turn.content.slice(0, 1500),
+    })) ?? [],
     allowedIntentTaxonomy: ALLOWED_INTENTS,
     allowedTools: ALLOWED_TOOLS,
     allowedContextModules: ALLOWED_CONTEXT_MODULES,
@@ -242,7 +257,8 @@ async function callSlvClassifier(
     },
     body: JSON.stringify({
       model: config.model === 'SLV AI' ? 'slv-ai-default' : config.model,
-      max_tokens: 250,
+      max_tokens: 1024,
+      output_config: { effort: 'low' },
       system: buildClassifierSystemPrompt(),
       messages: [{ role: 'user', content: buildClassifierUserPrompt(input) }],
       tools: [],
@@ -592,6 +608,18 @@ function buildPlan(
       break
   }
 
+  if (intent === 'rpc_deploy' || intent === 'rpc_ops') {
+    const validator = modules.indexOf('validator')
+    if (validator !== -1) modules.splice(validator, 1)
+  }
+  if (/firewall|nftables|ufw|ファイアウォール/iu.test(input.message)) {
+    addModule(modules, 'firewall')
+  }
+  if (/wireguard|\bvpn\b/iu.test(input.message)) addModule(modules, 'wireguard')
+  if (/\bbackup|\brestore|バックアップ|復元/iu.test(input.message)) {
+    addModule(modules, 'backup')
+  }
+
   const preferredDelegateByIntent: Partial<
     Record<IntentType, SpecialistAgent>
   > = {
@@ -668,6 +696,13 @@ export async function classifyIntent(
   config: ClassifierConfig,
   input: ClassifierInput,
 ): Promise<IntentClassification> {
+  if (isSmallTalk(input.message)) {
+    return buildPlan({
+      intent: 'general_chat',
+      confidence: 1,
+      language: detectLanguageFallback(input.message),
+    }, input)
+  }
   let raw: Record<string, unknown> | null = null
   let failure: Error | null = null
 

@@ -15,6 +15,7 @@ import {
   loadAgentContext,
 } from '/src/ai/agentConfig/loader.ts'
 import { buildSystemPrompt } from '/src/ai/console/systemPrompt.ts'
+import { isIntentType } from '/src/ai/console/intentClassifier.ts'
 import { setAutoExecute } from '/src/ai/console/tools.ts'
 import {
   explainImageParseError,
@@ -217,10 +218,13 @@ const methods: Record<string, MethodHandler> = {
   'session.send': async (req, state, ctx) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
     const p = req.params as
-      | { text?: unknown; images?: unknown }
+      | { text?: unknown; images?: unknown; intent?: unknown }
       | undefined
     const text = p && typeof p.text === 'string' ? p.text : null
     if (text === null) return resErr(req, 'params.text must be a string')
+    if (p?.intent !== undefined && !isIntentType(p.intent)) {
+      return resErr(req, 'params.intent must be a supported intent')
+    }
     // Optional images: validate shape + mime allowlist + size/count
     // caps BEFORE creating the session so clients get a precise 4xx
     // rather than a vague provider error half a second later.
@@ -228,9 +232,12 @@ const methods: Record<string, MethodHandler> = {
     if (!imageParse.ok) {
       return resErr(req, explainImageParseError(imageParse.error))
     }
-    const input: MessageInput = imageParse.images.length === 0
-      ? text
-      : { text, images: imageParse.images }
+    const input: MessageInput =
+      imageParse.images.length === 0 && p?.intent === undefined ? text : {
+        text,
+        images: imageParse.images,
+        ...(isIntentType(p?.intent) ? { intent: p.intent } : {}),
+      }
 
     if (state.session?.isRunning) {
       return resErr(req, 'session is already running; call session.abort first')

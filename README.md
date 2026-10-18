@@ -140,6 +140,19 @@ account or AI requests; personal Claude/OpenAI keys and the old `--anthropic` /
 sending those keys to any service. ERPC login and unrelated settings are preserved.
 Service usage is separate from installing the open-source CLI.
 
+The console follows your current request, including on existing installations.
+Greetings use a short reply without project scans or tool calls; closing chat
+does not start another AI request to decide whether to save memory. Notable
+outcomes can be recorded during the relevant task. Use `/focus` only when you
+want to set an explicit working preference.
+
+Operational guidance checks the installed command help when syntax is uncertain.
+Validator "keyless" startup means initial synchronization with an unstaked
+identity; production voting still needs the operator's keys and identity checks.
+Key handling and interactive deployment steps stay in the operator's terminal.
+`slv install firewall` changes the machine running SLV and replaces its ruleset;
+the generic management-host rules must not be applied blindly to a live node.
+
 Example requests:
 
 - “Help me prepare a testnet validator deployment.”

@@ -214,7 +214,7 @@ Deno.test('authenticated legacy users use only SLV OAuth for browser chat, class
         return json({
           content: [{
             type: 'text',
-            text: body.max_tokens === 250
+            text: body.max_tokens === 1024
               ? '{"intent":"account_billing"}'
               : 'Hello',
           }],

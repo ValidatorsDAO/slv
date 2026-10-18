@@ -1,5 +1,6 @@
 import type { ChatCallbacks } from '/src/ai/console/consoleAction.ts'
 import { errToString } from '/lib/errToString.ts'
+import type { IntentType } from '@/ai/console/intentClassifier.ts'
 
 /**
  * WebSocket client that lets the TUI talk to a local gateway's
@@ -95,7 +96,10 @@ export class GatewaySessionProvider {
     } catch { /* socket closing — nothing to do */ }
   }
 
-  async chat(userMessage: string): Promise<void> {
+  async chat(
+    userMessage: string,
+    options: { intent?: IntentType } = {},
+  ): Promise<void> {
     await this.ensureConnected()
 
     let accumulated = ''
@@ -153,7 +157,10 @@ export class GatewaySessionProvider {
     }
 
     try {
-      const sent = await this.call('session.send', { text: userMessage })
+      const sent = await this.call('session.send', {
+        text: userMessage,
+        ...(options.intent ? { intent: options.intent } : {}),
+      })
       if (!sent.ok) throw new Error(sent.error ?? 'session.send rejected')
       // Also surface the system prompt the next time we're wired
       // end-to-end; gateway currently ignores it.

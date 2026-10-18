@@ -348,7 +348,7 @@ Deno.test('OAuth login feeds chat, refreshed chat, usage, products, classifier a
           if (body.stream) {
             return streamResponse()
           }
-          if (body.max_tokens === 250) {
+          if (body.max_tokens === 1024) {
             return json({
               content: [{
                 type: 'text',
@@ -403,7 +403,7 @@ Deno.test('OAuth login feeds chat, refreshed chat, usage, products, classifier a
           model: 'SLV AI',
           slvAuth: auth,
         }, {
-          message: 'hello',
+          message: 'Explain RPC status',
           deploymentMode: 'remote',
           enabledSpecialists: [],
         })

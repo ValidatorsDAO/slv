@@ -32,7 +32,6 @@ import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import {
   buildSystemPrompt,
   filterUnloadedContextModules,
-  injectSkillDocs,
   loadContextModules,
   resetContextModules,
 } from '@/ai/console/systemPrompt.ts'
@@ -601,8 +600,13 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   let tipText: Text | null = null
   let currentDelegateAgent: string | null = null
 
+  let latestAssistantText = ''
+  const recentConversation: { role: 'user' | 'assistant'; content: string }[] =
+    []
+
   const callbacks: ChatCallbacks = {
     onStream: (text: string) => {
+      latestAssistantText = text
       if (loader) {
         chatLog.removeChild(loader)
         loader.stop()
@@ -621,6 +625,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       tui.requestRender()
     },
     onToolCall: (name: string, detail: string) => {
+      if (name === 'enable_tools' || name === 'load_context') return
       // For delegate_to_agent, show tips while agent works (no JSON display)
       if (name === 'delegate_to_agent') {
         if (loader) {
@@ -824,19 +829,12 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   // Local greeting — no API call, typewriter effect
   {
     const greetingText = await buildLocalGreeting(resolveHome())
-    const words = greetingText.split(' ')
-    let revealed = ''
-    for (let i = 0; i < words.length; i++) {
-      revealed += (i === 0 ? '' : ' ') + words[i]
-      chatLog.updateStreaming(revealed)
-      tui.requestRender()
-      await new Promise((r) => setTimeout(r, 40))
-    }
+    chatLog.updateStreaming(greetingText)
+    tui.requestRender()
   }
 
   // Track user interactions for memory save decision
   let userMessageCount = 0
-  let completedTurnCount = 0
   let isProcessing = false
   // Messages the user typed while a previous turn was still running. Drained
   // FIFO after each turn completes so long builds/deploys don't block the
@@ -857,8 +855,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     deploymentMode = ctx.mode
     enabledSpecialists = ctx.enabledAgents
   }
-
-  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
   const renderStage = (message: string) => {
     chatLog.addChild(new Text(white(`  ${message}`), 1, 0))
@@ -942,24 +938,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     }
   }
 
-  const saveMemoryAndExit = async () => {
-    if (completedTurnCount > 0) {
-      chatLog.addSystem(`  ${t('Saving session memory...')}`)
-      tui.requestRender()
-      try {
-        await provider.chat(
-          `Session ending. Update ~/.slv/agent/MEMORY.md using write_file with any noteworthy outcomes from this session.
-
-RULES:
-- Only record: server IPs, deploy results, config changes, key decisions, errors encountered
-- Do NOT record: greetings, questions asked, general chat, help commands
-- Keep each entry to 1-2 lines max
-- Append to existing content, never overwrite
-- If nothing notable happened, do NOT write to the file
-- MEMORY.md must stay under 50 lines total. If it would exceed 50 lines, remove the oldest entries to make room.`,
-        )
-      } catch { /* ignore save errors */ }
-    }
+  const exitSession = async () => {
+    // Notable outcomes are saved during their turn. Closing an idle session
+    // must not generate another answer or charge for a memory decision.
     // If we're on the gateway-backed provider, close the WS cleanly.
     // Duck-typed so this path doesn't hard-depend on the class.
     const disposable = provider as unknown as { dispose?: () => void }
@@ -1017,8 +998,6 @@ RULES:
   }
 
   const applyIntentBootstrap = async (input: string) => {
-    renderStage(t('👂 Understanding your request…'))
-    await delay(150)
     let plan = await classifyIntent(
       {
         model: config.model,
@@ -1031,6 +1010,7 @@ RULES:
         enabledSpecialists,
         currentIntent,
         currentSpecialist,
+        conversation: recentConversation,
       },
     )
 
@@ -1049,40 +1029,12 @@ RULES:
       }
     }
 
-    renderStage(
-      t('🎓 Intent detected: {intent}').replace(
-        '{intent}',
-        t(describeIntent(plan.intent)),
-      ),
-    )
-    await delay(150)
-
-    if (plan.toolsToEnable.length > 0) {
-      const enabled = activateExtendedTools(plan.toolsToEnable)
-      if (enabled.length > 0) {
-        renderStage(
-          t('🧰 Enabling tools: {tools}').replace(
-            '{tools}',
-            enabled.join(', '),
-          ),
-        )
-        await delay(150)
-      }
-    }
+    if (plan.toolsToEnable.length > 0) activateExtendedTools(plan.toolsToEnable)
 
     const newlyLoadedModules = filterUnloadedContextModules(
       plan.contextModulesToLoad,
     )
-    if (newlyLoadedModules.length > 0) {
-      renderStage(
-        t('📚 Loading context: {modules}').replace(
-          '{modules}',
-          newlyLoadedModules.join(', '),
-        ),
-      )
-      await delay(150)
-      loadContextModules(newlyLoadedModules)
-    }
+    if (newlyLoadedModules.length > 0) loadContextModules(newlyLoadedModules)
 
     if (plan.delegateAgent && plan.delegateAgent !== currentSpecialist) {
       renderStage(
@@ -1091,7 +1043,6 @@ RULES:
           plan.delegateAgent,
         ),
       )
-      await injectSkillDocs(plan.delegateAgent)
       currentSpecialist = plan.delegateAgent
     } else if (
       !plan.delegateAgent && plan.confidence >= 0.7 &&
@@ -1160,7 +1111,7 @@ RULES:
 
     if (input === '/exit' || input === '/quit') {
       isProcessing = true
-      await saveMemoryAndExit()
+      await exitSession()
       return
     }
 
@@ -1173,6 +1124,7 @@ RULES:
       hydratedUserContextKinds.clear()
       hydratedUserContextBlocks.clear()
       currentIntent = null
+      recentConversation.length = 0
       currentSpecialist = null
       currentSystemPrompt = await buildSystemPrompt()
       const login = await resolveUserApiAuth()
@@ -1189,7 +1141,6 @@ RULES:
         callbacks,
       )
       userMessageCount = 0
-      completedTurnCount = 0
       chatLog.addSystem(`  ${t('Conversation cleared.')}`)
       tui.requestRender()
       return
@@ -1446,8 +1397,18 @@ RULES:
       ) {
         chatLog.addAssistant(plan.askClarify)
       } else {
-        await provider.chat(input)
-        if (!isAborted()) completedTurnCount++
+        latestAssistantText = ''
+        await provider.chat(input, { intent: plan.intent })
+        if (!isAborted()) {
+          recentConversation.push(
+            { role: 'user', content: input.slice(0, 1500) },
+            { role: 'assistant', content: latestAssistantText.slice(0, 1500) },
+          )
+          recentConversation.splice(
+            0,
+            Math.max(0, recentConversation.length - 4),
+          )
+        }
       }
     } catch (error) {
       const msg = errToString(error)
@@ -1587,7 +1548,7 @@ RULES:
         tui.requestRender()
       } else {
         // Not processing: save memory and exit
-        saveMemoryAndExit()
+        exitSession()
       }
       return { consume: true }
     }
