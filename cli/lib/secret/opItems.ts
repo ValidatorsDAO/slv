@@ -99,16 +99,11 @@ const listOrRefuse = async (
   }
 }
 
-/** The vault the keys of the network go to: the one in keyless.yml, or the one the person confirms on the terminal. */
-const chooseVault = async (
-  network: KeylessNetwork,
-  setup: SecretSetup,
-  tty: Tty,
-): Promise<{ vaultId: string; confirmed: boolean }> => {
-  if (setup.policy.vaultId !== null) {
-    return { vaultId: setup.policy.vaultId, confirmed: false }
-  }
-  const listed = (await listOrRefuse(
+type VaultSummary = { id: string; name: string }
+
+/** The vaults that `op vault list` prints, by id and name. */
+const listVaults = async (setup: SecretSetup): Promise<VaultSummary[]> =>
+  (await listOrRefuse(
     setup,
     ['vault', 'list', '--format', 'json'],
     'list the vaults',
@@ -117,6 +112,14 @@ const chooseVault = async (
       ? [{ id: vault.id, name: printable(String(vault.name ?? '')) }]
       : []
   )
+
+/** keyless.yml has no vault for the network: the vaults that op lists are shown, and the person types the id of one. */
+const pickVault = async (
+  network: KeylessNetwork,
+  setup: SecretSetup,
+  listed: readonly VaultSummary[],
+  tty: Tty,
+): Promise<string> => {
   // The vault of mainnet is for mainnet alone, and mainnet takes none of the others.
   const apart = new Map<string, string>()
   for (
@@ -154,7 +157,60 @@ const chooseVault = async (
       'that is not the id of a listed vault. Nothing was made.',
     )
   }
-  return { vaultId: typed, confirmed: true }
+  return typed
+}
+
+/** The vault the keys of the network go to: the one in keyless.yml, or the one the person confirms on the terminal. */
+const chooseVault = async (
+  network: KeylessNetwork,
+  setup: SecretSetup,
+  tty: Tty,
+): Promise<{ vaultId: string; confirmed: boolean }> => {
+  if (setup.policy.vaultId !== null) {
+    return { vaultId: setup.policy.vaultId, confirmed: false }
+  }
+  const vaultId = await pickVault(network, setup, await listVaults(setup), tty)
+  return { vaultId, confirmed: true }
+}
+
+/**
+ * The vault a real key goes into, whether keyless.yml sets it or the person
+ * picks it: shown by the name and the id that `op vault list` gives, and the
+ * person types its name before anything is made. A vault that keyless.yml sets
+ * and that op does not list is a refusal.
+ */
+const confirmKeyVault = async (
+  network: KeylessNetwork,
+  setup: SecretSetup,
+  tty: Tty,
+): Promise<{ vaultId: string; confirmed: boolean }> => {
+  const listed = await listVaults(setup)
+  const set = setup.policy.vaultId
+  const vaultId = set ?? await pickVault(network, setup, listed, tty)
+  const vault = listed.find((candidate) => candidate.id === vaultId)
+  if (vault === undefined) {
+    throw new OpRefusal(
+      `keyless.yml sets the vault ${vaultId} for ${network}, and op lists no vault with that id: it may be out of date. Nothing was made. Set networks.${network}.vault_id to the id of the vault, or remove it to be asked.`,
+    )
+  }
+  const name = vault.name.trim()
+  if (name === '') {
+    throw new OpRefusal(
+      `the vault ${vault.id} has no name to type. Give it one in 1Password. Nothing was made.`,
+    )
+  }
+  await tty.say(
+    `${
+      set === null ? '' : 'keyless.yml sets this vault. '
+    }The ${network} key goes into this vault, as a new item:\n  ${vault.id}  ${name}\n`,
+  )
+  const typed = (await tty.ask(
+    `Type the name of the vault (${name}) to go on, anything else stops here: `,
+  )).trim()
+  if (typed !== name) {
+    throw new OpRefusal('that is not the name of the vault. Nothing was made.')
+  }
+  return { vaultId: vault.id, confirmed: set === null }
 }
 
 type ItemSummary = { id: string; title: string }
@@ -249,6 +305,7 @@ const verifyStoredKey = async (
 
 export {
   chooseVault,
+  confirmKeyVault,
   createItem,
   itemTemplate,
   listItems,

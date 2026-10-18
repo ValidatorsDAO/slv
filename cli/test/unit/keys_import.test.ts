@@ -25,6 +25,8 @@ import {
 } from '/test/unit/_keylessFixtures.ts'
 
 const IDENTITY = KEY_B.pubkey
+/** The name that `op vault list` gives the vault of keyless.yml. */
+const VAULT_NAME = 'Validators'
 const INVENTORY_PATH = '/home/op/.slv/inventory.testnet.validators.yml'
 const KEY_PATH = `/home/op/.slv/keys/${IDENTITY}.json`
 const REF = refOf(VAULT, ITEM, 'keypair')
@@ -65,6 +67,8 @@ const vaultOp = (
     }[]
     readBack?: (field: string, stored: Stored) => OpAnswer
     createFails?: string
+    /** What `op vault list` prints; by default the vault of keyless.yml and another. */
+    vaults?: { id: string; name: string }[]
   } = {},
 ) => {
   const items: Stored[] = (options.existing ?? []).map((item) => ({
@@ -76,10 +80,12 @@ const vaultOp = (
     if (a === 'vault' && b === 'list') {
       return {
         success: true,
-        stdout: JSON.stringify([
-          { id: VAULT, name: 'Validators' },
-          { id: OTHER_VAULT, name: 'Company' },
-        ]),
+        stdout: JSON.stringify(
+          options.vaults ?? [
+            { id: VAULT, name: VAULT_NAME },
+            { id: OTHER_VAULT, name: 'Company' },
+          ],
+        ),
       }
     }
     if (a === 'item' && b === 'list') {
@@ -132,7 +138,10 @@ const run = async (
 ) => {
   const op = config.op ?? vaultOp()
   const captured = captureIo()
-  const terminal = scriptedTty(config.answers ?? [])
+  // A vault that keyless.yml sets is confirmed by its name; with none, the id is typed first.
+  const terminal = scriptedTty(
+    config.answers ?? (config.vaultId === null ? [] : [VAULT_NAME]),
+  )
   let inventory: string | null = config.inventory === undefined
     ? INVENTORY
     : config.inventory
@@ -220,6 +229,7 @@ Deno.test('the key file goes to op on the stdin of `op item create` as the one c
   assertEquals(keyReads, [KEY_PATH])
 
   assertEquals(argsOf(op), [
+    ['vault', 'list', '--format', 'json'],
     ['item', 'list', '--vault', VAULT, '--format', 'json'],
     ['item', 'create', '--vault', VAULT, '-'],
     ['item', 'list', '--vault', VAULT, '--format', 'json'],
@@ -229,10 +239,10 @@ Deno.test('the key file goes to op on the stdin of `op item create` as the one c
   // op prints the item it made; that output is not collected. The others are read.
   assertEquals(
     op.calls.map((call) => call.stdout),
-    ['piped', 'null', 'piped', 'piped', 'piped'],
+    ['piped', 'piped', 'null', 'piped', 'piped', 'piped'],
   )
   // The template is on stdin, titled with the public key.
-  const create = op.calls[1]
+  const create = op.calls[2]
   const stdinText = new TextDecoder().decode(create.stdin!)
   const template = JSON.parse(stdinText)
   assertEquals(template.title, IDENTITY)
@@ -333,7 +343,7 @@ Deno.test('a read-back that is not the key that went in, or a pubkey field that 
   for (const [name, op, expected] of cases) {
     const { result, captured, writes, inventory, vaultWrites } = await run(
       TESTNET,
-      { op, vaultId: null, answers: [VAULT] },
+      { op, vaultId: null, answers: [VAULT, VAULT_NAME] },
     )
     assertEquals(result, false, name)
     assertEquals(writes, [], name)
@@ -559,14 +569,10 @@ Deno.test('an item that has the public key as its title is not made a second tim
   const op = vaultOp({ existing: [{ id: 'z'.repeat(26), title: IDENTITY }] })
   const { result, captured, writes } = await run(TESTNET, { op })
   assertEquals(result, false)
-  assertEquals(argsOf(op), [[
-    'item',
-    'list',
-    '--vault',
-    VAULT,
-    '--format',
-    'json',
-  ]])
+  assertEquals(argsOf(op), [
+    ['vault', 'list', '--format', 'json'],
+    ['item', 'list', '--vault', VAULT, '--format', 'json'],
+  ])
   assertEquals(writes, [])
   assertStringIncludes(captured.error[0], 'has an item titled')
   assertStringIncludes(captured.error[0], 'z'.repeat(26))
@@ -585,9 +591,17 @@ Deno.test('an item that has the public key as its title is not made a second tim
 })
 
 Deno.test('with no vault in keyless.yml the vaults are listed on the terminal and only the id of a listed one is taken; the vault is written to keyless.yml after the inventory, and not when the id is wrong', async () => {
-  const first = await run(TESTNET, { vaultId: null, answers: [VAULT] })
+  const first = await run(TESTNET, {
+    vaultId: null,
+    answers: [VAULT, VAULT_NAME],
+  })
   assertEquals(first.result, true, first.captured.error.join('\n'))
   assertEquals(argsOf(first.op)[0], ['vault', 'list', '--format', 'json'])
+  // The vaults are listed once, whether the vault is picked or set.
+  assertEquals(
+    argsOf(first.op).filter((args) => args[0] === 'vault').length,
+    1,
+  )
   assertStringIncludes(first.terminal.said[0], VAULT)
   assertEquals(first.vaultWrites, [['testnet', VAULT]])
   assertEquals(first.writes.length, 1)
@@ -607,7 +621,7 @@ Deno.test('with no vault in keyless.yml the vaults are listed on the terminal an
   // A vault that cannot be written still leaves the inventory written, and says what to add.
   const unsaved = await run(TESTNET, {
     vaultId: null,
-    answers: [VAULT],
+    answers: [VAULT, VAULT_NAME],
     writeVault: () => Promise.reject(new Error('disk full')),
   })
   assertEquals(unsaved.result, false)
@@ -616,6 +630,89 @@ Deno.test('with no vault in keyless.yml the vaults are listed on the terminal an
     unsaved.captured.error.join('\n'),
     `networks.testnet.vault_id: ${VAULT}`,
   )
+})
+
+Deno.test('before the item is made the vault is shown with its name and id from op and its name is typed, also when keyless.yml sets the vault; another name, a vault that op does not list and a vault without a name stop it before anything is made', async () => {
+  const listed = ['vault', 'list', '--format', 'json']
+  const prompt =
+    `Type the name of the vault (${VAULT_NAME}) to go on, anything else stops here: `
+
+  // keyless.yml sets the vault: it is shown, and its name is asked for before the items are looked at.
+  const set = await run(TESTNET)
+  assertEquals(set.result, true, set.captured.error.join('\n'))
+  assertEquals(argsOf(set.op).slice(0, 2), [
+    listed,
+    ['item', 'list', '--vault', VAULT, '--format', 'json'],
+  ])
+  assertEquals(set.terminal.asked, [prompt])
+  assertStringIncludes(
+    set.terminal.said.join('\n'),
+    `keyless.yml sets this vault. The testnet key goes into this vault, as a new item:\n  ${VAULT}  ${VAULT_NAME}\n`,
+  )
+  // keyless.yml has it already.
+  assertEquals(set.vaultWrites, [])
+
+  // A vault that was picked on the terminal is confirmed by its name too.
+  const picked = await run(TESTNET, {
+    vaultId: null,
+    answers: [VAULT, VAULT_NAME],
+  })
+  assertEquals(picked.result, true, picked.captured.error.join('\n'))
+  assertEquals(picked.terminal.asked.length, 2)
+  assertEquals(picked.terminal.asked[1], prompt)
+  assertStringIncludes(picked.terminal.said[1], `${VAULT}  ${VAULT_NAME}`)
+  assertEquals(picked.vaultWrites, [['testnet', VAULT]])
+
+  // Any other answer: nothing is made, nothing is written.
+  for (
+    const [name, config] of [
+      ['nothing', { answers: [''] }],
+      ['the name in other letters', { answers: ['validators'] }],
+      ['the name of another vault', { answers: ['Company'] }],
+      ['the id of the vault', { answers: [VAULT] }],
+      ['more than the name', { answers: [`${VAULT_NAME} x`] }],
+      [
+        'the wrong name after the id was picked',
+        { vaultId: null, answers: [VAULT, 'Company'] },
+      ],
+    ] as [string, Parameters<typeof run>[1]][]
+  ) {
+    const wrong = await run(TESTNET, config)
+    assertEquals(wrong.result, false, name)
+    assertStringIncludes(
+      wrong.captured.error.join('\n'),
+      'that is not the name of the vault',
+    )
+    assertEquals(argsOf(wrong.op), [listed], name)
+    assertEquals(wrong.writes, [], name)
+    assertEquals(wrong.vaultWrites, [], name)
+    assertEquals(wrong.captured.exitCode(), 1, name)
+  }
+
+  // A vault_id that op does not list is out of date: it is not asked about, and nothing takes the key.
+  const stale = await run(TESTNET, { vaultId: 'z'.repeat(26) })
+  assertEquals(stale.result, false)
+  assertStringIncludes(
+    stale.captured.error.join('\n'),
+    `keyless.yml sets the vault ${
+      'z'.repeat(26)
+    } for testnet, and op lists no vault with that id`,
+  )
+  assertEquals(stale.terminal.asked, [])
+  assertEquals(argsOf(stale.op), [listed])
+  assertEquals(stale.writes, [])
+
+  // A vault that has no name has none to type.
+  const nameless = await run(TESTNET, {
+    op: vaultOp({ vaults: [{ id: VAULT, name: '  ' }] }),
+  })
+  assertEquals(nameless.result, false)
+  assertStringIncludes(
+    nameless.captured.error.join('\n'),
+    'has no name to type',
+  )
+  assertEquals(nameless.terminal.asked, [])
+  assertEquals(argsOf(nameless.op), [listed])
 })
 
 Deno.test('with the files of the system: the inventory is replaced whole and keeps its mode, the key file stays with its content and its mode, and no other file is left', async () => {
@@ -634,7 +731,7 @@ Deno.test('with the files of the system: the inventory is replaced whole and kee
       { ...TESTNET, file: keyFile },
       {
         setup: setupDeps(op.op),
-        tty: scriptedTty([]).tty,
+        tty: scriptedTty([VAULT_NAME]).tty,
         io: captured.io,
         homeDir: '/home/op',
         inventoryPath: () => inventoryFile,
@@ -754,11 +851,13 @@ const LATE = inventoryOf({
 
 Deno.test('an entry added after the import gets the reference of the item that is in the vault already: no item is made, the stored key is read back against the key file, and only the entries that lack the reference get it', async () => {
   const op = vaultOp({ existing: STORED })
-  const { result, captured, writes, inventory, keyReads } = await run(
+  const { result, captured, writes, inventory, keyReads, terminal } = await run(
     { network: 'testnet', host: 'ams2' },
     { inventory: LATE, op },
   )
   assertEquals(result, true, captured.error.join('\n'))
+  // No item is made, so the vault is not asked about.
+  assertEquals(terminal.asked, [])
   // The vault was asked for its items, and the item was read back; nothing was created.
   assertEquals(op.calls.some((call) => call.args[1] === 'create'), false)
   assertEquals(op.calls.map((call) => call.args), [

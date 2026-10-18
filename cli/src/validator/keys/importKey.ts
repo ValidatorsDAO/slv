@@ -17,7 +17,7 @@ import {
   zero,
 } from '/lib/secret/keypairBytes.ts'
 import {
-  chooseVault,
+  confirmKeyVault,
   createItem,
   itemTemplate,
   listItems,
@@ -45,7 +45,9 @@ import { defaultIo, describe, type Io } from '/src/validator/keys/io.ts'
 
 // keys:import puts the key file of a validator into 1Password, checks the item
 // by reading it back, and only then writes its reference into the inventory.
-// The key file is read and never changed or removed.
+// Before the item is made, the vault is shown by the name and id that op lists
+// and the person types its name. The key file is read and never changed or
+// removed.
 
 class ImportRefusal extends Error {
   constructor(message: string) {
@@ -440,7 +442,11 @@ const importKey = async (
         },
       )
     } else {
-      ;({ vaultId, confirmed } = await chooseVault(network, setup, deps.tty))
+      ;({ vaultId, confirmed } = await confirmKeyVault(
+        network,
+        setup,
+        deps.tty,
+      ))
       const before = await listItems(setup, vaultId)
       const existing = before.filter((item) => item.title === identityAccount)
       if (existing.length > 0) {
