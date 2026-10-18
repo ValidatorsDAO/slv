@@ -326,9 +326,14 @@ export function verifySmokeProvenance(
     run.path !== WORKFLOW || run.display_title !== input.title ||
     run.repository?.full_name !== REPOSITORY ||
     run.head_repository?.full_name !== REPOSITORY ||
-    !Number.isSafeInteger(run.repository?.id) ||
-    !['in_progress', 'completed'].includes(run.status)
+    !Number.isSafeInteger(run.repository?.id)
   ) fail('run-provenance-mismatch')
+  // Aggregate status can remain queued while individual jobs are running.
+  // Execution eligibility comes from the exact current smoke/producer jobs
+  // below, never from an aggregate status alone.
+  if (!['queued', 'in_progress', 'completed'].includes(run.status)) {
+    fail('run-state-mismatch')
+  }
   if (
     !Array.isArray(jobs?.jobs) || jobs.total_count !== jobs.jobs.length ||
     jobs.total_count >= 100
@@ -896,6 +901,27 @@ export function verifySmokeOutput(
 }
 
 type Receipt = Record<string, any>
+function runObservation(run: any) {
+  const status =
+    ['queued', 'in_progress', 'completed', 'waiting', 'pending', 'requested']
+        .includes(run?.status)
+      ? run.status
+      : 'unrecognized'
+  const conclusion = run?.conclusion === null ? null : [
+      'success',
+      'failure',
+      'cancelled',
+      'skipped',
+      'timed_out',
+      'neutral',
+      'action_required',
+      'stale',
+      'startup_failure',
+    ].includes(run?.conclusion)
+    ? run.conclusion
+    : 'unrecognized'
+  return { status, conclusion }
+}
 function initialReceipt(input: SmokeInput): Receipt {
   return {
     schema_version: 1,
@@ -950,6 +976,8 @@ export async function acquireSmoke(
       github.artifact(input.product.artifact_id),
       github.artifact(input.notices.artifact_id),
     ])
+    // Preserve only bounded enum observations, including on a rejected run.
+    receipt.run_observation = runObservation(run)
     verifySmokeProvenance(input, run, jobs, product, notices)
     const smokeJob = jobs.jobs.find((job: any) =>
       job.name === `validation-smoke-${input.target}`
@@ -1060,6 +1088,7 @@ export async function executeSmoke(
     receipt = initialReceipt(input)
     receipt.stage = 'execute'
     receipt.status = 'incomplete'
+    receipt.run_observation = runObservation(prepared.receipt.run_observation)
     const product = await verifySmokeFiles(input, root, work)
     receipt.runtime_revocation = await checkReviewedRuntimeRevocation(
       input.qualification_identity,

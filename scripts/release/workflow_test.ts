@@ -5559,7 +5559,22 @@ Deno.test('exact two Darwin smoke jobs are validation-only and never enter ordin
       section.indexOf('      - name: Execute the unchanged'),
       section.indexOf('      - name: Preserve sanitized'),
     )
-    assert(execute.includes('if: ${{ always() && !cancelled() }}'))
+    const executeCondition =
+      execute.match(/^        if: \$\{\{ (.+) \}\}$/m)![1]
+    assertEquals(
+      executeCondition,
+      "!cancelled() && steps.acquire.outcome == 'success'",
+    )
+    for (const cancelled of [false, true]) {
+      for (const outcome of ['success', 'failure', 'skipped', 'cancelled']) {
+        const executeAllowed = Function(
+          'cancelled',
+          'steps',
+          `return (${executeCondition})`,
+        )(() => cancelled, { acquire: { outcome } })
+        assertEquals(executeAllowed, !cancelled && outcome === 'success')
+      }
+    }
     assert(execute.includes('timeout-minutes: 3'))
     assert(!execute.includes('GH_TOKEN'))
     assert(!execute.includes('HOME='))

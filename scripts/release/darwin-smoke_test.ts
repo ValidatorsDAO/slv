@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertThrows } from 'jsr:@std/assert@1'
 import { createHash } from 'node:crypto'
 import {
+  acquireSmoke,
   assertNativeHost,
   assertSmokeContext,
   executeSmoke,
@@ -206,6 +207,168 @@ Deno.test('artifact metadata binds actual dispatch run, exact jobs, ZIP IDs/dige
         altered.notices,
       )
     )
+  }
+})
+
+Deno.test('queued aggregate runs require successful current producers, an active smoke job and exact artifacts', () => {
+  const i = input(), p = provenance(i)
+  p.run.status = 'queued'
+  verifySmokeProvenance(i, p.run, p.jobs, p.product, p.notices)
+  const rejected = (change: (v: typeof p) => void, code: string) => {
+    const altered = structuredClone(p)
+    change(altered)
+    assertThrows(
+      () =>
+        verifySmokeProvenance(
+          i,
+          altered.run,
+          altered.jobs,
+          altered.product,
+          altered.notices,
+        ),
+      Error,
+      code,
+    )
+  }
+  for (const status of ['waiting', 'pending', 'requested', 'unknown', '']) {
+    rejected((v) => {
+      v.run.status = status
+    }, 'run-state-mismatch')
+  }
+  for (let index = 0; index < 4; index++) {
+    for (const conclusion of ['failure', 'skipped', 'cancelled', '']) {
+      rejected((v) => {
+        v.jobs.jobs[index].conclusion = conclusion
+      }, 'producer-job-mismatch')
+    }
+    rejected((v) => {
+      v.jobs.jobs[index].status = 'in_progress'
+    }, 'producer-job-mismatch')
+    rejected((v) => {
+      v.jobs.jobs[index].run_attempt = 1
+    }, 'producer-job-mismatch')
+  }
+  for (const status of ['queued', 'waiting', 'unknown']) {
+    rejected((v) => {
+      v.jobs.jobs[4].status = status
+    }, 'smoke-job-mismatch')
+  }
+  rejected((v) => {
+    v.jobs.jobs[4].head_sha = 'c'.repeat(40)
+  }, 'smoke-job-mismatch')
+  rejected((v) => {
+    v.jobs.jobs[4].run_attempt = 1
+  }, 'smoke-job-mismatch')
+  rejected((v) => {
+    v.run.head_sha = 'c'.repeat(40)
+  }, 'run-provenance-mismatch')
+  rejected((v) => {
+    v.run.run_attempt = 1
+  }, 'run-provenance-mismatch')
+  rejected((v) => {
+    v.jobs.jobs.splice(3, 1)
+    v.jobs.total_count--
+  }, 'producer-job-mismatch')
+  rejected((v) => {
+    v.product.id = 12
+  }, 'artifact-provenance-mismatch')
+  rejected((v) => {
+    v.product.digest = 'sha256:' + 'c'.repeat(64)
+  }, 'artifact-provenance-mismatch')
+  rejected((v) => {
+    v.notices.expired = true
+  }, 'artifact-provenance-mismatch')
+})
+
+Deno.test('acquisition rejection records bounded run observations before any artifact download', async () => {
+  const parent = await Deno.makeTempDir(), root = `${parent}/repo`
+  await Deno.mkdir(root)
+  const git = async (args: string[]) => {
+    const result = await new Deno.Command('git', {
+      cwd: root,
+      args,
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    assertEquals(result.code, 0)
+    return decoder.decode(result.stdout).trim()
+  }
+  const saved: Record<string, string | undefined> = {}
+  let downloads = 0
+  try {
+    await git(['init', '--quiet'])
+    await git([
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'Fixture',
+    ])
+    const i = input(), commit = await git(['rev-parse', 'HEAD'])
+    i.source_sha = i.workflow_sha = i.reviewed_sha = commit
+    i.title = `SLV release build validation ${commit}`
+    for (const [key, value] of Object.entries(environment(i))) {
+      saved[key] = Deno.env.get(key)
+      Deno.env.set(key, value)
+    }
+    for (
+      const [index, status] of ['queued', 'waiting', 'private sentinel']
+        .entries()
+    ) {
+      const p = provenance(i)
+      p.run.head_sha = commit
+      p.run.status = status
+      for (const job of p.jobs.jobs) job.head_sha = commit
+      p.product.workflow_run.head_sha = commit
+      p.notices.workflow_run.head_sha = commit
+      // Queued passes the run/job checks but still rejects a mismatched artifact.
+      p.product.id++
+      const output = `${parent}/receipt-${index}.json`
+      const expected = status === 'queued'
+        ? 'artifact-provenance-mismatch'
+        : 'run-state-mismatch'
+      await assertRejects(
+        () =>
+          acquireSmoke(i, root, `${parent}/work-${index}`, output, {
+            run: async () => ({
+              ...p.run,
+              conclusion: null,
+              ignored: 'private sentinel',
+            }),
+            jobs: async () => p.jobs,
+            artifact: async (id) =>
+              id === i.product.artifact_id ? p.product : p.notices,
+            download: async () => {
+              downloads++
+              throw new Error('must not download')
+            },
+          }),
+        Error,
+        expected,
+      )
+      const text = await Deno.readTextFile(output), receipt = JSON.parse(text)
+      assertEquals(receipt.error_code, expected)
+      assertEquals(receipt.status, 'failed')
+      assertEquals(receipt.stage, 'acquire')
+      assertEquals(receipt.run_observation, {
+        status: status === 'private sentinel' ? 'unrecognized' : status,
+        conclusion: null,
+      })
+      assertEquals(text.includes('private sentinel'), false)
+      assertEquals(receipt.cases, [])
+      assertEquals(downloads, 0)
+    }
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) Deno.env.delete(key)
+      else Deno.env.set(key, value)
+    }
+    await Deno.remove(parent, { recursive: true })
   }
 })
 
@@ -555,7 +718,16 @@ Deno.test('wrong-byte/source/attempt/target fixtures are rejected before any exe
       `${f.work}/prepared.json`,
       JSON.stringify({
         input_sha256: digest(canonicalReceipt(f.i)),
-        receipt: { status: 'prepared', cases: [], injected_path: f.parent },
+        receipt: {
+          status: 'prepared',
+          cases: [],
+          injected_path: f.parent,
+          run_observation: {
+            status: 'queued',
+            conclusion: null,
+            injected_path: f.parent,
+          },
+        },
       }),
     )
     const argsSeen: string[][] = []
@@ -601,6 +773,10 @@ Deno.test('wrong-byte/source/attempt/target fixtures are rejected before any exe
     assertEquals(JSON.parse(reported).status, 'passed')
     assertEquals(reported.includes(f.parent), false)
     assertEquals(JSON.parse(reported).cases.length, 4)
+    assertEquals(JSON.parse(reported).run_observation, {
+      status: 'queued',
+      conclusion: null,
+    })
   } finally {
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) Deno.env.delete(key)

@@ -2148,7 +2148,7 @@ jobs:
           ' > "$RUNNER_TEMP/darwin-smoke-input.json"
           deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts acquire "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
       - name: Execute the unchanged product and current bridge on the native architecture
-        if: ${{ always() && !cancelled() }}
+        if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
         timeout-minutes: 3
         shell: bash
         run: |
@@ -2257,7 +2257,7 @@ jobs:
           ' > "$RUNNER_TEMP/darwin-smoke-input.json"
           deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts acquire "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
       - name: Execute the unchanged product and current bridge on the native architecture
-        if: ${{ always() && !cancelled() }}
+        if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
         timeout-minutes: 3
         shell: bash
         run: |
