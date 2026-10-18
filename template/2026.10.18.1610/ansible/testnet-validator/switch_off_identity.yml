@@ -1,0 +1,140 @@
+---
+- name: Switch Off Identity
+  hosts: "{{ off_host }}"
+  become: true
+  become_user: solv
+  gather_facts: no
+  any_errors_fatal: true
+  tasks:
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ validator_type | default('') }}"
+
+    - name: Remember which consensus this switch moves
+      ansible.builtin.set_fact:
+        slv_switch_mode: "{{ slv_alpenglow_state }}"
+
+    - name: Refuse an identity_account that is not a base58 public key, it names the tower and vote history files on the controller
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the tower or the vote history file on the controller. Nothing was changed."
+        quiet: true
+
+    - name: Check that the vote account of the inventory belongs to the identity, before the source waits or is demoted
+      ansible.builtin.import_tasks: ../cmn/tasks/vote_history_last_vote.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_lv_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
+        slv_lv_identity: "{{ hostvars[inventory_hostname].identity_account }}"
+      when: slv_switch_mode == 'alpenglow'
+
+    - name: Refuse to demote the source when the cluster does not show its vote account
+      ansible.builtin.fail:
+        msg: "{{ slv_lv_detail }}, so the vote account cannot be checked against the identity_account {{ hostvars[inventory_hostname].identity_account }} and the switch does not start. Nothing was changed on {{ inventory_hostname }}. Fix vote_account in the inventory, or run it again when the cluster answers."
+      when:
+        - slv_switch_mode == 'alpenglow'
+        - slv_lv_last | int(-1) < 0
+
+    - name: Check that the source holds the tower file of the identity
+      ansible.builtin.stat:
+        path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"
+      register: source_tower_file
+      when: slv_switch_mode == 'towerbft'
+
+    - name: Refuse to demote the source without a tower file to carry
+      ansible.builtin.assert:
+        that:
+          - source_tower_file.stat.exists
+        fail_msg: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin does not exist on {{ inventory_hostname }}, so there is no tower to carry to the target. Nothing was changed."
+        quiet: true
+      when: slv_switch_mode == 'towerbft'
+
+    - name: Check that the source holds the vote history file of the identity
+      ansible.builtin.stat:
+        path: "/mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin"
+      register: source_vote_history_file
+      when: slv_switch_mode == 'alpenglow'
+
+    - name: Refuse to demote the source without a vote history file to carry
+      ansible.builtin.assert:
+        that:
+          - source_vote_history_file.stat.exists
+        fail_msg: "/mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin does not exist on {{ inventory_hostname }}, so there is no vote history to carry to the target. Nothing was changed."
+        quiet: true
+      when: slv_switch_mode == 'alpenglow'
+
+    - name: Wait for Restart Window
+      shell: |
+        . ~/.profile
+        agave-validator -l /mnt/ledger wait-for-restart-window --min-idle-time 2 --skip-new-snapshot-check
+      args:
+        executable: /bin/bash
+
+    - name: Note the time right before the cluster is asked about the demotion
+      ansible.builtin.set_fact:
+        slv_pre_demotion_probe_at: "{{ now(utc=true).timestamp() | int }}"
+
+    - name: Ask the cluster again right before the demotion
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ validator_type | default('') }}"
+
+    - name: Refuse to demote when the cluster changed consensus while the switch waited
+      ansible.builtin.assert:
+        that:
+          - slv_alpenglow_state == slv_switch_mode
+        fail_msg: "The cluster went from {{ slv_switch_mode }} to {{ slv_alpenglow_state }} while this switch waited for a restart window, so the file it checked is not the one to carry any more. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+      run_once: true
+
+    - name: Remember what the cluster ran when the source is demoted, for the switch_on that follows
+      ansible.builtin.set_fact:
+        slv_pre_demotion_state: "{{ slv_alpenglow_state }}"
+        slv_pre_demotion_feature: "{{ slv_ag_feature_kind | default('') }}"
+
+    - name: Note where the validator log ends before the identity changes
+      ansible.builtin.stat:
+        path: "{{ slv_validator_log | default('/home/solv/solana-validator.log', true) }}"
+      register: source_log_before
+      when: slv_switch_mode == 'alpenglow'
+
+    - name: Set Identity to Unstaked Key
+      shell: |
+        . ~/.profile
+        agave-validator -l /mnt/ledger set-identity /home/solv/unstaked-identity.json
+      args:
+        executable: /bin/bash
+
+    - name: Make sure the ~/.slv/tower directory exists
+      shell: mkdir -p ~/.slv/tower
+      failed_when: false
+      when: slv_switch_mode == 'towerbft'
+
+    - name: Download Tower File - Make Sure it overwrites the existing file if it exists at the destination
+      ansible.builtin.fetch:
+        src: /mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+        dest: ~/.slv/tower/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+        flat: yes
+      when: slv_switch_mode == 'towerbft'
+
+    - name: Take the vote history file off the source
+      when: slv_switch_mode == 'alpenglow'
+      block:
+        - name: Wait until Votor let go of the identity, then copy the vote history file to the controller
+          ansible.builtin.import_tasks: ../cmn/tasks/vote_history_take.yml
+          vars:
+            slv_vh_identity: "{{ hostvars[inventory_hostname].identity_account }}"
+            slv_vh_log_offset: "{{ source_log_before.stat.size | default(0) }}"
+            slv_alpenglow_network: testnet
+      rescue:
+        - name: Say what is left to do when the vote history file could not be taken
+          ansible.builtin.fail:
+            msg: "{{ ansible_failed_result.msg | default('A step failed') }} (step: {{ ansible_failed_task.name }}). {{ slv_vh_left | default('The host ' ~ inventory_hostname ~ ' is on its unstaked identity now and nothing was promoted.') }}"

@@ -5335,10 +5335,16 @@ Deno.test('qualification publication resumes only missing assets and verifies co
     await Deno.chmod(`${bin}/gh`, 0o700)
     await Deno.chmod(`${bin}/deno`, 0o700)
     for (
-      const [action, needsAttestation, assets] of [
-        ['create', true, ['runtime-qualification.json', 'missing-runtime']],
-        ['resume', true, ['missing-runtime']],
-        ['resume', false, []],
+      const [action, needsAttestation, assets, attestedSource] of [
+        [
+          'create',
+          true,
+          ['runtime-qualification.json', 'missing-runtime'],
+          SHA,
+        ],
+        ['resume', true, ['missing-runtime'], SHA],
+        ['resume', false, [], SHA],
+        ['resume', false, [], 'b'.repeat(40)],
       ] as const
     ) {
       await Deno.writeTextFile(
@@ -5348,6 +5354,10 @@ Deno.test('qualification publication resumes only missing assets and verifies co
           needs_attestation: needsAttestation,
           assets,
           source_sha: SHA,
+          attested_source_sha: attestedSource,
+          recovery_mode: attestedSource === SHA
+            ? 'same-source'
+            : 'complete-attested-ancestor',
           tag: 'runtime-deno-v2.9.3-' + 'c'.repeat(64),
         }),
       )
@@ -5395,6 +5405,10 @@ Deno.test('qualification publication resumes only missing assets and verifies co
             : []),
         ])
         assertEquals(calls.filter((x) => x[0] === 'verify-draft').length, 1)
+        if (attestedSource !== SHA) {
+          assertEquals(uploads, [])
+          assertEquals(calls.some((x) => x.includes('--target')), false)
+        }
         const publish = calls.findIndex((x) =>
           x[0] === 'release' && x[1] === 'edit'
         )

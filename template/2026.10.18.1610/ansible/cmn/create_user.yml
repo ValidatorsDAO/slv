@@ -1,0 +1,126 @@
+---
+- name: Create solv user with specific password and configure SSH access
+  hosts: all
+  become: yes
+  vars:
+    home_paths_authorized_keys: /home/solv/.ssh/authorized_keys
+    ansible_remote_tmp: /tmp/ansible_tmp
+    # The key to authorize is the public key of the private key that the inventory names for the host (the key
+    # Ansible connects with, and keeps using for solv once this play has run); ~/.ssh/id_rsa.pub when it names none.
+    local_public_key_path: "{{ ((ansible_ssh_private_key_file | expanduser) ~ '.pub') if (ansible_ssh_private_key_file | default('', true)) != '' else (lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+  vars_files:
+    - ~/.slv/config.pwd.yml
+  tasks:
+    - name: Look for the public key to authorize
+      become: false
+      delegate_to: localhost
+      stat:
+        path: "{{ local_public_key_path }}"
+        follow: true
+      register: local_public_key_stat
+
+    - name: Stop when the public key to authorize does not exist
+      fail:
+        msg: >-
+          The public key {{ local_public_key_path }} does not exist, so there is no key to authorize for solv on {{ inventory_hostname }}.
+          {{ ('It is the public key of the private key ' ~ ansible_ssh_private_key_file ~ ', which the inventory names for ' ~ inventory_hostname ~ ': create it next to the private key (ssh-keygen -y -f ' ~ ansible_ssh_private_key_file ~ ' > ' ~ local_public_key_path ~ ').') if (ansible_ssh_private_key_file | default('', true)) != '' else 'The inventory names no ansible_ssh_private_key_file for this host, so the public key of ~/.ssh/id_rsa is used: create it, or name the private key in the inventory with ansible_ssh_private_key_file.' }}
+          Nothing was changed on {{ inventory_hostname }}.
+      when: not local_public_key_stat.stat.exists
+
+    # The user module hands any password that is not None to useradd/usermod -p, so '' would leave solv with an empty
+    # password field, and this play gives solv sudo without a password: only a SHA-512 crypt hash goes on.
+    - name: Stop when the password hash of solv is empty or not a SHA-512 crypt hash
+      ansible.builtin.assert:
+        that:
+          - encrypted_password | default('', true) | string is match('^\\$6\\$[^$]+\\$[./0-9A-Za-z]+\\Z')
+        fail_msg: "the password hash in ~/.slv/config.pwd.yml is empty or not a $6$ hash; nothing was changed on {{ inventory_hostname }}. A SHA-512 crypt hash starts with $6$ (openssl passwd -6 makes one): put it in encrypted_password of that file, and run this again."
+        quiet: true
+
+    - name: Ensure solv user exists
+      user:
+        name: solv
+        password: "{{ encrypted_password }}"
+        state: present
+        shell: /bin/bash
+
+    - name: Ensure .ssh directory exists for solv user
+      file:
+        path: /home/solv/.ssh
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0700"
+
+    - name: Add local public key to authorized_keys
+      lineinfile:
+        path: "{{ home_paths_authorized_keys }}"
+        line: "{{ lookup('file', local_public_key_path) }}"
+        create: yes
+        owner: solv
+        group: solv
+        mode: "0600"
+
+    - name: Generate SSH key for solv user if not exists
+      shell: su - solv -c "ssh-keygen -t rsa -b 4096 -N '' -f /home/solv/.ssh/id_rsa"
+      args:
+        creates: /home/solv/.ssh/id_rsa
+
+    - name: Ensure correct permissions for .ssh directory
+      file:
+        path: /home/solv/.ssh
+        state: directory
+        owner: solv
+        group: solv
+        mode: "0700"
+
+    - name: Ensure correct permissions for authorized_keys
+      file:
+        path: "{{ home_paths_authorized_keys }}"
+        state: file
+        owner: solv
+        group: solv
+        mode: "0600"
+
+    - name: Add solv user to sudoers group
+      user:
+        name: solv
+        groups: sudo
+        append: yes
+
+    - name: Configure sudoers file for solv user (no password required)
+      lineinfile:
+        path: /etc/sudoers
+        state: present
+        regexp: '^solv ALL=\(ALL\) NOPASSWD:ALL'
+        line: "solv ALL=(ALL) NOPASSWD:ALL"
+        validate: "visudo -cf %s"
+
+    - name: Ensure PubkeyAuthentication is enabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PubkeyAuthentication\s+.*'
+        line: "PubkeyAuthentication yes"
+      notify:
+        - restart ssh
+
+    - name: Ensure PasswordAuthentication is disabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication\s+.*'
+        line: "PasswordAuthentication no"
+      notify:
+        - restart ssh
+
+    - name: Ensure ChallengeResponseAuthentication is disabled
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ChallengeResponseAuthentication\s+.*'
+        line: "ChallengeResponseAuthentication no"
+      notify:
+        - restart ssh
+
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted

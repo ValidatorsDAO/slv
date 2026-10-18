@@ -14,6 +14,7 @@ import {
   extractQualificationSourceMembers,
   extractQualificationZip,
   githubQualificationAdapter,
+  planQualificationDraft,
   QUALIFICATION_MANIFEST,
   QUALIFICATION_REPOSITORY,
   QUALIFICATION_WORKFLOW,
@@ -22,6 +23,8 @@ import {
   readQualificationManifest,
   stageQualificationEvidenceFile,
   verifyCandidateProvenance,
+  verifyPlannedQualificationDraft,
+  verifyPromotionDraft,
   verifyPublishedQualification as verifyPublishedQualificationProduction,
   verifyQualificationArchiveBindings,
   verifyQualificationAttestationResult,
@@ -664,6 +667,493 @@ Deno.test('draft resume validates present bytes and original attestation, return
     Error,
     'wrong signer',
   )
+})
+
+Deno.test('draft preview URLs never select transport and published URLs remain exact', async () => {
+  const m = fixture(), api = adapter(m)
+  const draft = { ...published(m), draft: true, immutable: false }
+  for (const row of draft.assets) {
+    row.browser_download_url =
+      `https://github.com/${QUALIFICATION_REPOSITORY}/releases/download/untagged-0123456789abcdefabcd/${row.name}`
+  }
+  const ids: number[] = [], read = api.downloadReleaseAsset
+  api.download = () => {
+    throw new Error('must not fetch browser URL')
+  }
+  api.downloadReleaseAsset = async (id, path) => {
+    ids.push(id)
+    await read(id, path)
+  }
+  const result = await verifyQualificationDraft(m, draft, commit, api, true)
+  assertEquals(result.missing_assets, [])
+  assertEquals(ids, draft.assets.map((row) => row.id))
+  // Even untrusted informational metadata cannot redirect the fixed API read.
+  draft.assets[0].browser_download_url = 'https://example.invalid/ignored'
+  await verifyQualificationDraft(m, draft, commit, api, true)
+  for (const id of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const bad = structuredClone(draft)
+    bad.assets[0].id = id
+    await assertRejects(
+      () => verifyQualificationDraft(m, bad, commit, api),
+      Error,
+      'invalid release asset ID',
+    )
+  }
+  const duplicate = structuredClone(draft)
+  duplicate.assets[1].id = duplicate.assets[0].id
+  await assertRejects(
+    () => verifyQualificationDraft(m, duplicate, commit, api),
+    Error,
+    'duplicate',
+  )
+  api.release = () =>
+    Promise.resolve({ ...draft, draft: false, immutable: true })
+  await assertRejects(
+    () => verifyPublishedQualification(m, api),
+    Error,
+    'asset',
+  )
+})
+
+function promotionContext(source = commit): PromotionContext {
+  return {
+    repository: QUALIFICATION_REPOSITORY,
+    event: 'push',
+    ref: 'refs/heads/main',
+    source_sha: source,
+    workflow_sha: source,
+    workflow_ref:
+      `${QUALIFICATION_REPOSITORY}/${QUALIFICATION_WORKFLOW}@refs/heads/main`,
+    operation: 'release',
+    runner_environment: 'github-hosted',
+  }
+}
+
+Deno.test('later hosted main can finish only a complete draft with its original ancestor signature', async () => {
+  const m = fixture(), full = { ...published(m), draft: true, immutable: false }
+  const current = 'c'.repeat(40), context = promotionContext(current)
+  const api = adapter(m), ancestry: [string, string | undefined][] = []
+  api.release = () => Promise.resolve(structuredClone(full))
+  api.verifyMainAncestor = (source, descendant) => {
+    ancestry.push([source, descendant])
+    return Promise.resolve()
+  }
+  const before = structuredClone(full)
+  const result = await verifyPromotionDraft(
+    m,
+    full,
+    context,
+    api,
+    false,
+    allowPolicy,
+  )
+  assertEquals(result.recovery_mode, 'complete-attested-ancestor')
+  assertEquals(result.source_sha, current)
+  assertEquals(result.attested_source_sha, commit)
+  assertEquals(result.missing_assets, [])
+  assertEquals(result.needs_attestation, false)
+  assertEquals(result.current_main_policy?.outcome, 'allow')
+  assertEquals(ancestry, [[current, undefined], [commit, current]])
+  assertEquals(full, before)
+
+  for (const name of ['zip-0', `${QUALIFICATION_MANIFEST}.intoto.jsonl`]) {
+    const partial = {
+      ...full,
+      assets: full.assets.filter((row) => row.name !== name),
+    }
+    await assertRejects(
+      () => verifyPromotionDraft(m, partial, context, api, false, allowPolicy),
+      Error,
+      'incomplete',
+    )
+    api.release = () => Promise.resolve(structuredClone(partial))
+    const same = await verifyPromotionDraft(
+      m,
+      partial,
+      promotionContext(),
+      api,
+      false,
+      allowPolicy,
+    )
+    assertEquals(same.recovery_mode, 'same-source')
+    assertEquals(same.source_sha, commit)
+    assertEquals(same.attested_source_sha, commit)
+    assertEquals(same.current_main_policy, null)
+    api.release = () => Promise.resolve(structuredClone(full))
+  }
+  for (const failure of ['ancestry', 'signature', 'bytes', 'tag']) {
+    const bad = adapter(m)
+    let downloads = 0
+    const read = bad.downloadReleaseAsset
+    bad.downloadReleaseAsset = async (id, path) => {
+      downloads++
+      await read(id, path)
+    }
+    if (failure === 'ancestry') {
+      bad.verifyMainAncestor = (_source, descendant) =>
+        descendant
+          ? Promise.reject(new Error('not executor ancestor'))
+          : Promise.resolve()
+    }
+    if (failure === 'signature') {
+      bad.verifyAttestation = () =>
+        Promise.reject(new Error('wrong original signer'))
+    }
+    if (failure === 'bytes') {
+      bad.downloadReleaseAsset = (_id, path) =>
+        Deno.writeTextFile(path, 'changed')
+    }
+    if (failure === 'tag') bad.tagCommit = () => Promise.resolve(current)
+    await assertRejects(() =>
+      verifyPromotionDraft(m, full, context, bad, false, allowPolicy)
+    )
+    if (failure === 'ancestry' || failure === 'tag') assertEquals(downloads, 0)
+  }
+  for (
+    const change of [
+      { event: 'pull_request' },
+      { runner_environment: 'self-hosted' },
+      { workflow_sha: commit },
+      { ref: 'refs/tags/example' },
+    ]
+  ) {
+    const bad = adapter(m)
+    bad.verifyMainAncestor = () => {
+      throw new Error('context must reject before API')
+    }
+    await assertRejects(
+      () =>
+        verifyPromotionDraft(
+          m,
+          full,
+          { ...context, ...change },
+          bad,
+          false,
+          allowPolicy,
+        ),
+      Error,
+      'trusted hosted main',
+    )
+  }
+  await assertRejects(
+    () =>
+      verifyPromotionDraft(m, full, context, api, true, {
+        fetch: () =>
+          Promise.resolve(
+            Response.json({
+              schema_version: 1,
+              revoked_identities: [qualificationIdentity(m)],
+            }),
+          ),
+      }),
+    Error,
+    'revoked',
+  )
+})
+
+Deno.test('serialized promotion plan pins release source and existing asset/bundle identities', async () => {
+  const m = fixture(), context = promotionContext('c'.repeat(40))
+  const accepted = { ...published(m), draft: true, immutable: false }
+  let remote = structuredClone(accepted), reads = 0, downloads = 0
+  const api = adapter(m), read = api.downloadReleaseAsset
+  api.release = () => {
+    reads++
+    return Promise.resolve(structuredClone(remote))
+  }
+  api.downloadReleaseAsset = async (id, path) => {
+    downloads++
+    await read(id, path)
+  }
+  const root = await Deno.makeTempDir(),
+    path = join(root, 'promotion-plan.json')
+  try {
+    // Use the production planner's draft branch, serialize it as the shell does,
+    // then run the same file-reading verifier called by verify-draft.
+    const plan = await planQualificationDraft(
+      m,
+      accepted,
+      context,
+      api,
+      allowPolicy,
+    )
+    await Deno.writeFile(path, canonicalQualificationBytes(plan), {
+      createNew: true,
+    })
+    const result = await verifyPlannedQualificationDraft(
+      m,
+      path,
+      context,
+      api,
+      allowPolicy,
+    )
+    assertEquals(result.draft_snapshot.id, accepted.id)
+    assertEquals(result.attested_source_sha, commit)
+    assertEquals(result.recovery_mode, 'complete-attested-ancestor')
+    assertEquals(reads, 3) // planner refresh, verification lookup, transfer refresh
+    for (
+      const [name, change] of [
+        ['replacement release', (r: QualificationRelease) => {
+          r.id++
+        }],
+        ['replacement asset IDs', (r: QualificationRelease) => {
+          for (const a of r.assets) a.id += 1000
+        }],
+        ['another valid ancestor', (r: QualificationRelease) => {
+          r.target_commitish = 'd'.repeat(40)
+        }],
+        ['existing bundle ID', (r: QualificationRelease) => {
+          r.assets.at(-1)!.id += 1000
+        }],
+        ['existing bundle digest', (r: QualificationRelease) => {
+          r.assets.at(-1)!.digest = 'sha256:' + 'f'.repeat(64)
+        }],
+        ['existing asset removed', (r: QualificationRelease) => {
+          r.assets.shift()
+        }],
+        ['draft already published', (r: QualificationRelease) => {
+          r.draft = false
+          r.immutable = true
+        }],
+      ] as const
+    ) {
+      remote = structuredClone(accepted)
+      change(remote)
+      downloads = 0
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'promotion plan',
+        name,
+      )
+      assertEquals(downloads, 0, name)
+    }
+    remote = structuredClone(accepted)
+    // Display metadata and inventory ordering are not preservation identities.
+    remote.assets.reverse()
+    for (const asset of remote.assets) {
+      asset.browser_download_url = 'https://example.invalid/preview'
+    }
+    await verifyPlannedQualificationDraft(m, path, context, api, allowPolicy)
+    await Deno.remove(path)
+    await assertRejects(() =>
+      verifyPlannedQualificationDraft(m, path, context, api, allowPolicy)
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('planned same-source missing-only completion and initial creation keep their source and mode', async () => {
+  const m = fixture(), context = promotionContext(), api = adapter(m)
+  const full = { ...published(m), draft: true, immutable: false }
+  let remote = structuredClone(full)
+  api.release = () => Promise.resolve(structuredClone(remote))
+  const root = await Deno.makeTempDir(),
+    path = join(root, 'promotion-plan.json')
+  try {
+    for (
+      const absent of [['zip-0'], [
+        'zip-0',
+        `${QUALIFICATION_MANIFEST}.intoto.jsonl`,
+      ]]
+    ) {
+      remote = {
+        ...full,
+        assets: full.assets.filter((a) => !absent.includes(a.name)),
+      }
+      const plan = await planQualificationDraft(
+        m,
+        remote,
+        context,
+        api,
+        allowPolicy,
+      )
+      assertEquals(plan.assets, ['zip-0'])
+      await Deno.writeFile(path, canonicalQualificationBytes(plan))
+      remote = structuredClone(full)
+      assertEquals(
+        (await verifyPlannedQualificationDraft(
+          m,
+          path,
+          context,
+          api,
+          allowPolicy,
+        )).recovery_mode,
+        'same-source',
+      )
+      remote.target_commitish = 'd'.repeat(40)
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'promotion plan',
+      )
+      remote = structuredClone(full)
+      await Deno.writeFile(
+        path,
+        canonicalQualificationBytes({
+          ...plan,
+          recovery_mode: 'complete-attested-ancestor',
+        }),
+      )
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'recovery mode',
+      )
+      await Deno.writeFile(
+        path,
+        canonicalQualificationBytes({ ...plan, source_sha: 'e'.repeat(40) }),
+      )
+      await assertRejects(
+        () =>
+          verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+        Error,
+        'executor differs',
+      )
+    }
+    const creation = {
+      action: 'create',
+      tag: qualificationTag(m),
+      identity: qualificationIdentity(m),
+      assets: [QUALIFICATION_MANIFEST, ...Object.keys(m.assets)],
+      needs_attestation: true,
+      source_sha: commit,
+      attested_source_sha: commit,
+      recovery_mode: 'create',
+      draft_snapshot: null,
+    }
+    await Deno.writeFile(path, canonicalQualificationBytes(creation))
+    assertEquals(
+      (await verifyPlannedQualificationDraft(
+        m,
+        path,
+        context,
+        api,
+        allowPolicy,
+      )).recovery_mode,
+      'create',
+    )
+    remote.target_commitish = 'd'.repeat(40)
+    await assertRejects(
+      () => verifyPlannedQualificationDraft(m, path, context, api, allowPolicy),
+      Error,
+      'source differs',
+    )
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('planning and final verification refresh release metadata after asset transfers', async () => {
+  const m = fixture(), context = promotionContext('c'.repeat(40))
+  const full = { ...published(m), draft: true, immutable: false }
+  const root = await Deno.makeTempDir(),
+    path = join(root, 'promotion-plan.json')
+  try {
+    for (const phase of ['plan', 'verify']) {
+      for (
+        const change of [
+          (r: QualificationRelease) => {
+            r.id++
+          },
+          (r: QualificationRelease) => {
+            r.target_commitish = 'd'.repeat(40)
+          },
+          (r: QualificationRelease) => {
+            r.assets[0].id += 1000
+          },
+          (r: QualificationRelease) => {
+            r.assets.at(-1)!.digest = 'sha256:' + 'e'.repeat(64)
+          },
+        ]
+      ) {
+        let remote = structuredClone(full), reads = 0
+        const api = adapter(m), download = api.downloadReleaseAsset
+        api.release = () => {
+          reads++
+          return Promise.resolve(structuredClone(remote))
+        }
+        const plan = await planQualificationDraft(
+          m,
+          full,
+          context,
+          api,
+          allowPolicy,
+        )
+        await Deno.writeFile(path, canonicalQualificationBytes(plan))
+        reads = 0
+        let changed = false
+        api.downloadReleaseAsset = async (id, target) => {
+          await download(id, target)
+          if (!changed) {
+            changed = true
+            change(remote)
+          }
+        }
+        await assertRejects(
+          () =>
+            phase === 'plan'
+              ? planQualificationDraft(m, full, context, api, allowPolicy)
+              : verifyPlannedQualificationDraft(
+                m,
+                path,
+                context,
+                api,
+                allowPolicy,
+              ),
+          Error,
+          'draft metadata changed during verification',
+        )
+        assertEquals(reads, phase === 'plan' ? 1 : 2)
+      }
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
+
+Deno.test('ancestor adapter binds an earlier producer to the exact executor commit', async () => {
+  const current = 'c'.repeat(40), calls: string[] = []
+  const api = githubQualificationAdapter({
+    token: null,
+    fetch: (input) => {
+      calls.push(String(input))
+      return Promise.resolve(
+        Response.json({ status: 'ahead', merge_base_commit: { sha: commit } }),
+      )
+    },
+  })
+  await api.verifyMainAncestor(commit, current)
+  assertEquals(calls, [
+    `https://api.github.com/repos/${QUALIFICATION_REPOSITORY}/compare/${commit}...${current}`,
+  ])
+  for (const value of ['main', '../main', current + '?page=1']) {
+    await assertRejects(
+      () => api.verifyMainAncestor(commit, value),
+      Error,
+      'invalid promotion executor source',
+    )
+  }
+  for (
+    const response of [
+      { status: 'behind', merge_base_commit: { sha: commit } },
+      { status: 'diverged', merge_base_commit: { sha: commit } },
+      { status: 'ahead', merge_base_commit: { sha: current } },
+    ]
+  ) {
+    const bad = githubQualificationAdapter({
+      token: null,
+      fetch: () => Promise.resolve(Response.json(response)),
+    })
+    await assertRejects(
+      () => bad.verifyMainAncestor(commit, current),
+      Error,
+      'not on main',
+    )
+  }
 })
 
 Deno.test('public adapter uses bounded credential-free HTTPS without gh configuration', async () => {

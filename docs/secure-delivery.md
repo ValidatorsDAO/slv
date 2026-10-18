@@ -66,12 +66,32 @@ Candidate validation receipts are never installable release evidence.
 The signed application manifest pins a separate runtime qualification by its
 full SHA-256 identity. The consumer verifies that qualification's immutable
 GitHub prerelease, exact asset inventory, manifest digest, hosted-main
-attestation, and peeled tag. Its promotion commit must be an ancestor of the
+attestation, and peeled tag. Its attested source commit must be an ancestor of the
 application's signed source. Each product receipt must agree with the pinned
 target runtime, selected dependency lock, original native qualification,
 compiler frontend, current source, notices, SBOM, and executable archive. The
 qualification tag starts with `runtime-deno-`; it is not an installable SLV
 version and never replaces the latest application release.
+
+Qualification drafts are read through authenticated asset IDs in the fixed
+repository; GitHub's temporary preview URLs are not download authorities.
+Same-source recovery uploads only missing pinned assets. A later protected main
+execution can finish an already complete draft only after verifying its original
+hosted-main signature, all asset bytes, and the original source's ancestry to
+that exact executor. It preserves the original draft target, signature, and
+asset IDs, uploads nothing, and rechecks the current revocation policy and tag
+binding before publication. Executor and attested-source commits are recorded
+separately. The local `promotion-plan.json` binds the accepted release ID,
+original source, recovery mode, and every existing asset and signature-bundle
+ID, size, and digest. The pre-publication helper reads that same plan and allows
+only the planned missing uploads; it rejects replacement or retargeting. Planning
+and final verification both refresh release metadata after transfers, rejecting
+changes observed before publication. This does not exclude a privileged write
+after the last check. Incomplete drafts from another source cannot use this
+recovery path.
+The recovery keeps workflow files unchanged from the original target and uses
+the existing `GITHUB_TOKEN` without adding workflow-write credentials. See
+GitHub's [release update permission rules](https://docs.github.com/en/rest/releases/releases#update-a-release).
 
 `source-materials/runtime-revocations.json` is a reviewed deny-only list of
 qualification identities. Candidate checks use the exact checked-out policy;

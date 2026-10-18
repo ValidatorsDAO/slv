@@ -1,0 +1,34 @@
+---
+# This playbook sets up Firedancer, and a mainnet voting validator cannot be Firedancer or Frankendancer:
+# Alpenglow starts on mainnet at epoch 1064 and does not support them during the migration. It stops every
+# host, before anything is changed, with the words of init.yml and of the CLI (cli/lib/fdctlMainnetGuard.ts).
+# Use init.yml with agave, jito or allnodes-jito.
+- name: Refuse Firedancer on mainnet
+  hosts: all
+  gather_facts: no
+  any_errors_fatal: true
+  tasks:
+    - name: Fail, because a mainnet voting validator cannot be Firedancer or Frankendancer
+      ansible.builtin.fail:
+        msg: "A mainnet voting validator cannot be Firedancer or Frankendancer, and this playbook sets up Firedancer. Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration. Use agave, jito or allnodes-jito instead, and move a node that already runs Firedancer or Frankendancer to one of them with `slv v switch -n mainnet` before epoch 1064. Nothing was changed on {{ inventory_hostname }}."
+
+- import_playbook: ../cmn/copy_restart_sh.yml
+  vars:
+    restarter_snapshot_network: mainnet
+- import_playbook: ../cmn/add_solv.yml
+- import_playbook: ../cmn/install_package.yml
+- import_playbook: ../cmn/update_ubuntu.yml
+- import_playbook: ../cmn/install_rust.yml
+- import_playbook: install_jito.yml
+- import_playbook: setup_ufw.yml
+- import_playbook: fail2ban_solana_rate_limit.yml
+- import_playbook: ../cmn/mount_disks.yml
+- import_playbook: ../cmn/optimize_system.yml
+- import_playbook: ../cmn/setup_norestart.yml
+- import_playbook: configure_hugetlbfs.yml
+- import_playbook: setup_logrotate.yml
+- import_playbook: ../cmn/setup_unstaked_identity.yml
+- import_playbook: create_overrides.yml
+- import_playbook: setup_firedancer.yml
+- import_playbook: wget_snapshot.yml
+- import_playbook: start_firedancer.yml

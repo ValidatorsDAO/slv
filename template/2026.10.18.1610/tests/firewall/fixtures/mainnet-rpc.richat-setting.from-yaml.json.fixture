@@ -1,0 +1,145 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/jinja/mainnet-rpc/richat-setting.yml.j2
+# source-sha256: fcd358400091644680c56da1a36ecd4e22e05854a3959656a8aeee99182f6599
+# source-state: unmodified (identical to HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# vars: {}
+# render: lookup('template') with ansible-core 2.21.5, Jinja2 3.1.6
+# post-process: from_yaml, then to_nice_json(indent=2, sort_keys=True) (the dict the model receives for kind richat)
+# slv-fixture: body
+{
+  "apps": {
+    "grpc": {
+      "server": {
+        "compression": {
+          "accept": [
+            "gzip",
+            "zstd"
+          ],
+          "send": [
+            "zstd"
+          ]
+        },
+        "endpoint": "0.0.0.0:10000",
+        "max_decoding_message_size": "16MiB",
+        "server_http2_adaptive_window": true,
+        "server_http2_keepalive_interval": "30s",
+        "server_http2_keepalive_timeout": "10s",
+        "server_initial_connection_window_size": 67108864,
+        "server_initial_stream_window_size": 16777216,
+        "server_tcp_keepalive": "30s",
+        "server_tcp_nodelay": true
+      },
+      "stream": {
+        "messages_len_max": "16MiB",
+        "messages_max_per_tick": 100,
+        "messages_replay_len_max": "256MiB",
+        "ping_interval": "30s"
+      },
+      "unary": {
+        "affinity": null,
+        "enabled": true,
+        "requests_queue_size": 100
+      }
+    },
+    "pubsub": {
+      "clients_requests_channel_size": 8192,
+      "enable_block_subscription": true,
+      "enable_transaction_subscription": true,
+      "endpoint": "0.0.0.0:7111",
+      "notifications_messages_max_bytes": "32GiB",
+      "notifications_messages_max_count": 16777216,
+      "recv_max_message_size": "4KiB",
+      "signatures_cache_max": 1228800,
+      "signatures_cache_slots_max": 150,
+      "subscriptions_max_clients_request_per_tick": 32,
+      "subscriptions_max_messages_per_commitment_per_tick": 4096,
+      "subscriptions_workers_count": 8,
+      "tcp_nodelay": true
+    },
+    "richat": {
+      "grpc": {
+        "compression": {
+          "accept": [
+            "gzip",
+            "zstd"
+          ],
+          "send": [
+            "zstd"
+          ]
+        },
+        "endpoint": "0.0.0.0:10100",
+        "max_decoding_message_size": "16MiB",
+        "server_http2_adaptive_window": true,
+        "server_http2_keepalive_interval": "30s",
+        "server_http2_keepalive_timeout": "10s",
+        "server_initial_connection_window_size": 67108864,
+        "server_initial_stream_window_size": 16777216,
+        "server_tcp_keepalive": "30s",
+        "server_tcp_nodelay": true
+      },
+      "quic": {
+        "endpoint": "0.0.0.0:10101",
+        "expected_rtt": 100,
+        "max_idle_timeout": 30,
+        "max_recv_streams": 16,
+        "max_request_size": 1024,
+        "max_stream_bandwidth": 12500000,
+        "tls_config": {
+          "self_signed_alt_names": [
+            "localhost"
+          ]
+        },
+        "x_tokens": []
+      }
+    },
+    "tokio": {
+      "affinity": null,
+      "worker_threads": null
+    }
+  },
+  "channel": {
+    "config": {
+      "max_bytes": "16GiB",
+      "max_messages": 2097152
+    },
+    "sources": [
+      {
+        "buffer_size": null,
+        "ca_certificate": null,
+        "compression": {
+          "accept": [],
+          "send": []
+        },
+        "connect_timeout": null,
+        "disable_accounts": false,
+        "endpoint": "http://127.0.0.1:10004",
+        "http2_adaptive_window": true,
+        "http2_keep_alive_interval": "30s",
+        "initial_connection_window_size": 67108864,
+        "initial_stream_window_size": 16777216,
+        "keep_alive_timeout": "10s",
+        "keep_alive_while_idle": false,
+        "max_decoding_message_size": "16MiB",
+        "name": "plugin-grpc",
+        "parser": "prost",
+        "reconnect": null,
+        "source": "richat",
+        "tcp_keepalive": "30s",
+        "tcp_nodelay": true,
+        "timeout": null,
+        "transport": "grpc",
+        "x_token": null
+      }
+    ],
+    "tokio": {
+      "affinity": null,
+      "worker_threads": null
+    }
+  },
+  "logs": {
+    "json": false
+  },
+  "metrics": {
+    "endpoint": "0.0.0.0:10124"
+  }
+}

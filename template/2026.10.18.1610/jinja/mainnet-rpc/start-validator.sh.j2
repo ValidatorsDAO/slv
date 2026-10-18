@@ -1,0 +1,82 @@
+#!/bin/bash
+exec agave-validator \
+--identity /home/solv/identity.json \
+--log /home/solv/solana-validator.log \
+--accounts /mnt/accounts \
+--ledger /mnt/ledger \
+--snapshots /mnt/snapshot \
+--entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint3.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint4.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint5.mainnet-beta.solana.com:8001 \
+--known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+--known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ \
+--known-validator DE1bawNcRJB9rVm3buyMVfr8mBEoyyu73NBovf2oXJsJ \
+--known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
+--only-known-rpc \
+--expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
+--expected-shred-version {{ expected_shred_version | default("50093") }} \
+--dynamic-port-range {{ dynamic_port_range | default("8900-8930") }}  \
+--no-voting \
+--rpc-port {{ port_rpc | default(8899, true) }} \
+--rpc-bind-address 0.0.0.0 \
+--wal-recovery-mode skip_any_corrupted_record \
+--no-wait-for-vote-to-start-leader \
+--use-snapshot-archives-at-startup when-newest \
+--no-skip-initial-accounts-db-clean \
+--private-rpc \
+{# _agave_version is the X.Y.Z of the agave this host starts next as major*1000000 + minor*1000 + patch: installed_agave_version, which the play reads from the installed agave-validator, when there is one, else the version of this host's agave, jito or allnodes client from the -e override or versions.yml; suffixes such as -jito.0 are ignored #}
+{% set _slv = mainnet_rpcs | default({}) %}
+{% if validator_type | default('agave') == 'jito' %}
+{% set _client_version = jito_version | default(_slv.version_jito | default('', true), true) %}
+{% elif validator_type | default('agave') == 'allnodes-jito' %}
+{% set _client_version = allnodes_jito_version | default(_slv.version_allnodes_jito | default('', true), true) %}
+{% else %}
+{% set _client_version = agave_version | default(_slv.version_agave | default('', true), true) %}
+{% endif %}
+{% set _client_version = installed_agave_version | default('', true) or _client_version %}
+{% set _digits = (_client_version | string).split('-')[0] | regex_findall('[0-9]+') %}
+{% if not _digits %}
+{{ agave_version_not_found | mandatory('Cannot tell which agave version this host runs: set agave_version, jito_version or allnodes_jito_version, or the matching version_* key under mainnet_rpcs in ~/.slv/versions.yml') }}
+{% endif %}
+{% set _num = _digits + ['0', '0'] %}
+{% set _agave_version = (_num[0] | int) * 1000000 + (_num[1] | int) * 1000 + (_num[2] | int) %}
+{% if _agave_version >= 4002000 %}
+--no-xdp \
+{% endif %}
+{% if rpc_type == 'Geyser gRPC' -%}
+--limit-ledger-size 200000000 \
+--enable-rpc-transaction-history \
+--geyser-plugin-config /home/solv/geyser.json \
+{% elif rpc_type == 'SendTx RPC' -%}
+--limit-ledger-size 30000000 \
+{% elif rpc_type == 'Index RPC' -%}
+--full-rpc-api \
+--limit-ledger-size 200000000 \
+--enable-rpc-transaction-history \
+--enable-extended-tx-metadata-storage \
+--account-index program-id spl-token-mint spl-token-owner \
+--rpc-pubsub-enable-block-subscription \
+--rpc-pubsub-enable-vote-subscription \
+{% elif rpc_type == 'Index RPC + gRPC' -%}
+--full-rpc-api \
+--limit-ledger-size 200000000 \
+--enable-rpc-transaction-history \
+--enable-extended-tx-metadata-storage \
+--account-index program-id spl-token-mint spl-token-owner \
+--geyser-plugin-config /home/solv/geyser.json \
+{% else -%}
+--limit-ledger-size {{ limit_ledger_size | default(100000000) }} \
+{% endif -%}
+{% if tpu_peer_address is defined and tpu_peer_address %}
+{% if rpc_type == 'Index RPC' or rpc_type == 'Index RPC + gRPC' %}
+--rpc-send-transaction-tpu-peer {{ tpu_peer_address }} \
+--rpc-send-transaction-also-leader \
+{% endif %}
+{% endif %}
+--no-port-check \
+{% if rpc_type == 'Index RPC + gRPC' %}
+--rpc-pubsub-enable-block-subscription \
+--rpc-pubsub-enable-vote-subscription \
+{% endif %}
