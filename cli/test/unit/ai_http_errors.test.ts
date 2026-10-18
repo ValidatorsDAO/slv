@@ -5,6 +5,7 @@ import {
   assertStringIncludes,
 } from '@std/assert'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
+import { stopOnDefinitiveApiError } from '@/ai/console/consoleAction.ts'
 import { classifyIntent } from '@/ai/console/intentClassifier.ts'
 import {
   clearAbort,
@@ -32,6 +33,137 @@ const edgeResponse = () =>
     status: 403,
     headers: { 'Content-Type': 'text/html', 'cf-ray': 'fedcba9876543210-AMS' },
   })
+
+// Public provider error wording only; no workspace identifiers or credentials.
+const workspaceConfigurationMessages = [
+  'This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use. Add the header, or use an API key that is scoped to a workspace.',
+  'anthropic-workspace-id is required when authenticating with an identity-linked API key',
+]
+const workspaceErrorResponse = (message: string) =>
+  json(
+    { type: 'error', error: { type: 'invalid_request_error', message } },
+    400,
+  )
+
+Deno.test('workspace configuration errors direct users to service support without exposing provider details', async () => {
+  for (const message of workspaceConfigurationMessages) {
+    const error = await readUserApiError(workspaceErrorResponse(message))
+    assertEquals(error.kind, 'provider_configuration')
+    assertEquals(error.status, 400)
+    assertStringIncludes(error.message, 'ERPC support')
+    assertStringIncludes(error.message, 'administrator')
+    assertFalse(error.message.includes('anthropic-workspace-id'))
+    assertFalse(error.message.includes('API key'))
+    assertFalse(error.message.includes('slv login'))
+    assertFalse(error.message.includes('slv ai product'))
+    assertEquals(error.payload, null)
+  }
+})
+
+Deno.test('workspace diagnosis requires the exact provider error context and preserves other errors', async () => {
+  const workspaceMessage = workspaceConfigurationMessages[0]
+  const cases = [
+    {
+      status: 400,
+      body: {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'max_tokens must be greater than thinking.budget_tokens',
+        },
+      },
+      kind: 'http',
+    },
+    {
+      status: 400,
+      body: {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'Invalid anthropic-workspace-id header format',
+        },
+      },
+      kind: 'http',
+    },
+    {
+      status: 400,
+      body: {
+        error: { type: 'invalid_request_error', message: workspaceMessage },
+      },
+      kind: 'http',
+    },
+    {
+      status: 400,
+      body: {
+        type: 'error',
+        error: { type: 'other_error', message: workspaceMessage },
+      },
+      kind: 'http',
+    },
+    {
+      status: 400,
+      body: { error: 'invalid_request_error', message: workspaceMessage },
+      kind: 'http',
+    },
+    {
+      status: 401,
+      body: { error: 'Unauthorized', message: workspaceMessage },
+      kind: 'authentication',
+    },
+    {
+      status: 401,
+      body: {
+        type: 'error',
+        error: { type: 'authentication_error', message: workspaceMessage },
+      },
+      kind: 'provider_configuration',
+    },
+    {
+      status: 400,
+      body: { error: 'payment_auth_required' },
+      kind: 'activation_required',
+    },
+  ]
+  for (const { status, body, kind } of cases) {
+    const error = await readUserApiError(json(body, status))
+    assertEquals(error.kind, kind)
+    assertEquals(error.status, status)
+    assertFalse(error.message.includes(workspaceMessage))
+  }
+})
+
+Deno.test('workspace configuration rejection stops after classification without submitting the main chat', async () => {
+  await withHome({ slv: loggedIn(FAR_FUTURE) }, async (home) => {
+    for (const message of workspaceConfigurationMessages) {
+      clearAbort()
+      await withFetch(
+        () => workspaceErrorResponse(message),
+        async (requests) => {
+          const auth = userApiAuthFromSession(home)
+          const provider = new SLVProvider(auth, 'SLV AI', 'test', {
+            onStream: () => {},
+            onToolCall: () => {},
+            onComplete: () => {},
+          })
+          const error = await assertRejects(async () => {
+            await classifyIntent({
+              model: 'SLV AI',
+              slvAuth: auth,
+              onFallback: stopOnDefinitiveApiError,
+            }, {
+              message: 'Show my subscriptions',
+              deploymentMode: 'remote',
+              enabledSpecialists: [],
+            })
+            await provider.chat('Show my subscriptions')
+          }, UserApiHttpError)
+          assertEquals(error.kind, 'provider_configuration')
+          assertEquals(requests.length, 1)
+        },
+      )
+    }
+  })
+})
 
 function assertEdgeMessage(message: string) {
   assertStringIncludes(message, '403')

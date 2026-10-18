@@ -118,6 +118,27 @@ export function formatUserApiError(
       typeof payload.error === 'object' && !Array.isArray(payload.error)
     ? payload.error as Record<string, unknown>
     : null
+  const providerMessage = typeof providerError?.message === 'string'
+    ? providerError.message.toLowerCase().replace(/\s+/g, ' ')
+    : ''
+  if (
+    status === 400 && providerError?.type === 'invalid_request_error' &&
+    ((providerMessage.includes('api key is not scoped to a workspace') &&
+      providerMessage.includes(
+        'must include the anthropic-workspace-id header',
+      )) ||
+      providerMessage.includes(
+        'anthropic-workspace-id is required when authenticating with an identity-linked api key',
+      ))
+  ) {
+    return new UserApiHttpError(
+      `${prefix} The AI service needs an administrator to complete its provider configuration. Contact ERPC support.${trace}`,
+      'provider_configuration',
+      status,
+      rayId,
+      null,
+    )
+  }
   if (
     (status === 401 && providerError?.type === 'authentication_error') ||
     (status === 402 && providerError?.type === 'billing_error') ||
