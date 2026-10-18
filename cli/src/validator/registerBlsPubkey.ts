@@ -6,8 +6,8 @@ import { getInventoryPath } from '@cmn/constants/path.ts'
 // SIMD-0387 (BLS pubkey management in vote account) requires every voting
 // validator to register the BLS public key derived from its authorized voter
 // keypair. Without it, the vote account behaves as unstaked once SIMD-0357
-// (Alpenglow voting) is active on the cluster. As of mid-2026 SIMD-0387 is
-// active on testnet only; on mainnet the command is a safe no-op until then.
+// (Alpenglow voting) is active on the cluster. SIMD-0387 is active on testnet
+// and mainnet, so a registration that does not happen is an error.
 const RPC_URLS: Record<NetworkType, string> = {
   testnet: 'https://api.testnet.solana.com',
   mainnet: 'https://api.mainnet-beta.solana.com',
@@ -50,17 +50,19 @@ const getBlsPubkey = async (
   }
 }
 
+// The hosts to register, and how many of the hosts asked for were left out
+// because the inventory has no such host or no accounts for it.
 const readBlsHosts = async (
   inventoryType: InventoryType,
   limit?: string,
-): Promise<BlsHost[]> => {
+): Promise<{ hosts: BlsHost[]; skipped: number }> => {
   const filePath = getInventoryPath(inventoryType)
   let yamlText: string
   try {
     yamlText = await Deno.readTextFile(filePath)
   } catch (_e) {
     console.error(colors.red(`❌ Failed to read inventory file: ${filePath}`))
-    return []
+    return { hosts: [], skipped: 0 }
   }
   let data: Record<string, any>
   try {
@@ -73,7 +75,7 @@ const readBlsHosts = async (
         }`,
       ),
     )
-    return []
+    return { hosts: [], skipped: 0 }
   }
   const allHosts = data?.[inventoryType]?.hosts ?? {}
   const names = limit && limit.trim().toLowerCase() !== 'all'
@@ -81,18 +83,21 @@ const readBlsHosts = async (
     : Object.keys(allHosts)
 
   const out: BlsHost[] = []
+  let skipped = 0
   for (const name of names) {
     const h = allHosts[name]
     if (!h) {
       console.error(colors.red(`❌ Host not found in inventory: ${name}`))
+      skipped++
       continue
     }
     if (!h.vote_account || !h.identity_account) {
-      console.warn(
-        colors.yellow(
-          `⚠️ ${name}: missing vote_account/identity_account — skipping BLS registration`,
+      console.error(
+        colors.red(
+          `❌ ${name}: missing vote_account/identity_account — its BLS public key is not registered`,
         ),
       )
+      skipped++
       continue
     }
     out.push({
@@ -101,22 +106,24 @@ const readBlsHosts = async (
       vote_account: h.vote_account,
     })
   }
-  return out
+  return { hosts: out, skipped }
 }
 
 // Registers the BLS public key on each validator's vote account.
 // The authorized voter defaults to the validator identity, so the identity
-// keypair signs and `vote-authorize-voter-checked` (voter unchanged) fills in
-// the derived BLS pubkey. Failures are non-fatal: the cluster may not have
-// SIMD-0387 active yet, the key may already be set, or the CLI may be too old.
-const registerBlsPubkey = async (
+// keypair signs and pays, and `vote-authorize-voter-checked` with the identity
+// as the current and the new voter fills in the BLS pubkey derived from it.
+// The identity becomes the authorized voter, or stays it when it already is.
+// Nothing here throws for a host that is not registered: that is an error line
+// for the host and a false result.
+const registerBlsOnHosts = async (
   network: NetworkType,
   limit?: string,
 ): Promise<boolean> => {
   if (network !== 'testnet' && network !== 'mainnet') {
-    console.warn(
-      colors.yellow(
-        `⚠️ BLS registration supports testnet/mainnet only (got "${network}") — skipping.`,
+    console.error(
+      colors.red(
+        `❌ BLS registration supports testnet and mainnet only (got "${network}"), so no BLS public key was registered.`,
       ),
     )
     return false
@@ -133,9 +140,13 @@ const registerBlsPubkey = async (
     return false
   }
 
-  const hosts = await readBlsHosts(inventoryType, limit)
+  const { hosts, skipped } = await readBlsHosts(inventoryType, limit)
   if (hosts.length === 0) {
-    console.log(colors.yellow('⚠️ No hosts to register BLS pubkey for'))
+    console.error(
+      colors.red(
+        `❌ No hosts to register BLS pubkey for (${network}), so no BLS public key was registered.`,
+      ),
+    )
     return false
   }
 
@@ -144,7 +155,7 @@ const registerBlsPubkey = async (
       `🔑 Registering BLS public key on vote accounts (${network})...`,
     ),
   )
-  let allOk = true
+  let allOk = skipped === 0
   for (const h of hosts) {
     console.log(colors.white(`→ ${h.name}: ${h.vote_account}`))
 
@@ -160,30 +171,56 @@ const registerBlsPubkey = async (
     // feature gate is inactive the tx fails cleanly at simulation WITHOUT
     // mutating state — unlike the auto-detect path, which silently falls back
     // to a plain voter re-authorization (a wasted tx that also burns the
-    // once-per-epoch voter-change slot). The authorized voter is unchanged.
+    // once-per-epoch voter-change slot). The identity becomes the authorized
+    // voter, or stays it when it already is.
     // Use an argv array (not a shell string) so keypair paths containing
     // spaces are passed as a single argument rather than word-split.
+    // The identity pays the fee (--fee-payer). Without it the solana CLI takes
+    // its own default keypair, ~/.config/solana/id.json, as the fee payer and
+    // stops when there is none.
     const keypair = `${home}/.slv/keys/${h.identity_account}.json`
-    const result = await new Deno.Command('solana', {
-      args: [
-        'vote-authorize-voter-checked',
-        h.vote_account,
-        keypair,
-        keypair,
-        '--use-v2-instruction',
-        '--url',
-        rpcUrl,
-      ],
-      stdout: 'inherit',
-      stderr: 'inherit',
-    }).output()
-    if (!result.success) {
-      console.warn(
-        colors.yellow(
-          `⚠️ ${h.name}: could not set BLS pubkey — SIMD-0387 is likely not ` +
-            `active on ${network} yet (or the identity keypair is not the vote ` +
-            `authority / solana CLI is too old). No state changed; re-run ` +
-            `\`slv v register:bls\` after activation.`,
+    const again = `slv v register:bls -n ${network} -p ${h.name}`
+    let sent: boolean
+    try {
+      const result = await new Deno.Command('solana', {
+        args: [
+          'vote-authorize-voter-checked',
+          h.vote_account,
+          keypair,
+          keypair,
+          '--fee-payer',
+          keypair,
+          '--use-v2-instruction',
+          '--url',
+          rpcUrl,
+        ],
+        stdout: 'inherit',
+        stderr: 'inherit',
+      }).output()
+      sent = result.success
+    } catch (error) {
+      console.error(
+        colors.red(
+          `❌ ${h.name}: could not run solana (${
+            error instanceof Error ? error.message : error
+          }). Install the solana CLI, 4.1.0 or later, and put it on PATH, then ` +
+            `run \`${again}\` again.`,
+        ),
+      )
+      allOk = false
+      continue
+    }
+    if (!sent) {
+      console.error(
+        colors.red(
+          [
+            `❌ ${h.name}: the BLS public key of ${h.vote_account} was not registered: the solana command failed (see above). Check that:`,
+            `   - ${keypair} is here and is the key of the authorized voter or the authorized withdrawer of the vote account`,
+            `   - the solana CLI is 4.1.0 or later (solana --version): setting the BLS public key needs that version`,
+            `   - the identity ${h.identity_account} has SOL: it pays the fee of the transaction`,
+            `   - the voter of the vote account was not changed in this epoch: one voter change is accepted per epoch, and this registration is one`,
+            `   Then run \`${again}\` again.`,
+          ].join('\n'),
         ),
       )
       allOk = false
@@ -194,10 +231,10 @@ const registerBlsPubkey = async (
     if (await getBlsPubkey(h.vote_account, rpcUrl)) {
       console.log(colors.green(`✔︎ ${h.name}: BLS public key set`))
     } else {
-      console.warn(
-        colors.yellow(
-          `⚠️ ${h.name}: tx sent but BLS pubkey still unset — SIMD-0387 is not ` +
-            `active on ${network} yet. Re-run \`slv v register:bls\` after activation.`,
+      console.error(
+        colors.red(
+          `❌ ${h.name}: the transaction was sent, but the vote account ${h.vote_account} does not show a BLS public key (or could not be read). ` +
+            `Run \`${again}\` again: it reads the vote account first and sends nothing when the key is there.`,
         ),
       )
       allOk = false
@@ -206,4 +243,20 @@ const registerBlsPubkey = async (
   return allOk
 }
 
+type RegisterBlsOptions = {
+  /** Called with 1 when a host is left without its BLS public key. The deploy does not give it, and its exit code stays as it is. */
+  setExitCode?: (code: number) => void
+}
+
+const registerBlsPubkey = async (
+  network: NetworkType,
+  limit?: string,
+  options: RegisterBlsOptions = {},
+): Promise<boolean> => {
+  const registered = await registerBlsOnHosts(network, limit)
+  if (!registered) options.setExitCode?.(1)
+  return registered
+}
+
 export { registerBlsPubkey }
+export type { RegisterBlsOptions }

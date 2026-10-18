@@ -92,7 +92,11 @@ validatorCmd.command('register:bls')
       ])
       network = res.network as NetworkType
     }
-    await registerBlsPubkey(network, options.pubkey)
+    await registerBlsPubkey(network, options.pubkey, {
+      setExitCode: (code) => {
+        Deno.exitCode = code
+      },
+    })
   })
 
 validatorCmd.command('check:alpenglow')
