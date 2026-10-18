@@ -217,8 +217,13 @@ runtime identity, frontend, flags, producer attempt, and actual output hashes.
 The old qualification's application binary and bridge are not reused.
 
 Linux products are executed on their native architecture. Darwin products are
-checked on Linux for Mach-O architecture, minimum OS, load commands, and ad-hoc
-signature coverage. Their current-product receipts explicitly record native
+checked on Linux for Mach-O architecture, minimum OS, load commands, and file
+extents. The pinned embedding library produces unsigned Intel output on Linux;
+its verification report records `signature: unsigned`. ARM64 requires an embedded
+ad-hoc signature. Any present signature, including an Intel signature, must pass
+the full signature and page-hash checks. Executable/archive hashes and release
+provenance remain required for both architectures. Their current-product receipts
+explicitly record native
 execution as `not_performed`; historical native runtime qualification does not
 claim that a new application was run on macOS. Same-byte Intel and ARM Mac smoke
 tests remain acceptance evidence for introducing this build path, outside the

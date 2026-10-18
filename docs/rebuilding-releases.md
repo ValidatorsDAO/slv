@@ -33,7 +33,11 @@ current notices. Its product receipt binds the resulting executable/archive
 and current source, lock, module graph, SBOM, notices, producer, and qualification.
 It never reuses a qualification's old application executable or bridge.
 Linux products are executed natively; Darwin products receive architecture,
-minimum-OS, load-command, and ad-hoc signature checks on Linux. A Darwin
+minimum-OS, load-command, and file-extent checks on Linux. The pinned embedding
+library emits unsigned Intel output on Linux, recorded as `signature: unsigned`.
+ARM64 requires an embedded ad-hoc signature; every present signature is verified,
+including Intel signatures. Both targets retain executable/archive hash and
+release-provenance verification. A Darwin
 `native_execution: not_performed` result is distinct from the original runtime's
 native qualification. Execute the exact new bytes on the matching Mac
 architecture when collecting native application acceptance.

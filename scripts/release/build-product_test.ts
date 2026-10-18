@@ -100,8 +100,140 @@ function signedMachO(): Uint8Array {
   return bytes
 }
 
+function unsignedIntelMachO(): Uint8Array {
+  const bytes = signedMachO().slice(0, 576), view = new DataView(bytes.buffer)
+  const commandBytes = view.getUint32(20, true)
+  view.setUint32(16, view.getUint32(16, true) - 1, true)
+  view.setUint32(20, commandBytes - 16, true)
+  bytes.fill(0, 32 + commandBytes - 16, 32 + commandBytes)
+  view.setBigUint64(32 + 72 + 48, 64n, true)
+  bytes.fill(0, 512)
+  return bytes
+}
+
+// Header-only replay of the pinned-runtime bridge compiled on Linux ARM64 at
+// 1545c86b. The body is zero-filled and is never executed; separate tests bind
+// full executable bytes to their product receipt.
+Deno.test('real Linux-produced Intel bridge header records its unsigned state', () => {
+  const header = Uint8Array.from(
+    atob(
+      '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' +
+        'AAAAAF9fYnNzAAAAAAAAAAAAAABfX0RBVEEAAAAAAAAAAAAAgDTvBAEAAAB45QIAAAAAAAAAAAAH' +
+        'AAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAX19jb21tb24AAAAAAAAAAF9fREFUQQAAAAAAAAAA' +
+        'AAAAGvIEAQAAABETAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAZAAAASAAA' +
+        'AF9fTElOS0VESVQAAAAAAAAAMPIEAQAAANl/7AEAAAAAADDvBAAAAADZf+wBAAAAAAEAAAABAAAA' +
+        'AAAAAAAAAAA0AACAEAAAAAAw7wT4JwAAMwAAgBAAAAD4V+8EeBIAAAIAAAAYAAAASKXyBEXtCgCw' +
+        'iaEFKSY6AQsAAABQAAAAAAAAAG7qCgBu6goA1QAAAEPrCgACAgAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+        'AAAAAAAAmHmhBQYEAAAAAAAAAAAAAAAAAAAAAAAADgAAACAAAAAMAAAAL3Vzci9saWIvZHlsZAAA' +
+        'AAAAAAAbAAAAGAAAADpHNGJ5DD7btaY9a4vaiKwyAAAAIAAAAAEAAAAAAAwAAAIPAAEAAAADAAAA' +
+        'AwdbBCoAAAAQAAAAAAAAAAAAAAAoAACAGAAAAJDOAwAAAAAAAAAAAAAAAAAMAAAAaAAAABgAAAAC' +
+        'AAAAAACIDAAAlgAvU3lzdGVtL0xpYnJhcnkvRnJhbWV3b3Jrcy9Db3JlRm91bmRhdGlvbi5mcmFt' +
+        'ZXdvcmsvVmVyc2lvbnMvQS9Db3JlRm91bmRhdGlvbgAAAAwAAABoAAAAGAAAAAIAAAAAAMoEAAAB' +
+        'AC9TeXN0ZW0vTGlicmFyeS9GcmFtZXdvcmtzL0NvcmVTZXJ2aWNlcy5mcmFtZXdvcmsvVmVyc2lv' +
+        'bnMvQS9Db3JlU2VydmljZXMAAAAAAAAADAAAADAAAAAYAAAAAgAAAAwCAQAAAAEAL3Vzci9saWIv' +
+        'bGliei4xLmR5bGliAAAADAAAADgAAAAYAAAAAgAAAAAARwUAAAEAL3Vzci9saWIvbGliU3lzdGVt' +
+        'LkIuZHlsaWIAAAAAAAAYAACAYAAAABgAAAACAAAAAAsBAAACAQAvU3lzdGVtL0xpYnJhcnkvRnJh' +
+        'bWV3b3Jrcy9RdWFydHpDb3JlLmZyYW1ld29yay9WZXJzaW9ucy9BL1F1YXJ0ekNvcmUAAAAYAACA' +
+        'WAAAABgAAAACAAAAAAZvAQAAAQAvU3lzdGVtL0xpYnJhcnkvRnJhbWV3b3Jrcy9NZXRhbC5mcmFt' +
+        'ZXdvcmsvVmVyc2lvbnMvQS9NZXRhbAAAAAAADAAAAGAAAAAYAAAAAgAAAAAAiAwAACwBL1N5c3Rl' +
+        'bS9MaWJyYXJ5L0ZyYW1ld29ya3MvRm91bmRhdGlvbi5mcmFtZXdvcmsvVmVyc2lvbnMvQy9Gb3Vu' +
+        'ZGF0aW9uAAAADAAAADgAAAAYAAAAAgAAAAAA5AAAAAEAL3Vzci9saWIvbGlib2JqYy5BLmR5bGli' +
+        'AAAAAAAAAAAMAAAAOAAAABgAAAACAAAAAAAHAAAABwAvdXNyL2xpYi9saWJpY29udi4yLmR5bGli' +
+        'AAAAAAAAABgAAIB4AAAAGAAAAAIAAAAAAoAAAAABAC9TeXN0ZW0vTGlicmFyeS9GcmFtZXdvcmtz' +
+        'L01ldGFsUGVyZm9ybWFuY2VTaGFkZXJzLmZyYW1ld29yay9WZXJzaW9ucy9BL01ldGFsUGVyZm9y' +
+        'bWFuY2VTaGFkZXJzABgAAIBoAAAAGAAAAAIAAAAHAmEHAABAAC9TeXN0ZW0vTGlicmFyeS9GcmFt' +
+        'ZXdvcmtzL0NvcmVHcmFwaGljcy5mcmFtZXdvcmsvVmVyc2lvbnMvQS9Db3JlR3JhcGhpY3MAAAAA' +
+        'AAAAJgAAABAAAABwau8E2DoDACkAAAAQAAAASKXyBAAAAAA=',
+    ),
+    (character) => character.charCodeAt(0),
+  )
+  const bytes = new Uint8Array(115060697)
+  bytes.set(header)
+  const report = inspectMachO(bytes, TARGET)
+  assertEquals(report.signature, 'unsigned')
+  assertEquals(report.architecture, 'x86_64')
+  assertEquals(report.minimum_os, '12.0')
+  assertEquals(
+    report.load_commands_sha256,
+    '7e3827009087b96b4e9143374d7238b4223f530834827b733bb195893afa0f08',
+  )
+  assertEquals(report.native_execution, 'not_performed')
+})
+
+Deno.test('unsigned Intel Mach-O keeps structural gates and never substitutes for an ARM signature', () => {
+  const report = inspectMachO(unsignedIntelMachO(), TARGET)
+  assertEquals(report.signature, 'unsigned')
+  assertEquals(report.minimum_os, '12.0')
+  assertEquals(report.native_execution, 'not_performed')
+  const unsignedArm = unsignedIntelMachO()
+  new DataView(unsignedArm.buffer).setUint32(4, 0x100000c, true)
+  assertThrows(
+    () => inspectMachO(unsignedArm, 'aarch64-apple-darwin'),
+    Error,
+    'requires an embedded ad-hoc signature',
+  )
+  for (
+    const mutate of [
+      (v: DataView) => v.setUint32(32 + 144 + 12, 0xd0000, true),
+      (v: DataView) => v.setUint32(32 + 144 + 24, 0x1b, true),
+      (v: DataView) => v.setBigUint64(32 + 144 + 24 + 8, 64n, true),
+      (v: DataView) => v.setUint32(32 + 144 + 24 + 24, 0x22, true),
+      (v: DataView) => v.setUint32(32 + 144 + 24 + 24, 0x8000001c, true),
+      (v: DataView) => v.setBigUint64(32 + 72 + 40, 400n, true),
+      (v: DataView) => v.setBigUint64(32 + 72 + 48, 63n, true),
+      (v: DataView) => v.setUint32(4, 0x100000c, true),
+    ]
+  ) {
+    const bytes = unsignedIntelMachO()
+    mutate(new DataView(bytes.buffer))
+    assertThrows(() => inspectMachO(bytes, TARGET))
+  }
+  const dependency = unsignedIntelMachO()
+  dependency.set(
+    new TextEncoder().encode('/tmp/lib/'),
+    32 + 144 + 24 + 24 + 32 + 24,
+  )
+  assertThrows(
+    () => inspectMachO(dependency, TARGET),
+    Error,
+    'non-system library',
+  )
+  assertThrows(() => inspectMachO(unsignedIntelMachO().slice(0, -1), TARGET))
+  const trailing = new Uint8Array(577)
+  trailing.set(unsignedIntelMachO())
+  assertThrows(() => inspectMachO(trailing, TARGET), Error, 'extent differs')
+})
+
 Deno.test('Darwin inspection verifies actual ad-hoc pages without claiming native execution', () => {
   const report = inspectMachO(signedMachO(), TARGET)
+  assertEquals(report.signature, 'ad-hoc-sha256-verified')
   assertEquals(report.minimum_os, '12.0')
   assertEquals(report.native_execution, 'not_performed')
   for (
@@ -132,6 +264,22 @@ Deno.test('Darwin inspection verifies actual ad-hoc pages without claiming nativ
   }
   assertThrows(() => inspectMachO(signedMachO().subarray(0, 657), TARGET))
   assertThrows(() => inspectMachO(signedMachO(), 'aarch64-apple-darwin'))
+  const arm = signedMachO()
+  new DataView(arm.buffer).setUint32(4, 0x100000c, true)
+  arm.set(createHash('sha256').update(arm.subarray(0, 512)).digest(), 532 + 94)
+  assertEquals(
+    inspectMachO(arm, 'aarch64-apple-darwin').signature,
+    'ad-hoc-sha256-verified',
+  )
+  arm[400] ^= 1
+  assertThrows(() => inspectMachO(arm, 'aarch64-apple-darwin'))
+  const malformedPresentSignature = signedMachO()
+  new DataView(malformedPresentSignature.buffer).setUint32(
+    32 + 72 + 72 + 24 + 24 + 32 + 56 + 8,
+    0,
+    true,
+  )
+  assertThrows(() => inspectMachO(malformedPresentSignature, TARGET))
 })
 
 Deno.test('all products compile on Linux; ARM Linux executes only on native ARM', () => {
@@ -229,7 +377,9 @@ Deno.test('current receipt rejects fake native Darwin claims, matrix identity an
   }
 })
 
-Deno.test('current product gate rejects changed app inputs, archive, bridge, producer and runtime', async () => {
+async function checkCurrentProductGate(
+  signing: 'signed' | 'unsigned',
+): Promise<void> {
   const root = await Deno.makeTempDir()
   try {
     const base = `${root}/dist/release-inputs/product-runtime/${TARGET}`
@@ -263,7 +413,10 @@ Deno.test('current product gate rejects changed app inputs, archive, bridge, pro
       )
     }
     const exe = `${root}/dist/slv-${TARGET}-exe`
-    await Deno.writeFile(exe, signedMachO())
+    await Deno.writeFile(
+      exe,
+      signing === 'signed' ? signedMachO() : unsignedIntelMachO(),
+    )
     await packExecutable(exe, `${exe}.tar.gz`, `slv-${TARGET}-exe`)
     await Deno.writeTextFile(`${base}/release-bridge-smoke`, 'fresh bridge')
     await Deno.mkdir(`${root}/source-materials`, { recursive: true })
@@ -287,7 +440,9 @@ Deno.test('current product gate rejects changed app inputs, archive, bridge, pro
       executable_sha256: await hashFile(exe),
       archive_sha256: await hashFile(`${exe}.tar.gz`),
       bridge_sha256: await hashFile(`${base}/release-bridge-smoke`),
-      verification_sha256: await hashFile(`${base}/product-verification.json`),
+      verification_sha256: await hashFile(
+        `${base}/product-verification.json`,
+      ),
     }
     await Deno.writeTextFile(
       `${base}/product-runtime-receipt.json`,
@@ -334,11 +489,33 @@ Deno.test('current product gate rejects changed app inputs, archive, bridge, pro
         state: 'final-qualified',
       })
     )
-    await Deno.writeTextFile(`${base}/release-bridge-smoke`, 'stale old bridge')
+    await Deno.writeTextFile(
+      `${base}/release-bridge-smoke`,
+      'stale old bridge',
+    )
     await assertRejects(() =>
       verifyCurrentProductFiles(root, TARGET, identity, qualified)
     )
     await Deno.writeTextFile(`${base}/release-bridge-smoke`, 'fresh bridge')
+    if (signing === 'unsigned') {
+      const changed = unsignedIntelMachO()
+      changed[400] ^= 1
+      // Static shape is not a code signature: the separately bound executable
+      // digest still rejects changed bytes, even with an updated archive digest.
+      assertEquals(inspectMachO(changed, TARGET).signature, 'unsigned')
+      await Deno.writeFile(exe, changed)
+      await packExecutable(exe, `${exe}.tar.gz`, `slv-${TARGET}-exe`)
+      r.output.archive_sha256 = await hashFile(`${exe}.tar.gz`)
+      await Deno.writeTextFile(
+        `${base}/product-runtime-receipt.json`,
+        JSON.stringify(r),
+      )
+      await assertRejects(
+        () => verifyCurrentProductFiles(root, TARGET, identity, qualified),
+        Error,
+        'output bytes differ',
+      )
+    }
     await Deno.writeTextFile(`${exe}.tar.gz`, 'different archive')
     await assertRejects(() =>
       verifyCurrentProductFiles(root, TARGET, identity, qualified)
@@ -346,7 +523,12 @@ Deno.test('current product gate rejects changed app inputs, archive, bridge, pro
   } finally {
     await Deno.remove(root, { recursive: true })
   }
-})
+}
+
+for (const signing of ['signed', 'unsigned'] as const) {
+  Deno.test(`current ${signing} product gate rejects changed app inputs, archive, bridge, producer and runtime`, () =>
+    checkCurrentProductGate(signing))
+}
 
 Deno.test('signed qualification reference binds four complete receipts and rejects candidate release', async () => {
   const targets = [

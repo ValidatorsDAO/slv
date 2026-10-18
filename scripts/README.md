@@ -145,8 +145,11 @@ builders, including native ARM64 for that Linux target. A successful
 ordinary `runtime-qualification` job verifies the selected immutable runtime or a
 nonpublishable candidate; it does not rerun Deno/V8 on every application change.
 The four explicit product jobs and `package` bind the current application to
-those runtime bytes. Darwin products receive static Mach-O and ad-hoc signature
-checks on Linux; the current receipt does not claim native macOS execution.
+those runtime bytes. Darwin products receive static Mach-O checks on Linux.
+Intel output from the pinned embedding library is recorded as unsigned; ARM64
+requires an ad-hoc signature, and every present signature is verified. Artifact
+hash/provenance checks remain required. The current receipt does not claim native
+macOS execution.
 See [rebuilding releases](../docs/rebuilding-releases.md) for runtime and source
 identities and [secure delivery](../docs/secure-delivery.md) for publication
 and acceptance boundaries.

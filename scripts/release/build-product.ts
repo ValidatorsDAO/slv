@@ -157,8 +157,28 @@ export function inspectMachO(bytes: Uint8Array, target: ProductTarget) {
   if (
     offset !== 32 + commandBytes || minimum !== 0x000c0000 || !hasText ||
     !hasLinkedit || !hasMain || entryOffset < 32 + commandBytes ||
-    entryOffset >= textSize || !hasDyld || !dependencies.length || !signature
+    entryOffset >= textSize || !hasDyld || !dependencies.length
   ) fail('incomplete Mach-O structure or minimum OS differs from 12.0')
+  const report = (signatureState: 'unsigned' | 'ad-hoc-sha256-verified') => ({
+    format: 'Mach-O-64',
+    architecture: target.split('-')[0],
+    minimum_os: '12.0',
+    signature: signatureState,
+    load_commands_sha256: digest(bytes.subarray(32, 32 + commandBytes)),
+    dependencies,
+    native_execution: 'not_performed',
+  } as const)
+  if (!signature) {
+    // The pinned libsui emits unsigned Intel products on Linux. ARM requires
+    // its embedded signature; a present signature always takes the strict path.
+    if (target !== 'x86_64-apple-darwin') {
+      fail('ARM64 Mach-O requires an embedded ad-hoc signature')
+    }
+    if (linkeditOffset < textSize || linkeditEnd !== bytes.length) {
+      fail('unsigned Intel Mach-O linkedit extent differs')
+    }
+    return report('unsigned')
+  }
   const sig = signature!
   if (
     sig.offset < offset || sig.offset < linkeditOffset ||
@@ -249,15 +269,7 @@ export function inspectMachO(bytes: Uint8Array, target: ProductTarget) {
     ).map((b) => b.toString(16).padStart(2, '0')).join('')
     if (actual !== expected) fail('Mach-O code signature page hash differs')
   }
-  return {
-    format: 'Mach-O-64',
-    architecture: target.split('-')[0],
-    minimum_os: '12.0',
-    signature: 'ad-hoc-sha256-verified',
-    load_commands_sha256: digest(bytes.subarray(32, 32 + commandBytes)),
-    dependencies,
-    native_execution: 'not_performed',
-  } as const
+  return report('ad-hoc-sha256-verified')
 }
 
 export type CurrentProductReceipt = {
