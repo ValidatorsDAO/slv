@@ -4613,6 +4613,9 @@ function evaluateJobExpression(
     linuxValidation?: string
     required?: string
     needs?: ProductNeeds
+    cancelled?: boolean
+    operation?: string
+    ancestorResults?: string[]
   } = {},
 ) {
   const needs = overrides.needs ?? qualificationNeeds('product', true)
@@ -4628,6 +4631,9 @@ function evaluateJobExpression(
     'needs',
     'inputs',
     'cancelled',
+    'always',
+    'success',
+    'failure',
     'format',
     'fromJSON',
     `return (${expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]')})`,
@@ -4641,13 +4647,144 @@ function evaluateJobExpression(
     },
     { SLV_LINUX_BUILDERS_ENABLED: overrides.enabled ?? 'true' },
     needs,
-    { operation: 'release' },
-    () => false,
+    { operation: overrides.operation ?? 'release' },
+    () => overrides.cancelled ?? false,
+    () => true,
+    () =>
+      (overrides.ancestorResults ?? []).every((result) => result === 'success'),
+    () => (overrides.ancestorResults ?? []).includes('failure'),
     (value: string, ...args: string[]) =>
       value.replace(/\{(\d+)\}/g, (_, n) => args[Number(n)]),
     JSON.parse,
   )
 }
+
+// Job conditions implicitly include success() unless they contain a status
+// function. That check includes transitive dependencies, even when a later
+// verification job explicitly continued past an intentionally skipped ancestor.
+// https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds
+// https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions
+function scheduledQualificationJob(
+  workflow: string,
+  job: string,
+  completed: ProductNeeds,
+  context: Parameters<typeof evaluateJobExpression>[1],
+): boolean {
+  const dependencies = (name: string) => {
+    const raw = jobSection(workflow, name).match(
+      /^    needs: (\[[\s\S]*?\]|[a-z][a-z0-9_-]*)$/m,
+    )?.[1]
+    return raw ? raw.replace(/[\[\]\s]/g, '').split(',') : []
+  }
+  const ancestors = new Set<string>()
+  const visit = (name: string) => {
+    for (const prerequisite of dependencies(name)) {
+      if (ancestors.has(prerequisite)) continue
+      ancestors.add(prerequisite)
+      visit(prerequisite)
+    }
+  }
+  visit(job)
+  const ancestorResults = [...ancestors].map((name) =>
+    completed[name]?.result ?? 'missing'
+  )
+  const expression = jobIf(jobSection(workflow, job))?.slice(4, -3) ?? 'true'
+  if (
+    !/\b(?:always|cancelled|success|failure)\s*\(/.test(expression) &&
+    !ancestorResults.every((result) => result === 'success')
+  ) return false
+  const needs = Object.fromEntries(
+    dependencies(job).map((name) => [
+      name,
+      structuredClone(completed[name] ?? { result: '', outputs: {} }),
+    ]),
+  )
+  return evaluateJobExpression(expression, {
+    ...context,
+    needs,
+    ancestorResults,
+  })
+}
+
+Deno.test('qualified scheduling crosses skipped promotion only after successful direct prerequisites', async () => {
+  const workflow = await releaseWorkflow()
+  for (const mode of ['release-build-validation', 'ci', 'main-release']) {
+    const final = mode === 'main-release'
+    const context = {
+      event: final
+        ? 'push'
+        : mode === 'ci'
+        ? 'pull_request'
+        : 'workflow_dispatch',
+      ref: final
+        ? 'refs/heads/main'
+        : mode === 'ci'
+        ? 'refs/pull/7/merge'
+        : 'refs/heads/codex/slv-linux-all-targets',
+      mode,
+      required: String(final),
+      operation: mode === 'release-build-validation' ? mode : 'release',
+    }
+    const completed: ProductNeeds = {
+      ...qualificationNeeds('runtime', final),
+      ...qualificationNeeds('package', final),
+      package: { result: 'success', outputs: {} },
+      attest: { result: 'success', outputs: {} },
+      'activation-required': { result: 'success', outputs: {} },
+    }
+    completed.resolve.outputs.publication = final ? 'publish' : 'none'
+    const runs = (job: string, needs = completed, cancelled = false) =>
+      scheduledQualificationJob(workflow, job, needs, { ...context, cancelled })
+    assertEquals(runs('qualification-inputs'), true, mode)
+    assertEquals(runs('qualification-promotion'), final, mode)
+    assertEquals(runs('runtime-qualification'), true, mode)
+    for (const job of [...currentProductJobs, 'package']) {
+      assertEquals(runs(job), true, `${mode}: ${job} must actually schedule`)
+      assertEquals(
+        runs(job, completed, true),
+        false,
+        `${mode}: cancelled ${job}`,
+      )
+      const prerequisites = job === 'package'
+        ? qualificationNeeds('package', final)
+        : qualificationNeeds('product', final)
+      for (const prerequisite of Object.keys(prerequisites)) {
+        for (const result of ['failure', 'cancelled', 'skipped', 'missing']) {
+          const bad = structuredClone(completed)
+          if (result === 'missing') delete bad[prerequisite]
+          else bad[prerequisite].result = result
+          assertEquals(
+            runs(job, bad),
+            false,
+            `${mode}: ${job} must reject ${prerequisite} ${result}`,
+          )
+        }
+      }
+    }
+    for (const target of ['x86_64-apple-darwin', 'aarch64-apple-darwin']) {
+      assertEquals(
+        runs(`validation-smoke-${target}`),
+        mode === 'release-build-validation',
+      )
+    }
+    for (const job of ['attest', 'activation-required', 'publish']) {
+      assertEquals(runs(job), final, `${mode}: ${job} publication boundary`)
+    }
+    if (final) {
+      for (const result of ['skipped', 'failure', 'cancelled']) {
+        const bad = structuredClone(completed)
+        bad['qualification-promotion'].result = result
+        assertEquals(runs('runtime-qualification', bad), false)
+        bad['runtime-qualification'].result = 'skipped'
+        for (
+          const job of [...currentProductJobs, 'package', 'attest', 'publish']
+        ) {
+          assertEquals(runs(job, bad), false, `${job}: no final promotion`)
+        }
+      }
+    }
+  }
+})
 
 Deno.test('four explicit products use Linux profiles and source qualification never enters ordinary DAG', async () => {
   const workflow = await releaseWorkflow()

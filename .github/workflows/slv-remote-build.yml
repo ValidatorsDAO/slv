@@ -1747,7 +1747,9 @@ jobs:
   build-x86_64-unknown-linux-gnu:
     name: build-x86_64-unknown-linux-gnu
     needs: [resolve, test, source-materials, runtime-qualification]
-    if: ${{ (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') }}
+    # PR/validation skips promotion; override implicit success() across that
+    # ancestor while requiring every direct product prerequisite to succeed.
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
     runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-x86_64-unknown-linux-gnu', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 30
     permissions:
@@ -1819,7 +1821,7 @@ jobs:
   build-aarch64-unknown-linux-gnu:
     name: build-aarch64-unknown-linux-gnu
     needs: [resolve, test, source-materials, runtime-qualification]
-    if: ${{ (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
     runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-aarch64-unknown-linux-gnu', github.run_id, github.run_attempt) || 'ubuntu-26.04-arm' }}
     timeout-minutes: 30
     permissions:
@@ -1891,7 +1893,7 @@ jobs:
   build-x86_64-apple-darwin:
     name: build-x86_64-apple-darwin
     needs: [resolve, test, source-materials, runtime-qualification]
-    if: ${{ (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
     runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-x86_64-apple-darwin', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 30
     permissions:
@@ -1962,7 +1964,7 @@ jobs:
   build-aarch64-apple-darwin:
     name: build-aarch64-apple-darwin
     needs: [resolve, test, source-materials, runtime-qualification]
-    if: ${{ (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
     runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-aarch64-apple-darwin', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 30
     permissions:
@@ -4373,7 +4375,8 @@ jobs:
 
   package:
     needs: [resolve, test, source-materials, runtime-qualification, build-x86_64-unknown-linux-gnu, build-aarch64-unknown-linux-gnu, build-x86_64-apple-darwin, build-aarch64-apple-darwin]
-    if: ${{ (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') }}
+    # Preserve the skipped-promotion boundary and require all four real products.
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' && needs.build-x86_64-unknown-linux-gnu.result == 'success' && needs.build-aarch64-unknown-linux-gnu.result == 'success' && needs.build-x86_64-apple-darwin.result == 'success' && needs.build-aarch64-apple-darwin.result == 'success' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
