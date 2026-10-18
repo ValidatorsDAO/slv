@@ -26,7 +26,7 @@ export function turnPolicy(
     intent === 'validator_ops' ||
     intent === 'rpc_deploy' || intent === 'rpc_ops' ||
     intent === 'command_execution' ||
-    /\b(?:deploy|migration|migrate|restart|firewall|nftables|wireguard|set:identity|set:unstaked|validator|double[- ]vot(?:e|ing))\b|デプロイ|移行|再起動|ファイアウォール|バリデータ|鍵の切替|二重投票/iu
+    /\b(?:deploy|migration|migrate|restart|firewall|nftables|wireguard|set:identity|set:unstaked|check:alpenglow|primary-down|validator|double[- ]vot(?:e|ing))\b|デプロイ|移行|再起動|ファイアウォール|バリデータ|鍵の切替|二重投票/iu
       .test(text)
   if (operational) return { effort: 'high', maxTokens: 8192, smallTalk: false }
   const continuation = text.length <= 160 &&

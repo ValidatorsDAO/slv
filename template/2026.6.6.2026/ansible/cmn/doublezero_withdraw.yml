@@ -22,6 +22,20 @@
       when: conn_check.unreachable | default(false) or conn_check.failed | default(false)
 
   tasks:
+    # doublezero-solana signs with the key file it is given, and deploy puts no staked key on a node any more
+    - name: Look for the key file the withdrawal is signed with
+      ansible.builtin.stat:
+        path: '{{ doublezero_keypair_path }}'
+      register: dz_keypair
+
+    - name: Stop when the key file the withdrawal is signed with is not on the node
+      ansible.builtin.fail:
+        msg: >-
+          {{ doublezero_keypair_path }} does not exist on {{ inventory_hostname }}, so there is no key to sign the withdrawal
+          with: slv does not put the staked key on a node, it stays on the controller. Nothing was changed on
+          {{ inventory_hostname }}.
+      when: not dz_keypair.stat.exists
+
     - name: Withdraw validator funds
       ansible.builtin.shell: >-
         doublezero-solana revenue-distribution {{ doublezero_withdraw_subcommand }}

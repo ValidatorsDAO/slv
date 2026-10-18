@@ -102,6 +102,8 @@ Deno.test('operational effort and follow-up confirmations stay above small-talk 
   )
   assertEquals(turnPolicy('Please deploy', 'validator_deploy').effort, 'high')
   assertEquals(turnPolicy('firewall を設定したい').effort, 'high')
+  assertEquals(turnPolicy('slv v check:alpenglow').effort, 'high')
+  assertEquals(turnPolicy('--primary-down の確認を進めたい').effort, 'high')
   assertEquals(turnPolicy('yes', undefined, 'high').effort, 'high')
   for (
     const reply of [
@@ -118,6 +120,26 @@ Deno.test('operational effort and follow-up confirmations stay above small-talk 
     turnPolicy({ text: 'hi', images: [{ mime: 'image/png', base64: 'AA==' }] })
       .smallTalk,
   )
+})
+
+Deno.test('Alpenglow readiness and primary-down keep validator guidance when routing falls back', async () => {
+  for (const message of ['Alpenglow readiness', '--primary-down の確認']) {
+    await withFetch(
+      () =>
+        json({
+          content: [{ type: 'text', text: 'unstructured routing reply' }],
+        }),
+      async () => {
+        const plan = await classifyIntent({ model: 'SLV AI', slvAuth: auth }, {
+          message,
+          deploymentMode: 'remote',
+          enabledSpecialists: [],
+        })
+        assertEquals(plan.intent, 'validator_ops')
+        assert(plan.contextModulesToLoad.includes('validator'))
+      },
+    )
+  }
 })
 
 Deno.test('RPC deployment context does not require a validator voting identity', async () => {
@@ -268,6 +290,11 @@ Deno.test('help tool permits only fixed help argv and never accepts operational 
   assertEquals(helpArguments('validator set:identity'), [
     'validator',
     'set:identity',
+    '--help',
+  ])
+  assertEquals(helpArguments('validator check:alpenglow'), [
+    'validator',
+    'check:alpenglow',
     '--help',
   ])
   for (

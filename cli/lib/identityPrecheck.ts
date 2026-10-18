@@ -1,5 +1,12 @@
 import { colors } from '@cliffy/colors'
+import { Input } from '@cliffy/prompt'
 import type { InventoryType } from '@cmn/types/config.ts'
+import {
+  type AlpenglowReading,
+  checkAlpenglowState,
+  type Consensus,
+  readAlpenglowState,
+} from '/lib/alpenglowState.ts'
 import { getTemplatePath } from '/lib/getTemplatePath.ts'
 import {
   type ExtraVars,
@@ -27,8 +34,30 @@ const RPC_URLS: Record<IdentityNetwork, string> = {
 }
 
 const RPC_TIMEOUT_MS = 20_000
-const RECENT_VOTE_WINDOW_SLOTS = 150
 const RUNNING_IDENTITY_PLAYBOOK = 'cmn/read_running_identity.yml'
+
+// A vote of the vote account this recent means that someone is voting with the
+// identity. Only the vote counts: the root slot of a vote account is no sign of
+// life under Alpenglow (on testnet, 3 of 459 active validators did not move
+// their root in 400 s while their last vote advanced by 1,798 slots).
+//
+// towerbft: 150 slots, the age at which a vote transaction signed before its
+//   sender stopped can no longer land (MAX_PROCESSING_AGE).
+// alpenglow: a vote is not a transaction, so MAX_PROCESSING_AGE bounds nothing.
+//   On testnet (4.4.0-beta.1, 2026-10-16) the lastVote of an active validator
+//   was within -2 to +9 slots of the confirmed slot in 9,639 readings of 459
+//   validators over 400 s, and a delinquent one was at least 45,409 slots
+//   behind, so any window above 10 slots tells a voting identity from a stopped
+//   one. 270 slots is one minute at the 4.5 slots/s measured there, as 150
+//   slots were at 400 ms per slot.
+const TOWERBFT_VOTE_WINDOW_SLOTS = 150
+const ALPENGLOW_VOTE_WINDOW_SLOTS = 270
+const RECENT_VOTE_WINDOW_SLOTS = TOWERBFT_VOTE_WINDOW_SLOTS
+
+const voteWindowSlots = (consensus: Consensus): number =>
+  consensus === 'alpenglow'
+    ? ALPENGLOW_VOTE_WINDOW_SLOTS
+    : TOWERBFT_VOTE_WINDOW_SLOTS
 
 type PrecheckInput = {
   network: IdentityNetwork
@@ -37,12 +66,28 @@ type PrecheckInput = {
   /** Every host of the inventory group, the target included. */
   hosts: readonly InventoryHost[]
   peerDownConfirmed: boolean
+  /** The consensus of the cluster; towerbft when absent. */
+  consensus?: Consensus
+  /** The inventory name of the peer the operator confirmed to be stopped. */
+  downPeer?: string
+  /**
+   * `--first-activation`. On Alpenglow the precheck then also shows, as the
+   * playbook does, that the vote account has not voted since the genesis
+   * certificate. Every other check runs as without the flag, on both consensus.
+   */
+  firstActivation?: boolean
 }
 
 type PrecheckResult = {
   ok: boolean
   failures: string[]
   notes: string[]
+  /**
+   * The address of a stale gossip entry of the identity that the precheck
+   * allowed (see judgeForeignEntry). set:identity hands it to the playbook as
+   * primary_down_address. Absent unless the precheck is ok and allowed one.
+   */
+  staleAddress?: string
 }
 
 type PrecheckDeps = {
@@ -101,12 +146,17 @@ const rpcRequest = async (
   deps: PrecheckDeps,
   url: string,
   method: string,
-  params: unknown[],
+  params?: unknown[],
 ): Promise<unknown> => {
   const response = await deps.fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method,
+      ...(params === undefined ? {} : { params }),
+    }),
   })
   if (!response.ok) {
     throw new Error(`${method} returned HTTP ${response.status}`)
@@ -155,13 +205,373 @@ const parseRunningIdentityLines = (output: string): Map<string, string[]> => {
 
 // --- the checks ---------------------------------------------------------------
 
+/** The other hosts of the inventory that hold the target's identity. */
+const peersHoldingIdentity = (
+  target: InventoryHost,
+  hosts: readonly InventoryHost[],
+): InventoryHost[] =>
+  hosts.filter((host) =>
+    host.name !== target.name && host.identityAccount === target.identityAccount
+  )
+
 type Collected = { failures: string[]; notes: string[] }
 
+/** What the running-identity read says about one peer. */
+type PeerState = 'runs-identity' | 'other-identity' | 'unread'
+
+const consensusLabel = (consensus: Consensus): string =>
+  consensus === 'alpenglow' ? 'Alpenglow' : 'TowerBFT'
+
+/** The vote account's last vote, read before the gossip entries are judged. */
+type VoteReading =
+  | { kind: 'skipped' }
+  | { kind: 'failed'; error: string }
+  | {
+    kind: 'read'
+    lastVote: number
+    age: number
+    /** The cluster lists the vote account (an unstaked one that never voted is not listed). */
+    listed: boolean
+    /** The node the vote account names, or null when it names none or its rows disagree. */
+    node: string | null
+  }
+
+/**
+ * Why the votes of the vote account say nothing about the identity: it belongs
+ * to another node, or names none. Null when the account names the identity, and
+ * when the cluster lists no such account (then there is no vote to read).
+ */
+const voteIsNotTheIdentitys = (
+  vote: Extract<VoteReading, { kind: 'read' }>,
+  voteAccount: string,
+  identity: string,
+): string | null => {
+  if (!vote.listed || vote.node === identity) return null
+  return vote.node === null
+    ? `vote account ${voteAccount} does not name a node`
+    : `vote account ${voteAccount} belongs to ${vote.node}, not to identity ${identity}`
+}
+
+/** Whether the rule for a first activation on Alpenglow applies. TowerBFT is not touched by it. */
+const firstActivationOnAlpenglow = (input: PrecheckInput): boolean =>
+  input.firstActivation === true && input.consensus === 'alpenglow'
+
+const readVote = async (
+  input: PrecheckInput,
+  deps: PrecheckDeps,
+): Promise<VoteReading> => {
+  const { target } = input
+  if (target.voteAccount === '') return { kind: 'skipped' }
+  const rpcUrl = RPC_URLS[input.network]
+  // A new vote account has no stake and has not voted: getVoteAccounts leaves
+  // it out unless it is asked to keep the unstaked delinquent ones. The rule
+  // for a first activation on Alpenglow needs to see it.
+  const keepUnstaked = firstActivationOnAlpenglow(input)
+  try {
+    const votes = await rpcRequest(deps, rpcUrl, 'getVoteAccounts', [{
+      votePubkey: target.voteAccount,
+      commitment: 'confirmed',
+      ...(keepUnstaked ? { keepUnstakedDelinquents: true } : {}),
+    }]) as { current?: unknown; delinquent?: unknown }
+    const slot = await rpcRequest(deps, rpcUrl, 'getSlot', [{
+      commitment: 'confirmed',
+    }])
+    if (typeof slot !== 'number') throw new Error('getSlot returned no slot')
+    if (
+      typeof votes !== 'object' || votes === null ||
+      !Array.isArray(votes.current) || !Array.isArray(votes.delinquent)
+    ) {
+      throw new Error('getVoteAccounts returned no vote account lists')
+    }
+    const rows = [...asRecords(votes.current), ...asRecords(votes.delinquent)]
+      .filter((vote) => vote.votePubkey === target.voteAccount)
+    const lastVote = Math.max(
+      0,
+      ...rows.map((vote) =>
+        typeof vote.lastVote === 'number' ? vote.lastVote : 0
+      ),
+    )
+    // The votes of a vote account tell whether its identity runs only when the
+    // account names that identity as its node.
+    const nodes = new Set(
+      rows.map((vote) =>
+        typeof vote.nodePubkey === 'string' ? vote.nodePubkey : ''
+      ),
+    )
+    return {
+      kind: 'read',
+      lastVote,
+      age: Math.max(0, slot - lastVote),
+      listed: rows.length > 0,
+      node: nodes.size === 1 ? [...nodes][0] || null : null,
+    }
+  } catch (error) {
+    return { kind: 'failed', error: describe(error) }
+  }
+}
+
+type GenesisSlot = { ok: true; slot: number } | { ok: false; reason: string }
+
+/** The slot of the Alpenglow genesis certificate, where the playbook reads it: result.block.slot of getAgGenesisCert. */
+const readGenesisSlot = async (
+  deps: PrecheckDeps,
+  rpcUrl: string,
+): Promise<GenesisSlot> => {
+  try {
+    const cert = await rpcRequest(deps, rpcUrl, 'getAgGenesisCert')
+    const block = typeof cert === 'object' && cert !== null
+      ? (cert as { block?: unknown }).block
+      : undefined
+    const slot = typeof block === 'object' && block !== null
+      ? (block as { slot?: unknown }).slot
+      : undefined
+    if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0) {
+      throw new Error(
+        cert === null
+          ? 'getAgGenesisCert returned no certificate'
+          : 'getAgGenesisCert returned no block slot',
+      )
+    }
+    return { ok: true, slot }
+  } catch (error) {
+    return { ok: false, reason: describe(error) }
+  }
+}
+
+/**
+ * `--first-activation` on Alpenglow, decided as the playbook decides it, which
+ * mirrors agave (should_require_vote_history_file): the vote history file is
+ * required only when the vote account has voted after the slot of the genesis
+ * certificate, so a first activation is for a vote account that has not voted
+ * since (a new one, or one that voted only under TowerBFT). A vote at the slot of
+ * the certificate itself is not after it. Whatever cannot be shown is a refusal.
+ * The playbook adds the last vote that the host itself knows.
+ */
+const checkFirstActivation = (
+  input: PrecheckInput,
+  vote: VoteReading,
+  genesis: GenesisSlot,
+  out: Collected,
+): void => {
+  const { target } = input
+  const command = `slv v set:identity -n ${input.network} -p ${target.name}`
+  if (!genesis.ok) {
+    out.failures.push(
+      `could not read the slot of the Alpenglow genesis certificate (${genesis.reason}), so --first-activation cannot be checked against the last vote of the vote account`,
+    )
+  }
+  if (vote.kind === 'skipped') {
+    out.failures.push(
+      `${target.name} has no vote_account in the inventory, so --first-activation cannot be checked against the last vote of the vote account`,
+    )
+    return
+  }
+  // A vote account that cannot be read is reported with the vote check.
+  if (vote.kind === 'failed') return
+  if (!vote.listed) {
+    out.failures.push(
+      `vote account ${target.voteAccount} is not listed by the cluster, not even among the unstaked accounts that have not voted, so --first-activation cannot be checked: it does not exist on ${input.network}, or vote_account in the inventory is wrong`,
+    )
+    return
+  }
+  // One that names another node is reported with the vote check.
+  if (!genesis.ok || vote.node !== target.identityAccount) return
+  if (vote.lastVote > genesis.slot) {
+    out.failures.push(
+      `--first-activation is for a vote account that has not voted since the Alpenglow genesis, and the last vote of ${target.voteAccount} is at slot ${vote.lastVote}, after the genesis certificate at slot ${genesis.slot}, so this is not a first activation. A vote account that has voted under Alpenglow needs its vote history file: copy /mnt/ledger/vote_history-${target.identityAccount}.bin to ${target.name} from the host that has it and run ${command}, or, when another host held the identity and is down, run ${command} --primary-down`,
+    )
+    return
+  }
+  out.notes.push(
+    vote.lastVote === 0
+      ? `--first-activation: vote account ${target.voteAccount} has not voted (certificate at slot ${genesis.slot})`
+      : `--first-activation: vote account ${target.voteAccount} last voted at slot ${vote.lastVote}, not after the Alpenglow genesis certificate at slot ${genesis.slot}`,
+  )
+}
+
+/**
+ * The addresses the ansible_host of each peer stands for. A peer whose
+ * ansible_host is empty or does not resolve has none, and so can never be
+ * matched to a gossip entry.
+ */
+const resolvePeerAddresses = async (
+  peers: readonly InventoryHost[],
+  deps: PrecheckDeps,
+): Promise<Map<string, string[]>> => {
+  const found = new Map<string, string[]>()
+  for (const peer of peers) {
+    let ips: string[] = []
+    if (peer.ansibleHost !== '') {
+      try {
+        ips = (await deps.resolveHost(peer.ansibleHost)).map((ip) =>
+          ip.toLowerCase()
+        )
+      } catch {
+        // Left empty: the peer cannot be matched to an address.
+      }
+    }
+    found.set(peer.name, ips)
+  }
+  return found
+}
+
+type GossipContext = {
+  identity: string
+  target: InventoryHost
+  peers: readonly InventoryHost[]
+  peerAddresses: ReadonlyMap<string, string[]>
+  peerStates: ReadonlyMap<string, PeerState>
+  downPeer: string | undefined
+  peerDownConfirmed: boolean
+  vote: VoteReading
+  consensus: Consensus
+}
+
+type GossipVerdict =
+  | { allowed: false; failure: string }
+  | { allowed: true; note: string }
+
+/** How a peer is known to be down, or null when nothing shows it. */
+const howDown = (peer: InventoryHost, ctx: GossipContext): string | null => {
+  const state = ctx.peerStates.get(peer.name)
+  if (state === 'other-identity') return 'running another identity'
+  if (state === 'unread') {
+    if (peer.name === ctx.downPeer) {
+      return 'named as stopped with --primary-down'
+    }
+    if (ctx.peerDownConfirmed) {
+      return 'confirmed stopped with --peer-down-confirmed'
+    }
+  }
+  return null
+}
+
+/**
+ * Judges one gossip entry of the identity at an address that is not the
+ * target's. agave keeps the ContactInfo of a staked origin for the long CRDS
+ * timeout (CRDS_GOSSIP_PURGE_DURATION in gossip/src/crds_gossip_pull.rs), so a
+ * node that stopped stays in gossip for a long time, and such an entry is the
+ * stale entry of a stopped host, and not a second instance, only when all
+ * three hold: the address is that of an inventory host that shares the
+ * identity, that host is down (it reads another identity, or the operator
+ * named or confirmed it stopped), and nothing votes with the identity (the
+ * last vote of the vote account is older than the vote window of the
+ * consensus). Anything that cannot be shown is a refusal.
+ */
+const judgeForeignEntry = (ip: string, ctx: GossipContext): GossipVerdict => {
+  const { identity, vote } = ctx
+  const refuse = (failure: string): GossipVerdict => ({
+    allowed: false,
+    failure,
+  })
+  const names = (peers: readonly InventoryHost[]): string =>
+    peers.map((peer) => peer.name).join(', ')
+
+  const owners = ctx.peers.filter((peer) =>
+    (ctx.peerAddresses.get(peer.name) ?? []).includes(ip)
+  )
+  if (owners.length === 0) {
+    const holders = ctx.peers.length === 0
+      ? 'no other host of the inventory holds it'
+      : ctx.peers.map((peer) => {
+        const addresses = ctx.peerAddresses.get(peer.name) ?? []
+        if (addresses.length > 0) {
+          return `${peer.name} is at ${addresses.join(', ')}`
+        }
+        return peer.ansibleHost === ''
+          ? `${peer.name} has no ansible_host`
+          : `${peer.name}: ansible_host ${peer.ansibleHost} does not resolve`
+      }).join('; ')
+    return refuse(
+      `identity ${identity} is already in gossip at ${ip}, which is not an inventory host of this identity (${holders}); stop it there first`,
+    )
+  }
+
+  const running = owners.filter((owner) =>
+    ctx.peerStates.get(owner.name) === 'runs-identity'
+  )
+  if (running.length > 0) {
+    return refuse(
+      `identity ${identity} is already in gossip at ${ip}, the address of ${
+        names(running)
+      }, which is running it; stop it there first`,
+    )
+  }
+  const down: { peer: InventoryHost; how: string }[] = []
+  const notDown: InventoryHost[] = []
+  for (const owner of owners) {
+    const how = howDown(owner, ctx)
+    if (how === null) notDown.push(owner)
+    else down.push({ peer: owner, how })
+  }
+  if (notDown.length > 0) {
+    return refuse(
+      `identity ${identity} is already in gossip at ${ip}, the address of ${
+        names(notDown)
+      }, whose running identity could not be read; if it is stopped, name it with --primary-down or run with --peer-down-confirmed, otherwise stop it there first`,
+    )
+  }
+
+  const window = voteWindowSlots(ctx.consensus)
+  const unproven = (reason: string): GossipVerdict =>
+    refuse(
+      `identity ${identity} is already in gossip at ${ip}, the address of ${
+        names(owners)
+      }, but ${reason}; stop it there first`,
+    )
+  if (vote.kind === 'skipped') {
+    return unproven(
+      `${ctx.target.name} has no vote_account in the inventory, so nothing shows that the entry is stale`,
+    )
+  }
+  if (vote.kind === 'failed') {
+    return unproven(
+      `the vote account could not be read (${vote.error}), so nothing shows that the entry is stale`,
+    )
+  }
+  const otherNode = voteIsNotTheIdentitys(
+    vote,
+    ctx.target.voteAccount,
+    identity,
+  )
+  if (otherNode !== null) {
+    return unproven(
+      `${otherNode}, so its votes do not show that the entry is stale`,
+    )
+  }
+  if (vote.lastVote === 0) {
+    return unproven(
+      `vote account ${ctx.target.voteAccount} has no vote on record, so nothing shows that the entry is stale`,
+    )
+  }
+  if (vote.age <= window) {
+    return unproven(
+      `vote account ${ctx.target.voteAccount} voted ${vote.age} slot(s) ago (slot ${vote.lastVote}), within the ${window} slots of ${
+        consensusLabel(ctx.consensus)
+      }, so something still votes with the identity and the entry is not stale`,
+    )
+  }
+  return {
+    allowed: true,
+    note: `identity ${identity} is in gossip at ${ip}, the stale entry of ${
+      down.map((owner) => `${owner.peer.name} (${owner.how})`).join(', ')
+    }; the vote account last voted ${vote.age} slots ago, more than the ${window} slots of ${
+      consensusLabel(ctx.consensus)
+    }, so nothing votes with it. A staked node can stay in gossip for a long time after it stops`,
+  }
+}
+
+/**
+ * Compares the gossip table and the vote account with the target. Returns the
+ * address of the stale gossip entry it allowed, when it allowed one.
+ */
 const checkClusterView = async (
   input: PrecheckInput,
   deps: PrecheckDeps,
   out: Collected,
-): Promise<void> => {
+  peers: readonly InventoryHost[],
+  peerStates: ReadonlyMap<string, PeerState>,
+): Promise<string | undefined> => {
   const { target, network } = input
   const identity = target.identityAccount
   const rpcUrl = RPC_URLS[network]
@@ -170,7 +580,7 @@ const checkClusterView = async (
     out.failures.push(
       `${target.name} has no ansible_host, so its address cannot be compared with the cluster's gossip table`,
     )
-    return
+    return undefined
   }
   let targetIps: string[] = []
   try {
@@ -187,29 +597,53 @@ const checkClusterView = async (
     out.failures.push(
       `${target.name} is reached over a local connection (ansible_host ${target.ansibleHost}), so its address cannot be compared with the cluster's gossip table`,
     )
-    return
+    return undefined
   }
   if (targetIps.length === 0) {
     out.failures.push(
       `cannot resolve ansible_host ${target.ansibleHost} of ${target.name} to an IP address, so it cannot be compared with the cluster's gossip table`,
     )
-    return
+    return undefined
   }
 
-  // null until the gossip table has been read.
-  let identityAtTarget: boolean | null = null
+  // Both tables are read before anything is said: a gossip entry at another
+  // address is judged by the last vote.
+  let gossip: { ips: (string | null)[] } | { error: string }
   try {
     const nodes = await rpcRequest(deps, rpcUrl, 'getClusterNodes', [])
     if (!Array.isArray(nodes)) {
       throw new Error('getClusterNodes returned no list')
     }
+    gossip = {
+      ips: asRecords(nodes)
+        .filter((node) => node.pubkey === identity)
+        .map((entry) => parseGossipIp(entry.gossip)),
+    }
+  } catch (error) {
+    gossip = { error: describe(error) }
+  }
+  const vote = await readVote(input, deps)
+  const consensus = input.consensus ?? 'towerbft'
+  const genesis = firstActivationOnAlpenglow(input)
+    ? await readGenesisSlot(deps, rpcUrl)
+    : null
+
+  // null until the gossip table has been read.
+  let identityAtTarget: boolean | null = null
+  let staleAddress: string | undefined
+  if ('error' in gossip) {
+    out.failures.push(
+      `could not read the gossip table from ${rpcUrl}: ${gossip.error}`,
+    )
+  } else {
     identityAtTarget = false
-    const entries = asRecords(nodes).filter((node) => node.pubkey === identity)
-    if (entries.length === 0) {
+    if (gossip.ips.length === 0) {
       out.notes.push(`identity ${identity} is not in the gossip table`)
     }
-    for (const entry of entries) {
-      const ip = parseGossipIp(entry.gossip)
+    const stale: { ip: string; note: string }[] = []
+    const judged = new Set<string>()
+    let context: GossipContext | null = null
+    for (const ip of gossip.ips) {
       if (ip === null) {
         out.failures.push(
           `identity ${identity} is in the gossip table without an address`,
@@ -219,79 +653,83 @@ const checkClusterView = async (
         out.notes.push(
           `identity ${identity} is in gossip at ${ip}, the address of ${target.name}`,
         )
-      } else {
-        out.failures.push(
-          `identity ${identity} is already in gossip at ${ip}, not at ${target.name} (${target.ansibleHost}); stop it there first`,
-        )
+      } else if (!judged.has(ip)) {
+        judged.add(ip)
+        context ??= {
+          identity,
+          target,
+          peers,
+          peerAddresses: await resolvePeerAddresses(peers, deps),
+          peerStates,
+          downPeer: input.downPeer,
+          peerDownConfirmed: input.peerDownConfirmed,
+          vote,
+          consensus,
+        }
+        const verdict = judgeForeignEntry(ip, context)
+        if (verdict.allowed) stale.push({ ip, note: verdict.note })
+        else out.failures.push(verdict.failure)
       }
     }
-  } catch (error) {
-    out.failures.push(
-      `could not read the gossip table from ${rpcUrl}: ${describe(error)}`,
-    )
+    if (stale.length === 1) {
+      out.notes.push(stale[0].note)
+      staleAddress = stale[0].ip
+    } else if (stale.length > 1) {
+      out.failures.push(
+        `identity ${identity} is in gossip at ${
+          stale.map((entry) => entry.ip).join(' and ')
+        }, each the stale entry of a stopped host; the playbook takes one such address (primary_down_address), so set:identity does not go on with ${stale.length}`,
+      )
+    }
   }
 
-  if (target.voteAccount === '') {
+  const otherVote = vote.kind === 'read'
+    ? voteIsNotTheIdentitys(vote, target.voteAccount, identity)
+    : null
+  if (vote.kind === 'skipped') {
     out.notes.push(
       `${target.name} has no vote_account in the inventory; the vote check was skipped`,
     )
-    return
-  }
-  try {
-    const votes = await rpcRequest(deps, rpcUrl, 'getVoteAccounts', [{
-      votePubkey: target.voteAccount,
-      commitment: 'confirmed',
-    }]) as { current?: unknown; delinquent?: unknown }
-    const slot = await rpcRequest(deps, rpcUrl, 'getSlot', [{
-      commitment: 'confirmed',
-    }])
-    if (typeof slot !== 'number') throw new Error('getSlot returned no slot')
-    if (
-      typeof votes !== 'object' || votes === null ||
-      !Array.isArray(votes.current) || !Array.isArray(votes.delinquent)
-    ) {
-      throw new Error('getVoteAccounts returned no vote account lists')
-    }
-    const lastVote = Math.max(
-      0,
-      ...[...asRecords(votes.current), ...asRecords(votes.delinquent)]
-        .filter((vote) => vote.votePubkey === target.voteAccount)
-        .map((vote) => typeof vote.lastVote === 'number' ? vote.lastVote : 0),
-    )
-    const age = Math.max(0, slot - lastVote)
-    if (lastVote === 0) {
-      out.notes.push(`vote account ${target.voteAccount} has no vote on record`)
-    } else if (age > RECENT_VOTE_WINDOW_SLOTS) {
-      out.notes.push(
-        `vote account ${target.voteAccount} last voted ${age} slots ago`,
-      )
-    } else if (identityAtTarget === true) {
-      out.notes.push(
-        `vote account ${target.voteAccount} voted ${age} slots ago, from ${target.name}`,
-      )
-    } else if (identityAtTarget === false) {
-      out.failures.push(
-        `vote account ${target.voteAccount} voted ${age} slot(s) ago (slot ${lastVote}) but identity ${identity} is not in gossip at ${target.name}; another host may be voting with it`,
-      )
-    } else {
-      out.failures.push(
-        `vote account ${target.voteAccount} voted ${age} slot(s) ago (slot ${lastVote}) and the gossip table could not be read to show that ${target.name} is the one voting`,
-      )
-    }
-  } catch (error) {
+  } else if (vote.kind === 'failed') {
     out.failures.push(
-      `could not read the vote account from ${rpcUrl}: ${describe(error)}`,
+      `could not read the vote account from ${rpcUrl}: ${vote.error}`,
+    )
+  } else if (otherVote !== null) {
+    out.failures.push(
+      `${otherVote}, so its votes say nothing about whether identity ${identity} is running; correct vote_account in the inventory`,
+    )
+  } else if (vote.lastVote === 0) {
+    out.notes.push(`vote account ${target.voteAccount} has no vote on record`)
+  } else if (vote.age > voteWindowSlots(consensus)) {
+    out.notes.push(
+      `vote account ${target.voteAccount} last voted ${vote.age} slots ago`,
+    )
+  } else if (identityAtTarget === true) {
+    out.notes.push(
+      `vote account ${target.voteAccount} voted ${vote.age} slots ago, from ${target.name}`,
+    )
+  } else if (identityAtTarget === false) {
+    out.failures.push(
+      `vote account ${target.voteAccount} voted ${vote.age} slot(s) ago (slot ${vote.lastVote}) but identity ${identity} is not in gossip at ${target.name}; another host may be voting with it`,
+    )
+  } else {
+    out.failures.push(
+      `vote account ${target.voteAccount} voted ${vote.age} slot(s) ago (slot ${vote.lastVote}) and the gossip table could not be read to show that ${target.name} is the one voting`,
     )
   }
+  if (genesis !== null) checkFirstActivation(input, vote, genesis, out)
+  return staleAddress
 }
 
+/** Reads what each peer runs. Returns the state of every peer it could judge. */
 const checkPeers = async (
   input: PrecheckInput,
   peers: readonly InventoryHost[],
   deps: PrecheckDeps,
   out: Collected,
-): Promise<void> => {
-  if (peers.length === 0) return
+): Promise<Map<string, PeerState>> => {
+  const states = new Map<string, PeerState>()
+  if (peers.length === 0) return states
   const identity = input.target.identityAccount
   let output = ''
   try {
@@ -312,29 +750,44 @@ const checkPeers = async (
       ...(reports.get(peer.ansibleHost) ?? []),
     ]
     if (values.includes(identity)) {
+      states.set(peer.name, 'runs-identity')
       out.failures.push(
         `peer ${peer.name} (${peer.ansibleHost}) is running identity ${identity}; stop it there first`,
       )
     } else if (values.every((value) => value === 'unknown')) {
+      states.set(peer.name, 'unread')
       unread.push(peer.name)
     } else {
+      states.set(peer.name, 'other-identity')
       out.notes.push(`peer ${peer.name} runs a different identity`)
     }
   }
-  if (unread.length === 0) return
+  // The peer the operator named as stopped may stay unread; one that answers
+  // and runs the identity was caught above.
+  const confirmedDown = unread.filter((name) => name === input.downPeer)
+  if (confirmedDown.length > 0) {
+    out.notes.push(
+      `could not read ${
+        confirmedDown.join(', ')
+      }; continuing because you confirmed it is stopped`,
+    )
+  }
+  const stillUnread = unread.filter((name) => name !== input.downPeer)
+  if (stillUnread.length === 0) return states
   if (input.peerDownConfirmed) {
     out.notes.push(
       `could not read ${
-        unread.join(', ')
+        stillUnread.join(', ')
       }; continuing because --peer-down-confirmed was given`,
     )
   } else {
     out.failures.push(
       `could not read the running identity of ${
-        unread.join(', ')
+        stillUnread.join(', ')
       } (reported unknown or printed nothing). If that host is confirmed not to be running ${identity}, run again with --peer-down-confirmed`,
     )
   }
+  return states
 }
 
 const defaultPrecheckDeps = (): PrecheckDeps => ({
@@ -350,6 +803,11 @@ const defaultPrecheckDeps = (): PrecheckDeps => ({
  * Looks for any sign that the target's identity is already running somewhere
  * else: the cluster's gossip table, the vote account's recent votes, and the
  * inventory peers that hold the same identity.
+ *
+ * agave keeps the ContactInfo of a staked origin for the long CRDS timeout
+ * (CRDS_GOSSIP_PURGE_DURATION in gossip/src/crds_gossip_pull.rs), so an entry
+ * of the identity at the address of a stopped peer is no sign of a second
+ * instance when nothing votes with the identity (judgeForeignEntry).
  */
 const runIdentityPrecheck = async (
   input: PrecheckInput,
@@ -361,12 +819,26 @@ const runIdentityPrecheck = async (
     out.failures.push(`${target.name} has no identity_account in the inventory`)
     return { ok: false, ...out }
   }
-  const peers = input.hosts.filter((host) =>
-    host.name !== target.name && host.identityAccount === target.identityAccount
+  const peers = peersHoldingIdentity(target, input.hosts)
+  // The peers are read first, because a gossip entry at a peer's address is
+  // judged by whether that peer is down. Their lines follow the cluster's.
+  const peerOut: Collected = { failures: [], notes: [] }
+  const peerStates = await checkPeers(input, peers, deps, peerOut)
+  const staleAddress = await checkClusterView(
+    input,
+    deps,
+    out,
+    peers,
+    peerStates,
   )
-  await checkClusterView(input, deps, out)
-  await checkPeers(input, peers, deps, out)
-  return { ok: out.failures.length === 0, ...out }
+  out.failures.push(...peerOut.failures)
+  out.notes.push(...peerOut.notes)
+  const ok = out.failures.length === 0
+  return {
+    ok,
+    ...out,
+    ...(ok && staleAddress !== undefined ? { staleAddress } : {}),
+  }
 }
 
 // --- the command --------------------------------------------------------------
@@ -376,6 +848,8 @@ type SetIdentityOptions = {
   pubkey?: string
   firstActivation?: boolean
   peerDownConfirmed?: boolean
+  /** The other host that holds this identity is stopped and cannot vote. */
+  primaryDown?: boolean
 }
 
 type SetIdentityDeps = {
@@ -393,6 +867,10 @@ type SetIdentityDeps = {
   info: (line: string) => void
   error: (line: string) => void
   setExitCode: (code: number) => void
+  /** The consensus the cluster runs, read the way alpenglow_state.yml reads it. */
+  readState: (network: IdentityNetwork) => Promise<AlpenglowReading>
+  /** Asks for one line of text on the terminal. */
+  ask: (message: string) => Promise<string>
 }
 
 const defaultSetIdentityDeps = (): SetIdentityDeps => ({
@@ -408,12 +886,18 @@ const defaultSetIdentityDeps = (): SetIdentityDeps => ({
   setExitCode: (code) => {
     Deno.exitCode = code
   },
+  readState: (network) => readAlpenglowState(network),
+  ask: (message) => Input.prompt({ message }),
 })
 
 /**
- * `slv v set:identity`: promotes exactly one named host, after the precheck,
- * and after a confirmation (default no) on mainnet. Returns true when the
- * playbook ran and succeeded.
+ * `slv v set:identity`: promotes exactly one named host, after the state of the
+ * cluster, the precheck, and a confirmation (default no) on mainnet. With
+ * `primaryDown` the operator also types the name of the old primary, which
+ * stays unread by the precheck, and the playbook is told so with
+ * primary_down_confirmed. When the precheck allowed a stale gossip entry of
+ * the identity, the playbook is given its address as primary_down_address.
+ * Returns true when the playbook ran and succeeded.
  */
 const runSetIdentity = async (
   options: SetIdentityOptions,
@@ -438,6 +922,19 @@ const runSetIdentity = async (
     ? 'mainnet_validators'
     : 'testnet_validators'
 
+  if (options.primaryDown) {
+    if (options.firstActivation) {
+      return refuse(
+        '--primary-down and --first-activation exclude each other: --first-activation is for an identity that has never voted on TowerBFT, and for a vote account that has not voted since the genesis certificate on Alpenglow; --primary-down is for taking the identity over from a host that held it.',
+      )
+    }
+    if (!deps.isTty()) {
+      return refuse(
+        'set:identity --primary-down needs an interactive terminal to confirm that the old primary is stopped; it will not run without one.',
+      )
+    }
+  }
+
   let hosts: InventoryHost[]
   try {
     hosts = await deps.readHosts(inventoryType)
@@ -457,12 +954,50 @@ const runSetIdentity = async (
     )
   }
 
+  // The old primary is the other host of the inventory that holds this identity.
+  const peers = peersHoldingIdentity(target, hosts)
+  if (options.primaryDown && peers.length === 0) {
+    return refuse(
+      `no other host of ${inventoryType} holds identity ${target.identityAccount}, so there is no old primary to confirm. Without --primary-down: under TowerBFT the identity is set from the tower file on ${target.name}, and --first-activation is only for an identity that has never voted (the playbook then sets it without a tower file); under Alpenglow the vote history file must be on ${target.name}, and when the vote account has not voted since the Alpenglow genesis there is no vote history file: use slv v set:identity -n ${network} -p ${target.name} --first-activation, which checks the vote account against the genesis certificate first.`,
+    )
+  }
+
+  // Before any check or playbook: identity changes wait in the migration
+  // window and when the state cannot be read.
+  const reading = await checkAlpenglowState(network, {
+    read: deps.readState,
+    info: deps.info,
+    error: deps.error,
+    setExitCode: deps.setExitCode,
+  })
+  if (reading === null) return false
+
+  let downPeer: string | undefined
+  if (options.primaryDown) {
+    const named = (await deps.ask(
+      `The old primary holds the same identity as ${target.name}: ${
+        peers.map((peer) => `${peer.name} (${peer.ansibleHost})`).join(', ')
+      }. Type the inventory name of the old primary to confirm that it is stopped, powered off if needed, and cannot vote:`,
+    )).trim()
+    if (!peers.some((peer) => peer.name === named)) {
+      return refuse(
+        `"${named}" is not the inventory name of a host that holds identity ${target.identityAccount} (${
+          peers.map((peer) => peer.name).join(', ')
+        }). Nothing was changed.`,
+      )
+    }
+    downPeer = named
+  }
+
   const check = await deps.precheck({
     network,
     inventoryType,
     target,
     hosts,
     peerDownConfirmed: options.peerDownConfirmed === true,
+    consensus: reading.state,
+    downPeer,
+    firstActivation: options.firstActivation === true,
   })
   for (const note of check.notes) deps.info(`   ${note}`)
   if (!check.ok) {
@@ -479,6 +1014,7 @@ const runSetIdentity = async (
     })
     if (!accepted) {
       deps.info('Cancelled...🌝')
+      deps.setExitCode(1)
       return false
     }
   }
@@ -486,15 +1022,25 @@ const runSetIdentity = async (
   const networkPath = network === 'mainnet'
     ? 'mainnet-validator'
     : 'testnet-validator'
-  return await deps.runPlaybook(
+  const extraVars: ExtraVars = {}
+  if (options.firstActivation) extraVars.first_activation = true
+  if (options.primaryDown) extraVars.primary_down_confirmed = true
+  if (check.staleAddress !== undefined) {
+    extraVars.primary_down_address = check.staleAddress
+  }
+  const ran = await deps.runPlaybook(
     `${deps.templateRoot()}/ansible/${networkPath}/set_identity_key.yml`,
     inventoryType,
     target.name,
-    options.firstActivation ? { first_activation: true } : undefined,
+    Object.keys(extraVars).length > 0 ? extraVars : undefined,
   )
+  // The runner has said why; a script has to be able to tell.
+  if (!ran) deps.setExitCode(1)
+  return ran
 }
 
 export {
+  ALPENGLOW_VOTE_WINDOW_SLOTS,
   defaultPrecheckDeps,
   parseGossipIp,
   parseRunningIdentityLines,
@@ -503,8 +1049,11 @@ export {
   runIdentityPrecheck,
   RUNNING_IDENTITY_PLAYBOOK,
   runSetIdentity,
+  TOWERBFT_VOTE_WINDOW_SLOTS,
+  voteWindowSlots,
 }
 export type {
+  Consensus,
   PrecheckDeps,
   PrecheckInput,
   PrecheckResult,

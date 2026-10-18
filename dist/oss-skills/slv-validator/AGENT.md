@@ -41,7 +41,7 @@ the user is asking for, then drive the right `slv v` commands.
 ```bash
 # 1. Operator terminal: prepares inventory, keys/users and remote tuning
 slv v init
-# 2. Deploy: clones source, builds, sets up systemd, fetches snapshot, starts
+# 2. Deploy starts on the unstaked identity; no staked key is copied to the node
 slv v deploy -n <network> -p <host>
 ```
 Use `examples/inventory.yml` as a reference for the resulting inventory shape.
@@ -66,18 +66,18 @@ inventory fields like `bam_url` or a list-form `shred_receiver_address`.
 ```bash
 slv v switch -n <network> -f <from_host> -t <to_host>
 ```
-Runs `{net}-validator/nodowntime_migrate.yml` end-to-end:
-1. `wait-for-restart-window` on `from_host`, then `set-identity` to unstaked.
-2. Fetch tower file from `from_host` to local, upload to `to_host`.
-3. `set-identity` on `to_host` to the staked key, add as `authorized-voter`.
-4. Swap the two hosts' values in the inventory file (so the same `slv v ...`
-   commands still target the right physical box afterward).
+The operator runs this in a terminal after verifying source/target, network and
+sync. The CLI checks live consensus before changing anything. TowerBFT transfers
+the tower; Alpenglow demotes the source, waits for its vote-history file to become
+stable, transfers it, promotes the target via stdin, and verifies target voting.
+It then swaps the inventory values. See workflow C of SKILL.md for recovery after
+a partial handoff; never replay an old history file or force promotion blindly.
 
-`from_host` and `to_host` are the inventory **keys** (e.g. `validator-primary`,
-`validator-spare`), not IPs. Both must already have `validator_type` set
-(`agave` / `jito` / `allnodes-jito` are supported) and the appropriate keys
-present (`identity_account` keypair on local at `~/.slv/keys/<id>.json`,
-`unstaked-identity.json` on each host).
+The source/target are inventory names, not IPs. The staked key remains on the
+controller at `~/.slv/keys/<identity_account>.json`; no server-side staked-key file
+is required for Agave-family activation. Testnet Firedancer identity moves are
+refused even before Alpenglow, and all Firedancer/Frankendancer moves are refused
+on Alpenglow. Preserve those guards.
 
 ## Validator CLI Build & Install
 
@@ -150,13 +150,18 @@ and allnodes-jito; Firedancer/Frankendancer are refused during the migration.
 Read current network-specific versions.yml pins: floors are mainnet 4.3.0 and
 testnet 4.4.0-beta.0. Preserve every CLI guard.
 
-“Keyless” means syncing initially with `/home/solv/unstaked-identity.json` through
-the `/home/solv/identity.json` symlink, not voting without keys. The current CLI
-has no keyless flag; init asks about identity/vote keys and deploy expects their
-configured files. Staked paths are `/home/solv/testnet-validator-keypair.json`
-and `/home/solv/mainnet-validator-keypair.json`. Never read, create, copy, print
-or edit these private files through AI tools and never change the symlink
-manually. Have the operator complete key handling in their own terminal. Ask
+Keyless deployment is the default: no staked key is copied to the node. It starts
+and restarts under `/home/solv/unstaked-identity.json` through the
+`/home/solv/identity.json` symlink, checked before service start. There is no
+keyless flag. This is not voting without keys. Init still asks about
+public identity/vote settings and operator-owned local key preparation. Deploy
+can succeed without a controller key; BLS registration then skips that host with
+a warning. Activation later needs `~/.slv/keys/<identity_account>.json` on the
+controller and passes it only via stdin through the supported CLI. Older
+server-side `*-validator-keypair.json` files may remain but are not prerequisites;
+do not recreate them on the node. Never read, create, copy, print or edit private
+keys through AI tools, or manually change identity symlinks.
+Have the operator complete key handling in their own terminal. Ask
 only for public keys or non-secret status, never key contents.
 
 Run `slv v init` in the operator's terminal; it can prepare users and keys,
@@ -168,20 +173,36 @@ pipe answers, set all-host overrides or invoke `init.yml` directly to evade
 these checks. Use the CLI-selected template version rather than sorting
 installed template directories.
 
-After the node catches up, verify the target's active public identity, health,
-synchronization and required tower/vote history. Verify the same voting identity
-is not active on another node. Then, with approval, use
-`slv v set:identity -n <network> -p <host>` for exactly one inventory host.
-Mainnet requires a terminal. `--first-activation` is solely for an identity that
-has never voted and has no history, not a lost-history workaround.
-`--peer-down-confirmed` requires independent confirmation that an unreadable
-peer is not running the identity; known-active peers and cluster conflicts still
-refuse promotion. Neither option is automatic.
+Use `slv v check:alpenglow -n <network> -p <host>` for a read-only readiness
+report from inventory, versions.yml and public RPC; it contacts no validator and
+sends no transaction. It reports OK/WARN/FAIL and exits 1 on FAIL. A consensus
+WARN is not permission to activate, and the report does not replace target-local
+sync/health/current-identity checks.
 
-For a running validator handoff, verify both hosts and target sync, then have the
-operator run `slv v switch -n <network> -f <source-host> -t <target-host>`.
-The supported flow coordinates demotion, history transfer and promotion. Do not
-replace it with direct identity commands, manual private-key copies or symlinks.
+Before activation, verify the target is caught up, the current public identity,
+the required tower/vote-history file, and absence of voting elsewhere. Use
+`slv v set:identity -n <network> -p <host>` for exactly one host. Unreadable
+consensus, imminent activation or a migration window stops identity changes.
+Mainnet promotion requires terminal confirmation.
+
+`--first-activation` means an identity that has never voted on TowerBFT, or a vote
+account with no votes after the Alpenglow genesis certificate under Alpenglow.
+The latter includes accounts that voted only before activation; the command
+checks the account and genesis/last-vote data. `--peer-down-confirmed` handles an
+unreadable peer independently confirmed not to run the identity, not a
+missing-history waiver. `--primary-down` is for a genuinely stopped old primary,
+including lost Alpenglow history: on either network it requires a terminal and
+typing that peer's inventory name, and cannot combine with `--first-activation`.
+An existing Alpenglow history file is still used; the flag does not waive
+TowerBFT history requirements. All recent-vote, ownership, target-finalization
+and gossip guards still apply;
+under Alpenglow the safety window is 270 slots. Never add recovery flags by
+default or invoke `--do-not-require-vote-history` directly.
+
+For a running handoff, verify both hosts and target sync, then have the operator
+run `slv v switch -n <network> -f <source-host> -t <target-host>`. Follow the
+reported consensus/history flow and recovery instructions. Testnet Firedancer
+identity moves are refused in any consensus state; no manual key-copy workaround.
 
 Avoid applying `slv install firewall` to a production validator as a generic
 hardening step. That local management-host baseline drops unlisted traffic and

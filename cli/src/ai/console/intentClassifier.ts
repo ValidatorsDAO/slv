@@ -436,6 +436,8 @@ function fallbackFromRegex(input: ClassifierInput): IntentClassification {
       'validator',
       'vote',
       'identity',
+      'alpenglow',
+      'primary-down',
       'バリデータ',
       '投票',
       'アイデンティティ',

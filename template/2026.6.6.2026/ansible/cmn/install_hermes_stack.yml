@@ -31,11 +31,13 @@
   become: yes
   gather_facts: yes
   vars:
-    hermes_repo: "{{ hermes_repo | default('https://github.com/pyth-network/pyth-crosschain') }}"
-    hermes_repo_ref: "{{ hermes_repo_ref | default('main') }}"
-    beacon_repo: "{{ beacon_repo | default('https://github.com/pyth-network/beacon') }}"
-    beacon_repo_ref: "{{ beacon_repo_ref | default('main') }}"
-    nats_version: "{{ nats_version | default('v2.10.22') }}"
+    # Each slv_ variable reads the variable of the same name without the prefix (-e or inventory), with its default:
+    # a play variable that read its own name would loop.
+    slv_hermes_repo: "{{ hermes_repo | default('https://github.com/pyth-network/pyth-crosschain') }}"
+    slv_hermes_repo_ref: "{{ hermes_repo_ref | default('main') }}"
+    slv_beacon_repo: "{{ beacon_repo | default('https://github.com/pyth-network/beacon') }}"
+    slv_beacon_repo_ref: "{{ beacon_repo_ref | default('main') }}"
+    slv_nats_version: "{{ nats_version | default('v2.10.22') }}"
     rust_toolchain: "{{ hermes_rust_toolchain | default('1.82.0') }}"
 
     # Endpoints — override these in inventory.  The defaults talk to the
@@ -47,9 +49,9 @@
 
     rpc_listen_addr: "{{ hermes_rpc_listen_addr | default('0.0.0.0:7575') }}"
     metrics_listen_addr: "{{ hermes_metrics_listen_addr | default('127.0.0.1:7576') }}"
-    beacon_listen_port: "{{ beacon_listen_port | default(8999) }}"
-    beacon_spy_grpc_addr: "{{ beacon_spy_grpc_addr | default('127.0.0.1:7072') }}"
-    nats_port: "{{ nats_port | default(4222) }}"
+    slv_beacon_listen_port: "{{ beacon_listen_port | default(8999) }}"
+    slv_beacon_spy_grpc_addr: "{{ beacon_spy_grpc_addr | default('127.0.0.1:7072') }}"
+    slv_nats_port: "{{ nats_port | default(4222) }}"
 
     hermes_src_dir: "/home/solv/src/pyth-crosschain"
     hermes_binary: "/home/solv/src/pyth-crosschain/apps/hermes/server/target/release/hermes"
@@ -83,27 +85,27 @@
       changed_when: false
       failed_when: false
 
-    - name: Download nats-server {{ nats_version }} tarball
+    - name: Download nats-server {{ slv_nats_version }} tarball
       ansible.builtin.get_url:
-        url: "https://github.com/nats-io/nats-server/releases/download/{{ nats_version }}/nats-server-{{ nats_version }}-linux-amd64.tar.gz"
-        dest: "/tmp/nats-{{ nats_version }}.tgz"
+        url: "https://github.com/nats-io/nats-server/releases/download/{{ slv_nats_version }}/nats-server-{{ slv_nats_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/nats-{{ slv_nats_version }}.tgz"
         mode: "0644"
-      when: nats_version not in nats_installed.stdout
+      when: slv_nats_version not in nats_installed.stdout
 
     - name: Unpack nats-server
       ansible.builtin.unarchive:
-        src: "/tmp/nats-{{ nats_version }}.tgz"
+        src: "/tmp/nats-{{ slv_nats_version }}.tgz"
         dest: /tmp
         remote_src: yes
-      when: nats_version not in nats_installed.stdout
+      when: slv_nats_version not in nats_installed.stdout
 
     - name: Install nats-server binary
       ansible.builtin.copy:
-        src: "/tmp/nats-server-{{ nats_version }}-linux-amd64/nats-server"
+        src: "/tmp/nats-server-{{ slv_nats_version }}-linux-amd64/nats-server"
         dest: /usr/local/bin/nats-server
         mode: "0755"
         remote_src: yes
-      when: nats_version not in nats_installed.stdout
+      when: slv_nats_version not in nats_installed.stdout
 
     - name: Install Rust toolchain for solv
       become_user: solv
@@ -126,9 +128,9 @@
     - name: Clone beacon repo
       become_user: solv
       ansible.builtin.git:
-        repo: "{{ beacon_repo }}"
+        repo: "{{ slv_beacon_repo }}"
         dest: "{{ beacon_src_dir }}"
-        version: "{{ beacon_repo_ref }}"
+        version: "{{ slv_beacon_repo_ref }}"
         depth: 1
         force: yes
       register: beacon_git
@@ -152,9 +154,9 @@
     - name: Clone pyth-crosschain repo
       become_user: solv
       ansible.builtin.git:
-        repo: "{{ hermes_repo }}"
+        repo: "{{ slv_hermes_repo }}"
         dest: "{{ hermes_src_dir }}"
-        version: "{{ hermes_repo_ref }}"
+        version: "{{ slv_hermes_repo_ref }}"
         depth: 1
         force: yes
       register: hermes_git

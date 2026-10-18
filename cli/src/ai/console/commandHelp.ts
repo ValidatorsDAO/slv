@@ -7,6 +7,7 @@ export const HELP_COMMANDS = [
   'validator init',
   'validator deploy',
   'validator set:identity',
+  'validator check:alpenglow',
   'validator set:unstaked',
   'validator switch',
   'validator build:solana',

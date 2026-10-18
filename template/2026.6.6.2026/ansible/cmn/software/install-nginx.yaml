@@ -101,6 +101,7 @@
         content: '{{ origin_key_b64 | b64decode }}'
         dest: '/etc/nginx/ssl/{{ fqdn }}.key'
         mode: '0600'
+      diff: false
       when: origin_key_b64 | length > 0
 
     # Self-signed fallback for when the caller didn't supply a

@@ -1,0 +1,95 @@
+---
+# Reads the last vote of a vote account from the cluster RPC, from the controller:
+# getVoteAccounts with the vote account, commitment processed and unstaked delinquents
+# kept. The last vote (lastVote) is the sign of life under Votor: it follows the confirmed
+# slot within a few slots for a validator that votes, while rootSlot moves in bursts and
+# stays behind for some validators that vote every slot. Variables:
+#
+#   slv_alpenglow_network   mainnet, testnet or devnet (picks the public RPC)
+#   slv_alpenglow_rpc_url   ask this cluster RPC instead
+#   slv_lv_vote_account     the vote account
+#   slv_lv_identity         the identity the vote account belongs to (its nodePubkey): when it is set
+#                           and the cluster names another identity for the vote account, the play stops,
+#                           because what that vote account shows says nothing about this identity
+#   slv_alpenglow_rpc_retries / slv_alpenglow_rpc_delay   as in alpenglow_state.yml
+#
+# It sets slv_lv_last to the last vote, or to -1 when the cluster did not give one,
+# slv_lv_detail to the reason (empty when slv_lv_last is not -1), and slv_lv_node to the identity that
+# the cluster names for the vote account (empty when the vote account is not listed).
+
+- name: Ask the cluster for the last vote of the vote account (getVoteAccounts)
+  ansible.builtin.uri:
+    url: "{{ slv_alpenglow_rpc_url | default('', true) or {'mainnet': 'https://api.mainnet-beta.solana.com', 'testnet': 'https://api.testnet.solana.com', 'devnet': 'https://api.devnet.solana.com'}[slv_alpenglow_network] }}"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: getVoteAccounts
+      params:
+        - votePubkey: "{{ slv_lv_vote_account }}"
+          commitment: processed
+          keepUnstakedDelinquents: true
+    return_content: true
+    timeout: 30
+  register: slv_lv_reply
+  until: >-
+    (slv_lv_reply.status | default(0)) == 200 and
+    slv_lv_reply.json is defined and slv_lv_reply.json is mapping and
+    'error' not in slv_lv_reply.json and slv_lv_reply.json.result is defined and
+    slv_lv_reply.json.result is mapping
+  retries: "{{ [slv_alpenglow_rpc_retries | default(2) | int, 0] | max }}"
+  delay: "{{ slv_alpenglow_rpc_delay | default(2) | int }}"
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  delegate_to: localhost
+  become: false
+  when: slv_lv_vote_account | default('', true) | length > 0
+
+- name: Read the last vote from the answer
+  ansible.builtin.set_fact:
+    slv_lv_last: >-
+      {%- set body = slv_lv_reply.json | default(none) -%}
+      {%- set ns = namespace(last=-1) -%}
+      {%- if slv_lv_reply is not skipped and body is mapping and body.result is defined and body.result is mapping -%}
+      {%- for group in ['current', 'delinquent'] -%}
+      {%- for account in body.result[group] | default([], true) if account is mapping and account.votePubkey | default('') == slv_lv_vote_account and account.lastVote is defined and account.lastVote is integer and account.lastVote is not boolean and account.lastVote >= 0 -%}
+      {%- set ns.last = account.lastVote -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ ns.last }}
+
+- name: Read which identity the cluster names for the vote account
+  ansible.builtin.set_fact:
+    slv_lv_node: >-
+      {%- set body = slv_lv_reply.json | default(none) -%}
+      {%- set ns = namespace(node='') -%}
+      {%- if slv_lv_reply is not skipped and body is mapping and body.result is defined and body.result is mapping -%}
+      {%- for group in ['current', 'delinquent'] -%}
+      {%- for account in body.result[group] | default([], true) if account is mapping and account.votePubkey | default('') == slv_lv_vote_account -%}
+      {%- set ns.node = (account.nodePubkey | string) if account.nodePubkey is defined and account.nodePubkey is string and account.nodePubkey | length > 0 else '(none)' -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ ns.node }}
+
+- name: Refuse a vote account that belongs to another identity
+  ansible.builtin.fail:
+    msg: "The cluster names the identity {{ slv_lv_node }} for the vote account {{ slv_lv_vote_account }} (nodePubkey in getVoteAccounts), not the identity_account {{ slv_lv_identity }} of {{ inventory_hostname }}. The inventory pairs the identity with the wrong vote account, and what that vote account shows says nothing about this identity. Fix vote_account or identity_account in the inventory."
+  when:
+    - slv_lv_identity | default('', true) | length > 0
+    - slv_lv_node | default('', true) | length > 0
+    - slv_lv_node != slv_lv_identity
+
+- name: Say why there is no last vote
+  ansible.builtin.set_fact:
+    slv_lv_detail: >-
+      {%- set body = slv_lv_reply.json | default(none) -%}
+      {%- if slv_lv_last | int(-1) >= 0 -%}
+      {%- elif slv_lv_vote_account | default('', true) | length == 0 -%}the inventory has no vote_account for this host
+      {%- elif slv_lv_reply is skipped or (slv_lv_reply.status | default(-1)) != 200 or body is not mapping or body.result is not defined or body.result is not mapping -%}the cluster did not give a readable answer to getVoteAccounts
+      {%- else -%}the vote account {{ slv_lv_vote_account }} is not on the cluster: getVoteAccounts does not list it, although it keeps the unstaked accounts that have not voted (keepUnstakedDelinquents)
+      {%- endif -%}

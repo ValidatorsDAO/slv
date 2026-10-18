@@ -50,7 +50,10 @@ invoke the playbook directly to bypass the prompt.
 
 The supported playbook installs WireGuard, enables IPv4 forwarding, creates or
 reuses the server's private key, writes one peer to `wg0.conf`, configures IPv4
-NAT, and restarts `wg-quick@wg0`. Defaults:
+NAT, and restarts `wg-quick@wg0`. Secret key-processing tasks suppress their
+output and private-key/config writes suppress diffs. Key-generation errors stop
+the playbook; do not enable verbose secret output or regenerate keys manually to
+work around a failure. Defaults:
 
 - Server: `10.0.0.1/24`, UDP 51820.
 - One peer: `10.0.0.2/32`.

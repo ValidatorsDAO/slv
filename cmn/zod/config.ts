@@ -76,6 +76,8 @@ const HostIdentitySchema = AnsibleHostSchema.extend({
 const ValidatorAccountSchema = HostIdentitySchema.extend({
   vote_account: z.string(),
   authority_account: z.string(),
+  // A reference to where the staked identity key is kept. Nothing reads it yet.
+  identity_ref: z.string().optional(),
 })
 
 export const ValidatorTestnetConfigSchema = ValidatorAccountSchema.extend({

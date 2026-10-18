@@ -180,24 +180,56 @@ Deno.test('the write_file description and the validator onboarding text say who 
   includes(tools, 'gives both to the user to save themselves', 'tools.ts')
 })
 
-Deno.test('the validator prompts name the staked mainnet key as the template does', async () => {
-  const template = await source(
-    `${ROOT}/template/2026.6.6.2026/ansible/mainnet-validator/copy_keys.yml`,
-  )
-  includes(
-    template,
-    '/home/solv/mainnet-validator-keypair.json',
-    'copy_keys.yml',
-  )
+Deno.test('the console and init explain controller-held staked keys without claiming legacy nodes have no copy', async () => {
   for (const file of ['tools.ts', 'systemPrompt.ts']) {
     const wiring = await source(`${SRC}/ai/console/${file}`)
     includes(wiring, 'VALIDATOR_GUIDANCE', file)
-    const text = VALIDATOR_GUIDANCE
-    includes(text, '/home/solv/mainnet-validator-keypair.json', file)
+  }
+  resetContextModules()
+  try {
+    loadContextModules(['validator'])
+    const assembled = getModuleContent()
+    includes(assembled, VALIDATOR_GUIDANCE, 'loaded validator context')
+    for (
+      const [label, text] of [
+        ['validator context', assembled],
+        [
+          'mainnet init',
+          await source(`${SRC}/validator/init/initMainnetConfig.ts`),
+        ],
+        [
+          'testnet init',
+          await source(`${SRC}/validator/init/initTestnetConfig.ts`),
+        ],
+      ]
+    ) {
+      includes(text, '~/.slv/keys/', label)
+      includes(text, 'deploy never copies', label)
+      includes(text, 'only on stdin', label)
+      assertFalse(text.includes('/home/solv/<identity-pubkey>.json'), label)
+      assertFalse(/\bNOT on the node\b/.test(text), label)
+    }
+    includes(assembled, 'older slv may still hold a copy', 'legacy node caveat')
+  } finally {
+    resetContextModules()
+  }
+})
+
+Deno.test('validator identity examples require an explicit network instead of the CLI default', () => {
+  resetContextModules()
+  try {
+    loadContextModules(['validator', 'cli_reference'])
+    const text = getModuleContent()
+    for (const name of ['set:identity', 'set:unstaked']) {
+      includes(text, `slv v ${name} -n <network> -p <host>`, name)
+    }
+    matches(text, /slv v switch -n <network> -f <[^>]+> -t <[^>]+>/, 'switch')
     assertFalse(
-      text.includes('/home/solv/<identity-pubkey>.json'),
-      `${file}: a pubkey-named staked key is left`,
+      /slv v set:identity -p <host>(?:[.`]|$)/m.test(text),
+      'mainnet example must not rely on the testnet default',
     )
+  } finally {
+    resetContextModules()
   }
 })
 

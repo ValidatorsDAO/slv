@@ -2,6 +2,7 @@ import {
   assert,
   assertEquals,
   assertFalse,
+  assertRejects,
   assertStringIncludes,
 } from '@std/assert'
 import { parse } from '@std/yaml'
@@ -15,6 +16,7 @@ import {
   VALIDATOR_GUIDANCE,
   WIREGUARD_GUIDANCE,
 } from '@/ai/console/operationalGuidance.ts'
+import type { AlpenglowState } from '/lib/alpenglowState.ts'
 import { ALPENGLOW_FLOORS } from '/lib/versionFloor.ts'
 import { confirmDeploy, type InventoryHost } from '/lib/targetGuard.ts'
 import { runSetIdentity, type SetIdentityDeps } from '/lib/identityPrecheck.ts'
@@ -42,6 +44,7 @@ Deno.test('operational command examples match registered CLI options and do not 
       'restart',
       'set:identity',
       'set:unstaked',
+      'check:alpenglow',
     ]
   ) {
     const command = validatorCmd.getCommand(name)
@@ -53,6 +56,15 @@ Deno.test('operational command examples match registered CLI options and do not 
       `slv v ${name} -n <network> -p <host>`,
     )
   }
+  const identityFlags = validatorCmd.getCommand('set:identity')!.getOptions()
+    .flatMap((option) => option.flags)
+  for (
+    const flag of [
+      '--first-activation',
+      '--peer-down-confirmed',
+      '--primary-down',
+    ]
+  ) assert(identityFlags.includes(flag))
   const wireguardFlags = installCmd.getCommand('wireguard')!.getOptions()
     .flatMap((option) => option.flags)
   for (const flag of ['-i', '-l', '--iphone-pubkey']) {
@@ -114,6 +126,11 @@ Deno.test('first-activation and peer-down-confirmed retain the real CLI safety s
   let precheckOk = false
   const deps: Partial<SetIdentityDeps> = {
     isTty: () => false,
+    readState: () =>
+      Promise.resolve({ state: 'towerbft', detail: '', marginSlots: 3000 }),
+    ask: () => {
+      throw new Error('No recovery confirmation expected')
+    },
     readHosts: () => Promise.resolve([host]),
     precheck: (input) => {
       checks.push(input.peerDownConfirmed === true)
@@ -159,8 +176,9 @@ Deno.test('first-activation and peer-down-confirmed retain the real CLI safety s
   assertStringIncludes(VALIDATOR_GUIDANCE, 'never voted')
 })
 
-Deno.test('startup identity paths and key-preparation caveat match the actual runtime templates', async () => {
-  type Play = { tasks?: Record<string, unknown>[]; import_playbook?: string }
+Deno.test('keyless startup and stdin activation match the new runtime templates', async () => {
+  type Task = Record<string, unknown>
+  type Play = { tasks?: Task[]; import_playbook?: string }
   const setup = parse(
     await read(`${template}/cmn/setup_unstaked_identity.yml`),
   ) as Play[]
@@ -171,45 +189,152 @@ Deno.test('startup identity paths and key-preparation caveat match the actual ru
   assertEquals(link.state, 'link')
   assertStringIncludes(VALIDATOR_GUIDANCE, String(link.src))
   assertStringIncludes(VALIDATOR_GUIDANCE, String(link.dest))
+  const assertion = await read(`${template}/cmn/assert_unstaked_identity.yml`)
+  assertStringIncludes(assertion, 'Nothing was started')
   for (const network of ['mainnet', 'testnet']) {
     const init = parse(
       await read(`${template}/${network}-validator/init.yml`),
     ) as Play[]
     const imports = init.map((play) => play.import_playbook)
-    const copyIndex = imports.indexOf('copy_keys.yml')
-    const startupIndex = imports.indexOf('../cmn/setup_unstaked_identity.yml')
+    assertFalse(imports.includes('copy_keys.yml'))
+    const startup = imports.indexOf('../cmn/setup_unstaked_identity.yml')
+    const guard = imports.indexOf('../cmn/assert_unstaked_identity.yml')
+    assert(startup >= 0 && guard > startup)
+    const start = imports.findIndex((path) => path?.startsWith('start'))
     assert(
-      copyIndex >= 0 && startupIndex > copyIndex,
-      'deploy still requires configured keys before unstaked startup',
+      start > guard,
+      'the unstaked identity must be checked before service start',
     )
-    const copy = parse(
-      await read(`${template}/${network}-validator/copy_keys.yml`),
+    await assertRejects(
+      () =>
+        Deno.stat(
+          new URL(`${template}/${network}-validator/copy_keys.yml`, root),
+        ),
+      Deno.errors.NotFound,
+    )
+    const promotion = parse(
+      await read(`${template}/${network}-validator/set_identity_key.yml`),
     ) as Play[]
-    const copies = copy.flatMap((play) => play.tasks ?? []).filter((task) =>
-      Object.hasOwn(task, 'copy')
+    const tasks = promotion.flatMap((play) => play.tasks ?? [])
+    const keyRead = tasks.find((task) =>
+      task.name === 'Read local validator key file securely (base64)'
+    )!
+    assertEquals(keyRead.no_log, true)
+    assertEquals(keyRead.delegate_to, 'localhost')
+    const activation = tasks.find((task) =>
+      task.name === 'Set Identity to Validator Key via stdin (agave family)'
+    )!
+    assertEquals(activation.no_log, true)
+    assertStringIncludes(
+      (activation.args as { stdin: string }).stdin,
+      'key_file.content',
     )
-    const expected = `/home/solv/${network}-validator-keypair.json`
-    assert(
-      copies.some((task) =>
-        (task.copy as Record<string, unknown>).dest === expected
-      ),
-    )
-    assertStringIncludes(VALIDATOR_GUIDANCE, expected)
-    const promotion = await read(
-      `${template}/${network}-validator/set_identity_key.yml`,
+    assertStringIncludes(String(activation.shell), 'vote_history_flag')
+    const historyFlag = tasks.find((task) =>
+      task.name ===
+        'Do without the vote history file only when the old primary is confirmed down'
+    )!
+    assertStringIncludes(
+      JSON.stringify(historyFlag),
+      "slv_alpenglow_state == 'alpenglow'",
     )
     assertStringIncludes(
-      promotion,
-      'first_activation | default(false) is not sameas true',
+      JSON.stringify(historyFlag),
+      'not vote_history_file.stat.exists',
     )
-    assertStringIncludes(promotion, 'vote_history_file.stat.exists')
+    assertStringIncludes(JSON.stringify(historyFlag), 'primary_down_confirmed')
+    const retired = await read(
+      `${template}/${network}-validator/set_identity_to_active.yml`,
+    )
+    assertStringIncludes(retired, 'SLV_KEYLESS_REFUSED')
   }
-  assertStringIncludes(
-    VALIDATOR_GUIDANCE,
-    'deploy still expects the configured key files',
-  )
+  assertStringIncludes(VALIDATOR_GUIDANCE, 'deploy never copies')
+  assertStringIncludes(VALIDATOR_GUIDANCE, 'only on stdin')
+  assertStringIncludes(VALIDATOR_GUIDANCE, 'after the genesis certificate')
+  assertStringIncludes(VALIDATOR_GUIDANCE, 'Legacy')
   assertStringIncludes(VALIDATOR_GUIDANCE, ALPENGLOW_FLOORS.mainnet)
   assertStringIncludes(VALIDATOR_GUIDANCE, ALPENGLOW_FLOORS.testnet)
+})
+
+Deno.test('primary-down requires a terminal, a named peer and readable consensus without bypassing prechecks', async () => {
+  const host: InventoryHost = {
+    name: 'standby',
+    ansibleHost: '192.0.2.11',
+    identityAccount: 'Aa'.repeat(22),
+    voteAccount: 'Bb'.repeat(22),
+    ansibleConnection: '',
+  }
+  const peer: InventoryHost = {
+    ...host,
+    name: 'primary',
+    ansibleHost: '192.0.2.10',
+  }
+  let tty = false
+  let state: AlpenglowState = 'alpenglow'
+  let precheckOk = true
+  let asks = 0
+  let reads = 0
+  let typed = peer.name
+  const runs: Record<string, string | boolean>[] = []
+  const deps: Partial<SetIdentityDeps> = {
+    isTty: () => tty,
+    readHosts: () => Promise.resolve([host, peer]),
+    readState: () => {
+      reads++
+      return Promise.resolve({ state, detail: '', marginSlots: 3000 })
+    },
+    ask: () => {
+      asks++
+      return Promise.resolve(typed)
+    },
+    confirm: () => Promise.resolve(true),
+    precheck: (input) => {
+      assertEquals(input.downPeer, peer.name)
+      assertEquals(input.consensus, 'alpenglow')
+      return Promise.resolve({
+        ok: precheckOk,
+        failures: precheckOk ? [] : ['Still voting'],
+        notes: [],
+      })
+    },
+    runPlaybook: (_playbook, _inventory, _limit, vars) => {
+      runs.push(vars ?? {})
+      return Promise.resolve(true)
+    },
+    info: () => {},
+    error: () => {},
+    setExitCode: () => {},
+    templateRoot: () => '/example/template',
+  }
+  const options = { network: 'testnet', pubkey: host.name, primaryDown: true }
+  assertEquals(await runSetIdentity(options, deps), false)
+  assertEquals(reads, 0)
+  tty = true
+  assertEquals(
+    await runSetIdentity({ ...options, firstActivation: true }, deps),
+    false,
+  )
+  assertEquals(reads, 0)
+  for (const blocked of ['unknown', 'imminent', 'window'] as const) {
+    state = blocked
+    assertEquals(await runSetIdentity(options, deps), false)
+  }
+  assertEquals(asks, 0)
+  state = 'alpenglow'
+  typed = 'not-a-peer'
+  assertEquals(await runSetIdentity(options, deps), false)
+  typed = peer.name
+  precheckOk = false
+  assertEquals(await runSetIdentity(options, deps), false)
+  assertEquals(runs, [])
+  precheckOk = true
+  assertEquals(await runSetIdentity(options, deps), true)
+  assertEquals(runs, [{ primary_down_confirmed: true }])
+  assertStringIncludes(
+    VALIDATOR_GUIDANCE,
+    'incompatible with --first-activation',
+  )
+  assertStringIncludes(VALIDATOR_GUIDANCE, '270 slots')
 })
 
 Deno.test('firewall guidance follows local execution, destructive rules replacement and actual accepted source formats', async () => {
@@ -261,13 +386,35 @@ Deno.test('WireGuard guidance reflects one-peer replacement and confirmation eve
     await read(`${template}/cmn/software/install-wireguard.yaml`),
   ) as {
     vars: { wg_port: number; wg_server_ip: string }
-    tasks: { copy?: { content?: string }; name: string }[]
+    tasks: {
+      copy?: { content?: string }
+      name: string
+      no_log?: boolean
+      diff?: boolean
+    }[]
   }[]
   assertEquals(plays[0].vars.wg_port, 51820)
   assertEquals(plays[0].vars.wg_server_ip, '10.0.0.1')
   const config = plays[0].tasks.find((task) =>
     task.name === 'Create WireGuard config'
   )!.copy!.content!
+  assertEquals(
+    plays[0].tasks.find((task) => task.name === 'Create WireGuard config')!
+      .diff,
+    false,
+  )
+  for (
+    const name of [
+      'Read existing private key if present',
+      'Generate new private key if missing or invalid',
+      'Generate public key',
+    ]
+  ) {
+    assertEquals(
+      plays[0].tasks.find((task) => task.name === name)!.no_log,
+      true,
+    )
+  }
   assertEquals(config.match(/\[Peer\]/g)?.length, 1)
   assertStringIncludes(config, 'AllowedIPs = 10.0.0.2/32')
   assertStringIncludes(WIREGUARD_GUIDANCE, 'replaces existing peers')

@@ -8,29 +8,49 @@ First confirm the network, exact inventory host name/address and whether the tar
 is local or remote. Use explicit `-n <network>` and `-p <host>` for host changes;
 `-p` selects an inventory entry, not necessarily a public key or an IP.
 
-“Keyless” means initial synchronization under an unstaked identity. It does not
-mean voting without keys, and the current CLI has no `--keyless` option. `slv v init`
-still asks the operator about identity/vote keys; the deployment expects the
-configured key files. The supported template creates/reuses
-`/home/solv/unstaked-identity.json` and links `/home/solv/identity.json` to it for
-startup. Staked files use `/home/solv/testnet-validator-keypair.json` or
-`/home/solv/mainnet-validator-keypair.json`.
+Keyless deployment is the default: `slv v deploy` copies no staked private key
+to the node, and there is no `--keyless` option. The node starts and restarts with
+`/home/solv/identity.json` linked to `/home/solv/unstaked-identity.json`. A guard
+refuses to start it if that path resolves to another identity. This is not voting
+without a key. The operator still prepares public identity/vote account settings
+and the controller key needed for later activation.
+
+The staked key stays on the controller at `~/.slv/keys/<identity_account>.json`;
+Agave-family `set:identity` and `switch` pass it on stdin to the node process.
+Deploy can finish when that local key is absent, while its post-deploy BLS
+registration is skipped for that host with a warning. Server-side
+`/home/solv/testnet-validator-keypair.json` and
+`/home/solv/mainnet-validator-keypair.json` are legacy files that may remain from
+older deployments; they are not new-deploy prerequisites, and deploy does not
+delete them. Do not ask the user to recreate them on the validator.
 
 The AI must never read, create, copy, print or edit private keys or manually change
 the identity symlink. The operator handles keys in their own terminal through the
-supported CLI. Public keys and non-secret file existence/status are sufficient
-for planning. Do not claim the current deploy can skip key preparation.
+supported CLI. Public keys and non-secret status are sufficient for planning.
 
 Before promotion, verify synchronization, health, the target's active public
-identity, required tower/vote history, and that no other node runs the voting
-identity. Use the target's configured RPC port, not an assumed localhost:8899 on
-the management machine. `slv v set:identity -n <network> -p <host>` promotes one
-inventory host and checks cluster/gossip/recent votes and same-identity peers.
-Mainnet requires terminal confirmation. `--first-activation` is only for an
-identity that has never voted and has no tower/vote history; it is not recovery
-from a lost tower. `--peer-down-confirmed` requires independent operator evidence
-that an unreadable peer is not running this identity. Neither flag is a default,
-and peer-down does not override known-active peers or cluster conflicts.
+identity, the consensus-specific history file, and that no other node is voting
+with the identity. Use the target's configured RPC port, not an assumed
+localhost:8899 on the management machine. Start with
+`slv v check:alpenglow -n <network> -p <host>` for cluster/inventory readiness;
+that read-only report does not contact the validator or prove its local sync.
+`slv v set:identity -n <network> -p <host>` promotes exactly one inventory host.
+
+Identity changes stop before acting when consensus is unreadable, activation is
+imminent, or the migration window is open. Mainnet promotion requires terminal
+confirmation. `--first-activation` means never voted on TowerBFT, or no vote after
+the Alpenglow genesis certificate on Alpenglow; the latter includes a vote
+account that voted only under TowerBFT. `--peer-down-confirmed` can account for an
+unreadable peer independently confirmed not to run this identity, but it does not
+waive the history requirement or override a known-active peer.
+
+`--primary-down` is a separate recovery path for an old primary that is stopped
+and cannot vote. It needs a terminal on either network, the old primary's
+inventory name typed as confirmation, and passing cluster/target checks. It
+cannot be combined with `--first-activation`. None of these flags is a default.
+Under Alpenglow, the missing vote-history protection is relaxed only through
+that guarded recovery path; do not call lower-level bypass flags directly.
+See workflow C for the consensus, history, recent-vote and stale-gossip details.
 
 For an existing running identity, coordinate the handoff with
 `slv v switch -n <network> -f <source-host> -t <target-host>` in the operator's
@@ -57,7 +77,10 @@ Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are 
 supported during the migration. A mainnet voting validator is `agave`, `jito` or
 `allnodes-jito`: mainnet `init.yml` and `init-firedancer.yml` refuse the Firedancer types
 before anything is changed, and `slv v setup:firedancer` and `slv v update:firedancer`
-refuse on mainnet.
+refuse on mainnet. Testnet Firedancer setup can start unstaked, but testnet
+`set:identity` and `switch` refuse Firedancer identity moves regardless of
+consensus: those paths would need an on-node staked key. Do not work around that
+refusal by copying one.
 
 ## Directory Structure
 
@@ -79,7 +102,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | CLI Command | Playbook | Description |
 |---|---|---|
 | `slv v init` | *(interactive setup, including user/key preparation and remote optimization)* | Prepare inventory and target; operator terminal required |
-| `slv v deploy` | `{net}/init.yml` | Full node initialization and deployment |
+| `slv v deploy` | `{net}/init.yml` | Deploy and start unstaked; no staked key is copied to the node |
 | `slv v start` | `{net}/start_node.yml` | Start validator |
 | `slv v stop` | `{net}/stop_node.yml` | Stop validator |
 | `slv v restart` | `{net}/restart_node.yml` | Graceful restart (`agave-validator exit`, then systemd) |
@@ -88,9 +111,10 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `slv v setup:firedancer` | `{net}/setup_firedancer.yml` | Setup/update Firedancer. Testnet only: refused on mainnet (Alpenglow) |
 | `slv v update:firedancer` | `{net}/update_firedancer.yml` | Update Firedancer binary. Testnet only: refused on mainnet (Alpenglow) |
 | `slv v update:script` | `{net}/update_startup_config.yml` | Re-render start-validator.sh from template |
-| `slv v set:identity -n <network> -p <host>` | `{net}/set_identity_key.yml` | Set validator identity key on one host |
+| `slv v set:identity -n <network> -p <host>` | `{net}/set_identity_key.yml` | Guarded activation on one host; exceptional flags are described in workflow C |
 | `slv v set:unstaked` | `{net}/set_unstaked_key.yml` | Switch to unstaked identity |
-| `slv v register:bls` | *(no playbook — solana CLI)* | Register the BLS pubkey on each vote account (SIMD-0387). Also auto-runs at the end of `slv v deploy` |
+| `slv v register:bls` | *(no playbook — solana CLI)* | Register the BLS pubkey on each vote account (SIMD-0387). After deploy, attempted only for hosts with a local identity key; otherwise skipped with a warning |
+| `slv v check:alpenglow` | *(no playbook — reads the inventory, `versions.yml` and the public RPC; contacts no host)* | Read-only Alpenglow readiness check per validator (`-n mainnet` or `-n testnet`, `-p host[,host]`): OK / WARN / FAIL lines with the fix; exit code 1 on a FAIL (see "Alpenglow readiness") |
 | `slv v get:snapshot` | `{net}/wget_snapshot.yml` | Download snapshot via aria2c |
 | `slv v cleanup` | `cmn/rm_ledger.yml` | Remove ledger/snapshot files |
 | `slv disable pwd-login` | `cmn/disable_pwd_login.yml` | Disable SSH password authentication |
@@ -121,13 +145,12 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `create-start-validator-sh.yml` | Generate start script from template |
 | `nodowntime_migrate.yml` | Zero-downtime identity migration between nodes |
 | `set_identity_key.yml` | Set validator identity key |
-| `set_identity_to_active.yml` | Activate identity key |
+| `set_identity_to_active.yml` | Retired, refuses for every host: it set the identity without the checks that `slv v set:identity` makes first (see Keys). The message starts with `SLV_KEYLESS_REFUSED`, nothing is changed, and it names `slv v set:identity -n mainnet -p <host>` and `slv v switch -n mainnet` |
 | `set_unstaked_key.yml` | Switch to unstaked identity |
-| `switch_on_identity.yml` | Enable identity (tower copy + key deploy) |
-| `switch_off_identity.yml` | Disable identity (tower backup) |
+| `switch_on_identity.yml` | Enable identity (tower copy, or on Alpenglow the vote history file that the same `slv v switch` run took, + key deploy; on its own it refuses on Alpenglow) |
+| `switch_off_identity.yml` | Disable identity (tower backup, or on Alpenglow the vote history file) |
 | `switch_on_firedancer_identity.yml` | Enable Firedancer identity. Refused on mainnet in every state (Alpenglow): a Firedancer or Frankendancer host cannot take a mainnet identity |
 | `switch_off_firedancer_identity.yml` | Disable Firedancer identity. On mainnet only while the cluster runs TowerBFT, to move a node off Firedancer before the activation; it stops before it changes anything in the migration window, shortly before the activation, when the cluster cannot be read, and on Alpenglow |
-| `copy_keys.yml` | Copy validator keys to node |
 | `copy_restart_sh.yml` | Copy restarter script |
 | `create_overrides.yml` | Generate overrides.yml from template |
 | `setup_solv_service.yml` | Setup systemd service |
@@ -143,7 +166,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 
 | Playbook | Description |
 |---|---|
-| `init.yml` | Full initialization (Jito) |
+| `init.yml` | Full initialization (agave, jito, allnodes-jito; the Firedancer types set up and start Firedancer) |
 | `init-agave.yml` | Agave-specific initialization |
 | `init-firedancer.yml` | Firedancer initialization |
 | `restart_node.yml` | Restart validator |
@@ -161,14 +184,14 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `deploy-start-validator-sh.yml` | Deploy start script |
 | `create-start-validator-sh-agave.yml` | Generate Agave start script |
 | `create-start-validator-sh-jito.yml` | Generate Jito start script |
-| `nodowntime_migrate.yml` | Zero-downtime identity migration |
-| `set_identity_key.yml` | Set identity key |
-| `set_identity_to_active.yml` | Activate identity |
+| `nodowntime_migrate.yml` | Zero-downtime identity migration. Refuses a Firedancer source or target before it changes anything (`SLV_KEYLESS_REFUSED`, see Keys) |
+| `set_identity_key.yml` | Set identity key. Refuses a Firedancer host before it changes anything (`SLV_KEYLESS_REFUSED`, see Keys) |
+| `set_identity_to_active.yml` | Retired, refuses for every host: it set the identity without the checks that `slv v set:identity` makes first, and on a Firedancer host it read a key file on the node (see Keys). The message starts with `SLV_KEYLESS_REFUSED`, nothing is changed, and it names `slv v set:identity -n testnet -p <host>` and `slv v switch -n testnet` |
 | `set_unstaked_key.yml` | Switch to unstaked identity |
 | `switch_on_identity.yml` / `switch_off_identity.yml` | Toggle identity |
-| `switch_on_firedancer_identity.yml` / `switch_off_firedancer_identity.yml` | Toggle Firedancer identity |
-| `change_identity_and_restart.yml` | Change identity and restart in one step |
-| `copy_keys.yml` | Copy keys to node |
+| `switch_on_firedancer_identity.yml` | Retired, refuses (`SLV_KEYLESS_REFUSED`): it took the staked key from a file on the node, which deploy never copies there (see Keys) |
+| `switch_off_firedancer_identity.yml` | Disable Firedancer identity |
+| `change_identity_and_restart.yml` | Retired, refuses (`SLV_KEYLESS_REFUSED`): it linked the identity of the node to a staked key on the node and restarted firedancer.service, so that every restart started with the staked identity (see Keys) |
 | `rm_ledger.yml` | Remove ledger data |
 | `restart_agave_with_rm_ledger.yml` | Restart with ledger removal |
 | `restart_firedancer.yml` | Restart Firedancer |
@@ -200,6 +223,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `setup_norestart.yml` | Disable auto-restart |
 | `setup_ufw.yml` | Configure UFW firewall |
 | `setup_unstaked_identity.yml` | Setup unstaked identity keypair |
+| `assert_unstaked_identity.yml` | Stop the deploy, before the node starts, when `/home/solv/identity.json` does not resolve to `/home/solv/unstaked-identity.json` |
 | `restart_solv.yml` | Restart solv service |
 | `copy_restart_sh.yml` | Copy restarter script |
 | `update_ubuntu.yml` | Update Ubuntu packages |
@@ -238,6 +262,33 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `source_host` | Source host for nodowntime migration | — |
 | `target_host` | Target host for nodowntime migration | — |
 
+## Keys
+
+`slv v deploy` copies no staked key to the node. The node starts with `--identity /home/solv/identity.json`, a link to
+`/home/solv/unstaked-identity.json` (`cmn/setup_unstaked_identity.yml`), and `cmn/assert_unstaked_identity.yml` stops
+the deploy, before the node starts, when `identity.json` resolves to anything else. The staked key stays on the
+controller at `~/.slv/keys/<identity_account>.json` and reaches the node only on stdin, during `slv v set:identity` and
+`slv v switch`. A node that restarts comes back on its unstaked identity; `slv v set:identity -n <network> -p <host>`
+puts the staked identity on it again.
+
+Deploy does not remove a staked key either: a node that an earlier slv deployed may still hold
+`/home/solv/<network>-validator-keypair.json`, and the DoubleZero deposit and withdrawal playbooks sign with it when it
+is there (they stop without calling the signer when it is not).
+
+Three playbooks are retired and refuse now. `set_identity_to_active.yml` (both networks) set the identity without the
+checks that `slv v set:identity` makes first (that nothing votes with the identity, that the host has caught up, where
+the identity is in gossip, and that the tower or vote history file of the identity is there); for a jito host (on
+testnet also an agave host) it read the staked key on the controller and passed it on stdin, and on testnet a Firedancer
+host read a key file on the node. `switch_on_firedancer_identity.yml` and `change_identity_and_restart.yml` on testnet read the staked key from a
+file on the node. Each fails in its first task, with a message that starts with `SLV_KEYLESS_REFUSED` and names
+`slv v set:identity` and `slv v switch`; nothing else runs.
+
+On testnet a Firedancer host (`firedancer-agave`, `firedancer-jito`) takes the staked key from a file on the node, and a
+deploy never copies one there. `set_identity_key.yml` refuses such a host, and `nodowntime_migrate.yml` refuses a Firedancer
+source or target: both fail right after the check of the validator type, with a message that starts with
+`SLV_KEYLESS_REFUSED` that says nothing was changed. `slv v switch` refuses before it demotes the source, so no node is
+left unstaked. The staked identity moves between `agave`, `jito` and `allnodes-jito` hosts.
+
 ## Three Core Workflows
 
 Almost every validator task is one of these three. Use the `slv v ...` shortcuts
@@ -249,7 +300,8 @@ slv v init                          # operator terminal; may change target state
 slv v deploy -n <network> -p <host> # operator terminal; confirms deployment
 ```
 The `init.yml` playbook handles user creation, package install, disk mount,
-performance tuning, source build, snapshot download, systemd setup, and start.
+performance tuning, source build, snapshot download, systemd setup, and start. The
+node starts on its unstaked identity: no staked key is copied to it (see Keys).
 
 ### B. Version / config update
 ```bash
@@ -263,21 +315,214 @@ slv v restart -n <network> -p <host>
 ```
 
 ### C. Zero-downtime identity migration
+
+The following sequence describes the supported CLI implementation. The operator
+runs the CLI in their terminal; the AI does not execute raw identity commands,
+read private keys or call activation playbooks directly. History-file recovery
+must follow the reported failure state and preserve the same guards.
+
 ```bash
 slv v switch -n <network> -f <from_host> -t <to_host>
 ```
-Runs `{net}-validator/nodowntime_migrate.yml`:
+Runs `{net}-validator/nodowntime_migrate.yml`. Before it changes anything it asks
+the cluster RPC which consensus the cluster runs (`getAgGenesisCert` and the
+Alpenglow feature account) and takes one of these paths:
+
+**TowerBFT (Alpenglow not active)**
 1. `set-identity` to unstaked on `from_host`, copy tower file to local.
-2. Upload tower to `to_host`, `set-identity` to the staked key, register as
-   `authorized-voter`.
+2. Upload tower to `to_host`, `set-identity --require-tower` to the staked key,
+   register as `authorized-voter`.
 3. Swap the host entries in the inventory file (so `slv v ...` keeps targeting
    the right physical box afterward).
 
+After the source was demoted, a cluster RPC that cannot be read does not leave both
+nodes unstaked right away: the probe of `to_host` retries for up to 60 seconds
+(`slv_alpenglow_patience_seconds`). If the cluster stays unreadable and the reading
+right before the demotion was less than half of `slv_alpenglow_margin_slots` slots
+ago at the fastest slot time that is assumed (`slv_alpenglow_min_slot_seconds`, 0.2
+by default; about 0.22 is measured on mainnet and testnet), which is 300 seconds for
+the 3000 slots of the default margin, the promotion goes on and the output says so: with the tower after a TowerBFT reading (while the Alpenglow
+feature account was pending at that reading, an activation cannot have started in
+that time; while it was absent, one can have been scheduled since, the reading does
+not rule that out, and the output says so), with the vote history file after an
+Alpenglow reading (Alpenglow does not revert; not with a Firedancer or Frankendancer
+host). agave still checks the tower or the vote history file itself when the
+identity is set. A cluster that is between the activation and the certificate
+(`window`), or that turned Alpenglow after a TowerBFT reading, stops the promotion,
+and the message says that both hosts are unstaked and what to do by hand.
+
+**Alpenglow (the cluster has its genesis certificate)** - the vote history file
+`/mnt/ledger/vote_history-<identity_account>.bin` takes the place of the tower
+file. Votor needs it to keep from voting twice in a slot.
+1. Before the demotion: `from_host` must hold that file, or the switch stops with
+   nothing changed. `from_host` and `to_host` must carry the same
+   `identity_account` in the inventory, and the `vote_account` of `from_host` must
+   belong to it (the cluster names that identity as its `nodePubkey`). The switch
+   stops there too, with nothing changed, when the cluster cannot be read or does not
+   list the vote account.
+2. `set-identity` to unstaked on `from_host`. The admin RPC returns before Votor
+   has handled the change, so the switch waits (60 seconds at most) for Votor's
+   log line `set-identity: from <identity> to ...` in the validator log and for
+   the file to stop changing (two sha256 reads a few seconds apart are equal).
+   Only then it copies the file to the controller: `~/.slv/vote_history/`, folder
+   `0700`, file `0600`.
+3. Upload the file to `to_host` with the owner and mode agave gives it,
+   `set-identity` to the staked key **without** `--require-tower` (agave then
+   refuses unless the vote history file is there), `authorized-voter add` (it has
+   to succeed; "already present" counts as success), then wait (60 seconds at
+   most) until `to_host` votes: its vote history file changes, which Votor
+   does only when it casts a vote, and the last vote of the vote account
+   (`getVoteAccounts`, `lastVote`) moves on the cluster. `rootSlot` is no sign of
+   life under Votor: it moves in bursts and stays behind for some validators
+   that vote every slot.
+4. The copy on the controller is removed when all of that worked. If a step
+   fails the copy stays, and the message says where it is, which hosts are
+   unstaked right now and what is left to do by hand: copy the file to
+   `/mnt/ledger` on `to_host`, wait until the vote account has not voted for 270
+   slots (about one minute), and run `slv v set:identity -n <network> -p <to_host>`.
+   Nothing is promoted automatically.
+   `switch_on_identity.yml` run on its own refuses on Alpenglow: it puts a vote
+   history file on a host only when the same run took it off the source (it compares
+   the sha256 of the copy with the one the take recorded), because a copy left on
+   the controller by an earlier run can be older than the last vote of the node that
+   ran the identity. `slv v set:identity` is the command for any other case.
+5. Swap the host entries in the inventory file.
+
+Firedancer and Frankendancer hosts (`firedancer-agave`, `firedancer-jito`,
+`frankendancer`) cannot be the source or the target of a switch, or take an
+identity with `set:identity`, while the cluster runs Alpenglow: where they keep
+the vote history file is not confirmed. The same switch works for them on
+TowerBFT, except on testnet: a Firedancer host there is refused as the source or the
+target of a switch, and by `set:identity`, whatever the cluster runs (see Keys).
+
+**Between the Alpenglow activation and the genesis certificate (`window`), shortly
+before the activation (`imminent`: the feature is pending and fewer than 3000
+slots are left in the epoch), or when the state cannot be read (`unknown`)**: every
+identity change (`switch`, `set:identity`, `set:unstaked`) that has not demoted
+anything yet stops with nothing changed, on both networks. Run it again once
+`getAgGenesisCert` returns a certificate. A switch that has already demoted
+`from_host` stops the promotion instead when the state turns `window` or `imminent`,
+or stays `unknown` and the rules above do not let it go on: both hosts are unstaked
+then, and the message says what is left to do by hand.
+
 `from_host` / `to_host` are inventory keys (e.g. `validator-primary`,
 `validator-spare`), not IPs. Both must have `validator_type` set
-(`agave`, `jito`, or `allnodes-jito`), the local key file at
-`~/.slv/keys/<identity_account>.json`, and `unstaked-identity.json` on each
-remote box.
+(`agave`, `jito`, or `allnodes-jito`; Firedancer types on TowerBFT only, and not on
+testnet), the
+local key file at `~/.slv/keys/<identity_account>.json`, and
+`unstaked-identity.json` on each remote box.
+
+#### Setting the identity on one host, and when the primary is dead
+
+```bash
+slv v set:identity -n <network> -p <host>                  # needs the vote history file on <host> (Alpenglow) or the tower (TowerBFT)
+slv v set:identity -n <network> -p <host> --first-activation  # Alpenglow: the vote account has not voted since the genesis certificate; TowerBFT: the identity has never voted
+slv v set:identity -n <network> -p <host> --primary-down      # the old primary is stopped and cannot vote
+```
+On Alpenglow `set_identity_key.yml` needs `/mnt/ledger/vote_history-<identity>.bin`
+on the host (unless `--first-activation` or `--primary-down`) and never passes
+`--require-tower`. Copy the file from the host that last ran the identity (a switch
+does that).
+
+The file does not show that nobody else votes with the identity: it can be older
+than the last vote of the node that held the identity. So on every Alpenglow run,
+with the file or without it and a first activation included, the playbook asks
+the cluster before it sets anything, and stops with nothing changed when one of
+these fails or cannot be read (the vote account has to belong to the identity as well:
+its `nodePubkey` in `getVoteAccounts` is the `identity_account`, or the play stops):
+1. Nothing votes with the identity: the last vote of the vote account
+   (`getVoteAccounts`, `lastVote`) is more than 270 slots before the current slot
+   of the cluster (`getSlot`). The last vote is also asked of the RPC of `<host>`, and
+   the larger of the two counts, because a public RPC behind a load balancer can
+   answer from a backend that is far behind. A running validator answers
+   `getVoteAccounts`, so the check fails when `<host>` gives no readable answer or does
+   not list the vote account, instead of going on with the value of the cluster alone.
+   The check cannot tell which node votes. If `<host>`
+   already runs the identity it fails too, and the message says so: look at the
+   identity `<host>` runs (its own RPC, `getIdentity`) before you run the command
+   again, because then there is nothing to set.
+2. `<host>` has caught up: its finalized slot (its own RPC, `getSlot` with
+   commitment `finalized`) is at least 270 slots past that last vote.
+3. Gossip: the cluster (`getClusterNodes`) lists the identity at no gossip address
+   but the one of `<host>` and `primary_down_address`, compared by IP (an
+   `ansible_host` that is a name is looked up on the controller). The gossip address
+   is the `gossip` socket of the entry of the identity, the field the CLI reads. The
+   other sockets of the entry are not compared: a validator connected to BAM
+   advertises some of them at the BAM node.
+
+After the old primary stopped, or was switched to its unstaked identity, give it
+about one minute (270 slots at about 0.22 seconds a slot) before you run the command.
+
+A play that holds more than one host with the same `identity_account` stops on
+Alpenglow: each host would pass the checks before any host sets the identity. Run it
+for one host at a time.
+
+On Alpenglow, `--first-activation` is for a vote account that has not voted since the
+genesis certificate: a new one, or one that voted only under TowerBFT, so that no vote
+history file exists to copy (a single host that restarted unstaked before the
+activation is the usual case). agave asks for the file only when the last vote of the
+vote account is after the slot of the genesis certificate
+(`should_require_vote_history_file`, which also needs the vote account to name this
+identity), and the playbook mirrors it: it reads that slot from `getAgGenesisCert`
+first and the last vote from `getVoteAccounts` (with `keepUnstakedDelinquents`), and
+refuses the first activation when the last vote is after the genesis slot, when either
+cannot be read, or when the vote account is not on the cluster. A vote account that
+exists and has never voted is listed with a last vote of 0. The three checks above run
+for a first activation too.
+
+On TowerBFT, `--first-activation` only waives the tower file, and it is for an identity
+that has never voted: without it the playbook stops when neither the tower file nor a
+vote history file is on the host, and with it the playbook sets the identity without a
+tower file (no `--require-tower`). There is no genesis certificate on TowerBFT, so
+nothing is compared with one.
+
+A staked node can stay in the gossip table for a long time after it stops, so an
+entry of the identity at the address of the old primary does not show that it runs;
+a vote does. The CLI reads gossip before it starts the playbook. It lets one such
+entry pass when the address belongs to an inventory host that is stopped (named with
+`--primary-down`, confirmed with `--peer-down-confirmed`, or read as running another
+identity) and nothing votes with the identity, and hands that address to the playbook
+as `primary_down_address`. With `--primary-down` it also passes
+`primary_down_confirmed=true`. The playbook allows the identity at that one address
+only because check 1 shows that nothing votes there. Without `primary_down_address`,
+an entry at any address but the one of `<host>` stops the play.
+
+When the old primary is dead and its vote history file went with it, use
+`--primary-down` (on every network a terminal is needed: the CLI asks you to type
+the old primary's inventory name to confirm that it is stopped, powered off if
+need be, and cannot vote). If `<host>` has no vote history file the playbook then
+passes `--do-not-require-vote-history` to `set-identity`, after the checks above. If
+the file is there it is used and the flag is not passed, whatever
+`primary_down_confirmed` says. `--do-not-require-vote-history` skips the protection
+against voting twice in a slot: use it only for a primary that is really down. On
+TowerBFT the playbook ignores `primary_down_confirmed` and `primary_down_address`.
+
+## Alpenglow readiness, before and after epoch 1064
+
+```bash
+slv v check:alpenglow -n mainnet                     # every validator of the inventory
+slv v check:alpenglow -n testnet -p host-a,host-b    # some of them
+```
+Read-only: it reads the inventory, `~/.slv/versions.yml` and the public RPC of the
+network, contacts no host and makes no transaction. For each validator it prints one
+line per check, `OK`, `WARN` or `FAIL`, with the fix, and it exits with 1 when a check
+FAILs. A WARN about consensus still means identity changes are blocked; exit code
+0 alone is not permission to promote. Funding, voter changes and signing fixes
+are separate operator actions outside AI key handling. Run it before epoch 1064 and again after the genesis certificate exists
+(`getAgGenesisCert` returns one).
+
+| Check | What it looks at | Fix |
+|---|---|---|
+| `client` | `validator_type` (mainnet: `agave`, `jito` or `allnodes-jito`) and the version pinned in `~/.slv/versions.yml`, against the floor of the network | set the pin in `versions.yml`, then `slv v build:solana`, `slv v update:script`, `slv v restart` |
+| `running` | the version the node advertises in gossip, against the floor and the pin. A standby on its unstaked key is not visible in gossip and does not fail | as for `client`: pin, build, update the script, restart |
+| `bls` | the vote account has a BLS public key | `slv v register:bls -n <net> -p <host>` |
+| `vat` | the vote account holds the Validator Admission Ticket, 0.8 SOL per epoch, on top of its rent-exempt minimum. FAIL below 0.8 SOL above the rent exemption, WARN below 3 epochs of it | send SOL to the vote account, not to the identity |
+| `identity` | the identity pays the TowerBFT vote fees, about 1 SOL per epoch. WARN below 3 SOL while TowerBFT runs; under Alpenglow votes are not transactions and these fees go away | send SOL to the identity |
+| `voter` | the authorized voter of the vote account is the identity that slv adds to the validator | `solana vote-authorize-voter-checked <vote> <current voter or withdraw authority keypair> ~/.slv/keys/<identity>.json`, then `slv v register:bls` |
+| `cluster` | what the cluster runs: TowerBFT, activation about to start, migration window, Alpenglow, or unreadable. The WARN states (about to start, window, unreadable) mean that identity changes are refused | run the check again after the genesis certificate exists |
+
+The `client` check reads the version pinned for the host, the `running` check what
+gossip shows for it.
 
 ## Validator Requirements: BLS (SIMD-0387), XDP, BAM
 
