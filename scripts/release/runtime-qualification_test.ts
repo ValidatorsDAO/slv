@@ -10,6 +10,7 @@ import {
   assertPromotionContext,
   assertQualificationManifest,
   canonicalQualificationBytes,
+  extractQualificationSourceMembers,
   extractQualificationZip,
   githubQualificationAdapter,
   QUALIFICATION_MANIFEST,
@@ -20,6 +21,7 @@ import {
   readQualificationManifest,
   verifyCandidateProvenance,
   verifyPublishedQualification as verifyPublishedQualificationProduction,
+  verifyQualificationArchiveBindings,
   verifyQualificationAttestationResult,
   verifyQualificationDirectory,
   verifyQualificationDraft as verifyQualificationDraftProduction,
@@ -923,3 +925,109 @@ Deno.test('fresh main revocation added after an earlier acceptance prevents fina
   }
   await verifyPublishedQualificationProduction(m, api, [], unrelatedPolicy)
 })
+
+const workflowQualificationDirectory =
+  'dist/release-inputs/runtime-qualification'
+async function withQualificationArchiveFixture(
+  action: (
+    fixture: { root: string; manifest: QualificationManifest },
+  ) => Promise<void>,
+  unsafe: 'none' | 'traversal' | 'symlink' = 'none',
+): Promise<void> {
+  const root = await Deno.realPath(
+      await Deno.makeTempDir({ prefix: 'slv-qualification-path-test-' }),
+    ),
+    previous = Deno.cwd(),
+    m = fixture()
+  try {
+    await Deno.mkdir(join(root, workflowQualificationDirectory), {
+      recursive: true,
+    })
+    const script = String.raw`
+import io,json,os,sys,tarfile,zipfile
+root,members,artifacts,unsafe=sys.argv[1:]
+content=b'fixture bytes\n'
+for row in json.loads(artifacts):
+ with zipfile.ZipFile(os.path.join(root,'dist','release-inputs','runtime-qualification',row['asset']),'w') as z:
+  for member in row['members']: z.writestr(member,content)
+for name in ['slv-source','deno-source','deno-cargo-vendor']:
+ with tarfile.open(os.path.join(root,'dist','release-inputs','runtime-qualification',name+'.tar.gz'),'w:gz') as tar:
+  directory=tarfile.TarInfo(name);directory.type=tarfile.DIRTYPE;tar.addfile(directory)
+  paths=list(json.loads(members)) if name=='slv-source' else [name+'/file.txt']
+  for path in paths:
+   item=tarfile.TarInfo(path);item.size=len(content);tar.addfile(item,io.BytesIO(content))
+  if name=='slv-source' and unsafe=='traversal':
+   item=tarfile.TarInfo('slv-source/../escape');item.size=len(content);tar.addfile(item,io.BytesIO(content))
+  if name=='slv-source' and unsafe=='symlink':
+   item=tarfile.TarInfo('slv-source/escape');item.type=tarfile.SYMTYPE;item.linkname='../../outside';tar.addfile(item)
+`
+    const made = await new Deno.Command('python3', {
+      args: [
+        '-c',
+        script,
+        root,
+        JSON.stringify(m.source.members),
+        JSON.stringify(m.artifacts),
+        unsafe,
+      ],
+      stdin: 'null',
+      stdout: 'null',
+      stderr: 'piped',
+    }).output()
+    if (!made.success) throw new Error('cannot prepare archive fixture')
+    Deno.chdir(root)
+    await action({ root, manifest: m })
+  } finally {
+    Deno.chdir(previous)
+    await Deno.remove(root, { recursive: true })
+  }
+}
+for (const relative of [false, true]) {
+  Deno.test(`source extraction accepts safe ${relative ? 'relative' : 'absolute'} payload paths across scanner cwd`, () =>
+    withQualificationArchiveFixture(async ({ root, manifest }) => {
+      const directory = relative
+        ? workflowQualificationDirectory
+        : join(root, workflowQualificationDirectory)
+      await extractQualificationSourceMembers(manifest, directory)
+      for (const name of Object.values(manifest.source.members)) {
+        assertEquals(
+          await Deno.readFile(join(root, workflowQualificationDirectory, name)),
+          bytes,
+        )
+      }
+    }))
+  Deno.test(`archive binding accepts safe ${relative ? 'relative' : 'absolute'} payload paths across scanner cwd`, () =>
+    withQualificationArchiveFixture(async ({ root, manifest }) => {
+      await verifyQualificationArchiveBindings(
+        manifest,
+        relative
+          ? workflowQualificationDirectory
+          : join(root, workflowQualificationDirectory),
+      )
+    }))
+}
+for (const unsafe of ['traversal', 'symlink'] as const) {
+  Deno.test(`relative qualification archives still reject ${unsafe} before extraction`, () =>
+    withQualificationArchiveFixture(async ({ root, manifest }) => {
+      await assertRejects(() =>
+        extractQualificationSourceMembers(
+          manifest,
+          workflowQualificationDirectory,
+        )
+      )
+      await assertRejects(
+        () => Deno.stat(join(root, workflowQualificationDirectory, 'recipe')),
+        Deno.errors.NotFound,
+      )
+      await assertRejects(() =>
+        verifyQualificationArchiveBindings(
+          manifest,
+          workflowQualificationDirectory,
+        )
+      )
+      await assertRejects(
+        () => Deno.stat(join(root, 'escape')),
+        Deno.errors.NotFound,
+      )
+    }, unsafe))
+}

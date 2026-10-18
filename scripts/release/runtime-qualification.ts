@@ -761,7 +761,7 @@ with tarfile.open(spec['tar']['path'],'r:gz') as t:
   try {
     for (const name of SOURCE_NAMES) {
       await scanArchiveForUnsafeMembers(
-        join(directory, m.source.archives[name]),
+        resolve(directory, m.source.archives[name]),
         name.slice(0, -'.tar.gz'.length),
         temporary,
         join(temporary, `${name}.scan.log`),
@@ -1648,7 +1648,7 @@ export async function extractQualificationSourceMembers(
   m: QualificationManifest,
   directory: string,
 ): Promise<void> {
-  const archive = join(directory, m.source.archives['slv-source.tar.gz'])
+  const archive = resolve(directory, m.source.archives['slv-source.tar.gz'])
   const temporary = await Deno.realPath(
     await Deno.makeTempDir({
       prefix: 'slv-runtime-source-scan-',
