@@ -120,6 +120,13 @@ that leaves `VERSION` unchanged is CI-only; it does not start publication.
 - `source-native-diagnostic` is a separate bounded diagnostic with its own
   reviewed-SHA and ref requirements; it does not publish a release or authorize
   the legacy transition.
+- `source-build-validation` requires the fixed
+  `codex/slv-linux-ephemeral-release` branch and a full `reviewed_sha` matching
+  both the workflow and checked-out source. It builds baseline and modified
+  sources for both Linux targets, verifies their proofs, and builds and checks
+  both Linux products. It skips macOS, full release packaging, attestation, and
+  publication. Its success is Linux validation evidence, not a replacement for
+  the normal four-target PR checks or release workflow.
 
 If publishing fails, rerun the failed publish job with its original artifacts,
 retained for seven days. A whole-workflow rebuild can produce different bytes

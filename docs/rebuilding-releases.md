@@ -306,9 +306,17 @@ build/execute artifact-mismatched proof records. A local diagnostic or a failed
 command remains evidence of its own result and is not a release proof.
 
 The local full-build default parallelism is two. A local reviewer with capacity
-for the same isolated full build may choose `--jobs 1` through `--jobs 16`; it
-is recorded in the build receipt. The bounded split producer interface requires
-exactly `--jobs 4`.
+for the same isolated full build may choose `--jobs 1` through `--jobs 15`; the
+choice is recorded in the build receipt. Sixteen jobs require both
+`--jobs 16 --build-profile linux-16`, an x86_64 Linux build host, and a Linux
+target. This profile is bound into the build receipts and target proofs.
+
+Without a build profile, the bounded split producer interface requires exactly
+`--jobs 2` for Linux x86_64 or `--jobs 4` for Linux ARM64 and macOS x86_64.
+Linux split producers may instead use `--jobs 16 --build-profile linux-16`
+under the same host and target restrictions. Both variants must use the same
+profile; the join rejects mixed declarations. ARM64 execution still runs on
+an actual ARM64 Linux host.
 
 ## Linux product compatibility gate
 
