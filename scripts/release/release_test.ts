@@ -26,9 +26,11 @@ import {
   sbomFromLock,
   SOURCE_ASSET_MAX_BYTES,
   SOURCE_ASSETS,
+  sourceReceiptFromSbom,
   thirdPartyNotices,
   verifyLicenses,
   verifyLinuxValidation,
+  verifyStableRuntimeSources,
 } from './release.ts'
 import { CANONICAL_NOTICE_NAME } from './source-materials.ts'
 import { canonicalTargetDescriptorBytes } from '../../source-rebuild/prepare-tools.ts'
@@ -913,6 +915,89 @@ async function fixture(): Promise<string> {
 }
 
 const LINUX_VALIDATION_TARGETS = PROOF_TARGETS.slice(0, 2)
+
+Deno.test('qualified package binds stable runtime sources while current app containers change', async () => {
+  const root = await fixture()
+  try {
+    const original = JSON.parse(
+      await Deno.readTextFile(
+        `${root}/dist/release-inputs/source-materials-receipt.json`,
+      ),
+    )
+    const current = structuredClone(original)
+    current.source.commit = 'b'.repeat(40)
+    current.source.tree_sha256 = 'b'.repeat(64)
+    current.source.timestamp = '2026-10-18T12:34:00.000Z'
+    current.source.timestamp_epoch = 1792326840
+    current.canonical_notice.sha256 = 'c'.repeat(64)
+    current.canonical_notice.size++
+    current.closure.sha256 = 'd'.repeat(64)
+    current.closure.entry_count++
+    current.inventory.sha256 = 'e'.repeat(64)
+    for (const asset of current.assets) {
+      asset.sha256 = 'f'.repeat(64)
+      asset.size++
+    }
+    // This is the production package assertion, not whole-archive equality.
+    verifyStableRuntimeSources(current, original)
+    const mutate = [
+      (r: typeof current) => {
+        r.pins.deno.commit = '9'.repeat(40)
+      },
+      (r: typeof current) => {
+        r.pins.rusty_v8.sha256 = '9'.repeat(64)
+      },
+      (r: typeof current) => {
+        r.runtime_security.selected.cargo_lock.sha256 = '9'.repeat(64)
+      },
+      (r: typeof current) => {
+        r.runtime_security.selected.cargo_manifest.sha256 = '9'.repeat(64)
+      },
+      (r: typeof current) => {
+        r.runtime_security.transform.manifest_patch.sha256 = '9'.repeat(64)
+      },
+      (r: typeof current) => {
+        r.vendor.lock_sha256 = '9'.repeat(64)
+      },
+      (r: typeof current) => {
+        r.vendor.crate_count++
+      },
+      (r: typeof current) => {
+        r.gitlink_closure.root_tree = '9'.repeat(40)
+      },
+      (r: typeof current) => {
+        r.source_legal_evidence.sha256 = '9'.repeat(64)
+      },
+    ]
+    for (const change of mutate) {
+      const altered = structuredClone(current)
+      change(altered)
+      assertThrows(() => verifyStableRuntimeSources(altered, original))
+    }
+    const inconsistent = structuredClone(current)
+    inconsistent.vendor.lock_sha256 = 'd'.repeat(64)
+    assertThrows(() => verifyStableRuntimeSources(inconsistent, inconsistent))
+    const raw = JSON.stringify(current, null, 2) + '\n'
+    const sbom = sbomFromLock(
+      JSON.parse(await Deno.readTextFile(`${root}/deno.lock`)),
+      VERSION,
+      current.source.commit,
+      current.source.timestamp,
+      undefined,
+      raw,
+    )
+    assertEquals(sourceReceiptFromSbom(sbom).raw, raw)
+    const alteredSbom = structuredClone(sbom) as {
+      annotations: Array<{ comment: string }>
+    }
+    alteredSbom.annotations[1].comment += ' '
+    assertThrows(() => sourceReceiptFromSbom(alteredSbom))
+    alteredSbom.annotations = [alteredSbom.annotations[0]]
+    assertThrows(() => sourceReceiptFromSbom(alteredSbom))
+  } finally {
+    await Deno.remove(root, { recursive: true })
+  }
+})
 
 async function linuxValidationFixture(
   target = LINUX_VALIDATION_TARGETS[0],

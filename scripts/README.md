@@ -77,8 +77,9 @@ The recommended release process is:
    Do not update only `cmn/constants/version.ts` by hand — the release flow must
    also run `update-version.ts` so the CLI version, installer, template archive,
    versioned shell installer, and `template/latest` all stay in sync.
-3. After review, merge the release PR when the hosted delivery workflow is ready
-   to build and package the final same-SHA release.
+3. After review, merge the release PR when the delivery workflow is ready to
+   compile all four products on Linux from the pinned qualified runtimes.
+   Runtime promotion, attestation, and publication use separate hosted jobs.
 
 If generation, commit, push, or Pull Request creation fails, the command reports
 the last completed stage and preserves the local branch. It never resets or
@@ -110,8 +111,9 @@ that leaves `VERSION` unchanged is CI-only; it does not start publication.
 
 - `release` (the default) requires the exact existing `refs/tags/v<version>` ref,
   a matching source version, and a peeled tag commit contained in `main` history.
-  It can verify an immutable release or publish a release absent for that tag.
-  A dispatch from `main` cannot create an initial release.
+  It verifies an existing immutable release. It cannot publish an absent
+  release or rebuild an existing draft; initial publication starts from the
+  reviewed version advance on `main`.
 - `legacy-bootstrap-preflight` and `legacy-bootstrap-apply` are separate,
   protected operations dispatched from `main` after immutable publication and
   public consumer acceptance. They use the reviewed release version and source
@@ -126,7 +128,31 @@ that leaves `VERSION` unchanged is CI-only; it does not start publication.
   sources for both Linux targets, verifies their proofs, and builds and checks
   both Linux products. It skips macOS, full release packaging, attestation, and
   publication. Its success is Linux validation evidence, not a replacement for
-  the normal four-target PR checks or release workflow.
+  the normal four-target PR checks or release workflow. This source-rebuild
+  operation is separate from ordinary application compilation.
+- `release-build-validation` requires the fixed `codex/slv-linux-all-targets`
+  branch and a full `reviewed_sha` matching the workflow and checked-out source.
+  It validates the pinned runtime candidate, compiles all four products on
+  Linux, and packages their current-source evidence without publishing.
+- `runtime-qualification` is an explicit reviewed `main` dispatch for changed
+  runtime inputs. It runs the full source rebuild and native proof chain,
+  including macOS, without building or publishing an application release.
+  Its evidence must become a reviewed qualification descriptor before a later
+  main release can promote it.
+
+Ordinary PRs compile on hosted Linux; trusted main releases use ephemeral Linux
+builders, including native ARM64 for that Linux target. A successful
+ordinary `runtime-qualification` job verifies the selected immutable runtime or a
+nonpublishable candidate; it does not rerun Deno/V8 on every application change.
+The four explicit product jobs and `package` bind the current application to
+those runtime bytes. Darwin products receive static Mach-O checks on Linux.
+Intel output from the pinned embedding library is recorded as unsigned; ARM64
+requires an ad-hoc signature, and every present signature is verified. Artifact
+hash/provenance checks remain required. The current receipt does not claim native
+macOS execution.
+See [rebuilding releases](../docs/rebuilding-releases.md) for runtime and source
+identities and [secure delivery](../docs/secure-delivery.md) for publication
+and acceptance boundaries.
 
 If publishing fails, rerun the failed publish job with its original artifacts,
 retained for seven days. A whole-workflow rebuild can produce different bytes

@@ -1,5 +1,5 @@
 name: SLV verified release
-run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'source-build-validation' && format('SLV Linux source validation {0}', inputs.reviewed_sha) || 'SLV verified release' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'source-build-validation' && format('SLV Linux source validation {0}', inputs.reviewed_sha) || github.event_name == 'workflow_dispatch' && inputs.operation == 'release-build-validation' && format('SLV release build validation {0}', inputs.reviewed_sha) || github.event_name == 'workflow_dispatch' && inputs.operation == 'runtime-qualification' && format('SLV runtime qualification {0}', inputs.reviewed_sha) || 'SLV verified release' }}
 
 on:
   push:
@@ -24,9 +24,11 @@ on:
           legacy-bootstrap-apply,
           source-native-diagnostic,
           source-build-validation,
+          release-build-validation,
+          runtime-qualification,
         ]
       reviewed_sha:
-        description: Exact reviewed commit for a bounded source validation
+        description: Exact reviewed commit for a bounded validation or runtime qualification
         required: false
         type: string
       source_sha:
@@ -106,6 +108,7 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
+      actions: read
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
       linux_validation: ${{ steps.resolve.outputs.linux_validation }}
@@ -120,6 +123,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
         with:
           deno-version: v2.9.3
@@ -132,6 +136,7 @@ jobs:
           AFTER: ${{ github.event.after }}
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_OPERATION: ${{ inputs.operation }}
+          SLV_LINUX_BUILDERS_ENABLED: ${{ vars.SLV_LINUX_BUILDERS_ENABLED }}
           INPUT_REVIEWED_SHA: ${{ inputs.reviewed_sha }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
           GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
@@ -141,6 +146,10 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --force origin main --tags
+          case "$INPUT_OPERATION" in
+            release-build-validation|runtime-qualification)
+              export GITHUB_RUN_TITLE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .display_title)" ;;
+          esac
           deno run --frozen --allow-read --allow-write --allow-run --allow-env scripts/release/workflow.ts resolve
 
   test:
@@ -162,6 +171,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.source_sha }}
           fetch-depth: 1
+          persist-credentials: false
       - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
         with:
           deno-version: v2.9.3
@@ -1535,7 +1545,736 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  build:
+  qualification-inputs:
+    needs: [resolve, test, source-materials]
+    if: ${{ (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      receipt_sha256: ${{ steps.bind.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Audit exact qualification payloads and original producer evidence
+        id: bind
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release-inputs
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts inputs source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE"
+          echo "receipt_sha256=$(sha256sum dist/release-inputs/runtime-qualification/qualification-state.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-qualification-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/release-inputs/runtime-qualification
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  qualification-promotion:
+    needs: [resolve, qualification-inputs]
+    if: ${{ github.repository == 'ValidatorsDAO/slv' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    environment: release
+    concurrency:
+      group: slv-runtime-qualification-promotion-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      attestations: write
+      artifact-metadata: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ValidatorsDAO/slv
+      SLV_RELEASE_OPERATION: release
+      SLV_RELEASE_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+    steps:
+      - name: Require publication activation before qualification promotion
+        env:
+          ACTIVATED: ${{ vars.SLV_RELEASE_ACTIVATED }}
+        run: |
+          set -euo pipefail
+          test "$ACTIVATED" = true || { echo 'runtime qualification publication requires release activation'; exit 1; }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Download the exact audited input artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.qualification-inputs.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-qualification
+      - name: Plan immutable qualification creation or exact reuse
+        id: plan
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test '${{ needs.qualification-inputs.outputs.producer_run_id }}' = "$GITHUB_RUN_ID"
+          test "$(sha256sum dist/release-inputs/runtime-qualification/qualification-state.json | cut -d ' ' -f 1)" = '${{ needs.qualification-inputs.outputs.receipt_sha256 }}'
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts promotion-plan source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE" promotion-plan.json
+          jq -e '(.action == "create" or .action == "resume" or .action == "reuse") and (.needs_attestation | type == "boolean")' promotion-plan.json >/dev/null
+          echo "action=$(jq -er .action promotion-plan.json)" >> "$GITHUB_OUTPUT"
+          echo "needs_attestation=$(jq -r .needs_attestation promotion-plan.json)" >> "$GITHUB_OUTPUT"
+      - name: Attest the exact reviewed runtime qualification manifest on hosted main
+        if: steps.plan.outputs.needs_attestation == 'true'
+        id: attest-qualification
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/release-inputs/runtime-qualification/runtime-qualification.json
+      - name: Publish an immutable nonlatest runtime qualification without overwriting
+        if: steps.plan.outputs.action != 'reuse'
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          BUNDLE: ${{ steps.attest-qualification.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          tag="$(jq -er .tag promotion-plan.json)"
+          source="$(jq -er .source_sha promotion-plan.json)"
+          test "$source" = "$SLV_RELEASE_SOURCE_SHA"
+          if [ "$(jq -er .action promotion-plan.json)" = create ]; then
+            gh release create "$tag" --repo "$GH_REPO" --target "$source" --draft --prerelease --latest=false --title "$tag"
+          fi
+          while IFS= read -r asset; do
+            test "${asset##*/}" = "$asset" && test -f "dist/release-inputs/runtime-qualification/$asset"
+            gh release upload "$tag" --repo "$GH_REPO" "dist/release-inputs/runtime-qualification/$asset"
+          done < <(jq -er '.assets[]' promotion-plan.json)
+          if [ "$(jq -r .needs_attestation promotion-plan.json)" = true ]; then
+            test -s "$BUNDLE"
+            cp "$BUNDLE" dist/release-inputs/runtime-qualification/runtime-qualification.json.intoto.jsonl
+            gh release upload "$tag" --repo "$GH_REPO" dist/release-inputs/runtime-qualification/runtime-qualification.json.intoto.jsonl
+          fi
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts verify-draft source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE" "$RUNNER_TEMP/qualification-publication-policy.json"
+          gh release edit "$tag" --repo "$GH_REPO" --draft=false --latest=false
+      - name: Independently re-download and verify the final public qualification
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts verify source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE" final-qualified "$RUNNER_TEMP/promotion-verification.json"
+      - name: Preserve qualification publication policy observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-qualification-publication-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/qualification-publication-policy.json
+            ${{ runner.temp }}/promotion-verification.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  runtime-qualification:
+    needs: [resolve, qualification-inputs, qualification-promotion]
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.qualification-inputs.result == 'success' && ((needs.resolve.outputs.release_required == 'true' && needs.qualification-promotion.result == 'success') || (needs.resolve.outputs.release_required != 'true' && needs.qualification-promotion.result == 'skipped')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      receipt_sha256: ${{ steps.bind.outputs.receipt_sha256 }}
+      qualification_state: ${{ steps.bind.outputs.qualification_state }}
+      qualification_identity: ${{ steps.bind.outputs.qualification_identity }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Require promotion on main and exact candidate evidence elsewhere
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs runtime > "$RUNNER_TEMP/qualification-mode"
+      - name: Download the exact audited input artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.qualification-inputs.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-qualification
+      - name: Verify qualification signatures, payloads, compatibility and original proofs
+        id: bind
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          state="$(cat "$RUNNER_TEMP/qualification-mode")"
+          test "$(sha256sum dist/release-inputs/runtime-qualification/qualification-state.json | cut -d ' ' -f 1)" = '${{ needs.qualification-inputs.outputs.receipt_sha256 }}'
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/runtime-qualification.ts verify source-materials/runtime-qualification.json dist/release-inputs/runtime-qualification "$GITHUB_WORKSPACE" "$state" dist/release-inputs/runtime-qualification/verification-receipt.json
+          echo "qualification_state=$state" >> "$GITHUB_OUTPUT"
+          echo "qualification_identity=$(jq -er .identity dist/release-inputs/runtime-qualification/verification-receipt.json)" >> "$GITHUB_OUTPUT"
+          echo "receipt_sha256=$(sha256sum dist/release-inputs/runtime-qualification/verification-receipt.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-runtime-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/release-inputs/runtime-qualification
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  build-x86_64-unknown-linux-gnu:
+    name: build-x86_64-unknown-linux-gnu
+    needs: [resolve, test, source-materials, runtime-qualification]
+    # PR/validation skips promotion; override implicit success() across that
+    # ancestor while requiring every direct product prerequisite to succeed.
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
+    runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-x86_64-unknown-linux-gnu', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      receipt_sha256: ${{ steps.bind.outputs.receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      PRODUCT_BUILD_PROFILE: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && 'linux-16' || 'hosted-linux' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Require exact product prerequisites and artifact producers
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
+      - name: Download canonical notices and current application sources
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download the exact verified runtime qualification
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.runtime-qualification.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-qualification
+      - name: Compile and verify the fresh application product
+        id: bind
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          test "$(sha256sum dist/release-inputs/runtime-qualification/verification-receipt.json | cut -d ' ' -f 1)" = '${{ needs.runtime-qualification.outputs.receipt_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target x86_64-unknown-linux-gnu --build-host x86_64-unknown-linux-gnu --purpose execution --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/product-tools" --receipt "$RUNNER_TEMP/product-tools-receipt.json"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/build-product.ts compile \
+            --target x86_64-unknown-linux-gnu --source-sha '${{ needs.resolve.outputs.source_sha }}' --source-ref '${{ needs.resolve.outputs.source_ref }}' \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --workflow-sha '${{ github.workflow_sha }}' \
+            --qualification-dir dist/release-inputs/runtime-qualification --qualification-state "$(cat "$RUNNER_TEMP/qualification-mode")" \
+            --profile "$PRODUCT_BUILD_PROFILE" --license-attempt '${{ needs.test.outputs.license_producer_attempt }}' --license-sha256 '${{ needs.test.outputs.license_notice_sha256 }}' --tools-receipt "$RUNNER_TEMP/product-tools-receipt.json"
+          echo "receipt_sha256=$(sha256sum dist/release-inputs/product-runtime/x86_64-unknown-linux-gnu/product-runtime-receipt.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-product-x86_64-unknown-linux-gnu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/slv-x86_64-unknown-linux-gnu-exe.tar.gz
+            dist/release-inputs/product-runtime/x86_64-unknown-linux-gnu
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  build-aarch64-unknown-linux-gnu:
+    name: build-aarch64-unknown-linux-gnu
+    needs: [resolve, test, source-materials, runtime-qualification]
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
+    runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-aarch64-unknown-linux-gnu', github.run_id, github.run_attempt) || 'ubuntu-26.04-arm' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      receipt_sha256: ${{ steps.bind.outputs.receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      PRODUCT_BUILD_PROFILE: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && 'linux-arm64-4' || 'hosted-linux' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Require exact product prerequisites and artifact producers
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
+      - name: Download canonical notices and current application sources
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download the exact verified runtime qualification
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.runtime-qualification.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-qualification
+      - name: Compile and verify the fresh application product
+        id: bind
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          test "$(sha256sum dist/release-inputs/runtime-qualification/verification-receipt.json | cut -d ' ' -f 1)" = '${{ needs.runtime-qualification.outputs.receipt_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net source-rebuild/prepare-tools.ts --target aarch64-unknown-linux-gnu --build-host aarch64-unknown-linux-gnu --purpose execution --pins source-rebuild/tool-prereqs.json --out "$RUNNER_TEMP/product-tools" --receipt "$RUNNER_TEMP/product-tools-receipt.json"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/build-product.ts compile \
+            --target aarch64-unknown-linux-gnu --source-sha '${{ needs.resolve.outputs.source_sha }}' --source-ref '${{ needs.resolve.outputs.source_ref }}' \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --workflow-sha '${{ github.workflow_sha }}' \
+            --qualification-dir dist/release-inputs/runtime-qualification --qualification-state "$(cat "$RUNNER_TEMP/qualification-mode")" \
+            --profile "$PRODUCT_BUILD_PROFILE" --license-attempt '${{ needs.test.outputs.license_producer_attempt }}' --license-sha256 '${{ needs.test.outputs.license_notice_sha256 }}' --tools-receipt "$RUNNER_TEMP/product-tools-receipt.json"
+          echo "receipt_sha256=$(sha256sum dist/release-inputs/product-runtime/aarch64-unknown-linux-gnu/product-runtime-receipt.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-product-aarch64-unknown-linux-gnu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/slv-aarch64-unknown-linux-gnu-exe.tar.gz
+            dist/release-inputs/product-runtime/aarch64-unknown-linux-gnu
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  build-x86_64-apple-darwin:
+    name: build-x86_64-apple-darwin
+    needs: [resolve, test, source-materials, runtime-qualification]
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
+    runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-x86_64-apple-darwin', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      receipt_sha256: ${{ steps.bind.outputs.receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      PRODUCT_BUILD_PROFILE: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && 'linux-16' || 'hosted-linux' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Require exact product prerequisites and artifact producers
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
+      - name: Download canonical notices and current application sources
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download the exact verified runtime qualification
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.runtime-qualification.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-qualification
+      - name: Compile and verify the fresh application product
+        id: bind
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          test "$(sha256sum dist/release-inputs/runtime-qualification/verification-receipt.json | cut -d ' ' -f 1)" = '${{ needs.runtime-qualification.outputs.receipt_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/build-product.ts compile \
+            --target x86_64-apple-darwin --source-sha '${{ needs.resolve.outputs.source_sha }}' --source-ref '${{ needs.resolve.outputs.source_ref }}' \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --workflow-sha '${{ github.workflow_sha }}' \
+            --qualification-dir dist/release-inputs/runtime-qualification --qualification-state "$(cat "$RUNNER_TEMP/qualification-mode")" \
+            --profile "$PRODUCT_BUILD_PROFILE" --license-attempt '${{ needs.test.outputs.license_producer_attempt }}' --license-sha256 '${{ needs.test.outputs.license_notice_sha256 }}'
+          echo "receipt_sha256=$(sha256sum dist/release-inputs/product-runtime/x86_64-apple-darwin/product-runtime-receipt.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-product-x86_64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/slv-x86_64-apple-darwin-exe.tar.gz
+            dist/release-inputs/product-runtime/x86_64-apple-darwin
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  build-aarch64-apple-darwin:
+    name: build-aarch64-apple-darwin
+    needs: [resolve, test, source-materials, runtime-qualification]
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' }}
+    runs-on: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && format('slv-build-{0}-{1}-build-aarch64-apple-darwin', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      producer_run_id: ${{ github.run_id }}
+      producer_attempt: ${{ github.run_attempt }}
+      receipt_sha256: ${{ steps.bind.outputs.receipt_sha256 }}
+    env:
+      DENO_DIR: /tmp/slv-deno-cache
+      PRODUCT_BUILD_PROFILE: ${{ (github.repository == 'ValidatorsDAO/slv' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.outputs.mode == 'release-build-validation') || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true'))) && 'linux-16' || 'hosted-linux' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Require exact product prerequisites and artifact producers
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs product > "$RUNNER_TEMP/qualification-mode"
+      - name: Install the exact qualification-pinned compiler frontend
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com scripts/release/prepare-frontend.ts source-materials/runtime-qualification.json "$RUNNER_TEMP/slv-qualified-frontend"
+          echo "$RUNNER_TEMP/slv-qualified-frontend" >> "$GITHUB_PATH"
+      - name: Download canonical notices and current application sources
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs
+      - name: Download the exact verified runtime qualification
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.runtime-qualification.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-qualification
+      - name: Compile and verify the fresh application product
+        id: bind
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          test "$(sha256sum dist/release-inputs/runtime-qualification/verification-receipt.json | cut -d ' ' -f 1)" = '${{ needs.runtime-qualification.outputs.receipt_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/build-product.ts compile \
+            --target aarch64-apple-darwin --source-sha '${{ needs.resolve.outputs.source_sha }}' --source-ref '${{ needs.resolve.outputs.source_ref }}' \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --workflow-sha '${{ github.workflow_sha }}' \
+            --qualification-dir dist/release-inputs/runtime-qualification --qualification-state "$(cat "$RUNNER_TEMP/qualification-mode")" \
+            --profile "$PRODUCT_BUILD_PROFILE" --license-attempt '${{ needs.test.outputs.license_producer_attempt }}' --license-sha256 '${{ needs.test.outputs.license_notice_sha256 }}'
+          echo "receipt_sha256=$(sha256sum dist/release-inputs/product-runtime/aarch64-apple-darwin/product-runtime-receipt.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-product-aarch64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/slv-aarch64-apple-darwin-exe.tar.gz
+            dist/release-inputs/product-runtime/aarch64-apple-darwin
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  validation-smoke-x86_64-apple-darwin:
+    name: validation-smoke-x86_64-apple-darwin
+    needs: [resolve, runtime-qualification, test, build-x86_64-apple-darwin]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.operation == 'release-build-validation' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.result == 'success' && needs.runtime-qualification.result == 'success' && needs.test.result == 'success' && needs.build-x86_64-apple-darwin.result == 'success' && needs.resolve.outputs.mode == 'release-build-validation' && needs.resolve.outputs.publication == 'none' && needs.runtime-qualification.outputs.qualification_state == 'candidate-validation' }}
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.upload-smoke.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-smoke.outputs.artifact-digest }}
+    env:
+      SLV_OPERATION: ${{ inputs.operation }}
+      SLV_RESOLVED_MODE: ${{ needs.resolve.outputs.mode }}
+      SLV_PUBLICATION: ${{ needs.resolve.outputs.publication }}
+      SLV_RESOLVED_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      NEEDS_JSON: ${{ toJSON(needs) }}
+      TARGET: x86_64-apple-darwin
+    steps:
+      - name: Require the exact reviewed validation and successful current producers
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          set -o noclobber
+          jq -n --arg source "$REVIEWED_SHA" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg target "$TARGET" '
+            def safe($pattern): if test($pattern) then . else null end;
+            {schema_version: 1, kind: "slv-darwin-validation-smoke", publication: "none", status: "incomplete", stage: "preflight",
+             source: {commit: ($source | safe("^[a-f0-9]{40}$"))},
+             workflow: {run_id: ($run | safe("^[1-9][0-9]*$")), run_attempt: ($attempt | safe("^[1-9][0-9]*$"))},
+             target: ($target | if . == "x86_64-apple-darwin" or . == "aarch64-apple-darwin" then . else null end), started_at: (now | todateiso8601)}
+          ' > "$RUNNER_TEMP/darwin-smoke-receipt.json"
+          test "$GITHUB_REPOSITORY" = ValidatorsDAO/slv
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$SLV_OPERATION" = release-build-validation
+          test "$SLV_RESOLVED_MODE" = release-build-validation
+          test "$SLV_PUBLICATION" = none
+          test "$GITHUB_REF" = refs/heads/codex/slv-linux-all-targets
+          test "$GITHUB_WORKFLOW_REF" = "ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@$GITHUB_REF"
+          [[ "$REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$REVIEWED_SHA" = "$SLV_RESOLVED_SOURCE_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_WORKFLOW_SHA"
+          test "$GITHUB_JOB" = "validation-smoke-$TARGET"
+          jq -e --slurp --arg target "$TARGET" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg source "$REVIEWED_SHA" '
+            def positive: type == "string" and test("^[1-9][0-9]*$");
+            def hash: type == "string" and test("^[a-f0-9]{64}$");
+            def digest: type == "string" and (sub("^sha256:"; "") | hash);
+            def producer($prefix):
+              (.[$prefix + "artifact_id"] | positive) and
+              (.[$prefix + "artifact_digest"] | digest) and
+              .[$prefix + "producer_run_id"] == $run and
+              .[$prefix + "producer_attempt"] == $attempt;
+            length == 1 and (.[0] |
+              ($run | positive) and ($attempt | positive) and
+              (keys == (["resolve", "runtime-qualification", "test", "build-" + $target] | sort)) and
+              all(.[]; .result == "success") and
+              (.resolve.outputs | .mode == "release-build-validation" and .publication == "none" and .release_required == "false" and .source_sha == $source) and
+              (."runtime-qualification".outputs | .qualification_state == "candidate-validation" and (.qualification_identity | hash) and .producer_run_id == $run and .producer_attempt == $attempt) and
+              (.test.outputs | producer("license_") and (.license_notice_sha256 | hash)) and
+              (.["build-" + $target].outputs | producer("") and (.receipt_sha256 | hash)))
+          ' <<< "$NEEDS_JSON" >/dev/null
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Acquire and verify the exact Linux product and canonical notice artifacts
+        id: acquire
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          title="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" --jq .display_title)"
+          test "$title" = "SLV release build validation $REVIEWED_SHA"
+          jq -n --arg target "$TARGET" --arg source "$REVIEWED_SHA" --arg workflow "$GITHUB_WORKFLOW_SHA" --arg ref "$GITHUB_REF" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg title "$title" --argjson needs "$NEEDS_JSON" '
+            {target: $target, source_sha: $source, workflow_sha: $workflow, ref: $ref, run_id: $run, run_attempt: $attempt, reviewed_sha: $source, title: $title,
+             qualification_identity: $needs["runtime-qualification"].outputs.qualification_identity,
+             product: ($needs["build-" + $target].outputs | {artifact_id: .artifact_id, artifact_sha256: (.artifact_digest | sub("^sha256:"; "")), receipt_sha256: .receipt_sha256, producer_attempt: .producer_attempt}),
+             notices: ($needs.test.outputs | {artifact_id: .license_artifact_id, artifact_sha256: (.license_artifact_digest | sub("^sha256:"; "")), producer_attempt: .license_producer_attempt, sha256: .license_notice_sha256})}
+          ' > "$RUNNER_TEMP/darwin-smoke-input.json"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts acquire "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Execute the unchanged product and current bridge on the native architecture
+        if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts execute "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Preserve sanitized same-byte smoke evidence
+        id: upload-smoke
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-darwin-validation-smoke-x86_64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/darwin-smoke-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  validation-smoke-aarch64-apple-darwin:
+    name: validation-smoke-aarch64-apple-darwin
+    needs: [resolve, runtime-qualification, test, build-aarch64-apple-darwin]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.operation == 'release-build-validation' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/codex/slv-linux-all-targets' && needs.resolve.result == 'success' && needs.runtime-qualification.result == 'success' && needs.test.result == 'success' && needs.build-aarch64-apple-darwin.result == 'success' && needs.resolve.outputs.mode == 'release-build-validation' && needs.resolve.outputs.publication == 'none' && needs.runtime-qualification.outputs.qualification_state == 'candidate-validation' }}
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.upload-smoke.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-smoke.outputs.artifact-digest }}
+    env:
+      SLV_OPERATION: ${{ inputs.operation }}
+      SLV_RESOLVED_MODE: ${{ needs.resolve.outputs.mode }}
+      SLV_PUBLICATION: ${{ needs.resolve.outputs.publication }}
+      SLV_RESOLVED_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      NEEDS_JSON: ${{ toJSON(needs) }}
+      TARGET: aarch64-apple-darwin
+    steps:
+      - name: Require the exact reviewed validation and successful current producers
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          set -o noclobber
+          jq -n --arg source "$REVIEWED_SHA" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg target "$TARGET" '
+            def safe($pattern): if test($pattern) then . else null end;
+            {schema_version: 1, kind: "slv-darwin-validation-smoke", publication: "none", status: "incomplete", stage: "preflight",
+             source: {commit: ($source | safe("^[a-f0-9]{40}$"))},
+             workflow: {run_id: ($run | safe("^[1-9][0-9]*$")), run_attempt: ($attempt | safe("^[1-9][0-9]*$"))},
+             target: ($target | if . == "x86_64-apple-darwin" or . == "aarch64-apple-darwin" then . else null end), started_at: (now | todateiso8601)}
+          ' > "$RUNNER_TEMP/darwin-smoke-receipt.json"
+          test "$GITHUB_REPOSITORY" = ValidatorsDAO/slv
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$SLV_OPERATION" = release-build-validation
+          test "$SLV_RESOLVED_MODE" = release-build-validation
+          test "$SLV_PUBLICATION" = none
+          test "$GITHUB_REF" = refs/heads/codex/slv-linux-all-targets
+          test "$GITHUB_WORKFLOW_REF" = "ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@$GITHUB_REF"
+          [[ "$REVIEWED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$REVIEWED_SHA" = "$SLV_RESOLVED_SOURCE_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_SHA"
+          test "$REVIEWED_SHA" = "$GITHUB_WORKFLOW_SHA"
+          test "$GITHUB_JOB" = "validation-smoke-$TARGET"
+          jq -e --slurp --arg target "$TARGET" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg source "$REVIEWED_SHA" '
+            def positive: type == "string" and test("^[1-9][0-9]*$");
+            def hash: type == "string" and test("^[a-f0-9]{64}$");
+            def digest: type == "string" and (sub("^sha256:"; "") | hash);
+            def producer($prefix):
+              (.[$prefix + "artifact_id"] | positive) and
+              (.[$prefix + "artifact_digest"] | digest) and
+              .[$prefix + "producer_run_id"] == $run and
+              .[$prefix + "producer_attempt"] == $attempt;
+            length == 1 and (.[0] |
+              ($run | positive) and ($attempt | positive) and
+              (keys == (["resolve", "runtime-qualification", "test", "build-" + $target] | sort)) and
+              all(.[]; .result == "success") and
+              (.resolve.outputs | .mode == "release-build-validation" and .publication == "none" and .release_required == "false" and .source_sha == $source) and
+              (."runtime-qualification".outputs | .qualification_state == "candidate-validation" and (.qualification_identity | hash) and .producer_run_id == $run and .producer_attempt == $attempt) and
+              (.test.outputs | producer("license_") and (.license_notice_sha256 | hash)) and
+              (.["build-" + $target].outputs | producer("") and (.receipt_sha256 | hash)))
+          ' <<< "$NEEDS_JSON" >/dev/null
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
+      - name: Acquire and verify the exact Linux product and canonical notice artifacts
+        id: acquire
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          title="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" --jq .display_title)"
+          test "$title" = "SLV release build validation $REVIEWED_SHA"
+          jq -n --arg target "$TARGET" --arg source "$REVIEWED_SHA" --arg workflow "$GITHUB_WORKFLOW_SHA" --arg ref "$GITHUB_REF" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg title "$title" --argjson needs "$NEEDS_JSON" '
+            {target: $target, source_sha: $source, workflow_sha: $workflow, ref: $ref, run_id: $run, run_attempt: $attempt, reviewed_sha: $source, title: $title,
+             qualification_identity: $needs["runtime-qualification"].outputs.qualification_identity,
+             product: ($needs["build-" + $target].outputs | {artifact_id: .artifact_id, artifact_sha256: (.artifact_digest | sub("^sha256:"; "")), receipt_sha256: .receipt_sha256, producer_attempt: .producer_attempt}),
+             notices: ($needs.test.outputs | {artifact_id: .license_artifact_id, artifact_sha256: (.license_artifact_digest | sub("^sha256:"; "")), producer_attempt: .license_producer_attempt, sha256: .license_notice_sha256})}
+          ' > "$RUNNER_TEMP/darwin-smoke-input.json"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts acquire "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Execute the unchanged product and current bridge on the native architecture
+        if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env scripts/release/darwin-smoke.ts execute "$RUNNER_TEMP/darwin-smoke-input.json" "$RUNNER_TEMP/darwin-smoke-work" "$RUNNER_TEMP/darwin-smoke-receipt.json"
+      - name: Preserve sanitized same-byte smoke evidence
+        id: upload-smoke
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-darwin-validation-smoke-aarch64-apple-darwin-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/darwin-smoke-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  source-validation-products:
     needs: [
       resolve,
       test,
@@ -1546,15 +2285,15 @@ jobs:
       source-arm-build,
       source-arm-merge,
     ]
-    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.source-native-linux-x64.result == 'success' && needs.source-arm-build.result == 'success' && needs.source-arm-merge.result == 'success' && ((needs.resolve.outputs.linux_validation == 'true' && needs.source-native-macos-x64.result == 'skipped' && needs.source-native-macos-arm64.result == 'skipped') || (needs.resolve.outputs.linux_validation != 'true' && needs.source-native-macos-x64.result == 'success' && needs.source-native-macos-arm64.result == 'success')) }}
-    name: build-${{ matrix.target }}
+    if: ${{ !cancelled() && needs.resolve.outputs.linux_validation == 'true' && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.source-native-linux-x64.result == 'success' && needs.source-arm-build.result == 'success' && needs.source-arm-merge.result == 'success' && needs.source-native-macos-x64.result == 'skipped' && needs.source-native-macos-arm64.result == 'skipped' }}
+    name: source-validation-product-${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.resolve.outputs.linux_validation == 'true' && '[{"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-26.04","apple":false},{"target":"aarch64-unknown-linux-gnu","runner":"ubuntu-26.04-arm","apple":false}]' || '[{"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-26.04","apple":false},{"target":"aarch64-unknown-linux-gnu","runner":"ubuntu-26.04-arm","apple":false},{"target":"x86_64-apple-darwin","runner":"macos-15-intel","apple":true},{"target":"aarch64-apple-darwin","runner":"macos-15","apple":true}]') }}
+        include: ${{ fromJSON('[{"target":"x86_64-unknown-linux-gnu","runner":"ubuntu-26.04","apple":false},{"target":"aarch64-unknown-linux-gnu","runner":"ubuntu-26.04-arm","apple":false}]') }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
     steps:
@@ -1760,7 +2499,7 @@ jobs:
 
   source-materials:
     needs: [resolve, test]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true' || needs.resolve.outputs.mode == 'release-build-validation' || needs.resolve.outputs.mode == 'runtime-qualification') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     permissions:
@@ -1838,8 +2577,8 @@ jobs:
   # artifact ID, archive digest, producer identity, and proof checksum.
   source-linux-x64-baseline:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
-    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-linux-x64-baseline', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && format('slv-build-{0}-{1}-source-linux-x64-baseline', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -1854,7 +2593,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
-      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && 'linux-16' || '' }}
       TARGET: x86_64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: baseline
@@ -1965,8 +2704,8 @@ jobs:
 
   source-linux-x64-modified:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
-    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-linux-x64-modified', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && format('slv-build-{0}-{1}-source-linux-x64-modified', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -1981,7 +2720,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
-      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && 'linux-16' || '' }}
       TARGET: x86_64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: modified
@@ -2098,7 +2837,7 @@ jobs:
       source-linux-x64-baseline,
       source-linux-x64-modified,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true')) }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -2329,8 +3068,8 @@ jobs:
   # below remain the required checks consumed by the release graph.
   source-arm-baseline:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
-    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-arm-baseline', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && format('slv-build-{0}-{1}-source-arm-baseline', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -2345,7 +3084,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
-      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && 'linux-16' || '' }}
       TARGET: aarch64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: baseline
@@ -2456,8 +3195,8 @@ jobs:
 
   source-arm-modified:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
-    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && format('slv-build-{0}-{1}-source-arm-modified', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
+    runs-on: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && format('slv-build-{0}-{1}-source-arm-modified', github.run_id, github.run_attempt) || 'ubuntu-26.04' }}
     timeout-minutes: 350
     permissions:
       contents: read
@@ -2472,7 +3211,7 @@ jobs:
       producer_job_id: ${{ github.job }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
-      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.release_required == 'true')) && 'linux-16' || '' }}
+      LINUX_BUILD_PROFILE: ${{ (needs.resolve.outputs.linux_validation == 'true' || (vars.SLV_LINUX_BUILDERS_ENABLED == 'true' && github.repository == 'ValidatorsDAO/slv' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.resolve.outputs.mode == 'runtime-qualification')) && 'linux-16' || '' }}
       TARGET: aarch64-unknown-linux-gnu
       BUILD_HOST: x86_64-unknown-linux-gnu
       VARIANT: modified
@@ -2583,7 +3322,7 @@ jobs:
 
   source-macos-x64-baseline:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification') }}
     runs-on: macos-15-intel
     timeout-minutes: 350
     permissions:
@@ -2717,7 +3456,7 @@ jobs:
 
   source-macos-x64-modified:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification') }}
     runs-on: macos-15-intel
     timeout-minutes: 350
     permissions:
@@ -2857,7 +3596,7 @@ jobs:
       source-macos-x64-baseline,
       source-macos-x64-modified,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification') }}
     runs-on: macos-15-intel
     timeout-minutes: 350
     permissions:
@@ -3113,7 +3852,7 @@ jobs:
 
   source-native-macos-arm64:
     needs: [resolve, test, source-materials]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification') }}
     runs-on: macos-15
     timeout-minutes: 350
     permissions:
@@ -3267,7 +4006,7 @@ jobs:
       source-arm-baseline,
       source-arm-modified,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true')) }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 350
     permissions:
@@ -3479,7 +4218,7 @@ jobs:
 
   source-arm-execute:
     needs: [resolve, test, source-materials, source-arm-build]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 30
     permissions:
@@ -3577,7 +4316,7 @@ jobs:
       source-arm-build,
       source-arm-execute,
     ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -3659,21 +4398,18 @@ jobs:
           retention-days: 7
 
   package:
-    needs: [
-      resolve,
-      test,
-      build,
-      source-materials,
-      source-native-linux-x64,
-      source-native-macos-x64,
-      source-native-macos-arm64,
-      source-arm-build,
-      source-arm-merge,
-    ]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request') }}
+    needs: [resolve, test, source-materials, runtime-qualification, build-x86_64-unknown-linux-gnu, build-aarch64-unknown-linux-gnu, build-x86_64-apple-darwin, build-aarch64-apple-darwin]
+    # Preserve the skipped-promotion boundary and require all four real products.
+    if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' && needs.resolve.outputs.mode == 'ci' || needs.resolve.outputs.mode == 'release-build-validation') && needs.resolve.result == 'success' && needs.test.result == 'success' && needs.source-materials.result == 'success' && needs.runtime-qualification.result == 'success' && needs.build-x86_64-unknown-linux-gnu.result == 'success' && needs.build-aarch64-unknown-linux-gnu.result == 'success' && needs.build-x86_64-apple-darwin.result == 'success' && needs.build-aarch64-apple-darwin.result == 'success' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     permissions:
       contents: read
+      attestations: read
+    outputs:
+      producer_attempt: ${{ github.run_attempt }}
+      artifact_id: ${{ steps.upload-package.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-package.outputs.artifact-digest }}
     env:
       DENO_DIR: /tmp/slv-deno-cache
     steps:
@@ -3681,102 +4417,119 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.source_sha }}
           fetch-depth: 1
+          persist-credentials: false
       - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
         with:
           deno-version: v2.9.3
-      - name: Download and verify the test job's exact canonical notice artifact
+      - name: Require all four current products and their immutable producer identities
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env scripts/release/workflow.ts guard-needs package > "$RUNNER_TEMP/qualification-mode"
+      - name: Download canonical notices and current application sources
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          artifact-ids: ${{ needs.test.outputs.license_artifact_id }}
+          artifact-ids: ${{ needs.test.outputs.license_artifact_id }},${{ needs.source-materials.outputs.artifact_id }}
           merge-multiple: true
           path: dist/release-inputs
-      - name: Download the Linux x64 product archive and receipt
+      - name: Download the exact verified runtime qualification
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: slv-product-x86_64-unknown-linux-gnu-${{ github.run_id }}
+          artifact-ids: ${{ needs.runtime-qualification.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/release-inputs/runtime-qualification
+      - name: Download the exact build-x86_64-unknown-linux-gnu archive and receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build-x86_64-unknown-linux-gnu.outputs.artifact_id }}
           merge-multiple: true
           path: dist
-      - name: Download the Linux ARM product archive and receipt
+      - name: Download the exact build-aarch64-unknown-linux-gnu archive and receipt
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: slv-product-aarch64-unknown-linux-gnu-${{ github.run_id }}
+          artifact-ids: ${{ needs.build-aarch64-unknown-linux-gnu.outputs.artifact_id }}
           merge-multiple: true
           path: dist
-      - name: Download the macOS Intel product archive and receipt
+      - name: Download the exact build-x86_64-apple-darwin archive and receipt
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: slv-product-x86_64-apple-darwin-${{ github.run_id }}
+          artifact-ids: ${{ needs.build-x86_64-apple-darwin.outputs.artifact_id }}
           merge-multiple: true
           path: dist
-      - name: Download the macOS ARM product archive and receipt
+      - name: Download the exact build-aarch64-apple-darwin archive and receipt
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: slv-product-aarch64-apple-darwin-${{ github.run_id }}
+          artifact-ids: ${{ needs.build-aarch64-apple-darwin.outputs.artifact_id }}
           merge-multiple: true
           path: dist
-      - name: Download the exact immutable source and four target proof artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          artifact-ids: ${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-native-linux-x64.outputs.artifact_id }},${{ needs.source-native-macos-x64.outputs.artifact_id }},${{ needs.source-native-macos-arm64.outputs.artifact_id }},${{ needs.source-arm-merge.outputs.artifact_id }}
-          merge-multiple: true
-          path: dist/release-inputs
-      - name: Package the fixed payload inventory for release or unsigned CI inspection
+      - name: Package the complete source-bound product inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
           deno install --frozen --allow-scripts=npm:protobufjs@7.4.0
-          test '${{ needs.test.outputs.license_producer_run_id }}' = '${{ github.run_id }}'
-          # This deliberately uses the persisted producer attempt. A downstream
-          # retry must not replace it with github.run_attempt.
+          test "$(sha256sum dist/release-inputs/runtime-qualification/verification-receipt.json | cut -d ' ' -f 1)" = '${{ needs.runtime-qualification.outputs.receipt_sha256 }}'
+          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin; do
+            expected="$(jq -er --arg job "build-$target" '.[$job].outputs.receipt_sha256' <<< "$NEEDS_JSON")"
+            test "$(sha256sum "dist/release-inputs/product-runtime/$target/product-runtime-receipt.json" | cut -d ' ' -f 1)" = "$expected"
+          done
           deno run --frozen --allow-read scripts/release/release.ts verify-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
           deno run --frozen --allow-read --allow-write scripts/release/release.ts materialize-licenses '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.test.outputs.license_producer_attempt }}' '${{ needs.test.outputs.license_notice_sha256 }}'
-          test '${{ needs.source-materials.outputs.producer_run_id }}' = '${{ github.run_id }}'
-          test '${{ needs.source-native-linux-x64.outputs.producer_run_id }}' = '${{ github.run_id }}'
-          test '${{ needs.source-native-macos-x64.outputs.producer_run_id }}' = '${{ github.run_id }}'
-          test '${{ needs.source-native-macos-arm64.outputs.producer_run_id }}' = '${{ github.run_id }}'
-          test '${{ needs.source-arm-build.outputs.producer_run_id }}' = '${{ github.run_id }}'
-          test '${{ needs.source-arm-merge.outputs.producer_run_id }}' = '${{ github.run_id }}'
-          # Each persisted producer attempt stays bound to its artifact during
-          # a partial downstream retry; never substitute github.run_attempt.
-          test -n '${{ needs.source-materials.outputs.producer_attempt }}'
-          test -n '${{ needs.source-native-linux-x64.outputs.producer_attempt }}'
-          test -n '${{ needs.source-native-macos-x64.outputs.producer_attempt }}'
-          test -n '${{ needs.source-native-macos-arm64.outputs.producer_attempt }}'
-          test -n '${{ needs.source-arm-build.outputs.producer_attempt }}'
-          test -n '${{ needs.source-arm-merge.outputs.producer_attempt }}'
-          test "$(sha256sum dist/release-inputs/source-materials-receipt.json | cut -d ' ' -f 1)" = '${{ needs.source-materials.outputs.receipt_sha256 }}'
-          test "$(sha256sum dist/release-inputs/source-proofs/x86_64-unknown-linux-gnu/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-native-linux-x64.outputs.proof_sha256 }}'
-          test "$(sha256sum dist/release-inputs/source-proofs/x86_64-apple-darwin/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-native-macos-x64.outputs.proof_sha256 }}'
-          test "$(sha256sum dist/release-inputs/source-proofs/aarch64-apple-darwin/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-native-macos-arm64.outputs.proof_sha256 }}'
-          test "$(sha256sum dist/release-inputs/source-proofs/aarch64-unknown-linux-gnu/native-proof.json | cut -d ' ' -f 1)" = '${{ needs.source-arm-merge.outputs.proof_sha256 }}'
-          deno run --frozen --allow-read scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs '${{ needs.resolve.outputs.source_sha }}' source-materials/pins.json dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES
           deno info --json --frozen cli/src/index.ts > dist/release-inputs/deno-info.json
           deno run --frozen --allow-read --allow-write scripts/release/release.ts graph dist/release-inputs/deno-info.json
-          if [ '${{ github.event_name }}' = pull_request ]; then
-            deno run --frozen --allow-read --allow-write --allow-run scripts/release/release.ts pack-ci '${{ needs.resolve.outputs.version }}' '${{ needs.resolve.outputs.source_sha }}' '${{ needs.resolve.outputs.source_ref }}' '${{ github.run_id }}' '${{ github.run_attempt }}' '${{ needs.resolve.outputs.source_timestamp }}'
-          else
-            deno task release:package -- '${{ needs.resolve.outputs.version }}' '${{ needs.resolve.outputs.source_sha }}' '${{ needs.resolve.outputs.source_ref }}' '${{ github.run_id }}' '${{ github.run_attempt }}' '${{ needs.resolve.outputs.source_timestamp }}'
-          fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          jq -e 'with_entries(select(.key | startswith("build-"))) | with_entries(.key |= sub("^build-"; "") | .value = .value.outputs.producer_attempt)' <<< "$NEEDS_JSON" > "$RUNNER_TEMP/product-producers.json"
+          state="$(cat "$RUNNER_TEMP/qualification-mode")"
+          command=pack-ci-qualified
+          if [ "$state" = final-qualified ]; then command=pack-qualified; fi
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/release.ts "$command" '${{ needs.resolve.outputs.version }}' '${{ needs.resolve.outputs.source_sha }}' '${{ needs.resolve.outputs.source_ref }}' '${{ github.run_id }}' '${{ github.run_attempt }}' '${{ needs.resolve.outputs.source_timestamp }}' '${{ github.workflow_sha }}' dist/release-inputs/runtime-qualification "$RUNNER_TEMP/product-producers.json"
+      - id: upload-package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          # PR payloads are deliberately kept out of all publisher and consumer paths.
-          name: ${{ github.event_name == 'pull_request' && 'ci-payloads' || 'release-payloads' }}
+          name: ${{ needs.resolve.outputs.release_required == 'true' && 'release-payloads' || 'ci-payloads' }}
           path: dist/release
           if-no-files-found: error
           retention-days: 7
+      - name: Preserve package policy observations outside release payloads
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-package-runtime-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/release-inputs/package-runtime-revocation.json
+          if-no-files-found: warn
+          retention-days: 7
 
   attest:
-    needs: [resolve, package]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true') }}
+    needs: [resolve, package, runtime-qualification]
+    if: ${{ github.repository == 'ValidatorsDAO/slv' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' && needs.runtime-qualification.result == 'success' && needs.runtime-qualification.outputs.qualification_state == 'final-qualified' }}
     runs-on: ubuntu-26.04
     permissions:
+      contents: read
       attestations: write
       artifact-metadata: write
       id-token: write
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
+        with:
+          deno-version: v2.9.3
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-payloads
+          artifact-ids: ${{ needs.package.outputs.artifact_id }}
+          merge-multiple: true
           path: release
+      - name: Independently reject nonfinal or replayed application payloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/release.ts verify-qualified-publication release '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.package.outputs.producer_attempt }}' '${{ github.workflow_sha }}'
       - id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -3798,10 +4551,18 @@ jobs:
           path: provenance
           if-no-files-found: error
           retention-days: 7
+      - name: Preserve the runtime policy checked before attestation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-attestation-runtime-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/release-inputs/publication-runtime-revocation.json
+          if-no-files-found: warn
+          retention-days: 7
 
   activation-required:
-    needs: [resolve, package]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true') }}
+    needs: [resolve, package, runtime-qualification]
+    if: ${{ github.repository == 'ValidatorsDAO/slv' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' && needs.runtime-qualification.result == 'success' && needs.runtime-qualification.outputs.qualification_state == 'final-qualified' }}
     runs-on: ubuntu-26.04
     permissions: {}
     env:
@@ -3831,6 +4592,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.source_sha }}
           fetch-depth: 1
+          persist-credentials: false
       - uses: denoland/setup-deno@01524fade784327df1a5ad1ead94235d392cd443 # v2.0.1
         with:
           deno-version: v2.9.3
@@ -3858,9 +4620,16 @@ jobs:
             gh attestation verify "downloaded/$subject" --bundle "downloaded/$subject.intoto.jsonl" --repo "$GH_REPO" --signer-workflow ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml --source-ref "$ATTESTED_SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done < subjects
 
+      - name: Reverify the immutable runtime and current policy for the signed application
+        run: |
+          set -euo pipefail
+          producer_run="$(jq -er .workflow.run_id downloaded/release-manifest.json)"
+          producer_attempt="$(jq -er .workflow.run_attempt downloaded/release-manifest.json)"
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/release.ts verify-qualified-publication downloaded "$SOURCE_SHA" "$producer_run" "$producer_attempt" "$SOURCE_SHA" "$RUNNER_TEMP/existing-release-policy.json"
+
   publish:
-    needs: [resolve, package, attest, activation-required]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true') }}
+    needs: [resolve, package, attest, activation-required, runtime-qualification]
+    if: ${{ github.repository == 'ValidatorsDAO/slv' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'main-release' && needs.resolve.outputs.release_required == 'true' && needs.runtime-qualification.result == 'success' && needs.runtime-qualification.outputs.qualification_state == 'final-qualified' }}
     runs-on: ubuntu-26.04
     environment: release
     concurrency:
@@ -3888,12 +4657,17 @@ jobs:
           deno-version: v2.9.3
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-payloads
+          artifact-ids: ${{ needs.package.outputs.artifact_id }}
+          merge-multiple: true
           path: release
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-provenance
           path: provenance
+      - name: Independently reject nonfinal or replayed application payloads
+        run: |
+          set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net scripts/release/release.ts verify-qualified-publication release '${{ needs.resolve.outputs.source_sha }}' '${{ github.run_id }}' '${{ needs.package.outputs.producer_attempt }}' '${{ github.workflow_sha }}'
       - name: Create or guard the exact tag and draft release
         run: |
           set -euo pipefail
@@ -3978,8 +4752,20 @@ jobs:
           while IFS= read -r subject; do
             gh attestation verify "downloaded/$subject" --bundle "downloaded/$subject.intoto.jsonl" --repo "$GH_REPO" --signer-workflow ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml --source-ref "$ATTESTED_SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done < subjects
+          qualification_identity="$(jq -er '.runtime_qualification.identity' downloaded/release-manifest.json)"
+          deno run --frozen --no-prompt --allow-net=raw.githubusercontent.com --allow-write="$RUNNER_TEMP" scripts/release/runtime-revocations.ts fresh "$qualification_identity" "$RUNNER_TEMP/application-publication-policy.json"
           gh release edit "$TAG" --repo "$GH_REPO" --draft=false
       - name: Assert the published release is immutable without mutation
         run: |
           set -euo pipefail
           test "$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '.immutable // false')" = true
+      - name: Preserve the policy observed immediately before publication
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: slv-publication-policy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/application-publication-policy.json
+            dist/release-inputs/publication-runtime-revocation.json
+          if-no-files-found: warn
+          retention-days: 7

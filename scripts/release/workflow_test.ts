@@ -12,8 +12,16 @@ import {
   resolveRelease,
   type ResolverRuntime,
   verifyBaselineRuntime,
+  verifyWorkflowNeeds,
 } from './workflow.ts'
 import { manifest, payloadSpecs } from './release.ts'
+
+const currentProductJobs = [
+  'x86_64-unknown-linux-gnu',
+  'aarch64-unknown-linux-gnu',
+  'x86_64-apple-darwin',
+  'aarch64-apple-darwin',
+].map((target) => `build-${target}`)
 
 const SHA = 'a'.repeat(40)
 const BEFORE = 'b'.repeat(40)
@@ -52,7 +60,7 @@ function jobSection(workflow: string, name: string): string {
   const start = workflow.indexOf(`  ${name}:`)
   assert(start >= 0, `missing workflow job ${name}`)
   const remainder = workflow.slice(start + 1)
-  const next = remainder.search(/\n  [a-z][a-z0-9-]*:\n/)
+  const next = remainder.search(/\n  [a-z][a-z0-9_-]*:\n/)
   return workflow.slice(start, next === -1 ? undefined : start + 1 + next)
 }
 
@@ -238,14 +246,14 @@ Deno.test('workflow persists one test-produced notice binding and makes every co
       workflow,
       'artifact-ids: ${{ needs.test.outputs.license_artifact_id }}',
     ),
-    15,
+    19,
   )
   assertEquals(
     count(
       workflow,
       'artifact-ids: ${{ needs.test.outputs.license_artifact_id }}\n          merge-multiple: true',
     ),
-    3,
+    2,
   )
 
   const verifyLines = workflow.split('\n').filter((line) =>
@@ -265,13 +273,9 @@ Deno.test('workflow persists one test-produced notice binding and makes every co
     const need of [
       'resolve',
       'test',
-      'build',
       'source-materials',
-      'source-native-linux-x64',
-      'source-native-macos-x64',
-      'source-native-macos-arm64',
-      'source-arm-build',
-      'source-arm-merge',
+      'runtime-qualification',
+      ...currentProductJobs,
     ]
   ) assert(packageSection.includes(need))
 })
@@ -303,9 +307,9 @@ Deno.test('workflow binds notices into each native executable without runner cre
   )
 })
 
-Deno.test('workflow compiles each official target only from its exact source-built baseline runtime', async () => {
+Deno.test('source validation compiles only exact source-built Linux baseline runtimes', async () => {
   const workflow = await releaseWorkflow()
-  const build = jobSection(workflow, 'build')
+  const build = jobSection(workflow, 'source-validation-products')
   const packageSection = jobSection(workflow, 'package')
 
   for (
@@ -320,7 +324,7 @@ Deno.test('workflow compiles each official target only from its exact source-bui
       'source-arm-merge',
     ]
   ) assert(build.includes(need))
-  assert(build.includes('"runner":"macos-15"'))
+  assert(!build.includes('"runner":"macos-15"'))
   assert(!build.includes('"runner":"macos-14"'))
   assert(build.includes('if: matrix.apple'))
   assert(
@@ -391,7 +395,7 @@ Deno.test('workflow compiles each official target only from its exact source-bui
     assert(build.includes(`runtime-source/${target}`))
     assert(
       packageSection.includes(
-        `name: slv-product-${target}-${'${{ github.run_id }}'}`,
+        `artifact-ids: ${'${{ needs.build-'}${target}.outputs.artifact_id }}`,
       ),
     )
   }
@@ -463,7 +467,7 @@ Deno.test('workflow compiles each official target only from its exact source-bui
 
 Deno.test('product typecheck executes the workflow argv and rejects invalid TypeScript', async () => {
   const shell = stepShell(
-    jobSection(await releaseWorkflow(), 'build'),
+    jobSection(await releaseWorkflow(), 'source-validation-products'),
     'Compile and execute the source-bound native target',
   )
   const commands = shell.match(/^deno check(?:[ \t]+[^\n]+)?$/gm) ?? []
@@ -605,8 +609,11 @@ Deno.test('workflow keeps CI-only pull-request builds and permissions narrow', a
     "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'"
 
   assert(workflow.includes('permissions: {}'))
-  assertEquals(count(workflow, ciCondition), 15)
-  assertEquals(count(workflow, 'id-token: write'), 1)
+  assert(workflow.includes(ciCondition))
+  assertEquals(count(workflow, 'id-token: write'), 2)
+  assert(
+    jobSection(workflow, 'qualification-promotion').includes('id-token: write'),
+  )
   assert(jobSection(workflow, 'attest').includes('id-token: write'))
   const legacyBootstrap = jobSection(workflow, 'legacy-bootstrap')
   const normalWorkflow = workflow.replace(legacyBootstrap, '')
@@ -854,29 +861,9 @@ Deno.test('workflow freezes source materials and uses exact identities for four 
   assert(!macX64.includes('--purpose build'))
 
   assert(
-    packageSection.includes(
-      'artifact-ids: ${{ needs.source-materials.outputs.artifact_id }},${{ needs.source-native-linux-x64.outputs.artifact_id }},${{ needs.source-native-macos-x64.outputs.artifact_id }},${{ needs.source-native-macos-arm64.outputs.artifact_id }},${{ needs.source-arm-merge.outputs.artifact_id }}',
-    ),
+    packageSection.includes('needs.runtime-qualification.outputs.artifact_id'),
   )
-  assert(packageSection.includes('merge-multiple: true'))
-  assert(
-    packageSection.includes(
-      'scripts/release/source-materials.ts verify-source-proofs dist/release-inputs/source-materials-receipt.json dist/release-inputs/source-materials dist/release-inputs/source-proofs',
-    ),
-  )
-  assert(
-    packageSection.includes(
-      'dist/release-inputs/tool-pins dist/release-inputs/THIRD_PARTY_NOTICES',
-    ),
-  )
-  for (
-    const target of [
-      ...nativeJobs.map(([, , target]) => target),
-      'aarch64-unknown-linux-gnu',
-    ]
-  ) {
-    assert(packageSection.includes(`source-proofs/${target}/native-proof.json`))
-  }
+  assert(!packageSection.includes('needs.source-native-macos'))
   assert(!packageSection.includes('path: downloaded'))
   assert(!packageSection.includes('find downloaded'))
 })
@@ -993,16 +980,13 @@ Deno.test('split native producers preserve the required facades and fail them cl
   ] as const
   for (const [job, needs, baseline, modified, joinTimeout] of facades) {
     const section = jobSection(workflow, job)
-    assert(
-      section.includes(
-        ("if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')) }}")
-          .replace(
-            " || github.event_name == 'pull_request'",
-            job === 'source-arm-build'
-              ? " || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true'"
-              : " || github.event_name == 'pull_request'",
-          ),
-      ),
+    assertEquals(
+      jobIf(section),
+      "${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification'" +
+        (job === 'source-arm-build'
+          ? " || needs.resolve.outputs.linux_validation == 'true'"
+          : '') +
+        ') }}',
     )
     assert(section.includes(`timeout-minutes: ${joinTimeout}`))
     const firstStep = section.indexOf('      - name:')
@@ -1105,7 +1089,7 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
     assert(section.includes('needs: [resolve, test, source-materials]'))
     assert(
       section.includes(
-        "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true') }}",
+        "if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}",
       ),
     )
     assert(section.includes("|| 'ubuntu-26.04' }}"))
@@ -1150,7 +1134,7 @@ Deno.test('Linux x64 cold producers isolate jobs2 builds and the facade binds bo
   ]
   assert(
     facade.includes(
-      "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic') && (!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true')) }}",
+      "if: ${{ !cancelled() && (needs.resolve.outputs.mode == 'runtime-qualification' || needs.resolve.outputs.linux_validation == 'true') }}",
     ),
   )
   assert(facade.includes('timeout-minutes: 350'))
@@ -1541,153 +1525,22 @@ Deno.test('split producers carry source-owned evidence through existing diagnost
 
 Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operation', async () => {
   const workflow = await releaseWorkflow()
-  const diagnosticExclusion =
-    "!(github.event_name == 'workflow_dispatch' && inputs.operation == 'source-native-diagnostic')"
-  assert(
-    workflow.includes(
-      'source-native-diagnostic,\n          source-build-validation,\n        ]\n      reviewed_sha:',
+  const jobNames = [
+    ...workflow.slice(workflow.indexOf('\njobs:\n')).matchAll(
+      /^  ([a-z][a-z0-9_-]*):\n/gm,
     ),
-  )
-  const expectedOldJobs = [
-    'legacy-bootstrap',
-    'resolve',
-    'test',
-    'build',
-    'source-materials',
-    'source-linux-x64-baseline',
-    'source-linux-x64-modified',
-    'source-native-linux-x64',
-    'source-arm-baseline',
-    'source-arm-modified',
-    'source-macos-x64-baseline',
-    'source-macos-x64-modified',
-    'source-native-macos-x64',
-    'source-native-macos-arm64',
-    'source-arm-build',
-    'source-arm-execute',
-    'source-arm-merge',
-    'package',
-    'attest',
-    'activation-required',
-    'verify-existing',
-    'publish',
-  ]
-  const expectedJobs = [
-    ...expectedOldJobs.slice(0, 3),
-    'source-native-diagnostic',
-    ...expectedOldJobs.slice(3),
-  ]
-  const jobs = workflow.slice(workflow.indexOf('\njobs:\n'))
-  assertEquals(
-    [...jobs.matchAll(/^  ([a-z][a-z0-9-]*):\n/gm)].map((match) => match[1]),
-    expectedJobs,
-  )
-
-  const oldConditions: Array<readonly [string, string | undefined]> = [
-    [
-      'legacy-bootstrap',
-      "github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply')",
-    ],
-    [
-      'resolve',
-      "!(github.event_name == 'workflow_dispatch' && (inputs.operation == 'legacy-bootstrap-preflight' || inputs.operation == 'legacy-bootstrap-apply'))",
-    ],
-    ['test', undefined],
-    [
-      'build',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-materials',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-linux-x64-baseline',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-linux-x64-modified',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-native-linux-x64',
-      "!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')",
-    ],
-    [
-      'source-arm-baseline',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-arm-modified',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-macos-x64-baseline',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-macos-x64-modified',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-native-macos-x64',
-      "!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')",
-    ],
-    [
-      'source-native-macos-arm64',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-arm-build',
-      "!cancelled() && (needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request')",
-    ],
-    [
-      'source-arm-execute',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'source-arm-merge',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    [
-      'package',
-      "needs.resolve.outputs.release_required == 'true' || github.event_name == 'pull_request'",
-    ],
-    ['attest', "needs.resolve.outputs.release_required == 'true'"],
-    [
-      'activation-required',
-      "needs.resolve.outputs.release_required == 'true'",
-    ],
-    ['verify-existing', "needs.resolve.outputs.publication == 'verify'"],
-    ['publish', "needs.resolve.outputs.release_required == 'true'"],
-  ]
-  const validationJobs = new Set([
-    'source-materials',
-    'source-linux-x64-baseline',
-    'source-linux-x64-modified',
-    'source-native-linux-x64',
-    'source-arm-baseline',
-    'source-arm-modified',
-    'source-arm-build',
-    'source-arm-execute',
-    'source-arm-merge',
-  ])
-  for (const [job, previousCondition] of oldConditions) {
-    if (job === 'build') continue // Its conditional needs are exercised below.
-    const oldCondition = validationJobs.has(job)
-      ? previousCondition?.replace(
-        " || github.event_name == 'pull_request'",
-        " || github.event_name == 'pull_request' || needs.resolve.outputs.linux_validation == 'true'",
-      )
-      : previousCondition
-    const section = jobSection(workflow, job)
-    assert(section.includes(diagnosticExclusion))
-    assertEquals(
-      jobIf(section),
-      oldCondition === undefined
-        ? '${{ ' + diagnosticExclusion + ' }}'
-        : '${{ ' + diagnosticExclusion + ' && (' + oldCondition + ') }}',
+  ].map((match) => match[1])
+  assertEquals(jobNames.length, 32)
+  for (const job of jobNames) {
+    if (job === 'source-native-diagnostic') continue
+    const expression = jobIf(jobSection(workflow, job))!.replace(
+      /^\$\{\{ | \}\}$/g,
+      '',
     )
+    const rejected = productExpression(expression, productNeedsFixture(false), {
+      operation: 'source-native-diagnostic',
+    })
+    assertEquals(rejected, false, job)
   }
 
   const diagnostic = jobSection(workflow, 'source-native-diagnostic')
@@ -1706,7 +1559,7 @@ Deno.test('workflow isolates and bounds the fixed ARM native diagnostic operatio
     permissions.trim(),
     'permissions:\n      contents: read\n      actions: read',
   )
-  assertEquals(count(workflow, 'actions: read'), 1)
+  assertEquals(count(workflow, 'actions: read'), 5)
   assert(!diagnostic.includes('environment:'))
   assert(!diagnostic.includes('secrets.'))
   assert(!diagnostic.includes('outputs:'))
@@ -3557,10 +3410,16 @@ Deno.test('resolver accepts only an advancing main source with usable before and
     runtime({
       EVENT: 'push',
       REF: 'refs/heads/main',
+      GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+      SLV_LINUX_BUILDERS_ENABLED: 'true',
+      GITHUB_WORKFLOW_SHA: SHA,
+      GITHUB_WORKFLOW_REF:
+        'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
       GITHUB_SHA: SHA,
       BEFORE,
       AFTER: SHA,
     }, {
+      'git rev-parse HEAD': ok(SHA),
       [`git show ${BEFORE}:cmn/constants/version.ts`]: ok(
         versionFile('2026.6.6.2025'),
       ),
@@ -3578,10 +3437,16 @@ Deno.test('resolver accepts only an advancing main source with usable before and
     runtime({
       EVENT: 'push',
       REF: 'refs/heads/main',
+      GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+      SLV_LINUX_BUILDERS_ENABLED: 'true',
+      GITHUB_WORKFLOW_SHA: SHA,
+      GITHUB_WORKFLOW_REF:
+        'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
       GITHUB_SHA: SHA,
       BEFORE,
       AFTER: SHA,
     }, {
+      'git rev-parse HEAD': ok(SHA),
       [`git show ${BEFORE}:cmn/constants/version.ts`]: ok(
         versionFile('2026.6.6.2025'),
       ),
@@ -3600,10 +3465,16 @@ Deno.test('resolver accepts only an advancing main source with usable before and
         runtime({
           EVENT: 'push',
           REF: 'refs/heads/main',
+          GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+          SLV_LINUX_BUILDERS_ENABLED: 'true',
+          GITHUB_WORKFLOW_SHA: SHA,
+          GITHUB_WORKFLOW_REF:
+            'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
           GITHUB_SHA: SHA,
           BEFORE,
           AFTER: SHA,
         }, {
+          'git rev-parse HEAD': ok(SHA),
           [`git show ${BEFORE}:cmn/constants/version.ts`]: ok(
             versionFile('2026.6.6.2027'),
           ),
@@ -3675,10 +3546,10 @@ Deno.test('resolver binds tags and dispatch to their exact selected source', asy
       [`git merge-base --is-ancestor ${SHA} origin/main`]: ok(),
       [`git show -s --format=%cI ${SHA}`]: ok('2026-06-06T20:26:00+00:00'),
     }),
-    'draft',
+    'immutable',
   )
   assertEquals(result.mode, 'tag-recovery')
-  assertEquals(result.publication, 'recover')
+  assertEquals(result.publication, 'verify')
   await assertRejects(
     () =>
       resolveRelease(
@@ -3812,6 +3683,16 @@ Deno.test('draft recovery only accepts the original manifest artifact attempt', 
     await Deno.writeTextFile(existing, JSON.stringify(original))
     await Deno.writeTextFile(staged, JSON.stringify(original))
     await guardDraftManifest(existing, staged)
+    for (
+      const altered of [
+        { ...original, unknown: true },
+        { ...original, schema_version: 2 },
+        { ...original, runtime_qualification: { state: 'final-qualified' } },
+      ]
+    ) {
+      await Deno.writeTextFile(staged, JSON.stringify(altered))
+      await assertRejects(() => guardDraftManifest(existing, staged))
+    }
     await Deno.writeTextFile(staged, JSON.stringify(rerun))
     await assertRejects(
       () => guardDraftManifest(existing, staged),
@@ -3869,215 +3750,6 @@ Deno.test('source-build-validation requires exact reviewed workflow and source w
       'absent',
     )
   )
-})
-
-Deno.test('Linux routing binds each build label and profile to the trusted release or reviewed validation', async () => {
-  const workflow = await releaseWorkflow()
-  assert(
-    workflow.includes(
-      "run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'source-build-validation' && format('SLV Linux source validation {0}', inputs.reviewed_sha) || 'SLV verified release' }}",
-    ),
-  )
-  const heavy = [
-    'source-linux-x64-baseline',
-    'source-linux-x64-modified',
-    'source-arm-baseline',
-    'source-arm-modified',
-  ]
-  assertEquals(count(workflow, "format('slv-build-{0}-{1}-"), 4)
-  const evaluate = (
-    expression: string,
-    event: string,
-    ref: string,
-    enabled: string,
-    validation: string,
-    release: string,
-    repository = 'ValidatorsDAO/slv',
-  ) =>
-    new Function('github', 'vars', 'needs', 'format', `return (${expression})`)(
-      { event_name: event, ref, repository, run_id: '123', run_attempt: '2' },
-      { SLV_LINUX_BUILDERS_ENABLED: enabled },
-      {
-        resolve: {
-          outputs: { linux_validation: validation, release_required: release },
-        },
-      },
-      (value: string, ...args: string[]) =>
-        value.replace(/\{(\d+)\}/g, (_, n) => args[Number(n)]),
-    )
-  for (const job of heavy) {
-    const section = jobSection(workflow, job)
-    const route = section.match(/^    runs-on: \$\{\{ (.+) \}\}$/m)?.[1]
-    const profile = section.match(
-      /^      LINUX_BUILD_PROFILE: \$\{\{ (.+) \}\}$/m,
-    )?.[1]
-    assert(route && profile)
-    for (
-      const [event, ref, enabled, validation, release, repository, admitted]
-        of [
-          [
-            'push',
-            'refs/heads/main',
-            'true',
-            'false',
-            'true',
-            'ValidatorsDAO/slv',
-            true,
-          ],
-          [
-            'workflow_dispatch',
-            'refs/heads/main',
-            'true',
-            'false',
-            'true',
-            'ValidatorsDAO/slv',
-            true,
-          ],
-          [
-            'push',
-            'refs/heads/main',
-            'false',
-            'false',
-            'true',
-            'ValidatorsDAO/slv',
-            false,
-          ],
-          [
-            'pull_request',
-            'refs/heads/main',
-            'true',
-            'false',
-            'true',
-            'ValidatorsDAO/slv',
-            false,
-          ],
-          [
-            'push',
-            'refs/tags/v2026.1.1.0',
-            'true',
-            'false',
-            'true',
-            'ValidatorsDAO/slv',
-            false,
-          ],
-          [
-            'workflow_dispatch',
-            'refs/heads/other',
-            'true',
-            'false',
-            'true',
-            'ValidatorsDAO/slv',
-            false,
-          ],
-          [
-            'push',
-            'refs/heads/main',
-            'true',
-            'false',
-            'true',
-            'example/fork',
-            false,
-          ],
-          [
-            'push',
-            'refs/heads/main',
-            'true',
-            'false',
-            'false',
-            'ValidatorsDAO/slv',
-            false,
-          ],
-          [
-            'workflow_dispatch',
-            'refs/heads/codex/slv-linux-ephemeral-release',
-            'false',
-            'true',
-            'false',
-            'ValidatorsDAO/slv',
-            true,
-          ],
-        ] as const
-    ) {
-      assertEquals(
-        evaluate(route, event, ref, enabled, validation, release, repository),
-        admitted ? `slv-build-123-2-${job}` : 'ubuntu-26.04',
-      )
-      assertEquals(
-        evaluate(profile, event, ref, enabled, validation, release, repository),
-        admitted ? 'linux-16' : '',
-      )
-    }
-    assert(
-      section.includes(
-        'linux-16) build_args=(--build-profile linux-16 --jobs 16)',
-      ),
-    )
-    assert(section.includes('timeout-minutes: 350'))
-    assert(section.includes('id: variant\n        timeout-minutes: 320'))
-    assert(!section.includes('secrets.'))
-  }
-  const admitted = [
-    'build',
-    'source-materials',
-    ...heavy,
-    'source-native-linux-x64',
-    'source-arm-build',
-    'source-arm-execute',
-    'source-arm-merge',
-  ]
-  for (const job of admitted) {
-    assert(
-      jobIf(jobSection(workflow, job))?.includes(
-        "needs.resolve.outputs.linux_validation == 'true'",
-      ),
-      job,
-    )
-  }
-  for (
-    const job of [
-      'source-macos-x64-baseline',
-      'source-macos-x64-modified',
-      'source-native-macos-x64',
-      'source-native-macos-arm64',
-      'package',
-      'attest',
-      'publish',
-      'activation-required',
-      'verify-existing',
-      'legacy-bootstrap',
-    ]
-  ) {
-    const condition = jobIf(jobSection(workflow, job))
-    assert(condition && !condition.includes('linux_validation'), job)
-  }
-  assert(
-    jobSection(workflow, 'source-arm-execute').includes(
-      'runs-on: ubuntu-26.04-arm',
-    ),
-  )
-  for (
-    const job of [
-      'resolve',
-      'source-native-linux-x64',
-      'source-arm-build',
-      'source-arm-merge',
-      'attest',
-      'publish',
-    ]
-  ) {
-    assert(jobSection(workflow, job).includes('runs-on: ubuntu-26.04'), job)
-  }
-  const resolver = jobSection(workflow, 'resolve')
-  for (
-    const binding of [
-      'INPUT_OPERATION: ${{ inputs.operation }}',
-      'INPUT_REVIEWED_SHA: ${{ inputs.reviewed_sha }}',
-      'GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}',
-      'GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}',
-      'GITHUB_REPOSITORY: ${{ github.repository }}',
-    ]
-  ) assert(resolver.includes(binding))
-  assertEquals(count(workflow, '--deny-self-hosted-runners'), 2)
 })
 
 Deno.test('validation resolver CLI emits no publication and never queries release credentials', async () => {
@@ -4259,7 +3931,7 @@ function productExpression(
 
 Deno.test('Linux validation product routing requires six successful Linux prerequisites and two skipped Macs', async () => {
   const workflow = await releaseWorkflow()
-  const build = jobSection(workflow, 'build')
+  const build = jobSection(workflow, 'source-validation-products')
   const condition = jobIf(build)?.match(/^\$\{\{ (.*) \}\}$/)?.[1]
   const matrix = build.match(/^        include: \$\{\{ (.+) \}\}$/m)?.[1]
   assert(condition && matrix)
@@ -4300,7 +3972,7 @@ Deno.test('Linux validation product routing requires six successful Linux prereq
     false,
   )
   assertEquals(
-    productExpression(condition, accepted, {
+    productExpression(condition, productNeedsFixture(false), {
       operation: 'source-native-diagnostic',
     }),
     false,
@@ -4346,14 +4018,14 @@ Deno.test('Linux validation product routing requires six successful Linux prereq
   const normal = productNeedsFixture(false)
   assertEquals(
     productExpression(condition, normal, { operation: 'release' }),
-    true,
+    false,
   )
-  assertEquals(productExpression(matrix, normal), ordinaryProductRows)
+  assertEquals(productExpression(matrix, normal), linuxProductRows)
   assert((await runPrerequisiteShell(shell, JSON.stringify(normal))).success)
   normal.resolve.outputs.release_required = 'false'
   assertEquals(
     productExpression(condition, normal, { event: 'pull_request' }),
-    true,
+    false,
   )
   assertEquals(productExpression(condition, normal, { event: 'push' }), false)
   for (const job of productNeeds.filter((job) => job.includes('macos'))) {
@@ -4370,7 +4042,10 @@ Deno.test('Linux validation product routing requires six successful Linux prereq
 })
 
 Deno.test('Linux validation selects only exact current-run artifact identities and persisted attempts', async () => {
-  const build = jobSection(await releaseWorkflow(), 'build')
+  const build = jobSection(
+    await releaseWorkflow(),
+    'source-validation-products',
+  )
   const shell = stepShell(
     build,
     'Validate exact Linux validation artifact identities',
@@ -4481,7 +4156,10 @@ Deno.test('Linux validation selects only exact current-run artifact identities a
 })
 
 Deno.test('validation compile phase binds proofs and version bytes before its per-row archive consumer', async () => {
-  const build = jobSection(await releaseWorkflow(), 'build')
+  const build = jobSection(
+    await releaseWorkflow(),
+    'source-validation-products',
+  )
   const originalShell = stepShell(
     build,
     'Compile and execute the source-bound native target',
@@ -4728,6 +4406,1413 @@ esac
           args.includes('verify-linux-validation')
         ),
       )
+    }
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
+})
+
+Deno.test('new dispatch modes reject any source, workflow, ref, title or event mismatch', async () => {
+  for (
+    const operation of ['release-build-validation', 'runtime-qualification']
+  ) {
+    const ref = operation === 'runtime-qualification'
+      ? 'refs/heads/main'
+      : 'refs/heads/codex/slv-linux-all-targets'
+    const title = operation === 'runtime-qualification'
+      ? 'SLV runtime qualification'
+      : 'SLV release build validation'
+    const values = {
+      EVENT: 'workflow_dispatch',
+      REF: ref,
+      GITHUB_SHA: SHA,
+      INPUT_OPERATION: operation,
+      INPUT_REVIEWED_SHA: SHA,
+      GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+      GITHUB_WORKFLOW_SHA: SHA,
+      GITHUB_WORKFLOW_REF:
+        `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${ref}`,
+      GITHUB_RUN_TITLE: `${title} ${SHA}`,
+    }
+    const responses = {
+      'git rev-parse HEAD': ok(SHA),
+      [`git show ${SHA}:cmn/constants/version.ts`]: ok(
+        versionFile('2026.10.17.2011'),
+      ),
+      [`git show -s --format=%cI ${SHA}`]: ok('2026-10-18T00:00:00Z'),
+    }
+    const resolution = await resolveRelease(
+      runtime(values, responses),
+      'absent',
+    )
+    assertEquals(resolution.mode, operation)
+    assertEquals(resolution.publication, 'none')
+    assertEquals(resolution.release_required, false)
+    assertEquals(resolution.linux_validation, false)
+    assertEquals(resolution.version, '2026.10.17.2011')
+    for (
+      const changed of [
+        { EVENT: 'push' },
+        { EVENT: 'pull_request' },
+        { REF: 'refs/heads/other' },
+        { GITHUB_REPOSITORY: 'attacker/slv' },
+        { GITHUB_SHA: BEFORE },
+        { INPUT_REVIEWED_SHA: BEFORE },
+        { INPUT_REVIEWED_SHA: SHA.slice(0, 12) },
+        { GITHUB_WORKFLOW_SHA: BEFORE },
+        {
+          GITHUB_WORKFLOW_REF:
+            'ValidatorsDAO/slv/.github/workflows/other.yml@' + ref,
+        },
+        { GITHUB_RUN_TITLE: title },
+        { GITHUB_RUN_TITLE: `${title} ${BEFORE}` },
+        { INPUT_OPERATION: 'unknown' },
+      ]
+    ) {
+      await assertRejects(() =>
+        resolveRelease(runtime({ ...values, ...changed }, responses), 'absent')
+      )
+    }
+    await assertRejects(() =>
+      resolveRelease(
+        runtime(values, { ...responses, 'git rev-parse HEAD': ok(BEFORE) }),
+        'absent',
+      )
+    )
+  }
+})
+
+function qualificationNeeds(
+  phase: 'runtime' | 'product' | 'package',
+  final = false,
+): ProductNeeds {
+  const names = phase === 'runtime'
+    ? ['resolve', 'qualification-inputs', 'qualification-promotion']
+    : [
+      'resolve',
+      'test',
+      'source-materials',
+      'runtime-qualification',
+      ...(phase === 'package' ? currentProductJobs : []),
+    ]
+  const needs: ProductNeeds = Object.fromEntries(names.map((name, i) => [name, {
+    result: 'success',
+    outputs: {
+      artifact_id: String(i + 10),
+      artifact_digest: 'sha256:' + 'd'.repeat(64),
+      producer_run_id: '123',
+      producer_attempt: '2',
+      receipt_sha256: 'e'.repeat(64),
+    },
+  }]))
+  needs.resolve.outputs = {
+    mode: final ? 'main-release' : 'release-build-validation',
+    release_required: String(final),
+    source_sha: SHA,
+  }
+  if (needs.test) {
+    needs.test.outputs = {
+      license_artifact_id: '9',
+      license_artifact_digest: 'sha256:' + 'b'.repeat(64),
+      license_producer_run_id: '123',
+      license_producer_attempt: '1',
+      license_notice_sha256: 'c'.repeat(64),
+    }
+  }
+  if (needs['qualification-promotion']) {
+    needs['qualification-promotion'] = {
+      result: final ? 'success' : 'skipped',
+      outputs: {},
+    }
+  }
+  if (needs['runtime-qualification']) {
+    needs['runtime-qualification'].outputs.qualification_state = final
+      ? 'final-qualified'
+      : 'candidate-validation'
+  }
+  return needs
+}
+
+Deno.test('actual prerequisite guard rejects missing products, wrong producers and candidate main promotion', () => {
+  for (const phase of ['runtime', 'product', 'package'] as const) {
+    for (const final of [false, true]) {
+      const needs = qualificationNeeds(phase, final)
+      const event = final ? 'push' : 'workflow_dispatch',
+        ref = final
+          ? 'refs/heads/main'
+          : 'refs/heads/codex/slv-linux-all-targets'
+      const verify = (value: unknown, run = '123', attempt = '3') =>
+        verifyWorkflowNeeds(phase, value, run, attempt, event, ref)
+      assertEquals(
+        verify(needs),
+        final ? 'final-qualified' : 'candidate-validation',
+      )
+      for (const [name, job] of Object.entries(needs)) {
+        const missing = structuredClone(needs)
+        delete missing[name]
+        assertThrows(() => verify(missing))
+        for (
+          const result of [
+            'failure',
+            'cancelled',
+            job.result === 'success' ? 'skipped' : 'success',
+          ]
+        ) {
+          const bad = structuredClone(needs)
+          bad[name].result = result
+          assertThrows(() => verify(bad))
+        }
+        if (name === 'resolve' || name === 'qualification-promotion') continue
+        const prefix = name === 'test' ? 'license_' : ''
+        for (
+          const [field, values] of [
+            [prefix + 'artifact_id', ['0', '01', '1,2', '']],
+            [prefix + 'artifact_digest', ['', 'sha256:', 'g'.repeat(64)]],
+            [prefix + 'producer_run_id', ['0', '124', '']],
+            [prefix + 'producer_attempt', ['0', '4', '2.1', '']],
+            [name === 'test' ? 'license_notice_sha256' : 'receipt_sha256', [
+              '',
+              'a'.repeat(63),
+            ]],
+          ] as const
+        ) {
+          for (const value of values) {
+            const bad = structuredClone(needs)
+            bad[name].outputs[field] = value
+            assertThrows(() => verify(bad))
+          }
+        }
+      }
+      assertThrows(() =>
+        verify({ ...needs, unexpected: { result: 'success', outputs: {} } })
+      )
+      assertThrows(() => verify(needs, '0'))
+      assertThrows(() => verify(needs, '123', '0'))
+      if (phase !== 'runtime') {
+        const bad = structuredClone(needs)
+        bad['runtime-qualification'].outputs.qualification_state = final
+          ? 'candidate-validation'
+          : 'final-qualified'
+        assertThrows(() => verify(bad))
+      }
+      const bad = structuredClone(needs)
+      bad.resolve.outputs.mode = 'runtime-qualification'
+      assertThrows(() => verify(bad))
+    }
+  }
+})
+
+function evaluateJobExpression(
+  expression: string,
+  overrides: {
+    event?: string
+    ref?: string
+    mode?: string
+    enabled?: string
+    repository?: string
+    linuxValidation?: string
+    required?: string
+    needs?: ProductNeeds
+    cancelled?: boolean
+    operation?: string
+    ancestorResults?: string[]
+  } = {},
+) {
+  const needs = overrides.needs ?? qualificationNeeds('product', true)
+  needs.resolve.outputs = {
+    ...needs.resolve.outputs,
+    mode: overrides.mode ?? 'main-release',
+    linux_validation: overrides.linuxValidation ?? 'false',
+    release_required: overrides.required ?? 'true',
+  }
+  return new Function(
+    'github',
+    'vars',
+    'needs',
+    'inputs',
+    'cancelled',
+    'always',
+    'success',
+    'failure',
+    'format',
+    'fromJSON',
+    `return (${expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]')})`,
+  )(
+    {
+      repository: overrides.repository ?? 'ValidatorsDAO/slv',
+      event_name: overrides.event ?? 'push',
+      ref: overrides.ref ?? 'refs/heads/main',
+      run_id: '123',
+      run_attempt: '2',
+    },
+    { SLV_LINUX_BUILDERS_ENABLED: overrides.enabled ?? 'true' },
+    needs,
+    { operation: overrides.operation ?? 'release' },
+    () => overrides.cancelled ?? false,
+    () => true,
+    () =>
+      (overrides.ancestorResults ?? []).every((result) => result === 'success'),
+    () => (overrides.ancestorResults ?? []).includes('failure'),
+    (value: string, ...args: string[]) =>
+      value.replace(/\{(\d+)\}/g, (_, n) => args[Number(n)]),
+    JSON.parse,
+  )
+}
+
+// Job conditions implicitly include success() unless they contain a status
+// function. That check includes transitive dependencies, even when a later
+// verification job explicitly continued past an intentionally skipped ancestor.
+// https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds
+// https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions
+function scheduledQualificationJob(
+  workflow: string,
+  job: string,
+  completed: ProductNeeds,
+  context: Parameters<typeof evaluateJobExpression>[1],
+): boolean {
+  const dependencies = (name: string) => {
+    const raw = jobSection(workflow, name).match(
+      /^    needs: (\[[\s\S]*?\]|[a-z][a-z0-9_-]*)$/m,
+    )?.[1]
+    return raw ? raw.replace(/[\[\]\s]/g, '').split(',') : []
+  }
+  const ancestors = new Set<string>()
+  const visit = (name: string) => {
+    for (const prerequisite of dependencies(name)) {
+      if (ancestors.has(prerequisite)) continue
+      ancestors.add(prerequisite)
+      visit(prerequisite)
+    }
+  }
+  visit(job)
+  const ancestorResults = [...ancestors].map((name) =>
+    completed[name]?.result ?? 'missing'
+  )
+  const expression = jobIf(jobSection(workflow, job))?.slice(4, -3) ?? 'true'
+  if (
+    !/\b(?:always|cancelled|success|failure)\s*\(/.test(expression) &&
+    !ancestorResults.every((result) => result === 'success')
+  ) return false
+  const needs = Object.fromEntries(
+    dependencies(job).map((name) => [
+      name,
+      structuredClone(completed[name] ?? { result: '', outputs: {} }),
+    ]),
+  )
+  return evaluateJobExpression(expression, {
+    ...context,
+    needs,
+    ancestorResults,
+  })
+}
+
+Deno.test('qualified scheduling crosses skipped promotion only after successful direct prerequisites', async () => {
+  const workflow = await releaseWorkflow()
+  for (const mode of ['release-build-validation', 'ci', 'main-release']) {
+    const final = mode === 'main-release'
+    const context = {
+      event: final
+        ? 'push'
+        : mode === 'ci'
+        ? 'pull_request'
+        : 'workflow_dispatch',
+      ref: final
+        ? 'refs/heads/main'
+        : mode === 'ci'
+        ? 'refs/pull/7/merge'
+        : 'refs/heads/codex/slv-linux-all-targets',
+      mode,
+      required: String(final),
+      operation: mode === 'release-build-validation' ? mode : 'release',
+    }
+    const completed: ProductNeeds = {
+      ...qualificationNeeds('runtime', final),
+      ...qualificationNeeds('package', final),
+      package: { result: 'success', outputs: {} },
+      attest: { result: 'success', outputs: {} },
+      'activation-required': { result: 'success', outputs: {} },
+    }
+    completed.resolve.outputs.publication = final ? 'publish' : 'none'
+    const runs = (job: string, needs = completed, cancelled = false) =>
+      scheduledQualificationJob(workflow, job, needs, { ...context, cancelled })
+    assertEquals(runs('qualification-inputs'), true, mode)
+    assertEquals(runs('qualification-promotion'), final, mode)
+    assertEquals(runs('runtime-qualification'), true, mode)
+    for (const job of [...currentProductJobs, 'package']) {
+      assertEquals(runs(job), true, `${mode}: ${job} must actually schedule`)
+      assertEquals(
+        runs(job, completed, true),
+        false,
+        `${mode}: cancelled ${job}`,
+      )
+      const prerequisites = job === 'package'
+        ? qualificationNeeds('package', final)
+        : qualificationNeeds('product', final)
+      for (const prerequisite of Object.keys(prerequisites)) {
+        for (const result of ['failure', 'cancelled', 'skipped', 'missing']) {
+          const bad = structuredClone(completed)
+          if (result === 'missing') delete bad[prerequisite]
+          else bad[prerequisite].result = result
+          assertEquals(
+            runs(job, bad),
+            false,
+            `${mode}: ${job} must reject ${prerequisite} ${result}`,
+          )
+        }
+      }
+    }
+    for (const target of ['x86_64-apple-darwin', 'aarch64-apple-darwin']) {
+      assertEquals(
+        runs(`validation-smoke-${target}`),
+        mode === 'release-build-validation',
+      )
+    }
+    for (const job of ['attest', 'activation-required', 'publish']) {
+      assertEquals(runs(job), final, `${mode}: ${job} publication boundary`)
+    }
+    if (final) {
+      for (const result of ['skipped', 'failure', 'cancelled']) {
+        const bad = structuredClone(completed)
+        bad['qualification-promotion'].result = result
+        assertEquals(runs('runtime-qualification', bad), false)
+        bad['runtime-qualification'].result = 'skipped'
+        for (
+          const job of [...currentProductJobs, 'package', 'attest', 'publish']
+        ) {
+          assertEquals(runs(job, bad), false, `${job}: no final promotion`)
+        }
+      }
+    }
+  }
+})
+
+Deno.test('product jobs expose only the verified frontend after acquisition succeeds', async () => {
+  const workflow = await releaseWorkflow()
+  const title = 'Install the exact qualification-pinned compiler frontend'
+  assertEquals(count(workflow, `      - name: ${title}\n`), 4)
+  for (const job of currentProductJobs) {
+    const section = jobSection(workflow, job)
+    assert(
+      section.indexOf('Require exact product prerequisites') <
+        section.indexOf(title),
+    )
+    assert(
+      section.indexOf(title) < section.indexOf('Download canonical notices'),
+    )
+    assert(
+      section.indexOf(title) <
+        section.indexOf('Compile and verify the fresh application product'),
+    )
+    const shell = stepShell(section, title)
+    const directory = await Deno.makeTempDir({ prefix: 'slv frontend step ' })
+    try {
+      const bin = `${directory}/bootstrap`,
+        pathFile = `${directory}/github path`
+      const calls = `${directory}/calls`
+      await Deno.mkdir(bin)
+      await Deno.writeTextFile(
+        `${bin}/deno`,
+        `#!/bin/sh
+set -eu
+printf '%s\\n' "$@" > "$FRONTEND_CALLS"
+test "$MOCK_FRONTEND_FAILURE" = 0 || exit 71
+for argument in "$@"; do destination="$argument"; done
+mkdir -m 700 "$destination"
+printf '#!/bin/sh\\nprintf "qualified-frontend\\\\n"\\n' > "$destination/deno"
+chmod 700 "$destination/deno"
+`,
+      )
+      await Deno.chmod(`${bin}/deno`, 0o700)
+      const environment = {
+        PATH: `${bin}:${Deno.env.get('PATH') ?? ''}`,
+        RUNNER_TEMP: directory,
+        GITHUB_PATH: pathFile,
+        FRONTEND_CALLS: calls,
+      }
+      await Deno.writeTextFile(pathFile, 'existing-tool\n')
+      const failed = await runDiagnosticGuard(shell, {
+        ...environment,
+        MOCK_FRONTEND_FAILURE: '1',
+      })
+      assertEquals(failed.code, 71)
+      assertEquals(await Deno.readTextFile(pathFile), 'existing-tool\n')
+      await assertRejects(
+        () => Deno.stat(`${directory}/slv-qualified-frontend`),
+        Deno.errors.NotFound,
+      )
+      const passed = await runDiagnosticGuard(shell, {
+        ...environment,
+        MOCK_FRONTEND_FAILURE: '0',
+      })
+      assert(passed.success, new TextDecoder().decode(passed.stderr))
+      const recorded = (await Deno.readTextFile(calls)).trimEnd().split('\n')
+      assertEquals(recorded.slice(-3), [
+        'scripts/release/prepare-frontend.ts',
+        'source-materials/runtime-qualification.json',
+        `${directory}/slv-qualified-frontend`,
+      ])
+      assert(recorded.includes('--frozen'))
+      assert(recorded.includes('--no-prompt'))
+      assert(
+        recorded.includes(
+          '--allow-net=github.com,release-assets.githubusercontent.com,objects.githubusercontent.com',
+        ),
+      )
+      assertEquals(
+        await Deno.readTextFile(pathFile),
+        `existing-tool\n${directory}/slv-qualified-frontend\n`,
+      )
+      const next = await runDiagnosticGuard('deno --version', {
+        PATH: `${directory}/slv-qualified-frontend:${environment.PATH}`,
+      })
+      assert(next.success)
+      assertEquals(
+        new TextDecoder().decode(next.stdout),
+        'qualified-frontend\n',
+      )
+    } finally {
+      await Deno.remove(directory, { recursive: true })
+    }
+  }
+})
+
+Deno.test('four explicit products use Linux profiles and source qualification never enters ordinary DAG', async () => {
+  const workflow = await releaseWorkflow()
+  assert(!/^  build:/m.test(workflow))
+  const sourceJobs = [
+    'source-linux-x64-baseline',
+    'source-linux-x64-modified',
+    'source-native-linux-x64',
+    'source-arm-baseline',
+    'source-arm-modified',
+    'source-arm-build',
+    'source-arm-execute',
+    'source-arm-merge',
+    'source-macos-x64-baseline',
+    'source-macos-x64-modified',
+    'source-native-macos-x64',
+    'source-native-macos-arm64',
+  ]
+  for (const job of sourceJobs) {
+    const section = jobSection(workflow, job),
+      condition = jobIf(section)!.slice(4, -3)
+    assertEquals(evaluateJobExpression(condition), false, job)
+    assertEquals(
+      evaluateJobExpression(condition, {
+        event: 'pull_request',
+        ref: 'refs/pull/7/merge',
+        mode: 'ci',
+      }),
+      false,
+      job,
+    )
+    assertEquals(
+      evaluateJobExpression(condition, {
+        event: 'workflow_dispatch',
+        mode: 'release-build-validation',
+      }),
+      false,
+      job,
+    )
+    assertEquals(
+      evaluateJobExpression(condition, {
+        event: 'workflow_dispatch',
+        mode: 'runtime-qualification',
+        required: 'false',
+      }),
+      true,
+      job,
+    )
+    assertEquals(
+      evaluateJobExpression(condition, {
+        event: 'workflow_dispatch',
+        mode: 'source-build-validation',
+        linuxValidation: 'true',
+        required: 'false',
+      }),
+      !job.includes('macos'),
+      job,
+    )
+  }
+  for (const job of currentProductJobs) {
+    const section = jobSection(workflow, job),
+      arm = job === 'build-aarch64-unknown-linux-gnu',
+      host = arm ? 'ubuntu-26.04-arm' : 'ubuntu-26.04'
+    assert(section.includes(`name: ${job}\n`))
+    assert(section.includes('timeout-minutes: 30'))
+    assert(
+      section.includes(
+        'needs: [resolve, test, source-materials, runtime-qualification]',
+      ),
+    )
+    assert(!section.includes('strategy:'))
+    assert(!section.includes('macos-'))
+    assert(!section.includes('source-native-'))
+    assert(!section.includes('GH_TOKEN:'))
+    assert(!section.includes('id-token: write'))
+    assert(!section.includes('environment:'))
+    assert(section.includes('persist-credentials: false'))
+    const route = section.match(/^    runs-on: \$\{\{ (.+) \}\}$/m)![1],
+      profile =
+        section.match(/^      PRODUCT_BUILD_PROFILE: \$\{\{ (.+) \}\}$/m)![1]
+    assertEquals(evaluateJobExpression(route), `slv-build-123-2-${job}`)
+    assertEquals(
+      evaluateJobExpression(profile),
+      arm ? 'linux-arm64-4' : 'linux-16',
+    )
+    for (
+      const overrides of [
+        {
+          event: 'pull_request',
+          ref: 'refs/pull/7/merge',
+          mode: 'ci',
+          required: 'false',
+        },
+        { repository: 'attacker/slv' },
+        { event: 'workflow_dispatch', ref: 'refs/tags/v2026.10.17.2011' },
+        { ref: 'refs/heads/other' },
+        { enabled: 'false' },
+        { required: 'false' },
+      ]
+    ) assertEquals(evaluateJobExpression(route, overrides), host)
+    assertEquals(
+      evaluateJobExpression(route, {
+        event: 'workflow_dispatch',
+        ref: 'refs/heads/codex/slv-linux-all-targets',
+        mode: 'release-build-validation',
+        required: 'false',
+        enabled: 'false',
+      }),
+      `slv-build-123-2-${job}`,
+    )
+    assert(section.includes('scripts/release/build-product.ts compile'))
+    assert(section.includes(`--target ${job.slice(6)}`))
+    const packageJob = jobSection(workflow, 'package')
+    assert(packageJob.includes(`needs.${job}.outputs.artifact_id`))
+  }
+  for (const job of ['attest', 'publish']) {
+    const section = jobSection(workflow, job)
+    assert(section.includes('verify-qualified-publication release'))
+    assert(
+      section.includes(
+        "needs.runtime-qualification.outputs.qualification_state == 'final-qualified'",
+      ),
+    )
+    assert(section.includes('runs-on: ubuntu-26.04'))
+  }
+  const promotion = jobSection(workflow, 'qualification-promotion')
+  assert(promotion.includes('environment: release'))
+  assert(promotion.includes('--latest=false'))
+  assert(!promotion.includes('--clobber'))
+  for (const job of ['qualification-promotion', 'attest', 'publish']) {
+    const expression = jobIf(jobSection(workflow, job))!.slice(4, -3)
+    assertEquals(
+      evaluateJobExpression(expression, {
+        event: 'pull_request',
+        ref: 'refs/pull/7/merge',
+        mode: 'ci',
+        required: 'false',
+      }),
+      false,
+    )
+    assertEquals(
+      evaluateJobExpression(expression, {
+        event: 'workflow_dispatch',
+        mode: 'release-build-validation',
+        required: 'false',
+      }),
+      false,
+    )
+  }
+})
+
+Deno.test('main release requires actual Linux builder capability while unchanged main and PR remain CI', async () => {
+  const values: Record<string, string> = {
+    EVENT: 'push',
+    REF: 'refs/heads/main',
+    GITHUB_SHA: SHA,
+    BEFORE,
+    AFTER: SHA,
+    GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+    GITHUB_WORKFLOW_SHA: SHA,
+    GITHUB_WORKFLOW_REF:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main',
+    SLV_LINUX_BUILDERS_ENABLED: 'true',
+  }
+  const responses = {
+    'git rev-parse HEAD': ok(SHA),
+    [`git show ${SHA}:cmn/constants/version.ts`]: ok(
+      versionFile('2026.10.17.2011'),
+    ),
+    [`git show ${BEFORE}:cmn/constants/version.ts`]: ok(
+      versionFile('2026.6.6.2026'),
+    ),
+    [`git show -s --format=%cI ${SHA}`]: ok('2026-10-18T00:00:00Z'),
+  }
+  assertEquals(
+    (await resolveRelease(runtime(values, responses), 'absent'))
+      .release_required,
+    true,
+  )
+  for (const flag of ['', 'false']) {
+    await assertRejects(
+      () =>
+        resolveRelease(
+          runtime({ ...values, SLV_LINUX_BUILDERS_ENABLED: flag }, responses),
+          'absent',
+        ),
+      Error,
+      'enabled Linux builders',
+    )
+  }
+  const missing = { ...values }
+  delete missing.SLV_LINUX_BUILDERS_ENABLED
+  await assertRejects(() =>
+    resolveRelease(runtime(missing, responses), 'absent')
+  )
+  for (
+    const change of [{ GITHUB_REPOSITORY: 'other/slv' }, {
+      GITHUB_WORKFLOW_SHA: BEFORE,
+    }, { GITHUB_WORKFLOW_REF: 'other.yml' }] as Record<string, string>[]
+  ) {
+    await assertRejects(
+      () =>
+        resolveRelease(runtime({ ...values, ...change }, responses), 'absent'),
+      Error,
+      'identity',
+    )
+  }
+  const same = {
+    ...responses,
+    [`git show ${BEFORE}:cmn/constants/version.ts`]:
+      responses[`git show ${SHA}:cmn/constants/version.ts`],
+  }
+  assertEquals(
+    (await resolveRelease(runtime(missing, same), 'absent')).mode,
+    'ci',
+  )
+  assertEquals(
+    (await resolveRelease(
+      runtime(
+        { ...missing, EVENT: 'pull_request', REF: 'refs/pull/42/merge' },
+        responses,
+      ),
+      'absent',
+    )).mode,
+    'ci',
+  )
+})
+
+Deno.test('dispatch display titles and actual API title read are bound to operation and SHA', async () => {
+  const workflow = await releaseWorkflow(),
+    expression = workflow.match(/^run-name: \$\{\{ (.+) \}\}$/m)![1]
+  const run = (event: string, operation: string) =>
+    new Function('github', 'inputs', 'format', `return (${expression})`)(
+      { event_name: event },
+      { operation, reviewed_sha: SHA },
+      (value: string, ...args: string[]) =>
+        value.replace(/\{(\d+)\}/g, (_, n) => args[Number(n)]),
+    )
+  for (
+    const [operation, title] of [
+      ['source-build-validation', 'SLV Linux source validation'],
+      ['release-build-validation', 'SLV release build validation'],
+      ['runtime-qualification', 'SLV runtime qualification'],
+    ]
+  ) assertEquals(run('workflow_dispatch', operation), `${title} ${SHA}`)
+  assertEquals(run('push', 'release'), 'SLV verified release')
+  const resolver = jobSection(workflow, 'resolve')
+  assert(
+    resolver.includes(
+      'export GITHUB_RUN_TITLE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .display_title)"',
+    ),
+  )
+  assert(
+    resolver.includes(
+      'SLV_LINUX_BUILDERS_ENABLED: ${{ vars.SLV_LINUX_BUILDERS_ENABLED }}',
+    ),
+  )
+})
+
+Deno.test('hosted qualification consumers receive step-scoped read credentials and explicit runner identity', async () => {
+  const workflow = await releaseWorkflow()
+  for (
+    const [job, step] of [
+      [
+        'qualification-inputs',
+        'Audit exact qualification payloads and original producer evidence',
+      ],
+      [
+        'runtime-qualification',
+        'Verify qualification signatures, payloads, compatibility and original proofs',
+      ],
+      ['package', 'Package the complete source-bound product inventory'],
+      [
+        'attest',
+        'Independently reject nonfinal or replayed application payloads',
+      ],
+    ]
+  ) {
+    const section = jobSection(workflow, job)
+    const start = section.indexOf(`      - name: ${step}\n`)
+    assert(start >= 0)
+    const end = section.indexOf('\n      - ', start + 1),
+      actual = section.slice(start, end < 0 ? undefined : end)
+    assert(actual.includes('          GH_TOKEN: ${{ github.token }}'), job)
+    assert(actual.includes('--allow-env --allow-net'), job)
+    const preSteps = section.slice(0, section.indexOf('    steps:'))
+    assert(!preSteps.includes('GH_TOKEN:'), job)
+    assert(section.includes('contents: read'), job)
+    assert(
+      section.includes('attestations: read') ||
+        section.includes('attestations: write'),
+      job,
+    )
+  }
+  assert(
+    jobSection(workflow, 'qualification-promotion').includes(
+      '      RUNNER_ENVIRONMENT: ${{ runner.environment }}',
+    ),
+  )
+  for (const job of currentProductJobs) {
+    const section = jobSection(workflow, job)
+    assert(
+      section.includes(
+        '          RUNNER_ENVIRONMENT: ${{ runner.environment }}',
+      ),
+      job,
+    )
+    assert(!section.includes('GH_TOKEN:'), job)
+  }
+  // Execute the actual attest guard shell with a credential-checking tool seam;
+  // the token here is a fixed test marker, never an operator credential.
+  const shell = stepShell(
+    jobSection(workflow, 'attest'),
+    'Independently reject nonfinal or replayed application payloads',
+  ).replace(/\$\{\{ [^}]+ \}\}/g, 'fixture')
+  const dir = await Deno.makeTempDir({ prefix: 'slv-attest-env-' })
+  try {
+    await Deno.writeTextFile(
+      `${dir}/deno`,
+      `#!/bin/sh\n[ "$GH_TOKEN" = fixture-read-token ] || exit 41\ncase "$*" in *'verify-qualified-publication release fixture fixture fixture fixture'*) exec gh verify ;; *) exit 42 ;; esac\n`,
+    )
+    await Deno.writeTextFile(
+      `${dir}/gh`,
+      '#!/bin/sh\n[ "$GH_TOKEN" = fixture-read-token ] || exit 43\n',
+    )
+    await Deno.chmod(`${dir}/deno`, 0o700)
+    await Deno.chmod(`${dir}/gh`, 0o700)
+    for (const present of [true, false]) {
+      const result = await new Deno.Command('/bin/bash', {
+        args: ['-ceu', shell],
+        clearEnv: true,
+        env: {
+          PATH: dir,
+          ...(present ? { GH_TOKEN: 'fixture-read-token' } : {}),
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      assertEquals(result.success, present)
+    }
+  } finally {
+    await Deno.remove(dir, { recursive: true })
+  }
+})
+
+Deno.test('qualification promotion requires activation before any publication work', async () => {
+  const section = jobSection(await releaseWorkflow(), 'qualification-promotion')
+  const title = 'Require publication activation before qualification promotion'
+  assert(section.indexOf(title) < section.indexOf('uses: actions/checkout@'))
+  assert(section.includes('ACTIVATED: ${{ vars.SLV_RELEASE_ACTIVATED }}'))
+  const shell = stepShell(section, title)
+  for (const value of ['true', 'false', '', undefined]) {
+    const result = await new Deno.Command('/bin/bash', {
+      args: ['-ceu', shell + '\nprintf promotion-allowed'],
+      clearEnv: true,
+      env: value === undefined ? {} : { ACTIVATED: value },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    assertEquals(result.success, value === 'true')
+    assertEquals(
+      new TextDecoder().decode(result.stdout).includes('promotion-allowed'),
+      value === 'true',
+    )
+  }
+})
+
+Deno.test('application publication rechecks current runtime policy immediately before publishing', async () => {
+  const section = jobSection(await releaseWorkflow(), 'publish')
+  const shell = stepShell(
+    section,
+    'Re-download every staged asset and verify provenance before publication',
+  )
+  const start = shell.indexOf('qualification_identity=')
+  assert(start > shell.indexOf('gh attestation verify'))
+  const finalGuard = shell.slice(start)
+  assert(finalGuard.includes('scripts/release/runtime-revocations.ts fresh'))
+  assert(finalGuard.includes('--allow-net=raw.githubusercontent.com'))
+  assert(
+    finalGuard.indexOf('runtime-revocations.ts') <
+      finalGuard.indexOf('gh release edit'),
+  )
+  const directory = await Deno.makeTempDir({ prefix: 'slv-publish-policy-' })
+  try {
+    const log = `${directory}/calls`
+    await Deno.writeTextFile(
+      `${directory}/jq`,
+      '#!/bin/sh\nprintf "%064d\\n" 0\n',
+    )
+    await Deno.writeTextFile(
+      `${directory}/deno`,
+      '#!/bin/sh\nprintf "policy-check\\n" >> "$CALL_LOG"\n[ "$POLICY_DENY" = false ] || exit 47\n',
+    )
+    await Deno.writeTextFile(
+      `${directory}/gh`,
+      '#!/bin/sh\n[ "$1 $2" = "release edit" ] || exit 48\nprintf "publish\\n" >> "$CALL_LOG"\n',
+    )
+    for (const name of ['jq', 'deno', 'gh']) {
+      await Deno.chmod(`${directory}/${name}`, 0o700)
+    }
+    for (const deny of [true, false]) {
+      await Deno.writeTextFile(log, '')
+      const result = await new Deno.Command('/bin/bash', {
+        args: ['-ceu', finalGuard],
+        clearEnv: true,
+        env: {
+          PATH: directory,
+          CALL_LOG: log,
+          POLICY_DENY: String(deny),
+          RUNNER_TEMP: directory,
+          TAG: 'v2026.10.17.2011',
+          GH_REPO: 'ValidatorsDAO/slv',
+        },
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output()
+      assertEquals(result.success, !deny)
+      assertEquals(
+        await Deno.readTextFile(log),
+        deny ? 'policy-check\n' : 'policy-check\npublish\n',
+      )
+    }
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
+})
+
+Deno.test('qualification publication resumes only missing assets and verifies complete draft before publish', async () => {
+  const section = jobSection(await releaseWorkflow(), 'qualification-promotion')
+  assert(section.includes("if: steps.plan.outputs.needs_attestation == 'true'"))
+  assert(section.includes("if: steps.plan.outputs.action != 'reuse'"))
+  const shell = stepShell(
+    section,
+    'Publish an immutable nonlatest runtime qualification without overwriting',
+  )
+  assert(!shell.includes('--clobber'))
+  const directory = await Deno.makeTempDir({
+    prefix: 'slv-qualification-resume-',
+  })
+  try {
+    const bin = `${directory}/bin`,
+      work = `${directory}/work`,
+      payload = `${work}/dist/release-inputs/runtime-qualification`
+    await Deno.mkdir(bin)
+    await Deno.mkdir(payload, { recursive: true })
+    await Deno.writeTextFile(`${directory}/bundle`, 'fixture signed bundle')
+    for (const name of ['runtime-qualification.json', 'missing-runtime']) {
+      await Deno.writeTextFile(`${payload}/${name}`, 'fixture reviewed bytes')
+    }
+    await Deno.writeTextFile(
+      `${bin}/gh`,
+      `#!/usr/bin/env python3\nimport json, os, sys\nwith open(os.environ['CALL_LOG'], 'a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\n`,
+    )
+    await Deno.writeTextFile(
+      `${bin}/deno`,
+      `#!/usr/bin/env python3\nimport json, os, sys\nassert 'verify-draft' in sys.argv\nwith open(os.environ['CALL_LOG'], 'a') as f: f.write(json.dumps(['verify-draft'])+'\\n')\nsys.exit(21 if os.environ.get('FAIL_DRAFT') == 'true' else 0)\n`,
+    )
+    await Deno.chmod(`${bin}/gh`, 0o700)
+    await Deno.chmod(`${bin}/deno`, 0o700)
+    for (
+      const [action, needsAttestation, assets] of [
+        ['create', true, ['runtime-qualification.json', 'missing-runtime']],
+        ['resume', true, ['missing-runtime']],
+        ['resume', false, []],
+      ] as const
+    ) {
+      await Deno.writeTextFile(
+        `${work}/promotion-plan.json`,
+        JSON.stringify({
+          action,
+          needs_attestation: needsAttestation,
+          assets,
+          source_sha: SHA,
+          tag: 'runtime-deno-v2.9.3-' + 'c'.repeat(64),
+        }),
+      )
+      for (const failDraft of [false, true]) {
+        const log = `${directory}/calls`
+        await Deno.writeTextFile(log, '')
+        const result = await new Deno.Command('/bin/bash', {
+          args: ['-ceu', shell],
+          cwd: work,
+          clearEnv: true,
+          env: {
+            PATH: `${bin}:${Deno.env.get('PATH') ?? '/usr/bin:/bin'}`,
+            CALL_LOG: log,
+            FAIL_DRAFT: String(failDraft),
+            GH_REPO: 'ValidatorsDAO/slv',
+            GH_TOKEN: 'fixture-token',
+            SLV_RELEASE_SOURCE_SHA: SHA,
+            GITHUB_WORKSPACE: work,
+            RUNNER_TEMP: directory,
+            RUNNER_ENVIRONMENT: 'github-hosted',
+            BUNDLE: needsAttestation ? `${directory}/bundle` : '',
+          },
+          stdout: 'piped',
+          stderr: 'piped',
+        }).output()
+        assertEquals(
+          result.success,
+          !failDraft,
+          new TextDecoder().decode(result.stderr),
+        )
+        const calls = (await Deno.readTextFile(log)).trim().split('\n').filter(
+          Boolean,
+        ).map((x) => JSON.parse(x) as string[])
+        assertEquals(
+          calls.filter((x) => x[0] === 'release' && x[1] === 'create').length,
+          action === 'create' ? 1 : 0,
+        )
+        const uploads = calls.filter((x) =>
+          x[0] === 'release' && x[1] === 'upload'
+        )
+        assertEquals(uploads.map((x) => x.at(-1)!.split('/').at(-1)), [
+          ...assets,
+          ...(needsAttestation
+            ? ['runtime-qualification.json.intoto.jsonl']
+            : []),
+        ])
+        assertEquals(calls.filter((x) => x[0] === 'verify-draft').length, 1)
+        const publish = calls.findIndex((x) =>
+          x[0] === 'release' && x[1] === 'edit'
+        )
+        assertEquals(publish >= 0, !failDraft)
+        if (!failDraft) {
+          assert(publish > calls.findIndex((x) => x[0] === 'verify-draft'))
+        }
+      }
+    }
+  } finally {
+    await Deno.remove(directory, { recursive: true })
+  }
+})
+
+function darwinSmokeNeeds(target: string): ProductNeeds {
+  const product = `build-${target}`
+  const needs = qualificationNeeds('product')
+  delete needs['source-materials']
+  needs[product] = {
+    result: 'success',
+    outputs: {
+      artifact_id: '83',
+      artifact_digest: 'sha256:' + 'b'.repeat(64),
+      producer_run_id: '123',
+      producer_attempt: '2',
+      receipt_sha256: 'c'.repeat(64),
+    },
+  }
+  needs.test.outputs.license_producer_attempt = '2'
+  needs.resolve.outputs.publication = 'none'
+  needs['runtime-qualification'].outputs.qualification_identity = 'a'.repeat(64)
+  return needs
+}
+function darwinSmokeEnv(target: string): Record<string, string> {
+  return {
+    GITHUB_REPOSITORY: 'ValidatorsDAO/slv',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/codex/slv-linux-all-targets',
+    GITHUB_WORKFLOW_REF:
+      'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/codex/slv-linux-all-targets',
+    GITHUB_SHA: SHA,
+    GITHUB_WORKFLOW_SHA: SHA,
+    GITHUB_RUN_ID: '123',
+    GITHUB_RUN_ATTEMPT: '2',
+    GITHUB_JOB: `validation-smoke-${target}`,
+    TARGET: target,
+    REVIEWED_SHA: SHA,
+    SLV_OPERATION: 'release-build-validation',
+    SLV_RESOLVED_MODE: 'release-build-validation',
+    SLV_PUBLICATION: 'none',
+    SLV_RESOLVED_SOURCE_SHA: SHA,
+    NEEDS_JSON: JSON.stringify(darwinSmokeNeeds(target)),
+  }
+}
+
+Deno.test('exact two Darwin smoke jobs are validation-only and never enter ordinary release dependencies', async () => {
+  const workflow = await releaseWorkflow()
+  const names = [...workflow.matchAll(/^  (validation-smoke-[\w-]+):$/gm)].map(
+    (x) => x[1],
+  )
+  assertEquals(names, [
+    'validation-smoke-x86_64-apple-darwin',
+    'validation-smoke-aarch64-apple-darwin',
+  ])
+  const expression = (
+    value: string,
+    needs: ProductNeeds,
+    changes: Record<string, string> = {},
+    cancelled = false,
+  ) =>
+    new Function(
+      'github',
+      'inputs',
+      'needs',
+      'cancelled',
+      `return (${value.replace(/needs\.([\w-]+)/g, 'needs["$1"]')})`,
+    )(
+      {
+        event_name: 'workflow_dispatch',
+        repository: 'ValidatorsDAO/slv',
+        ref: 'refs/heads/codex/slv-linux-all-targets',
+        ...changes,
+      },
+      { operation: changes.operation ?? 'release-build-validation' },
+      needs,
+      () => cancelled,
+    )
+  for (
+    const [target, host] of [['x86_64-apple-darwin', 'macos-15-intel'], [
+      'aarch64-apple-darwin',
+      'macos-15',
+    ]]
+  ) {
+    const section = jobSection(workflow, `validation-smoke-${target}`),
+      needs = darwinSmokeNeeds(target)
+    const condition = jobIf(section)!.slice(4, -3)
+    assertEquals(expression(condition, needs), true)
+    assertEquals(expression(condition, needs, {}, true), false)
+    for (
+      const change of [
+        { event_name: 'pull_request' },
+        { event_name: 'push' },
+        { repository: 'other/slv' },
+        { ref: 'refs/heads/main' },
+        ...[
+          'release',
+          'runtime-qualification',
+          'source-build-validation',
+          'source-native-diagnostic',
+        ].map((operation) => ({ operation })),
+      ] as Record<string, string>[]
+    ) assertEquals(expression(condition, needs, change), false)
+    for (const job of Object.keys(needs)) {
+      for (const result of ['skipped', 'failure', 'cancelled']) {
+        const changed = structuredClone(needs)
+        changed[job].result = result
+        assertEquals(
+          expression(condition, changed),
+          false,
+          `${target}:${job}:${result}`,
+        )
+      }
+    }
+    for (
+      const [job, field, value] of [['resolve', 'mode', 'main-release'], [
+        'resolve',
+        'publication',
+        'initial',
+      ], ['runtime-qualification', 'qualification_state', 'final-qualified']]
+    ) {
+      const changed = structuredClone(needs)
+      changed[job].outputs[field] = value
+      assertEquals(expression(condition, changed), false)
+    }
+    assert(section.includes(`name: validation-smoke-${target}\n`))
+    assert(
+      section.includes(
+        `needs: [resolve, runtime-qualification, test, build-${target}]`,
+      ),
+    )
+    assert(section.includes(`runs-on: ${host}\n`))
+    assert(section.includes('timeout-minutes: 10'))
+    assertEquals(
+      section.slice(
+        section.indexOf('    permissions:'),
+        section.indexOf('    outputs:'),
+      ).trim(),
+      'permissions:\n      contents: read\n      actions: read',
+    )
+    assert(!section.includes('id-token:'))
+    assert(!section.includes('secrets.'))
+    assert(!section.includes('environment:'))
+    assert(!section.includes('slv-build-'))
+    assert(!section.includes('deno install'))
+    assert(!section.includes('deno compile'))
+    assert(!section.includes('verify-native.ts'))
+    assert(!section.includes('prepare-tools'))
+    assert(section.includes('persist-credentials: false'))
+    assert(section.includes('deno-version: v2.9.3'))
+    assertEquals(count(section, 'GH_TOKEN:'), 1)
+    const execute = section.slice(
+      section.indexOf('      - name: Execute the unchanged'),
+      section.indexOf('      - name: Preserve sanitized'),
+    )
+    const executeCondition =
+      execute.match(/^        if: \$\{\{ (.+) \}\}$/m)![1]
+    assertEquals(
+      executeCondition,
+      "!cancelled() && steps.acquire.outcome == 'success'",
+    )
+    for (const cancelled of [false, true]) {
+      for (const outcome of ['success', 'failure', 'skipped', 'cancelled']) {
+        const executeAllowed = Function(
+          'cancelled',
+          'steps',
+          `return (${executeCondition})`,
+        )(() => cancelled, { acquire: { outcome } })
+        assertEquals(executeAllowed, !cancelled && outcome === 'success')
+      }
+    }
+    assert(execute.includes('timeout-minutes: 3'))
+    assert(!execute.includes('GH_TOKEN'))
+    assert(!execute.includes('HOME='))
+    assert(!execute.includes('--allow-net'))
+    const upload = section.slice(
+      section.indexOf('      - name: Preserve sanitized'),
+    )
+    assert(upload.includes('timeout-minutes: 2'))
+    assert(upload.includes('if-no-files-found: error'))
+    assert(upload.includes('if: ${{ always() && !cancelled() }}'))
+    assert(upload.includes('retention-days: 7'))
+  }
+  for (
+    const job of [
+      'qualification-inputs',
+      'qualification-promotion',
+      'runtime-qualification',
+      ...currentProductJobs,
+      'package',
+      'attest',
+      'publish',
+      'activation-required',
+    ]
+  ) assert(!jobSection(workflow, job).includes('validation-smoke-'), job)
+  assert(
+    jobSection(workflow, 'runtime-qualification').includes(
+      'qualification_identity: ${{ steps.bind.outputs.qualification_identity }}',
+    ),
+  )
+})
+
+Deno.test('Darwin smoke first guard rejects wrong identity, stale attempts and absent producer outputs before acquisition', async () => {
+  const workflow = await releaseWorkflow()
+  for (const target of ['x86_64-apple-darwin', 'aarch64-apple-darwin']) {
+    const section = jobSection(workflow, `validation-smoke-${target}`)
+    const title =
+      'Require the exact reviewed validation and successful current producers'
+    assert(section.indexOf(title) < section.indexOf('uses: actions/checkout@'))
+    const shell = stepShell(section, title), valid = darwinSmokeEnv(target)
+    const run = async (changes: Record<string, string> = {}) => {
+      const directory = await Deno.makeTempDir({ prefix: 'slv-smoke-guard-' })
+      try {
+        const result = await runDiagnosticGuard(shell, {
+          ...valid,
+          ...changes,
+          RUNNER_TEMP: directory,
+        })
+        const receiptText = await Deno.readTextFile(
+          `${directory}/darwin-smoke-receipt.json`,
+        )
+        const receipt = JSON.parse(receiptText)
+        assertEquals(receipt.status, 'incomplete')
+        assertEquals(receipt.stage, 'preflight')
+        assertEquals(receipt.publication, 'none')
+        assert(!receiptText.includes(directory))
+        for (const [key, value] of Object.entries(changes)) {
+          if (
+            ['REVIEWED_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'TARGET']
+              .includes(key) && value === 'private-test-marker'
+          ) assert(!receiptText.includes(value))
+        }
+        return result
+      } finally {
+        await Deno.remove(directory, { recursive: true })
+      }
+    }
+    const passed = await run()
+    assert(passed.success, new TextDecoder().decode(passed.stderr))
+    for (
+      const [key, value] of Object.entries({
+        GITHUB_REPOSITORY: 'other/slv',
+        GITHUB_EVENT_NAME: 'pull_request',
+        SLV_OPERATION: 'release',
+        SLV_RESOLVED_MODE: 'ci',
+        SLV_PUBLICATION: 'initial',
+        GITHUB_REF: 'refs/heads/main',
+        GITHUB_WORKFLOW_REF: 'other/workflow',
+        REVIEWED_SHA: SHA.slice(0, 12),
+        GITHUB_SHA: BEFORE,
+        GITHUB_WORKFLOW_SHA: BEFORE,
+        SLV_RESOLVED_SOURCE_SHA: BEFORE,
+        GITHUB_JOB: 'other',
+        GITHUB_RUN_ID: '0',
+        GITHUB_RUN_ATTEMPT: '0',
+      })
+    ) assert(!(await run({ [key]: value })).success, key)
+    for (
+      const field of [
+        'REVIEWED_SHA',
+        'GITHUB_RUN_ID',
+        'GITHUB_RUN_ATTEMPT',
+        'TARGET',
+      ]
+    ) {
+      assert(!(await run({ [field]: 'private-test-marker' })).success)
+    }
+    const needs = darwinSmokeNeeds(target)
+    for (const job of Object.keys(needs)) {
+      const missing = structuredClone(needs)
+      delete missing[job]
+      assert(!(await run({ NEEDS_JSON: JSON.stringify(missing) })).success, job)
+      for (const result of ['failure', 'skipped', 'cancelled']) {
+        const bad = structuredClone(needs)
+        bad[job].result = result
+        assert(
+          !(await run({ NEEDS_JSON: JSON.stringify(bad) })).success,
+          `${job}:${result}`,
+        )
+      }
+    }
+    for (
+      const [job, prefix] of [[`build-${target}`, ''], ['test', 'license_']]
+    ) {
+      for (
+        const [field, values] of [
+          [prefix + 'artifact_id', ['', '0', '1,2']],
+          [prefix + 'artifact_digest', ['', 'sha256:', 'g'.repeat(64)]],
+          [prefix + 'producer_run_id', ['', '124']],
+          [prefix + 'producer_attempt', ['1', '3', '']],
+          [prefix ? 'license_notice_sha256' : 'receipt_sha256', [
+            '',
+            'a'.repeat(63),
+          ]],
+        ] as const
+      ) {
+        for (const value of values) {
+          const bad = structuredClone(needs)
+          bad[job].outputs[field] = value
+          assert(
+            !(await run({ NEEDS_JSON: JSON.stringify(bad) })).success,
+            `${job}:${field}:${value}`,
+          )
+        }
+      }
+    }
+    for (
+      const [job, field, value] of [
+        ['runtime-qualification', 'qualification_identity', ''],
+        ['runtime-qualification', 'qualification_state', 'final-qualified'],
+        ['runtime-qualification', 'producer_attempt', '1'],
+        ['runtime-qualification', 'producer_run_id', '124'],
+        ['resolve', 'source_sha', BEFORE],
+        ['resolve', 'release_required', 'true'],
+        ['resolve', 'publication', 'initial'],
+      ]
+    ) {
+      const bad = structuredClone(needs)
+      bad[job].outputs[field] = value
+      assert(
+        !(await run({ NEEDS_JSON: JSON.stringify(bad) })).success,
+        `${job}:${field}`,
+      )
+    }
+    for (const malformed of ['null', '[]', '{}', valid.NEEDS_JSON + '\n{}']) {
+      assert(!(await run({ NEEDS_JSON: malformed })).success)
+    }
+  }
+})
+
+Deno.test('Darwin acquisition binds actual API title and checkout before passing normalized exact inputs to helper', async () => {
+  const workflow = await releaseWorkflow(),
+    directory = await Deno.makeTempDir({ prefix: 'slv-smoke-input-' })
+  try {
+    const bin = `${directory}/bin`
+    await Deno.mkdir(bin)
+    await Deno.writeTextFile(
+      `${bin}/git`,
+      '#!/bin/sh\n[ "$*" = "rev-parse HEAD" ] || exit 41\nprintf "%s\\n" "$FIXTURE_HEAD"\n',
+    )
+    await Deno.writeTextFile(
+      `${bin}/gh`,
+      '#!/bin/sh\n[ "$GH_TOKEN" = fixture-token ] || exit 42\n[ "$*" = "api repos/ValidatorsDAO/slv/actions/runs/123/attempts/2 --jq .display_title" ] || exit 43\nprintf "%s\\n" "$FIXTURE_TITLE"\n',
+    )
+    await Deno.writeTextFile(
+      `${bin}/deno`,
+      `#!/usr/bin/env python3\nimport json, os, sys\na=sys.argv[1:]\nassert a[:2]==['run','--frozen']\nassert '--allow-net' not in a\ni=a.index('acquire'); assert i>0\nassert a[i+2]==os.environ['RUNNER_TEMP']+'/darwin-smoke-work'\nassert a[i+3]==os.environ['RUNNER_TEMP']+'/darwin-smoke-receipt.json'\nwith open(a[i+1]) as f: v=json.load(f)\nwith open(os.environ['CALL_RECORD'],'w') as f: json.dump(v,f)\n`,
+    )
+    for (const tool of ['git', 'gh', 'deno']) {
+      await Deno.chmod(`${bin}/${tool}`, 0o700)
+    }
+    for (const target of ['x86_64-apple-darwin', 'aarch64-apple-darwin']) {
+      const section = jobSection(workflow, `validation-smoke-${target}`)
+      const shell = stepShell(
+        section,
+        'Acquire and verify the exact Linux product and canonical notice artifacts',
+      )
+      for (
+        const changed of [{}, { FIXTURE_HEAD: BEFORE }, {
+          FIXTURE_TITLE: 'SLV verified release',
+        }, { FIXTURE_TITLE: `SLV release build validation ${BEFORE}` }]
+      ) {
+        const record = `${directory}/called`
+        await Deno.remove(record).catch(() => {})
+        const result = await runDiagnosticGuard(shell, {
+          ...darwinSmokeEnv(target),
+          PATH: `${bin}:${Deno.env.get('PATH') ?? ''}`,
+          RUNNER_TEMP: directory,
+          GH_TOKEN: 'fixture-token',
+          FIXTURE_HEAD: SHA,
+          FIXTURE_TITLE: `SLV release build validation ${SHA}`,
+          CALL_RECORD: record,
+          ...changed,
+        })
+        const valid = Object.keys(changed).length === 0
+        assertEquals(
+          result.success,
+          valid,
+          new TextDecoder().decode(result.stderr),
+        )
+        if (!valid) {
+          await assertRejects(() => Deno.stat(record), Deno.errors.NotFound)
+          continue
+        }
+        const input = JSON.parse(await Deno.readTextFile(record))
+        assertEquals(input, {
+          target,
+          source_sha: SHA,
+          workflow_sha: SHA,
+          ref: 'refs/heads/codex/slv-linux-all-targets',
+          run_id: '123',
+          run_attempt: '2',
+          reviewed_sha: SHA,
+          title: `SLV release build validation ${SHA}`,
+          qualification_identity: 'a'.repeat(64),
+          product: {
+            artifact_id: '83',
+            artifact_sha256: 'b'.repeat(64),
+            receipt_sha256: 'c'.repeat(64),
+            producer_attempt: '2',
+          },
+          notices: {
+            artifact_id: '9',
+            artifact_sha256: 'b'.repeat(64),
+            producer_attempt: '2',
+            sha256: 'c'.repeat(64),
+          },
+        })
+      }
     }
   } finally {
     await Deno.remove(directory, { recursive: true })

@@ -4,6 +4,52 @@ An SLV source release has three separately hashed source archives. They are
 inputs to a local rebuild, not an installer and not a replacement for the
 official signed-release trust path.
 
+Ordinary releases assemble the four SLV products on Linux using previously
+qualified target runtimes. Building a Darwin executable with `deno compile
+--target` embeds that target's runtime; it does not require rebuilding Deno/V8
+on every SLV source change. Full native source rebuilding remains available for
+runtime qualification and independent source/relink work described below.
+
+## Application and runtime identities
+
+The application release's schema 2 manifest pins
+`runtime-deno-v2.9.3-<qualification-sha256>`, an immutable, nonlatest GitHub
+prerelease. Its `runtime-qualification.json` and attestation bind the exact
+baseline runtimes, original native proofs and producer, source archives,
+selected and derived Cargo locks, build recipes, tool prerequisites, compiler
+frontend, ABI, and embedding recipe. Keep the qualification's original source
+and receipt separate from the current application's source and receipt.
+
+The qualification release retains the original evidence ZIPs and source
+materials as public assets, so independent rebuilders do not need access to
+expiring Actions artifacts. Verify its manifest digest and hosted-main
+attestation before following any asset references. Do not use an upstream
+runtime with the same Deno version as a substitute: the selected Cargo
+dependency closure is a separately pinned input.
+
+An application build verifies the qualification, supplies its target runtime
+through `DENORT_BIN`, and freshly compiles the CLI and release bridge with the
+current notices. Its product receipt binds the resulting executable/archive
+and current source, lock, module graph, SBOM, notices, producer, and qualification.
+It never reuses a qualification's old application executable or bridge.
+Linux products are executed natively; Darwin products receive architecture,
+minimum-OS, load-command, and file-extent checks on Linux. The pinned embedding
+library emits unsigned Intel output on Linux, recorded as `signature: unsigned`.
+ARM64 requires an embedded ad-hoc signature; every present signature is verified,
+including Intel signatures. Both targets retain executable/archive hash and
+release-provenance verification. A Darwin
+`native_execution: not_performed` result is distinct from the original runtime's
+native qualification. Execute the exact new bytes on the matching Mac
+architecture when collecting native application acceptance.
+
+Changes to pinned runtime source, selected dependencies, tools, ABI, or the
+embedding contract require a newly reviewed qualification. The explicit
+`runtime-qualification` workflow operation produces new source/native evidence;
+it does not automatically approve or publish a new qualification. Ordinary PR
+and validation candidates are not installable application releases.
+
+## Current application source archives
+
 - `slv-source.tar.gz` has the single root `slv-source/`: the reviewed SLV
   source, its frozen Deno dependency cache, canonical `THIRD_PARTY_NOTICES`, and
   `source-materials/{closure.json,inventory.json,pack-manifest.json}`.
