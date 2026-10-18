@@ -181,7 +181,7 @@ Before installing or replacing release files, the release installer,
 1. Select the latest eligible immutable release for installation or upgrade,
    or the installed CLI's exact release for skill sync.
 2. Verify the manifest's provenance and source identity, including the public
-   release tag, before accepting payloads.
+   release tag and pinned runtime qualification, before accepting payloads.
 3. Check archive hashes and contents before replacing the selected files.
 4. Journal core replacements so an interrupted transaction can be recovered.
 
@@ -189,8 +189,12 @@ The consumer preserves existing keys, configuration, inventories, and backups.
 Review the [recovery and settings behavior](docs/secure-delivery.md#recovery-and-settings),
 including the separate handling of a settings-migration failure.
 
-The release pipeline packages corresponding source archives, an SPDX SBOM, and
-third-party notices. See [secure delivery](docs/secure-delivery.md) for the trust
+The release pipeline pairs each fresh CLI build with a separately qualified,
+source-built runtime. Linux builders produce all four target binaries; signed
+receipts distinguish native Linux execution from static macOS checks and the
+runtime's earlier native qualification. Corresponding source archives, an SPDX
+SBOM, and third-party notices make the inputs available for inspection and
+rebuilding. See [secure delivery](docs/secure-delivery.md) for the trust
 and acceptance requirements, and [rebuilding releases](docs/rebuilding-releases.md)
 to inspect the source materials and rebuild procedure. Implemented verification
 controls do not by themselves establish that a release has passed live acceptance.

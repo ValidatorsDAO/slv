@@ -144,6 +144,7 @@ async function command(
     },
     stdout: 'piped',
     stderr: 'piped',
+    signal: AbortSignal.timeout(180_000),
   }).output()
   await Deno.writeFile(
     log,
@@ -537,6 +538,12 @@ export async function verifyLinuxProduct(args: Args): Promise<void> {
     'native proof',
   )
   const binding = verifyNativeBinding(proof, buildReceiptSha256, target)
+  // The historical proof qualifies the runtime, not today's application.
+  // A fresh product may embed different canonical notices and a fresh bridge.
+  if (args['--canonical-notice']) {
+    await regular(args['--canonical-notice'], 'current canonical notice')
+    binding.notice_sha256 = await sha256(args['--canonical-notice'])
+  }
   const tools = await readExecutionTools(args['--tools-receipt'], target)
   const runtimeDir = await Deno.realPath(args['--runtime-dir'])
   const runtime = `${runtimeDir}/baseline-denort`
@@ -573,6 +580,9 @@ export async function verifyLinuxProduct(args: Args): Promise<void> {
     ]
   ) {
     await regular(path, `runtime transport ${name}`)
+    // A current product creates a short-lived loopback test PKI. The original
+    // runtime proof is immutable; these new test certificates are not its data.
+    if (args['--current-tls'] === 'true' && name.startsWith('tls-')) continue
     const entry = object(entries[name], `runtime transport ${name}`)
     if (
       sha(entry.sha256, `runtime transport ${name} digest`) !== digest ||

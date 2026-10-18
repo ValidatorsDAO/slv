@@ -410,44 +410,158 @@ def immutable_release(tag: Optional[str] = None) -> dict[str, Any]:
     return value
 
 
-def minimal_identity(raw: bytes, tag: str) -> tuple[str, str]:
+def strict_json(raw: bytes) -> Any:
+    """Reject duplicate keys and non-JSON numeric values before trusting identities."""
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                die('duplicate JSON field')
+            result[key] = value
+        return result
+
+    def invalid(_value: str) -> None:
+        die('noncanonical JSON number')
+
     try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        die(f'invalid release manifest JSON: {exc}')
+        return json.loads(raw.decode('utf-8'), object_pairs_hook=pairs,
+                          parse_float=invalid, parse_constant=invalid)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        die(f'invalid manifest JSON: {exc}')
+
+
+def canonical_json(value: Any, newline: bool = False) -> bytes:
+    try:
+        return (json.dumps(value, sort_keys=True, ensure_ascii=False,
+                           separators=(',', ':'), allow_nan=False) + ('\n' if newline else '')).encode('utf-8')
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        die(f'invalid canonical JSON: {exc}')
+
+
+def fields(value: Any, names: Iterable[str], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != set(names):
+        die(f'{label} has missing or unknown fields')
+    return value
+
+
+def matches(value: Any, pattern: re.Pattern[str], label: str) -> str:
+    if not isinstance(value, str) or not pattern.fullmatch(value):
+        die(f'invalid {label}')
+    return value
+
+
+def positive_integer(value: Any, label: str, maximum: int = 2 ** 53 - 1) -> int:
+    if type(value) is not int or not 0 < value <= maximum:
+        die(f'invalid {label}')
+    return value
+
+
+def product_flags(target: str, bridge: bool = False) -> list[str]:
+    return ['compile', '--frozen', '--cached-only', '--no-prompt', '-A',
+            '--include', 'cli/lib/release/engine.py',
+            *([] if bridge else ['--include', 'dist/release-inputs/THIRD_PARTY_NOTICES']),
+            '--target', target, '--output',
+            f'dist/release-inputs/product-runtime/{target}/release-bridge-smoke' if bridge else f'dist/slv-{target}-exe',
+            'cli/lib/release/compiled_bridge_smoke.ts' if bridge else 'cli/src/index.ts']
+
+
+def embedding_recipe_digest() -> str:
+    return hashlib.sha256(canonical_json({
+        'deno': '2.9.3', 'libsui': '0.16.3', 'runtime': 'verified-baseline-DENORT_BIN',
+        'targets': [{'target': target, 'product_flags': product_flags(target),
+                     'bridge_flags': product_flags(target, True)} for target in TARGETS],
+    })).hexdigest()
+
+
+def validate_product_reference(manifest: dict[str, Any], assets: dict[str, Any]) -> None:
+    reference = fields(manifest['runtime_qualification'],
+                       ('identity', 'tag', 'manifest_sha256', 'state', 'products'), 'runtime qualification reference')
+    identity = matches(reference['identity'], SHA256_RE, 'qualification identity')
+    if (reference['manifest_sha256'] != identity or reference['tag'] != f'runtime-deno-v2.9.3-{identity}'
+            or reference['state'] != 'final-qualified'):
+        die('application requires a final qualified runtime identity')
+    products = reference['products']
+    if not isinstance(products, list) or len(products) != len(TARGETS):
+        die('application requires all four current products')
+    common_source = None
+    for target, entry in zip(TARGETS, products):
+        fields(entry, ('receipt_sha256', 'receipt'), 'product reference')
+        matches(entry['receipt_sha256'], SHA256_RE, 'product receipt digest')
+        product = fields(entry['receipt'], ('schema_version', 'kind', 'target', 'source', 'qualification',
+                                            'producer', 'frontend', 'output', 'native_execution'), 'current product receipt')
+        source = fields(product['source'], ('commit', 'ref', 'lock_sha256', 'graph_sha256', 'sbom_sha256',
+                                            'notices_sha256', 'source_receipt_sha256', 'engine_sha256',
+                                            'bridge_source_sha256'), 'current product source')
+        qualification = fields(product['qualification'], ('identity', 'state', 'baseline_denort_sha256',
+                                                           'selected_lock_sha256', 'derived_lock_sha256',
+                                                           'native_proof_sha256', 'build_receipt_sha256'), 'product qualification')
+        producer = fields(product['producer'], ('repository', 'workflow', 'workflow_sha', 'run_id', 'run_attempt',
+                                                'job', 'host_os', 'host_arch', 'profile'), 'product producer')
+        frontend = fields(product['frontend'], ('version', 'sha256', 'flags', 'bridge_flags'), 'product frontend')
+        output = fields(product['output'], ('executable_sha256', 'archive_sha256', 'bridge_sha256',
+                                            'verification_sha256'), 'product output')
+        for record in (source, qualification, frontend, output):
+            for key, value in record.items():
+                if key.endswith('_sha256') or key in ('identity', 'sha256'):
+                    matches(value, SHA256_RE, 'product digest')
+        attempt = matches(producer['run_attempt'], DECIMAL_RE, 'product attempt')
+        host_arch = 'aarch64' if target == 'aarch64-unknown-linux-gnu' else 'x86_64'
+        if (type(product['schema_version']) is not int or product['schema_version'] != 2
+                or product['kind'] != 'slv-current-product-receipt' or product['target'] != target
+                or source['commit'] != manifest['source']['commit'] or source['ref'] != manifest['source']['ref']
+                or producer['workflow_sha'] != manifest['source']['commit']
+                or producer['repository'] != REPOSITORY or producer['workflow'] != WORKFLOW_PATH
+                or producer['run_id'] != manifest['workflow']['run_id']
+                or len(attempt) > 16 or int(attempt) > manifest['workflow']['run_attempt']
+                or producer['job'] != f'build-{target}' or producer['host_os'] != 'linux'
+                or producer['host_arch'] != host_arch
+                or producer['profile'] != ('linux-arm64-4' if host_arch == 'aarch64' else 'linux-16')
+                or qualification['identity'] != identity or qualification['state'] != 'final-qualified'
+                or frontend['version'] != '2.9.3' or frontend['flags'] != product_flags(target)
+                or frontend['bridge_flags'] != product_flags(target, True)
+                or product['native_execution'] != ('passed' if target.endswith('linux-gnu') else 'not_performed')
+                or output['archive_sha256'] != assets[f'slv-{target}-exe.tar.gz']['sha256']
+                or source['notices_sha256'] != assets['THIRD_PARTY_NOTICES']['sha256']
+                or source['sbom_sha256'] != assets['sbom.spdx.json']['sha256']):
+            die('current product does not match the signed application')
+        if common_source is not None and source != common_source:
+            die('current products have different application inputs')
+        common_source = source
+        if hashlib.sha256(canonical_json(product)).hexdigest() != entry['receipt_sha256']:
+            die('current product receipt digest differs')
+
+
+def minimal_identity(raw: bytes, tag: str) -> tuple[str, str]:
+    value = strict_json(raw)
     if not isinstance(value, dict) or value.get('repository') != REPOSITORY or value.get('tag') != tag or value.get('version') != tag[1:]:
         die('manifest identity does not match immutable release')
     source = value.get('source')
     if not isinstance(source, dict) or not isinstance(source.get('commit'), str) or not COMMIT_RE.fullmatch(source['commit']):
         die('manifest source commit is invalid')
-    if source.get('ref') not in ('refs/heads/main', f'refs/tags/{tag}'):
+    if source.get('ref') != 'refs/heads/main':
         die('manifest source ref is invalid')
     return source['ref'], source['commit']
 
 
 def parse_manifest(raw: bytes, tag: str) -> dict[str, dict[str, Any]]:
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        die(f'invalid release manifest JSON: {exc}')
-    expected_fields = {'schema_version', 'repository', 'version', 'tag', 'source', 'workflow', 'assets'}
+    value = strict_json(raw)
+    expected_fields = {'schema_version', 'repository', 'version', 'tag', 'source', 'workflow', 'assets', 'runtime_qualification'}
     if not isinstance(value, dict) or set(value) != expected_fields:
         die('manifest schema is invalid')
-    if value['schema_version'] != 1 or value['repository'] != REPOSITORY or value['tag'] != tag or value['version'] != tag[1:]:
+    if type(value['schema_version']) is not int or value['schema_version'] != 2 or value['repository'] != REPOSITORY or value['tag'] != tag or value['version'] != tag[1:]:
         die('manifest identity is invalid')
     require_version(value['version'])
     source = value['source']
     if not isinstance(source, dict) or set(source) != {'commit', 'ref'} or not isinstance(source.get('commit'), str) or not COMMIT_RE.fullmatch(source['commit']):
         die('manifest source is invalid')
-    if source['ref'] not in ('refs/heads/main', f'refs/tags/{tag}'):
+    if source['ref'] != 'refs/heads/main':
         die('manifest source ref is invalid')
     workflow = value['workflow']
     if not isinstance(workflow, dict) or set(workflow) != {'path', 'run_id', 'run_attempt'}:
         die('manifest workflow is invalid')
     if workflow.get('path') != WORKFLOW_PATH or not isinstance(workflow.get('run_id'), str) or not DECIMAL_RE.fullmatch(workflow['run_id']):
         die('manifest workflow identity is invalid')
-    if isinstance(workflow.get('run_attempt'), bool) or not isinstance(workflow.get('run_attempt'), int) or workflow['run_attempt'] < 1:
-        die('manifest workflow attempt is invalid')
+    positive_integer(workflow.get('run_attempt'), 'manifest workflow attempt')
     expected_entries = (
         *[(f'slv-{target}-exe.tar.gz', 'executable', target) for target in TARGETS],
         ('template.tar.gz', 'template', None),
@@ -486,7 +600,234 @@ def parse_manifest(raw: bytes, tag: str) -> dict[str, dict[str, Any]]:
         indexed[name] = asset
     if set(indexed) != set(expected):
         die('manifest payload inventory is incomplete')
+    validate_product_reference(value, indexed)
     return indexed
+
+
+def parse_qualification(raw: bytes, identity: str) -> dict[str, Any]:
+    """Validate signed dependency metadata without downloading or executing runtimes."""
+    if len(raw) > 1024 * 1024:
+        die('qualification manifest exceeds bound')
+    m = fields(strict_json(raw), ('schema_version', 'kind', 'producer', 'compatibility', 'producer_recipe',
+                                  'assets', 'artifacts', 'source', 'targets', 'policy'), 'qualification manifest')
+    if type(m['schema_version']) is not int or m['schema_version'] != 1 or m['kind'] != 'slv-runtime-qualification':
+        die('unsupported runtime qualification')
+    matches(identity, SHA256_RE, 'qualification identity')
+    if raw != canonical_json(m, True) or hashlib.sha256(raw).hexdigest() != identity:
+        die('qualification bytes differ from signed canonical identity')
+    producer = fields(m['producer'], ('repository', 'workflow_path', 'workflow_source_commit', 'reviewed_main_equivalent',
+                                      'workflow_ref', 'source_commit', 'api_head_sha', 'run_id', 'run_attempt'), 'qualification producer')
+    if producer['repository'] != REPOSITORY or producer['workflow_path'] != WORKFLOW_PATH:
+        die('untrusted original qualification producer')
+    for key in ('workflow_source_commit', 'source_commit', 'api_head_sha'):
+        matches(producer[key], COMMIT_RE, 'original producer commit')
+    if producer['workflow_source_commit'] != producer['source_commit']:
+        die('original workflow source differs')
+    matches(producer['workflow_ref'], re.compile(r'refs/(?:heads/[A-Za-z0-9._/-]+|pull/[1-9][0-9]*/merge)'), 'original workflow ref')
+    positive_integer(producer['run_id'], 'original run ID')
+    positive_integer(producer['run_attempt'], 'original run attempt')
+    equivalent = producer['reviewed_main_equivalent']
+    if equivalent is None:
+        if producer['workflow_ref'] != 'refs/heads/main' or producer['source_commit'] != producer['api_head_sha']:
+            die('direct qualification producer is not main')
+    else:
+        fields(equivalent, ('commit', 'tree_sha', 'parents', 'pull_request'), 'reviewed main equivalent')
+        matches(equivalent['commit'], COMMIT_RE, 'reviewed main commit')
+        matches(equivalent['tree_sha'], COMMIT_RE, 'reviewed Git tree')
+        positive_integer(equivalent['pull_request'], 'original pull request')
+        parents = equivalent['parents']
+        if not isinstance(parents, list) or len(parents) != 2:
+            die('original merge lineage is incomplete')
+        for parent in parents:
+            matches(parent, COMMIT_RE, 'original merge parent')
+        if parents[1] != producer['api_head_sha']:
+            die('original merge head differs')
+    compatibility = fields(m['compatibility'], ('deno_version', 'deno_commit', 'libsui_version', 'frontend',
+                                                'runtime_inputs', 'embedding_recipe_sha256'), 'qualification compatibility')
+    if (compatibility['deno_version'] != '2.9.3' or compatibility['libsui_version'] != '0.16.3'
+            or compatibility['deno_commit'] != 'f39575ecd50602a5b42b1ba8e93849460de9fcf4'
+            or compatibility['embedding_recipe_sha256'] != embedding_recipe_digest()):
+        die('unreviewed runtime or embedding compatibility')
+
+    def file_spec(value: Any) -> None:
+        fields(value, ('sha256', 'size'), 'qualification asset')
+        matches(value['sha256'], SHA256_RE, 'qualification asset digest')
+        positive_integer(value['size'], 'qualification asset size', MAX_SOURCE_ASSET - 1)
+
+    def nonempty_map(value: Any, label: str) -> dict[str, Any]:
+        if not isinstance(value, dict) or not value or len(value) > 1024:
+            die(f'invalid {label} inventory')
+        return value
+
+    def member_path(value: Any) -> None:
+        if (not isinstance(value, str) or not value or '\\' in value or '\x00' in value
+                or any(part in ('', '.', '..') for part in value.split('/'))):
+            die('unsafe qualification member path')
+
+    frontends = fields(compatibility['frontend'], TARGETS[:2], 'qualification frontends')
+    for spec in frontends.values():
+        file_spec(spec)
+    for table in (nonempty_map(compatibility['runtime_inputs'], 'runtime inputs'),
+                  nonempty_map(m['producer_recipe'], 'producer recipe')):
+        for path, digest in table.items():
+            member_path(path)
+            matches(digest, SHA256_RE, 'runtime input digest')
+    required_inputs = ('source-materials/pins.json', 'source-rebuild/tool-prereqs.json',
+                       'scripts/release/runtime-notices/evidence/deno/selected-Cargo.lock')
+    if any(path not in compatibility['runtime_inputs'] for path in required_inputs):
+        die('missing required runtime input')
+    assets = nonempty_map(m['assets'], 'qualification assets')
+    name_pattern = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,199}')
+    for name, spec in assets.items():
+        matches(name, name_pattern, 'qualification asset name')
+        if name in ('runtime-qualification.json', 'runtime-qualification.json.intoto.jsonl'):
+            die('reserved qualification asset name')
+        file_spec(spec)
+    referenced: set[str] = set()
+
+    def reference(name: Any) -> None:
+        matches(name, name_pattern, 'qualification asset reference')
+        if name not in assets:
+            die('unknown qualification asset reference')
+        referenced.add(name)
+
+    source = fields(m['source'], ('receipt', 'pins', 'tool_prereqs', 'notice', 'selected_lock', 'archives', 'members'),
+                    'original qualification source')
+    for key in ('receipt', 'pins', 'tool_prereqs', 'notice', 'selected_lock'):
+        reference(source[key])
+    for name in fields(source['archives'], SOURCE_ASSETS, 'original source archives').values():
+        reference(name)
+    for path, name in nonempty_map(source['members'], 'source members').items():
+        member_path(path)
+        if not path.startswith('slv-source/'):
+            die('invalid original source root')
+        reference(name)
+    for table in (compatibility['runtime_inputs'], m['producer_recipe']):
+        for path, digest in table.items():
+            member = source['members'].get(f'slv-source/{path}')
+            if member not in assets or assets[member]['sha256'] != digest:
+                die('original source member differs from input identity')
+    for input_path, source_key in zip(required_inputs, ('pins', 'tool_prereqs', 'selected_lock')):
+        if assets[source[source_key]]['sha256'] != compatibility['runtime_inputs'][input_path]:
+            die('original source input asset differs')
+    artifacts = m['artifacts']
+    if not isinstance(artifacts, list) or not 9 <= len(artifacts) <= 16:
+        die('incomplete original artifact evidence')
+    ids, names, transports, outputs = set(), set(), set(), set()
+    for artifact in artifacts:
+        fields(artifact, ('id', 'name', 'asset', 'members'), 'qualification artifact')
+        positive_integer(artifact['id'], 'artifact ID')
+        matches(artifact['name'], name_pattern, 'artifact name')
+        reference(artifact['asset'])
+        if artifact['id'] in ids or artifact['name'] in names or artifact['asset'] in transports:
+            die('duplicate original artifact')
+        ids.add(artifact['id']); names.add(artifact['name']); transports.add(artifact['asset'])
+        for path, name in nonempty_map(artifact['members'], 'artifact members').items():
+            member_path(path); reference(name)
+            if name in outputs:
+                die('duplicate original artifact output')
+            outputs.add(name)
+    targets = m['targets']
+    if not isinstance(targets, list) or len(targets) != len(TARGETS):
+        die('qualification requires four targets')
+    target_refs: set[str] = set()
+    for target, entry in zip(TARGETS, targets):
+        fields(entry, ('target', 'runtime', 'derived_lock', 'proof', 'build_receipt', 'execution_receipt',
+                       'tool_pins', 'transport_manifest', 'abi'), 'qualification target')
+        if entry['target'] != target:
+            die('qualification target order or identity differs')
+        for key in ('runtime', 'derived_lock', 'proof', 'build_receipt', 'execution_receipt', 'tool_pins', 'transport_manifest'):
+            reference(entry[key])
+            if entry[key] in target_refs:
+                die('duplicate qualification target evidence')
+            target_refs.add(entry[key])
+        abi = fields(entry['abi'], ('format', 'arch', 'minimum_os'), 'qualified ABI')
+        darwin = target.endswith('darwin')
+        if abi != {'format': 'macho' if darwin else 'elf', 'arch': target.split('-')[0],
+                   'minimum_os': '12.0' if darwin else 'glibc-2.27'}:
+            die('unreviewed qualified ABI')
+    if referenced != set(assets):
+        die('unreferenced qualification asset')
+    policy = fields(m['policy'], ('version', 'upstream_fallback', 'retention', 'native_evidence'), 'qualification policy')
+    if (type(policy['version']) is not int or policy['version'] != 1 or policy['upstream_fallback'] is not False
+            or policy['retention'] != 'while-referenced' or policy['native_evidence'] != 'original-runtime-only'):
+        die('unsupported qualification policy')
+    return m
+
+
+def verify_runtime_qualification(gh: Path, work: Path, application: dict[str, Any]) -> None:
+    reference = application['runtime_qualification']
+    tag, identity = reference['tag'], reference['identity']
+    # The URL components have already passed the signed schema 2 parser.
+    release = strict_json(read_http(f'{RELEASE_API}/tags/{tag}', MAX_METADATA))
+    if (not isinstance(release, dict) or release.get('tag_name') != tag or release.get('immutable') is not True
+            or release.get('draft') is not False or release.get('prerelease') is not True):
+        die('runtime qualification is not the exact immutable prerelease')
+    promotion = matches(release.get('target_commitish'), COMMIT_RE, 'qualification promotion commit')
+    base = f'{RELEASE_DOWNLOAD}/{tag}'
+    manifest_name, bundle_name = 'runtime-qualification.json', 'runtime-qualification.json.intoto.jsonl'
+    raw = read_http(f'{base}/{manifest_name}', 1024 * 1024)
+    qualification = parse_qualification(raw, identity)
+    inventory = release.get('assets')
+    if not isinstance(inventory, list) or len(inventory) != len(qualification['assets']) + 2:
+        die('qualification public asset inventory differs')
+    expected = {**qualification['assets'], manifest_name: {'sha256': identity, 'size': len(raw)}}
+    indexed = {}
+    for entry in inventory:
+        if not isinstance(entry, dict):
+            die('invalid qualification public asset')
+        name = entry.get('name')
+        if not isinstance(name, str) or name in indexed or name not in (*expected, bundle_name):
+            die('unknown or duplicate qualification public asset')
+        size = positive_integer(entry.get('size'), 'public qualification asset size',
+                                MAX_METADATA if name == bundle_name else MAX_SOURCE_ASSET - 1)
+        digest = matches(entry.get('digest'), re.compile(r'sha256:[a-f0-9]{64}'), 'public qualification digest')
+        if entry.get('browser_download_url') != f'{base}/{name}':
+            die('qualification asset URL differs from fixed repository')
+        if name in expected and (size != expected[name]['size'] or digest != f"sha256:{expected[name]['sha256']}"):
+            die('qualification public asset digest differs')
+        indexed[name] = entry
+    if set(indexed) != {*expected, bundle_name}:
+        die('qualification public asset inventory is incomplete')
+    bundle_raw = read_http(f'{base}/{bundle_name}', MAX_METADATA)
+    if (len(bundle_raw) != indexed[bundle_name]['size']
+            or f'sha256:{hashlib.sha256(bundle_raw).hexdigest()}' != indexed[bundle_name]['digest']):
+        die('qualification attestation asset digest differs')
+    manifest_path, bundle_path = work / manifest_name, work / bundle_name
+    manifest_path.write_bytes(raw); bundle_path.write_bytes(bundle_raw)
+    os.chmod(manifest_path, 0o600); os.chmod(bundle_path, 0o600)
+    verify_attestation(gh, manifest_path, bundle_path, 'refs/heads/main', promotion, work, single_subject=True)
+    verify_peeled_tag(tag, promotion, work)
+    # A synthetic original PR merge is not a main ancestor. Only the signed,
+    # hosted promotion commit must precede this application's signed source.
+    source_commit = application['source']['commit']
+    comparison = strict_json(read_http(
+        f'https://api.github.com/repos/{REPOSITORY}/compare/{promotion}...{source_commit}?per_page=1', MAX_METADATA))
+    if (not isinstance(comparison, dict) or comparison.get('status') not in ('ahead', 'identical')
+            or not isinstance(comparison.get('base_commit'), dict)
+            or not isinstance(comparison.get('merge_base_commit'), dict)
+            or comparison['base_commit'].get('sha') != promotion
+            or comparison['merge_base_commit'].get('sha') != promotion):
+        die('runtime promotion is not an ancestor of the signed application')
+    assets = qualification['assets']
+    for entry, product in zip(qualification['targets'], reference['products']):
+        receipt = product['receipt']
+        qualified = receipt['qualification']
+        for field, name in (
+            ('baseline_denort_sha256', entry['runtime']), ('derived_lock_sha256', entry['derived_lock']),
+            ('selected_lock_sha256', qualification['source']['selected_lock']),
+            ('native_proof_sha256', entry['proof']), ('build_receipt_sha256', entry['build_receipt']),
+        ):
+            if qualified[field] != assets[name]['sha256']:
+                die('current product runtime differs from immutable qualification')
+        frontend = qualification['compatibility']['frontend'][
+            f"{receipt['producer']['host_arch']}-unknown-linux-gnu"]
+        if receipt['frontend']['sha256'] != frontend['sha256']:
+            die('current product frontend differs from qualification')
+    # Current source archives contain this application's notices and composite
+    # closure metadata, so their container hashes intentionally differ from the
+    # original qualification archives. The signed application inventory binds
+    # those fresh bytes; stable runtime inputs and selected locks are bound above.
 
 
 def clean_env(home: Path) -> dict[str, str]:
@@ -604,13 +945,14 @@ def managed_gh(root: Path, work: Path) -> Path:
     return candidate
 
 
-def verify_attestation(gh: Path, manifest: Path, bundle: Path, source_ref: str, source_digest: str, work: Path) -> None:
+def verify_attestation(gh: Path, manifest: Path, bundle: Path, source_ref: str, source_digest: str,
+                       work: Path, *, single_subject: bool = False) -> None:
     clean_home = work / 'gh-home'; private_dir(clean_home)
     command = [
         str(gh), 'attestation', 'verify', str(manifest), '--bundle', str(bundle),
         '--repo', REPOSITORY, '--signer-workflow', WORKFLOW_IDENTITY,
         '--source-ref', source_ref, '--source-digest', source_digest,
-        '--deny-self-hosted-runners',
+        '--signer-digest', source_digest, '--deny-self-hosted-runners', '--format', 'json',
     ]
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90, cwd=work, env=clean_env(clean_home))
@@ -619,6 +961,37 @@ def verify_attestation(gh: Path, manifest: Path, bundle: Path, source_ref: str, 
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or f'exit {result.returncode}'
         die(f'manifest attestation verification failed: {detail[:500]}')
+    verified_statements = strict_json(result.stdout.encode('utf-8'))
+    expected_subject = {'name': manifest.name, 'digest': {'sha256': sha256(manifest)}}
+    if not isinstance(verified_statements, list) or not verified_statements:
+        die('missing cryptographically verified attestation statement')
+    found = False
+    for row in verified_statements:
+        verification = row.get('verificationResult') if isinstance(row, dict) else None
+        statement = verification.get('statement') if isinstance(verification, dict) else None
+        if (not isinstance(statement, dict) or statement.get('_type') != 'https://in-toto.io/Statement/v1'
+                or statement.get('predicateType') != 'https://slsa.dev/provenance/v1'):
+            continue
+        subjects = statement.get('subject')
+        if (not isinstance(subjects, list) or not 0 < len(subjects) <= MAX_MEMBERS
+                or (single_subject and len(subjects) != 1)):
+            die('verified attestation subject inventory is invalid')
+        names: set[str] = set()
+        for subject in subjects:
+            fields(subject, ('name', 'digest'), 'verified attestation subject')
+            name = matches(subject['name'], ASSET_RE, 'verified attestation subject name')
+            if name in names or name in ('.', '..'):
+                die('duplicate or invalid verified attestation subject name')
+            names.add(name)
+            fields(subject['digest'], ('sha256',), 'verified attestation subject digest')
+            matches(subject['digest']['sha256'], SHA256_RE, 'verified attestation subject digest')
+            if name == manifest.name:
+                if subject != expected_subject:
+                    die('verified attestation contains a conflicting manifest digest')
+                found = True
+    if found:
+        return
+    die('verified attestation subject differs from the exact manifest')
 
 
 def verify_peeled_tag(tag: str, source_digest: str, work: Path) -> None:
@@ -1112,9 +1485,11 @@ def verified(root: Path, work: Path, release: dict[str, Any]) -> tuple[str, dict
     manifest, bundle = work / 'release-manifest.json', work / 'release-manifest.json.intoto.jsonl'
     manifest.write_bytes(manifest_raw); bundle.write_bytes(bundle_raw)
     os.chmod(manifest, 0o600); os.chmod(bundle, 0o600)
-    verify_attestation(managed_gh(root, work), manifest, bundle, source_ref, source_digest, work)
+    gh = managed_gh(root, work)
+    verify_attestation(gh, manifest, bundle, source_ref, source_digest, work)
     assets = parse_manifest(manifest_raw, tag)
     verify_peeled_tag(tag, source_digest, work)
+    verify_runtime_qualification(gh, work, strict_json(manifest_raw))
     return tag, assets
 
 

@@ -3,6 +3,20 @@ import { createHash } from 'node:crypto'
 import { buildRuntimeNotices } from './runtime-notices.ts'
 import { materializeApplicationNotices } from './application-notices.ts'
 import {
+  type CurrentProductReceipt,
+  embeddingRecipeSha256,
+  inspectMachO,
+  parseCurrentProductReceipt,
+  verifyCurrentProductFiles,
+} from './build-product.ts'
+import {
+  githubQualificationAdapter,
+  qualificationIdentity,
+  readQualificationManifest,
+  verifyPublishedQualification,
+  verifyQualificationBinding,
+} from './runtime-qualification.ts'
+import {
   CANONICAL_NOTICE_NAME,
   readPins,
   type SourceMaterialsReceipt,
@@ -116,6 +130,95 @@ export const payloadSpecs = (): AssetSpec[] => [
   { name: 'THIRD_PARTY_NOTICES', kind: 'notices' },
   ...SOURCE_ASSETS.map((name) => ({ name, kind: 'source' as const })),
 ]
+
+export type QualificationReference = {
+  identity: string
+  tag: string
+  manifest_sha256: string
+  state: 'candidate-validation' | 'final-qualified'
+  products: Array<{ receipt_sha256: string; receipt: CurrentProductReceipt }>
+}
+/** Language-independent receipt encoding, also used by the Python consumer. */
+export function canonicalReceipt(value: unknown): string {
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalReceipt).join(',') + ']'
+  }
+  if (value !== null && typeof value === 'object') {
+    return '{' + Object.entries(value).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0
+    ).map(([key, entry]) =>
+      JSON.stringify(key) + ':' + canonicalReceipt(entry)
+    ).join(',') + '}'
+  }
+  return JSON.stringify(value)
+}
+export function validateQualificationReference(
+  value: unknown,
+  expected?: {
+    sourceSha: string
+    sourceRef: string
+    runId: string
+    runAttempt: string
+    release: boolean
+  },
+): QualificationReference {
+  const r = value as QualificationReference
+  if (
+    !r || typeof r !== 'object' || Array.isArray(r) ||
+    Object.keys(r).sort().join(',') !==
+      ['identity', 'tag', 'manifest_sha256', 'state', 'products'].sort().join(
+        ',',
+      ) ||
+    !SHA256.test(r.identity) || r.manifest_sha256 !== r.identity ||
+    r.tag !== `runtime-deno-v2.9.3-${r.identity}` ||
+    !['candidate-validation', 'final-qualified'].includes(r.state) ||
+    !Array.isArray(r.products) || r.products.length !== TARGETS.length
+  ) throw new Error('invalid runtime qualification reference')
+  for (const [index, entry] of r.products.entries()) {
+    if (
+      !entry || Object.keys(entry).sort().join(',') !== 'receipt,receipt_sha256'
+    ) throw new Error('invalid qualified product reference')
+    const product = parseCurrentProductReceipt(entry.receipt)
+    if (
+      product.target !== TARGETS[index] ||
+      product.qualification.identity !== r.identity ||
+      product.qualification.state !== r.state ||
+      createHash('sha256').update(canonicalReceipt(product)).digest('hex') !==
+        entry.receipt_sha256
+    ) throw new Error('qualified product receipt digest or target differs')
+    if (
+      expected &&
+      (product.source.commit !== expected.sourceSha ||
+        product.source.ref !== expected.sourceRef ||
+        product.producer.run_id !== expected.runId ||
+        BigInt(product.producer.run_attempt) > BigInt(expected.runAttempt) ||
+        (expected.release && r.state !== 'final-qualified'))
+    ) throw new Error('qualified product release identity differs')
+    if (
+      expected?.release &&
+      product.producer.profile !==
+        (product.target === 'aarch64-unknown-linux-gnu'
+          ? 'linux-arm64-4'
+          : 'linux-16')
+    ) {
+      throw new Error(
+        'final release product was not built on the required self-hosted profile',
+      )
+    }
+    if (
+      index &&
+      (canonicalReceipt(product.source) !==
+          canonicalReceipt(r.products[0].receipt.source) ||
+        product.producer.workflow_sha !==
+          r.products[0].receipt.producer.workflow_sha)
+    ) {
+      throw new Error(
+        'qualified products do not bind one current application input set',
+      )
+    }
+  }
+  return r
+}
 
 export function assertVersion(version: string): void {
   if (!CALVER.test(version)) throw new Error(`invalid CalVer: ${version}`)
@@ -368,6 +471,7 @@ export function manifest(
   runId: string,
   runAttempt: string,
   assets: Asset[],
+  qualification?: QualificationReference,
 ) {
   assertVersion(version)
   if (!SHA40.test(sourceSha)) throw new Error('invalid source commit')
@@ -379,7 +483,7 @@ export function manifest(
   }
   assertAssets(assets)
   return {
-    schema_version: 1,
+    schema_version: qualification ? 2 : 1,
     repository: 'ValidatorsDAO/slv',
     version,
     tag: `v${version}`,
@@ -390,6 +494,17 @@ export function manifest(
       run_attempt: Number(runAttempt),
     },
     assets,
+    ...(qualification
+      ? {
+        runtime_qualification: validateQualificationReference(qualification, {
+          sourceSha,
+          sourceRef,
+          runId,
+          runAttempt,
+          release: true,
+        }),
+      }
+      : {}),
   }
 }
 
@@ -401,10 +516,14 @@ export function ciManifest(
   runId: string,
   runAttempt: string,
   assets: Asset[],
+  qualification?: QualificationReference,
 ) {
   assertVersion(version)
   if (!SHA40.test(sourceSha)) throw new Error('invalid source commit')
-  if (!PR_MERGE_REF.test(sourceRef)) {
+  if (
+    !PR_MERGE_REF.test(sourceRef) &&
+    !(qualification && /^refs\/heads\/[A-Za-z0-9._/-]+$/.test(sourceRef))
+  ) {
     throw new Error('CI package requires an exact pull-request merge ref')
   }
   if (!DECIMAL.test(runId) || !DECIMAL.test(runAttempt)) {
@@ -412,7 +531,7 @@ export function ciManifest(
   }
   assertAssets(assets)
   return {
-    schema_version: 1,
+    schema_version: qualification ? 2 : 1,
     artifact_kind: 'ci-only',
     unsigned: true,
     repository: 'ValidatorsDAO/slv',
@@ -425,6 +544,17 @@ export function ciManifest(
       run_attempt: Number(runAttempt),
     },
     assets,
+    ...(qualification
+      ? {
+        runtime_qualification: validateQualificationReference(qualification, {
+          sourceSha,
+          sourceRef,
+          runId,
+          runAttempt,
+          release: false,
+        }),
+      }
+      : {}),
   }
 }
 
@@ -1595,15 +1725,22 @@ export async function executableDigestFromArchive(
   path: string,
   executableName: string,
 ): Promise<string> {
+  return createHash('sha256').update(
+    await executableBytesFromArchive(path, executableName),
+  ).digest('hex')
+}
+
+export async function executableBytesFromArchive(
+  path: string,
+  executableName: string,
+): Promise<Uint8Array> {
   await assertArchive(path, executableName, { singleFile: true })
   const bytes = await gunzip(await Deno.readFile(path))
   const size = tarOctal(bytes, 124, 12, 'size')
   if (512 + size > bytes.length) {
     throw new Error('compiled executable archive is truncated')
   }
-  return createHash('sha256')
-    .update(bytes.subarray(512, 512 + size))
-    .digest('hex')
+  return bytes.subarray(512, 512 + size)
 }
 
 function sourceProofBaseline(value: unknown): {
@@ -2912,7 +3049,393 @@ async function assertSkillSource(root: string, skill: string): Promise<void> {
     }).name !== skill
   ) throw new Error(`skill.json name does not match ${skill}`)
 }
-export type PackOptions = { root?: string; outputDir?: string }
+export type PackOptions = {
+  root?: string
+  outputDir?: string
+  qualification?: {
+    directory: string
+    workflowSha: string
+    producerAttempts?: Record<string, string>
+  }
+}
+
+/** Source containers carry current app metadata. Only the runtime closure is
+ * required to match the original, independently qualified source materials. */
+export function verifyStableRuntimeSources(
+  currentValue: unknown,
+  qualifiedValue: unknown,
+): void {
+  const current = verifySourceMaterialsReceipt(currentValue)
+  const qualified = verifySourceMaterialsReceipt(qualifiedValue)
+  for (
+    const field of [
+      'pins',
+      'runtime_security',
+      'vendor',
+      'gitlink_closure',
+      'source_legal_evidence',
+    ] as const
+  ) {
+    if (
+      canonicalReceipt(current[field]) !== canonicalReceipt(qualified[field])
+    ) {
+      throw new Error(
+        `current runtime source differs from qualification: ${field}`,
+      )
+    }
+  }
+  if (
+    current.vendor.lock_sha256 !==
+      current.runtime_security.selected.cargo_lock.sha256
+  ) {
+    throw new Error(
+      'current runtime vendor does not use the security-selected lock',
+    )
+  }
+}
+
+export function sourceReceiptFromSbom(
+  sbom: unknown,
+): { value: SourceMaterialsReceipt; raw: string; sha256: string } {
+  const annotations = (sbom as { annotations?: unknown })?.annotations
+  if (!Array.isArray(annotations)) {
+    throw new Error('qualified SBOM lacks source receipt annotations')
+  }
+  const entries = annotations.filter((entry) =>
+    typeof entry?.comment === 'string' &&
+    entry.comment.startsWith('SLV source-materials receipt ')
+  )
+  if (entries.length !== 1) {
+    throw new Error(
+      'qualified SBOM must carry exactly one current source receipt',
+    )
+  }
+  const match =
+    /^SLV source-materials receipt \(verbatim UTF-8; SHA-256 ([a-f0-9]{64})\)\. Extract every byte after the delimiter and verify it against the three source archives\.\n---BEGIN SLV SOURCE MATERIALS RECEIPT---\n([\s\S]+)$/
+      .exec(entries[0].comment)
+  if (
+    !match || createHash('sha256').update(match[2]).digest('hex') !== match[1]
+  ) throw new Error('qualified SBOM source receipt bytes differ')
+  return {
+    value: verifySourceMaterialsReceipt(JSON.parse(match[2])),
+    raw: match[2],
+    sha256: match[1],
+  }
+}
+
+export async function verifyQualifiedProducts(
+  root: string,
+  identity: {
+    sourceSha: string
+    sourceRef: string
+    runId: string
+    runAttempt: string
+    workflowSha: string
+  },
+  directory: string,
+  release: boolean,
+  producerAttempts?: Record<string, string>,
+): Promise<QualificationReference> {
+  if (
+    producerAttempts &&
+    (Object.keys(producerAttempts).sort().join(',') !==
+        [...TARGETS].sort().join(',') ||
+      Object.values(producerAttempts).some((value) =>
+        typeof value !== 'string' || !DECIMAL.test(value) ||
+        BigInt(value) > BigInt(identity.runAttempt)
+      ))
+  ) throw new Error('invalid qualified product producer attempt inventory')
+  const state = release ? 'final-qualified' : 'candidate-validation'
+  const base = join(root, 'dist/release-inputs/product-runtime')
+  const directories: string[] = []
+  for await (const entry of Deno.readDir(base)) {
+    if (!entry.isDirectory || entry.isSymlink) {
+      throw new Error('invalid qualified product directory')
+    }
+    directories.push(entry.name)
+  }
+  if (directories.sort().join(',') !== [...TARGETS].sort().join(',')) {
+    throw new Error('qualified package requires exactly four targets')
+  }
+  const products: QualificationReference['products'] = []
+  let qualificationIdentity = ''
+  for (const target of TARGETS) {
+    const qualified = await verifyQualificationBinding({
+      directory,
+      repositoryRoot: root,
+      target,
+      mode: state,
+    })
+    if (qualificationIdentity && qualificationIdentity !== qualified.identity) {
+      throw new Error('qualification identity differs across products')
+    }
+    qualificationIdentity = qualified.identity
+    verifyStableRuntimeSources(
+      JSON.parse(await Deno.readTextFile(join(root, SOURCE_MATERIALS_RECEIPT))),
+      JSON.parse(await Deno.readTextFile(qualified.sourceReceipt.path)),
+    )
+    const product = await verifyCurrentProductFiles(
+      root,
+      target,
+      {
+        ...identity,
+        runAttempt: producerAttempts?.[target] ?? identity.runAttempt,
+      },
+      qualified,
+    )
+    if (
+      qualified.manifest.compatibility.embedding_recipe_sha256 !==
+        embeddingRecipeSha256() ||
+      qualified.manifest.compatibility.libsui_version !== '0.16.3'
+    ) {
+      throw new Error(
+        'qualified embedding recipe differs from current product contract',
+      )
+    }
+    const hostTarget = product.producer.host_arch === 'aarch64'
+      ? 'aarch64-unknown-linux-gnu'
+      : 'x86_64-unknown-linux-gnu'
+    if (
+      product.frontend.sha256 !==
+        qualified.manifest.compatibility.frontend[hostTarget].sha256
+    ) throw new Error('product frontend differs from qualification')
+    const targetDirectory = join(base, target)
+    const isLinux = target.endsWith('linux-gnu')
+    const expectedEntries = [
+      'product-runtime-receipt.json',
+      'product-verification.json',
+      'release-bridge-smoke',
+      ...(isLinux
+        ? ['linux-compatibility-receipt.json', 'linux-compatibility']
+        : []),
+    ].sort()
+    const entries: string[] = []
+    for await (const entry of Deno.readDir(targetDirectory)) {
+      if (
+        entry.isSymlink ||
+        !(entry.isFile ||
+          (entry.isDirectory && entry.name === 'linux-compatibility'))
+      ) throw new Error('invalid product evidence entry')
+      entries.push(entry.name)
+    }
+    if (entries.sort().join(',') !== expectedEntries.join(',')) {
+      throw new Error('qualified product evidence inventory differs')
+    }
+    const verification = JSON.parse(
+      await Deno.readTextFile(
+        join(targetDirectory, 'product-verification.json'),
+      ),
+    )
+    if (isLinux) {
+      const expected = {
+        kind: 'slv-current-linux-verification',
+        native_execution: 'passed',
+        compatibility_sha256: await hashFile(
+          join(targetDirectory, 'linux-compatibility-receipt.json'),
+        ),
+        version: `slv ${await reviewedSourceVersion(root)}\n`,
+        notices_sha256: product.source.notices_sha256,
+        help: 'passed',
+        bridge: 'passed',
+      }
+      if (canonicalReceipt(verification) !== canonicalReceipt(expected)) {
+        throw new Error('current Linux verification differs')
+      }
+      await verifyLinuxCompatibilityReceipt(
+        root,
+        targetDirectory,
+        target as (typeof LINUX_TARGETS)[number],
+        {
+          target,
+          executableSha256: product.output.executable_sha256,
+          executableTarSha256: product.output.archive_sha256,
+          baselineDenortSha256: qualified.runtime.sha256,
+          sourceSelectedCargoLockSha256: qualified.selectedLock.sha256,
+          derivedRelinkCargoLockSha256: qualified.derivedLock.sha256,
+          sourceReceiptSha256: product.source.source_receipt_sha256,
+          nativeProofSha256: qualified.proof.sha256,
+          buildReceiptSha256: qualified.buildReceipt.sha256,
+        },
+        {
+          denort: qualified.runtime.sha256,
+          derivedRelinkLock: qualified.derivedLock.sha256,
+          selectedLock: qualified.selectedLock.sha256,
+          bridge: product.output.bridge_sha256,
+          canonicalNotice: product.source.notices_sha256,
+        },
+      )
+    } else {
+      const actual = {
+        kind: 'slv-current-darwin-verification',
+        executable: inspectMachO(
+          await executableBytesFromArchive(
+            join(root, 'dist', `slv-${target}-exe.tar.gz`),
+            `slv-${target}-exe`,
+          ),
+          target,
+        ),
+        bridge: inspectMachO(
+          await Deno.readFile(join(targetDirectory, 'release-bridge-smoke')),
+          target,
+        ),
+        native_execution: 'not_performed',
+      }
+      if (canonicalReceipt(actual) !== canonicalReceipt(verification)) {
+        throw new Error(
+          'Darwin static verification differs from exact current bytes',
+        )
+      }
+    }
+    products.push({
+      receipt_sha256: createHash('sha256').update(canonicalReceipt(product))
+        .digest('hex'),
+      receipt: product,
+    })
+  }
+  return validateQualificationReference({
+    identity: qualificationIdentity,
+    tag: `runtime-deno-v2.9.3-${qualificationIdentity}`,
+    manifest_sha256: qualificationIdentity,
+    state,
+    products,
+  }, { ...identity, release })
+}
+
+/** Hosted attestation/publication rechecks the public immutable dependency. */
+export async function verifyQualifiedPublication(
+  args: string[],
+  root = Deno.cwd(),
+): Promise<void> {
+  const [directory, sourceSha, runId, runAttempt, workflowSha] = args
+  if (
+    args.length !== 5 || !SHA40.test(sourceSha) || !SHA40.test(workflowSha) ||
+    !DECIMAL.test(runId) || !DECIMAL.test(runAttempt)
+  ) throw new Error('invalid qualified publication identity')
+  const value = JSON.parse(
+    await Deno.readTextFile(join(directory, 'release-manifest.json')),
+  )
+  if (
+    value.schema_version !== 2 || value.artifact_kind || value.unsigned ||
+    value.source?.commit !== sourceSha || value.workflow?.run_id !== runId ||
+    value.workflow?.run_attempt !== Number(runAttempt)
+  ) {
+    throw new Error(
+      'publication requires the exact final qualified application manifest',
+    )
+  }
+  const reference = validateQualificationReference(
+    value.runtime_qualification,
+    {
+      sourceSha,
+      sourceRef: value.source.ref,
+      runId,
+      runAttempt,
+      release: true,
+    },
+  )
+  const canonical = manifest(
+    value.version,
+    sourceSha,
+    value.source.ref,
+    runId,
+    runAttempt,
+    value.assets,
+    reference,
+  )
+  if (canonicalReceipt(canonical) !== canonicalReceipt(value)) {
+    throw new Error('qualified publication manifest schema differs')
+  }
+  const qualification = await readQualificationManifest(
+    join(root, 'source-materials/runtime-qualification.json'),
+    reference.identity,
+  )
+  if (qualificationIdentity(qualification) !== reference.manifest_sha256) {
+    throw new Error('published qualification identity differs')
+  }
+  if (
+    qualification.compatibility.embedding_recipe_sha256 !==
+      embeddingRecipeSha256() ||
+    qualification.compatibility.libsui_version !== '0.16.3'
+  ) throw new Error('publication embedding recipe differs')
+  const github = githubQualificationAdapter()
+  await verifyPublishedQualification(qualification, github, [])
+  const sbomPath = join(directory, 'sbom.spdx.json')
+  const sourceReceipt = sourceReceiptFromSbom(
+    JSON.parse(await Deno.readTextFile(sbomPath)),
+  )
+  if (sourceReceipt.value.source.commit !== sourceSha) {
+    throw new Error(
+      'publication source receipt is not current application source',
+    )
+  }
+  await verifyReceiptFiles(sourceReceipt.value, directory, {
+    sourceCommit: sourceSha,
+    canonicalNoticeSha256: await hashFile(
+      join(directory, 'THIRD_PARTY_NOTICES'),
+    ),
+  })
+  const temporary = await Deno.makeTempDir({ prefix: 'slv-qualified-source-' })
+  try {
+    const original = join(temporary, 'source-receipt.json')
+    await github.download(
+      `https://github.com/ValidatorsDAO/slv/releases/download/${reference.tag}/${qualification.source.receipt}`,
+      original,
+    )
+    const expected = qualification.assets[qualification.source.receipt]
+    if (
+      (await Deno.stat(original)).size !== expected.size ||
+      await hashFile(original) !== expected.sha256
+    ) throw new Error('qualified original source receipt bytes differ')
+    verifyStableRuntimeSources(
+      sourceReceipt.value,
+      JSON.parse(await Deno.readTextFile(original)),
+    )
+  } finally {
+    await Deno.remove(temporary, { recursive: true })
+  }
+  for (const { receipt } of reference.products) {
+    const row = qualification.targets.find((row) =>
+      row.target === receipt.target
+    )!
+    const archive = `slv-${receipt.target}-exe.tar.gz`
+    const asset = value.assets.find((asset: Asset) => asset.name === archive)
+    const notices = value.assets.find((asset: Asset) =>
+      asset.name === 'THIRD_PARTY_NOTICES'
+    )
+    const sbom = value.assets.find((asset: Asset) =>
+      asset.name === 'sbom.spdx.json'
+    )
+    if (
+      receipt.producer.workflow_sha !== workflowSha ||
+      receipt.qualification.baseline_denort_sha256 !==
+        qualification.assets[row.runtime].sha256 ||
+      receipt.qualification.selected_lock_sha256 !==
+        qualification.assets[qualification.source.selected_lock].sha256 ||
+      receipt.qualification.derived_lock_sha256 !==
+        qualification.assets[row.derived_lock].sha256 ||
+      receipt.qualification.native_proof_sha256 !==
+        qualification.assets[row.proof].sha256 ||
+      receipt.qualification.build_receipt_sha256 !==
+        qualification.assets[row.build_receipt].sha256 ||
+      asset?.sha256 !== receipt.output.archive_sha256 ||
+      notices?.sha256 !== receipt.source.notices_sha256 ||
+      sbom?.sha256 !== receipt.source.sbom_sha256 ||
+      await hashFile(sbomPath) !== receipt.source.sbom_sha256 ||
+      await hashFile(join(directory, 'THIRD_PARTY_NOTICES')) !==
+        receipt.source.notices_sha256 ||
+      sourceReceipt.sha256 !== receipt.source.source_receipt_sha256 ||
+      sourceReceipt.value.runtime_security.selected.cargo_lock.sha256 !==
+        receipt.qualification.selected_lock_sha256 ||
+      await hashFile(join(directory, archive)) !==
+        receipt.output.archive_sha256 ||
+      await executableDigestFromArchive(
+          join(directory, archive),
+          `slv-${receipt.target}-exe`,
+        ) !== receipt.output.executable_sha256
+    ) throw new Error('published product differs from qualified receipt')
+  }
+}
+
 async function packageRelease(
   args: string[],
   options: PackOptions = {},
@@ -2946,7 +3469,11 @@ async function packageRelease(
     assertVersion(version)
     if (!SHA40.test(sourceSha)) throw new Error('invalid source commit')
     if (ciOnly) {
-      if (!PR_MERGE_REF.test(sourceRef)) {
+      if (
+        !PR_MERGE_REF.test(sourceRef) &&
+        !(options.qualification &&
+          /^refs\/heads\/[A-Za-z0-9._/-]+$/.test(sourceRef))
+      ) {
         throw new Error('CI package requires an exact pull-request merge ref')
       }
     } else if (
@@ -2999,16 +3526,33 @@ async function packageRelease(
       sourceSha,
       notices.bundle,
     )
-    await verifySourceProofSet({
-      sourceReceiptPath: join(root, SOURCE_MATERIALS_RECEIPT),
-      sourceDirectory: join(root, SOURCE_MATERIALS_DIRECTORY),
-      proofDirectory: join(root, 'dist/release-inputs/source-proofs'),
-      sourceCommit: sourceSha,
-      sourcePinsPath: join(root, SOURCE_MATERIALS_PINS),
-      toolPinsDirectory: join(root, 'dist/release-inputs/tool-pins'),
-      canonicalNoticePath: canonicalNoticePath(root),
-    })
-    await verifyProductRuntimeReceipts(root, sourceMaterials.receipt)
+    let qualification: QualificationReference | undefined
+    if (options.qualification) {
+      qualification = await verifyQualifiedProducts(
+        root,
+        {
+          sourceSha,
+          sourceRef,
+          runId,
+          runAttempt,
+          workflowSha: options.qualification.workflowSha,
+        },
+        options.qualification.directory,
+        !ciOnly,
+        options.qualification.producerAttempts,
+      )
+    } else {
+      await verifySourceProofSet({
+        sourceReceiptPath: join(root, SOURCE_MATERIALS_RECEIPT),
+        sourceDirectory: join(root, SOURCE_MATERIALS_DIRECTORY),
+        proofDirectory: join(root, 'dist/release-inputs/source-proofs'),
+        sourceCommit: sourceSha,
+        sourcePinsPath: join(root, SOURCE_MATERIALS_PINS),
+        toolPinsDirectory: join(root, 'dist/release-inputs/tool-pins'),
+        canonicalNoticePath: canonicalNoticePath(root),
+      })
+      await verifyProductRuntimeReceipts(root, sourceMaterials.receipt)
+    }
     await Deno.writeTextFile(
       join(out, 'sbom.spdx.json'),
       JSON.stringify(
@@ -3023,6 +3567,14 @@ async function packageRelease(
         2,
       ) + '\n',
     )
+    if (qualification) {
+      const sbomHash = await hashFile(join(out, 'sbom.spdx.json'))
+      if (
+        qualification.products.some(({ receipt }) =>
+          receipt.source.sbom_sha256 !== sbomHash
+        )
+      ) throw new Error('current product SBOM differs from packaged bytes')
+    }
     const assets = await inventory(out)
     await Deno.writeTextFile(
       join(out, 'SHA256SUMS'),
@@ -3032,8 +3584,24 @@ async function packageRelease(
       join(out, 'release-manifest.json'),
       JSON.stringify(
         ciOnly
-          ? ciManifest(version, sourceSha, sourceRef, runId, runAttempt, assets)
-          : manifest(version, sourceSha, sourceRef, runId, runAttempt, assets),
+          ? ciManifest(
+            version,
+            sourceSha,
+            sourceRef,
+            runId,
+            runAttempt,
+            assets,
+            qualification,
+          )
+          : manifest(
+            version,
+            sourceSha,
+            sourceRef,
+            runId,
+            runAttempt,
+            assets,
+            qualification,
+          ),
         null,
         2,
       ) + '\n',
@@ -3061,7 +3629,24 @@ if (import.meta.main) {
   // `deno task name -- value` deliberately passes this separator through to
   // the task command. Strip only that one separator after the fixed command.
   const args = rawArgs[0] === '--' ? rawArgs.slice(1) : rawArgs
-  if (command === 'pack') {
+  if (command === 'verify-qualified-publication') {
+    await verifyQualifiedPublication(args)
+  } else if (
+    (command === 'pack-qualified' || command === 'pack-ci-qualified') &&
+    (args.length === 8 || args.length === 9)
+  ) {
+    const options = {
+      qualification: {
+        workflowSha: args[6],
+        directory: args[7],
+        ...(args[8]
+          ? { producerAttempts: JSON.parse(await Deno.readTextFile(args[8])) }
+          : {}),
+      },
+    }
+    if (command === 'pack-qualified') await pack(args.slice(0, 6), options)
+    else await packCi(args.slice(0, 6), options)
+  } else if (command === 'pack') {
     await pack(args)
   } else if (command === 'pack-ci') {
     await packCi(args)

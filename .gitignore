@@ -77,6 +77,8 @@ build
 
 
 # includes
+# Public, content-addressed runtime qualification descriptor.
+!/source-materials/runtime-qualification.json
 # Public test vectors copied into each versioned release template.
 !/template/*/tests/alpenglow_floor_vectors.json
 !settings.json
