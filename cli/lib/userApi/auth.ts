@@ -1,5 +1,8 @@
 import { ensureFreshAccessToken, isJwtShaped } from '/lib/userApi/session.ts'
 
+export const ERPC_LOGIN_REJECTED_MESSAGE =
+  'ERPC rejected this login. Run `slv login` to sign in again in your browser. An RPC API key cannot authenticate to user-api.'
+
 /**
  * Auth value for every request the CLI sends to user-api.
  *

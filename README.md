@@ -51,7 +51,9 @@ Jinja templates. AI is optional.
 | **Geyser streaming** | Yellowstone gRPC |
 
 The current mainnet deployment guards refuse Firedancer and Frankendancer voting
-validators. Review the selected client, network, version pins, and server
+validators. Testnet Firedancer variants can be deployed with an unstaked identity,
+but SLV's staked-identity activation and migration commands refuse them.
+Review the selected client, network, version pins, and server
 requirements before deployment. See the [validator](dist/oss-skills/slv-validator/)
 and [RPC](dist/oss-skills/slv-rpc/) packages for the available playbooks.
 
@@ -123,14 +125,35 @@ Use `slv rpc deploy --help` for the equivalent RPC workflow.
 **AI Console** — run onboarding, then open the interactive console:
 
 ```sh
-slv onboard
+slv onboard --no-start
 slv c
 ```
 
-Onboarding defaults to SLV AI with ERPC sign-in. If sign-in was skipped, run
-`slv login`. You can configure an alternative AI provider through `slv auth`.
-Provider accounts and service usage are separate from installing the open-source
-CLI.
+By default, onboarding enables all five specialist agents and checks your AI balance before
+opening chat. It preserves existing profiles and memory. Use
+`slv onboard --no-start` to save settings without opening chat, or
+`slv onboard --advanced` for names, deployment mode, notifications and browser
+access.
+
+SLV AI requires ERPC browser OAuth. Run `slv login`, then `slv ai`.
+`slv auth` is also an ERPC login entry point. RPC API keys do not authenticate
+account or AI requests; personal Claude/OpenAI keys and the old `--anthropic` /
+`--openai` flags are no longer supported. Legacy AI settings migrate without
+sending those keys to any service. ERPC login and unrelated settings are preserved.
+Service usage is separate from installing the open-source CLI.
+
+The console follows your current request, including on existing installations.
+Greetings use a short reply without project scans or tool calls; closing chat
+does not start another AI request to decide whether to save memory. Notable
+outcomes can be recorded during the relevant task. Use `/focus` only when you
+want to set an explicit working preference.
+
+Operational guidance checks the installed command help when syntax is uncertain.
+Validator "keyless" startup means initial synchronization with an unstaked
+identity; production voting still needs the operator's keys and identity checks.
+Key handling and interactive deployment steps stay in the operator's terminal.
+`slv install firewall` changes the machine running SLV and replaces its ruleset;
+the generic management-host rules must not be applied blindly to a live node.
 
 Example requests:
 
@@ -157,6 +180,7 @@ Example requests:
 | --- | --- |
 | List mainnet validators | `slv validator list --network mainnet` |
 | List mainnet RPC nodes | `slv rpc list --network mainnet` |
+| Check mainnet Alpenglow readiness | `slv validator check:alpenglow --network mainnet` |
 | Explore validator operations | `slv validator --help` |
 | Explore RPC operations | `slv rpc --help` |
 | Build a validator client from source | `slv validator build:solana --network mainnet --pubkey "<inventory-host>"` |
@@ -164,6 +188,10 @@ Example requests:
 | Upgrade SLV, templates, and skills | `slv upgrade` |
 | Restore skills for the installed CLI release | `slv skills sync` |
 | Read embedded third-party notices | `slv licenses` |
+
+`check:alpenglow` reads inventory, version pins, and public RPC data and reports
+OK, WARN, or FAIL without SSH or transactions. It exits with status 1 when a
+check fails or cannot run.
 
 **SLV updates and node-client updates are separate operations.** `slv upgrade`
 updates the management tool, its versioned templates, and its skills. Validator
@@ -181,7 +209,7 @@ Before installing or replacing release files, the release installer,
 1. Select the latest eligible immutable release for installation or upgrade,
    or the installed CLI's exact release for skill sync.
 2. Verify the manifest's provenance and source identity, including the public
-   release tag, before accepting payloads.
+   release tag and pinned runtime qualification, before accepting payloads.
 3. Check archive hashes and contents before replacing the selected files.
 4. Journal core replacements so an interrupted transaction can be recovered.
 
@@ -189,8 +217,12 @@ The consumer preserves existing keys, configuration, inventories, and backups.
 Review the [recovery and settings behavior](docs/secure-delivery.md#recovery-and-settings),
 including the separate handling of a settings-migration failure.
 
-The release pipeline packages corresponding source archives, an SPDX SBOM, and
-third-party notices. See [secure delivery](docs/secure-delivery.md) for the trust
+The release pipeline pairs each fresh CLI build with a separately qualified,
+source-built runtime. Linux builders produce all four target binaries; signed
+receipts distinguish native Linux execution from static macOS checks and the
+runtime's earlier native qualification. Corresponding source archives, an SPDX
+SBOM, and third-party notices make the inputs available for inspection and
+rebuilding. See [secure delivery](docs/secure-delivery.md) for the trust
 and acceptance requirements, and [rebuilding releases](docs/rebuilding-releases.md)
 to inspect the source materials and rebuild procedure. Implemented verification
 controls do not by themselves establish that a release has passed live acceptance.
@@ -198,11 +230,18 @@ controls do not by themselves establish that a release has passed live acceptanc
 ## Credentials and control
 
 **SLV currently uses local credential storage.** `slv login` writes ERPC access
-and refresh tokens to `~/.slv/api.yml` with mode `0600`; configured API keys can
-also be stored there. Deployment workflows use keypair files on the management
-machine or target node, depending on the operation.
+and refresh tokens to `~/.slv/api.yml` with mode `0600`; configured RPC API keys can
+also be stored there.
+
+Validator deployment starts nodes with an unstaked identity and does not copy
+the staked identity key to them. Supported Agave-family identity activation and
+migration commands read `~/.slv/keys/<identity_account>.json` on the management
+machine and pass it through stdin. Older node-side copies are not automatically
+removed. RPC deployment still uses a copied identity keypair file.
 
 SLV has no built-in 1Password credential provider or `op://` reference resolver.
+The optional validator `identity_ref` field stores metadata only; SLV does not
+resolve it.
 Using 1Password or an SSH agent does not eliminate SLV's other on-disk credentials.
 Keep secret values out of AI conversations, source control, and command examples.
 

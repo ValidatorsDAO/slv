@@ -1,16 +1,65 @@
 export const messages: Record<string, string> = {
+  'Complete account activation in the ERPC dashboard before using SLV AI.':
+    'SLV AIを使う前に、ERPCダッシュボードでアカウントの有効化を完了してください。',
+  'Could not verify your account is ready for AI. Your settings will be saved.':
+    'AIを利用できるアカウント状態か確認できませんでした。設定は保存します。',
+
+  // Quick onboarding
+  'Build and operate Solana, through conversation.':
+    '会話で、Solanaの構築と運用を。',
+  'Connect your account': 'アカウントを接続',
+  'Continue with guided setup?': '案内に沿って設定を進めますか？',
+  'Could not verify your AI balance. Your settings will be saved.':
+    'AI残高を確認できませんでした。設定は保存されます。',
+  'ERPC connected, but no AI tokens are available. Run `slv ai product` to review your options.':
+    'ERPCに接続しましたが、利用可能なAIトークンがありません。`slv ai product` で選択肢を確認できます。',
+  'ERPC connected. AI balance: {count} tokens.':
+    'ERPCに接続しました。AI残高: {count} トークン。',
+  'Enable browser chat on this machine?':
+    'この端末でブラウザチャットを有効にしますか？',
+  'Existing sudoers file at {path} was not installed by slv — leaving it alone.':
+    '{path} にあるsudoersファイルはslvが作成したものではないため、変更しません。',
+  'Finish signing in or checking your AI balance, then run `slv ai`.':
+    'ログインまたはAI残高の確認を終えてから、`slv ai` を実行してください。',
+  'Keep private keys and passwords out of the conversation.':
+    '秘密鍵やパスワードは会話に含めないでください。',
+  'Keeping your existing AI provider: {provider}.':
+    '既存のAIプロバイダーを使用します: {provider}。',
+  'Language ready': '言語の準備ができました',
+  'Personalization, notifications and browser access: `slv onboard --advanced`.':
+    '名前・通知・ブラウザアクセスの設定: `slv onboard --advanced`。',
+  'Ready to chat': '会話の準備ができました',
+  'SLV AI uses a cloud AI service. Commands that change your environment require confirmation.':
+    'SLV AIはクラウドのAIサービスを利用します。環境を変更するコマンドは、実行前に確認します。',
+  'Settings can be saved now. Run `slv login` before starting SLV AI.':
+    '設定を保存できます。SLV AIを始める前に `slv login` を実行してください。',
+  'Settings saved': '設定を保存しました',
+  'Start a conversation with `slv ai`.': '`slv ai` で会話を始められます。',
+  'Sudoers install failed:': 'sudoersの設定に失敗しました:',
+  'Try asking: "What subscriptions do I have?" or "Help me prepare a testnet validator."':
+    '例えば「私のサブスクを確認して」「テストネットValidatorの準備を手伝って」。',
+  '{count} specialist agents are available. SLV chooses the right one for your request.':
+    '{count} 種の専門エージェントを利用できます。依頼に合わせてSLVが担当を選びます。',
+  // First conversation
+  "I'm {agent}, your SLV assistant.": 'SLVアシスタントの{agent}です。',
+  'Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".':
+    '例えば「ERPCのサブスクを確認して」「テストネットValidatorの準備を手伝って」。',
+  'Following your current request. Use /focus to set a preference.':
+    '現在の依頼に合わせて対応します。優先分野は /focus で設定できます。',
   'SLV AI Onboarding': 'SLV AI オンボーディング',
   'Select your language': '言語を選択してください',
   'Language saved. Please run `slv onboard` again to continue.':
     '言語を保存しました。もう一度 `slv onboard` を実行してください。',
 
-  'Security warning — please read.': 'セキュリティに関する注意 — 必ずお読みください。',
+  'Security warning — please read.':
+    'セキュリティに関する注意 — 必ずお読みください。',
   'SLV AI Console can execute commands on your system.':
     'SLV AI Console はあなたのシステム上でコマンドを実行できます。',
   'A bad prompt can trick it into doing unsafe things.':
     '悪意あるプロンプトにより、危険な動作を引き起こす可能性があります。',
   'Recommended:': '推奨事項:',
-  "- Don't paste untrusted prompts.": '- 信頼できないプロンプトを貼り付けないでください。',
+  "- Don't paste untrusted prompts.":
+    '- 信頼できないプロンプトを貼り付けないでください。',
   '- `slv bot init` ships a Solana transaction sample designed to be improved with your AI before real use. When using real SOL, assets may decrease — use at your own risk.':
     '- `slv bot init` のテンプレは Solana トランザクションのサンプルです。お手元の AI で改善して使う前提でご利用ください。実際に SOL を利用する場合、資産が減ることがあるリスクを理解した上で使用してください。',
   '- Keep secrets out of the conversation.':
@@ -21,14 +70,11 @@ export const messages: Record<string, string> = {
   'No': 'いいえ',
   'Setup cancelled.': 'セットアップを中止しました。',
 
-  'ERPC Login':
-    'ERPC ログイン',
+  'ERPC Login': 'ERPC ログイン',
   'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
     'ブラウザで ERPC にログインすると、このマシンから SLV AI と ERPC アカウントを使えます。',
-  'Sign in to ERPC now?':
-    '今 ERPC にログインしますか？',
-  'Signed in to ERPC.':
-    'ERPC にログインしました。',
+  'Sign in to ERPC now?': '今 ERPC にログインしますか？',
+  'Signed in to ERPC.': 'ERPC にログインしました。',
   'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
     'ERPC にログインしていません。SLV AI と HTTPS を使うには、このマシンで `slv login` を実行してください。',
   'Skipped. You can run `slv login` later.':
@@ -98,11 +144,11 @@ export const messages: Record<string, string> = {
     '/exit で終了、/clear でリセット。Enter で送信します。',
   'Hey there! 👋': 'こんにちは！👋',
   'Hey {name}! 👋': 'こんにちは、{name}さん！👋',
-  "I'm {agent}, your SLV commander.": '私は {agent}、あなたの SLV コマンダーです。',
+  "I'm {agent}, your SLV commander.":
+    '私は {agent}、あなたの SLV コマンダーです。',
   "I'm your SLV assistant.": '私はあなたの SLV アシスタントです。',
   "Here's my crew:": '私のクルーを紹介します:',
-  'What would you like to work on today?':
-    '今日は何を進めましょうか？',
+  'What would you like to work on today?': '今日は何を進めましょうか？',
   'Solana Validator deployments & management':
     'Solana バリデータのデプロイと管理',
   'RPC nodes (Index RPC, gRPC Geyser, combos)':
@@ -131,7 +177,8 @@ export const messages: Record<string, string> = {
   '🎓 Intent detected: {intent}': '🎓 意図を検出: {intent}',
   '🧰 Enabling tools: {tools}': '🧰 ツールを有効化: {tools}',
   '📚 Loading context: {modules}': '📚 コンテキストを読み込み中: {modules}',
-  '🤖 Loading specialist: {specialist}': '🤖 スペシャリストを起動中: {specialist}',
+  '🤖 Loading specialist: {specialist}':
+    '🤖 スペシャリストを起動中: {specialist}',
   '📚 Loading {context}…': '📚 {context}を読み込み中…',
 
   'general conversation': '一般的な会話',
@@ -181,7 +228,8 @@ export const messages: Record<string, string> = {
   '⚠ Failed to set focus: {error}': '⚠ フォーカス設定に失敗しました: {error}',
   'Unknown focus "{focus}". Use: validator | rpc | app | mixed | auto':
     '不明なフォーカス "{focus}"。次を使用してください: validator | rpc | app | mixed | auto',
-  '⚠ Profile refresh failed: {error}': '⚠ プロフィール再読み込みに失敗: {error}',
+  '⚠ Profile refresh failed: {error}':
+    '⚠ プロフィール再読み込みに失敗: {error}',
 
   '⏳ {agent} is still working ({elapsed} elapsed).':
     '⏳ {agent} は作業中です（経過: {elapsed}）。',
@@ -228,8 +276,7 @@ export const messages: Record<string, string> = {
     'サブスクリプションの確認や SLV Cloud データの取得',
   'save configuration or update memory': '設定の保存やメモリの更新',
   'inspect available files before acting': '実行前に対象ファイルを確認',
-  'notify you when a long task finishes':
-    '長時間タスクの完了をお知らせ',
+  'notify you when a long task finishes': '長時間タスクの完了をお知らせ',
   'hand work to a specialist agent': 'スペシャリストエージェントへ引き継ぎ',
 
   '(exit code {code})': '(終了コード {code})',
@@ -264,7 +311,8 @@ export const messages: Record<string, string> = {
   'auth failed — check token': '認証失敗 — トークンを確認してください',
   '⏸ aborted': '⏸ 中断',
   '❌ error': '❌ エラー',
-  '[disconnected — reply interrupted]': '[切断されました — 応答が中断されました]',
+  '[disconnected — reply interrupted]':
+    '[切断されました — 応答が中断されました]',
 
   // --- ブラウザチャットの画像添付 ---
   'Attach image': '画像を添付',
@@ -300,7 +348,8 @@ export const messages: Record<string, string> = {
     'バックグラウンドサービスをインストールして、ターミナルを開いたままにしなくてもブラウザから http://127.0.0.1:{port}/ui/ で SLV とチャットできるようにします。',
   'Not supported on this platform — skipped.':
     'このプラットフォームでは対応していません — スキップします。',
-  'Could not probe gateway status:': 'ゲートウェイの状態を取得できませんでした:',
+  'Could not probe gateway status:':
+    'ゲートウェイの状態を取得できませんでした:',
   'Gateway is already running at http://127.0.0.1:{port}/ui/':
     'ゲートウェイは既に http://127.0.0.1:{port}/ui/ で起動しています',
   'Install and start the gateway now?':
@@ -357,7 +406,8 @@ export const messages: Record<string, string> = {
     '既存サブドメインを維持しました。必要なら他の VPS で `slv install nginx` を実行して再度紐付けできます。',
   'Creating support ticket...': 'サポートチケットを作成中…',
   'Ticket creation failed: {err}': 'チケット作成に失敗しました: {err}',
-  'Ticket opened. Follow up here:': 'チケットを作成しました。こちらで確認してください:',
+  'Ticket opened. Follow up here:':
+    'チケットを作成しました。こちらで確認してください:',
   'Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.':
     'セキュリティ: 上記の URL をタップしてブラウザで SLV AI を開き、そのまま「ファイアウォールの設定を手伝って」と頼んでください。ターミナル不要、チャット画面だけで進められます。',
   'For automatic HTTPS + a free *.erpc.global subdomain, run SLV on an SLV VPS or BareMetal (provision via the dashboard):':
@@ -369,7 +419,8 @@ export const messages: Record<string, string> = {
     'ゲートウェイを 0.0.0.0 に bind して、スマホやノート PC から直接 http://<server-ip>:{port}/ui/ を開けるようにします。チャットはすべてトークン認証でガードされます。',
   'Next step: once onboard finishes, run `slv c` and ask SLV AI to help you set up the firewall. Video walkthrough: coming soon.':
     '次のステップ: オンボードが完了したら `slv c` を実行して、SLV AI にファイアウォールの設定を手伝ってもらいましょう。動画解説は後日公開予定。',
-  'Enable remote IP access now?': '今すぐリモート IP アクセスを有効にしますか？',
+  'Enable remote IP access now?':
+    '今すぐリモート IP アクセスを有効にしますか？',
   'Remote IP access enabled — gateway restarted.':
     'リモート IP アクセスを有効化 — ゲートウェイを再起動しました。',
   'Failed to enable remote IP access:':

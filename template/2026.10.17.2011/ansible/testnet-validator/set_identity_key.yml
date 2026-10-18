@@ -1,0 +1,272 @@
+---
+- name: Set Authoried Key to Identity
+  hosts: all
+  become: true
+  become_user: solv
+  vars:
+    key_name: "{{ hostvars[inventory_hostname].identity_account }}.json"
+    local_key_path: "~/.slv/keys/{{ key_name }}"
+  tasks:
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+    # A Firedancer host takes the staked key from a file on the node (fdctl set-identity), and a deploy never copies one there
+    - name: Refuse a Firedancer host, which takes the staked key from a file on the node
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') not in ['firedancer-agave', 'firedancer-jito']
+        fail_msg: "SLV_KEYLESS_REFUSED: set_identity_key.yml cannot set the identity of {{ inventory_hostname }} ({{ validator_type | default('undefined') }}): a Firedancer host takes the staked key from a file on the node, and deploy never copies the staked key to a node: it stays on the controller and reaches an agave, jito or allnodes-jito node on stdin. Nothing was changed on {{ inventory_hostname }}. Run the identity on an agave, jito or allnodes-jito host: slv v set:identity -n testnet -p <host>."
+        quiet: true
+
+    - name: Refuse an identity_account that is not a base58 public key, it names files on the controller
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].identity_account | default('') | string is match('^[1-9A-HJ-NP-Za-km-z]{32,44}\\Z')
+        fail_msg: "identity_account '{{ hostvars[inventory_hostname].identity_account | default('not set') }}' of {{ inventory_hostname }} is not a base58 public key (32 to 44 characters of the base58 alphabet), so it cannot name the key file on the controller. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_alpenglow_freeze: true
+        slv_alpenglow_move_types:
+          - "{{ validator_type | default('') }}"
+
+    - name: Check the tower file of the identity on the target
+      ansible.builtin.stat:
+        path: "/mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin"
+      register: tower_file
+
+    - name: Check the vote history file of the identity on the target
+      ansible.builtin.stat:
+        path: "/mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin"
+        checksum_algorithm: sha256
+      register: vote_history_file
+
+    - name: Refuse to set the identity without its tower or vote history file
+      ansible.builtin.fail:
+        msg: >-
+          Neither /mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin
+          nor /mnt/ledger/tower-1_9-{{ hostvars[inventory_hostname].identity_account }}.bin
+          exists on {{ inventory_hostname }}, so the identity was not set. Copy the file from the
+          validator that last ran this identity. Only when this identity has never voted, pass
+          -e '{"first_activation": true}'.
+      when:
+        - slv_alpenglow_state == 'towerbft'
+        - not vote_history_file.stat.exists
+        - not tower_file.stat.exists
+        - first_activation | default(false) is not sameas true
+
+    - name: Refuse to set the identity without its vote history file
+      ansible.builtin.fail:
+        msg: >-
+          /mnt/ledger/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin
+          does not exist on {{ inventory_hostname }}, so the identity was not set. Copy the file
+          from the validator that last ran this identity (slv v switch -n testnet does that). If that
+          validator is down and cannot vote, run slv v set:identity -n testnet -p {{ inventory_hostname }}
+          with --primary-down. If the vote account has not voted since the Alpenglow genesis (it is
+          new, or it voted only under TowerBFT), there is no file to copy: run
+          slv v set:identity -n testnet -p {{ inventory_hostname }} --first-activation.
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - not vote_history_file.stat.exists
+        - first_activation | default(false) is not sameas true
+        - not (primary_down_confirmed | default(false) | bool)
+
+    - name: Take one host at a time when the old primary is confirmed down
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts_all | length == 1
+        fail_msg: "primary_down_confirmed applies to the one host that takes the identity, but this play runs on {{ ansible_play_hosts_all | length }} hosts. Limit it to the host that takes the identity (slv v set:identity -n testnet -p <host> does). Nothing was changed."
+        quiet: true
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - first_activation | default(false) is not sameas true
+        - primary_down_confirmed | default(false) | bool
+
+    - name: Find the hosts of this play that hold the same identity
+      ansible.builtin.set_fact:
+        slv_sik_same_identity: >-
+          {%- set ns = namespace(hosts=[]) -%}
+          {%- for h in ansible_play_hosts_all if (hostvars[h].identity_account | default('')) == hostvars[inventory_hostname].identity_account -%}
+          {%- set ns.hosts = ns.hosts + [h] -%}
+          {%- endfor -%}
+          {{ ns.hosts | join(', ') }}
+      when: slv_alpenglow_state == 'alpenglow'
+
+    - name: Refuse to set one identity on two hosts of the same play
+      ansible.builtin.assert:
+        that:
+          - slv_sik_same_identity.split(', ') | length == 1
+        fail_msg: "This play holds {{ slv_sik_same_identity }}, which carry the same identity_account {{ hostvars[inventory_hostname].identity_account }}. Each host passes the checks before any host sets the identity, so each would set it and vote with it. Set the identity on one host at a time: slv v set:identity -n testnet -p <host>. Nothing was changed."
+        quiet: true
+      when: slv_alpenglow_state == 'alpenglow'
+
+    - name: Read the slot of the Alpenglow genesis certificate
+      ansible.builtin.set_fact:
+        slv_sik_genesis_slot: >-
+          {%- set body = slv_ag_cert_reply.json | default(none) -%}
+          {%- if body is mapping and body.result is mapping and body.result.block is mapping and body.result.block.slot is defined and body.result.block.slot is integer and body.result.block.slot is not boolean -%}{{ body.result.block.slot }}{%- else -%}-1{%- endif -%}
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - first_activation | default(false) is sameas true
+
+    - name: Check that no other node can be voting with the identity, whatever the vote history file says
+      ansible.builtin.import_tasks: ../cmn/tasks/vote_history_dead_primary.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_dp_identity: "{{ hostvars[inventory_hostname].identity_account }}"
+        slv_dp_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
+        slv_dp_address: "{{ hostvars[inventory_hostname].ansible_host | default('') }}"
+        slv_dp_down_address: "{{ primary_down_address | default('', true) }}"
+      when: slv_alpenglow_state == 'alpenglow'
+
+    - name: Refuse to set the identity while another node may vote with it
+      ansible.builtin.fail:
+        msg: >-
+          The identity was not set on {{ inventory_hostname }}: {{ slv_dp_reason }}.
+          If another node runs the identity, make sure it is stopped, wait until the vote account has not voted for
+          {{ slv_dp_window | default(270, true) }} slots (about one minute) and this host has caught up, then run
+          slv v set:identity -n testnet -p {{ inventory_hostname }}{{ ' --first-activation' if first_activation | default(false) is sameas true else '' }} again. A staked node can stay in gossip
+          for a long time after it stops: its address is allowed when it is passed as
+          primary_down_address. The CLI (slv v set:identity -n testnet) passes it for an inventory host
+          that shares the identity and is stopped: one you name with --primary-down, one you
+          confirm with --peer-down-confirmed, or one that runs another identity.
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - not (slv_dp_ok | bool)
+
+    - name: Refuse a first activation for a vote account that has voted since the Alpenglow genesis
+      ansible.builtin.fail:
+        msg: >-
+          first_activation is for a vote account that has not voted since the Alpenglow genesis, and
+          {{ ('the last vote of ' ~ hostvars[inventory_hostname].vote_account ~ ' is at slot ' ~ slv_dp_last ~ ', after the genesis certificate at slot ' ~ slv_sik_genesis_slot) if (slv_sik_genesis_slot | int(-1)) >= 0 and (slv_dp_last | int(-1)) >= 0 else ('the cluster does not show it: ' ~ (slv_lv_detail if (slv_dp_last | int(-1)) < 0 else 'the slot of the genesis certificate could not be read')) }}.
+          The identity was not set on {{ inventory_hostname }}. A vote account that has voted under Alpenglow
+          needs its vote history file: copy it to /mnt/ledger here from the host that has it and run
+          slv v set:identity -n testnet -p {{ inventory_hostname }}, or, when another host held the identity and is
+          down, run slv v set:identity -n testnet -p {{ inventory_hostname }} --primary-down.
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - first_activation | default(false) is sameas true
+        - (slv_sik_genesis_slot | int(-1)) < 0 or (slv_dp_last | int(-1)) < 0 or (slv_dp_last | int(-1)) > (slv_sik_genesis_slot | int(-1))
+
+    - name: Require the tower when only the tower file exists
+      ansible.builtin.set_fact:
+        require_tower_flag: "{{ '--require-tower' if (slv_alpenglow_state != 'alpenglow' and tower_file.stat.exists and not vote_history_file.stat.exists) else '' }}"
+
+    - name: Do without the vote history file only when the old primary is confirmed down
+      ansible.builtin.set_fact:
+        vote_history_flag: "{{ '--do-not-require-vote-history' if (slv_alpenglow_state == 'alpenglow' and not vote_history_file.stat.exists and first_activation | default(false) is not sameas true and primary_down_confirmed | default(false) | bool) else '' }}"
+
+    - name: Read the last vote of the vote account before the identity is set
+      ansible.builtin.import_tasks: ../cmn/tasks/vote_history_last_vote.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_lv_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
+        slv_lv_identity: "{{ hostvars[inventory_hostname].identity_account }}"
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Look for the local validator key file
+      become: false
+      delegate_to: localhost
+      stat:
+        path: "{{ local_key_path }}"
+      register: key_file_stat
+
+    - name: Stop if key file not found
+      fail:
+        msg: "Key file not found: {{ local_key_path }}"
+      when: not key_file_stat.stat.exists
+
+    - name: Read local validator key file securely (base64)
+      become: false
+      delegate_to: localhost
+      slurp:
+        src: "{{ local_key_path }}"
+      register: key_file
+      no_log: true
+
+    - name: Set Identity to Validator Key via stdin (agave family)
+      shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity {{ require_tower_flag }} {{ vote_history_flag }}
+      args:
+        stdin: "{{ key_file.content | b64decode }}"
+        executable: /bin/bash
+      register: set_identity_agave_result
+      timeout: 20
+      no_log: true
+      failed_when: false
+      ignore_errors: true
+      when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Stop when set-identity failed, with what agave said
+      ansible.builtin.fail:
+        msg: >-
+          agave-validator set-identity failed on {{ inventory_hostname }} ({{ ("rc " ~ set_identity_agave_result.rc) if set_identity_agave_result.rc is defined else (set_identity_agave_result.msg | default("no answer")) }}):
+          {{ ((set_identity_agave_result.stdout | default('')) ~ ' ' ~ (set_identity_agave_result.stderr | default(''))) | trim }}
+      when:
+        - set_identity_agave_result is not skipped
+        - (set_identity_agave_result.rc | default(1)) != 0
+
+    - name: Set Identity to Active Validator Key (Frankendancer family)
+      shell: |
+        . ~/.profile
+        sudo fdctl set-identity --config /home/solv/firedancer-config.toml {{ require_tower_flag }} /home/solv/testnet-validator-keypair.json
+      args:
+        executable: /bin/bash
+      register: set_identity_frankendancer_result
+      when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
+    - name: Add Authorized Voter via stdin (agave family)
+      shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add
+      args:
+        stdin: "{{ key_file.content | b64decode }}"
+        executable: /bin/bash
+      register: add_voter_agave_result
+      no_log: true
+      failed_when: false
+      when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Stop when authorized-voter add failed, unless the voter is already there
+      ansible.builtin.fail:
+        msg: >-
+          agave-validator authorized-voter add failed on {{ inventory_hostname }} ({{ ("rc " ~ add_voter_agave_result.rc) if add_voter_agave_result.rc is defined else (add_voter_agave_result.msg | default("no answer")) }}):
+          {{ ((add_voter_agave_result.stdout | default('')) ~ ' ' ~ (add_voter_agave_result.stderr | default(''))) | trim }}
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - add_voter_agave_result is not skipped
+        - (add_voter_agave_result.rc | default(1)) != 0
+        - "'Authorized voter already present' not in ((add_voter_agave_result.stdout | default('')) ~ (add_voter_agave_result.stderr | default('')))"
+
+    - name: Wait until this host votes with the staked identity
+      ansible.builtin.import_tasks: ../cmn/tasks/vote_history_confirm.yml
+      vars:
+        slv_alpenglow_network: testnet
+        slv_vh_identity: "{{ hostvars[inventory_hostname].identity_account }}"
+        slv_vh_baseline_sha256: "{{ vote_history_file.stat.checksum | default('') }}"
+        slv_vh_vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
+        slv_vh_last_vote_before: "{{ slv_lv_last | default(-1) }}"
+      when:
+        - slv_alpenglow_state == 'alpenglow'
+        - validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Add Authorized Voter (Frankendancer family)
+      shell: . ~/.profile && agave-validator -l /mnt/ledger authorized-voter add /home/solv/testnet-validator-keypair.json
+      args:
+        executable: /bin/bash
+      failed_when: false
+      when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
+    - name: Fail when no identity branch ran
+      ansible.builtin.fail:
+        msg: "No set-identity branch ran for validator_type '{{ validator_type | default('undefined') }}' on {{ inventory_hostname }}; the identity was not changed."
+      when:
+        - not ansible_check_mode
+        - set_identity_agave_result is skipped
+        - set_identity_frankendancer_result is skipped

@@ -1,13 +1,19 @@
-import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import {
+  COMMAND_REFERENCE,
+  VALIDATOR_GUIDANCE,
+} from '@/ai/console/operationalGuidance.ts'
+import { resolveHome, resolveUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import { Confirm } from '@cliffy/prompt'
-import Anthropic from '@anthropic-ai/sdk'
-import OpenAI from 'openai'
-import { DEFAULT_MAX_TOKENS, readAiConfig, readLang } from '@/ai/config.ts'
+import {
+  DEFAULT_AI_CONFIG,
+  DEFAULT_MAX_TOKENS,
+  readAiConfig,
+  readLang,
+} from '@/ai/config.ts'
 import { parse } from '@std/yaml'
 import { normalize } from '@std/path'
 import type { TUI } from '@mariozechner/pi-tui'
 import {
-  injectSkillDocs,
   isModuleLoaded,
   loadContextModules,
 } from '@/ai/console/systemPrompt.ts'
@@ -28,12 +34,13 @@ import {
   redactSecretKeys,
 } from '@/ai/console/toolSafety.ts'
 import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
-import { VERSION_JITO_VALIDATOR_TESTNET } from '@cmn/constants/version.ts'
-import { ALPENGLOW_FLOORS } from '/lib/versionFloor.ts'
 import { isReadOnlyLine } from '@/ai/console/readOnly.ts'
 import { DISCORD_LINK } from '@cmn/constants/url.ts'
 import { callReadTool, isReadToolFailure } from '/lib/userApi/readTools.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
+import { readUserApiError } from '/lib/userApi/httpError.ts'
+import type { ThinkingEffort } from '@/ai/console/turnPolicy.ts'
+import { getCommandHelp, HELP_COMMANDS } from '@/ai/console/commandHelp.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
 import { ALL_AGENT_IDS, isKnownAgentId } from '@/ai/agentConfig/registry.ts'
 import {
@@ -109,7 +116,7 @@ const extractProgressHint = (line: string): string | null => {
 
 // Abort infrastructure. Ctrl+C aborts the AbortController, which:
 //   (a) cancels any in-flight LLM streaming HTTP request (provider.chat
-//       passes `signal` to the SDK), so a stalled Anthropic/OpenAI
+//       passes `signal` to fetch), so a stalled SLV AI
 //       stream unblocks immediately instead of waiting for timeout;
 //   (b) fires SIGTERM at the active child process;
 //   (c) flips `signal.aborted` so the provider tool-use loop (via
@@ -146,8 +153,7 @@ export function isAborted(): boolean {
 }
 
 /**
- * AbortSignal to pass into LLM SDK calls (Anthropic `messages.stream`,
- * OpenAI `chat.completions.create`). Aborting this signal cancels the
+ * AbortSignal to pass into SLV AI requests. Aborting this signal cancels the
  * in-flight HTTP stream so Ctrl+C is immediate even while the model is
  * still generating its first token.
  */
@@ -183,6 +189,16 @@ export type ToolDefinition = {
 // Core tools — safe orchestration helpers available after bootstrap
 export const CORE_TOOLS: ToolDefinition[] = [
   {
+    name: 'get_command_help',
+    description:
+      'Read the installed SLV subcommand help to verify its actual flags. This never executes the operation and needs no credentials.',
+    parameters: {
+      type: 'object',
+      properties: { command: { type: 'string', enum: [...HELP_COMMANDS] } },
+      required: ['command'],
+    },
+  },
+  {
     name: 'enable_tools',
     description:
       'Enable additional tools when needed. Available extended tools: run_command, read_file, write_file, list_files, call_mcp, send_notification, delegate_to_agent. Call this to activate them before use.',
@@ -212,7 +228,7 @@ export const CORE_TOOLS: ToolDefinition[] = [
   {
     name: 'load_context',
     description:
-      'Load additional context modules into your knowledge. Available: ssh_check, delegation, deploy, validator, cli_reference, mcp_reference. Call this BEFORE performing tasks that need specialized knowledge.',
+      'Load additional context modules into your knowledge. Available: ssh_check, delegation, deploy, validator, cli_reference, mcp_reference, firewall, wireguard, backup. Call this BEFORE performing tasks that need specialized knowledge.',
     parameters: {
       type: 'object',
       properties: {
@@ -227,6 +243,9 @@ export const CORE_TOOLS: ToolDefinition[] = [
               'validator',
               'cli_reference',
               'mcp_reference',
+              'firewall',
+              'wireguard',
+              'backup',
             ],
           },
           description: 'Context module names to load',
@@ -408,11 +427,20 @@ function buildReadFileCacheKey(
   return JSON.stringify({ path, offset: offset ?? null, limit: limit ?? null })
 }
 
-function buildMcpCacheKey(
+async function buildMcpCacheKey(
   toolName: string,
   args: Record<string, unknown>,
-): string {
-  return JSON.stringify({ toolName, args })
+  auth: UserApiAuth,
+): Promise<string> {
+  // A login/refresh in another terminal must not reuse the previous login's
+  // account data. Keep only a digest in the cache key, never the credential.
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(await userApiAuthHeader(auth)),
+  )
+  const authScope = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return JSON.stringify({ toolName, args, authScope })
 }
 
 // Get the current active tool set (core + enabled extended tools)
@@ -457,6 +485,8 @@ export async function executeTool(
   args: Record<string, unknown>,
 ): Promise<string> {
   switch (name) {
+    case 'get_command_help':
+      return await getCommandHelp(String(args.command ?? ''))
     case 'run_command':
       return await redactSecretKeys(
         await executeRunCommand(String(args.command || '')),
@@ -513,9 +543,8 @@ export async function executeTool(
       if (!isModuleLoaded('delegation')) {
         loadContextModules(['delegation'])
       }
-      // Auto-inject skill docs for the target agent
+      // The specialist loads its own skill docs; do not duplicate them in the main prompt.
       const agentName = String(args.agent || '')
-      await injectSkillDocs(agentName)
       return await executeDelegateToAgent(agentName, String(args.task || ''))
     }
     default:
@@ -1026,19 +1055,19 @@ async function executeCallMcp(
   args: Record<string, unknown>,
   refresh = false,
 ): Promise<string> {
+  const login = await resolveUserApiAuth()
+  if (!login.ok) {
+    invalidateMcpCache()
+    return `Error: ${login.lines.join('\n')}`
+  }
+  const auth = login.auth
   const cacheable = isCacheableMcpTool(toolName)
-  const cacheKey = buildMcpCacheKey(toolName, args)
-  if (cacheable && !refresh) {
-    const cached = mcpResponseCache.get(cacheKey)
-    if (cached) return `${cached}\n\n[session cache hit]`
-  }
-
-  const auth = await findUserApiAuth()
-  if (!auth) {
-    return 'Error: Not signed in to ERPC. Run `slv login` first.'
-  }
-
   try {
+    const cacheKey = await buildMcpCacheKey(toolName, args, auth)
+    if (cacheable && !refresh) {
+      const cached = mcpResponseCache.get(cacheKey)
+      if (cached) return `${cached}\n\n[session cache hit]`
+    }
     const content = await callReadTool(
       auth,
       toolName,
@@ -1049,9 +1078,12 @@ async function executeCallMcp(
       : content
     if (cacheable && !isReadToolFailure(content)) {
       mcpResponseCache.set(cacheKey, result)
+    } else {
+      mcpResponseCache.delete(cacheKey)
     }
     return result
   } catch (error) {
+    invalidateMcpCache()
     return `MCP request failed: ${(error as Error).message}`
   }
 }
@@ -1161,8 +1193,7 @@ async function executeDelegateToAgent(
 ## DEPLOYMENT MODE: LOCAL
 This user operates in LOCAL mode. All deployments target THIS machine (localhost).
 - Do NOT ask for server IP or SSH credentials.
-- Use \`--localhost\` flag for ALL init/deploy commands.
-- Examples: \`slv v init --localhost\`, \`slv v deploy --localhost\`, \`slv r init --localhost\`, \`slv r deploy --localhost\`
+- Use --localhost only on an init command that supports it. Deploy through the configured inventory target and verify the exact flags with get_command_help.
 - Ansible runs locally with \`ansible_connection: local\`.
 - Skip SSH connectivity checks entirely.
 `
@@ -1203,10 +1234,11 @@ ${specialistGuidance}
 - If you need information from the user, tell the main agent WHAT to ask (do NOT ask the user directly).
 - If you can execute commands, do so and report results.
 - Keep responses concise and structured for the main agent to relay to the user.
-- Do NOT run discovery commands (\`slv --help\`, \`ls\`, etc). You already know everything from SKILL.md.
+- In the terminal console the user confirms the write for non-memory files. A gateway session has no terminal, and write_file refuses there; the main agent gives both to the user to save themselves. Never bypass this confirmation.
+- Installed skill notes can be older than the CLI. Verify uncertain syntax with get_command_help and follow the current operational guidance below; never bypass a CLI refusal with a direct playbook.
 - Do NOT ask for expected_shred_version — it has sensible defaults.
 - Do NOT use markdown tables. Use plain text or bullet lists.
-- Do NOT offer dry-runs or --check — just deploy when the user says go.
+- Do not invent --check, -y or --localhost support. Hand interactive commands to the operator in their terminal.
 - English only.
 
 ## Benchmark flow (CRITICAL for Cid)
@@ -1227,246 +1259,29 @@ ${specialistGuidance}
 - If \`geyserbench\` is not available, clearly report that and suggest the next best local SLV check command.
 - For benchmark tasks, optimize for fast execution and direct result display, not long advisory explanations.
 
-## CRITICAL: Deployment Flow
+${COMMAND_REFERENCE}
+${effectiveName === 'Cecil' ? VALIDATOR_GUIDANCE : ''}
 
-### Pre-requisites
-1. Read \`${home}/.slv/versions.yml\` FIRST to get default versions for the selected network/type.
-   - For jito on testnet: use \`testnet_validators.version_jito\` (e.g. "${VERSION_JITO_VALIDATOR_TESTNET}")
-   - For agave on mainnet: use \`mainnet_validators.version_agave\`
-   - etc.
+Installed skill documents above are background reference. The current CLI's
+key-handling and target guards remain mandatory; report a refusal instead of
+rephrasing it as a direct Ansible, key-copy or manual identity operation.
 
-### Asking the user — minimum questions only (in this order)
-For validator deploy, ask the main agent to collect ONLY:
-1. Server IP
-2. SSH login user (e.g. ubuntu, root, solv — default: solv)
-3. Network: mainnet / testnet
-4. Region: amsterdam / frankfurt / tokyo / ny
-5. Validator type: jito / agave / allnodes-jito on any network, or firedancer-agave / firedancer-jito on testnet only (mainnet refuses them, see Step 3)
-6. Identity: the existing pubkey
-7. Vote account: the existing pubkey
-
-Do NOT ask for version — read from versions.yml and show as default.
-Do NOT ask for snapshot URL, commission, port range — use defaults.
-
-### Step 1: Keys
-Keys are not generated here. The operator generates them with \`slv v init\` in their own terminal, outside the console; they end up in \`${home}/.slv/keys/\`. Do not read, copy or create files in that directory.
-If the user has no keys yet, ask the main agent to tell the user to run \`slv v init\` themselves first and to come back with the identity, vote and authority public keys.
-
-### Step 2: Write inventory YAML
-Use write_file to create \`${home}/.slv/inventory.<network>.validators.yml\`. In the terminal console the user confirms the write: they see the path, the size and the first 20 lines. A gateway session has no terminal, and write_file refuses there: report the YAML and the path to the main agent, which gives both to the user to save themselves, and go on when the user says the file is in place. Writing the file again later, for the snapshot URL, needs the user's confirmation again. The content:
-
-\`\`\`yaml
-<network>_validators:
-  hosts:
-    <identity_pubkey>:
-      name: <identity_pubkey>
-      ansible_host: <server_ip>
-      ansible_user: solv
-      ansible_ssh_private_key_file: ~/.ssh/id_rsa
-      identity_account: <identity_pubkey>
-      vote_account: <vote_pubkey>
-      authority_account: <authority_pubkey>
-      validator_type: <type>
-      region: <region>
-      snapshot_url: ""  # Auto-detected from nearest region
-      commission_bps: 0
-      dynamic_port_range: "8900-8930"
-      port_rpc: 7211
-\`\`\`
-
-### Snapshot URL — Auto-detect nearest region (MAINNET ONLY)
-**CRITICAL: For testnet deploys, SKIP snapshot auto-detection entirely.**
-- Testnet validators do NOT use ERPC snapshot URLs (those are mainnet only).
-- For testnet, leave \`snapshot_url: ""\` in the inventory. The testnet init playbook handles snapshot acquisition internally.
-- Only run the snapshot region ping test for MAINNET deploys.
-
-For MAINNET deploys, after writing the inventory (Step 2), but BEFORE deploying (Step 3):
-
-1. Run this command to find the nearest snapshot region from the target server:
-\`\`\`
-ssh -o StrictHostKeyChecking=accept-new -o PasswordAuthentication=no solv@<server_ip> 'for region in ams fra lon ny tokyo sgp chi; do (echo -n "$region: "; ping -c 3 -W 2 -q solana-snapshot-$region.erpc.global 2>/dev/null | grep "rtt min" | awk -F"/" "{print \\$5 \\" ms\\"}" || echo "unreachable") & done; wait'
-\`\`\`
-
-2. Pick the region with the lowest latency.
-3. Set snapshot_url in the inventory YAML to the nearest region URL:
-   - amsterdam → https://solana-snapshot-ams.erpc.global
-   - frankfurt → https://solana-snapshot-fra.erpc.global
-   - london → https://solana-snapshot-lon.erpc.global
-   - ny → https://solana-snapshot-ny.erpc.global
-   - tokyo → https://solana-snapshot-tokyo.erpc.global
-   - singapore → https://solana-snapshot-sgp.erpc.global
-   - chicago → https://solana-snapshot-chi.erpc.global
-
-4. Tell the user which region was selected and the latency:
-   "📍 Nearest snapshot: Frankfurt (2.1 ms) — https://solana-snapshot-fra.erpc.global"
-
-If ALL regions are unreachable (ping blocked), the server is not on the ERPC network. Leave snapshot_url as empty string so standard snapshot sources are used.
-
-## Pre-deploy note
-The main agent has ALREADY verified SSH connectivity and created the solv user.
-The inventory uses \`ansible_user: solv\`. You can proceed directly with the inventory and deploy.
-If any ansible command fails with SSH errors, report it to the main agent immediately.
-
-### Step 3: Deploy
-Do NOT use \`slv v deploy\` — it has an interactive confirm prompt that hangs.
-Running the playbook yourself skips the checks that \`slv v deploy\` makes, so make them first:
-- Mainnet refuses firedancer-agave and firedancer-jito. Alpenglow starts on mainnet at epoch 1064, and Firedancer and Frankendancer are not supported during the migration, so a mainnet voting validator has to be jito, agave or allnodes-jito. If the user asks for a Firedancer type on mainnet, do not write the inventory and do not run init.yml: tell the main agent to offer jito, agave or allnodes-jito instead.
-- The version floor applies. An agave, jito or allnodes release older than ${ALPENGLOW_FLOORS.mainnet} on mainnet (${ALPENGLOW_FLOORS.testnet} on testnet) cannot follow Alpenglow. Compare the \`version_agave\`, \`version_jito\` and \`version_allnodes_jito\` values of \`<network>_validators\` in \`${home}/.slv/versions.yml\` with it. If one is older, or on mainnet is not a version number such as 4.3.2 (latest, main, a commit hash), do not run init.yml: tell the main agent which key to change in \`${home}/.slv/versions.yml\`.
-- init.yml is meant to stop on both as well. If it does, report its message to the main agent as it is, and do not change the validator type, a version or the playbook to get past it.
-Then run ansible-playbook directly:
-\`\`\`
-TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1)
-ansible-playbook -i ${home}/.slv/inventory.<network>.validators.yml \${TEMPLATE_DIR}ansible/<network>-validator/init.yml --limit <identity_pubkey>
-\`\`\`
-Example for testnet:
-\`\`\`
-TEMPLATE_DIR=$(ls -d ${home}/.slv/template/*/ | sort -V | tail -1) && ansible-playbook -i ${home}/.slv/inventory.testnet.validators.yml \${TEMPLATE_DIR}ansible/testnet-validator/init.yml --limit <identity_pubkey>
-\`\`\`
-
-### Identity Key Structure (CRITICAL — get this right in completion messages)
-The deploy playbook creates this key layout on the target node:
-
-**Testnet:**
-- \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
-- \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\` to prevent double-voting
-- The staked identity key stays on the controller (this machine) at \`~/.slv/keys/<identity>.json\`: deploy never copies it to the node, and \`slv v set:identity -p <host>\` and \`slv v switch\` send it to the node only on stdin. A node deployed by an older slv may still hold a copy.
-- To activate the staked identity: \`slv v set:identity -p <host>\` (a staked/unstaked pair switches with \`slv v switch\`)
-
-**Mainnet:**
-- \`/home/solv/unstaked-identity.json\` — auto-generated throwaway key for safe startup
-- \`/home/solv/identity.json\` — **symlink**, defaults to \`unstaked-identity.json\`
-- The staked identity key stays on the controller (this machine) at \`~/.slv/keys/<identity>.json\`: deploy never copies it to the node, and \`slv v set:identity -p <host> -n mainnet\` and \`slv v switch -n mainnet\` send it to the node only on stdin. A node deployed by an older slv may still hold a copy.
-- To activate the staked identity: \`slv v set:identity -p <host> -n mainnet\` (a staked/unstaked pair switches with \`slv v switch -n mainnet\`)
-
-**Why unstaked by default:** Prevents double-voting if the same identity runs on two nodes simultaneously (e.g. during migration). The validator starts with the unstaked key and catches up with the cluster safely. The user switches to staked identity only when ready.
-
-In your completion message, say:
-- "The validator is running with the unstaked identity by default (to prevent double-voting)."
-- For testnet: "Your staked identity stays on this machine at ~/.slv/keys/<identity>.json; deploy did not copy it to the node. Promote this node with \`slv v set:identity -p <host>\`, or switch a staked/unstaked pair with \`slv v switch\`."
-- For mainnet: "Your staked identity stays on this machine at ~/.slv/keys/<identity>.json; deploy did not copy it to the node. Promote this node with \`slv v set:identity -p <host> -n mainnet\` when you're ready, or switch a staked/unstaked pair with \`slv v switch -n mainnet\`."
-- Do NOT say "staked-identity.json" — that file does not exist.
-
-### Validator types (for user selection)
-- jito — Jito MEV client
-- agave — Standard Agave validator
-- allnodes-jito — Allnodes-Jito (jito fork with snapshot/voting/POH/SHA-NI patches)
-- firedancer-agave — Firedancer with Agave consensus (testnet only; refused on mainnet)
-- firedancer-jito — Firedancer with Jito consensus (testnet only; refused on mainnet)
-
-### Ansible/SSH execution
-When running ansible-playbook or slv commands that connect to servers:
-- ALWAYS add SSH options to avoid host key prompts that hang:
-  - For ansible-playbook: add \`-e 'ansible_ssh_common_args="-o StrictHostKeyChecking=accept-new"'\`
-  - For raw ssh/scp: add \`-o StrictHostKeyChecking=accept-new\`
-  - For slv v deploy: set env \`ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=accept-new"\` before the command
-- Example: \`ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=accept-new" slv v deploy -n testnet -p <identity>\`
-- The user will see command output in real-time. Long-running commands are expected.
 `
 
-  // Read AI config
-  const config = await readAiConfig()
-  if (!config) {
-    return 'Error: AI not configured. Run `slv onboard` first.'
-  }
-
+  const config = await readAiConfig() ?? DEFAULT_AI_CONFIG
   try {
-    if (config.provider === 'anthropic') {
-      return await runAnthropicSubAgent(
-        config.api_key,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
-    } else if (config.provider === 'slv') {
-      const slvAuth = await findUserApiAuth()
-      if (!slvAuth) {
-        return 'Error: Not signed in to ERPC. Run `slv login` first.'
-      }
-      return await runSlvSubAgent(
-        slvAuth,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
-    } else {
-      return await runOpenAISubAgent(
-        config.api_key,
-        config.model,
-        subSystemPrompt,
-        task,
-      )
-    }
+    const login = await resolveUserApiAuth()
+    if (!login.ok) return `Error: ${login.lines.join('\n')}`
+    return await runSlvSubAgent(
+      login.auth,
+      config.model,
+      subSystemPrompt,
+      task,
+      effectiveName === 'Cecil' || effectiveName === 'Tina' ? 'high' : 'medium',
+    )
   } catch (error) {
     return `Sub-agent ${agentName} error: ${(error as Error).message}`
   }
-}
-
-// --- Sub-agent Anthropic implementation ---
-async function runAnthropicSubAgent(
-  apiKey: string,
-  model: string,
-  systemPrompt: string,
-  task: string,
-): Promise<string> {
-  const client = new Anthropic({ apiKey })
-  const tools: Anthropic.Tool[] = SUB_AGENT_TOOL_DEFINITIONS.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters as Anthropic.Tool['input_schema'],
-  }))
-
-  type MessageParam = Anthropic.MessageParam
-  const messages: MessageParam[] = [{ role: 'user', content: task }]
-
-  const MAX_ITERATIONS = 20
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create({
-      model,
-      max_tokens: DEFAULT_MAX_TOKENS,
-      system: systemPrompt,
-      messages,
-      tools,
-    })
-
-    // Collect text and tool_use blocks
-    let textContent = ''
-    const toolUseBlocks: {
-      id: string
-      name: string
-      input: Record<string, unknown>
-    }[] = []
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        textContent += block.text
-      } else if (block.type === 'tool_use') {
-        toolUseBlocks.push({
-          id: block.id,
-          name: block.name,
-          input: block.input as Record<string, unknown>,
-        })
-      }
-    }
-
-    messages.push({ role: 'assistant', content: response.content })
-
-    if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
-      return textContent || '(no response from sub-agent)'
-    }
-
-    // Execute tools
-    const toolResults: Anthropic.ToolResultBlockParam[] = []
-    for (const tb of toolUseBlocks) {
-      const result = await executeSubAgentTool(tb.name, tb.input)
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: tb.id,
-        content: result,
-      })
-    }
-    messages.push({ role: 'user', content: toolResults })
-  }
-
-  return '(sub-agent reached maximum iteration limit)'
 }
 
 // --- Sub-agent SLV AI implementation (fetch-based Anthropic proxy) ---
@@ -1477,6 +1292,7 @@ async function runSlvSubAgent(
   model: string,
   systemPrompt: string,
   task: string,
+  effort: ThinkingEffort,
 ): Promise<string> {
   const tools = SUB_AGENT_TOOL_DEFINITIONS.map((t) => ({
     name: t.name,
@@ -1496,8 +1312,11 @@ async function runSlvSubAgent(
         'Authorization': await userApiAuthHeader(auth),
       },
       body: JSON.stringify({
-        model,
+        model: model === 'SLV AI' ? 'slv-ai-default' : model,
         max_tokens: DEFAULT_MAX_TOKENS,
+        output_config: { effort },
+        thinking: { type: 'adaptive', display: 'omitted' },
+        cache_control: { type: 'ephemeral' },
         system: systemPrompt,
         messages,
         tools,
@@ -1506,8 +1325,7 @@ async function runSlvSubAgent(
     })
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => '')
-      throw new Error(`SLV AI API error (${res.status}): ${errText}`)
+      throw await readUserApiError(res)
     }
 
     // deno-lint-ignore no-explicit-any
@@ -1517,6 +1335,12 @@ async function runSlvSubAgent(
         `SLV AI returned unexpected response: ${
           JSON.stringify(data).slice(0, 200)
         }`,
+      )
+    }
+
+    if (data.stop_reason === 'max_tokens') {
+      throw new Error(
+        'The specialist reached its output limit. Tool requests from that response were not executed.',
       )
     }
 
@@ -1530,6 +1354,14 @@ async function runSlvSubAgent(
       if (block.type === 'text') {
         textContent += block.text
       } else if (block.type === 'tool_use') {
+        if (
+          !block.input || typeof block.input !== 'object' ||
+          Array.isArray(block.input)
+        ) {
+          throw new Error(
+            'The specialist returned invalid tool arguments. That request was not executed.',
+          )
+        }
         toolUseBlocks.push({
           id: block.id,
           name: block.name,
@@ -1556,76 +1388,6 @@ async function runSlvSubAgent(
       })
     }
     messages.push({ role: 'user', content: toolResults })
-  }
-
-  return '(sub-agent reached maximum iteration limit)'
-}
-
-// --- Sub-agent OpenAI implementation ---
-async function runOpenAISubAgent(
-  apiKey: string,
-  model: string,
-  systemPrompt: string,
-  task: string,
-): Promise<string> {
-  const client = new OpenAI({ apiKey })
-  const tools: OpenAI.ChatCompletionTool[] = SUB_AGENT_TOOL_DEFINITIONS.map((
-    t,
-  ) => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    },
-  }))
-
-  type Message = OpenAI.ChatCompletionMessageParam
-  const messages: Message[] = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: task },
-  ]
-
-  const MAX_ITERATIONS = 20
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.chat.completions.create({
-      model,
-      messages,
-      tools,
-    })
-
-    const choice = response.choices[0]
-    if (!choice) return '(no response from sub-agent)'
-
-    const assistantMessage = choice.message
-    messages.push(assistantMessage as Message)
-
-    if (
-      !assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0
-    ) {
-      return assistantMessage.content || '(no response from sub-agent)'
-    }
-
-    // Execute tools
-    for (const tc of assistantMessage.tool_calls) {
-      let args: Record<string, unknown>
-      try {
-        args = JSON.parse(tc.function.arguments)
-      } catch (e) {
-        messages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: `Failed to parse arguments: ${(e as Error).message}`,
-        })
-        continue
-      }
-      const result = await executeSubAgentTool(tc.function.name, args)
-      messages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: result,
-      })
-    }
   }
 
   return '(sub-agent reached maximum iteration limit)'

@@ -1,5 +1,9 @@
 import { USER_API_ORIGIN } from '@cmn/constants/url.ts'
 import { type UserApiAuth, userApiAuthHeader } from '/lib/userApi/auth.ts'
+import {
+  formatUserApiError,
+  type UserApiHttpError,
+} from '/lib/userApi/httpError.ts'
 
 export type { UserApiAuth }
 
@@ -19,6 +23,7 @@ export type UserApiRawResponse = {
   status: number
   statusText: string
   raw: string
+  error?: UserApiHttpError
 }
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false }
@@ -93,7 +98,13 @@ const send = async (
   try {
     const res = await fetch(`${USER_API_ORIGIN}${path}`, init)
     const raw = await res.text()
-    return { ok: res.ok, status: res.status, statusText: res.statusText, raw }
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: res.statusText,
+      raw,
+      ...(!res.ok ? { error: formatUserApiError(res, raw) } : {}),
+    }
   } finally {
     if (timer !== undefined) clearTimeout(timer)
   }

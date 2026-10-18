@@ -372,9 +372,10 @@ type FormResult = { status: number; ok: boolean; body: unknown }
 const postForm = async (
   url: string,
   fields: Record<string, string>,
+  timeoutMs = AUTH_REQUEST_TIMEOUT_MS,
 ): Promise<FormResult> => {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -577,9 +578,9 @@ export type DevicePollResult =
 /**
  * Poll the token endpoint until the user has confirmed the login in the
  * browser. Waits `interval` seconds (at least 5) before every poll and 5
- * more after each `slow_down`. A network failure, a 5xx or a body that is not
- * JSON is retried; `authorization_pending` keeps waiting; any other error
- * code (`access_denied`, `expired_token`, …) ends the login. Past
+ * more after each `slow_down` or HTTP 429. Network failures and 5xx responses
+ * are retried; `authorization_pending` keeps waiting; permanent errors
+ * (`access_denied`, `expired_token`, …) end the login. Past
  * `expires_in` seconds the login ends with `expired_token`.
  */
 export const pollDeviceToken = async (
@@ -589,21 +590,34 @@ export const pollDeviceToken = async (
   const deadline = deps.now() + authorization.expiresIn
   let interval = Math.max(MIN_POLL_INTERVAL_SECONDS, authorization.interval)
   while (true) {
-    await deps.sleep(interval * 1000)
+    const remaining = deadline - deps.now()
+    if (remaining <= 0) return { ok: false, error: 'expired_token' }
+    await deps.sleep(Math.min(interval, remaining) * 1000)
     if (deps.now() >= deadline) return { ok: false, error: 'expired_token' }
 
     let res: FormResult
     try {
-      res = await postForm(TOKEN_URL, {
-        grant_type: DEVICE_CODE_GRANT,
-        client_id: ERPC_CLI_CLIENT_ID,
-        device_code: authorization.deviceCode,
-      })
+      res = await postForm(
+        TOKEN_URL,
+        {
+          grant_type: DEVICE_CODE_GRANT,
+          client_id: ERPC_CLI_CLIENT_ID,
+          device_code: authorization.deviceCode,
+        },
+        Math.min(AUTH_REQUEST_TIMEOUT_MS, (deadline - deps.now()) * 1000),
+      )
     } catch {
+      // Back off on connection failures instead of retrying a failed service
+      // at the original rate for the whole device-code lifetime.
+      interval *= 2
       continue // network failure or no answer within 30 seconds
     }
     const body = res.body
-    if (res.status >= 500 || body === undefined) continue
+    if (res.status === 429) {
+      interval += SLOW_DOWN_STEP_SECONDS
+      continue
+    }
+    if (res.status >= 500) continue
 
     if (res.ok) {
       const tokens = parseTokenSet(body)

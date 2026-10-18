@@ -80,4 +80,3 @@ dynamic_port_range = "8900-8925"
 [tiles.metric]
     prometheus_listen_address = "0.0.0.0"
     prometheus_listen_port = 7999
-

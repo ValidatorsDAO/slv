@@ -3255,6 +3255,11 @@ export const SOURCE_PROOF_TARGETS = [
   'aarch64-apple-darwin',
 ] as const
 
+const LINUX_SOURCE_PROOF_TARGETS = [
+  'x86_64-unknown-linux-gnu',
+  'aarch64-unknown-linux-gnu',
+] as const
+
 type SourceProofTarget = typeof SOURCE_PROOF_TARGETS[number]
 type ProofHost = { os: 'linux' | 'darwin'; arch: 'x64' | 'arm64' }
 type ProofArtifacts = {
@@ -3860,8 +3865,34 @@ type ParsedTargetProof = {
   buildReceiptSha256: string
   executionReceiptSha256: string
   jobs: string
+  buildProfile: unknown
   artifacts: ProofArtifacts
   checks: Record<string, unknown>
+}
+
+/** The optional profile extends legacy schema 1; jobs 16 always declares it. */
+export function validateNativeBuildProfile(
+  profile: unknown,
+  jobs: unknown,
+  target: string,
+  host: { os: string; arch: string },
+): void {
+  if (profile === undefined) {
+    if (jobs === '16') {
+      throw new Error('jobs 16 requires explicit linux-16 build profile')
+    }
+    return
+  }
+  if (
+    profile !== 'linux-16' || jobs !== '16' || host.os !== 'linux' ||
+    host.arch !== 'x64' ||
+    (target !== 'x86_64-unknown-linux-gnu' &&
+      target !== 'aarch64-unknown-linux-gnu')
+  ) {
+    throw new Error(
+      'linux-16 build profile requires jobs 16 and a Linux x64 build host for a Linux target',
+    )
+  }
 }
 
 function parseTargetProof(value: unknown): ParsedTargetProof {
@@ -3892,6 +3923,7 @@ function parseTargetProof(value: unknown): ParsedTargetProof {
     throw new Error('native target proof has an invalid build mode')
   }
   const buildHost = parseProofHost(proof.build_host, 'native target build host')
+  validateNativeBuildProfile(proof.build_profile, proof.jobs, target, buildHost)
   const executionHost = parseProofHost(
     proof.execution_host,
     'native target execution host',
@@ -3967,6 +3999,7 @@ function parseTargetProof(value: unknown): ParsedTargetProof {
       'native target execution receipt SHA-256',
     ),
     jobs: proof.jobs,
+    buildProfile: proof.build_profile,
     artifacts,
     checks: parseProofChecks(proof.checks, typedTarget, artifacts),
   }
@@ -3997,6 +4030,7 @@ function verifyPhaseReceipts(
     buildReceipt.tool_pin_sha256 !== proof.toolPinSha256 ||
     buildReceipt.patch_sha256 !== proof.patchSha256 ||
     buildReceipt.jobs !== proof.jobs ||
+    buildReceipt.build_profile !== proof.buildProfile ||
     !equalJson(
       parseProofSourceAssets(buildReceipt.source_assets),
       proof.sourceAssets,
@@ -4071,6 +4105,25 @@ function verifyPhaseReceipts(
 export async function verifySourceProofSet(
   options: SourceProofSetOptions,
 ): Promise<void> {
+  await verifySourceProofTargets(options, SOURCE_PROOF_TARGETS, 'four target')
+}
+
+/** Validation-only source gate; it cannot authorize a four-target release. */
+export async function verifyLinuxSourceProofSet(
+  options: SourceProofSetOptions,
+): Promise<void> {
+  await verifySourceProofTargets(
+    options,
+    LINUX_SOURCE_PROOF_TARGETS,
+    'two Linux target',
+  )
+}
+
+async function verifySourceProofTargets(
+  options: SourceProofSetOptions,
+  targets: readonly SourceProofTarget[],
+  label: string,
+): Promise<void> {
   const notice = await requireRegularFile(
     options.canonicalNoticePath,
     'canonical notice',
@@ -4103,15 +4156,15 @@ export async function verifySourceProofSet(
     directories.push(entry.name)
   }
   if (
-    directories.length !== SOURCE_PROOF_TARGETS.length ||
-    SOURCE_PROOF_TARGETS.some((target) => !directories.includes(target))
+    directories.length !== targets.length ||
+    targets.some((target) => !directories.includes(target))
   ) {
     throw new Error(
-      'source proof directory must contain exactly four target proofs',
+      `source proof directory must contain exactly ${label} proofs`,
     )
   }
   let patchSha256: string | undefined
-  for (const target of SOURCE_PROOF_TARGETS) {
+  for (const target of targets) {
     const root = join(options.proofDirectory, target)
     const [proofText, buildText, executionText] = await Promise.all([
       Deno.readTextFile(join(root, 'native-proof.json')),
@@ -4220,8 +4273,14 @@ function parsePackageArguments(args: string[]): SourcePackageOptions {
 
 if (import.meta.main) {
   const [action, ...args] = Deno.args
-  if (action === 'verify-source-proofs' && args.length === 7) {
-    await verifySourceProofSet({
+  if (
+    (action === 'verify-source-proofs' ||
+      action === 'verify-linux-source-proofs') && args.length === 7
+  ) {
+    const verify = action === 'verify-source-proofs'
+      ? verifySourceProofSet
+      : verifyLinuxSourceProofSet
+    await verify({
       sourceReceiptPath: args[0],
       sourceDirectory: args[1],
       proofDirectory: args[2],
@@ -4260,7 +4319,7 @@ if (import.meta.main) {
     )
   } else {
     throw new Error(
-      'usage: source-materials.ts verify-source-proofs RECEIPT SOURCE_DIR PROOF_ROOT SOURCE_SHA SOURCE_PINS TOOL_PINS NOTICE_PATH | package --source-root SLV_TREE --source-commit REVIEWED_SHA --pins PINS_JSON --cache ACQUISITION_CACHE --work-dir EMPTY_ASSEMBLY_DIR --out OUTPUT_DIR --receipt RECEIPT_JSON --notice-file CANONICAL_NOTICE | materialize-rusty-v8-source SOURCE_ROOT PINS CACHE EMPTY_DESTINATION OBJECT_STORE_RECEIPT | verify-pin PINS deno|rusty_v8|v8 (SOURCE_ARCHIVE=FILE) | inventory TREE OUTPUT | verify-inventory TREE INVENTORY | assert-pure-source TREE | verify-receipt RECEIPT OUTPUT_DIR',
+      'usage: source-materials.ts verify-source-proofs|verify-linux-source-proofs RECEIPT SOURCE_DIR PROOF_ROOT SOURCE_SHA SOURCE_PINS TOOL_PINS NOTICE_PATH | package --source-root SLV_TREE --source-commit REVIEWED_SHA --pins PINS_JSON --cache ACQUISITION_CACHE --work-dir EMPTY_ASSEMBLY_DIR --out OUTPUT_DIR --receipt RECEIPT_JSON --notice-file CANONICAL_NOTICE | materialize-rusty-v8-source SOURCE_ROOT PINS CACHE EMPTY_DESTINATION OBJECT_STORE_RECEIPT | verify-pin PINS deno|rusty_v8|v8 (SOURCE_ARCHIVE=FILE) | inventory TREE OUTPUT | verify-inventory TREE INVENTORY | assert-pure-source TREE | verify-receipt RECEIPT OUTPUT_DIR',
     )
   }
 }

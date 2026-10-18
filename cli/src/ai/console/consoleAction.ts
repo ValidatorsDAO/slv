@@ -15,7 +15,11 @@ import {
 } from '@mariozechner/pi-tui'
 import { getTerminalWidth } from '@/ai/rendering.ts'
 import chalk from 'chalk'
-import { readAiConfig } from '@/ai/config.ts'
+import {
+  DEFAULT_AI_CONFIG,
+  readAiConfig,
+  SLV_OAUTH_MIGRATION_MESSAGE,
+} from '@/ai/config.ts'
 import { initI18n, t } from '@/ai/i18n/index.ts'
 import {
   clearFocusOverride,
@@ -24,13 +28,10 @@ import {
   type PrimaryFocus,
   writeFocusOverride,
 } from '@/ai/console/profile.ts'
-import { OpenAIProvider } from '@/ai/console/providers/openai.ts'
-import { AnthropicProvider } from '@/ai/console/providers/anthropic.ts'
 import { SLVProvider } from '@/ai/console/providers/slv.ts'
 import {
   buildSystemPrompt,
   filterUnloadedContextModules,
-  injectSkillDocs,
   loadContextModules,
   resetContextModules,
 } from '@/ai/console/systemPrompt.ts'
@@ -47,7 +48,9 @@ import {
 } from '@/ai/console/tools.ts'
 import { errToString } from '/lib/errToString.ts'
 import { callReadTool } from '/lib/userApi/readTools.ts'
+import { loadAiUsageContext } from '@/ai/console/aiUsageContext.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
+import { UserApiHttpError } from '/lib/userApi/httpError.ts'
 import {
   classifyIntent,
   type DeploymentMode,
@@ -57,9 +60,12 @@ import {
   type SpecialistAgent,
   type UserContextKind,
 } from '@/ai/console/intentClassifier.ts'
-import { findUserApiAuth, resolveHome } from '/lib/getApiKeyFromYml.ts'
+import {
+  printCredentialProblem,
+  resolveHome,
+  resolveUserApiAuth,
+} from '/lib/getApiKeyFromYml.ts'
 import { loadAgentContext } from '@/ai/agentConfig/loader.ts'
-import { listAgentsByOrder } from '@/ai/agentConfig/registry.ts'
 import { VERSION_UPDATES_DISABLED_MESSAGE } from '@/ai/console/checkRelease.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 
@@ -71,7 +77,7 @@ export type ChatCallbacks = {
   // GatewaySessionProvider, tool execution happens in the daemon
   // process and progress arrives over WS as events. These fire the
   // same TUI progress UI that in-process tool execution does.
-  // Direct providers (Anthropic/OpenAI/SLV) do not call them.
+  // The in-process SLV provider does not call them.
   onToolStdout?: (line: string) => void
   onToolProgress?: (label: string) => void
 }
@@ -111,8 +117,6 @@ const editorTheme: EditorTheme = {
     noMatch: (t: string) => gray(t),
   },
 }
-
-
 
 /**
  * ChatLog: scrollable container for messages
@@ -225,281 +229,69 @@ class ChatLog extends Container {
   }
 }
 
-async function buildLocalGreeting(home: string): Promise<string> {
+export async function buildLocalGreeting(home: string): Promise<string> {
   const ctx = await loadAgentContext({ home })
 
-  const agentName = ctx.soul?.name ?? 'your SLV assistant'
+  const agentName = ctx.soul?.name ?? 'SLV'
   const userName = ctx.user?.preferredName ?? ''
 
   const greetLine = userName
-    ? t('Hey {name}! 👋').replace('{name}', userName)
+    ? t('Hey {name}! 👋').replace('{name}', () => userName)
     : t('Hey there! 👋')
 
-  const introLine = agentName !== 'your SLV assistant'
-    ? t("I'm {agent}, your SLV commander.").replace('{agent}', agentName)
-    : t("I'm your SLV assistant.")
+  const introLine = t("I'm {agent}, your SLV assistant.")
+    .replace('{agent}', () => agentName)
 
-  const crew = listAgentsByOrder(ctx.enabledAgents)
-  const crewSection = crew.length > 0
-    ? ` ${t("Here's my crew:")}\n\n${
-      crew.map((meta) => `- ${meta.id} — ${meta.description()}`).join('\n')
-    }\n\n`
-    : ' '
-
-  // Append a one-line profile hint so the user sees we've detected their
-  // primary focus. Failures are non-fatal — the greeting still works.
-  let profileLine = ''
-  try {
-    const profile = await detectProfile()
-    profileLine = `\n\n${describeProfile(profile)}`
-  } catch { /* profile detection is best-effort */ }
-
-  return `${greetLine}\n\n${introLine}${crewSection}${
-    t('What would you like to work on today?')
-  }${profileLine}`
+  return [
+    greetLine,
+    `${introLine} ${t('What would you like to work on today?')}`,
+    t('Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".'),
+  ].join('\n\n')
 }
 
-async function checkDependencies(): Promise<string[]> {
-  const missing: string[] = []
-
-  // Check ansible
-  try {
-    const p = new Deno.Command('ansible-playbook', {
-      args: ['--version'],
-      stdout: 'piped',
-      stderr: 'piped',
-    })
-    const { success } = await p.output()
-    if (!success) missing.push('ansible')
-  } catch {
-    missing.push('ansible')
+// A definitive rejection affects the whole AI route. Continuing from the
+// classifier would submit the same blocked/authenticated request a second time.
+export function stopOnDefinitiveApiError(error: Error): void {
+  if (
+    error instanceof UserApiHttpError &&
+    [
+      'edge_block',
+      'authentication',
+      'provider_configuration',
+      'activation_required',
+      'token_limit',
+    ]
+      .includes(error.kind)
+  ) {
+    throw error
   }
-
-  // Check solana-keygen (or agave-keygen)
-  try {
-    const p = new Deno.Command('solana-keygen', {
-      args: ['--version'],
-      stdout: 'piped',
-      stderr: 'piped',
-    })
-    const { success } = await p.output()
-    if (!success) missing.push('solana-cli')
-  } catch {
-    try {
-      const p = new Deno.Command('agave-keygen', {
-        args: ['--version'],
-        stdout: 'piped',
-        stderr: 'piped',
-      })
-      const { success } = await p.output()
-      if (!success) missing.push('solana-cli')
-    } catch {
-      missing.push('solana-cli')
-    }
-  }
-
-  return missing
-}
-
-async function promptInstallDependencies(missing: string[]): Promise<void> {
-  console.log(
-    yellow(
-      `\n  ${
-        t('⚠️  Missing dependencies: {deps}').replace(
-          '{deps}',
-          missing.join(', '),
-        )
-      }`,
-    ),
-  )
-  const buf = new Uint8Array(1)
-  Deno.stdout.writeSync(
-    new TextEncoder().encode(`  ${t('Install now? (Y/n) ')}`),
-  )
-  await Deno.stdin.read(buf)
-  const answer = new TextDecoder().decode(buf).trim().toLowerCase()
-  if (answer === 'n') {
-    console.log(
-      gray(`  ${t('Skipping installation. Some features may not work.')}\n`),
-    )
-    return
-  }
-
-  const os = Deno.build.os
-
-  for (const dep of missing) {
-    if (dep === 'ansible') {
-      console.log(green(`  ${t('Installing ansible-core...')}`))
-      if (os === 'darwin') {
-        const cmd = new Deno.Command('brew', {
-          args: ['install', 'ansible'],
-          stdout: 'inherit',
-          stderr: 'inherit',
-        })
-        await cmd.output()
-      } else {
-        // Ensure python3 and pip3 are available (clean Ubuntu servers may lack them)
-        let hasPip3 = false
-        try {
-          const check = new Deno.Command('pip3', {
-            args: ['--version'],
-            stdout: 'piped',
-            stderr: 'piped',
-          })
-          const { success } = await check.output()
-          hasPip3 = success
-        } catch { /* not found */ }
-
-        if (!hasPip3) {
-          console.log(green(`  ${t('Installing python3-pip...')}`))
-          // Try apt-get first (Debian/Ubuntu)
-          let aptSuccess = false
-          try {
-            const update = new Deno.Command('sudo', {
-              args: ['apt-get', 'update', '-qq'],
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            await update.output()
-            const install = new Deno.Command('sudo', {
-              args: ['apt-get', 'install', '-y', 'python3-pip'],
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            const result = await install.output()
-            aptSuccess = result.success
-          } catch { /* apt-get not available */ }
-
-          if (!aptSuccess) {
-            // Try dnf (Fedora/RHEL)
-            try {
-              const install = new Deno.Command('sudo', {
-                args: ['dnf', 'install', '-y', 'python3-pip'],
-                stdout: 'inherit',
-                stderr: 'inherit',
-              })
-              await install.output()
-            } catch {
-              console.log(
-                red(
-                  `  ${
-                    t(
-                      '✗ Could not install python3-pip. Please install manually: sudo apt-get install -y python3-pip',
-                    )
-                  }`,
-                ),
-              )
-            }
-          }
-        }
-
-        // Try apt install first (avoids PEP 668 on Ubuntu 24.04+)
-        let ansibleInstalled = false
-        try {
-          const aptInstall = new Deno.Command('sudo', {
-            args: ['apt-get', 'install', '-y', 'ansible-core'],
-            stdout: 'inherit',
-            stderr: 'inherit',
-          })
-          const aptResult = await aptInstall.output()
-          ansibleInstalled = aptResult.success
-        } catch { /* apt-get not available */ }
-
-        // Fallback: pip3 with --break-system-packages
-        if (!ansibleInstalled) {
-          const isRoot = Deno.uid?.() === 0
-          const pipArgs = isRoot
-            ? ['install', '--break-system-packages', 'ansible-core']
-            : ['install', '--user', '--break-system-packages', 'ansible-core']
-          try {
-            const cmd = new Deno.Command('pip3', {
-              args: pipArgs,
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            await cmd.output()
-          } catch {
-            // Last resort: try without --break-system-packages (older distros)
-            const fallbackArgs = isRoot
-              ? ['install', 'ansible-core']
-              : ['install', '--user', 'ansible-core']
-            const cmd = new Deno.Command('pip3', {
-              args: fallbackArgs,
-              stdout: 'inherit',
-              stderr: 'inherit',
-            })
-            await cmd.output()
-          }
-
-          // Ensure ~/.local/bin is in PATH for --user installs
-          if (!isRoot) {
-            const home = Deno.env.get('HOME') || ''
-            const currentPath = Deno.env.get('PATH') || ''
-            const localBin = `${home}/.local/bin`
-            if (!currentPath.includes(localBin)) {
-              Deno.env.set('PATH', `${localBin}:${currentPath}`)
-            }
-          }
-        }
-      }
-      console.log(green(`  ${t('✓ ansible-core installed')}`))
-    }
-
-    if (dep === 'solana-cli') {
-      console.log(green(`  ${t('Installing solana-cli (agave)...')}`))
-      // Try to read agave version from versions.yml in ~/.slv
-      let agaveVersion = 'stable'
-      try {
-        const versionsPath = `${Deno.env.get('HOME')}/.slv/versions.yml`
-        const content = await Deno.readTextFile(versionsPath)
-        const match = content.match(/AGAVE_VERSION:\s*["']?([^"'\s\n]+)/)
-        if (match) agaveVersion = match[1]
-      } catch {
-        // fallback to stable
-      }
-      const installUrl = agaveVersion === 'stable'
-        ? 'https://release.anza.xyz/stable/install'
-        : `https://release.anza.xyz/v${agaveVersion}/install`
-      const cmd = new Deno.Command('sh', {
-        args: ['-c', `curl -sSfL "${installUrl}" | sh`],
-        stdout: 'inherit',
-        stderr: 'inherit',
-      })
-      await cmd.output()
-      console.log(green(`  ${t('✓ solana-cli installed')}`))
-    }
-  }
-  console.log('')
 }
 
 export type ConsoleOptions = { viaGateway?: boolean }
 
 export const consoleAction = async (options: ConsoleOptions = {}) => {
   const viaGateway = options.viaGateway === true
-  await initI18n()
   // Reset lazy-loaded tools, context modules, and demand-driven caches at session start
   resetActiveTools()
   resetContextModules()
   resetSessionCaches()
 
-  let config = await readAiConfig()
-  if (!config) {
-    // Default to SLV AI — works with just the SLV API Key
-    config = { provider: 'slv', api_key: '', model: 'SLV AI' }
-  }
+  const config = await readAiConfig() ?? DEFAULT_AI_CONFIG
+  if (config.migratedFromLegacy) console.log(SLV_OAUTH_MIGRATION_MESSAGE)
 
-  // Check dependencies before TUI init
-  const missing = await checkDependencies()
-  if (missing.length > 0) {
-    await promptInstallDependencies(missing)
+  // Every console path requires ERPC OAuth before translation, UI or gateway
+  // startup, including installations with a legacy provider configuration.
+  const login = await resolveUserApiAuth()
+  if (!login.ok) {
+    printCredentialProblem(login)
+    Deno.exitCode = 1
+    return
   }
+  let slvAuth: UserApiAuth = login.auth
+  await initI18n()
 
   let currentSystemPrompt = await buildSystemPrompt()
-  const providerLabel = config.provider === 'openai'
-    ? 'OpenAI'
-    : config.provider === 'slv'
-    ? 'SLV AI'
-    : 'Anthropic'
+  const providerLabel = 'SLV AI'
 
   // TUI init
   const terminal = new ProcessTerminal()
@@ -520,9 +312,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   chatLog.addChild(
     new Text(
       white(
-        config.provider === 'slv'
-          ? `  ${t('Provider:')} ${providerLabel}`
-          : `  ${t('Provider:')} ${providerLabel} | ${t('Model:')} ${config.model}`,
+        `  ${t('Provider:')} ${providerLabel}`,
       ),
       1,
     ),
@@ -672,9 +462,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     stopCommandLoader() // guard against overlap
     // Keep the label short so it fits on one line in narrow terminals.
     const cleaned = command.replace(/\s+/g, ' ').trim()
-    commandLabel = cleaned.length > 56
-      ? cleaned.slice(0, 53) + '...'
-      : cleaned
+    commandLabel = cleaned.length > 56 ? cleaned.slice(0, 53) + '...' : cleaned
     commandStartedAt = Date.now()
     commandHint = null
     commandLineCount = 0
@@ -704,7 +492,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     const tickMs = tuiLite ? 2000 : 1000
     commandTimer = setInterval(() => {
       const elapsed = formatElapsed(Date.now() - commandStartedAt)
-      updateIndicator?.(tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed))
+      updateIndicator?.(
+        tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed),
+      )
       tui.requestRender()
     }, tickMs)
     tui.requestRender()
@@ -745,7 +535,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   const refreshIndicator = () => {
     if (!updateIndicator) return
     const elapsed = formatElapsed(Date.now() - commandStartedAt)
-    updateIndicator(tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed))
+    updateIndicator(
+      tuiLite ? liteIndicatorLabel(elapsed) : fullIndicatorLabel(elapsed),
+    )
   }
 
   // Named handlers so they can be called BOTH from in-process tool
@@ -802,15 +594,19 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   }
 
   // Provider init with callbacks
-  let provider: OpenAIProvider | AnthropicProvider | SLVProvider
-  let slvAuth: UserApiAuth | null = null
+  let provider: SLVProvider
   let loader: Loader | null = null
   let tipTimer: ReturnType<typeof setInterval> | null = null
   let tipText: Text | null = null
   let currentDelegateAgent: string | null = null
 
+  let latestAssistantText = ''
+  const recentConversation: { role: 'user' | 'assistant'; content: string }[] =
+    []
+
   const callbacks: ChatCallbacks = {
     onStream: (text: string) => {
+      latestAssistantText = text
       if (loader) {
         chatLog.removeChild(loader)
         loader.stop()
@@ -829,6 +625,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       tui.requestRender()
     },
     onToolCall: (name: string, detail: string) => {
+      if (name === 'enable_tools' || name === 'load_context') return
       // For delegate_to_agent, show tips while agent works (no JSON display)
       if (name === 'delegate_to_agent') {
         if (loader) {
@@ -905,7 +702,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
         try {
           const parsed = JSON.parse(detail) as { tools?: string[] }
           const requested = Array.isArray(parsed.tools) ? parsed.tools : []
-          const newTools = requested.filter((tool) => !announcedEnabledTools.has(tool))
+          const newTools = requested.filter((tool) =>
+            !announcedEnabledTools.has(tool)
+          )
           if (newTools.length === 0) return
           newTools.forEach((tool) => announcedEnabledTools.add(tool))
           chatLog.addTool(name, JSON.stringify({ tools: newTools }))
@@ -986,7 +785,10 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
         }\n`,
       )
     } else {
-      gatewayBootstrap = { port: outcome.config.port, token: outcome.config.token }
+      gatewayBootstrap = {
+        port: outcome.config.port,
+        token: outcome.config.token,
+      }
       if (outcome.bootstrapped) {
         console.log(
           `\n  ${
@@ -1003,9 +805,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     // Swap in the WS-backed provider. The ERPC login is still read
     // because some code paths (authorization checks, token purchasing)
     // reach for it.
-    if (config.provider === 'slv') {
-      slvAuth = await findUserApiAuth()
-    }
     const { GatewaySessionProvider } = await import(
       '/src/ai/core/sessionClient.ts'
     )
@@ -1015,32 +814,10 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       config.model,
       currentSystemPrompt,
       callbacks,
-    ) as unknown as SLVProvider // structurally compatible with the union
-  } else if (config.provider === 'openai') {
-    provider = new OpenAIProvider(
-      config.api_key,
-      config.model,
-      currentSystemPrompt,
-      callbacks,
-    )
-  } else if (config.provider === 'slv') {
-    // SLV AI uses the ERPC login from ~/.slv/api.yml (not ai.api_key)
-    slvAuth = await findUserApiAuth()
-    if (!slvAuth) {
-      console.log(
-        `\n  ${t('Not signed in to ERPC. Run `slv login` first.')}\n`,
-      )
-      return
-    }
+    ) as unknown as SLVProvider // same console-facing interface
+  } else {
     provider = new SLVProvider(
       slvAuth,
-      config.model,
-      currentSystemPrompt,
-      callbacks,
-    )
-  } else {
-    provider = new AnthropicProvider(
-      config.api_key,
       config.model,
       currentSystemPrompt,
       callbacks,
@@ -1052,14 +829,8 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   // Local greeting — no API call, typewriter effect
   {
     const greetingText = await buildLocalGreeting(resolveHome())
-    const words = greetingText.split(' ')
-    let revealed = ''
-    for (let i = 0; i < words.length; i++) {
-      revealed += (i === 0 ? '' : ' ') + words[i]
-      chatLog.updateStreaming(revealed)
-      tui.requestRender()
-      await new Promise((r) => setTimeout(r, 40))
-    }
+    chatLog.updateStreaming(greetingText)
+    tui.requestRender()
   }
 
   // Track user interactions for memory save decision
@@ -1085,8 +856,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     enabledSpecialists = ctx.enabledAgents
   }
 
-  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
   const renderStage = (message: string) => {
     chatLog.addChild(new Text(white(`  ${message}`), 1, 0))
     tui.requestRender()
@@ -1101,6 +870,17 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   }
 
   const hydrateUserContextKind = async (kind: UserContextKind) => {
+    // Balances change as the conversation runs. Never reuse an earlier turn's
+    // usage snapshot, even though the rest of the account context is cached.
+    if (kind === 'mcp_ai_usage') {
+      renderStage(
+        t('📚 Loading {context}…').replace('{context}', 'SLV AI'),
+      )
+      if (slvAuth) {
+        hydratedUserContextBlocks.set(kind, await loadAiUsageContext(slvAuth))
+      }
+      return
+    }
     if (hydratedUserContextKinds.has(kind)) return
 
     if (kind === 'mcp_user_account') {
@@ -1111,9 +891,6 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
         ),
       )
       try {
-        if (!slvAuth) {
-          slvAuth = await findUserApiAuth()
-        }
         if (slvAuth) {
           const text = await callReadTool(
             slvAuth,
@@ -1133,7 +910,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     }
 
     const inventoryMap: Record<
-      Exclude<UserContextKind, 'mcp_user_account'>,
+      Exclude<UserContextKind, 'mcp_user_account' | 'mcp_ai_usage'>,
       string
     > = {
       inventory_testnet_validators: 'inventory.testnet.validators.yml',
@@ -1141,8 +918,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       inventory_mainnet_rpcs: 'inventory.mainnet.rpcs.yml',
     }
 
-    const inventoryFile =
-      inventoryMap[kind as Exclude<UserContextKind, 'mcp_user_account'>]
+    const inventoryFile = inventoryMap[kind]
     if (!inventoryFile) return
 
     renderStage(
@@ -1162,24 +938,9 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     }
   }
 
-  const saveMemoryAndExit = async () => {
-    if (userMessageCount > 0) {
-      chatLog.addSystem(`  ${t('Saving session memory...')}`)
-      tui.requestRender()
-      try {
-        await provider.chat(
-          `Session ending. Update ~/.slv/agent/MEMORY.md using write_file with any noteworthy outcomes from this session.
-
-RULES:
-- Only record: server IPs, deploy results, config changes, key decisions, errors encountered
-- Do NOT record: greetings, questions asked, general chat, help commands
-- Keep each entry to 1-2 lines max
-- Append to existing content, never overwrite
-- If nothing notable happened, do NOT write to the file
-- MEMORY.md must stay under 50 lines total. If it would exceed 50 lines, remove the oldest entries to make room.`,
-        )
-      } catch { /* ignore save errors */ }
-    }
+  const exitSession = async () => {
+    // Notable outcomes are saved during their turn. Closing an idle session
+    // must not generate another answer or charge for a memory decision.
     // If we're on the gateway-backed provider, close the WS cleanly.
     // Duck-typed so this path doesn't hard-depend on the class.
     const disposable = provider as unknown as { dispose?: () => void }
@@ -1231,18 +992,17 @@ RULES:
   const isLikelyFollowUp = (input: string) => {
     const trimmed = input.trim()
     if (!trimmed) return false
-    return trimmed.length <= 80 || /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i.test(trimmed)
+    return trimmed.length <= 80 ||
+      /^(it|that|this|those|these|then|and|also|what about|how about|which|so)/i
+        .test(trimmed)
   }
 
   const applyIntentBootstrap = async (input: string) => {
-    renderStage(t('👂 Understanding your request…'))
-    await delay(150)
     let plan = await classifyIntent(
       {
-        provider: config.provider,
-        apiKey: config.api_key,
         model: config.model,
-        slvAuth: slvAuth ?? undefined,
+        slvAuth,
+        onFallback: stopOnDefinitiveApiError,
       },
       {
         message: input,
@@ -1250,6 +1010,7 @@ RULES:
         enabledSpecialists,
         currentIntent,
         currentSpecialist,
+        conversation: recentConversation,
       },
     )
 
@@ -1258,7 +1019,8 @@ RULES:
       currentSpecialist &&
       currentIntent &&
       isLikelyFollowUp(input) &&
-      (plan.intent === 'unknown' || intentDomain(plan.intent) === intentDomain(currentIntent))
+      (plan.intent === 'unknown' ||
+        intentDomain(plan.intent) === intentDomain(currentIntent))
     ) {
       plan = {
         ...plan,
@@ -1267,38 +1029,12 @@ RULES:
       }
     }
 
-    renderStage(
-      t('🎓 Intent detected: {intent}').replace(
-        '{intent}',
-        t(describeIntent(plan.intent)),
-      ),
+    if (plan.toolsToEnable.length > 0) activateExtendedTools(plan.toolsToEnable)
+
+    const newlyLoadedModules = filterUnloadedContextModules(
+      plan.contextModulesToLoad,
     )
-    await delay(150)
-
-    if (plan.toolsToEnable.length > 0) {
-      const enabled = activateExtendedTools(plan.toolsToEnable)
-      if (enabled.length > 0) {
-        renderStage(
-          t('🧰 Enabling tools: {tools}').replace(
-            '{tools}',
-            enabled.join(', '),
-          ),
-        )
-        await delay(150)
-      }
-    }
-
-    const newlyLoadedModules = filterUnloadedContextModules(plan.contextModulesToLoad)
-    if (newlyLoadedModules.length > 0) {
-      renderStage(
-        t('📚 Loading context: {modules}').replace(
-          '{modules}',
-          newlyLoadedModules.join(', '),
-        ),
-      )
-      await delay(150)
-      loadContextModules(newlyLoadedModules)
-    }
+    if (newlyLoadedModules.length > 0) loadContextModules(newlyLoadedModules)
 
     if (plan.delegateAgent && plan.delegateAgent !== currentSpecialist) {
       renderStage(
@@ -1307,9 +1043,11 @@ RULES:
           plan.delegateAgent,
         ),
       )
-      await injectSkillDocs(plan.delegateAgent)
       currentSpecialist = plan.delegateAgent
-    } else if (!plan.delegateAgent && plan.confidence >= 0.7 && intentDomain(plan.intent) !== intentDomain(currentIntent)) {
+    } else if (
+      !plan.delegateAgent && plan.confidence >= 0.7 &&
+      intentDomain(plan.intent) !== intentDomain(currentIntent)
+    ) {
       currentSpecialist = null
     }
 
@@ -1373,7 +1111,7 @@ RULES:
 
     if (input === '/exit' || input === '/quit') {
       isProcessing = true
-      await saveMemoryAndExit()
+      await exitSession()
       return
     }
 
@@ -1386,34 +1124,23 @@ RULES:
       hydratedUserContextKinds.clear()
       hydratedUserContextBlocks.clear()
       currentIntent = null
+      recentConversation.length = 0
       currentSpecialist = null
       currentSystemPrompt = await buildSystemPrompt()
-      if (config.provider === 'openai') {
-        provider = new OpenAIProvider(
-          config.api_key,
-          config.model,
-          currentSystemPrompt,
-          callbacks,
-        )
-      } else if (config.provider === 'slv') {
-        const freshAuth = await findUserApiAuth()
-        if (freshAuth) {
-          slvAuth = freshAuth
-          provider = new SLVProvider(
-            freshAuth,
-            config.model,
-            currentSystemPrompt,
-            callbacks,
-          )
-        }
-      } else {
-        provider = new AnthropicProvider(
-          config.api_key,
-          config.model,
-          currentSystemPrompt,
-          callbacks,
-        )
+      const login = await resolveUserApiAuth()
+      if (!login.ok) {
+        chatLog.addSystem(login.lines.join('\n'))
+        tui.requestRender()
+        return
       }
+      slvAuth = login.auth
+      provider = new SLVProvider(
+        slvAuth,
+        config.model,
+        currentSystemPrompt,
+        callbacks,
+      )
+      userMessageCount = 0
       chatLog.addSystem(`  ${t('Conversation cleared.')}`)
       tui.requestRender()
       return
@@ -1434,7 +1161,7 @@ RULES:
       chatLog.addSystem(
         `  ${
           t(
-            '/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent\'s primary focus',
+            "/focus <validator|rpc|app|mixed|auto> — Switch or reset the main agent's primary focus",
           )
         }`,
       )
@@ -1450,7 +1177,7 @@ RULES:
 
     // /focus <role> — switch the main agent's routing bias. Persisted to
     // ~/.slv/agent/focus.txt so it carries across sessions. `/focus auto`
-    // clears the override and returns to heuristic detection.
+    // clears the override and returns to the configured request/automatic mode.
     // Exact-token match so `/focuses`, `/focusapp`, etc. fall through to the
     // shell-command path below instead of silently being interpreted.
     const firstToken = input.split(/\s+/)[0]
@@ -1467,7 +1194,11 @@ RULES:
             ? 'Current focus: {focus} (manual override)'
             : 'Current focus: {focus} (auto)'
           chatLog.addSystem(
-            `  ${t(focusKey).replace('{focus}', profile.primary)}`,
+            `  ${
+              profile.focusSource === 'request'
+                ? describeProfile(profile)
+                : t(focusKey).replace('{focus}', profile.primary)
+            }`,
           )
         } catch (err) {
           chatLog.addSystem(
@@ -1656,41 +1387,46 @@ RULES:
     loader.start()
     tui.requestRender()
 
-    const plan = await applyIntentBootstrap(input)
+    try {
+      const plan = await applyIntentBootstrap(input)
 
-    // Only ask for clarification on the very first message.
-    // On follow-up messages the AI already has conversation context
-    // and can interpret short replies (e.g. an IP address answering
-    // a previous question) correctly.
-    if (plan.askClarify && plan.intent === 'unknown' && userMessageCount <= 1) {
+      // Only ask for clarification before the first conversation turn; short
+      // follow-up replies can depend on the existing conversation context.
+      if (
+        plan.askClarify && plan.intent === 'unknown' && userMessageCount <= 1
+      ) {
+        chatLog.addAssistant(plan.askClarify)
+      } else {
+        latestAssistantText = ''
+        await provider.chat(input, { intent: plan.intent })
+        if (!isAborted()) {
+          recentConversation.push(
+            { role: 'user', content: input.slice(0, 1500) },
+            { role: 'assistant', content: latestAssistantText.slice(0, 1500) },
+          )
+          recentConversation.splice(
+            0,
+            Math.max(0, recentConversation.length - 4),
+          )
+        }
+      }
+    } catch (error) {
+      const msg = errToString(error)
+      const color = /[Ii]nsufficient.*token|token.*limit/i.test(msg)
+        ? yellow
+        : red
+      chatLog.addSystem(
+        color(`  ${t('Error: {message}').replace('{message}', () => msg)}`),
+      )
+    } finally {
       if (loader) {
         chatLog.removeChild(loader)
         loader.stop()
         loader = null
       }
-      chatLog.addAssistant(plan.askClarify)
       isProcessing = false
       tui.requestRender()
-      return
     }
-
-    try {
-      await provider.chat(input)
-    } catch (error) {
-      const msg = (error as Error).message
-      const color = /[Ii]nsufficient.*token|token.*limit/i.test(msg) ? yellow : red
-      chatLog.addSystem(
-        color(`  ${t('Error: {message}').replace('{message}', () => msg)}`),
-      )
-    }
-
-    if (loader) {
-      chatLog.removeChild(loader)
-      loader.stop()
-      loader = null
-    }
-    isProcessing = false
-    tui.requestRender()
 
     // Drain one queued message via microtask so the stack doesn't grow
     // with each chained turn. Shift is INSIDE the microtask so a Ctrl+C
@@ -1781,14 +1517,16 @@ RULES:
         chatLog.addSystem(
           `  ${
             t('⚠️ Interrupted. Press Ctrl+C again to exit, or type a message.')
-          }${dropped > 0
-            ? ` ${
-              t('({count} queued message(s) discarded.)').replace(
-                '{count}',
-                String(dropped),
-              )
-            }`
-            : ''}`,
+          }${
+            dropped > 0
+              ? ` ${
+                t('({count} queued message(s) discarded.)').replace(
+                  '{count}',
+                  String(dropped),
+                )
+              }`
+              : ''
+          }`,
         )
         isProcessing = false
         if (loader) {
@@ -1810,7 +1548,7 @@ RULES:
         tui.requestRender()
       } else {
         // Not processing: save memory and exit
-        saveMemoryAndExit()
+        exitSession()
       }
       return { consume: true }
     }

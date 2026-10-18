@@ -44,13 +44,32 @@ export const aiCmd = new Command()
 export const onboardCmd = new Command()
   .description(
     colors.white(
-      'Set up AI provider and API key. Pass --config <path> with a YAML containing pre-filled answers to skip the interactive prompts (future-proofing for API-driven onboarding).',
+      'Quick setup: connect ERPC and enable all specialists, then start chatting. Use --advanced for personalization, notifications and browser access. Config-file runs never start browser sign-in or chat.',
     ),
   )
   .option(
     '--config <path:string>',
-    'YAML file with pre-filled onboard answers (partial configs are fine — missing fields still get prompted).',
+    'YAML overrides for setup defaults (language and confirmation may still be prompted).',
   )
-  .action(async (opts: { config?: string }) => {
-    await onboardAction({ configPath: opts.config })
-  })
+  .option(
+    '--advanced',
+    'Personalize names, deployment mode, notifications and browser access',
+    { default: false },
+  )
+  .option('--no-start', 'Save settings without opening the AI console')
+  .action(
+    async (opts: { config?: string; advanced?: boolean; start?: boolean }) => {
+      const result = await onboardAction({
+        configPath: opts.config,
+        advanced: opts.advanced,
+      })
+      if (
+        result.ready && opts.start !== false && !opts.config &&
+        !opts.advanced && Deno.stdin.isTerminal()
+      ) {
+        await consoleAction()
+      } else if (!result.ready && !result.cancelled && !opts.config) {
+        Deno.exitCode = 1
+      }
+    },
+  )

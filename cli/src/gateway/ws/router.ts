@@ -7,14 +7,15 @@ import {
 import { PROTOCOL_VERSION } from '/src/gateway/ws/frames.ts'
 import { echoDriver, Session } from '/src/ai/core/session.ts'
 import { providerDriver } from '/src/ai/core/drivers/provider.ts'
-import { readAiConfig } from '/src/ai/config.ts'
-import { findUserApiAuth } from '/lib/getApiKeyFromYml.ts'
+import { DEFAULT_AI_CONFIG, readAiConfig } from '/src/ai/config.ts'
+import { resolveUserApiAuth } from '/lib/getApiKeyFromYml.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import {
   invalidateAgentContext,
   loadAgentContext,
 } from '/src/ai/agentConfig/loader.ts'
 import { buildSystemPrompt } from '/src/ai/console/systemPrompt.ts'
+import { isIntentType } from '/src/ai/console/intentClassifier.ts'
 import { setAutoExecute } from '/src/ai/console/tools.ts'
 import {
   explainImageParseError,
@@ -155,7 +156,7 @@ const methods: Record<string, MethodHandler> = {
   'session.info': async (req, state) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
     const ctx = await applyAgentConfig()
-    const aiCfg = await readAiConfig().catch(() => null)
+    const aiCfg = await readAiConfig().catch(() => null) ?? DEFAULT_AI_CONFIG
     return resOk(req, {
       agentName: ctx.soul?.name ?? 'Assistant',
       provider: aiCfg?.provider ?? null,
@@ -217,10 +218,13 @@ const methods: Record<string, MethodHandler> = {
   'session.send': async (req, state, ctx) => {
     if (!state.authenticated) return resErr(req, 'not authenticated')
     const p = req.params as
-      | { text?: unknown; images?: unknown }
+      | { text?: unknown; images?: unknown; intent?: unknown }
       | undefined
     const text = p && typeof p.text === 'string' ? p.text : null
     if (text === null) return resErr(req, 'params.text must be a string')
+    if (p?.intent !== undefined && !isIntentType(p.intent)) {
+      return resErr(req, 'params.intent must be a supported intent')
+    }
     // Optional images: validate shape + mime allowlist + size/count
     // caps BEFORE creating the session so clients get a precise 4xx
     // rather than a vague provider error half a second later.
@@ -228,9 +232,12 @@ const methods: Record<string, MethodHandler> = {
     if (!imageParse.ok) {
       return resErr(req, explainImageParseError(imageParse.error))
     }
-    const input: MessageInput = imageParse.images.length === 0
-      ? text
-      : { text, images: imageParse.images }
+    const input: MessageInput =
+      imageParse.images.length === 0 && p?.intent === undefined ? text : {
+        text,
+        images: imageParse.images,
+        ...(isIntentType(p?.intent) ? { intent: p.intent } : {}),
+      }
 
     if (state.session?.isRunning) {
       return resErr(req, 'session is already running; call session.abort first')
@@ -238,35 +245,27 @@ const methods: Record<string, MethodHandler> = {
 
     let aiCfg
     try {
-      aiCfg = await readAiConfig()
+      aiCfg = await readAiConfig() ?? DEFAULT_AI_CONFIG
     } catch (err) {
-      return resErr(req, `failed to read AI config: ${err instanceof Error ? err.message : String(err)}`)
-    }
-    if (!aiCfg) {
       return resErr(
         req,
-        'no AI provider configured — run `slv onboard` first',
+        `failed to read AI config: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       )
     }
-    // SLV provider uses the ERPC login saved in ~/.slv/api.yml by
-    // `slv login` (not the ai.api_key field, which is used by
-    // anthropic/openai for their own API keys).
-    let slvAuth: UserApiAuth | null = null
-    if (aiCfg.provider === 'slv') {
-      try {
-        slvAuth = await findUserApiAuth()
-      } catch (err) {
-        return resErr(
-          req,
-          `failed to read the ERPC login: ${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
-      if (!slvAuth) {
-        return resErr(
-          req,
-          'not signed in to ERPC — run `slv signup` / `slv login` first',
-        )
-      }
+    let slvAuth: UserApiAuth
+    try {
+      const login = await resolveUserApiAuth()
+      if (!login.ok) return resErr(req, login.lines.join('\n'))
+      slvAuth = login.auth
+    } catch (err) {
+      return resErr(
+        req,
+        `failed to read the ERPC login: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      )
     }
 
     // Invalidate the cached agent context so MEMORY.md / USER.md /
@@ -287,7 +286,9 @@ const methods: Record<string, MethodHandler> = {
     } catch (err) {
       return resErr(
         req,
-        `failed to build system prompt: ${err instanceof Error ? err.message : String(err)}`,
+        `failed to build system prompt: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       )
     }
 
@@ -302,23 +303,19 @@ const methods: Record<string, MethodHandler> = {
     const stale = !entry || now - entry.lastActiveMs > SESSION_TTL_MS
 
     if (stale || state.sessionKind === 'echo') {
-      const driver = providerDriver(
-        slvAuth
-          ? {
-            kind: 'slv',
-            auth: slvAuth,
-            model: aiCfg.model,
-            systemPrompt,
-          }
-          : {
-            kind: aiCfg.provider === 'openai' ? 'openai' : 'anthropic',
-            apiKey: aiCfg.api_key,
-            model: aiCfg.model,
-            systemPrompt,
-          },
-      )
+      const driver = providerDriver({
+        kind: 'slv',
+        auth: slvAuth,
+        model: aiCfg.model,
+        systemPrompt,
+      })
       const session = new Session(driver)
-      entry = { session, kind: 'provider', unsubscribe: null, lastActiveMs: now }
+      entry = {
+        session,
+        kind: 'provider',
+        unsubscribe: null,
+        lastActiveMs: now,
+      }
       sessionStore.set(storeKey, entry)
     }
 
@@ -380,7 +377,9 @@ const methods: Record<string, MethodHandler> = {
       upgradeInFlight = true
       // Reset after a generous window so a failed upgrade isn't
       // locked forever — the user can click Update again.
-      setTimeout(() => { upgradeInFlight = false }, 5 * 60 * 1000)
+      setTimeout(() => {
+        upgradeInFlight = false
+      }, 5 * 60 * 1000)
       const cmdLine =
         'sleep 2; (slv upgrade && slv gateway restart) >/tmp/slv-upgrade.log 2>&1'
       const cmd = new Deno.Command('systemd-run', {
@@ -405,7 +404,9 @@ const methods: Record<string, MethodHandler> = {
       upgradeInFlight = false
       return resErr(
         req,
-        `upgrade spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+        `upgrade spawn failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       )
     }
   },
@@ -444,5 +445,4 @@ export const dispatchRequest = async (
 }
 
 /** Introspection helper for tests — keeps the keys in one place. */
-export const getSupportedMethods = (): readonly string[] =>
-  Object.keys(methods)
+export const getSupportedMethods = (): readonly string[] => Object.keys(methods)

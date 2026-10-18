@@ -1,0 +1,43 @@
+---
+- name: Set Unstaked Key to Identity
+  hosts: all
+  become: true
+  become_user: solv
+  tasks:
+    - name: Fail unless validator_type is a supported type
+      ansible.builtin.assert:
+        that:
+          - validator_type | default('') in ['agave', 'jito', 'allnodes-jito', 'firedancer-agave', 'firedancer-jito']
+        fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
+        success_msg: "Validator type is {{ validator_type | default('undefined') }}"
+
+    - name: Stop while the cluster is between the Alpenglow activation and the genesis certificate
+      ansible.builtin.import_tasks: ../cmn/tasks/alpenglow_state.yml
+      vars:
+        slv_alpenglow_network: mainnet
+        slv_alpenglow_freeze: true
+
+    - name: Set Identity to Unstaked Key (agave family)
+      shell: . ~/.profile && agave-validator -l /mnt/ledger set-identity /home/solv/unstaked-identity.json
+      register: set_unstaked_agave_result
+      timeout: 20
+      args:
+        executable: /bin/bash
+      when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+    - name: Set Identity to Unstaked Key (Frankendancer family)
+      shell: |
+        . ~/.profile
+        sudo fdctl set-identity --config /home/solv/firedancer-config.toml /home/solv/unstaked-identity.json
+      register: set_unstaked_frankendancer_result
+      args:
+        executable: /bin/bash
+      when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
+    - name: Fail when no identity branch ran
+      ansible.builtin.fail:
+        msg: "No set-identity branch ran for validator_type '{{ validator_type | default('undefined') }}' on {{ inventory_hostname }}; the identity was not changed."
+      when:
+        - not ansible_check_mode
+        - set_unstaked_agave_result is skipped
+        - set_unstaked_frankendancer_result is skipped

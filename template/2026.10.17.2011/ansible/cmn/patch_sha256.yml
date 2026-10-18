@@ -1,0 +1,263 @@
+---
+# This playbook builds a client from the source tag solana_version and puts the binary in place of the agave-validator of
+# the host. It has no default tag: without -e solana_version it stops, on every host, before anything is changed. The
+# solana_version of the inventory is not used either (the testnet hosts carry one for the snapshot finder): the value of
+# the plays here is empty, and only -e is above it. slv patch:sha256 passes the tag with -e.
+#
+# Before anything is changed the tag is held to the Alpenglow floor of the network of the host (4.3.0 on mainnet,
+# 4.4.0-beta.0 on testnet and devnet) by cmn/check_alpenglow_floor.yml, as the init.yml of each network holds the
+# versions it builds. The network is the group of the host, as in cmn/install_solana.yml: mainnet_validators,
+# testnet_validators, mainnet_rpcs, testnet_rpcs or devnet_rpcs, one of them. The client the check names is jito where
+# the build below is jito-solana (is_jito_based), and agave otherwise.
+- name: Work out the source tag, the versions.yml section and the client of each host
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    solana_version: ""
+    # the same as in the play below
+    is_jito_based: >-
+      {{
+        'jito' in (validator_type | default(''))
+        or (validator_type | default('')) == 'firedancer'
+      }}
+  tasks:
+    - name: Stop unless solana_version is given with -e
+      ansible.builtin.assert:
+        that:
+          - (solana_version | default('', true) | string | trim) != ''
+        fail_msg: "cmn/patch_sha256.yml needs solana_version, the Solana source tag to build from, given with -e (for example -e solana_version=v4.3.2-jito). It has no default, and the solana_version of the inventory is not used. Nothing was changed on {{ inventory_hostname }}."
+
+    # the tag is the git ref of the clone and a part of the name of the backup: only the form of a release tag is taken (the floor check below also reads a tag that has text after the version)
+    - name: Stop unless solana_version is a release tag
+      ansible.builtin.assert:
+        that:
+          - (solana_version | string | regex_replace('^v?[0-9A-Za-z][0-9A-Za-z.+-]*', '')) == ''
+          - "'..' not in (solana_version | string)"
+        fail_msg: "solana_version '{{ solana_version }}' on {{ inventory_hostname }} is not a release tag: cmn/patch_sha256.yml takes an optional v, then letters, digits, '.', '+' and '-' only (for example v4.3.2-jito), with no '/', no '..' and no whitespace. Nothing was changed."
+
+    - name: Stop unless the host is in exactly one section of versions.yml
+      ansible.builtin.assert:
+        that:
+          - (group_names | intersect(['mainnet_validators', 'testnet_validators', 'mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs'])) | length == 1
+        fail_msg: "cmn/patch_sha256.yml needs {{ inventory_hostname }} to be in exactly one of the groups mainnet_validators, testnet_validators, mainnet_rpcs, testnet_rpcs and devnet_rpcs, so that the source tag it builds can be held to the Alpenglow floor of its network. Nothing was changed."
+
+    - name: Work out the section and the client that this patch is built for
+      ansible.builtin.set_fact:
+        slv_floor_section: "{{ (group_names | intersect(['mainnet_validators', 'testnet_validators', 'mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs'])) | first }}"
+        slv_floor_client: "{{ 'jito' if (is_jito_based | bool) else 'agave' }}"
+
+- import_playbook: check_alpenglow_floor.yml
+  vars:
+    versions_section: "{{ slv_floor_section }}"
+    floor_client: "{{ slv_floor_client }}"
+    floor_version_var: solana_version
+    floor_plugin: false
+
+- name: Patch Solana Validator with optimized SHA256 (no restart)
+  hosts: all
+  become: yes
+  gather_facts: false
+
+  vars:
+    # no default: the check above stopped every host that was run without -e, and an empty value here keeps the
+    # solana_version of the inventory out
+    solana_version: ""
+    is_jito_based: >-
+      {{
+        'jito' in (validator_type | default(''))
+        or (validator_type | default('')) == 'firedancer'
+      }}
+    solana_repo_url: >-
+      {{
+        'https://github.com/jito-foundation/jito-solana.git'
+        if is_jito_based
+        else 'https://github.com/anza-xyz/agave.git'
+      }}
+    solana_src_dir: >-
+      {{
+        '/home/solv/jito-solana-sha256'
+        if is_jito_based
+        else '/home/solv/agave-sha256'
+      }}
+    optimized_repo_dir: "{{ solana_src_dir }}/optimized_sha256"
+    solana_release_dir: "/home/solv/.local/share/solana/install/active_release"
+    solana_bin_dir: "{{ solana_release_dir }}/bin"
+    solana_bin_path: "{{ solana_bin_dir }}/agave-validator"
+    patched_binary_path: "{{ solana_src_dir }}/target/release/agave-validator"
+    service_name: "{{ 'firedancer' if 'firedancer' in (validator_type | default('')) else 'solv' }}"
+    patch_logged_at: "{{ lookup('pipe', 'date -Iseconds') }}"
+
+  pre_tasks:
+    - name: Check SSH reachability
+      wait_for_connection:
+        timeout: 30
+      register: conn_check
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Report SSH failure clearly
+      fail:
+        msg: "Unable to connect to {{ inventory_hostname }} over SSH"
+      when: conn_check.unreachable | default(false) or conn_check.failed | default(false)
+
+  tasks:
+    - name: Install build dependencies
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - libudev-dev
+          - libclang-dev
+          - clang
+          - cmake
+          - protobuf-compiler
+          - git
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Check if Rust is installed
+      become: no
+      ansible.builtin.shell: command -v rustc
+      register: rust_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Rust (if not exists)
+      become: no
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+      args:
+        executable: /bin/bash
+      when: rust_check.rc != 0
+
+    - name: Clone Solana repository
+      become: no
+      ansible.builtin.git:
+        repo: "{{ solana_repo_url }}"
+        dest: "{{ solana_src_dir }}"
+        version: "{{ solana_version }}"
+        force: yes
+
+    - name: Clone optimized SHA256 repo
+      become: no
+      ansible.builtin.git:
+        repo: https://github.com/kagren/solana-sha256-hasher-optimized
+        dest: "{{ optimized_repo_dir }}"
+        version: "7cf3153b860751d8c8ba3c65128880ea4b62aba6"
+        force: yes
+
+    - name: Register optimized_sha256 in workspace members
+      ansible.builtin.lineinfile:
+        path: "{{ solana_src_dir }}/Cargo.toml"
+        insertafter: '^members = \[$'
+        line: '    "optimized_sha256",'
+        state: present
+      when: is_jito_based
+
+    - name: Inject optimized sha256 dependency into solana-core Cargo.toml
+      ansible.builtin.blockinfile:
+        path: >-
+          {{
+            solana_src_dir ~ '/entry/Cargo.toml'
+            if is_jito_based
+            else solana_src_dir ~ '/core/Cargo.toml'
+          }}
+        marker: "# {mark} ANSIBLE SHA256 PATCH"
+        insertafter: '^\[dependencies\]$'
+        block: >-
+          {{
+            'optimized_sha256 = { path = "../optimized_sha256", package = "solana-sha256-hasher" }'
+            if is_jito_based
+            else 'optimized_sha256 = { path = "../optimized_sha256" }'
+          }}
+
+    - name: Patch PoH hashing logic
+      ansible.builtin.replace:
+        path: >-
+          {{
+            solana_src_dir ~ '/entry/src/poh.rs'
+            if is_jito_based
+            else solana_src_dir ~ '/core/src/poh_service.rs'
+          }}
+        regexp: >-
+          {{
+            'hashv\(&\[self\.hash\.as_ref\(\),\s*mixin\.as_ref\(\)\]\)'
+            if is_jito_based
+            else 'hashv\(\&\[&hash,\s*&data\]\)'
+          }}
+        replace: >-
+          {{
+            'optimized_sha256::hashv(&[self.hash.as_ref(), mixin.as_ref()])'
+            if is_jito_based
+            else 'optimized_sha256::hash(&[&hash, &data])'
+          }}
+
+    - name: Build patched agave-validator binary
+      become: no
+      ansible.builtin.shell: |
+        set -e
+        source $HOME/.cargo/env
+        cd {{ solana_src_dir }}
+        ./scripts/cargo-install-all.sh .
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "/home/solv/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        RUSTFLAGS: "-C target-cpu=native"
+
+    - name: Resolve active agave-validator path
+      ansible.builtin.command: readlink -f "{{ solana_bin_path }}"
+      register: active_agave_validator_path
+      changed_when: false
+      failed_when: false
+
+    - name: Determine deploy path for agave-validator
+      ansible.builtin.set_fact:
+        deploy_binary_path: >-
+          {{
+            active_agave_validator_path.stdout
+            if (active_agave_validator_path.stdout | default('') | length) > 0
+            else solana_bin_path
+          }}
+
+    - name: Check the agave-validator binary that is about to be replaced
+      ansible.builtin.stat:
+        path: "{{ deploy_binary_path }}"
+      register: deploy_binary_stat
+
+    - name: Backup existing agave-validator binary (an earlier backup of this version is kept)
+      ansible.builtin.copy:
+        src: "{{ deploy_binary_path }}"
+        dest: "{{ deploy_binary_path }}.{{ solana_version }}.orig"
+        remote_src: yes
+        force: false
+        mode: preserve
+      when: deploy_binary_stat.stat.exists
+
+    - name: Deploy patched agave-validator binary
+      ansible.builtin.copy:
+        src: "{{ patched_binary_path }}"
+        dest: "{{ deploy_binary_path }}"
+        mode: "0755"
+        owner: solv
+        group: solv
+        remote_src: yes
+
+    - name: Show restart instruction
+      ansible.builtin.debug:
+        msg: |
+          ✅ Patched agave-validator has been deployed to {{ deploy_binary_path }}.
+          ⚠️ Please restart the validator manually when ready:
+          systemctl restart {{ service_name }}
+
+    - name: Log restart instruction to file
+      ansible.builtin.copy:
+        content: |
+          [INFO] agave-validator binary updated at {{ patch_logged_at }}
+          Please restart manually:
+          systemctl restart {{ service_name }}
+        dest: /var/log/solana-validator-patch.log

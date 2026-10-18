@@ -1,6 +1,5 @@
 import { assert, assertEquals } from '@std/assert'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
-import { validateApiKey } from '/src/auth/index.ts'
 import { singleUpload } from '/src/storage/upload/uploadAction.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { SLVProvider } from '/src/ai/console/providers/slv.ts'
@@ -65,69 +64,6 @@ Deno.test('status-only response paths cancel continuing bodies', async () => {
   )
   assert(webhook.wasCancelled())
 
-  const auth = continuingResponse(401)
-  await withFetch(
-    () => Promise.resolve(auth.response),
-    async () => {
-      assertEquals(await validateApiKey('openai', 'test-key'), {
-        valid: false,
-        error: 'Invalid API key',
-      })
-    },
-  )
-  assert(auth.wasCancelled())
-})
-
-Deno.test('Anthropic 403 keeps its deadline through JSON read and cleanup', async () => {
-  let signalAborted = false
-  await withFetch(
-    (_input, init) => {
-      init?.signal?.addEventListener('abort', () => {
-        signalAborted = true
-      }, { once: true })
-      return Promise.resolve(Response.json({
-        error: { message: 'Access denied by local control' },
-      }, { status: 403 }))
-    },
-    async () => {
-      assertEquals(await validateApiKey('anthropic', 'test-key'), {
-        valid: false,
-        error: 'Access denied by local control',
-      })
-    },
-  )
-  assert(!signalAborted)
-
-  let deadlineObserved = false
-  let pendingSignal: AbortSignal | undefined
-  await withFetch(
-    (_input, init) => {
-      pendingSignal = init?.signal ?? undefined
-      const continuingBody = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode('{"error":'))
-          // Keep the JSON read open until the validation request's real abort
-          // signal terminates it.
-          const abort = () => {
-            deadlineObserved = true
-            controller.error(
-              new DOMException('validation timed out', 'AbortError'),
-            )
-          }
-          pendingSignal?.addEventListener('abort', abort, { once: true })
-        },
-      })
-      return Promise.resolve(new Response(continuingBody, { status: 403 }))
-    },
-    async () => {
-      const result = await withShortTimeout(() =>
-        validateApiKey('anthropic', 'test-key')
-      )
-      assertEquals(result.valid, false)
-      assert(result.error?.startsWith('Connection error:'))
-    },
-  )
-  assert(deadlineObserved)
 })
 
 Deno.test('single upload sends byte bodies and cancels unread PUT responses', async () => {

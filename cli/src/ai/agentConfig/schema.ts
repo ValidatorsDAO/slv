@@ -34,14 +34,30 @@ export const AgentConfigSchema = z.object({
 }).passthrough()
 export type AgentConfig = z.infer<typeof AgentConfigSchema>
 
-export const AiProviderSchema = z.enum(['openai', 'anthropic', 'slv'])
+export const AiProviderSchema = z.literal('slv')
 export type AiProvider = z.infer<typeof AiProviderSchema>
 
-export const AiConfigSchema = z.object({
-  provider: AiProviderSchema,
-  api_key: z.string().default(''),
-  model: z.string(),
-}).passthrough()
+export const AiConfigSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return value
+    }
+    const legacy = value as Record<string, unknown>
+    // Never inspect or retain an old provider key. Old labels/models are
+    // accepted solely to migrate them to the authenticated SLV service.
+    return {
+      provider: 'slv',
+      model: 'SLV AI',
+      migration_required: legacy.provider !== 'slv' ||
+        legacy.model !== 'SLV AI' || Object.hasOwn(legacy, 'api_key'),
+    }
+  },
+  z.object({
+    provider: AiProviderSchema,
+    model: z.literal('SLV AI'),
+    migration_required: z.boolean(),
+  }),
+)
 export type AiConfig = z.infer<typeof AiConfigSchema>
 
 export const ApiConfigSchema = z.object({

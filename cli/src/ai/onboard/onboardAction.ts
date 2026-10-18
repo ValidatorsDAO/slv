@@ -1,13 +1,13 @@
-import { Checkbox, Input, Select } from '@cliffy/prompt'
+import { Input, Select } from '@cliffy/prompt'
 import { colors } from '@cliffy/colors'
 import { parse, stringify } from '@std/yaml'
-import { slvAA } from '/lib/slvAA.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import {
-  type AiProvider,
-  // ANTHROPIC_MODELS and OPENAI_MODELS available via manual ~/.slv/api.yml config
+  DEFAULT_AI_CONFIG,
   hasLangSet,
+  readAiConfig,
   readLang,
+  SLV_OAUTH_MIGRATION_MESSAGE,
   writeAiConfig,
   writeLang,
   writeSudoersInstalledAt,
@@ -16,7 +16,7 @@ import {
   isSudoersTarget,
   promptAndInstallSudoers,
 } from '@/ai/onboard/installSudoers.ts'
-import { BUILTIN_LANGS, initI18n, t } from '@/ai/i18n/index.ts'
+import { BUILTIN_LANGS, reloadI18n, t } from '@/ai/i18n/index.ts'
 import {
   findUserApiAuth,
   isValidApiKey,
@@ -26,22 +26,30 @@ import {
 import { AUTO_EXECUTE_NOTE } from '@/ai/console/keyMaterial.ts'
 import { runDeviceLogin } from '@/login/index.ts'
 import { Confirm } from '@cliffy/prompt'
-import { installAction as installGatewayAction } from '/src/gateway/install.ts'
+import { ensureGatewayRunning } from '/src/gateway/ensureRunning.ts'
 import { pickGatewayService } from '/src/gateway/service/pick.ts'
 import { GATEWAY_DEFAULT_PORT } from '/src/gateway/paths.ts'
 import { errToString } from '/lib/errToString.ts'
-import {
-  loadGatewayConfig,
-  writeGatewayConfig,
-} from '/src/gateway/config.ts'
+import { loadGatewayConfig, writeGatewayConfig } from '/src/gateway/config.ts'
 import { notifyDiscordWebhook } from '/lib/notifyDiscordWebhook.ts'
 import { ERPC_DASHBOARD_URL } from '@cmn/constants/url.ts'
 import { getDnsStatus } from '/lib/userApi/dns.ts'
 import { openSupportTicket } from '/lib/userApi/support.ts'
-import type { UserApiAuth } from '/lib/userApi/auth.ts'
-import { updateApiYml } from '/lib/userApi/session.ts'
+import { type UserApiAuth, userApiAuthFromSession } from '/lib/userApi/auth.ts'
+import {
+  hasStoredLogin,
+  readSlvSection,
+  updateApiYml,
+} from '/lib/userApi/session.ts'
 import { resolvePublicIp } from '/lib/publicIp.ts'
 import { loadOnboardConfig, type OnboardConfig } from '@/ai/onboard/config.ts'
+import { checkOnboardReadiness } from '@/ai/onboard/readiness.ts'
+import { ensureProfileFile } from '@/ai/onboard/profileFiles.ts'
+import { invalidateAgentContext } from '@/ai/agentConfig/loader.ts'
+import {
+  parseAgentProfile,
+  parseUserProfile,
+} from '@/ai/agentConfig/markdown.ts'
 
 /**
  * Module-scoped config for the current onboard run. Set once at the
@@ -59,14 +67,6 @@ let currentCfg: OnboardConfig = {}
  */
 let fromConfigFile = false
 
-/** Return the preset value if present, otherwise run the prompt. */
-const orPrompt = async <T>(
-  preset: T | undefined,
-  prompt: () => Promise<T>,
-): Promise<T> => {
-  if (preset !== undefined) return preset
-  return await prompt()
-}
 import { runNginxFlow } from '/src/install/nginxFlow.ts'
 
 // Approximate monospace display width: CJK/wide characters take 2 columns,
@@ -182,7 +182,10 @@ const printSecurityWarning = () => {
     border('┌─ Security ') + border('─'.repeat(w - 13)) + border('┐'),
   )
   console.log(line(''))
-  printWrapped(t('Security warning — please read.'), (s) => colors.bold.white(s))
+  printWrapped(
+    t('Security warning — please read.'),
+    (s) => colors.bold.white(s),
+  )
   console.log(line(''))
   printWrapped(
     t('SLV AI Console can execute commands on your system.'),
@@ -229,7 +232,7 @@ type ExistingDefaults = {
   userName?: string
   callMe?: string
   agentName?: string
-  enabledOps?: string[]
+  agentConfig?: Record<string, unknown>
   deployMode?: 'local' | 'remote'
   discordWebhook?: string
 }
@@ -242,38 +245,32 @@ const loadExistingDefaults = async (
 
   try {
     const userMd = await Deno.readTextFile(`${agentDir}/USER.md`)
-    const nameMatch = userMd.match(/\*\*Name:\*\*\s*(.+)/)
-    const callMatch = userMd.match(/\*\*Call me:\*\*\s*(.+)/)
-    if (nameMatch) defaults.userName = nameMatch[1].trim()
-    if (callMatch) defaults.callMe = callMatch[1].trim()
+    const profile = parseUserProfile(userMd)
+    defaults.userName = profile.name
+    defaults.callMe = profile.preferredName
   } catch { /* no USER.md */ }
 
   try {
     const soulMd = await Deno.readTextFile(`${agentDir}/SOUL.md`)
-    const nameMatch = soulMd.match(/\*\*Name:\*\*\s*(.+)/)
-    if (nameMatch) defaults.agentName = nameMatch[1].trim()
+    defaults.agentName = parseAgentProfile(soulMd).name
   } catch { /* no SOUL.md */ }
 
   try {
     const raw = await Deno.readTextFile(`${agentDir}/config.yml`)
-    const cfg = parse(raw) as {
-      skills?: { name: string; enabled: boolean }[]
-      mode?: string
-    } | null
-    if (cfg?.skills?.length) {
-      // Reverse-map skill name → onboarding op label.
-      const nameToOp: Record<string, string> = {}
-      for (const [op, meta] of Object.entries(SKILL_MAP)) {
-        nameToOp[meta.name] = op
-      }
-      defaults.enabledOps = cfg.skills
-        .filter((s) => s.enabled && nameToOp[s.name])
-        .map((s) => nameToOp[s.name])
+    const cfg = parse(raw)
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+      throw new Error(
+        'Agent config must be a YAML mapping; it was left unchanged.',
+      )
     }
-    if (cfg?.mode === 'local' || cfg?.mode === 'remote') {
-      defaults.deployMode = cfg.mode
+    const config = cfg as Record<string, unknown>
+    defaults.agentConfig = config
+    if (config.mode === 'local' || config.mode === 'remote') {
+      defaults.deployMode = config.mode
     }
-  } catch { /* no config.yml */ }
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error
+  }
 
   try {
     const raw = await Deno.readTextFile(`${home}/.slv/api.yml`)
@@ -289,474 +286,373 @@ const loadExistingDefaults = async (
   return defaults
 }
 
-const hasBenchmarkOps = (selectedOps: string[]) =>
-  selectedOps.includes('Index RPC Node Operations') ||
-  selectedOps.includes('gRPC Geyser Streaming')
+export type OnboardResult = { ready: boolean; cancelled?: boolean }
 
 export const onboardAction = async (
-  opts: { configPath?: string } = {},
-) => {
+  opts: { configPath?: string; advanced?: boolean } = {},
+): Promise<OnboardResult> => {
   currentCfg = opts.configPath ? await loadOnboardConfig(opts.configPath) : {}
   fromConfigFile = Boolean(opts.configPath)
-  if (opts.configPath) {
-    console.log(
-      colors.gray(
-        `  (loaded pre-filled answers from ${opts.configPath} — any missing fields will still be prompted)`,
-      ),
-    )
-  }
-  slvAA(denoJson.version)
+  const advanced = opts.advanced === true
+  const home = resolveHome()
+  const existing = await loadExistingDefaults(home)
 
-  // --- Language gate ---
-  // On first run (no lang in api.yml) prompt once. If user picks a non-English
-  // builtin language we save it and ask them to re-run so the rest of onboard
-  // can show in that language. On subsequent runs we skip this block entirely
-  // (avoids the re-run loop) and just load the saved language.
-  if (!(await hasLangSet())) {
-    let chosenLang: string
-    if (currentCfg.lang) {
-      chosenLang = currentCfg.lang
-    } else {
-      const picked = await Select.prompt({
-        message: 'Select your language / 言語を選択 / Выберите язык',
+  // Language changes take effect in this invocation; no restart is needed.
+  if (currentCfg.lang !== undefined || !(await hasLangSet()) || advanced) {
+    let language = currentCfg.lang
+    if (language === undefined) {
+      const saved = await readLang()
+      const locale =
+        (Deno.env.get('LC_ALL') || Deno.env.get('LANG') || '').split(/[_.-]/)[0]
+      const suggested = await hasLangSet()
+        ? saved
+        : (BUILTIN_LANGS[locale] ? locale : 'en')
+      language = await Select.prompt({
+        message: 'Language / 言語',
         options: [
           { name: 'English', value: 'en' },
-          { name: '日本語 (Japanese)', value: 'ja' },
-          { name: '中文 (Chinese)', value: 'zh' },
-          { name: 'Русский (Russian)', value: 'ru' },
-          { name: 'Tiếng Việt (Vietnamese)', value: 'vi' },
-          { name: 'Other (type your language)', value: '__other__' },
+          { name: '日本語', value: 'ja' },
+          { name: '中文', value: 'zh' },
+          { name: 'Русский', value: 'ru' },
+          { name: 'Tiếng Việt', value: 'vi' },
+          { name: 'Other', value: '__other__' },
         ],
-        default: 'en',
+        default: BUILTIN_LANGS[suggested] ? suggested : '__other__',
       })
-      chosenLang = picked
-      if (picked === '__other__') {
-        const typed = await Input.prompt({
-          message: 'Enter your language (e.g. "de", "Français", "日本語")',
-          default: 'en',
+      if (language === '__other__') {
+        language = (await Input.prompt({
+          message: 'Your language',
+          default: saved,
           validate: (v) => v.trim().length > 0 || 'Language is required',
-        })
-        chosenLang = typed.trim()
+        })).trim()
       }
     }
-
-    await writeLang(chosenLang)
-
-    if (chosenLang !== 'en') {
-      // Load i18n now so the re-run notice can be shown in the chosen language
-      // (built-in langs only; "other" may fall back to English here if the AI
-      // key isn't set yet, which is fine — the message is short).
-      await initI18n()
-      console.log()
-      console.log(
-        colors.yellow(
-          `  ${t('Language saved. Please run `slv onboard` again to continue.')}`,
-        ),
-      )
-      console.log()
-      return
-    }
+    await writeLang(language)
   }
+  await reloadI18n()
+  console.log(colors.bold.rgb24(`\nSLV  ${denoJson.version}`, 0x14f195))
+  console.log(t('Build and operate Solana, through conversation.'))
+  console.log(
+    colors.green(`\n[1/3] ${t('Language ready')}: ${await readLang()}`),
+  )
+  console.log(
+    t('SLV AI uses a cloud AI service. Commands that change your environment require confirmation.'),
+  )
+  console.log(t('Keep private keys and passwords out of the conversation.'))
+  if (advanced) printSecurityWarning()
 
-  await initI18n()
+  const accepted = currentCfg.security_warning_accepted ??
+    (existing.agentConfig?.onboard_version === 2 ? true : await Confirm.prompt({
+      message: t('Continue with guided setup?'),
+      default: true,
+    }))
+  if (!accepted) {
+    console.log(t('Setup cancelled.'))
+    return { ready: false, cancelled: true }
+  }
 
   console.log(
-    colors.bold.rgb24(`\n┌  ${t('SLV AI Onboarding')}\n│`, 0x14f195),
+    colors.bold.rgb24(`\n[2/3] ${t('Connect your account')}`, 0x14f195),
   )
-
-  printSecurityWarning()
-
-  const accepted = currentCfg.security_warning_accepted === true
-    ? 'yes'
-    : await Select.prompt({
-      message: t(
-        'I understand this is powerful and inherently risky. Continue?',
-      ),
-      options: [
-        { name: t('Yes'), value: 'yes' },
-        { name: t('No'), value: 'no' },
-      ],
-    })
-
-  if (accepted !== 'yes') {
-    console.log(colors.yellow(`\n  ${t('Setup cancelled.')}\n`))
-    return
-  }
-
-  // The RPC API key from --config. It is used for RPC only — the ERPC
-  // account features below use the ERPC login (`slv login`).
-  const home = resolveHome()
   const configApiKey = currentCfg.slv_api_key?.trim()
   if (configApiKey && isValidApiKey(configApiKey)) {
     await mergeSlvCredentials({ api_key: configApiKey }, home)
   }
-
-  // ERPC login: SLV AI and the HTTPS step call user-api with it.
-  const signedIn = (await findUserApiAuth(home)) !== null
-
-  if (!signedIn) {
-    console.log(
-      colors.bold.rgb24(`│  ${t('ERPC Login')}`, 0x14f195),
-    )
-    if (fromConfigFile) {
-      console.log(
-        colors.rgb24(
-          `  ${
-            t('Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.')
-          }\n`,
-          0x888888,
-        ),
-      )
-    } else {
-      console.log(
-        colors.white(
-          `  ${
-            t('Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.')
-          }\n`,
-        ),
-      )
-      const signIn = await Confirm.prompt({
-        message: t('Sign in to ERPC now?'),
-        default: true,
-      })
-      if (signIn && await signInToErpc(t)) {
-        // The new login unlocks AI translation for non-builtin langs.
-        const currentLang = await readLang()
-        if (!BUILTIN_LANGS[currentLang]) {
-          await initI18n()
-        }
+  const previousAi = await readAiConfig()
+  const aiConfig = DEFAULT_AI_CONFIG
+  if (previousAi?.migratedFromLegacy) console.log(SLV_OAUTH_MIGRATION_MESSAGE)
+  // Refresh while checking readiness so a temporary OAuth outage is reported
+  // accurately instead of being treated as a missing login.
+  let auth = hasStoredLogin(await readSlvSection(home))
+    ? userApiAuthFromSession(home)
+    : null
+  let accountName: string | undefined
+  if (!auth && !fromConfigFile) {
+    const signIn = await Confirm.prompt({
+      message: t('Sign in to ERPC now?'),
+      default: true,
+    })
+    if (signIn) {
+      const result = await runDeviceLogin()
+      if (result.ok) {
+        accountName = result.username ?? undefined
+        auth = await findUserApiAuth(home)
+        if (!BUILTIN_LANGS[await readLang()]) await reloadI18n()
       } else {
-        console.log(
-          colors.rgb24(`  ${t('Skipped. You can run `slv login` later.')}\n`, 0x888888),
-        )
+        for (const line of result.lines) console.log(colors.yellow(line))
       }
     }
   }
+  await writeAiConfig(aiConfig)
 
-  // Default to SLV AI — no provider selection needed
-  // Users can manually configure OpenAI/Anthropic in ~/.slv/api.yml if desired
-  console.log(colors.green(`  ✔ ${t('Using SLV AI (powered by your ERPC login).')}\n`))
+  let ready = false
+  if (auth) {
+    const check = await checkOnboardReadiness(auth)
+    if (check.kind === 'ready') {
+      ready = true
+      console.log(
+        colors.green(
+          `  ✔ ${
+            t('ERPC connected. AI balance: {count} tokens.').replace(
+              '{count}',
+              check.remainingTokens.toLocaleString(),
+            )
+          }`,
+        ),
+      )
+    } else if (check.kind === 'empty') {
+      console.log(
+        colors.yellow(
+          t('ERPC connected, but no AI tokens are available. Run `slv ai product` to review your options.'),
+        ),
+      )
+    } else if (check.kind === 'activation_required') {
+      console.log(colors.yellow(
+        t('Complete account activation in the ERPC dashboard before using SLV AI.'),
+      ))
+      console.log(ERPC_DASHBOARD_URL)
+    } else {
+      console.log(
+        colors.yellow(
+          t('Could not verify your account is ready for AI. Your settings will be saved.'),
+        ),
+      )
+      console.log(colors.yellow(`  ${check.message}`))
+    }
+  } else {
+    console.log(
+      colors.yellow(
+        t('Settings can be saved now. Run `slv login` before starting SLV AI.'),
+      ),
+    )
+  }
 
-  await writeAiConfig({
-    provider: 'slv' as AiProvider,
-    api_key: '',
-    model: 'SLV AI',
-  })
-
-  // --- Agent setup ---
-  console.log(
-    colors.bold.rgb24(`\n│  ${t('Agent Setup')}`, 0x14f195),
-  )
-
-  // Pre-fill defaults from any existing agent config so a second-run onboard
-  // just needs Enter-Enter-Enter unless the user wants to change something.
-  const existing = await loadExistingDefaults(home)
-
-  const userName = await orPrompt(
-    currentCfg.user_name,
-    () =>
-      Input.prompt({
-        message: t('Your name'),
-        default: existing.userName,
-        validate: (v) => v.trim().length > 0 || t('Name is required'),
-      }),
-  )
-
-  const callMe = await orPrompt(
-    currentCfg.call_me_name,
-    () =>
-      Input.prompt({
+  // Quick setup supplies useful defaults. Personalization stays optional.
+  const defaultName = existing.userName ?? accountName ??
+    Deno.env.get('USER') ?? 'You'
+  const userName = currentCfg.user_name ??
+    (advanced
+      ? await Input.prompt({ message: t('Your name'), default: defaultName })
+      : defaultName)
+  const callMe = currentCfg.call_me_name ??
+    (advanced
+      ? await Input.prompt({
         message: t('What should the AI call you?'),
         default: existing.callMe ?? userName,
-      }),
-  )
-
-  const agentName = await orPrompt(
-    currentCfg.agent_name,
-    () =>
-      Input.prompt({
+      })
+      : existing.callMe ?? userName)
+  const agentName = currentCfg.agent_name ??
+    (advanced
+      ? await Input.prompt({
         message: t('Name your main AI agent'),
-        default: existing.agentName ?? 'SLV Agent',
-      }),
-  )
-
-  // Default the Checkbox to previously-enabled ops; fall back to first-run
-  // defaults when nothing is saved yet.
-  const isChecked = (op: string, firstRunDefault: boolean): boolean => {
-    if (existing.enabledOps) return existing.enabledOps.includes(op)
-    return firstRunDefault
-  }
-  // First-run defaults: only the top option is pre-checked. This narrows the
-  // implied primary focus to Validator Operations (SLV's original flagship
-  // use-case) and stops the onboarding flow from dumping the user into a
-  // "you do everything" state. The user can still tick more with Space.
-  // Second-run: defaults come from the existing config (`existing.enabledOps`).
-  const selectedOps: string[] = currentCfg.selected_ops !== undefined
-    ? currentCfg.selected_ops
-    : await Checkbox.prompt({
-    message: t('What will you be doing? (↑↓ move, Space toggle, Enter confirm)'),
-    options: [
-      {
-        name: 'Solana Validator Operations',
-        value: 'Solana Validator Operations',
-        checked: isChecked('Solana Validator Operations', true),
-      },
-      {
-        name: 'Index RPC Node Operations',
-        value: 'Index RPC Node Operations',
-        checked: isChecked('Index RPC Node Operations', false),
-      },
-      {
-        name: 'gRPC Geyser Streaming',
-        value: 'gRPC Geyser Streaming',
-        checked: isChecked('gRPC Geyser Streaming', false),
-      },
-      {
-        name: 'Benchmark & Connectivity Testing',
-        value: 'Benchmark & Connectivity Testing',
-        checked: isChecked('Benchmark & Connectivity Testing', false),
-      },
-      {
-        name: 'Solana App Development (Trade Bot)',
-        value: 'Solana App Development',
-        checked: isChecked('Solana App Development', false),
-      },
-      {
-        name: 'Server Procurement',
-        value: 'Server Procurement',
-        checked: isChecked('Server Procurement', false),
-      },
-    ],
-  })
-
-  // --- Deployment mode ---
-  const deployMode = currentCfg.deploy_mode !== undefined
-    ? currentCfg.deploy_mode
-    : await Select.prompt({
+        default: existing.agentName ?? 'SLV',
+      })
+      : existing.agentName ?? 'SLV')
+  const deployMode = currentCfg.deploy_mode ?? (advanced
+    ? await Select.prompt({
       message: t('Deployment mode'),
-      default: existing.deployMode,
+      default: existing.deployMode ?? 'remote',
       options: [
-        { name: t('Local — deploy to this machine'), value: 'local' },
         {
           name: t('Remote — deploy to remote servers via SSH'),
           value: 'remote',
         },
+        { name: t('Local — deploy to this machine'), value: 'local' },
       ],
     })
-
-  // Build config
-  const agentHome = resolveHome()
-  const agentDir = `${agentHome}/.slv/agent`
+    : existing.deployMode ?? 'remote')
+  const agentDir = `${home}/.slv/agent`
   await Deno.mkdir(agentDir, { recursive: true })
-
-  // USER.md
-  const userMd = `# USER.md
-- **Name:** ${userName}
-- **Call me:** ${callMe}
-`
-  await Deno.writeTextFile(`${agentDir}/USER.md`, userMd)
-
-  // SOUL.md
-  const soulMd = `# SOUL.md — Main Agent
+  const userFields: Record<string, string> = {}
+  if (
+    currentCfg.user_name !== undefined ||
+    (advanced && userName !== existing.userName)
+  ) userFields.name = userName
+  if (
+    currentCfg.call_me_name !== undefined ||
+    (advanced && callMe !== existing.callMe)
+  ) userFields.preferred_name = callMe
+  await ensureProfileFile(
+    `${agentDir}/USER.md`,
+    `# USER.md\n- **Name:** ${userName}\n- **Call me:** ${callMe}\n`,
+    userFields,
+  )
+  const soul = `# SOUL.md — Main Agent
 - **Name:** ${agentName}
-- **Role:** Commander — routes tasks to specialist sub-agents
+- **Role:** SLV assistant — helps with Solana and routes tasks to specialists
 
-## Sub-Agents
-- **Cecil** — Solana Validator specialist (slv-validator skill)
-- **Tina** — RPC / gRPC / cloud node specialist (slv-rpc + slv-grpc-geyser skills)
-- **Cid** — Benchmark & connectivity testing specialist (grpc_test, geyserbench, shreds_test)
-- **Setzer** — Solana App specialist (slv-app skill, trade bot creation)
-- **Figaro** — Server procurement and validator hardware specialist (slv-server-procurement skill)
+## Specialists
+- Cecil — Solana validators
+- Tina — RPC and gRPC
+- Cid — benchmarks and connectivity
+- Setzer — Solana applications
+- Figaro — server resources
 
 ## Behavior
-- Greet the user by their preferred name
-- Analyze user requests and delegate to the appropriate sub-agent
-- For validator tasks → delegate to Cecil
-- For RPC, gRPC, and cloud node tasks → delegate to Tina
-- For benchmark/connectivity test tasks → delegate to Cid
-- For server availability, procurement, or validator hardware questions → delegate to Figaro
-- Summarize sub-agent results for the user
+- Use the user's preferred name and language.
+- Follow the current request; available skills do not define the user's intent.
+- Ask for the target machine before deployment. Do not assume this machine is the target.
+- Explain the result and the next useful step.
 `
-  await Deno.writeTextFile(`${agentDir}/SOUL.md`, soulMd)
+  await ensureProfileFile(
+    `${agentDir}/SOUL.md`,
+    soul,
+    currentCfg.agent_name !== undefined ||
+      (advanced && agentName !== existing.agentName)
+      ? { name: agentName }
+      : undefined,
+  )
+  await ensureProfileFile(
+    `${agentDir}/MEMORY.md`,
+    '# MEMORY.md\nSession history and important notes.\n',
+  )
 
-  // MEMORY.md
-  const memoryMd = `# MEMORY.md
-Session history and important notes.
-`
-  await Deno.writeTextFile(`${agentDir}/MEMORY.md`, memoryMd)
-
-  // config.yml
-  const allSkillKeys = Object.keys(SKILL_MAP)
-  const skills = allSkillKeys.map((key) => ({
-    name: SKILL_MAP[key].name,
-    enabled: selectedOps.includes(key),
-    agent: SKILL_MAP[key].agent,
+  const prior = existing.agentConfig ?? {}
+  const priorSkills = Array.isArray(prior.skills)
+    ? prior.skills.filter((s): s is Record<string, unknown> =>
+      !!s && typeof s === 'object' && !Array.isArray(s)
+    )
+    : []
+  const selectedOps = currentCfg.selected_ops ?? Object.keys(SKILL_MAP)
+  const knownNames = new Set(
+    Object.values(SKILL_MAP).map((skill) => skill.name),
+  )
+  const skills = Object.entries(SKILL_MAP).map(([op, skill]) => ({
+    ...priorSkills.find((old) => old.name === skill.name),
+    name: skill.name,
+    enabled: selectedOps.includes(op),
+    agent: skill.agent,
   }))
-  // Cid reads slv-rpc SKILL.md as additional context for benchmarks,
-  // but this is handled in tools.ts (injectSkillDocs), not via config.yml.
-  // Do NOT add a duplicate slv-rpc entry for Cid here.
   const configData = {
-    skills,
-    auto_execute: false,  // Commands ask for confirmation by default
+    ...prior,
+    skills: [
+      ...skills,
+      ...priorSkills.filter((s) => !knownNames.has(String(s.name))),
+    ],
+    auto_execute: false,
     mode: deployMode,
+    focus_source: 'request',
+    onboard_version: 2,
   }
-  const configYml = `# auto_execute: ${AUTO_EXECUTE_NOTE}\n` +
-    stringify(configData as Record<string, unknown>)
-  await Deno.writeTextFile(`${agentDir}/config.yml`, configYml)
+  await Deno.writeTextFile(
+    `${agentDir}/config.yml`,
+    `# auto_execute: ${AUTO_EXECUTE_NOTE}\n` + stringify(configData),
+  )
+  invalidateAgentContext()
 
-  // --- Notifications (optional) ---
-  console.log(
-    colors.bold.rgb24(`\n│  ${t('Notifications (optional)')}`, 0x14f195),
-  )
-  // Non-engineers rarely know how to create a Discord webhook, so
-  // link a 30-second video walkthrough before the prompt. The URL
-  // lives in the translation key so alt-language versions can swap
-  // to a localized recording later if one exists.
-  console.log(
-    colors.white(
-      `  ${
-        t(
-          'How to create a Discord webhook (30-sec video): https://youtube.com/shorts/2w-Afr_JVEg',
-        )
-      }`,
-    ),
-  )
-  console.log(
-    colors.rgb24(
-      `  ${t('Paste the webhook URL below, or press Enter to skip.')}`,
-      0x888888,
-    ),
-  )
-
-  const discordWebhook = currentCfg.discord_webhook !== undefined
-    ? currentCfg.discord_webhook
-    : await Input.prompt({
+  // Notifications, privilege changes and browser access are deferred. An
+  // explicit config-file option still works for automated server setup.
+  let discordWebhook = currentCfg.discord_webhook
+  if (discordWebhook === undefined && advanced) {
+    discordWebhook = await Input.prompt({
       message: t('Discord Webhook URL for notifications (Enter to skip)'),
       default: existing.discordWebhook ?? '',
     })
-
-  if (discordWebhook && discordWebhook.trim().length > 0) {
-    // Save to api.yml under its lock, changing only `notifications`
-    await updateApiYml(agentHome, (yml) => {
-      yml.notifications = { discord_webhook: discordWebhook.trim() }
-    })
-    console.log(
-      colors.green(`  ✔ ${t('Discord Webhook saved to ~/.slv/api.yml')}\n`),
-    )
-  } else {
-    console.log(colors.rgb24(`  ${t('Skipped.')}\n`, 0x888888))
   }
-
-  // Passwordless sudo for slv on a dev VPS. Skipped on macOS / non-
-  // systemd hosts. The installer itself detects prior installs via a
-  // magic marker in the drop-in file, so re-running `slv onboard`
-  // after `sudo rm /etc/sudoers.d/slv-<user>` correctly re-offers.
-  // We still record a timestamp for observability, but don't gate on it.
-  if (await isSudoersTarget()) {
+  if (discordWebhook?.trim()) {
+    await updateApiYml(home, (yml) => {
+      const notifications =
+        yml.notifications && typeof yml.notifications === 'object' &&
+          !Array.isArray(yml.notifications)
+          ? yml.notifications
+          : {}
+      yml.notifications = {
+        ...notifications,
+        discord_webhook: discordWebhook!.trim(),
+      }
+    })
+  }
+  if (
+    (advanced || currentCfg.sudoers_install === true) && await isSudoersTarget()
+  ) {
     const result = await promptAndInstallSudoers({
       t,
       preset: currentCfg.sudoers_install,
     })
     if (result.state === 'installed' || result.state === 'already_installed') {
       await writeSudoersInstalledAt(new Date().toISOString())
+    } else if (result.state === 'failed') {
+      console.log(
+        colors.yellow(`${t('Sudoers install failed:')} ${result.err}`),
+      )
     } else if (result.state === 'foreign_file_exists') {
       console.log(
         colors.yellow(
-          `  ⚠ ${
-            t('Existing sudoers file at {path} was not installed by slv — leaving it alone.')
-              .replace('{path}', result.path)
-          }`,
-        ),
-      )
-    } else if (result.state === 'failed') {
-      console.log(
-        colors.red(`  ❌ ${t('Sudoers install failed:')} ${result.err}`),
-      )
-      console.log(
-        colors.white(
-          `    ${
-            t('You can continue without it; see the skill docs for manual setup.')
-          }`,
+          t('Existing sudoers file at {path} was not installed by slv — leaving it alone.')
+            .replace('{path}', result.path),
         ),
       )
     }
   }
-
-  // --- Gateway daemon (optional) ---
-  // Installs a user-level systemd/launchd service that exposes the
-  // browser chat UI at http://127.0.0.1:20026/ui/. Non-engineers
-  // don't know they can run this manually afterwards, so offer it
-  // here while we already have their attention. Idempotent: if the
-  // service is already installed/running, we say so and continue.
-  const gatewayResult = await maybeInstallGateway(t)
-
-  // Access path — try HTTPS first, fall back to LAN mode only if
-  // HTTPS was declined or couldn't be set up. Order matters: with
-  // HTTPS the gateway stays safely on loopback and nginx handles
-  // the external side; offering LAN mode after HTTPS succeeded
-  // would just confuse the user with an unneeded 0.0.0.0 bind.
-  let httpsUrl: string | null = null
-  let accessMode: 'local' | 'lan' = gatewayResult.mode
-  if (gatewayResult.gatewayReachable) {
-    httpsUrl = await maybeSetupHttps(t)
-    if (!httpsUrl) {
-      accessMode = await maybeEnableLanMode(t)
+  const wantsGateway = currentCfg.install_gateway ??
+    (currentCfg.enable_https === true || currentCfg.enable_lan_mode === true ||
+      (advanced &&
+        await Confirm.prompt({
+          message: t('Enable browser chat on this machine?'),
+          default: false,
+        })))
+  if (wantsGateway) {
+    const gateway = await maybeInstallGateway(t)
+    if (gateway.gatewayReachable) {
+      const httpsUrl = await maybeSetupHttps(t, gateway.port)
+      const mode = httpsUrl
+        ? gateway.mode
+        : await maybeEnableLanMode(t, gateway.port)
+      await sendOnboardWebhook({
+        t,
+        agentHome: home,
+        mode,
+        port: gateway.port,
+        httpsUrl,
+      })
     }
   }
 
-  // If the gateway is up AND the user set a Discord webhook, send
-  // them the browser-chat URL + token there so they don't have to
-  // hunt for it — the "last-mile" signal that makes non-engineers
-  // actually use the UI. Prefers the HTTPS URL if we set one up.
-  if (gatewayResult.gatewayReachable) {
-    await sendOnboardWebhook({
-      t,
-      agentHome,
-      mode: accessMode,
-      httpsUrl,
-    })
-  }
-
   console.log(
-    colors.bold.rgb24('\n│', 0x14f195),
-  )
-  console.log(
-    colors.green(`◇  ${t('Agent files saved to ~/.slv/agent/')}`),
-  )
-  console.log(
-    colors.bold.rgb24('│', 0x14f195),
-  )
-  console.log(
-    colors.white(`  ${t('Agent:')}    ${colors.bold(agentName)}`),
-  )
-  console.log(
-    colors.green(`◇  ${t('AI configuration saved to ~/.slv/api.yml')}`),
-  )
-  console.log(
-    colors.bold.rgb24('│', 0x14f195),
-  )
-  console.log(
-    colors.rgb24(
-      `└  ${
-        t(
-          'First, tell the AI `set up the firewall` — we recommend hardening security next.',
-        )
-      }\n`,
+    colors.bold.rgb24(
+      `\n[3/3] ${ready ? t('Ready to chat') : t('Settings saved')}`,
       0x14f195,
     ),
   )
+  const count =
+    new Set(skills.filter((s) => s.enabled).map((s) => s.agent)).size
+  console.log(
+    colors.green(
+      `  ✔ ${
+        t('{count} specialist agents are available. SLV chooses the right one for your request.')
+          .replace('{count}', String(count))
+      }`,
+    ),
+  )
+  console.log(
+    t('Personalization, notifications and browser access: `slv onboard --advanced`.'),
+  )
+  if (ready) {
+    console.log(
+      t('Try asking: "What subscriptions do I have?" or "Help me prepare a testnet validator."'),
+    )
+    console.log(
+      colors.green(`\n  ${t('Start a conversation with `slv ai`.')}\n`),
+    )
+  } else {
+    console.log(
+      colors.yellow(
+        t('Finish signing in or checking your AI balance, then run `slv ai`.'),
+      ),
+    )
+  }
+  return { ready }
 }
 
 type GatewayResult = {
   gatewayReachable: boolean
   mode: 'local' | 'lan'
+  port: number
 }
 
 /**
- * Install + start the gateway daemon, then optionally flip to lan
- * mode for remote-browser access with a WireGuard security advisory.
- * Idempotent — probes status() first so re-running onboard on an
- * already-configured host is a no-op with a ✔ message.
+ * Install and start the gateway daemon, waiting for its health endpoint.
+ * Reuses the console startup path, including config creation before launch.
  *
  * All failures are non-fatal. Returns the current gateway state so
  * the caller can decide whether to send a Discord completion ping.
@@ -767,109 +663,41 @@ const maybeInstallGateway = async (
   console.log(
     colors.bold.rgb24(`\n│  ${t('Browser chat UI')}`, 0x14f195),
   )
-  console.log(
-    colors.white(
-      `  ${
-        t(
-          'Installing the background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.',
-        ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
-      }`,
-    ),
-  )
 
-  let service
-  try {
-    service = pickGatewayService()
-  } catch {
-    console.log(
-      colors.rgb24(
-        `  ${t('Not supported on this platform — skipped.')}\n`,
-        0x888888,
-      ),
-    )
-    return { gatewayReachable: false, mode: 'local' }
-  }
-
-  let status
-  try {
-    status = await service.status()
-  } catch (err) {
-    console.log(
-      colors.yellow(
-        `  ⚠ ${t('Could not probe gateway status:')} ${errToString(err)}`,
-      ),
-    )
-    return { gatewayReachable: false, mode: 'local' }
-  }
-
-  // Auto-install: no Confirm. Onboard explicitly assumes the user
-  // wants the browser UI — skipping would leave them stranded.
-  // Platform gate + idempotent status probe above means this is
-  // safe to run every time.
-  if (!status.running) {
-    if (!status.loaded) {
-      const installed = await installGatewayAction()
-      if (!installed) {
-        console.log(
-          colors.yellow(
-            `  ⚠ ${
-              t('Gateway install failed — run `slv gateway install` manually to retry.')
-            }\n`,
-          ),
-        )
-        return { gatewayReachable: false, mode: 'local' }
-      }
-    } else {
-      console.log(
-        colors.gray(
-          `  ${t('Service unit already installed — starting it.')}`,
-        ),
-      )
+  // Share the startup path with the console: create config before launching,
+  // then wait until the daemon accepts connections before offering access.
+  const result = await ensureGatewayRunning({ quiet: true }).catch((err) => ({
+    ok: false as const,
+    reason: errToString(err),
+  }))
+  if (!result.ok) {
+    console.log(colors.yellow(
+      `  ⚠ ${result.reason}. ${
+        t('Run `slv gateway start` manually to retry.')
+      }\n`,
+    ))
+    return {
+      gatewayReachable: false,
+      mode: 'local',
+      port: GATEWAY_DEFAULT_PORT,
     }
-
-    try {
-      await service.start()
-    } catch (err) {
-      console.log(
-        colors.yellow(
-          `  ⚠ ${t('Gateway start failed:')} ${errToString(err)}`,
-        ),
-      )
-      console.log(
-        colors.white(
-          `    ${t('Run `slv gateway start` manually to retry.')}\n`,
-        ),
-      )
-      return { gatewayReachable: false, mode: 'local' }
-    }
-  } else {
-    console.log(
-      colors.green(
-        `  ✔ ${t('Gateway is already running.')}`,
-      ),
-    )
   }
-
-  // Mode-switching used to live here; it's now split into two
-  // explicit sections further up the onboard flow:
-  //   1. `maybeSetupHttps` offers the Cloudflare-fronted HTTPS
-  //      URL (preferred path — no LAN exposure required).
-  //   2. `maybeEnableLanMode` is only asked when HTTPS was
-  //      skipped, so users don't get badgered about opening 0.0.0.0
-  //      when nginx is going to handle remote access anyway.
-  const finalMode = await readCurrentGatewayMode()
 
   console.log(
     colors.green(
       `  ✔ ${
         t('Gateway running at http://127.0.0.1:{port}/ui/').replace(
           '{port}',
-          String(GATEWAY_DEFAULT_PORT),
+          String(result.config.port),
         )
       }\n`,
     ),
   )
-  return { gatewayReachable: true, mode: finalMode }
+  return {
+    gatewayReachable: true,
+    mode: result.config.mode,
+    port: result.config.port,
+  }
 }
 
 /**
@@ -948,6 +776,7 @@ const resolveBrowserUrl = async (
  */
 const maybeEnableLanMode = async (
   t: (key: string) => string,
+  port: number,
 ): Promise<'local' | 'lan'> => {
   const currentMode = await readCurrentGatewayMode()
   if (currentMode === 'lan') return 'lan'
@@ -968,7 +797,7 @@ const maybeEnableLanMode = async (
       `    ${
         t(
           'Binds the gateway to 0.0.0.0 so you can open http://<server-ip>:{port}/ui/ directly from your phone/laptop. Token auth still gates every chat action.',
-        ).replace('{port}', String(GATEWAY_DEFAULT_PORT))
+        ).replace('{port}', String(port))
       }`,
     ),
   )
@@ -986,7 +815,7 @@ const maybeEnableLanMode = async (
     ? currentCfg.enable_lan_mode
     : await Confirm.prompt({
       message: t('Enable remote IP access now?'),
-      default: true,
+      default: false,
     })
   if (!enableLan) {
     console.log(
@@ -1023,16 +852,15 @@ const maybeEnableLanMode = async (
 
 /**
  * Post a completion message to the user's Discord webhook with the
- * browser chat URL + token + (for lan mode) a WireGuard hardening
- * reminder. All in the language the user picked at step 1. Silent
- * no-op when no webhook is configured or the gateway token isn't
- * readable — this runs at the tail of onboard and must not fail the
- * overall flow.
+ * browser chat URL and access guidance in the selected language.
+ * Credentials are never included. No-op when no webhook is configured;
+ * notification failures must not fail the overall setup.
  */
 const sendOnboardWebhook = async (opts: {
   t: (key: string) => string
   agentHome: string
   mode: 'local' | 'lan'
+  port: number
   /**
    * URL to show in the Discord message. When the onboard HTTPS
    * step registered the user's erpc.global subdomain and stood
@@ -1043,11 +871,10 @@ const sendOnboardWebhook = async (opts: {
    */
   httpsUrl: string | null
 }): Promise<void> => {
-  const { t, agentHome, mode, httpsUrl } = opts
+  const { t, agentHome, mode, port, httpsUrl } = opts
   const apiYmlPath = `${agentHome}/.slv/api.yml`
 
-  // Resolve webhook + token. Missing either means quiet skip — the
-  // user either didn't set up notifications or deferred the gateway.
+  // Missing webhook means the user deferred notifications.
   let webhookUrl = ''
   try {
     const raw = await Deno.readTextFile(apiYmlPath)
@@ -1056,13 +883,6 @@ const sendOnboardWebhook = async (opts: {
     if (n?.discord_webhook) webhookUrl = n.discord_webhook.trim()
   } catch { /* no api.yml yet */ }
   if (!webhookUrl) return
-
-  let token = ''
-  try {
-    const cfg = await loadGatewayConfig()
-    token = cfg.token
-  } catch { /* gateway not configured */ }
-  if (!token) return
 
   // If the onboard HTTPS step succeeded, use the Cloudflare-
   // fronted URL verbatim — the user can click it from their
@@ -1077,19 +897,13 @@ const sendOnboardWebhook = async (opts: {
       : `${httpsUrl.replace(/\/$/, '')}/ui/`
   } else {
     const resolved = await resolveBrowserUrl(mode)
-    url = `http://${resolved.host}:${GATEWAY_DEFAULT_PORT}/ui/`
+    const host = resolved.host.includes(':')
+      ? `[${resolved.host}]`
+      : resolved.host
+    url = `http://${host}:${port}/ui/`
   }
 
-  // Split into THREE Discord messages so the token sits in its own
-  // bubble — mobile users can long-press → "Select All" → Copy and
-  // get the exact 64 chars with no surrounding prose. Single-bubble
-  // copy on iOS drags in the headers and the user has to trim by
-  // hand.
-  //
-  //   msg 1: header + browser URL (the clickable thing)
-  //   msg 2: token ONLY — pure code block, nothing else
-  //   msg 3: security advisory (+ SSH tunnel hint / dashboard hint
-  //          where applicable)
+  // Send access guidance without putting gateway credentials in a notification.
   const msg1Lines: string[] = [
     `🎉 ${t('SLV AI setup complete!')}`,
     '',
@@ -1097,35 +911,24 @@ const sendOnboardWebhook = async (opts: {
     url,
   ]
 
-  // Token-only bubble. A code block (triple-backtick) keeps the
-  // mono font so the 64 hex chars stay readable, but the whole
-  // message body is the token — nothing to trim on copy.
-  const msg2Lines: string[] = [
-    `🔑 ${t('Gateway token (paste on first visit):')}`,
-    '```',
-    token,
-    '```',
-  ]
-
   const msg3Lines: string[] = []
   // Local-mode SSH tunnel hint only applies when no HTTPS URL was
-  // set up. With HTTPS, the user clicks the link and they're in;
-  // instructing them to open a terminal would contradict the
-  // advisory below.
+  // set up. With HTTPS, browser chat needs no SSH tunnel. Commands that
+  // change firewall settings still need confirmation in the terminal console.
   if (mode === 'local' && !httpsUrl) {
     msg3Lines.push(
       `ℹ️ ${
         t('Loopback-only mode — open the URL from elsewhere via SSH tunnel first:')
       }`,
       '```',
-      `ssh -N -L ${GATEWAY_DEFAULT_PORT}:127.0.0.1:${GATEWAY_DEFAULT_PORT} <user>@<host>`,
+      `ssh -N -L ${port}:127.0.0.1:${port} <user>@<host>`,
       '```',
       '',
     )
   }
   msg3Lines.push(
     `⚠️ ${
-      t('Security: tap the URL above to open SLV AI in your browser, and ask it to help you set up the firewall. The conversation happens right there — no terminal needed.')
+      t('Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.')
     }`,
     `• ${t('Video walkthrough: coming soon.')}`,
   )
@@ -1139,14 +942,11 @@ const sendOnboardWebhook = async (opts: {
     )
   }
 
-  // Send in order, stop-on-first-failure: if Discord rejects msg1
-  // we don't bother with msg2/3 (they'd orphan the token in a
-  // Discord channel with no context). Small delay between posts
+  // Send in order, stop on first failure. Small delay between posts
   // so the channel renders them in the right order; Discord will
   // occasionally reorder messages sent within the same tens of ms.
   const messages = [
     msg1Lines.join('\n'),
-    msg2Lines.join('\n'),
     msg3Lines.join('\n'),
   ]
   type Aggregate =
@@ -1157,7 +957,9 @@ const sendOnboardWebhook = async (opts: {
   for (let i = 0; i < messages.length; i++) {
     const r = await notifyDiscordWebhook(webhookUrl, messages[i])
     if (r.kind === 'ok') {
-      if (i < messages.length - 1) await new Promise((res) => setTimeout(res, 250))
+      if (i < messages.length - 1) {
+        await new Promise((res) => setTimeout(res, 250))
+      }
       continue
     }
     if (r.kind === 'http_error') {
@@ -1221,11 +1023,14 @@ const sendOnboardWebhook = async (opts: {
  */
 const maybeSetupHttps = async (
   t: (key: string) => string,
+  port: number,
 ): Promise<string | null> => {
   // Platform gate — nginx-via-apt is Ubuntu/Debian-only. Silent
   // skip here is fine; macOS / BSD users aren't missing anything
   // they'd expect from this onboard step.
-  if (Deno.build.os !== 'linux') return null
+  if (Deno.build.os !== 'linux' || currentCfg.enable_https === false) {
+    return null
+  }
 
   // Always show the section header — even when we skip, the user
   // should see this path exists (and what to do to enable it
@@ -1287,11 +1092,30 @@ const maybeSetupHttps = async (
   // exactly what we don't want. Branch into the 2nd-subdomain /
   // support-ticket flow.
   const thisHostIp = await resolvePublicIp()
+  if (!thisHostIp) {
+    console.log(colors.yellow(
+      '  Could not determine this host IP. DNS was left unchanged; retry with `slv install nginx --ip <address>`.',
+    ))
+    return null
+  }
   if (
     def.exists && def.ip &&
-    thisHostIp && def.ip !== thisHostIp
+    def.ip !== thisHostIp
   ) {
-    return await handleSubdomainConflict(t, auth, fqdn, def.ip, thisHostIp)
+    if (fromConfigFile) {
+      console.log(colors.yellow(
+        `  ${fqdn} already points to another host. DNS was left unchanged; run onboard interactively to review.`,
+      ))
+      return null
+    }
+    return await handleSubdomainConflict(
+      t,
+      auth,
+      fqdn,
+      def.ip,
+      thisHostIp,
+      port,
+    )
   }
 
   console.log(
@@ -1322,8 +1146,8 @@ const maybeSetupHttps = async (
   console.log(colors.cyan(`🌐 Registering ${fqdn} + installing nginx...`))
   const result = await runNginxFlow({
     auth,
-    port: GATEWAY_DEFAULT_PORT,
-    ip: thisHostIp ?? undefined,
+    port,
+    ip: thisHostIp,
   })
   if (!result.ok) {
     // FIX 3: ip_not_owned means the VPS isn't an SLV VPS/BareMetal.
@@ -1380,7 +1204,7 @@ const maybeSetupHttps = async (
 const signInToErpc = async (t: (key: string) => string): Promise<boolean> => {
   const result = await runDeviceLogin()
   if (!result.ok) {
-    console.log(colors.yellow(`  ${result.lines[0]}`))
+    for (const line of result.lines) console.log(colors.yellow(`  ${line}`))
     return false
   }
   console.log(colors.green(`  ✔ ${t('Signed in to ERPC.')}\n`))
@@ -1412,6 +1236,7 @@ const handleSubdomainConflict = async (
   fqdn: string,
   currentIp: string,
   thisHostIp: string,
+  port: number,
 ): Promise<string | null> => {
   console.log(
     colors.bold.yellow(
@@ -1443,7 +1268,7 @@ const handleSubdomainConflict = async (
       },
       {
         name: t(
-          'Re-point anyway (breaks the other VPS — only choose if you know what you\'re doing)',
+          "Re-point anyway (breaks the other VPS — only choose if you know what you're doing)",
         ),
         value: 'repoint',
       },
@@ -1454,7 +1279,9 @@ const handleSubdomainConflict = async (
   if (choice === 'skip') {
     console.log(
       colors.rgb24(
-        `  ${t('Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.')}\n`,
+        `  ${
+          t('Kept existing subdomain. You can run `slv install nginx` on the other VPS to reclaim if needed.')
+        }\n`,
         0x888888,
       ),
     )
@@ -1463,8 +1290,7 @@ const handleSubdomainConflict = async (
 
   if (choice === 'ticket') {
     console.log(colors.cyan(`  ${t('Creating support ticket...')}`))
-    const description =
-      `Request: 2nd erpc.global subdomain\n\n` +
+    const description = `Request: 2nd erpc.global subdomain\n\n` +
       `Current free subdomain: ${fqdn} → ${currentIp}\n` +
       `This new VPS IP: ${thisHostIp}\n` +
       `Use case: user is onboarding a second SLV host and wants an additional subdomain for it.`
@@ -1483,7 +1309,9 @@ const handleSubdomainConflict = async (
     }
     console.log(
       colors.green(
-        `  ✔ ${t('Ticket opened. Follow up here:')} ${ticket.link || '(see Discord notifications)'}\n`,
+        `  ✔ ${t('Ticket opened. Follow up here:')} ${
+          ticket.link || '(see Discord notifications)'
+        }\n`,
       ),
     )
     return null
@@ -1494,7 +1322,7 @@ const handleSubdomainConflict = async (
   console.log(colors.cyan(`🌐 Re-pointing ${fqdn} at ${thisHostIp}...`))
   const result = await runNginxFlow({
     auth,
-    port: GATEWAY_DEFAULT_PORT,
+    port,
     ip: thisHostIp,
   })
   if (!result.ok) {

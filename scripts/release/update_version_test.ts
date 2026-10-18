@@ -1,4 +1,4 @@
-import { assert, assertEquals } from 'jsr:@std/assert@1'
+import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@1'
 
 const VERSION = '2026.7.8.0901'
 const PREVIOUS_VERSION = '2026.7.7.0901'
@@ -17,6 +17,68 @@ const BLOCKED_DELIVERY_TASKS = {
 const REVIEWED_PACKAGE_TASK =
   'deno run --frozen --allow-read --allow-write --allow-run scripts/release/release.ts pack'
 const decoder = new TextDecoder()
+
+Deno.test({
+  name:
+    'build-skill preserves nested common tasks without duplicating their root',
+  permissions: { read: true, run: true, write: true },
+  async fn() {
+    const root = await Deno.makeTempDir({ prefix: 'slv-build-skill-' })
+    const source = `${root}/template/${VERSION}`
+    const nestedTask = '- name: Nested fixture\n  debug:\n    msg: nested\n'
+    const commonTask = '- name: Common fixture\n  debug:\n    msg: common\n'
+    try {
+      const files: Record<string, string> = {
+        'ansible/mainnet-validator/init.yml':
+          '- import_playbook: ../cmn/check_state.yml\n' +
+          '- import_playbook: ../cmn/tasks/nested/observe.yml\n',
+        'ansible/testnet-validator/init.yml': '---\n',
+        'ansible/cmn/check_state.yml':
+          '- include_tasks: tasks/alpenglow_state.yml\n',
+        'ansible/cmn/tasks/alpenglow_state.yml': commonTask,
+        'ansible/cmn/tasks/nested/observe.yml': nestedTask,
+        'jinja/mainnet-validator/service.j2': 'mainnet fixture\n',
+        'jinja/testnet-validator/service.j2': 'testnet fixture\n',
+      }
+      for (const [name, content] of Object.entries(files)) {
+        const path = `${source}/${name}`
+        await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), {
+          recursive: true,
+        })
+        await Deno.writeTextFile(path, content)
+      }
+      await Deno.copyFile(
+        new URL('../../build-skill.sh', import.meta.url),
+        `${root}/build-skill.sh`,
+      )
+      const generated = await run(root, 'bash', [
+        `${root}/build-skill.sh`,
+        'validator',
+        VERSION,
+      ])
+      assertEquals(
+        generated.code,
+        0,
+        `skill generator failed: ${generated.stderr || generated.stdout}`,
+      )
+      const output = `${root}/dist/skills/slv-validator/ansible/cmn/tasks`
+      assertEquals(
+        await Deno.readTextFile(`${output}/nested/observe.yml`),
+        nestedTask,
+      )
+      assertEquals(
+        await Deno.readTextFile(`${output}/alpenglow_state.yml`),
+        commonTask,
+      )
+      await assertRejects(
+        () => Deno.lstat(`${output}/tasks`),
+        Deno.errors.NotFound,
+      )
+    } finally {
+      await Deno.remove(root, { recursive: true })
+    }
+  },
+})
 
 async function run(
   cwd: string,
@@ -43,17 +105,21 @@ async function writeTemplateFixture(root: string): Promise<void> {
     'ansible/mainnet-validator/init.yml',
     'jinja/mainnet-rpc/start-mainnet-rpc.sh.j2',
     'ansible/cmn/install_solana.yml',
+    'tests/alpenglow_floor_vectors.json',
   ]
   for (const file of files) {
     const path = `${root}/template/${PREVIOUS_VERSION}/${file}`
     await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
-    await Deno.writeTextFile(path, `fixture ${file}\n`)
+    await Deno.writeTextFile(
+      path,
+      file.endsWith('.json') ? '[]\n' : `fixture ${file}\n`,
+    )
   }
 }
 
 Deno.test({
   name:
-    'update-version preserves blocked legacy delivery tasks in an isolated generator fixture',
+    'update-version preserves blocked delivery tasks and tracks versioned test fixtures',
   permissions: { read: true, run: true, write: true },
   async fn() {
     const root = await Deno.makeTempDir({ prefix: 'slv-update-version-' })
@@ -69,6 +135,10 @@ Deno.test({
       await Deno.copyFile(
         new URL('../check-version-sync.ts', import.meta.url),
         `${root}/scripts/check-version-sync.ts`,
+      )
+      await Deno.copyFile(
+        new URL('../../.gitignore', import.meta.url),
+        `${root}/.gitignore`,
       )
       await Deno.writeTextFile(
         `${root}/cmn/constants/version.ts`,
@@ -153,6 +223,25 @@ echo "fixture skill $1 $2"
           versionSync.stderr || versionSync.stdout
         }`,
       )
+
+      const initialized = await run(root, 'git', ['init', '--quiet'])
+      assertEquals(initialized.code, 0, initialized.stderr)
+      const staged = await run(root, 'git', ['add', '--all'])
+      assertEquals(staged.code, 0, staged.stderr)
+      const fixturePath =
+        `template/${VERSION}/tests/alpenglow_floor_vectors.json`
+      const tracked = await run(root, 'git', [
+        'ls-files',
+        '--error-unmatch',
+        '--',
+        fixturePath,
+      ])
+      assertEquals(
+        tracked.code,
+        0,
+        `generated public test fixture is missing from the commit: ${tracked.stderr}`,
+      )
+      assertEquals(await Deno.readTextFile(`${root}/${fixturePath}`), '[]\n')
     } finally {
       await Deno.remove(root, { recursive: true })
     }

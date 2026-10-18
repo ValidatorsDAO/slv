@@ -2,6 +2,7 @@ import { assertEquals, assertFalse, assertStringIncludes } from '@std/assert'
 import { parse } from '@std/yaml'
 
 import * as login from '@/login/index.ts'
+import { pollDeviceToken } from '/lib/userApi/session.ts'
 
 import {
   API_KEY,
@@ -103,7 +104,9 @@ Deno.test('d1: slv login runs the device flow, checks the account with the new t
         const error = polls.shift()
         return error ? json({ error }, 400) : tokens()
       }
-      if (url === USER_GET_URL) return json({ username: 'validator-op' })
+      if (url === USER_GET_URL) {
+        return json({ success: true, data: { username: 'validator-op' } })
+      }
       return json({}, 404)
     }, async (requests) => {
       const outcome = await runCaptured(() => login.loginAction(time.deps))
@@ -136,6 +139,9 @@ Deno.test('d1: slv login runs the device flow, checks the account with the new t
       assertStringIncludes(outcome.output, VERIFICATION_URI_COMPLETE)
       assertStringIncludes(outcome.output, USER_CODE)
       assertStringIncludes(outcome.output, 'validator-op')
+      assertStringIncludes(outcome.output, '$ slv onboard')
+      assertStringIncludes(outcome.output, '$ slv c')
+      assertFalse(outcome.output.includes('Full Features Unlocked'))
       assertFalse(outcome.output.includes(DEVICE_CODE))
       assertFalse(outcome.output.includes(NEW_ACCESS_TOKEN))
       assertFalse(outcome.output.includes(NEW_REFRESH_TOKEN))
@@ -168,7 +174,7 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
       (url) =>
         url === AUTH_TOKEN_URL
           ? json({ error: 'access_denied' }, 400)
-          : json({ username: 'x' }),
+          : json({ success: true, data: { username: 'x' } }),
       [],
     ],
     [
@@ -176,7 +182,7 @@ Deno.test('d2: a denied or expired device login, or an account user-api does not
       (url) =>
         url === AUTH_TOKEN_URL
           ? json({ error: 'expired_token' }, 400)
-          : json({ username: 'x' }),
+          : json({ success: true, data: { username: 'x' } }),
       [],
     ],
     [
@@ -228,7 +234,9 @@ Deno.test('d3: slv login while signed in saves the new session, then revokes the
     await withFetch((url) => {
       if (url === DEVICE_AUTHORIZATION_URL) return deviceAuthorization()
       if (url === AUTH_TOKEN_URL) return tokens()
-      if (url === USER_GET_URL) return json({ username: 'validator-op' })
+      if (url === USER_GET_URL) {
+        return json({ success: true, data: { username: 'validator-op' } })
+      }
       if (url === REVOKE_URL) return json({ error: 'not_found' }, 404)
       return json({}, 500)
     }, async (requests) => {
@@ -278,4 +286,132 @@ Deno.test('d4: when user-api cannot be reached to check the sign-in, slv login s
       assertEquals(await Deno.readTextFile(`${home}/.slv/api.yml`), before)
     })
   }
+})
+
+Deno.test('d5: a 200 response without a successful account envelope never saves a login', async () => {
+  for (
+    const body of [null, [], {}, { username: 'flat-response' }, {
+      success: false,
+      data: {},
+    }, { success: true, data: null }]
+  ) {
+    await withHome(
+      { slv: { api_key: API_KEY }, ...OTHER_SECTIONS },
+      async (home) => {
+        const before = await Deno.readTextFile(`${home}/.slv/api.yml`)
+        const time = fakeTime(1_000_000)
+        await withFetch((url) => {
+          if (url === DEVICE_AUTHORIZATION_URL) return deviceAuthorization()
+          if (url === AUTH_TOKEN_URL) return tokens()
+          if (url === USER_GET_URL) return json(body)
+          return json({})
+        }, async (requests) => {
+          const outcome = await runCaptured(() => login.loginAction(time.deps))
+          assertEquals(outcome.error, undefined)
+          assertEquals(outcome.exit, 1)
+          assertStringIncludes(outcome.output, 'unexpected account response')
+          assertEquals(revokedTokens(requests), [NEW_REFRESH_TOKEN])
+        })
+        assertEquals(await Deno.readTextFile(`${home}/.slv/api.yml`), before)
+      },
+    )
+  }
+})
+
+Deno.test('d6: an HTTP 401 is an unaccepted sign-in, not proof that no account exists', async () => {
+  await withHome(null, async () => {
+    const time = fakeTime(1_000_000)
+    await withFetch((url) => {
+      if (url === DEVICE_AUTHORIZATION_URL) return deviceAuthorization()
+      if (url === AUTH_TOKEN_URL) return tokens()
+      return json({ error: 'Unauthorized' }, 401)
+    }, async () => {
+      const outcome = await runCaptured(() => login.loginAction(time.deps))
+      assertEquals(outcome.exit, 1)
+      assertFalse(outcome.output.includes('No ERPC account was found'))
+      assertStringIncludes(outcome.output, 'slv login')
+    })
+  })
+})
+
+const pollAuthorization = {
+  deviceCode: DEVICE_CODE,
+  userCode: USER_CODE,
+  verificationUri: VERIFICATION_URI,
+  verificationUriComplete: VERIFICATION_URI_COMPLETE,
+  expiresIn: 900,
+  interval: 5,
+}
+
+Deno.test('d7: a permanent non-JSON token error stops polling immediately', async () => {
+  const time = fakeTime(1_000_000)
+  await withFetch(
+    () => new Response('Forbidden', { status: 403 }),
+    async (requests) => {
+      assertEquals(await pollDeviceToken(pollAuthorization, time.deps), {
+        ok: false,
+        error: 'HTTP 403',
+      })
+      assertEquals(requests.length, 1)
+      assertEquals(time.waits, [5000])
+    },
+  )
+})
+
+Deno.test('d8: rate-limited device polling slows down and then completes', async () => {
+  const time = fakeTime(1_000_000)
+  let calls = 0
+  await withFetch(
+    () =>
+      ++calls === 1
+        ? new Response('Too many requests', { status: 429 })
+        : tokens(),
+    async () => {
+      const result = await pollDeviceToken(pollAuthorization, time.deps)
+      assertEquals(result.ok, true)
+      assertEquals(time.waits, [5000, 10000])
+    },
+  )
+})
+
+Deno.test('d9: the device-code deadline caps the final wait', async () => {
+  const time = fakeTime(1_000_000)
+  await withFetch(() => {
+    throw new Error('must not poll an expired code')
+  }, async (requests) => {
+    assertEquals(
+      await pollDeviceToken({ ...pollAuthorization, expiresIn: 3 }, time.deps),
+      { ok: false, error: 'expired_token' },
+    )
+    assertEquals(requests.length, 0)
+    assertEquals(time.waits, [3000])
+  })
+})
+
+Deno.test('d10: device polling backs off on connection failure and retries a temporary server failure', async () => {
+  const time = fakeTime(1_000_000)
+  let calls = 0
+  await withFetch(() => {
+    calls++
+    if (calls === 1) throw new TypeError('connection reset')
+    if (calls === 2) return new Response('Unavailable', { status: 503 })
+    return tokens()
+  }, async () => {
+    assertEquals((await pollDeviceToken(pollAuthorization, time.deps)).ok, true)
+    assertEquals(time.waits, [5000, 10000, 10000])
+  })
+})
+
+Deno.test('d11: a non-JSON successful token response is rejected without repeated polling', async () => {
+  const time = fakeTime(1_000_000)
+  await withFetch(
+    () => new Response('not a token response'),
+    async (requests) => {
+      assertEquals(await pollDeviceToken(pollAuthorization, time.deps), {
+        ok: false,
+        error: 'incomplete token response',
+      })
+      assertEquals(requests.length, 1)
+    },
+  )
 })

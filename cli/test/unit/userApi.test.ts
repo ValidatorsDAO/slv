@@ -584,7 +584,7 @@ Deno.test('T12f: callReadTool formats a failed response as "Request failed (...)
       )
       assertEquals(
         result,
-        'Request failed (500 Internal Server Error).\n{"error":"boom"}',
+        'Request failed (500).\nERPC API request failed (HTTP 500). Contact ERPC support if the problem continues. Error code: boom.',
       )
     },
   )
