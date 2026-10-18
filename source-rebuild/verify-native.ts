@@ -12,6 +12,7 @@ import {
   sha256,
   type SourceAsset,
   type SourceMaterialsReceipt,
+  validateNativeBuildProfile,
   verifyNativeSourceRebuildProof,
   verifySourceMaterialsReceipt,
 } from '../scripts/release/source-materials.ts'
@@ -303,6 +304,24 @@ export function parseNativeArgs(argv: string[]): Args {
       )
     }
   }
+  if (values['--jobs'] === '16' && values['--build-profile'] === undefined) {
+    throw new Error('jobs 16 requires explicit linux-16 build profile')
+  }
+  if (values['--build-profile'] !== undefined) {
+    if (phase !== 'build' && phase !== 'build-variant') {
+      throw new Error(
+        '--build-profile is permitted only for build or build-variant',
+      )
+    }
+    validateNativeBuildProfile(
+      values['--build-profile'],
+      values['--jobs'],
+      values['--target'],
+      targetHost(
+        approvedBuildHostTarget(values['--target'], values['--build-host']),
+      ),
+    )
+  }
   if (phase === 'build-variant') {
     if (
       values['--variant'] !== 'baseline' && values['--variant'] !== 'modified'
@@ -314,7 +333,10 @@ export function parseNativeArgs(argv: string[]): Args {
         throw new Error(`build-variant requires ${required}`)
       }
     }
-    const fixedJobs = splitBuildJobs(values['--target'])
+    const fixedJobs = splitBuildJobs(
+      values['--target'],
+      values['--build-profile'],
+    )
     if (values['--jobs'] !== fixedJobs) {
       throw new Error(`build-variant requires --jobs ${fixedJobs}`)
     }
@@ -1117,7 +1139,29 @@ function approvedBuildHostTarget(
   return actual
 }
 
-function splitBuildJobs(target: string): string {
+function profileFields(
+  value: Record<string, unknown>,
+  target: string,
+): Record<string, string> {
+  validateNativeBuildProfile(
+    value.build_profile,
+    value.jobs,
+    target,
+    parseHost(value.build_host, 'build profile host'),
+  )
+  return value.build_profile === undefined ? {} : { build_profile: 'linux-16' }
+}
+
+function splitBuildJobs(target: string, profile?: unknown): string {
+  if (profile !== undefined) {
+    validateNativeBuildProfile(
+      profile,
+      '16',
+      target,
+      targetHost(splitBuildHostTarget(target)),
+    )
+    return '16'
+  }
   if (target === 'x86_64-unknown-linux-gnu') return '2'
   if (
     target === 'aarch64-unknown-linux-gnu' ||
@@ -3627,6 +3671,7 @@ function parseVariantReceipt(value: unknown, label: string): VariantReceipt {
     'tool_archives',
     'tools_receipt_sha256',
     'jobs',
+    ...('build_profile' in receipt ? ['build_profile'] : []),
     'resources',
     'extraction',
     'recipe_sha256',
@@ -3638,13 +3683,14 @@ function parseVariantReceipt(value: unknown, label: string): VariantReceipt {
     'timing',
   ], label)
   const target = text(receipt.target, `${label} target`)
+  profileFields(receipt, target)
   if (
     receipt.schema_version !== 1 ||
     receipt.kind !== 'slv-source-build-variant-receipt' ||
     (receipt.variant !== 'baseline' && receipt.variant !== 'modified') ||
     (receipt.build_mode !== 'native' && receipt.build_mode !== 'cross') ||
     !TARGETS.has(target) ||
-    receipt.jobs !== splitBuildJobs(target)
+    receipt.jobs !== splitBuildJobs(target, receipt.build_profile)
   ) {
     throw new Error(`${label} has invalid schema, role, mode, or jobs`)
   }
@@ -3800,6 +3846,12 @@ async function buildPhase(args: Args): Promise<void> {
   if (!TARGETS.has(target)) throw new Error(`unsupported target: ${target}`)
   const buildHostTarget = approvedBuildHostTarget(target, args['--build-host'])
   const jobs = args['--jobs'] ?? '2'
+  validateNativeBuildProfile(
+    args['--build-profile'],
+    jobs,
+    target,
+    targetHost(buildHostTarget),
+  )
   if (!equalHost(currentHost(), targetHost(buildHostTarget))) {
     throw new Error(`build host must execute on ${buildHostTarget}`)
   }
@@ -4092,6 +4144,9 @@ async function buildPhase(args: Args): Promise<void> {
     patch_sha256: patchSha256,
     toolchain: { pins_sha256: tools.pins_sha256, identities: tools.identities },
     jobs,
+    ...(args['--build-profile']
+      ? { build_profile: args['--build-profile'] }
+      : {}),
     resources: { capacity_preflight: capacity },
     extraction: inputs.extraction,
     recipe_sha256: {
@@ -4176,7 +4231,13 @@ async function buildVariantPhase(args: Args): Promise<void> {
   }
   const variant = args['--variant'] as Variant
   const buildHostTarget = approvedBuildHostTarget(target, args['--build-host'])
-  const jobs = splitBuildJobs(target)
+  const jobs = splitBuildJobs(target, args['--build-profile'])
+  validateNativeBuildProfile(
+    args['--build-profile'],
+    args['--jobs'],
+    target,
+    targetHost(buildHostTarget),
+  )
   if (!equalHost(currentHost(), targetHost(buildHostTarget))) {
     throw new Error(`build host must execute on ${buildHostTarget}`)
   }
@@ -4465,6 +4526,9 @@ async function buildVariantPhase(args: Args): Promise<void> {
     tool_archives: tools.archives,
     tools_receipt_sha256: await sha256(toolsReceiptCopy),
     jobs,
+    ...(args['--build-profile']
+      ? { build_profile: args['--build-profile'] }
+      : {}),
     resources: { capacity_preflight: capacity },
     extraction: inputs.extraction,
     recipe_sha256: await sha256(recipe),
@@ -4928,6 +4992,9 @@ async function joinBuildPhase(args: Args): Promise<void> {
     patchSha256,
   )
   if (
+    baseline.receipt.value.build_profile !==
+      modified.receipt.value.build_profile ||
+    baseline.receipt.value.jobs !== modified.receipt.value.jobs ||
     baseline.receipt.value.derived_relink_cargo_lock_sha256 !==
       modified.receipt.value.derived_relink_cargo_lock_sha256 ||
     !equalJson(baseline.receipt.toolchain, modified.receipt.toolchain) ||
@@ -5000,7 +5067,8 @@ async function joinBuildPhase(args: Args): Promise<void> {
       identities: object(baseline.receipt.value.toolchain, 'baseline toolchain')
         .identities,
     },
-    jobs: splitBuildJobs(target),
+    jobs: baseline.receipt.value.jobs,
+    ...profileFields(baseline.receipt.value, target),
     resources: {
       capacity_preflight: object(
         baseline.receipt.value.resources,
@@ -5166,7 +5234,11 @@ export async function verifySplitBuildEvidence(
   const recipe = object(build.recipe_sha256, 'build receipt recipe SHA-256')
   exactKeys(recipe, ['baseline', 'modified'], 'build receipt recipe SHA-256')
   if (
-    build.jobs !== splitBuildJobs(target) ||
+    build.jobs !== splitBuildJobs(target, build.build_profile) ||
+    build.build_profile !== baseline.receipt.value.build_profile ||
+    build.build_profile !== modified.receipt.value.build_profile ||
+    build.jobs !== baseline.receipt.value.jobs ||
+    build.jobs !== modified.receipt.value.jobs ||
     build.patch_sha256 !== baseline.receipt.value.patch_sha256 ||
     build.patch_sha256 !== modified.receipt.value.patch_sha256
   ) {
@@ -5305,6 +5377,7 @@ async function readBuildReceipt(
   ) {
     throw new Error('build receipt does not bind immutable source inputs')
   }
+  profileFields(value, target)
   const artifacts = parseArtifacts(value.artifacts, 'build receipt artifacts')
   const checks = object(value.checks, 'build receipt checks')
   await verifyCargoFingerprintCollection(
@@ -5781,6 +5854,7 @@ export function emitNativeTargetProof(
     tool_pin_sha256: build.value.tool_pin_sha256,
     patch_sha256: build.value.patch_sha256,
     jobs: boundedBuildJobs(build.value.jobs),
+    ...profileFields(build.value, target),
     build_receipt_sha256: build.sha256,
     execution_receipt_sha256: executionReceiptSha256,
     build_artifacts: build.artifacts,

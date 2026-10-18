@@ -1,0 +1,8 @@
+# slv-fixture: begin
+# source: template/2026.6.6.2026/ansible/mainnet-rpc/install_of1_service.yml (play variable faithful_listen, line 15)
+# source-sha256: 94b8bd37ec11823469d25b752f9d25ba1ac0026582757406b328a4dfe76d5f99
+# source-state: unmodified (identical to HEAD 08acbaf3cdaaae7c03b1ab0c57c4233a9d31d727)
+# vars: {}
+# render: not a Jinja template; this is the default of the play variable that the playbook passes to faithful-cli as --listen (line 91)
+# slv-fixture: body
+:8888

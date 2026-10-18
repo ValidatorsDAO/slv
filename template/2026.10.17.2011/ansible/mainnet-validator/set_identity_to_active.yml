@@ -1,0 +1,20 @@
+---
+# This playbook is retired. It set the identity without the checks that slv v set:identity makes first (that nothing
+# votes with the identity, that the host has caught up, where the identity is in gossip, and that the tower or vote
+# history file of the identity is there): for a jito host it read the staked key on the controller
+# (~/.slv/keys/<identity>.json), passed it on stdin to agave-validator set-identity, and that was all. The staked key
+# reaches a node on stdin during slv v set:identity and slv v switch, which make the checks, and a restarted node comes
+# back on its unstaked identity. So this play only refuses: its first task fails and nothing else runs.
+- name: Set Identity to Mainnet Validator Key (retired)
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Refuse to set the identity without the checks of the set:identity command
+      ansible.builtin.fail:
+        msg: >-
+          SLV_KEYLESS_REFUSED: set_identity_to_active.yml is retired. It set the identity without the checks that the
+          set:identity command of slv makes first (that nothing votes with the identity, that the host has caught up,
+          where the identity is in gossip, and that the tower or vote history file of the identity is there). Nothing
+          was changed on {{ inventory_hostname }}. Use
+          slv v set:identity -n mainnet -p {{ inventory_hostname }}, or
+          slv v switch -n mainnet to move the identity from one host to another.

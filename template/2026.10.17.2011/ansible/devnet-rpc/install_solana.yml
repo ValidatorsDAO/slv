@@ -1,0 +1,19 @@
+---
+# cmn/check_alpenglow_floor.yml stops, before anything is changed on any host, a client older than 4.4.0-beta.0, the floor
+# of Alpenglow on devnet. install_agave.yml and install_jito.yml install the agave_version or jito_version of the host or
+# -e, else the pin of devnet_rpcs, and the check reads the same. No plugin is built here, so none is checked.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: devnet_rpcs
+    floor_plugin: false
+
+- name: Install Solana Client
+  hosts: all
+  become: yes
+  become_user: solv
+
+- import_playbook: install_agave.yml
+  when: validator_type in ['agave', 'firedancer-agave']
+
+- import_playbook: install_jito.yml
+  when: validator_type in ['jito', 'firedancer-jito']

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import copy
+import hashlib
 import json
 import os
 import errno
@@ -9,13 +11,26 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
+from email.message import Message
 from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import engine
+
+EMPTY_REVOCATION_POLICY = b'{"schema_version":1,"revoked_identities":[]}'
+POLICY_VALIDATORS = {'etag': '"fixture"', 'last_modified': None}
+
+
+def verified_payload_stub(tag: str, assets: dict):
+    """Keep transaction fixtures isolated, with the required verified context."""
+    def accept(_root: Path, work: Path, _release: dict):
+        (work / 'release-manifest.json').write_bytes(manifest(tag[1:]))
+        return tag, assets
+    return accept
 
 
 def asset(name: str, kind: str, target: str | None = None) -> dict[str, object]:
@@ -27,7 +42,51 @@ def asset(name: str, kind: str, target: str | None = None) -> dict[str, object]:
     return value
 
 
+def qualification_fixture() -> dict[str, object]:
+    # Exercise the real, reviewed public descriptor as well as synthetic negatives.
+    return json.loads((Path(__file__).resolve().parents[3] / 'source-materials/runtime-qualification.json').read_bytes())
+
+
+def qualification_reference(qualification: dict, source: dict, workflow: dict) -> dict:
+    identity = hashlib.sha256(engine.canonical_json(qualification, True)).hexdigest()
+    products = []
+    for target, qualified in zip(engine.TARGETS, qualification['targets']):
+        arch = 'aarch64' if target == 'aarch64-unknown-linux-gnu' else 'x86_64'
+        assets = qualification['assets']
+        receipt = {
+            'schema_version': 2, 'kind': 'slv-current-product-receipt', 'target': target,
+            'source': {**source, **dict.fromkeys(('lock_sha256', 'graph_sha256', 'sbom_sha256', 'notices_sha256',
+                                                 'source_receipt_sha256', 'engine_sha256', 'bridge_source_sha256'), 'a' * 64)},
+            'qualification': {
+                'identity': identity, 'state': 'final-qualified',
+                'baseline_denort_sha256': assets[qualified['runtime']]['sha256'],
+                'selected_lock_sha256': assets[qualification['source']['selected_lock']]['sha256'],
+                'derived_lock_sha256': assets[qualified['derived_lock']]['sha256'],
+                'native_proof_sha256': assets[qualified['proof']]['sha256'],
+                'build_receipt_sha256': assets[qualified['build_receipt']]['sha256'],
+            },
+            'producer': {'repository': engine.REPOSITORY, 'workflow': engine.WORKFLOW_PATH,
+                         'workflow_sha': source['commit'], 'run_id': workflow['run_id'],
+                         'run_attempt': str(workflow['run_attempt']), 'job': f'build-{target}',
+                         'host_os': 'linux', 'host_arch': arch,
+                         'profile': 'linux-arm64-4' if arch == 'aarch64' else 'linux-16'},
+            'frontend': {'version': '2.9.3', 'sha256': qualification['compatibility']['frontend'][f'{arch}-unknown-linux-gnu']['sha256'],
+                         'flags': engine.product_flags(target), 'bridge_flags': engine.product_flags(target, True)},
+            'output': dict.fromkeys(('executable_sha256', 'archive_sha256', 'bridge_sha256', 'verification_sha256'), 'a' * 64),
+            'native_execution': 'passed' if target.endswith('linux-gnu') else 'not_performed',
+        }
+        products.append({'receipt_sha256': hashlib.sha256(engine.canonical_json(receipt)).hexdigest(), 'receipt': receipt})
+    return {'identity': identity, 'tag': f'runtime-deno-v2.9.3-{identity}', 'manifest_sha256': identity,
+            'state': 'final-qualified', 'products': products}
+
+
+def rehash_products(value: dict) -> None:
+    for item in value['runtime_qualification']['products']:
+        item['receipt_sha256'] = hashlib.sha256(engine.canonical_json(item['receipt'])).hexdigest()
+
+
 def manifest(version: str = '2026.6.6.2026') -> bytes:
+    qualification = qualification_fixture()
     items = [
         *[asset(f'slv-{target}-exe.tar.gz', 'executable', target) for target in engine.TARGETS],
         asset('template.tar.gz', 'template'),
@@ -37,14 +96,20 @@ def manifest(version: str = '2026.6.6.2026') -> bytes:
         asset('THIRD_PARTY_NOTICES', 'notices'),
         *[asset(name, 'source') for name in engine.SOURCE_ASSETS],
     ]
+    for item in items:
+        if item['name'] in ('deno-source.tar.gz', 'deno-cargo-vendor.tar.gz'):
+            item.update(qualification['assets'][qualification['source']['archives'][item['name']]])
+    source = {'commit': 'b' * 40, 'ref': 'refs/heads/main'}
+    workflow = {'path': engine.WORKFLOW_PATH, 'run_id': '42', 'run_attempt': 1}
     return json.dumps({
-        'schema_version': 1,
+        'schema_version': 2,
         'repository': engine.REPOSITORY,
         'version': version,
         'tag': f'v{version}',
-        'source': {'commit': 'b' * 40, 'ref': 'refs/heads/main'},
-        'workflow': {'path': engine.WORKFLOW_PATH, 'run_id': '42', 'run_attempt': 1},
+        'source': source,
+        'workflow': workflow,
         'assets': items,
+        'runtime_qualification': qualification_reference(qualification, source, workflow),
     }).encode()
 
 
@@ -72,7 +137,510 @@ def write_template_tar(path: Path, version: str) -> None:
         output.addfile(marker, io.BytesIO(b'template'))
 
 
+def verification_fixture(application: dict | None = None, qualification: dict | None = None) -> tuple[dict, dict, dict[str, bytes]]:
+    app = application or json.loads(manifest())
+    qualification = qualification or qualification_fixture()
+    tag = app['runtime_qualification']['tag']
+    base = f'{engine.RELEASE_DOWNLOAD}/{tag}'
+    raw = engine.canonical_json(qualification, True)
+    bundle = b'controlled attestation bytes\n'
+    expected = {**qualification['assets'],
+                'runtime-qualification.json': {'size': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()},
+                'runtime-qualification.json.intoto.jsonl': {'size': len(bundle), 'sha256': hashlib.sha256(bundle).hexdigest()}}
+    release = {'tag_name': tag, 'immutable': True, 'draft': False, 'prerelease': True,
+               'target_commitish': 'c' * 40,
+               'assets': [{'name': name, 'size': spec['size'], 'digest': f"sha256:{spec['sha256']}",
+                           'browser_download_url': f'{base}/{name}'} for name, spec in expected.items()]}
+    responses = {
+        f'{engine.RELEASE_DOWNLOAD}/{app["tag"]}/release-manifest.json': json.dumps(app).encode(),
+        f'{engine.RELEASE_DOWNLOAD}/{app["tag"]}/release-manifest.json.intoto.jsonl': bundle,
+        f'{engine.RELEASE_API}/tags/{tag}': json.dumps(release).encode(),
+        f'{base}/runtime-qualification.json': raw,
+        f'{base}/runtime-qualification.json.intoto.jsonl': bundle,
+        f'https://api.github.com/repos/{engine.REPOSITORY}/compare/{"c" * 40}...{app["source"]["commit"]}?per_page=1':
+            json.dumps({'status': 'ahead', 'base_commit': {'sha': 'c' * 40}, 'merge_base_commit': {'sha': 'c' * 40}}).encode(),
+    }
+    return app, release, responses
+
+
 class ReleaseEngineTest(unittest.TestCase):
+    def policy_worker_fixture(self, body: bytes, *, status: int = 200, headers: list[tuple[str, str]] = (),
+                              url: str = engine.REVOCATION_URL, fail_open: bool = False) -> tuple[int, bytes, dict]:
+        """Run the actual fixed worker with a mocked transport, never a test URL."""
+        message = Message()
+        for name, value in headers:
+            message[name] = value
+        class Response:
+            def __init__(self):
+                self.status, self.headers, self.stream, self.closed = status, message, io.BytesIO(body), False
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.closed = True
+            def geturl(self):
+                return url
+            def read(self, limit):
+                self_limit = min(65536, engine.MAX_REVOCATION_POLICY + 1)
+                if not 0 < limit <= self_limit:
+                    raise AssertionError('unbounded policy read')
+                return self.stream.read(limit)
+        response = Response()
+        opener_calls = []
+        def build_opener(*handlers):
+            self.assertEqual(len(handlers), 2)
+            self.assertIsInstance(handlers[0], engine.urllib.request.ProxyHandler)
+            self.assertEqual(handlers[0].proxies, {})
+            self.assertIsInstance(handlers[1], engine.urllib.request.HTTPRedirectHandler)
+            opener_calls.extend(handlers)
+            def open_request(request, timeout):
+                self.assertEqual(request.full_url, engine.REVOCATION_URL)
+                self.assertEqual(timeout, 10)
+                supplied = {name.lower(): value for name, value in request.header_items()}
+                self.assertEqual(set(supplied), {'accept', 'accept-encoding', 'cache-control', 'pragma', 'user-agent'})
+                self.assertEqual(supplied['accept-encoding'], 'identity')
+                self.assertIn('no-cache', supplied['cache-control'])
+                self.assertEqual(supplied['pragma'], 'no-cache')
+                self.assertIsNone(request.data)
+                if fail_open:
+                    raise OSError('controlled transport unavailable')
+                return response
+            return SimpleNamespace(open=open_request)
+        output, errors, namespace = io.BytesIO(), io.StringIO(), {}
+        code = 0
+        with patch.object(engine.urllib.request, 'build_opener', side_effect=build_opener), \
+             patch.object(sys, 'stdout', SimpleNamespace(buffer=output)), patch.object(sys, 'stderr', errors):
+            try:
+                exec(engine.REVOCATION_FETCH_CODE, namespace)
+            except SystemExit as exc:
+                code = exc.code
+        if not fail_open:
+            self.assertTrue(response.closed)
+        self.assertEqual(len(opener_calls), 2)
+        return code, output.getvalue(), namespace
+
+    def run_verified_fixture(self, app: dict, responses: dict[str, bytes], subject_change=None,
+                             reject_signer: bool | str = False, wrong_qualification_tag: bool = False,
+                             policy: bytes = EMPTY_REVOCATION_POLICY, entrypoint: str = 'verified',
+                             later_policy: bytes | None = None) -> tuple[list[str], list[list[str]]]:
+        requests, commands = [], []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(); work = root / 'work'; work.mkdir(mode=0o700)
+            installed = root / 'slv'; installed.write_bytes(b'existing executable')
+            files = root / 'fixture-assets'; files.mkdir()
+            if entrypoint != 'verified':
+                version = app['version']; target = engine.TARGETS[0]
+                write_tar(files / f'slv-{target}-exe.tar.gz', [(f'slv-{target}-exe', b'new binary', None)])
+                write_template_tar(files / 'template.tar.gz', version)
+                write_tar(files / 'slv-validator.tar.gz', [('slv-validator/SKILL.md', b'new skill', None)])
+                (files / 'THIRD_PARTY_NOTICES').write_bytes(b'new notices')
+                (files / 'sbom.spdx.json').write_bytes(b'{"new":"sbom"}')
+            policy_calls = 0
+
+            def request(url: str, limit: int) -> bytes:
+                requests.append(url)
+                data = responses[url]
+                self.assertLessEqual(len(data), limit)
+                return data
+
+            def execute(command: list[str], **kwargs) -> SimpleNamespace:
+                nonlocal policy_calls
+                commands.append(command)
+                if command[:3] == [sys.executable, '-I', '-c']:
+                    self.assertEqual(command[3], engine.REVOCATION_FETCH_CODE)
+                    self.assertEqual(kwargs['timeout'], 10)
+                    self.assertEqual(set(kwargs['env']), {'PATH', 'LC_ALL'} | ({'HOME'} if 'HOME' in os.environ else set()))
+                    if 'HOME' in os.environ:
+                        self.assertEqual(kwargs['env']['HOME'], os.environ['HOME'])
+                    policy_calls += 1
+                    current_policy = later_policy if policy_calls > 1 and later_policy is not None else policy
+                    return SimpleNamespace(returncode=0, stdout=json.dumps(POLICY_VALIDATORS).encode() + b'\n' + current_policy, stderr=b'')
+                if command[0] == 'git':
+                    ref = command[-2]
+                    digest = 'c' * 40 if ref.startswith('refs/tags/runtime-') else app['source']['commit']
+                    if wrong_qualification_tag and ref.startswith('refs/tags/runtime-'):
+                        digest = 'd' * 40
+                    return SimpleNamespace(returncode=0, stdout=f'{digest}\t{ref}\n', stderr='')
+                self.assertEqual(command[1:3], ['attestation', 'verify'])
+                name = Path(command[3]).name
+                expected_commit = 'c' * 40 if name == 'runtime-qualification.json' else app['source']['commit']
+                for flag, value in (('--repo', engine.REPOSITORY), ('--signer-workflow', engine.WORKFLOW_IDENTITY),
+                                    ('--source-ref', 'refs/heads/main'), ('--source-digest', expected_commit),
+                                    ('--signer-digest', expected_commit), ('--format', 'json')):
+                    self.assertEqual(command[command.index(flag) + 1], value)
+                self.assertIn('--deny-self-hosted-runners', command)
+                self.assertEqual(kwargs['timeout'], 90)
+                self.assertNotIn('GH_TOKEN', kwargs['env'])
+                if reject_signer is True or reject_signer == name:
+                    return SimpleNamespace(returncode=1, stdout='', stderr='untrusted signer')
+                statement = {'_type': 'https://in-toto.io/Statement/v1', 'predicateType': 'https://slsa.dev/provenance/v1',
+                             'subject': [{'name': name, 'digest': {'sha256': engine.sha256(Path(command[3]))}}]}
+                if name == 'release-manifest.json':
+                    # actions/attest subject-path release/* signs all payloads,
+                    # the manifest and SHA256SUMS in one shared statement.
+                    statement['subject'].extend({'name': item['name'], 'digest': {'sha256': item['sha256']}}
+                                                for item in app['assets'])
+                    statement['subject'].append({'name': 'SHA256SUMS', 'digest': {'sha256': 'e' * 64}})
+                    self.assertEqual(len(statement['subject']), 23)
+                if subject_change:
+                    subject_change(statement)
+                return SimpleNamespace(returncode=0, stdout=json.dumps([{'verificationResult': {'statement': statement}}]), stderr='')
+
+            try:
+                with patch.object(engine, 'read_http', side_effect=request), \
+                     patch.object(engine, 'managed_gh', return_value=work / 'pinned-gh'), \
+                     patch.object(engine.subprocess, 'run', side_effect=execute), \
+                     patch.object(engine, 'target_for_host', return_value=engine.TARGETS[0]), \
+                     patch.object(engine, 'download_asset', side_effect=lambda _url, destination, _size, _digest: shutil.copyfile(files / destination.name, destination)), \
+                     patch.object(engine, 'immutable_release', return_value={'tag_name': app['tag']}):
+                    if entrypoint == 'verified':
+                        tag, assets = engine.verified(root, work, {'tag_name': app['tag']})
+                        self.assertEqual(tag, app['tag']); self.assertEqual(len(assets), 21)
+                        observation = json.loads((work / 'runtime-policy-verified.json').read_bytes())
+                        self.assertEqual(observation['current_main_policy']['sha256'], hashlib.sha256(policy).hexdigest())
+                        self.assertEqual(observation['current_main_policy']['url'], engine.REVOCATION_URL)
+                        self.assertIsNone(observation['current_main_policy']['source_commit'])
+                        self.assertEqual(observation['outcome'], 'allowed')
+                    elif entrypoint == 'install':
+                        engine.install_release(root, {'tag_name': app['tag']}, installed, ('slv-validator',), False)
+                    elif entrypoint == 'skills':
+                        engine.sync_skills(root, app['version'], ('slv-validator',), False)
+                    else:
+                        self.fail('unknown entrypoint')
+                    if entrypoint != 'verified':
+                        self.assertEqual(policy_calls, 2)
+            finally:
+                expected_binary = b'new binary' if entrypoint == 'install' and policy_calls == 2 and later_policy is None else b'existing executable'
+                self.assertEqual(installed.read_bytes(), expected_binary)
+                self.assertFalse((root / '.release-journal.json').exists())
+                if later_policy is not None:
+                    self.assertFalse((root / 'template').exists())
+                    self.assertFalse((root / 'skills').exists())
+                    self.assertFalse((root / 'licenses').exists())
+        return requests, commands
+
+    def test_current_main_policy_is_mandatory_in_verified_install_and_skills(self) -> None:
+        app, _, responses = verification_fixture()
+        identity = app['runtime_qualification']['identity']
+        denied = json.dumps({'schema_version': 1, 'revoked_identities': [identity]}).encode()
+        for entrypoint in ('verified', 'install', 'skills'):
+            with self.subTest(entrypoint=entrypoint), self.assertRaisesRegex(engine.ReleaseError, 'revoked'):
+                self.run_verified_fixture(app, responses, policy=denied, entrypoint=entrypoint)
+        for entrypoint in ('install', 'skills'):
+            with self.subTest(phase='after-download', entrypoint=entrypoint), \
+                 patch.object(engine.Transaction, 'replace', side_effect=AssertionError('revoked policy reached replacement')) as replace, \
+                 self.assertRaisesRegex(engine.ReleaseError, 'revoked'):
+                self.run_verified_fixture(app, responses, entrypoint=entrypoint, later_policy=denied)
+            replace.assert_not_called()
+        unrelated = json.dumps({'schema_version': 1, 'revoked_identities': ['f' * 64]}).encode()
+        for entrypoint in ('verified', 'install', 'skills'):
+            with self.subTest(allowed=entrypoint):
+                self.run_verified_fixture(app, responses, policy=unrelated, entrypoint=entrypoint)
+
+    def test_invalid_current_policy_rejects_actual_acceptance_without_cached_success(self) -> None:
+        app, _, responses = verification_fixture()
+        identity = app['runtime_qualification']['identity']
+        bad_values = [b'', b'\xff', b'\xe2\x82', b'{', b'{"schema_version":1,"revoked_identities":[]} extra',
+                      b'{"schema_version":1,"schema_version":1,"revoked_identities":[]}',
+                      b'{"schema_version":1,"revoked_identities":[],"revoked_identities":[]}',
+                      b'{"schema_version":true,"revoked_identities":[]}',
+                      b'{"schema_version":1.0,"revoked_identities":[]}',
+                      b'{"schema_version":2,"revoked_identities":[]}',
+                      b'{"schema_version":1,"revoked_identities":null}',
+                      b'{"schema_version":1,"revoked_identities":[],"url":"https://example.invalid"}',
+                      b'{"schema_version":1}', b' ' * (engine.MAX_REVOCATION_POLICY + 1)]
+        for identities in ([identity, identity], [identity.upper()], [identity[:-1]], [True], [None], [{}]):
+            bad_values.append(json.dumps({'schema_version': 1, 'revoked_identities': identities}).encode())
+        for value in bad_values:
+            with self.subTest(policy=value[:60]), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses, policy=value)
+        for entrypoint in ('install', 'skills'):
+            with self.subTest(recheck=entrypoint), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses, entrypoint=entrypoint, later_policy=b'{')
+        # An unlisted identity does not grant trust to a changed product receipt.
+        changed = copy.deepcopy(app)
+        changed['runtime_qualification']['products'][0]['receipt']['output']['archive_sha256'] = 'd' * 64
+        rehash_products(changed)
+        invalid, _, invalid_responses = verification_fixture(changed)
+        with self.assertRaises(engine.ReleaseError):
+            self.run_verified_fixture(invalid, invalid_responses)
+
+    def test_policy_worker_uses_fixed_unauthenticated_transport_and_closes_response(self) -> None:
+        headers = [('Content-Length', str(len(EMPTY_REVOCATION_POLICY))), ('ETag', '"fresh"')]
+        code, output, namespace = self.policy_worker_fixture(EMPTY_REVOCATION_POLICY, headers=headers)
+        self.assertEqual(code, 0)
+        metadata, raw = output.split(b'\n', 1)
+        self.assertEqual(raw, EMPTY_REVOCATION_POLICY)
+        self.assertEqual(json.loads(metadata), {'etag': '"fresh"', 'last_modified': None})
+        handler = namespace['NoRedirect']()
+        for location in (engine.REVOCATION_URL, engine.REVOCATION_URL.replace('/main/', '/other/'), 'https://example.invalid/policy'):
+            with self.subTest(location=location), self.assertRaisesRegex(ValueError, 'redirect'):
+                handler.redirect_request(None, None, 302, '', {}, location)
+
+    def test_policy_worker_denies_http_errors_redirects_truncation_encoding_and_oversize(self) -> None:
+        cases = [
+            {'status': status} for status in (201, 204, 301, 302, 304, 307, 308, 404, 500)
+        ] + [
+            {'url': engine.REVOCATION_URL.replace('/main/', '/other/')},
+            {'url': 'https://example.invalid/policy'}, {'fail_open': True},
+            {'headers': [('Content-Length', str(len(EMPTY_REVOCATION_POLICY) + 1))]},
+            {'headers': [('Content-Length', str(engine.MAX_REVOCATION_POLICY + 1))]},
+            {'headers': [('Content-Length', '1'), ('Content-Length', '2')]},
+            {'headers': [('Content-Length', '-1')]}, {'headers': [('Content-Length', 'invalid')]},
+            {'headers': [('Content-Encoding', 'gzip')]}, {'headers': [('Content-Encoding', 'br')]},
+        ]
+        for options in cases:
+            with self.subTest(options=options):
+                code, output, _ = self.policy_worker_fixture(EMPTY_REVOCATION_POLICY, **options)
+                self.assertEqual(code, 1); self.assertEqual(output, b'')
+        for body in (b'', b' ' * (engine.MAX_REVOCATION_POLICY + 1)):
+            code, output, _ = self.policy_worker_fixture(body)
+            self.assertEqual(code, 1); self.assertEqual(output, b'')
+
+    def test_revocation_fetch_failure_never_reuses_prior_valid_bytes(self) -> None:
+        good = json.dumps(POLICY_VALIDATORS).encode() + b'\n' + EMPTY_REVOCATION_POLICY
+        failures = [SimpleNamespace(returncode=1, stdout=b'', stderr=b''),
+                    SimpleNamespace(returncode=0, stdout=b'partial', stderr=b''),
+                    SimpleNamespace(returncode=0, stdout=b' ' * (engine.MAX_REVOCATION_POLICY + 4097), stderr=b''),
+                    subprocess.TimeoutExpired('controlled worker', 10), OSError('controlled start failure')]
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), patch.object(engine.subprocess, 'run', side_effect=[
+                SimpleNamespace(returncode=0, stdout=good, stderr=b''), failure,
+            ]):
+                self.assertEqual(engine.fetch_revocation_policy()[0], EMPTY_REVOCATION_POLICY)
+                with self.assertRaises(engine.ReleaseError):
+                    engine.fetch_revocation_policy()
+        with tempfile.TemporaryDirectory() as temporary, patch.object(engine, 'fetch_revocation_policy') as fetch:
+            with self.assertRaisesRegex(engine.ReleaseError, 'context is unavailable'):
+                engine.recheck_runtime_policy(Path(temporary), 'before-install')
+            fetch.assert_not_called()
+
+    def test_policy_worker_total_deadline_kills_and_reaps_child(self) -> None:
+        # Exercise the real parent timeout against a harmless local worker. No
+        # network request runs; a per-read-only timeout would not stop this child.
+        children = []
+        original_popen = subprocess.Popen
+        def spawn(*args, **kwargs):
+            child = original_popen(*args, **kwargs); children.append(child); return child
+        started = time.monotonic()
+        with patch.object(engine, 'REVOCATION_FETCH_CODE', 'import time; time.sleep(30)'), \
+             patch.object(engine.subprocess, 'Popen', side_effect=spawn), \
+             self.assertRaisesRegex(engine.ReleaseError, 'total 10-second deadline'):
+            engine.fetch_revocation_policy()
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 9.5); self.assertLess(elapsed, 15)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].poll())
+        self.assertNotEqual(children[0].returncode, 0)
+
+    def test_denied_policy_records_only_observed_bytes_in_private_work(self) -> None:
+        identity = qualification_reference(qualification_fixture(), {'commit': 'b' * 40, 'ref': 'refs/heads/main'},
+                                           {'run_id': '42', 'run_attempt': 1})['identity']
+        denied = json.dumps({'schema_version': 1, 'revoked_identities': [identity]}).encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve()
+            with patch.object(engine, 'fetch_revocation_policy', return_value=(denied, POLICY_VALIDATORS)), \
+                 self.assertRaisesRegex(engine.ReleaseError, 'revoked'):
+                engine.check_current_runtime_policy(identity, work, 'before-install')
+            path = work / 'runtime-policy-before-install.json'
+            receipt = json.loads(path.read_bytes())
+            self.assertEqual(receipt['outcome'], 'denied')
+            self.assertEqual(receipt['current_main_policy']['sha256'], hashlib.sha256(denied).hexdigest())
+            self.assertIsNone(receipt['current_main_policy']['source_commit'])
+            self.assertEqual(receipt['current_main_policy']['source_commit_status'], 'unavailable')
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_verified_schema2_checks_both_manifests_without_runtime_execution(self) -> None:
+        app, _, responses = verification_fixture()
+        requests, commands = self.run_verified_fixture(app, responses)
+        self.assertEqual(len(requests), 6)
+        self.assertEqual(len([cmd for cmd in commands if cmd[1:3] == ['attestation', 'verify']]), 2)
+        self.assertTrue(all(cmd[0] == 'git' or cmd[0].endswith('pinned-gh') or cmd[:3] == [sys.executable, '-I', '-c'] for cmd in commands))
+        self.assertFalse(any('baseline-denort' in request or 'release-bridge' in request for request in requests))
+
+    def test_manifest_rejects_schema1_missing_qualification_candidate_and_duplicate_keys(self) -> None:
+        for change in (lambda m: m.update(schema_version=1), lambda m: m.pop('runtime_qualification'),
+                       lambda m: m['runtime_qualification'].update(state='candidate-validation'),
+                       lambda m: m['runtime_qualification'].update(identity='f' * 64),
+                       lambda m: m['runtime_qualification'].update(manifest_sha256='f' * 64),
+                       lambda m: m['runtime_qualification'].update(tag='runtime-deno-v2.9.3-' + 'f' * 64),
+                       lambda m: m['runtime_qualification']['products'].pop(),
+                       lambda m: m['runtime_qualification'].update(extra=True),
+                       lambda m: m['source'].update(ref='refs/tags/' + m['tag'])):
+            m = json.loads(manifest()); change(m)
+            with self.subTest(change=change), self.assertRaises(engine.ReleaseError):
+                engine.parse_manifest(json.dumps(m).encode(), m['tag'])
+        raw = manifest().replace(b'"schema_version": 2', b'"schema_version": 1, "schema_version": 2', 1)
+        with self.assertRaises(engine.ReleaseError):
+            engine.parse_manifest(raw, 'v2026.6.6.2026')
+
+    def test_rehashed_product_rejects_stale_sources_run_attempt_target_profile_and_claims(self) -> None:
+        changes = [
+            ('source', 'commit', 'd' * 40), ('source', 'ref', 'refs/heads/other'),
+            ('source', 'lock_sha256', 'd' * 64), ('source', 'graph_sha256', 'd' * 64),
+            ('source', 'source_receipt_sha256', 'd' * 64), ('source', 'engine_sha256', 'd' * 64),
+            ('source', 'bridge_source_sha256', 'd' * 64), ('source', 'notices_sha256', 'd' * 64),
+            ('source', 'sbom_sha256', 'd' * 64), ('producer', 'run_id', '43'), ('producer', 'run_attempt', '0'),
+            ('producer', 'run_attempt', '2'), ('producer', 'run_attempt', '01'), ('producer', 'run_attempt', True),
+            ('producer', 'workflow_sha', 'd' * 40), ('producer', 'workflow', 'other.yml'),
+            ('producer', 'repository', 'elsewhere/slv'), ('producer', 'job', 'build'),
+            ('producer', 'profile', 'hosted-linux'), ('producer', 'host_os', 'darwin'),
+            ('producer', 'host_arch', 'aarch64'), ('qualification', 'state', 'candidate-validation'),
+            ('qualification', 'identity', 'd' * 64), ('frontend', 'version', '2.9.4'),
+            ('frontend', 'flags', []), ('frontend', 'bridge_flags', []), ('output', 'archive_sha256', 'd' * 64),
+        ]
+        for section, key, value in changes:
+            m = json.loads(manifest()); m['runtime_qualification']['products'][0]['receipt'][section][key] = value
+            rehash_products(m)
+            with self.subTest(section=section, key=key, value=value), self.assertRaises(engine.ReleaseError):
+                engine.parse_manifest(json.dumps(m).encode(), m['tag'])
+        for key, value in (('target', engine.TARGETS[1]), ('native_execution', 'not_performed'), ('extra', 1)):
+            m = json.loads(manifest()); m['runtime_qualification']['products'][0]['receipt'][key] = value; rehash_products(m)
+            with self.subTest(key=key), self.assertRaises(engine.ReleaseError):
+                engine.parse_manifest(json.dumps(m).encode(), m['tag'])
+        m = json.loads(manifest()); m['runtime_qualification']['products'][2]['receipt']['native_execution'] = 'passed'; rehash_products(m)
+        with self.assertRaises(engine.ReleaseError):
+            engine.parse_manifest(json.dumps(m).encode(), m['tag'])
+        m = json.loads(manifest()); m['workflow']['run_attempt'] = 2
+        self.assertEqual(len(engine.parse_manifest(json.dumps(m).encode(), m['tag'])), 21)
+
+    def test_product_digest_and_qualified_runtime_mappings_are_independently_checked(self) -> None:
+        m = json.loads(manifest()); m['runtime_qualification']['products'][0]['receipt']['output']['bridge_sha256'] = 'd' * 64
+        with self.assertRaises(engine.ReleaseError):
+            engine.parse_manifest(json.dumps(m).encode(), m['tag'])
+        for section, key in [('qualification', x) for x in ('baseline_denort_sha256', 'selected_lock_sha256',
+                                                           'derived_lock_sha256', 'native_proof_sha256', 'build_receipt_sha256')] + [('frontend', 'sha256')]:
+            m = json.loads(manifest()); m['runtime_qualification']['products'][0]['receipt'][section][key] = 'd' * 64
+            rehash_products(m)
+            app, _, responses = verification_fixture(m)
+            with self.subTest(key=key), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses)
+
+    def test_current_source_archives_may_embed_current_notices_and_source_metadata(self) -> None:
+        m = json.loads(manifest())
+        for name in ('deno-source.tar.gz', 'deno-cargo-vendor.tar.gz'):
+            entry = next(item for item in m['assets'] if item['name'] == name)
+            entry.update(sha256='d' * 64, size=entry['size'] + 1)
+        app, _, responses = verification_fixture(m)
+        self.run_verified_fixture(app, responses)
+
+    def test_qualification_rejects_tampered_bytes_even_with_rewritten_metadata_digest(self) -> None:
+        app, release, responses = verification_fixture()
+        tag = app['runtime_qualification']['tag']; base = f'{engine.RELEASE_DOWNLOAD}/{tag}'
+        for content in (responses[f'{base}/runtime-qualification.json'] + b' ',
+                        responses[f'{base}/runtime-qualification.json'].replace(b'"upstream_fallback":false', b'"upstream_fallback":true')):
+            changed = dict(responses); changed[f'{base}/runtime-qualification.json'] = content
+            metadata = copy.deepcopy(release)
+            entry = next(x for x in metadata['assets'] if x['name'] == 'runtime-qualification.json')
+            entry.update(size=len(content), digest='sha256:' + hashlib.sha256(content).hexdigest())
+            changed[f'{engine.RELEASE_API}/tags/{tag}'] = json.dumps(metadata).encode()
+            with self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, changed)
+
+    def test_qualification_schema_rejects_rehashed_unknown_policy_abi_and_lineage(self) -> None:
+        changes = [lambda m: m.update(extra=1), lambda m: m.update(schema_version=True),
+                   lambda m: m['policy'].update(upstream_fallback=True),
+                   lambda m: m['compatibility'].update(deno_version='2.9.4'),
+                   lambda m: m['compatibility'].update(embedding_recipe_sha256='d' * 64),
+                   lambda m: m['targets'][0]['abi'].update(minimum_os='glibc-2.35'),
+                   lambda m: m['targets'][0].update(runtime=m['targets'][1]['runtime']),
+                   lambda m: m['targets'].reverse(), lambda m: m['targets'].pop(),
+                   lambda m: m['producer'].update(repository='elsewhere/slv'),
+                   lambda m: m['producer'].update(reviewed_main_equivalent=None),
+                   lambda m: m['source']['members'].update({'slv-source/../escape': m['source']['pins']}),
+                   lambda m: m['assets'].update({'unreferenced': {'size': 1, 'sha256': 'd' * 64}}),
+                   lambda m: m['assets'][m['source']['selected_lock']].update(sha256='d' * 64),
+                   lambda m: m['artifacts'].append(copy.deepcopy(m['artifacts'][0]))]
+        for change in changes:
+            m = qualification_fixture(); change(m); raw = engine.canonical_json(m, True)
+            with self.subTest(change=change), self.assertRaises(engine.ReleaseError):
+                engine.parse_qualification(raw, hashlib.sha256(raw).hexdigest())
+        m = qualification_fixture()
+        m['producer'].update(reviewed_main_equivalent=None, workflow_ref='refs/heads/main', api_head_sha=m['producer']['source_commit'])
+        raw = engine.canonical_json(m, True)
+        self.assertEqual(engine.parse_qualification(raw, hashlib.sha256(raw).hexdigest()), m)
+
+    def test_qualification_public_metadata_inventory_and_ancestry_fail_closed(self) -> None:
+        changes = [lambda r: r.update(immutable=False), lambda r: r.update(draft=True), lambda r: r.update(prerelease=False),
+                   lambda r: r.update(tag_name='runtime-deno-v2.9.3-' + 'd' * 64), lambda r: r.update(target_commitish='main'),
+                   lambda r: r['assets'].pop(), lambda r: r['assets'].append(copy.deepcopy(r['assets'][0])),
+                   lambda r: r['assets'][0].update(digest='sha256:' + 'd' * 64),
+                   lambda r: r['assets'][0].update(size=True), lambda r: r['assets'][0].update(name='unknown'),
+                   lambda r: r['assets'][0].update(browser_download_url='https://example.invalid/asset')]
+        for change in changes:
+            app, release, responses = verification_fixture(); change(release)
+            responses[f'{engine.RELEASE_API}/tags/{app["runtime_qualification"]["tag"]}'] = json.dumps(release).encode()
+            with self.subTest(change=change), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses)
+        for status in ('behind', 'diverged'):
+            app, _, responses = verification_fixture()
+            url = next(url for url in responses if '/compare/' in url)
+            value = json.loads(responses[url]); value['status'] = status; responses[url] = json.dumps(value).encode()
+            with self.subTest(status=status), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses)
+        app, _, responses = verification_fixture()
+        url = next(url for url in responses if '/compare/' in url)
+        value = json.loads(responses[url]); value['base_commit'] = None; responses[url] = json.dumps(value).encode()
+        with self.assertRaises(engine.ReleaseError):
+            self.run_verified_fixture(app, responses)
+        app, _, responses = verification_fixture()
+        url = f'{engine.RELEASE_DOWNLOAD}/{app["runtime_qualification"]["tag"]}/runtime-qualification.json.intoto.jsonl'
+        responses[url] += b'corrupted'
+        with self.assertRaises(engine.ReleaseError):
+            self.run_verified_fixture(app, responses)
+
+    def test_verified_attestation_requires_exact_subject_and_trusted_signer(self) -> None:
+        app, _, responses = verification_fixture()
+        changes = [lambda s: s['subject'][0].update(name='other.json'),
+                   lambda s: s['subject'][0]['digest'].update(sha256='d' * 64),
+                   lambda s: s.update(subject=[]), lambda s: s.update(predicateType='other')]
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses, subject_change=change)
+            def qualification_only(statement):
+                if statement['subject'][0]['name'] == 'runtime-qualification.json':
+                    change(statement)
+            with self.subTest(qualification_change=change), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses, subject_change=qualification_only)
+        with self.assertRaises(engine.ReleaseError):
+            self.run_verified_fixture(app, responses, reject_signer=True)
+        with self.assertRaises(engine.ReleaseError):
+            self.run_verified_fixture(app, responses, reject_signer='runtime-qualification.json')
+        with self.assertRaises(engine.ReleaseError):
+            self.run_verified_fixture(app, responses, wrong_qualification_tag=True)
+
+    def test_application_attestation_accepts_shared_subjects_in_any_order(self) -> None:
+        app, _, responses = verification_fixture()
+        self.run_verified_fixture(app, responses, subject_change=lambda s: s['subject'].reverse())
+
+    def test_shared_attestation_rejects_duplicate_conflicting_missing_and_malformed_subjects(self) -> None:
+        app, _, responses = verification_fixture()
+        changes = [
+            lambda s: s['subject'].append(copy.deepcopy(s['subject'][0])),
+            lambda s: s['subject'].append({'name': 'release-manifest.json', 'digest': {'sha256': 'd' * 64}}),
+            lambda s: s['subject'].pop(0),
+            lambda s: s['subject'][0].update(name='other-manifest.json'),
+            lambda s: s['subject'].append({'name': 'malformed', 'digest': {'sha256': 'short'}}),
+            lambda s: s['subject'].append({'name': 'malformed', 'digest': None}),
+            lambda s: s['subject'].append({'name': 'malformed', 'digest': {'sha256': 'd' * 64}, 'extra': True}),
+            lambda s: s['subject'].append({'name': None, 'digest': {'sha256': 'd' * 64}}),
+            lambda s: s['subject'].append(None),
+            lambda s: s.pop('subject'),
+        ]
+        for change in changes:
+            def application_only(statement):
+                if len(statement['subject']) == 23:
+                    change(statement)
+            with self.subTest(change=change), self.assertRaises(engine.ReleaseError):
+                self.run_verified_fixture(app, responses, subject_change=application_only)
+
+    def test_qualification_attestation_remains_exactly_one_subject(self) -> None:
+        app, _, responses = verification_fixture()
+        def append_other_subject(statement):
+            if statement['subject'][0]['name'] == 'runtime-qualification.json':
+                statement['subject'].append({'name': 'other', 'digest': {'sha256': 'd' * 64}})
+        with self.assertRaises(engine.ReleaseError):
+            self.run_verified_fixture(app, responses, subject_change=append_other_subject)
+
     def test_calver_is_real_utc_and_canonical(self) -> None:
         self.assertTrue(engine.valid_version('2026.6.7.0001'))
         self.assertTrue(engine.valid_version('2024.2.29.2359'))
@@ -745,7 +1313,8 @@ class ReleaseEngineTest(unittest.TestCase):
                 shutil.copyfile({'slv-validator.tar.gz': archive, 'THIRD_PARTY_NOTICES': notices, 'sbom.spdx.json': sbom}[destination.name], destination)
 
             with patch.object(engine, 'immutable_release', return_value={'tag_name': 'v2026.6.6.2026'}), \
-                 patch.object(engine, 'verified', return_value=('v2026.6.6.2026', assets)), \
+                 patch.object(engine, 'verified', side_effect=verified_payload_stub('v2026.6.6.2026', assets)), \
+                 patch.object(engine, 'fetch_revocation_policy', return_value=(EMPTY_REVOCATION_POLICY, POLICY_VALIDATORS)), \
                  patch.object(engine, 'download_asset', side_effect=download):
                 result = engine.sync_skills(root, '2026.6.6.2026', ('slv-validator',), False)
             after = installed.stat()
@@ -755,7 +1324,8 @@ class ReleaseEngineTest(unittest.TestCase):
             self.assertEqual((root / 'licenses' / '2026.6.6.2026' / 'sbom.spdx.json').read_bytes(), b'{"spdxVersion":"SPDX-2.3"}')
             self.assertTrue(set(engine.SOURCE_ASSETS).isdisjoint(downloaded))
             with patch.object(engine, 'immutable_release', return_value={'tag_name': 'v2026.6.6.2026'}), \
-                 patch.object(engine, 'verified', return_value=('v2026.6.6.2026', assets)), \
+                 patch.object(engine, 'verified', side_effect=verified_payload_stub('v2026.6.6.2026', assets)), \
+                 patch.object(engine, 'fetch_revocation_policy', return_value=(EMPTY_REVOCATION_POLICY, POLICY_VALIDATORS)), \
                  patch.object(engine, 'download_asset', side_effect=download):
                 forced = engine.sync_skills(root, '2026.6.6.2026', ('slv-validator',), True)
             self.assertEqual(forced, {'added': 0, 'updated': 1, 'unchanged': 0, 'failed': 0, 'failedFiles': []})
@@ -779,7 +1349,8 @@ class ReleaseEngineTest(unittest.TestCase):
                 downloaded.append(destination.name)
                 shutil.copyfile(files / destination.name, destination)
 
-            with patch.object(engine, 'verified', return_value=(f'v{version}', assets)), \
+            with patch.object(engine, 'verified', side_effect=verified_payload_stub(f'v{version}', assets)), \
+                 patch.object(engine, 'fetch_revocation_policy', return_value=(EMPTY_REVOCATION_POLICY, POLICY_VALIDATORS)), \
                  patch.object(engine, 'target_for_host', return_value=target), \
                  patch.object(engine, 'download_asset', side_effect=download):
                 engine.install_release(root, {'tag_name': f'v{version}'}, binary, ('slv-validator',), False)
@@ -803,7 +1374,8 @@ class ReleaseEngineTest(unittest.TestCase):
             def corrupt(_url: str, _destination: Path, _size: int, _digest: str) -> None:
                 raise engine.ReleaseError('payload digest mismatch: THIRD_PARTY_NOTICES')
 
-            with patch.object(engine, 'verified', return_value=(f'v{version}', assets)), \
+            with patch.object(engine, 'verified', side_effect=verified_payload_stub(f'v{version}', assets)), \
+                 patch.object(engine, 'fetch_revocation_policy', return_value=(EMPTY_REVOCATION_POLICY, POLICY_VALIDATORS)), \
                  patch.object(engine, 'target_for_host', return_value=target), \
                  patch.object(engine, 'download_asset', side_effect=corrupt):
                 with self.assertRaisesRegex(engine.ReleaseError, 'THIRD_PARTY_NOTICES'):
@@ -841,7 +1413,8 @@ class ReleaseEngineTest(unittest.TestCase):
                     raise OSError('injected compliance replacement failure')
                 original_replace(source, destination)
 
-            with patch.object(engine, 'verified', return_value=(f'v{version}', assets)), \
+            with patch.object(engine, 'verified', side_effect=verified_payload_stub(f'v{version}', assets)), \
+                 patch.object(engine, 'fetch_revocation_policy', return_value=(EMPTY_REVOCATION_POLICY, POLICY_VALIDATORS)), \
                  patch.object(engine, 'target_for_host', return_value=target), \
                  patch.object(engine, 'download_asset', side_effect=download), \
                  patch.object(engine.os, 'replace', side_effect=fail_docs):

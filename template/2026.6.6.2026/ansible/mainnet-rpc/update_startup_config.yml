@@ -14,7 +14,7 @@
     - name: Set RPC type fact for each host
       set_fact:
         rpc_type: "{{ rpc_type | default('Geyser gRPC') }}"
-    
+
     - name: Debug RPC type. Stop if not set
       debug:
         msg: "RPC type is {{ rpc_type }}"

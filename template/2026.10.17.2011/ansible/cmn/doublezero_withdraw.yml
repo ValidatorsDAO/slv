@@ -1,0 +1,52 @@
+---
+- name: Withdraw DoubleZero validator funds
+  hosts: all
+  become: yes
+  gather_facts: false
+
+  vars:
+    doublezero_env: 'mainnet-beta'
+    doublezero_keypair_path: '/home/solv/mainnet-validator-keypair.json'
+    doublezero_withdraw_subcommand: 'validator-withdraw'
+    doublezero_withdraw_args: ''
+
+  pre_tasks:
+    - name: Check SSH reachability
+      wait_for_connection:
+        timeout: 10
+      register: conn_check
+      ignore_errors: true
+      ignore_unreachable: true
+
+    - meta: end_host
+      when: conn_check.unreachable | default(false) or conn_check.failed | default(false)
+
+  tasks:
+    # doublezero-solana signs with the key file it is given, and deploy puts no staked key on a node any more
+    - name: Look for the key file the withdrawal is signed with
+      ansible.builtin.stat:
+        path: '{{ doublezero_keypair_path }}'
+      register: dz_keypair
+
+    - name: Stop when the key file the withdrawal is signed with is not on the node
+      ansible.builtin.fail:
+        msg: >-
+          {{ doublezero_keypair_path }} does not exist on {{ inventory_hostname }}, so there is no key to sign the withdrawal
+          with: slv does not put the staked key on a node, it stays on the controller. Nothing was changed on
+          {{ inventory_hostname }}.
+      when: not dz_keypair.stat.exists
+
+    - name: Withdraw validator funds
+      ansible.builtin.shell: >-
+        doublezero-solana revenue-distribution {{ doublezero_withdraw_subcommand }}
+        --node-id {{ identity_account }}
+        -u {{ doublezero_env }}
+        -k {{ doublezero_keypair_path }}
+        {{ doublezero_withdraw_args }}
+      register: dz_withdraw
+      changed_when: dz_withdraw.rc == 0
+      failed_when: dz_withdraw.rc != 0
+
+    - name: Show withdraw result
+      ansible.builtin.debug:
+        msg: '{{ dz_withdraw.stdout_lines | default(["(no output)"]) }}'

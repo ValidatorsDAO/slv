@@ -1,7 +1,14 @@
 /** Release-event resolution and local release-directory verification.
  * Network mutation remains in the workflow; this module makes its decisions
  * testable without a GitHub credential. */
-import { type Asset, hashFile, manifest, payloadSpecs } from './release.ts'
+import {
+  type Asset,
+  hashFile,
+  manifest,
+  payloadSpecs,
+  type QualificationReference,
+} from './release.ts'
+import { validateNativeBuildProfile } from './source-materials.ts'
 
 const SHA = /^[a-f0-9]{40}$/
 const SHA256 = /^[a-f0-9]{64}$/
@@ -15,11 +22,19 @@ const PRODUCT_TARGETS = new Set([
 const SELECTED_CARGO_LOCK_SHA256 =
   '09afc50a2481cea2e77e0d27eff26db844362067bfbc51357f3927d49cbf815d'
 export type ReleaseState = 'absent' | 'draft' | 'immutable'
-export type ReleaseMode = 'ci' | 'main-release' | 'tag-release' | 'tag-recovery'
+export type ReleaseMode =
+  | 'ci'
+  | 'main-release'
+  | 'tag-release'
+  | 'tag-recovery'
+  | 'source-build-validation'
+  | 'release-build-validation'
+  | 'runtime-qualification'
 export type Publication = 'none' | 'initial' | 'recover' | 'verify'
 export type Resolution = {
   mode: ReleaseMode
   release_required: boolean
+  linux_validation: boolean
   version: string
   tag: string
   source_sha: string
@@ -159,6 +174,25 @@ export async function verifyBaselineRuntime(
       'runtime transport manifest',
     ),
   ])
+  if (
+    buildReceipt.build_profile !== undefined ||
+    proof.build_profile !== undefined ||
+    buildReceipt.jobs === '16' || proof.jobs === '16'
+  ) {
+    for (const receipt of [buildReceipt, proof]) {
+      const host = record(receipt.build_host, 'profiled build host')
+      validateNativeBuildProfile(receipt.build_profile, receipt.jobs, target, {
+        os: String(host.os),
+        arch: String(host.arch),
+      })
+    }
+    if (
+      buildReceipt.build_profile !== proof.build_profile ||
+      buildReceipt.jobs !== proof.jobs
+    ) {
+      fail('baseline runtime proof does not bind its build profile and jobs')
+    }
+  }
   const sourceReceiptSha256 = await regularHash(
     sourceReceiptPath,
     'source materials receipt',
@@ -413,7 +447,93 @@ export async function resolveRelease(
   const before = runtime.env('BEFORE') ?? ''
   const after = runtime.env('AFTER') ?? ''
   const inputVersion = runtime.env('INPUT_VERSION') ?? ''
+  const operation = runtime.env('INPUT_OPERATION') ?? ''
+  if (
+    operation === 'release-build-validation' ||
+    operation === 'runtime-qualification'
+  ) {
+    const reviewed = runtime.env('INPUT_REVIEWED_SHA') ?? ''
+    const expectedRef = operation === 'runtime-qualification'
+      ? 'refs/heads/main'
+      : 'refs/heads/codex/slv-linux-all-targets'
+    const title = operation === 'runtime-qualification'
+      ? 'SLV runtime qualification'
+      : 'SLV release build validation'
+    if (
+      event !== 'workflow_dispatch' ||
+      runtime.env('GITHUB_REPOSITORY') !== 'ValidatorsDAO/slv' ||
+      ref !== expectedRef || !SHA.test(reviewed) || githubSha !== reviewed ||
+      runtime.env('GITHUB_WORKFLOW_SHA') !== reviewed ||
+      runtime.env('GITHUB_WORKFLOW_REF') !==
+        `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${expectedRef}` ||
+      runtime.env('GITHUB_RUN_TITLE') !== `${title} ${reviewed}`
+    ) {
+      fail(
+        `${operation} requires the exact reviewed dispatch, title, workflow and full SHA`,
+      )
+    }
+    if (await must(runtime, 'git', ['rev-parse', 'HEAD']) !== reviewed) {
+      fail(`${operation} reviewed SHA must equal the checked-out source`)
+    }
+    return {
+      mode: operation,
+      linux_validation: false,
+      release_required: false,
+      publication: 'none',
+      version: await versionAt(runtime, reviewed),
+      tag: '',
+      source_sha: reviewed,
+      source_ref: ref,
+      source_timestamp: await timestampAt(runtime, reviewed),
+    }
+  }
+  if (operation === 'source-build-validation') {
+    const reviewed = runtime.env('INPUT_REVIEWED_SHA') ?? ''
+    const validationRef = 'refs/heads/codex/slv-linux-ephemeral-release'
+    if (
+      event !== 'workflow_dispatch' ||
+      runtime.env('GITHUB_REPOSITORY') !== 'ValidatorsDAO/slv' ||
+      ref !== validationRef || !SHA.test(reviewed) || githubSha !== reviewed ||
+      runtime.env('GITHUB_WORKFLOW_SHA') !== reviewed ||
+      runtime.env('GITHUB_WORKFLOW_REF') !==
+        `ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@${validationRef}`
+    ) {
+      fail(
+        'source-build-validation requires the exact reviewed workflow dispatch and full SHA',
+      )
+    }
+    if (await must(runtime, 'git', ['rev-parse', 'HEAD']) !== reviewed) {
+      fail(
+        'source-build-validation reviewed SHA must equal the checked-out source',
+      )
+    }
+    return {
+      mode: 'source-build-validation',
+      linux_validation: true,
+      release_required: false,
+      publication: 'none',
+      version: '',
+      tag: '',
+      source_sha: reviewed,
+      source_ref: ref,
+      source_timestamp: await timestampAt(runtime, reviewed),
+    }
+  }
+  if (operation !== '' && operation !== 'release') {
+    fail('unsupported workflow operation')
+  }
   if (event === 'push' && ref === 'refs/heads/main') {
+    if (
+      runtime.env('GITHUB_REPOSITORY') !== 'ValidatorsDAO/slv' ||
+      runtime.env('GITHUB_WORKFLOW_SHA') !== githubSha ||
+      runtime.env('GITHUB_WORKFLOW_REF') !==
+        'ValidatorsDAO/slv/.github/workflows/slv-remote-build.yml@refs/heads/main' ||
+      await must(runtime, 'git', ['rev-parse', 'HEAD']) !== githubSha
+    ) {
+      fail(
+        'main release requires the exact repository, source and workflow identity',
+      )
+    }
     if (!SHA.test(before) || !SHA.test(after) || githubSha !== after) {
       fail('main push requires matching usable before, after, and GITHUB_SHA')
     }
@@ -423,6 +543,7 @@ export async function resolveRelease(
     if (version === previous) {
       return {
         mode: 'ci',
+        linux_validation: false,
         release_required: false,
         version: '',
         tag: '',
@@ -436,8 +557,17 @@ export async function resolveRelease(
       fail(`main version must advance: ${previous} -> ${version}`)
     }
     const action = publicationFor(state)
+    if (
+      action.releaseRequired &&
+      runtime.env('SLV_LINUX_BUILDERS_ENABLED') !== 'true'
+    ) {
+      fail(
+        'main product release requires the enabled Linux builders capability',
+      )
+    }
     return {
       mode: 'main-release',
+      linux_validation: false,
       release_required: action.releaseRequired,
       version,
       tag: `v${version}`,
@@ -468,9 +598,15 @@ export async function resolveRelease(
       sourceSha,
       'origin/main',
     ])
+    if (state !== 'immutable') {
+      fail(
+        'tag operations only verify immutable releases; retry the original main publisher with its retained artifacts',
+      )
+    }
     const action = publicationFor(state)
     return {
       mode: 'tag-release',
+      linux_validation: false,
       release_required: action.releaseRequired,
       version: tagMatch[1],
       tag,
@@ -501,9 +637,15 @@ export async function resolveRelease(
       sourceSha,
       'origin/main',
     ])
+    if (state !== 'immutable') {
+      fail(
+        'tag operations only verify immutable releases; retry the original main publisher with its retained artifacts',
+      )
+    }
     const action = publicationFor(state)
     return {
       mode: 'tag-recovery',
+      linux_validation: false,
       release_required: action.releaseRequired,
       version: inputVersion,
       tag,
@@ -523,6 +665,7 @@ export async function resolveRelease(
     }
     return {
       mode: 'ci',
+      linux_validation: false,
       release_required: false,
       version: await versionAt(runtime, sourceSha),
       tag: '',
@@ -533,6 +676,87 @@ export async function resolveRelease(
     }
   }
   return fail(`unsupported release event/ref: ${event} ${ref}`)
+}
+
+export type WorkflowPhase = 'runtime' | 'product' | 'package'
+const PRODUCT_JOBS = [...PRODUCT_TARGETS].map((target) => `build-${target}`)
+
+/** Validate exact prerequisite results and immutable artifact identities before
+ * download. Persisted producer attempts may precede a downstream retry. */
+export function verifyWorkflowNeeds(
+  phase: WorkflowPhase,
+  value: unknown,
+  runId: string,
+  attempt: string,
+  event: string,
+  ref: string,
+): 'candidate-validation' | 'final-qualified' {
+  if (!/^[1-9]\d*$/.test(runId) || !/^[1-9]\d*$/.test(attempt)) {
+    fail('invalid workflow run identity')
+  }
+  const needs = record(value, 'workflow prerequisites')
+  const expected = phase === 'runtime'
+    ? ['resolve', 'qualification-inputs', 'qualification-promotion']
+    : [
+      'resolve',
+      'test',
+      'source-materials',
+      'runtime-qualification',
+      ...(phase === 'package' ? PRODUCT_JOBS : []),
+    ]
+  if (!equalJson(Object.keys(needs).sort(), expected.sort())) {
+    fail('workflow prerequisite inventory differs')
+  }
+  const resolve = record(needs.resolve, 'resolve prerequisite')
+  const outputs = record(resolve.outputs, 'resolve outputs')
+  const final = event === 'push' && ref === 'refs/heads/main' &&
+    outputs.mode === 'main-release' && outputs.release_required === 'true'
+  const candidate = (event === 'pull_request' &&
+    /^refs\/pull\/[1-9]\d*\/merge$/.test(ref) && outputs.mode === 'ci') ||
+    (event === 'workflow_dispatch' &&
+      ref === 'refs/heads/codex/slv-linux-all-targets' &&
+      outputs.mode === 'release-build-validation')
+  if (!final && !candidate) {
+    fail('operation cannot consume product qualification')
+  }
+  if (!SHA.test(String(outputs.source_sha))) fail('invalid resolved source')
+  for (const name of expected) {
+    const job = record(needs[name], `${name} prerequisite`)
+    const expectedResult = name === 'qualification-promotion' && !final
+      ? 'skipped'
+      : 'success'
+    if (job.result !== expectedResult) {
+      fail(`${name} prerequisite did not ${expectedResult}`)
+    }
+    if (name === 'resolve' || name === 'qualification-promotion') continue
+    const artifact = record(job.outputs, `${name} outputs`)
+    const prefix = name === 'test' ? 'license_' : ''
+    if (
+      !/^[1-9]\d*$/.test(String(artifact[`${prefix}artifact_id`])) ||
+      !/^(?:sha256:)?[a-f0-9]{64}$/.test(
+        String(artifact[`${prefix}artifact_digest`]),
+      ) ||
+      artifact[`${prefix}producer_run_id`] !== runId ||
+      !/^[1-9]\d*$/.test(String(artifact[`${prefix}producer_attempt`])) ||
+      BigInt(String(artifact[`${prefix}producer_attempt`])) > BigInt(attempt)
+    ) {
+      fail(`${name} artifact producer identity differs`)
+    }
+    const hashField = name === 'test'
+      ? 'license_notice_sha256'
+      : 'receipt_sha256'
+    if (!SHA256.test(String(artifact[hashField]))) {
+      fail(`${name} receipt hash is absent`)
+    }
+    if (
+      name === 'runtime-qualification' &&
+      artifact.qualification_state !==
+        (final ? 'final-qualified' : 'candidate-validation')
+    ) {
+      fail('runtime qualification state differs from event')
+    }
+  }
+  return final ? 'final-qualified' : 'candidate-validation'
 }
 
 export type DraftAsset = { name: string; sha256?: string }
@@ -584,6 +808,7 @@ function strictManifest(value: unknown): StrictManifest {
     source?: { commit?: unknown; ref?: unknown }
     workflow?: { run_id?: unknown; run_attempt?: unknown }
     assets?: unknown
+    runtime_qualification?: QualificationReference
   }
   const version = source.version
   const identity = source.source
@@ -601,6 +826,7 @@ function strictManifest(value: unknown): StrictManifest {
     (workflow as { run_id: string }).run_id,
     String((workflow as { run_attempt: number }).run_attempt),
     assets as Asset[],
+    source.runtime_qualification,
   )
   if (JSON.stringify(normalized) !== JSON.stringify(value)) {
     fail('published release manifest has unknown fields or invalid inventory')
@@ -626,7 +852,9 @@ export async function guardDraftManifest(
     existing.version !== staged.version || existing.tag !== staged.tag ||
     existing.source.commit !== staged.source.commit ||
     existing.source.ref !== staged.source.ref ||
-    JSON.stringify(existing.assets) !== JSON.stringify(staged.assets)
+    JSON.stringify(existing.assets) !== JSON.stringify(staged.assets) ||
+    JSON.stringify(existing.runtime_qualification) !==
+      JSON.stringify(staged.runtime_qualification)
   ) fail('draft manifest source or payload inventory differs')
   if (
     existing.workflow.run_id !== staged.workflow.run_id ||
@@ -733,8 +961,11 @@ async function currentReleaseState(
 if (import.meta.main) {
   const [command, ...args] = Deno.args
   if (command === 'resolve') {
-    const provisional = await resolveRelease(shellRuntime, 'absent')
-    const resolution = provisional.mode === 'ci'
+    const provisional = await resolveRelease(shellRuntime, 'immutable')
+    const resolution = (provisional.mode === 'ci' ||
+        provisional.mode === 'source-build-validation' ||
+        provisional.mode === 'release-build-validation' ||
+        provisional.mode === 'runtime-qualification')
       ? provisional
       : await resolveRelease(
         shellRuntime,
@@ -748,6 +979,20 @@ if (import.meta.main) {
         '\n',
       ) + '\n',
       { append: true },
+    )
+  } else if (
+    command === 'guard-needs' && args.length === 1 &&
+    ['runtime', 'product', 'package'].includes(args[0])
+  ) {
+    console.log(
+      verifyWorkflowNeeds(
+        args[0] as WorkflowPhase,
+        JSON.parse(Deno.env.get('NEEDS_JSON') ?? 'null'),
+        Deno.env.get('GITHUB_RUN_ID') ?? '',
+        Deno.env.get('GITHUB_RUN_ATTEMPT') ?? '',
+        Deno.env.get('GITHUB_EVENT_NAME') ?? '',
+        Deno.env.get('GITHUB_REF') ?? '',
+      ),
     )
   } else if (command === 'verify-directory' && args.length >= 4) {
     const verified = await verifyReleaseDirectory(
