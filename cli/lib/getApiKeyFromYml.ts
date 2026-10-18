@@ -175,6 +175,7 @@ const checkLogin = async (
       ok: false,
       lines: [
         'You are not signed in to ERPC on this machine.',
+        'SLV AI and account features require an OAuth login; an RPC API key cannot sign you in.',
         '',
         '🚀 Get started with one of the commands below:',
         '',

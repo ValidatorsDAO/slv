@@ -132,7 +132,13 @@ export function getAuthorizationStatus(
   const authorizationLink = getAuthorizationLink(candidates)
 
   return {
-    state: customerId ? 'authorized' : 'unauthorized',
+    // A billing customer can exist before payment verification succeeds.
+    // Absence of the verification flag is not evidence of activation.
+    state: isPaymentValid === true
+      ? 'authorized'
+      : isPaymentValid === false
+      ? 'unauthorized'
+      : 'unknown',
     customerId,
     isPaymentValid,
     authorizationLink,
@@ -145,8 +151,10 @@ export async function fetchAuthorizationStatus(
   try {
     const response = await fetch(USER_DASHBOARD_URL, {
       headers: { Authorization: await userApiAuthHeader(auth) },
+      signal: AbortSignal.timeout(30_000),
     })
     if (!response.ok) {
+      await response.body?.cancel()
       return {
         state: 'unknown',
         customerId: null,

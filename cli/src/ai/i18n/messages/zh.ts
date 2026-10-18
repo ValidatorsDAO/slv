@@ -1,4 +1,50 @@
 export const messages: Record<string, string> = {
+  'Complete account activation in the ERPC dashboard before using SLV AI.':
+    '使用 SLV AI 前，请在 ERPC 控制面板中完成账户激活。',
+  'Could not verify your account is ready for AI. Your settings will be saved.':
+    '无法确认账户是否可以使用 AI。设置将被保存。',
+
+  // Quick onboarding
+  'Build and operate Solana, through conversation.':
+    '通过对话构建和运维 Solana。',
+  'Connect your account': '连接你的账户',
+  'Continue with guided setup?': '继续引导设置吗？',
+  'Could not verify your AI balance. Your settings will be saved.':
+    '无法确认 AI 余额。你的设置仍会保存。',
+  'ERPC connected, but no AI tokens are available. Run `slv ai product` to review your options.':
+    '已连接 ERPC，但没有可用的 AI token。运行 `slv ai product` 查看选项。',
+  'ERPC connected. AI balance: {count} tokens.':
+    '已连接 ERPC。AI 余额：{count} token。',
+  'Enable browser chat on this machine?': '在这台设备上启用浏览器聊天吗？',
+  'Existing sudoers file at {path} was not installed by slv — leaving it alone.':
+    '{path} 中的 sudoers 文件不是由 slv 创建的，将保持不变。',
+  'Finish signing in or checking your AI balance, then run `slv ai`.':
+    '完成登录或确认 AI 余额后，再运行 `slv ai`。',
+  'Keep private keys and passwords out of the conversation.':
+    '请勿在对话中提供私钥或密码。',
+  'Keeping your existing AI provider: {provider}.':
+    '保留现有的 AI 提供商：{provider}。',
+  'Language ready': '语言已就绪',
+  'Personalization, notifications and browser access: `slv onboard --advanced`.':
+    '个性化、通知和浏览器访问设置：`slv onboard --advanced`。',
+  'Ready to chat': '可以开始聊天了',
+  'SLV AI uses a cloud AI service. Commands that change your environment require confirmation.':
+    'SLV AI 使用云端 AI 服务。更改环境的命令会在执行前请求确认。',
+  'Settings can be saved now. Run `slv login` before starting SLV AI.':
+    '现在可以保存设置。启动 SLV AI 前，请运行 `slv login`。',
+  'Settings saved': '设置已保存',
+  'Start a conversation with `slv ai`.': '运行 `slv ai` 开始对话。',
+  'Sudoers install failed:': 'sudoers 安装失败：',
+  'Try asking: "What subscriptions do I have?" or "Help me prepare a testnet validator."':
+    '例如：“我有哪些订阅？”或“帮我准备测试网验证节点”。',
+  '{count} specialist agents are available. SLV chooses the right one for your request.':
+    '{count} 个专业助手已可用。SLV 会根据你的请求选择合适的助手。',
+  // First conversation
+  "I'm {agent}, your SLV assistant.": '我是 {agent}，你的 SLV 助手。',
+  'Try: "Show my ERPC subscriptions" or "Help me prepare a testnet validator".':
+    '例如：“查看我的 ERPC 订阅”或“帮我准备测试网验证节点”。',
+  'Following your current request. Use /focus to set a preference.':
+    '按你当前的请求处理。可使用 /focus 设置偏好。',
   'SLV AI Onboarding': 'SLV AI 初始化',
   'Select your language': '请选择语言',
   'Language saved. Please run `slv onboard` again to continue.':
@@ -20,14 +66,11 @@ export const messages: Record<string, string> = {
   'No': '否',
   'Setup cancelled.': '已取消设置。',
 
-  'ERPC Login':
-    'ERPC 登录',
+  'ERPC Login': 'ERPC 登录',
   'Sign in to ERPC in your browser to use SLV AI and your ERPC account from this machine.':
     '在浏览器中登录 ERPC 后，即可在此机器上使用 SLV AI 和您的 ERPC 账户。',
-  'Sign in to ERPC now?':
-    '现在登录 ERPC 吗？',
-  'Signed in to ERPC.':
-    '已登录 ERPC。',
+  'Sign in to ERPC now?': '现在登录 ERPC 吗？',
+  'Signed in to ERPC.': '已登录 ERPC。',
   'Not signed in to ERPC. Run `slv login` on this machine to use SLV AI and HTTPS.':
     '尚未登录 ERPC。请在此机器上运行 `slv login` 以使用 SLV AI 和 HTTPS。',
   'Skipped. You can run `slv login` later.':
@@ -70,13 +113,10 @@ export const messages: Record<string, string> = {
     'Discord Webhook 已保存到 ~/.slv/api.yml',
   'Skipped.': '已跳过。',
 
-  'Agent files saved to ~/.slv/agent/':
-    '代理文件已保存到 ~/.slv/agent/',
-  'AI configuration saved to ~/.slv/api.yml':
-    'AI 配置已保存到 ~/.slv/api.yml',
+  'Agent files saved to ~/.slv/agent/': '代理文件已保存到 ~/.slv/agent/',
+  'AI configuration saved to ~/.slv/api.yml': 'AI 配置已保存到 ~/.slv/api.yml',
   'Agent:': '代理:',
-  'Run `slv c` to start the AI console.':
-    '运行 `slv c` 启动 AI 控制台。',
+  'Run `slv c` to start the AI console.': '运行 `slv c` 启动 AI 控制台。',
   'First, tell the AI `set up the firewall` — we recommend hardening security next.':
     '先告诉 AI「设置防火墙」—— 建议接着加强安全性。',
 
@@ -100,13 +140,11 @@ export const messages: Record<string, string> = {
   "I'm your SLV assistant.": '我是您的 SLV 助手。',
   "Here's my crew:": '这是我的团队:',
   'What would you like to work on today?': '今天想做什么？',
-  'Solana Validator deployments & management':
-    'Solana 验证者部署与管理',
+  'Solana Validator deployments & management': 'Solana 验证者部署与管理',
   'RPC nodes (Index RPC, gRPC Geyser, combos)':
     'RPC 节点 (Index RPC、gRPC Geyser、组合)',
   'Trading bots & Solana apps': '交易机器人与 Solana 应用',
-  'Find optimized Solana server resources':
-    '寻找最优 Solana 服务器资源',
+  'Find optimized Solana server resources': '寻找最优 Solana 服务器资源',
   'Benchmarks & connectivity testing': '基准测试与连通性测试',
   'Goodbye!': '再见！',
 
@@ -165,8 +203,7 @@ export const messages: Record<string, string> = {
 
   'Current focus: {focus} (manual override)': '当前焦点: {focus}（手动覆盖）',
   'Current focus: {focus} (auto)': '当前焦点: {focus}（自动）',
-  '⚠ Could not detect current focus: {error}':
-    '⚠ 无法检测当前焦点: {error}',
+  '⚠ Could not detect current focus: {error}': '⚠ 无法检测当前焦点: {error}',
   'Usage: /focus validator | rpc | app | mixed | auto':
     '用法: /focus validator | rpc | app | mixed | auto',
   '◇ Focus override cleared.': '◇ 已清除焦点覆盖。',
@@ -291,13 +328,11 @@ export const messages: Record<string, string> = {
   'Browser chat UI (optional)': '浏览器聊天界面（可选）',
   'Installs a background service so you can chat with SLV from any browser at http://127.0.0.1:{port}/ui/ without keeping a terminal open.':
     '安装后台服务，无需保持终端打开即可在浏览器中访问 http://127.0.0.1:{port}/ui/ 与 SLV 聊天。',
-  'Not supported on this platform — skipped.':
-    '此平台不支持 — 已跳过。',
+  'Not supported on this platform — skipped.': '此平台不支持 — 已跳过。',
   'Could not probe gateway status:': '无法查询网关状态:',
   'Gateway is already running at http://127.0.0.1:{port}/ui/':
     '网关已在 http://127.0.0.1:{port}/ui/ 运行',
-  'Install and start the gateway now?':
-    '现在安装并启动网关吗？',
+  'Install and start the gateway now?': '现在安装并启动网关吗？',
   'Skipped. Run `slv gateway install && slv gateway start` later to enable the browser UI.':
     '已跳过。稍后运行 `slv gateway install && slv gateway start` 即可启用浏览器 UI。',
   'Gateway install failed — run `slv gateway install` manually to retry.':
@@ -315,8 +350,7 @@ export const messages: Record<string, string> = {
   'Set up HTTPS now?': '现在配置 HTTPS 吗？',
   'Skipped. Run `slv install nginx` later to enable HTTPS.':
     '已跳过。稍后运行 `slv install nginx` 启用 HTTPS。',
-  'HTTPS setup failed ({stage}): {err}':
-    'HTTPS 配置失败（{stage}）：{err}',
+  'HTTPS setup failed ({stage}): {err}': 'HTTPS 配置失败（{stage}）：{err}',
   'You can retry later with `slv install nginx`.':
     '您可以稍后使用 `slv install nginx` 重试。',
   'HTTPS is live at {url}': 'HTTPS 已启用：{url}',
@@ -374,8 +408,7 @@ export const messages: Record<string, string> = {
   // Discord 完成通知
   'SLV AI setup complete!': 'SLV AI 设置完成!',
   'Open SLV in your browser:': '在浏览器中打开 SLV:',
-  'Gateway token (paste on first visit):':
-    '网关令牌（首次访问时粘贴）:',
+  'Gateway token (paste on first visit):': '网关令牌（首次访问时粘贴）:',
   'Security: ask SLV AI to help you set up the firewall. Run `slv c` to start.':
     '安全提醒: 运行 `slv c`，请 SLV AI 帮您配置防火墙。',
   'Video walkthrough: coming soon.': '视频教程：即将发布。',

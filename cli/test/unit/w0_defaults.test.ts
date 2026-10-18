@@ -5,7 +5,6 @@ import {
   VERSION_ALLNODES_JITO_MAINNET,
   VERSION_JITO_MAINNET,
   VERSION_JITO_VALIDATOR_MAINNET,
-  VERSION_JITO_VALIDATOR_TESTNET,
   VERSION_SOLANA_MAINNET,
   VERSION_SOLANA_VALIDATOR_MAINNET,
 } from '@cmn/constants/version.ts'
@@ -392,16 +391,11 @@ Deno.test('the OSS skill docs name the default jito and allnodes versions wherev
   assert(named > 0, 'the docs name no jito or allnodes version')
 })
 
-Deno.test('the console prompts quote the testnet validator jito default as their version example', async () => {
+Deno.test('validator guidance reads the selected network version pins instead of presenting a stale installed-version example', () => {
   assertStringIncludes(
-    CONTEXT_MODULES.deploy,
-    `"Solana Version: ${VERSION_JITO_VALIDATOR_TESTNET} (from versions.yml)"`,
+    CONTEXT_MODULES.validator,
+    "read each network's versions.yml pins",
   )
-  const tools = await Deno.readTextFile(
-    new URL('../../src/ai/console/tools.ts', import.meta.url),
-  )
-  assertStringIncludes(tools, '(e.g. "${VERSION_JITO_VALIDATOR_TESTNET}")')
-  for (const text of [CONTEXT_MODULES.deploy, tools]) {
-    assertEquals(text.includes('4.0.0-beta.2'), false)
-  }
+  assertStringIncludes(CONTEXT_MODULES.validator, 'preserve CLI checks')
+  assertEquals(CONTEXT_MODULES.validator.includes('4.0.0-beta.2'), false)
 })

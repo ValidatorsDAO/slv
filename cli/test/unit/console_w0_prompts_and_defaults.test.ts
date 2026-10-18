@@ -1,3 +1,4 @@
+import { VALIDATOR_GUIDANCE } from '@/ai/console/operationalGuidance.ts'
 import { assert, assertEquals, assertFalse } from '@std/assert'
 
 import { AgentConfigSchema } from '@/ai/agentConfig/schema.ts'
@@ -179,42 +180,56 @@ Deno.test('the write_file description and the validator onboarding text say who 
   includes(tools, 'gives both to the user to save themselves', 'tools.ts')
 })
 
-Deno.test('the console prompts and the init flows say that the staked key stays on the controller and is never copied, and name no key file of it on the node', async () => {
-  for (
-    const path of [
-      'ai/console/tools.ts',
-      'ai/console/systemPrompt.ts',
-      'validator/init/initMainnetConfig.ts',
-      'validator/init/initTestnetConfig.ts',
-    ]
-  ) {
-    const text = await source(`${SRC}/${path}`)
-    assertFalse(
-      /(?:mainnet|testnet)-validator-keypair\.json/.test(text),
-      `${path}: names the staked key file as being on the node`,
-    )
-    assertFalse(
-      text.includes('/home/solv/<identity-pubkey>.json'),
-      `${path}: a pubkey-named staked key is left`,
-    )
-    assertFalse(/copied from ~\/\.slv\/keys/.test(text), `${path}: says copied`)
-    includes(text, '~/.slv/keys/', path)
-    includes(text, 'deploy never copies', path)
-    includes(text, 'only on stdin', path)
+Deno.test('the console and init explain controller-held staked keys without claiming legacy nodes have no copy', async () => {
+  for (const file of ['tools.ts', 'systemPrompt.ts']) {
+    const wiring = await source(`${SRC}/ai/console/${file}`)
+    includes(wiring, 'VALIDATOR_GUIDANCE', file)
   }
-  // What a deploy does is said, not what is on every node: a node deployed by
-  // an older slv may still hold a copy.
-  for (const path of ['ai/console/tools.ts', 'ai/console/systemPrompt.ts']) {
-    const text = await source(`${SRC}/${path}`)
+  resetContextModules()
+  try {
+    loadContextModules(['validator'])
+    const assembled = getModuleContent()
+    includes(assembled, VALIDATOR_GUIDANCE, 'loaded validator context')
+    for (
+      const [label, text] of [
+        ['validator context', assembled],
+        [
+          'mainnet init',
+          await source(`${SRC}/validator/init/initMainnetConfig.ts`),
+        ],
+        [
+          'testnet init',
+          await source(`${SRC}/validator/init/initTestnetConfig.ts`),
+        ],
+      ]
+    ) {
+      includes(text, '~/.slv/keys/', label)
+      includes(text, 'deploy never copies', label)
+      includes(text, 'only on stdin', label)
+      assertFalse(text.includes('/home/solv/<identity-pubkey>.json'), label)
+      assertFalse(/\bNOT on the node\b/.test(text), label)
+    }
+    includes(assembled, 'older slv may still hold a copy', 'legacy node caveat')
+  } finally {
+    resetContextModules()
+  }
+})
+
+Deno.test('validator identity examples require an explicit network instead of the CLI default', () => {
+  resetContextModules()
+  try {
+    loadContextModules(['validator', 'cli_reference'])
+    const text = getModuleContent()
+    for (const name of ['set:identity', 'set:unstaked']) {
+      includes(text, `slv v ${name} -n <network> -p <host>`, name)
+    }
+    matches(text, /slv v switch -n <network> -f <[^>]+> -t <[^>]+>/, 'switch')
     assertFalse(
-      /\bNOT on the node\b/.test(text),
-      `${path}: says the key is not on the node`,
+      /slv v set:identity -p <host>(?:[.`]|$)/m.test(text),
+      'mainnet example must not rely on the testnet default',
     )
-    includes(
-      text,
-      'A node deployed by an older slv may still hold a copy',
-      path,
-    )
+  } finally {
+    resetContextModules()
   }
 })
 
@@ -234,7 +249,7 @@ Deno.test('the console context no longer teaches an identity switch by symlink o
     assertFalse(SYMLINK_TO_IDENTITY.test(text), 'a symlink instruction is left')
     assertFalse(KEYGEN_NEW.test(text), 'a key generation step is left')
     includes(text, 'slv v switch', 'context')
-    includes(text, 'slv v set:identity -p <host>', 'context')
+    includes(text, 'slv v set:identity -n <network> -p <host>', 'context')
     includes(text, 'slv v init', 'context')
     assertFalse(
       BARE_SET_IDENTITY.test(text),
@@ -246,39 +261,23 @@ Deno.test('the console context no longer teaches an identity switch by symlink o
 })
 
 Deno.test('the sub-agent prompt no longer teaches an identity switch by symlink or key generation', async () => {
-  const text = await source(`${SRC}/ai/console/tools.ts`)
+  const wiring = await source(`${SRC}/ai/console/tools.ts`)
+  includes(
+    wiring,
+    "effectiveName === 'Cecil' ? VALIDATOR_GUIDANCE",
+    'specialist wiring',
+  )
+  const text = VALIDATOR_GUIDANCE
   assertFalse(SYMLINK_TO_IDENTITY.test(text), 'a symlink instruction is left')
   assertFalse(KEYGEN_NEW.test(text), 'a key generation step is left')
   assertFalse(/\bln -sf\b/.test(text), 'ln -sf is left')
   includes(text, 'slv v switch', 'tools.ts')
-  includes(text, 'slv v set:identity -p <host>', 'tools.ts')
+  includes(text, 'slv v set:identity -n <network> -p <host>', 'tools.ts')
   includes(text, 'slv v init', 'tools.ts')
   assertFalse(
     BARE_SET_IDENTITY.test(text),
     'a bare slv v set:identity is left',
   )
-})
-
-Deno.test('the mainnet sentences of the sub-agent prompt name -n mainnet, because a bare slv v set:identity or slv v switch takes testnet', async () => {
-  const text = await source(`${SRC}/ai/console/tools.ts`)
-  const layout = text.match(
-    /\*\*Mainnet:\*\*[\s\S]*?\*\*Why unstaked by default/,
-  )
-  const completion = text.match(/- For mainnet: [^\n]*/)
-  assert(layout !== null, 'the mainnet key layout is not where the test looks')
-  assert(
-    completion !== null,
-    'the mainnet sentence is not where the test looks',
-  )
-  for (
-    const [label, sentence] of [
-      ['key layout', layout[0]],
-      ['completion message', completion[0]],
-    ]
-  ) {
-    includes(sentence, 'slv v set:identity -p <host> -n mainnet', label)
-    includes(sentence, 'slv v switch -n mainnet', label)
-  }
 })
 
 Deno.test('the release notes under template/ promote one node with slv v set:identity -p <host>', async () => {
@@ -371,14 +370,17 @@ Deno.test('the validator AGENT.md generates keys on the operator machine, in bot
     /generat\w*[^\n]*\b(target|remote)\b[^\n]*\bserver\b/i.test(text),
     'a key generation on the server is left',
   )
-  const keys = text.slice(
-    text.indexOf('### Step 4: Keys'),
-    text.indexOf('### Step 5'),
+  includes(
+    text,
+    'Have the operator complete key handling in their own terminal',
+    'key handling',
   )
-  assert(keys.length > 0, 'AGENT.md has no Step 4: Keys section')
-  assertFalse(/target server/i.test(keys), 'Step 4 mentions the target server')
-  includes(keys, '~/.slv/keys', 'Step 4')
-  matches(keys, /operator'?s? (own )?machine/i, 'Step 4')
+  includes(
+    text,
+    'only for public keys or non-secret status, never key contents',
+    'key handling',
+  )
+  includes(text, 'not voting without keys', 'keyless semantics')
 })
 
 Deno.test('the validator SKILL.md command table shows slv v set:identity -p <host>, in both copies', async () => {
@@ -389,7 +391,7 @@ Deno.test('the validator SKILL.md command table shows slv v set:identity -p <hos
     ]
   ) {
     const text = await source(path)
-    includes(text, '| `slv v set:identity -p <host>` |', path)
+    includes(text, '| `slv v set:identity -n <network> -p <host>` |', path)
     assertFalse(text.includes('| `slv v set:identity` |'), `${path}: bare row`)
   }
 })

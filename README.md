@@ -125,14 +125,35 @@ Use `slv rpc deploy --help` for the equivalent RPC workflow.
 **AI Console** — run onboarding, then open the interactive console:
 
 ```sh
-slv onboard
+slv onboard --no-start
 slv c
 ```
 
-Onboarding defaults to SLV AI with ERPC sign-in. If sign-in was skipped, run
-`slv login`. You can configure an alternative AI provider through `slv auth`.
-Provider accounts and service usage are separate from installing the open-source
-CLI.
+By default, onboarding enables all five specialist agents and checks your AI balance before
+opening chat. It preserves existing profiles and memory. Use
+`slv onboard --no-start` to save settings without opening chat, or
+`slv onboard --advanced` for names, deployment mode, notifications and browser
+access.
+
+SLV AI requires ERPC browser OAuth. Run `slv login`, then `slv ai`.
+`slv auth` is also an ERPC login entry point. RPC API keys do not authenticate
+account or AI requests; personal Claude/OpenAI keys and the old `--anthropic` /
+`--openai` flags are no longer supported. Legacy AI settings migrate without
+sending those keys to any service. ERPC login and unrelated settings are preserved.
+Service usage is separate from installing the open-source CLI.
+
+The console follows your current request, including on existing installations.
+Greetings use a short reply without project scans or tool calls; closing chat
+does not start another AI request to decide whether to save memory. Notable
+outcomes can be recorded during the relevant task. Use `/focus` only when you
+want to set an explicit working preference.
+
+Operational guidance checks the installed command help when syntax is uncertain.
+Validator "keyless" startup means initial synchronization with an unstaked
+identity; production voting still needs the operator's keys and identity checks.
+Key handling and interactive deployment steps stay in the operator's terminal.
+`slv install firewall` changes the machine running SLV and replaces its ruleset;
+the generic management-host rules must not be applied blindly to a live node.
 
 Example requests:
 
@@ -209,7 +230,7 @@ controls do not by themselves establish that a release has passed live acceptanc
 ## Credentials and control
 
 **SLV currently uses local credential storage.** `slv login` writes ERPC access
-and refresh tokens to `~/.slv/api.yml` with mode `0600`; configured API keys can
+and refresh tokens to `~/.slv/api.yml` with mode `0600`; configured RPC API keys can
 also be stored there.
 
 Validator deployment starts nodes with an unstaked identity and does not copy

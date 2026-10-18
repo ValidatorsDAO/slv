@@ -1,7 +1,5 @@
 import type { SessionDriver } from '/src/ai/core/session.ts'
 import type { ChatCallbacks } from '/src/ai/console/consoleAction.ts'
-import { AnthropicProvider } from '/src/ai/console/providers/anthropic.ts'
-import { OpenAIProvider } from '/src/ai/console/providers/openai.ts'
 import { SLVProvider } from '/src/ai/console/providers/slv.ts'
 import {
   clearAbort,
@@ -31,42 +29,23 @@ export type ProviderLike = {
 
 export type ProviderBuilder = (callbacks: ChatCallbacks) => ProviderLike
 
-/**
- * `anthropic` / `openai` take the provider's own API key. `slv` talks to
- * user-api and takes the ERPC login as a user-api auth value, so an API
- * key cannot be passed to it.
- */
-export type ProviderConfig =
-  | {
-    kind: 'anthropic' | 'openai'
-    apiKey: string
-    model: string
-    systemPrompt: string
-  }
-  | {
-    kind: 'slv'
-    auth: UserApiAuth
-    model: string
-    systemPrompt: string
-  }
-
-/**
- * Default builder that instantiates the real SDK-backed provider
- * matching `cfg.kind`. Exposed as a separate function so tests can
- * inject a stub via `providerDriver({build: ...})` — and so the
- * Session doesn't need to import the SDKs directly when mocked.
- */
-export const defaultProviderBuilder = (cfg: ProviderConfig): ProviderBuilder =>
-(callbacks) => {
-  switch (cfg.kind) {
-    case 'anthropic':
-      return new AnthropicProvider(cfg.apiKey, cfg.model, cfg.systemPrompt, callbacks)
-    case 'openai':
-      return new OpenAIProvider(cfg.apiKey, cfg.model, cfg.systemPrompt, callbacks)
-    case 'slv':
-      return new SLVProvider(cfg.auth, cfg.model, cfg.systemPrompt, callbacks)
-  }
+/** SLV chat always requires ERPC OAuth credentials. */
+export type ProviderConfig = {
+  kind: 'slv'
+  auth: UserApiAuth
+  model: string
+  systemPrompt: string
 }
+
+export const defaultProviderBuilder =
+  (cfg: ProviderConfig): ProviderBuilder => (callbacks) => {
+    if (cfg.kind !== 'slv') {
+      throw new Error(
+        'SLV AI requires ERPC OAuth. Run `slv login`; personal AI API keys are no longer supported.',
+      )
+    }
+    return new SLVProvider(cfg.auth, cfg.model, cfg.systemPrompt, callbacks)
+  }
 
 /**
  * Translate a provider's callback-based streaming into `SessionEvent`s.

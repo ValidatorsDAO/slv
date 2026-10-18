@@ -1,86 +1,49 @@
-import { assert, assertEquals, assertStringIncludes } from '@std/assert'
+import {
+  assert,
+  assertEquals,
+  assertFalse,
+  assertStringIncludes,
+} from '@std/assert'
+import { VALIDATOR_GUIDANCE } from '@/ai/console/operationalGuidance.ts'
+import { CONTEXT_MODULES } from '@/ai/console/systemPrompt.ts'
+import { ALPENGLOW_FLOORS } from '/lib/versionFloor.ts'
 
-// slv overhaul: Alpenglow. The SLV AI console deploys a validator by running
-// <network>-validator/init.yml itself, which skips the checks of `slv v deploy`:
-// a Firedancer or Frankendancer type on mainnet, and a client below the floor.
-// What it is told is in the sub-agent prompt of src/ai/console/tools.ts.
-
-const source = Deno.readTextFile(
-  new URL('../../src/ai/console/tools.ts', import.meta.url),
-)
-
-/** The text from `from` up to the next `to` (or the end). */
-const between = (text: string, from: string, to: string): string => {
-  const start = text.indexOf(from)
-  assert(start >= 0, `no "${from}" in tools.ts`)
-  const end = text.indexOf(to, start + from.length)
-  return text.slice(start, end < 0 ? undefined : end)
-}
-
-Deno.test('the console offers the Firedancer validator types on testnet only', async () => {
-  const text = await source
-  const question = between(text, '5. Validator type:', '\n')
-  assertStringIncludes(question, 'jito / agave / allnodes-jito on any network')
-  assertStringIncludes(
-    question,
-    'firedancer-agave / firedancer-jito on testnet only',
+Deno.test('main console and validator specialist use the same current identity guidance', async () => {
+  assertEquals(CONTEXT_MODULES.validator, VALIDATOR_GUIDANCE)
+  assertFalse(CONTEXT_MODULES.deploy === VALIDATOR_GUIDANCE)
+  assertStringIncludes(CONTEXT_MODULES.deploy, 'mainnet/testnet/devnet RPC')
+  const tools = await Deno.readTextFile(
+    new URL('../../src/ai/console/tools.ts', import.meta.url),
   )
-  assertStringIncludes(question, 'mainnet refuses them')
-  const types = between(text, '### Validator types', '\n###')
-  for (const type of ['firedancer-agave', 'firedancer-jito']) {
-    const line = types.split('\n').find((row) => row.startsWith(`- ${type} `))
-    assert(line, `no ${type} in the list of types`)
-    assertStringIncludes(line, 'testnet only; refused on mainnet')
-  }
-  for (const type of ['jito', 'agave', 'allnodes-jito']) {
-    const line = types.split('\n').find((row) => row.startsWith(`- ${type} `))
-    assert(line, `no ${type} in the list of types`)
-    assertEquals(line.includes('testnet only'), false, type)
-  }
+  assertStringIncludes(tools, "effectiveName === 'Cecil' ? VALIDATOR_GUIDANCE")
+  assertFalse(tools.includes('Then run ansible-playbook directly'))
+  assertFalse(tools.includes('Do NOT use \\`slv v deploy'))
 })
 
-Deno.test('the console deploy step makes the sub-agent refuse the Firedancer types on mainnet and hold the versions to the floor before it runs init.yml', async () => {
-  const step = between(await source, '### Step 3: Deploy', '### Identity Key')
-  const checks = step.slice(0, step.indexOf('ansible-playbook -i'))
-  assertStringIncludes(checks, 'skips the checks that \\`slv v deploy\\` makes')
-  // Mainnet refuses the Firedancer types, and the sub-agent stops there.
+Deno.test('validator guidance preserves Alpenglow restrictions and uses executable version floors', () => {
   assertStringIncludes(
-    checks,
-    'Mainnet refuses firedancer-agave and firedancer-jito',
+    VALIDATOR_GUIDANCE,
+    'Mainnet Firedancer/Frankendancer deployment and promotion are refused',
+  )
+  for (const type of ['agave', 'jito', 'allnodes-jito']) {
+    assert(VALIDATOR_GUIDANCE.includes(type))
+  }
+  assertStringIncludes(
+    VALIDATOR_GUIDANCE,
+    `mainnet ${ALPENGLOW_FLOORS.mainnet}`,
   )
   assertStringIncludes(
-    checks,
-    'do not write the inventory and do not run init.yml',
+    VALIDATOR_GUIDANCE,
+    `testnet ${ALPENGLOW_FLOORS.testnet}`,
   )
-  assertStringIncludes(checks, 'offer jito, agave or allnodes-jito instead')
-  // The floors come from the code that enforces them, not from a copy.
-  assertStringIncludes(checks, '${ALPENGLOW_FLOORS.mainnet} on mainnet')
-  assertStringIncludes(checks, '${ALPENGLOW_FLOORS.testnet} on testnet')
-  assertStringIncludes(checks, 'version_agave')
-  assertStringIncludes(checks, 'version_jito')
-  assertStringIncludes(checks, 'version_allnodes_jito')
-  assertStringIncludes(checks, 'is not a version number such as 4.3.2')
-  // The playbook is meant to stop too, and the sub-agent does not go round it.
-  assertStringIncludes(checks, 'init.yml is meant to stop on both')
-  assertStringIncludes(
-    checks,
-    'do not change the validator type, a version or the playbook',
-  )
-  // All of it comes before the command that runs the playbook.
-  assert(step.indexOf('Mainnet refuses') < step.indexOf('ansible-playbook -i'))
+  assertStringIncludes(VALIDATOR_GUIDANCE, 'preserve CLI checks')
+  assertStringIncludes(VALIDATOR_GUIDANCE, 'do not bypass prompts or guards')
 })
 
-Deno.test('the main console prompt names the Firedancer validator types as testnet-only wherever it lists the types', async () => {
-  const text = await Deno.readTextFile(
-    new URL('../../src/ai/console/systemPrompt.ts', import.meta.url),
-  )
-  const order = between(text, '7. Validator type', '\n')
+Deno.test('the routing prompt offers Firedancer types only on testnet', () => {
   assertStringIncludes(
-    order,
+    CONTEXT_MODULES.delegation,
     'firedancer-agave/firedancer-jito on testnet only',
   )
-  assertStringIncludes(order, 'mainnet refuses them')
-  const init = between(text, '| \\`slv v init\\` |', '\n')
-  assertStringIncludes(init, 'validator type (jito/agave on any network')
-  assertStringIncludes(init, 'firedancer on testnet only')
+  assertStringIncludes(CONTEXT_MODULES.delegation, 'mainnet refuses them')
 })
