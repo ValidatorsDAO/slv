@@ -49,6 +49,7 @@ import {
 } from '@/ai/console/tools.ts'
 import { errToString } from '/lib/errToString.ts'
 import { callReadTool } from '/lib/userApi/readTools.ts'
+import { loadAiUsageContext } from '@/ai/console/aiUsageContext.ts'
 import type { UserApiAuth } from '/lib/userApi/auth.ts'
 import { UserApiHttpError } from '/lib/userApi/httpError.ts'
 import {
@@ -873,6 +874,17 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
   }
 
   const hydrateUserContextKind = async (kind: UserContextKind) => {
+    // Balances change as the conversation runs. Never reuse an earlier turn's
+    // usage snapshot, even though the rest of the account context is cached.
+    if (kind === 'mcp_ai_usage') {
+      renderStage(
+        t('📚 Loading {context}…').replace('{context}', 'SLV AI'),
+      )
+      if (slvAuth) {
+        hydratedUserContextBlocks.set(kind, await loadAiUsageContext(slvAuth))
+      }
+      return
+    }
     if (hydratedUserContextKinds.has(kind)) return
 
     if (kind === 'mcp_user_account') {
@@ -902,7 +914,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
     }
 
     const inventoryMap: Record<
-      Exclude<UserContextKind, 'mcp_user_account'>,
+      Exclude<UserContextKind, 'mcp_user_account' | 'mcp_ai_usage'>,
       string
     > = {
       inventory_testnet_validators: 'inventory.testnet.validators.yml',
@@ -910,8 +922,7 @@ export const consoleAction = async (options: ConsoleOptions = {}) => {
       inventory_mainnet_rpcs: 'inventory.mainnet.rpcs.yml',
     }
 
-    const inventoryFile =
-      inventoryMap[kind as Exclude<UserContextKind, 'mcp_user_account'>]
+    const inventoryFile = inventoryMap[kind]
     if (!inventoryFile) return
 
     renderStage(

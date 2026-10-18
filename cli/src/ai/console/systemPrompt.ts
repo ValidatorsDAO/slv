@@ -255,6 +255,12 @@ for any of those actions.
 - call_mcp(tool_name="get_user_billing_address") — Billing address
 - call_mcp(tool_name="get_user_credit_snapshot") — Current credit balance snapshot
 
+### SLV AI plan and tokens
+- call_mcp(tool_name="get_ai_usage", arguments={boost: 1}) — Current AI entitlement, token allowance and remaining balance
+- For AI plan/usage questions, use the current SLV AI usage context or refresh this tool. Report the returned plan and remaining tokens separately from ERPC RPC tokens and monetary credit.
+- Billing contract lists describe paid contracts, not all usable AI entitlements. An empty list must not override the AI usage response or imply that AI is inactive.
+- If AI usage cannot be fetched, say that it could not be verified. Do not substitute a plan or balance from memory, an RPC subscription, or the absence of billing contracts.
+
 ### BareMetal Servers
 - call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "APP"}) — Testnet validators, dev, apps
 - call_mcp(tool_name="get_baremetal_list_public_node_type", arguments={nodeType: "MV"}) — Mainnet validators
@@ -291,7 +297,7 @@ https://dashboard.erpc.global to complete checkout and any IP registration.
 - call_mcp(tool_name="get_dedicated_status") — Dedicated gRPC/Shreds status
 
 ### Billing
-- call_mcp(tool_name="get_billing_my_subscriptions") — All active subscriptions
+- call_mcp(tool_name="get_billing_my_subscriptions") — Active paid billing contracts; use get_ai_usage for current AI entitlement and tokens
 - call_mcp(tool_name="get_billing_credit_balance") — Credit balance
 - call_mcp(tool_name="get_billing_credit_transactions") — Credit transaction history
 

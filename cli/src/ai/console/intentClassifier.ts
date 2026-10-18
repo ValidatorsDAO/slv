@@ -25,6 +25,7 @@ export type ContextModuleName =
   | 'mcp_reference'
 export type UserContextKind =
   | 'mcp_user_account'
+  | 'mcp_ai_usage'
   | 'inventory_testnet_validators'
   | 'inventory_mainnet_validators'
   | 'inventory_mainnet_rpcs'
@@ -107,6 +108,7 @@ const ALLOWED_CONTEXT_MODULES: ContextModuleName[] = [
 
 const ALLOWED_USER_CONTEXT_KINDS: UserContextKind[] = [
   'mcp_user_account',
+  'mcp_ai_usage',
   'inventory_testnet_validators',
   'inventory_mainnet_validators',
   'inventory_mainnet_rpcs',
@@ -527,6 +529,7 @@ function buildPlan(
       addTool(tools, 'call_mcp')
       addModule(modules, 'mcp_reference')
       addContextKind(contextKinds, 'mcp_user_account')
+      addContextKind(contextKinds, 'mcp_ai_usage')
       break
     case 'validator_deploy':
       addTool(tools, 'run_command')
@@ -653,6 +656,7 @@ export function describeIntent(intent: IntentType): string {
 export function describeUserContextKind(kind: UserContextKind): string {
   const labels: Record<UserContextKind, string> = {
     mcp_user_account: 'account availability',
+    mcp_ai_usage: 'SLV AI',
     inventory_testnet_validators: 'testnet validator inventory',
     inventory_mainnet_validators: 'mainnet validator inventory',
     inventory_mainnet_rpcs: 'mainnet RPC inventory',

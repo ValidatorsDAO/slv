@@ -446,7 +446,10 @@ Deno.test('failed classifier still identifies Japanese subscription questions as
         assertEquals(plan.intent, 'account_billing')
         assertEquals(plan.language, 'ja')
         assertEquals(plan.toolsToEnable, ['call_mcp'])
-        assertEquals(plan.userContextKindsToHydrate, ['mcp_user_account'])
+        assertEquals(plan.userContextKindsToHydrate, [
+          'mcp_user_account',
+          'mcp_ai_usage',
+        ])
         assertEquals(plan.delegateAgent, null)
         assertEquals(plan.askClarify, null)
       }
