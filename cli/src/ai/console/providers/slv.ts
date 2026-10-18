@@ -264,6 +264,7 @@ export class SLVProvider {
       //   - error                → upstream error mid-stream
       const reader = response.body?.getReader()
       if (!reader) {
+        await response.body?.cancel().catch(() => undefined)
         throw new Error('SLV AI returned a non-streaming response body')
       }
       const decoder = new TextDecoder()
@@ -429,6 +430,12 @@ export class SLVProvider {
           return
         }
         throw err
+      } finally {
+        // A reader lock alone does not stop network input. Cancel first on
+        // every exit path (including abort and parser error), then release
+        // the owned lock.
+        await reader.cancel().catch(() => undefined)
+        reader.releaseLock()
       }
 
       // Save assistant message with the reconstructed block array.

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "derive-io-macros@0.4.1",
+    "archive": {
+      "url": "https://static.crates.io/crates/derive-io-macros/derive-io-macros-0.4.1.crate",
+      "sha256": "8d0a1bd7eeab72097740967d03d53db5fbaf8e3c0dd471ebdefa43ce445a20a6"
+    },
+    "license_declared": "MIT OR Apache-2.0",
+    "license_selected": "Apache-2.0",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "apache"
+    ],
+    "original_authors": [
+      "Matt Mastracci <matthew@mastracci.com>"
+    ],
+    "notes": []
+  },
+  "published_archive_metadata": {
+    "license": "MIT OR Apache-2.0",
+    "authors": [
+      "Matt Mastracci <matthew@mastracci.com>"
+    ],
+    "repository": "https://github.com/mmastrac/derive-io",
+    "homepage": null,
+    "description": "Support macros for derive-io",
+    "license-file": null,
+    "package": "derive-io-macros@0.4.1",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "authors = [\"Matt Mastracci <matthew@mastracci.com>\"]",
+          "license = \"MIT OR Apache-2.0\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "apache",
+      "path": "evidence/cargo-resolution/derive-io-macros@0.4.1/terms-apache.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": {
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

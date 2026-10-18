@@ -1,0 +1,22 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: aead-gcm-stream@0.4.0
+Exact archive: https://static.crates.io/crates/aead-gcm-stream/aead-gcm-stream-0.4.0.crate
+Archive SHA-256: e70c8dec860340effb00f6945c49c0daaa6dac963602750db862eabb74bf7886
+Declared license: MIT
+Selected license branch for this distribution: MIT
+Published authors:
+- Divy Srivastava <dj.srivastava23@gmail.com>
+
+Resolution kind:
+declared-standard-license-supplement
+
+Resolution notes from the evidence review:
+- Preserve actually published attribution/notices; no synthetic copyright holder/year. An absent copyright notice remains recorded as absent, not invented. Source declaration plus full authentic standard terms and original notices constitutes this narrow proposed resolution.
+- Repo recovered from exact README image URL: littledivy/aead-stream at2737345ddbccd5b3e1ae41060b136cfc3e0cb610; 4 Rust files and Cargo.toml.orig byte-equal. tests/README.md credits RustCrypto/aes-gcm; preserve this when distributing source tests.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

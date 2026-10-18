@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "backhand@0.25.1",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/backhand/backhand-0.25.1.crate",
+    "sha256": "72e7812fe72262dd26c2b4309c8e8f2c028db1ffbeb21054f009f847f09ca92c"
+  },
+  "archive_vcs": {
+    "commit": "4ac463be1071219b46fc0184ce452704ea705ba0",
+    "path_in_vcs": "backhand"
+  },
+  "declared_license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/wcampbell0x2a/backhand",
+  "published_manifest": {
+    "path": "backhand-0.25.1/Cargo.toml",
+    "sha256": "06fe35ec040b463db6b2372db9bd1e018f33eaff84a66ee7ad712650822cb937"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/wcampbell0x2a/backhand/4ac463be1071219b46fc0184ce452704ea705ba0/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "bytes": 1023
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/wcampbell0x2a/backhand/4ac463be1071219b46fc0184ce452704ea705ba0/LICENSE-APACHE",
+      "sha256": "fd26644b0118c8ae84a8770bdbbe18f7db14387b5cc19d1de670ad2d98a7ad42",
+      "bytes": 9724
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

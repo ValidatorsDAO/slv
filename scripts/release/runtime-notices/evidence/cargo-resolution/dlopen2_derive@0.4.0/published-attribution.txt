@@ -1,0 +1,22 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: dlopen2_derive@0.4.0
+Exact archive: https://static.crates.io/crates/dlopen2_derive/dlopen2_derive-0.4.0.crate
+Archive SHA-256: f2b99bf03862d7f545ebc28ddd33a665b50865f4dfd84031a393823879bd4c54
+Declared license: MIT
+Selected license branch for this distribution: MIT
+Published authors:
+- Szymon Wieloch <szymon.wieloch@gmail.com>
+- OpenByte <development.openbyte@gmail.com>
+
+Resolution kind:
+recovered-upstream-license-with-source-comparison
+
+Resolution notes from the evidence review:
+- 37 main / 5 derive Rust files equal after CRLF-to-LF normalization; do not claim byte equality or original vcs metadata for dlopen2 0.6.1.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "package": "junction@1.2.0",
+  "classification": "source-vendor",
+  "scope": "Exact Cargo source archive retained for full source-vendor coverage only; this record makes no denort binary-target inclusion assertion.",
+  "archive": {
+    "url": "https://static.crates.io/crates/junction/junction-1.2.0.crate",
+    "sha256": "72bbdfd737a243da3dfc1f99ee8d6e166480f17ab4ac84d7c34aacd73fc7bd16"
+  },
+  "archive_vcs": {
+    "commit": "bc38fdef745af6ac34332db3d4e7bad82d4ec8d0",
+    "path_in_vcs": ""
+  },
+  "repository": "https://github.com/tesuji/junction",
+  "declared_license": "MIT",
+  "selected_license_branch": "MIT",
+  "resolution_kind": "published-archive-full-license",
+  "terms": [
+    {
+      "kind": "published-archive-full-license",
+      "archive_path": "junction-1.2.0/COPYRIGHT",
+      "sha256": "fd9d249f2332358a001c6bac6afdf5a06971fa3683085fd8aec609dd4cc264d4"
+    }
+  ],
+  "caveat": "The packaged archive lacks a full conventional license document for this selected branch except where stated above. The exact manifest declaration, archive attribution, and full authentic selected terms are retained together. No copyright holder or year is invented."
+}

@@ -1,0 +1,21 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This is a faithful transcription of the packaged Cargo metadata fields below.
+It preserves published attribution and license declarations; it does not add a copyright holder or year.
+
+Package: from_variant@3.0.0
+Exact archive: https://static.crates.io/crates/from_variant/from_variant-3.0.0.crate
+Archive SHA-256: e5ff35a391aef949120a0340d690269b3d9f63460a6106e99bd07b961f345ea9
+Declared license: Apache-2.0
+Selected license branch for this distribution: Apache-2.0
+Published authors:
+- 강동윤 <kdy1997.dev@gmail.com>
+
+Resolution kind:
+declared-standard-license-supplement
+
+Resolution notes from the evidence review:
+- Unreachable source commit is not represented as recovered. Exact published archive is grant/notice source.
+
+The complete selected license terms follow as separate evidence in this component.
+The original Cargo.toml and cargo VCS metadata, if packaged, are retained as source-material evidence.

@@ -1,6 +1,6 @@
 # Agave CLI build & upload playbook
 
-This playbook mirrors the hourly GitHub Actions workflow (`.github/workflows/update-agave-cli.yml`) but lets you build/upload a specific Agave release on demand.
+This is a manual Agave playbook backed by `ansible/agave-build-playbook.yml`. The former hourly `update-agave-cli` workflow is absent from the current repository. Its manually supplied environment/.env credentials and `slv`/`slv-asia` operations are separate from the verified SLV CLI release and the one-object `slv/install` migration.
 
 ## Prerequisites
 - Target host: Debian/Ubuntu with sudo.

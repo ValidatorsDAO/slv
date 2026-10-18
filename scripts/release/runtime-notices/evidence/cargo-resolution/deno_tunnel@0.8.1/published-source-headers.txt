@@ -1,0 +1,34 @@
+PUBLISHED SOURCE HEADERS (VERBATIM EXCERPTS)
+
+These excerpts preserve copyright and license notices observed in the exact package archive.
+They are source-material evidence and are not a substitute for the full source archive.
+
+Path: src/lib.rs
+
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use quinn::crypto::rustls::QuicClientConfig;
+use socket2 as s2;
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::net::Ipv6Addr;
+use std::net::SocketAddr;
+use std::net::UdpSocket;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use tokio::sync::Mutex;
+
+pub use quinn;
+
+pub const VERSION: u32 = 2;
+
+pub const CLOSE_GENERIC: u32 = 0;
+pub const CLOSE_PROTOCOL: u32 = 1;
+pub const CLOSE_UNAUTHORIZED: u32 = 2;
+pub const CLOSE_NOT_FOUND: u32 = 3;
+
+---

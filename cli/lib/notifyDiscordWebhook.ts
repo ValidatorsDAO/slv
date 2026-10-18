@@ -40,8 +40,15 @@ export const notifyDiscordWebhook = async (
       body: JSON.stringify({ content }),
       signal: controller.signal,
     })
-    if (!res.ok) return { kind: 'http_error', status: res.status }
-    return { kind: 'ok' }
+    // Webhook responses are advisory and have no body the caller needs. Do
+    // not leave a live response stream attached to the connection while we
+    // report the status.
+    try {
+      if (!res.ok) return { kind: 'http_error', status: res.status }
+      return { kind: 'ok' }
+    } finally {
+      await res.body?.cancel().catch(() => undefined)
+    }
   } catch (err) {
     return {
       kind: 'network_error',

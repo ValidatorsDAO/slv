@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: wit-component@0.244.0
+Exact archive: https://static.crates.io/crates/wit-component/wit-component-0.244.0.crate
+Archive SHA-256: 9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2
+Declared license: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected license branch for this distribution: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+
+Published authors (author metadata is not restated as copyright ownership):
+- Peter Huene <peter@huene.dev>
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

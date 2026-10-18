@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: clipboard-win@5.3.0
+Exact archive: https://static.crates.io/crates/clipboard-win/clipboard-win-5.3.0.crate
+Archive SHA-256: d517d4b86184dbb111d3556a10f1c8a04da7428d2987bf1081602bf11c3aa9ee
+Declared license: BSL-1.0
+Selected license branch for this distribution: BSL-1.0
+
+Published authors (author metadata is not restated as copyright ownership):
+- Douman <douman@gmx.se>
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

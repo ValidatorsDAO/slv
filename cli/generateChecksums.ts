@@ -7,11 +7,16 @@ const getChecksumFileName = (fileName: string) =>
  * Generates SHA256 checksums for all .tar.gz files in dist/
  * Outputs dist/SHA256SUMS in GNU coreutils compatible format.
  *
- * For executable archives, the checksum file uses the uploaded filename
- * (for example x86_64-unknown-linux-gnu-exe.tar.gz rather than
- * slv-x86_64-unknown-linux-gnu-exe.tar.gz).
+ * This legacy helper is intentionally limited to local dist diagnostics.
+ * Release checksums are generated from the immutable payload inventory by
+ * scripts/release/release.ts; do not use this command to publish a release.
  */
 const generateChecksums = async () => {
+  if (Deno.args.length !== 1 || Deno.args[0] !== '--diagnostic') {
+    throw new Error(
+      'Direct release checksums are disabled. Use `deno task release:package` for the manifest-bound inventory, or pass --diagnostic for local dist inspection.',
+    )
+  }
   const distDir = './dist'
   const outputPath = `${distDir}/SHA256SUMS`
   const lines: string[] = []
@@ -41,7 +46,9 @@ const generateChecksums = async () => {
   lines.sort()
 
   await Deno.writeTextFile(outputPath, lines.join('\n') + '\n')
-  console.log(`\n✅ SHA256SUMS written to ${outputPath} (${lines.length} files)`)
+  console.log(
+    `\n✅ SHA256SUMS written to ${outputPath} (${lines.length} files)`,
+  )
 }
 
 await generateChecksums()

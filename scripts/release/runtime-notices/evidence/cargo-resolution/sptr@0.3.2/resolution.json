@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "review_packet": "EU OSS runtime gap adjudication 2026-10-13",
+  "record": {
+    "package": "sptr@0.3.2",
+    "archive": {
+      "url": "https://static.crates.io/crates/sptr/sptr-0.3.2.crate",
+      "sha256": "3b9b39299b249ad65f3b7e96443bad61c02ca5cd3589f46cb6d610a0fd6c0d6a"
+    },
+    "license_declared": "MIT OR Apache-2.0",
+    "license_selected": "Apache-2.0",
+    "resolution_kind": "declared-standard-license-supplement",
+    "text_refs": [
+      "apache"
+    ],
+    "original_authors": null,
+    "notes": []
+  },
+  "published_archive_metadata": {
+    "license": "MIT OR Apache-2.0",
+    "authors": null,
+    "repository": "https://github.com/Gankra/sptr",
+    "homepage": null,
+    "description": "sptr: The Strict Provenance Polyfill",
+    "license-file": null,
+    "package": "sptr@0.3.2",
+    "legal_files": [],
+    "readme_legal": [
+      [
+        "Cargo.toml",
+        [
+          "license = \"MIT OR Apache-2.0\""
+        ]
+      ]
+    ],
+    "source_notices": []
+  },
+  "terms": [
+    {
+      "reference": "apache",
+      "path": "evidence/cargo-resolution/sptr@0.3.2/terms-apache.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": {
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    }
+  ],
+  "controls": [
+    "Exact archive identity/version/integrity must match",
+    "Full referenced terms and original notices/attribution must be embedded and distributed",
+    "Preserve original declarations separately from supplemental text provenance",
+    "No generic metadata-only fallback; unknown package/integrity must remain unresolved",
+    "Source archives distribute build-only dependencies too: their licenses/notices require separate coverage"
+  ]
+}

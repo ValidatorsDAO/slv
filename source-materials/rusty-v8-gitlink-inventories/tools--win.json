@@ -1,0 +1,645 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/chromium/src/tools/win",
+  "commit": "d16e6b55b2bd699735919d8a13a55ff284086603",
+  "tree": "e5a247c1dcca47367f144b59afba24b7197aecf6",
+  "files": [
+    {
+      "path": ".style.yapf",
+      "mode": "100644",
+      "blob": "557fa7bf84c08772cd926bce08af39a491f7e620",
+      "sha256": "2fd3e6497465d2ea8a76a0e1a8efc2ca4c1d4d615c6e2f43e0981d813f99c4e5",
+      "size": 30
+    },
+    {
+      "path": "chromeexts/BUILD.gn",
+      "mode": "100644",
+      "blob": "df1daf6bd57c395fd174af8c31bca153fda34401",
+      "sha256": "89c86872e9b17a90014814161edffcdb85ab88e019e73c407a07738e7af69c57",
+      "size": 872
+    },
+    {
+      "path": "chromeexts/chrome_exts_command.cc",
+      "mode": "100644",
+      "blob": "c72a7cdfe2e3442215c1ec43a2d2d0148be6e0be",
+      "sha256": "ee11ddedf01c1567dfd609af22beeeb0d893e78dc434bfba343023d42effba1f",
+      "size": 2074
+    },
+    {
+      "path": "chromeexts/chrome_exts_command.h",
+      "mode": "100644",
+      "blob": "1c7f178ff4cee484d3f17b713a91b698c469d1fd",
+      "sha256": "35168fb4034a8bfa1d868a159fec7aa3bf03246a5d213d24eddc2b45369b0faf",
+      "size": 2378
+    },
+    {
+      "path": "chromeexts/chromeexts.cc",
+      "mode": "100644",
+      "blob": "6638deb097c4d4829f07177f0dfbd96fa0122572",
+      "sha256": "5393ec46e6c2d330a2644057e2a7511cc69f4ee9df71b9749a2d3033f22a70be",
+      "size": 2241
+    },
+    {
+      "path": "chromeexts/chromeexts.def",
+      "mode": "100644",
+      "blob": "606a52b6d9a8908c873172915bc774bb71a0b140",
+      "sha256": "e6563fb3bc92b194fd7b5aedd4b79d1da84fe1b5135eb3612b6c8816b666703f",
+      "size": 350
+    },
+    {
+      "path": "chromeexts/commands/crash_info_command.cc",
+      "mode": "100644",
+      "blob": "e689d9f079e66019045273e28769adc11366ff00",
+      "sha256": "c4e3d856b083ca060d08ffc55d01a0a564c9a32a5e94e227603976eb93e5b2d3",
+      "size": 10072
+    },
+    {
+      "path": "chromeexts/commands/crash_info_command.h",
+      "mode": "100644",
+      "blob": "49d0fb75713a6dee8fc61817e5870e9482ec8800",
+      "sha256": "5fd32bbcdeaf03c27b99d8765f1deff7337472f0f9bf456731850b97d61c7465",
+      "size": 1275
+    },
+    {
+      "path": "chromeexts/commands/gwp_asan_command.cc",
+      "mode": "100644",
+      "blob": "f53234574a1a67bd907d67aa41aa74101083ebf8",
+      "sha256": "7d059c13479cf6357d7585098cf6e6662581f5fe105e7f6fc8fac13de45ec9c4",
+      "size": 14164
+    },
+    {
+      "path": "chromeexts/commands/gwp_asan_command.h",
+      "mode": "100644",
+      "blob": "0f0d9d633c8a17810074c7363618dcb461d88bfd",
+      "sha256": "cb36a904077365444de7fff083f5ceab970dc43bd1ac742e647bb5c311b20ec8",
+      "size": 1555
+    },
+    {
+      "path": "chromeexts/commands/hwnd_command.cc",
+      "mode": "100644",
+      "blob": "52f424247ecf0f06e5cdb05d36e2d5703f7f5f20",
+      "sha256": "52b177add207a81ef75caa1eb062b80531700d5ce411cd57f87239ec52608e00",
+      "size": 2610
+    },
+    {
+      "path": "chromeexts/commands/hwnd_command.h",
+      "mode": "100644",
+      "blob": "4b0cd8888a6a956faa6ed06abd520aeb093234d3",
+      "sha256": "133fd3a72512df62bc57780c539399f0619ef6c3f240b929bf1caeddd6d1fe7f",
+      "size": 744
+    },
+    {
+      "path": "chromeexts/commands/view_command.cc",
+      "mode": "100644",
+      "blob": "175faf51024bb02ed959fff2a60daf1bc4dec286",
+      "sha256": "a5b0b4101fbf2acb5b7fc1ca81cfb16f38fb6bc4939a58d98a5393f63f3ffc56",
+      "size": 9209
+    },
+    {
+      "path": "chromeexts/commands/view_command.h",
+      "mode": "100644",
+      "blob": "5eee28f1caeb6ac4fc54092dab293d62841a086e",
+      "sha256": "ee572c4aa719b5b6709d2f860bffb8e6b2e60732a64fadecc7421173eb8515ee",
+      "size": 739
+    },
+    {
+      "path": "chromeexts/DEPS",
+      "mode": "100644",
+      "blob": "3232c4c9fb1bfda2d156528ae7c00799bff865b5",
+      "sha256": "318494c3b0e4616ea7577ddf685da53379744badfe2ce21cf28d4a0e1b48ba58",
+      "size": 818
+    },
+    {
+      "path": "chromeexts/OWNERS",
+      "mode": "100644",
+      "blob": "18583cd04522bc22e12c5fc870be66247f93c274",
+      "sha256": "d13ffc876df00da190ad20b90fa68ba067cdf09b20821036655e848612c4f647",
+      "size": 21
+    },
+    {
+      "path": "chromeexts/README.md",
+      "mode": "100644",
+      "blob": "a5796df2e3a2cd4e25423ac7781b1c2d38fa6ddc",
+      "sha256": "8d5b39c3eb1f21955bae402c9c4f693a29474831f41cdd7ab3145209112d39b8",
+      "size": 2165
+    },
+    {
+      "path": "copy-installer.bat",
+      "mode": "100755",
+      "blob": "1e2ee88f3e8b24ff8d3d3b2eb2edac178ae9b676",
+      "sha256": "297c232c333f4a8acb93e2ad446bcdd65ecb9882bdfd4084b0b0883a4e744821",
+      "size": 3482
+    },
+    {
+      "path": "CreateTempFilesPerfEvaluation/.gitignore",
+      "mode": "100644",
+      "blob": "499cde18e6b5d4bb5fa57a5281e3cdacabf4d992",
+      "sha256": "3ba31fafeeadddc3eed300f723b167e6a41801834aa82fde01266c5158fc8149",
+      "size": 26
+    },
+    {
+      "path": "CreateTempFilesPerfEvaluation/CreateTempFilesPerfEval.cc",
+      "mode": "100644",
+      "blob": "b9c9ca1f9ce3e14fffe830dc1c713532e1e8ec3b",
+      "sha256": "82ff82d312cd40e7d530c73d3a398fd6f57a168fa15d1e97d590e286ad8f6b8a",
+      "size": 9575
+    },
+    {
+      "path": "CreateTempFilesPerfEvaluation/CreateTempFilesPerfEval.sln",
+      "mode": "100644",
+      "blob": "f08404b3df3adec92f851c563cd089d2382abfa0",
+      "sha256": "e0f413f98e9da51b6f5c0b995b8e7cf90a1e379b70ee7c22985a10b7e034f67f",
+      "size": 1299
+    },
+    {
+      "path": "CreateTempFilesPerfEvaluation/CreateTempFilesPerfEval.vcxproj",
+      "mode": "100644",
+      "blob": "15307cdfdfd29746f266d1c6cba7639f73614254",
+      "sha256": "0ade3909fdbd8651dd69ea0ad4b3f5d27023ce95561f03a793fc5a45f8cb7b34",
+      "size": 7959
+    },
+    {
+      "path": "CreateTempFilesPerfEvaluation/GetTempFileNamePerfExample.txt",
+      "mode": "100644",
+      "blob": "383b6ce8c36cb66ae872a5f7798a40beabfa0ee5",
+      "sha256": "907ffcf1f71d08632f78f96d58b4c8b44acc93029a7666bddf8c1ffe8430790f",
+      "size": 4491
+    },
+    {
+      "path": "CreateTempFilesPerfEvaluation/GuidPerfExample.txt",
+      "mode": "100644",
+      "blob": "c2285e47c85a89ab75d673dfed7e64372b2f87b7",
+      "sha256": "b481fd14f05123ee3d484a7131541514ebf3705a6d51784da50bd183a673f9b2",
+      "size": 4423
+    },
+    {
+      "path": "CreateTempFilesPerfEvaluation/ReadMe.txt",
+      "mode": "100644",
+      "blob": "c510d8a11dc00eb48da621bfdeb41a3e0bd032da",
+      "sha256": "14106439519629d19b695dc3d7672e22b0ba0063dbea7c685855688d3f6b067e",
+      "size": 2119
+    },
+    {
+      "path": "DebugVisualizers/absl.natvis",
+      "mode": "100644",
+      "blob": "205a2e40e3f5cc58c7158c83e4321664f54e137c",
+      "sha256": "af13198b912ed22a3abe0c41e77af032cff56ee72b1f6f4a37535257c87be5c1",
+      "size": 1904
+    },
+    {
+      "path": "DebugVisualizers/blink.natvis",
+      "mode": "100644",
+      "blob": "85ce60bc18e1f5b3dc5f7b26deaa204bb547b851",
+      "sha256": "fbe28d541ecc20d2e5d67f3ad859b1b35b60e4b069b0795a3d4766aa0828da2c",
+      "size": 19396
+    },
+    {
+      "path": "DebugVisualizers/BUILD.gn",
+      "mode": "100644",
+      "blob": "4e225568e12cff6344e8e52e10e608ef3185553f",
+      "sha256": "55ebb8be249935e5ae9a1dc9a3d8c488cbb8f2d7007259f1190ca964fb2e5ebf",
+      "size": 1352
+    },
+    {
+      "path": "DebugVisualizers/chrome.natvis",
+      "mode": "100644",
+      "blob": "ecda625228f4641ed84a87d9b46edb3e4dd8ce03",
+      "sha256": "56fe0993b70365e1d2d848ad67739aed5fd70284910665b559fc3c9369b24593",
+      "size": 17999
+    },
+    {
+      "path": "DebugVisualizers/OWNERS",
+      "mode": "100644",
+      "blob": "53463b38f4154029f9fadf7c337119f9828f57b4",
+      "sha256": "7bd321dddfd4a25c4b85f6560b02d0565db0875385f3fac71d33c919b6ba7479",
+      "size": 19
+    },
+    {
+      "path": "DebugVisualizers/PRESUBMIT.py",
+      "mode": "100644",
+      "blob": "6268010ba96148786ffb42a1ddda63b9fae88b31",
+      "sha256": "9b11442b09d96e94eb175ccaf7bb5501d0b7222f5ff3901cc4d5a3b0169b69db",
+      "size": 1254
+    },
+    {
+      "path": "DebugVisualizers/README.md",
+      "mode": "100644",
+      "blob": "c9859c01df8d7f4772e0921826df2e792a1f7613",
+      "sha256": "52a94f1defec17aef23b334c8b93d79d53132abbb577fe4c3fe5f6d2cc1b8b2e",
+      "size": 2805
+    },
+    {
+      "path": "IdleWakeups/.gitignore",
+      "mode": "100644",
+      "blob": "9578559c37df6d0d3f72fa694a55ba9e90b765eb",
+      "sha256": "87d19f945405c6aee518771c3a0a268ace7037f34d23edbaf983f8ace7309d4d",
+      "size": 32
+    },
+    {
+      "path": "IdleWakeups/idle_wakeups.cpp",
+      "mode": "100644",
+      "blob": "b396de3b65e54b8ce73b55b05e0bc3f3e1a9336b",
+      "sha256": "9444b8868586cbdc4cf31fa4ac9bead237cdd9afe795695e73630c78f926a7df",
+      "size": 15566
+    },
+    {
+      "path": "IdleWakeups/IdleWakeups.sln",
+      "mode": "100644",
+      "blob": "ff7d785fb2c5b52c512e418f0b3855166c85bdf8",
+      "sha256": "c09ea5b7e7521713cd3e0381de6059789cfaa28ec3c5188938c8937300543397",
+      "size": 1275
+    },
+    {
+      "path": "IdleWakeups/IdleWakeups.vcxproj",
+      "mode": "100644",
+      "blob": "fc765641e17e0863bf80d5560c14b1142f461fc6",
+      "sha256": "586b6d721f82875a84ee16da49392853b840c7b016d73d483d8896df6c43b8b3",
+      "size": 8149
+    },
+    {
+      "path": "IdleWakeups/IdleWakeups.vcxproj.filters",
+      "mode": "100644",
+      "blob": "86097f2a66c22eb6d167f5fdc8dd9e954be8393d",
+      "sha256": "91b02f09e92c85e9713431aa142fc5ff9e35291c6d49fe991a35de7f6d70a17e",
+      "size": 1560
+    },
+    {
+      "path": "IdleWakeups/power_sampler.cpp",
+      "mode": "100644",
+      "blob": "57b3ed97f1088cfb4b9460416baf12d85b5979cf",
+      "sha256": "5d5db6d036762a2e60410eca68cf86803597fcc93a914b7faecde194589d9d1a",
+      "size": 2243
+    },
+    {
+      "path": "IdleWakeups/power_sampler.h",
+      "mode": "100644",
+      "blob": "20cd84c10e89ac50fd386589e6c48791c45e3c68",
+      "sha256": "3fd912333ed7fbfaac3069a8013c52618f5285a67c4ab3f640c3b280f30bfe2f",
+      "size": 1499
+    },
+    {
+      "path": "IdleWakeups/README.md",
+      "mode": "100644",
+      "blob": "32093fdb3e08f5b291cf1afa0f8605e2600c4ee0",
+      "sha256": "379a97bb40349707f03943e0ca0e90bddbdef39a1ceb372ba16ce88d1ca03a34",
+      "size": 1873
+    },
+    {
+      "path": "IdleWakeups/stdafx.cpp",
+      "mode": "100644",
+      "blob": "645352fbe018eeb8dbb7de0bf3dd66e505d3dc89",
+      "sha256": "fb5feefa8deacb7c3822872f3d4df71387b373ce11ef63fb21564919ccd05083",
+      "size": 164
+    },
+    {
+      "path": "IdleWakeups/stdafx.h",
+      "mode": "100644",
+      "blob": "f6fa5cac2a6013ef9f477a3635ceaab6200d004d",
+      "sha256": "f105347494e2952325be580da014cb79fbc4d7f0ee1c4fc7479255de6efdacea",
+      "size": 509
+    },
+    {
+      "path": "IdleWakeups/system_information_sampler.cpp",
+      "mode": "100644",
+      "blob": "8c047bce15e892d0209b103b45e56053f7d95180",
+      "sha256": "e04371534a8d394ffa74379043409dd9da9db7bfc24562e7613ad091e2a2d863",
+      "size": 12717
+    },
+    {
+      "path": "IdleWakeups/system_information_sampler.h",
+      "mode": "100644",
+      "blob": "828f58767434812a2a137ca6019b78fb47b083aa",
+      "sha256": "4b10793075551d5965d1056f9a32e3650659ec99484b0d22fabbb14112f7307b",
+      "size": 1837
+    },
+    {
+      "path": "link_limiter/build_link_limiter.py",
+      "mode": "100755",
+      "blob": "2590f832871ca99c0d88e68092f39f7b591f87cd",
+      "sha256": "9e43f20600dd3d37a6e4704b24d1bd46bdf2a539773b7b4f55d71c581ea79b76",
+      "size": 3103
+    },
+    {
+      "path": "link_limiter/limiter.cc",
+      "mode": "100644",
+      "blob": "eb709289193e669843ed9c18dfe06d9207fde01f",
+      "sha256": "1df0cc120121259c9ab3cadc8a9ffbc846f38399b79f23db688ff0c2160a4487",
+      "size": 11082
+    },
+    {
+      "path": "linker_verbose_tracking.py",
+      "mode": "100644",
+      "blob": "c46f49d9eed5f23ab61fdaa55f46ad6d50eadcde",
+      "sha256": "e5258a1f1ffa17a4fef4f914bdd7c1396712ed8f85be3f30bf91e323932b999c",
+      "size": 9265
+    },
+    {
+      "path": "OWNERS",
+      "mode": "100644",
+      "blob": "3502f502bb387457e7f0484b7900948b05fe60da",
+      "sha256": "43bf8a13c2cd616b5f1ed11055f694181234e7765bf41e69c8ff10bdc7421765",
+      "size": 111
+    },
+    {
+      "path": "pdb_compare_globals.py",
+      "mode": "100644",
+      "blob": "0a92e5ba12628e8ee3afd9c4f868efc013106dab",
+      "sha256": "c9697ab3296ea79b29ddd33d7c012657bd4efe44bdf5c8c1873ff63c6e27d907",
+      "size": 3365
+    },
+    {
+      "path": "pe_summarize.py",
+      "mode": "100644",
+      "blob": "8ac7f5982b9e9085e01d24f8b01c5a4931c8c806",
+      "sha256": "5f7a2a49c402f7153a00c49f77d100af4356f8ee9b1228433826f94cd0eed31d",
+      "size": 6837
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "blob": "a7f3847e520e88dfede3722af747308c9ea7a458",
+      "sha256": "38e10c18e2251d61345a7df82bb6bb34f4646b6aac55bdf2692951ffccc3a9de",
+      "size": 168
+    },
+    {
+      "path": "RetrieveSymbols/.gitignore",
+      "mode": "100644",
+      "blob": "ff6b0959ef0f2104e553a16dccfa27fa16451675",
+      "sha256": "7604722e1409e1c72d6d71b1acfc4d7f9802ad3a0a47f7f70a4aee1dd580d7e0",
+      "size": 21
+    },
+    {
+      "path": "RetrieveSymbols/ReadMe.txt",
+      "mode": "100644",
+      "blob": "fb9c5106fe7d07abb5e27baf6309149c3a617617",
+      "sha256": "3c349835b0c3f00a42324c38a5af308e367c75753854d6f670eb4e22d7e940f8",
+      "size": 1818
+    },
+    {
+      "path": "RetrieveSymbols/RetrieveSymbols.cpp",
+      "mode": "100644",
+      "blob": "d064bf31518021ce78aef4d3c516082f5b087f06",
+      "sha256": "faa3dc43b57e7c99d1164de829051a36fe3130c816737120222996328178b150",
+      "size": 4977
+    },
+    {
+      "path": "RetrieveSymbols/RetrieveSymbols.sln",
+      "mode": "100644",
+      "blob": "957c0faa7e7cbba6dbbbd7e34bb42908187d1c70",
+      "sha256": "9bf94160374e71d207b05a7b967a1ba100e618d8312b01015d63bf46c32774c9",
+      "size": 953
+    },
+    {
+      "path": "RetrieveSymbols/RetrieveSymbols.vcxproj",
+      "mode": "100644",
+      "blob": "100d2ed6748d4078ea16f7d022bd3512455b8b9f",
+      "sha256": "a46b57d00004149ade5bc357a3d226c24449d1b8625c011f117edd2f9ad8cf63",
+      "size": 4136
+    },
+    {
+      "path": "RetrieveSymbols/RetrieveSymbols.vcxproj.filters",
+      "mode": "100644",
+      "blob": "fe67e547b80ef0162c98881a9136ea5579e4e415",
+      "sha256": "8d47de3f489a14134526ab0fbf3fbf3ba4789b151e37684ce89732e48d2a6eca",
+      "size": 281
+    },
+    {
+      "path": "setenv.bat",
+      "mode": "100755",
+      "blob": "d4842912a1b5832eb18a43a3c8f9122c18629f42",
+      "sha256": "8f22a3bdc2da64f4aaa670d5fec9bc62449c201405533fb4b22358dd7e716d41",
+      "size": 600
+    },
+    {
+      "path": "setenv.py",
+      "mode": "100644",
+      "blob": "94e40b3767ba0ae11d368d57a87959002000d6cf",
+      "sha256": "dcdcda1dc75615eee99eb85217ffdaac47f71462cae6300385880bbbb34ffcae",
+      "size": 1076
+    },
+    {
+      "path": "ShowGlobals/.gitignore",
+      "mode": "100644",
+      "blob": "9578559c37df6d0d3f72fa694a55ba9e90b765eb",
+      "sha256": "87d19f945405c6aee518771c3a0a268ace7037f34d23edbaf983f8ace7309d4d",
+      "size": 32
+    },
+    {
+      "path": "ShowGlobals/ShowGlobals.cc",
+      "mode": "100644",
+      "blob": "0e44c76999ae82657c1acecba6227532e04bc3b1",
+      "sha256": "b501f28d481aaf6d0972a68a5101b14c9fe489c83106393e940f497e30300906",
+      "size": 10313
+    },
+    {
+      "path": "ShowGlobals/ShowGlobals.sln",
+      "mode": "100644",
+      "blob": "a13cff20ecdb91dee33bf20e4639d0b74bd3b634",
+      "sha256": "a3d1e4adccdebf966c6fc44b16d1de063867187b99af25ee52d1d3138b814305",
+      "size": 1275
+    },
+    {
+      "path": "ShowGlobals/ShowGlobals.vcxproj",
+      "mode": "100644",
+      "blob": "4c57a169a6bee93d2248e6d502576c6ba71c8566",
+      "sha256": "d82c001173d576fbd835089064fd0ab8e07e35ca13f416665cadff95c23e5e80",
+      "size": 7788
+    },
+    {
+      "path": "ShowThreadNames/.gitignore",
+      "mode": "100644",
+      "blob": "499cde18e6b5d4bb5fa57a5281e3cdacabf4d992",
+      "sha256": "3ba31fafeeadddc3eed300f723b167e6a41801834aa82fde01266c5158fc8149",
+      "size": 26
+    },
+    {
+      "path": "ShowThreadNames/ReadMe.txt",
+      "mode": "100644",
+      "blob": "136e8930f4d6338e1fb935bcdd1ca8c1dc0bbeaa",
+      "sha256": "bbc5a1b19cd93ee61f7e8ac39baee61c62206a0a21a3ce7799e2c9d73e880c10",
+      "size": 2215
+    },
+    {
+      "path": "ShowThreadNames/ShowThreadNames.cc",
+      "mode": "100644",
+      "blob": "c220b885029cdb075661aac3d9ae51cdfb259757",
+      "sha256": "f384266cf453f5009ccfaed130db6ab5495b906458285436bb3bdd3e18052dbb",
+      "size": 4344
+    },
+    {
+      "path": "ShowThreadNames/ShowThreadNames.sln",
+      "mode": "100644",
+      "blob": "5c7717543f6ea36b6fdc9242030f9775c0a71b0f",
+      "sha256": "399f6300c63d8a14c68b9c9dc60ecbafe67ab68910d5f6421c97940dc6a792e0",
+      "size": 1283
+    },
+    {
+      "path": "ShowThreadNames/ShowThreadNames.vcxproj",
+      "mode": "100644",
+      "blob": "230cf9d61619e7e88b783832132d01a4f08c1f72",
+      "sha256": "bb830b8c99a5be204db4dbeace9acdf17b5a4d4bb147b7df46250410717b71ce",
+      "size": 5597
+    },
+    {
+      "path": "sizeviewer/clike.js",
+      "mode": "100644",
+      "blob": "710953b2298a4629d0864d3517290a584ff17ea8",
+      "sha256": "76cd8a83c47592f454350df6bea616330d925acff9544fade8d97792384086ab",
+      "size": 18939
+    },
+    {
+      "path": "sizeviewer/codemirror.js",
+      "mode": "100644",
+      "blob": "e6011f7e66c01bc86f566b327517bf533ad4b8f8",
+      "sha256": "6ec18dff438553ebebd9f33b86c387d16783ca6b64576810daafc123e60bd1fd",
+      "size": 317123
+    },
+    {
+      "path": "sizeviewer/favicon.png",
+      "mode": "100644",
+      "blob": "fe00fa050a833fade14de445c554b21ff2266632",
+      "sha256": "c4be8cf22cedfe22ca5a0691640c47ae5308aba65eb9949c246b53bcc86070bc",
+      "size": 918
+    },
+    {
+      "path": "sizeviewer/main.js",
+      "mode": "100644",
+      "blob": "4c48d9d14d28eb11986de575145607fdc91a46a6",
+      "sha256": "8a3030e6a384a591df3572df1eb0b18afba60f5bdd3b68fdf678bdfe51df886f",
+      "size": 4102
+    },
+    {
+      "path": "sizeviewer/README.chromium",
+      "mode": "100644",
+      "blob": "03237752fa433023b85eb178d0fe070d372ea1b8",
+      "sha256": "ff117457ee3fb3c3015a1e8aa73849eb52314ba525196651029d5a75242b1c64",
+      "size": 342
+    },
+    {
+      "path": "sizeviewer/sizeviewer.py",
+      "mode": "100644",
+      "blob": "c94de8ff58604670efad7cb8c68f8a5e56ecbdb6",
+      "sha256": "2d75f52c309ab9d546f7a5453396772c75972d6b406c28d5bbbbf02d86388b9e",
+      "size": 8252
+    },
+    {
+      "path": "sizeviewer/template.html",
+      "mode": "100644",
+      "blob": "a5fe1332e8a1096c02fb84121546d21dd5ba76f2",
+      "sha256": "8cf8a35c2a588d9e163b0a4ad6ae36e1a7b2a443e51fb964335d811460f80640",
+      "size": 9130
+    },
+    {
+      "path": "static_initializers/.gitignore",
+      "mode": "100644",
+      "blob": "88a749119103831c75b60fd6bac1287bc96f1466",
+      "sha256": "5465935967fc0d4863b32fbc95690853462c221eced96ed0302f701f13bb1520",
+      "size": 17
+    },
+    {
+      "path": "static_initializers/build.bat",
+      "mode": "100755",
+      "blob": "43f75f1c4d3c3e17ff38064e8dbe7bce333dfb60",
+      "sha256": "8e7e43590ce675fb0ec2faab9385be7360c30de9a2809957bd274880cf6c027e",
+      "size": 202
+    },
+    {
+      "path": "static_initializers/static_initializers.cc",
+      "mode": "100644",
+      "blob": "dcc6cbbce863414d94270ac82b76b92d575c0151",
+      "sha256": "799cd7da50bb22c523d101992e37f931a568d433804161726ed9d6cb64d9b48b",
+      "size": 6843
+    },
+    {
+      "path": "subtract_time.py",
+      "mode": "100644",
+      "blob": "a3bcd5d396733f25e2adaa760e71abcbb66d1264",
+      "sha256": "bd73778b1e3063aa830873da5bc2d98f6f7100a706b09e6183de6b66f2722040",
+      "size": 895
+    },
+    {
+      "path": "timeit.bat",
+      "mode": "100755",
+      "blob": "284f03b46007430750c8aac5b74e0465b3a4823a",
+      "sha256": "88051a606662ea2bc34f04b6bad9288dc757e79155b6ca0ebf6457559553dd89",
+      "size": 347
+    },
+    {
+      "path": "trace-sandbox-viewer.py",
+      "mode": "100644",
+      "blob": "6abddf7c410287db5388c80e9bf63842209ea160",
+      "sha256": "532199f0459b7019a3897c4e08fe103171adf78dfb3565af6d2a0c48c29ef289",
+      "size": 6248
+    },
+    {
+      "path": "trim_heap/.gitignore",
+      "mode": "100644",
+      "blob": "78c5f36ace9fe8fbb6bb6946ae291f0a2df9041a",
+      "sha256": "2990d6af60d4aa86d7d69e908f68db7f313a7ca58767e0a941a2406996974be5",
+      "size": 33
+    },
+    {
+      "path": "trim_heap/build.bat",
+      "mode": "100755",
+      "blob": "1bdca77491498e180885f6a48126e3c62f0ccf44",
+      "sha256": "a85f363340f4eb5ad3181d795a4a60947407813ad5095c730cfeaaac9a68a62f",
+      "size": 357
+    },
+    {
+      "path": "trim_heap/OWNERS",
+      "mode": "100644",
+      "blob": "8d80cee7e429ba83bb81978c04cdb0148075af88",
+      "sha256": "f432bc444cbd19b7ad2072c67c207583f5198fbc72fb0397c045e4e1a37f4718",
+      "size": 51
+    },
+    {
+      "path": "trim_heap/trim_heap.cc",
+      "mode": "100644",
+      "blob": "a6883144a39617baee893c53ef93d7196ca8f7ff",
+      "sha256": "5c110e65e18322f614aeae1656acdb26583420b35615a4eacde7e983f2f3cd50",
+      "size": 6904
+    },
+    {
+      "path": "trim_heap/trim_loop.bat",
+      "mode": "100755",
+      "blob": "9505f5c2e5d047a0e8c16e0bec739a8f7c37d792",
+      "sha256": "b411f32ee5ff2c6d7ae328f39a1e5966049b6bc98d2a183967cae1a910114768",
+      "size": 99
+    },
+    {
+      "path": "update_idl.py",
+      "mode": "100644",
+      "blob": "b8f7aa8ff246de468b4596ef04bf8f9d3070733b",
+      "sha256": "75accf2f96ea2ee8678371d7d6c4e1d7cb46b0c879e6fef8e81473550ec366ef",
+      "size": 6258
+    },
+    {
+      "path": "win_sdk_dir.py",
+      "mode": "100644",
+      "blob": "b736f59c44301b867bf63bf9bf70c93096acd14b",
+      "sha256": "daf24d68d0527313cbde4d90b5ac04397f51496158b20b4300971149bfb9cefd",
+      "size": 640
+    },
+    {
+      "path": "windbg_common.bat",
+      "mode": "100755",
+      "blob": "51bc9529b4850f1bc385a4eb46a2d10af3596b64",
+      "sha256": "279202755d03f4ce910f0f05f7a4f7d286604f30fd5cdbe9a0add4fc3df82120",
+      "size": 584
+    },
+    {
+      "path": "windbg32.bat",
+      "mode": "100755",
+      "blob": "2e84e8d0ac0ef1388c062a1e670cfde2d29e2f6f",
+      "sha256": "f734399d8abefe359d02c1d75333587509c6ad85e55d8b36ac6a0c9ae37b29b2",
+      "size": 533
+    },
+    {
+      "path": "windbg64.bat",
+      "mode": "100755",
+      "blob": "3f1c2e1ba139493c7f9ee1eab52b8ed305c420cf",
+      "sha256": "23e8813b02af98e8517a3cbb68561a099ef98129b061424db1c042c672c5dcec",
+      "size": 533
+    }
+  ]
+}

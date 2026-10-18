@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "1bb309784f25c401ddf95131dcde4c4cdad7aee7"
+  },
+  "path_in_vcs": "crates/rsqlite-vfs"
+}

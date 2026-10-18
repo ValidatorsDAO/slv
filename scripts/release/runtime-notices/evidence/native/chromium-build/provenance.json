@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "chromium-build-source-distribution-attribution",
+  "scope": "Conservative attribution for source-distributed Chromium build allocator files. It does not claim final binary inclusion or exclusion.",
+  "build_gitlink": {
+    "repository": "https://github.com/denoland/chromium_build.git",
+    "commit": "fffa45f2e9df48c0230a4c799b7d12e7f83d8219",
+    "tree": "0b816500740427b46cb5d450e4be3fef3dfec774",
+    "allocator_sources": [
+      "rust/allocator/alias.cc",
+      "rust/allocator/alloc_error_handler_impl.cc"
+    ],
+    "source_relation": "The split build repository preserves Chromium copyright headers but has no root Chromium LICENSE."
+  },
+  "supplement": {
+    "path": "evidence/native/chromium-build/Chromium-BSD-3-Clause-LICENSE",
+    "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b",
+    "immutable_source": "https://chromium.googlesource.com/chromium/src/+/e74489ee1796d05b553ed3f7d09f4c6f27490d0a/LICENSE?format=TEXT",
+    "source_pin": "e74489ee1796d05b553ed3f7d09f4c6f27490d0a",
+    "relation": "The pinned build fork has verified Chromium ancestor 1a96aee6; this parent LICENSE has identical bytes. The supplement is additional evidence and does not replace any tracked source file."
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "tonic-prost@0.14.6",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/tonic-prost/tonic-prost-0.14.6.crate",
+    "sha256": "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
+  },
+  "archive_vcs": {
+    "commit": "6cb6056b5a748bc5a29bd48f4602dbc4e552bb7d",
+    "path_in_vcs": "tonic-prost"
+  },
+  "declared_license": "MIT",
+  "repository": "https://github.com/hyperium/tonic",
+  "published_manifest": {
+    "path": "tonic-prost-0.14.6/Cargo.toml",
+    "sha256": "b5c6433586cd7372abe61329d065e5ccdacb106b721e6bef8e8b23a0bb20a07c"
+  },
+  "terms": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/hyperium/tonic/6cb6056b5a748bc5a29bd48f4602dbc4e552bb7d/LICENSE",
+      "sha256": "e24a56698aa6feaf3a02272b3624f9dc255d982970c5ed97ac4525a95056a5b3",
+      "bytes": 1056
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

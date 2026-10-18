@@ -1,0 +1,18 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: deno-tower-lsp-macros@0.12.0
+Exact archive: https://static.crates.io/crates/deno-tower-lsp-macros/deno-tower-lsp-macros-0.12.0.crate
+Archive SHA-256: f9faf94704f67b21ae4e9e9bdd6cb3a876fdaeecd047cc2ecf2b3bd4d4978a7e
+Declared license: MIT OR Apache-2.0
+Selected license branch for this distribution: MIT OR Apache-2.0
+
+Published authors (author metadata is not restated as copyright ownership):
+- Eyal Kalderon <ebkalderon@gmail.com>
+- the Deno authors
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

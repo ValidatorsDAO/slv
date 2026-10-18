@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "purpose": "Fail-closed receipt for compiled application packages whose exact archives and attested source trees contain no LICENSE, LICENCE, NOTICE, or COPYING text file. This receipt records declarations and attribution as evidence, not as substituted license text.",
+  "archive_legal_file_search": {
+    "method": "tar -tzf exact-npm-tarball | case-insensitive path search for LICENSE, LICENCE, NOTICE, or COPYING",
+    "matches_required": false
+  },
+  "source_tree_legal_file_search": {
+    "method": "GitHub Git Trees API recursive listing at source_commit | case-insensitive path search for LICENSE, LICENCE, NOTICE, or COPYING",
+    "matches_required": false
+  },
+  "components": [
+    {
+      "id": "npm:@hono/zod-openapi@1.2.0_hono@4.13.7",
+      "package": "@hono/zod-openapi@1.2.0",
+      "npm_tarball": "https://registry.npmjs.org/@hono/zod-openapi/-/zod-openapi-1.2.0.tgz",
+      "integrity": "sha512-KDfHqv/Wy4elVseZXgokbHxeWuqBL+AZfqsOMpEihBMUsk/fJ+bLIi3Sf70JFVpt1Ihui8RasYrInozt7ZBDIA==",
+      "package_files": [
+        "CHANGELOG.md",
+        "README.md",
+        "dist/index.cjs",
+        "dist/index.d.cts",
+        "dist/index.d.cts.map",
+        "dist/index.d.ts",
+        "dist/index.d.ts.map",
+        "dist/index.js",
+        "dist/index.js.map",
+        "package.json"
+      ],
+      "archive_legal_file_matches": [],
+      "package_json": {
+        "license_expression": "MIT",
+        "repository": "git+https://github.com/honojs/middleware.git",
+        "repository_directory": "packages/zod-openapi",
+        "homepage": "https://github.com/honojs/middleware"
+      },
+      "readme": {
+        "path": "README.md",
+        "author_attribution": "Yusuke Wada <https://github.com/yusukebe>",
+        "license_section_value": "MIT",
+        "copyright_notices": []
+      },
+      "npm_registry_metadata": "https://registry.npmjs.org/@hono/zod-openapi/1.2.0",
+      "npm_provenance_attestation": "https://registry.npmjs.org/-/npm/v1/attestations/@hono%2fzod-openapi@1.2.0",
+      "source_commit": "6f30fdd052e3cc23084038d3b88e61f8d443392a",
+      "source_tree": "https://api.github.com/repos/honojs/middleware/git/trees/6f30fdd052e3cc23084038d3b88e61f8d443392a?recursive=1",
+      "source_tree_legal_file_matches": []
+    },
+    {
+      "id": "npm:@hono/zod-validator@0.7.6_hono@4.13.7_zod@4.3.5",
+      "package": "@hono/zod-validator@0.7.6",
+      "npm_tarball": "https://registry.npmjs.org/@hono/zod-validator/-/zod-validator-0.7.6.tgz",
+      "integrity": "sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw==",
+      "package_files": [
+        "CHANGELOG.md",
+        "README.md",
+        "dist/index.cjs",
+        "dist/index.d.cts",
+        "dist/index.d.cts.map",
+        "dist/index.d.ts",
+        "dist/index.d.ts.map",
+        "dist/index.js",
+        "dist/index.js.map",
+        "package.json"
+      ],
+      "archive_legal_file_matches": [],
+      "package_json": {
+        "license_expression": "MIT",
+        "repository": "git+https://github.com/honojs/middleware.git",
+        "repository_directory": "packages/zod-validator",
+        "homepage": "https://github.com/honojs/middleware"
+      },
+      "readme": {
+        "path": "README.md",
+        "author_attribution": "Yusuke Wada <https://github.com/yusukebe>",
+        "license_section_value": "MIT",
+        "copyright_notices": []
+      },
+      "npm_registry_metadata": "https://registry.npmjs.org/@hono/zod-validator/0.7.6",
+      "npm_provenance_attestation": "https://registry.npmjs.org/-/npm/v1/attestations/@hono%2fzod-validator@0.7.6",
+      "source_commit": "da024821e3d1211f9a280b6cceca78654f99d26b",
+      "source_tree": "https://api.github.com/repos/honojs/middleware/git/trees/da024821e3d1211f9a280b6cceca78654f99d26b?recursive=1",
+      "source_tree_legal_file_matches": []
+    },
+    {
+      "id": "npm:tr46@0.0.3",
+      "package": "tr46@0.0.3",
+      "npm_tarball": "https://registry.npmjs.org/tr46/-/tr46-0.0.3.tgz",
+      "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==",
+      "package_files": [
+        ".npmignore",
+        "index.js",
+        "lib/.gitkeep",
+        "lib/mappingTable.json",
+        "package.json"
+      ],
+      "archive_legal_file_matches": [],
+      "package_json": {
+        "license_expression": "MIT",
+        "repository": "git+https://github.com/Sebmaster/tr46.js.git",
+        "homepage": "https://github.com/Sebmaster/tr46.js#readme",
+        "author_attribution": "Sebastian Mayr <npm@smayr.name>"
+      },
+      "readme": {
+        "path": null,
+        "license_section_value": null,
+        "copyright_notices": []
+      },
+      "npm_registry_metadata": "https://registry.npmjs.org/tr46/0.0.3",
+      "npm_provenance_attestation": null,
+      "source_commit": "a8009f9ce80ff5dbe71dd71e203afe4e4c878d28",
+      "source_tree": "https://api.github.com/repos/Sebmaster/tr46.js/git/trees/a8009f9ce80ff5dbe71dd71e203afe4e4c878d28?recursive=1",
+      "source_tree_legal_file_matches": []
+    },
+    {
+      "id": "npm:drizzle-orm@0.45.2_mysql2@3.23.1__@types+node@18.19.130_@types+node@18.19.130",
+      "package": "drizzle-orm@0.45.2",
+      "npm_tarball": "https://registry.npmjs.org/drizzle-orm/-/drizzle-orm-0.45.2.tgz",
+      "integrity": "sha512-kY0BSaTNYWnoDMVoyY8uxmyHjpJW1geOmBMdSSicKo9CIIWkSxMIj2rkeSR51b8KAPB7m+qysjuHme5nKP+E5Q==",
+      "archive_legal_file_matches": [],
+      "package_json": {
+        "license_expression": "Apache-2.0",
+        "repository": "git+https://github.com/drizzle-team/drizzle-orm.git"
+      },
+      "npm_registry_metadata": "https://registry.npmjs.org/drizzle-orm/0.45.2",
+      "npm_provenance_attestation": "https://registry.npmjs.org/-/npm/v1/attestations/drizzle-orm@0.45.2",
+      "source_commit": "273c78071d4841b497f5144734b38294df7ec64b",
+      "source_license": "https://raw.githubusercontent.com/drizzle-team/drizzle-orm/273c78071d4841b497f5144734b38294df7ec64b/LICENSE",
+      "source_tree_legal_file_matches": [
+        "LICENSE"
+      ]
+    },
+    {
+      "id": "npm:drizzle-zod@0.8.3_drizzle-orm@0.45.2__mysql2@3.23.1___@types+node@18.19.130__@types+node@18.19.130_@types+node@18.19.130_mysql2@3.23.1__@types+node@18.19.130",
+      "package": "drizzle-zod@0.8.3",
+      "npm_tarball": "https://registry.npmjs.org/drizzle-zod/-/drizzle-zod-0.8.3.tgz",
+      "integrity": "sha512-66yVOuvGhKJnTdiqj1/Xaaz9/qzOdRJADpDa68enqS6g3t0kpNkwNYjUuaeXgZfO/UWuIM9HIhSlJ6C5ZraMww==",
+      "archive_legal_file_matches": [],
+      "package_json": {
+        "license_expression": "Apache-2.0",
+        "repository": "git+https://github.com/drizzle-team/drizzle-orm.git"
+      },
+      "npm_registry_metadata": "https://registry.npmjs.org/drizzle-zod/0.8.3",
+      "npm_provenance_attestation": "https://registry.npmjs.org/-/npm/v1/attestations/drizzle-zod@0.8.3",
+      "source_commit": "33f0374e29014677c29f4b1f1dd1ab8fb68ac516",
+      "source_license": "https://raw.githubusercontent.com/drizzle-team/drizzle-orm/33f0374e29014677c29f4b1f1dd1ab8fb68ac516/LICENSE",
+      "source_tree_legal_file_matches": [
+        "LICENSE"
+      ]
+    }
+  ]
+}

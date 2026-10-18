@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "package": "rsqlite-vfs@0.1.1",
+  "classification": "source-vendor",
+  "scope": "Exact Cargo source archive retained for full source-vendor coverage only; this record makes no denort binary-target inclusion assertion.",
+  "archive": {
+    "url": "https://static.crates.io/crates/rsqlite-vfs/rsqlite-vfs-0.1.1.crate",
+    "sha256": "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
+  },
+  "archive_vcs": {
+    "commit": "1bb309784f25c401ddf95131dcde4c4cdad7aee7",
+    "path_in_vcs": "crates/rsqlite-vfs"
+  },
+  "repository": null,
+  "declared_license": "MIT",
+  "selected_license_branch": "MIT",
+  "resolution_kind": "declared-standard-license-supplement",
+  "terms": [
+    {
+      "kind": "standard-MIT-permission-and-warranty",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+      "source_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+      "body_sha256": "83330a27667f812efa9c7cdaefd4c83f95b57a7454323a61ee29291312640468",
+      "transform": "Omit only the unfilled SPDX template copyright placeholder; retain the permission, conditions, and warranty body. Package attribution remains separate."
+    }
+  ],
+  "caveat": "The packaged archive lacks a full conventional license document for this selected branch except where stated above. The exact manifest declaration, archive attribution, and full authentic selected terms are retained together. No copyright holder or year is invented."
+}

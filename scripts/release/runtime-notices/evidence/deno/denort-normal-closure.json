@@ -1,0 +1,6861 @@
+{
+  "schema_version": 1,
+  "deno_source_commit": "f39575ecd50602a5b42b1ba8e93849460de9fcf4",
+  "cargo_lock_sha256": "4e86cc7eca855b5ab589a6c735294677b10937ced61114347c6ba2bebb8d14d8",
+  "roots": [
+    "denort@2.9.3"
+  ],
+  "dependency_kinds": "normal (kind = null only)",
+  "command": "cargo metadata --locked --format-version 1 --filter-platform <target>; start at cli/rt denort@2.9.3; traverse only resolve dependency edges with dep_kinds.kind = null",
+  "target_metadata": [
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "sha256": "20e615deb3645635a239e5a44b9111cf5713b6f1c6356f1589613fef272a8088"
+    },
+    {
+      "target": "aarch64-unknown-linux-gnu",
+      "sha256": "358ecebed18eff28929637283fe3b176fe027dd231f2cf6b1068e536adcd46a0"
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "sha256": "3fa644b373700a329bfc5b554253eb595084b5d129b2eb361ac73fd14675e32d"
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "sha256": "7b84881bf175ef6549bf9881a1b89f3f6cc32f75af3a89240be3d06afe3f8e49"
+    }
+  ],
+  "packages": [
+    {
+      "package": "adler@1.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:adler@1.0.2"
+    },
+    {
+      "package": "adler2@2.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:adler2@2.0.0"
+    },
+    {
+      "package": "aead-gcm-stream@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aead-gcm-stream@0.4.0"
+    },
+    {
+      "package": "aead@0.5.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aead@0.5.2"
+    },
+    {
+      "package": "aes-gcm@0.10.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aes-gcm@0.10.3"
+    },
+    {
+      "package": "aes-kw@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aes-kw@0.2.1"
+    },
+    {
+      "package": "aes@0.8.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aes@0.8.3"
+    },
+    {
+      "package": "ahash@0.8.11",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ahash@0.8.11"
+    },
+    {
+      "package": "aho-corasick@1.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aho-corasick@1.1.3"
+    },
+    {
+      "package": "alloc-no-stdlib@2.0.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:alloc-no-stdlib@2.0.4"
+    },
+    {
+      "package": "alloc-stdlib@0.2.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:alloc-stdlib@0.2.2"
+    },
+    {
+      "package": "allocator-api2@0.2.21",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:allocator-api2@0.2.21"
+    },
+    {
+      "package": "anyhow@1.0.98",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:anyhow@1.0.98"
+    },
+    {
+      "package": "arbitrary@1.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:arbitrary@1.4.1"
+    },
+    {
+      "package": "arc-swap@1.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:arc-swap@1.7.1"
+    },
+    {
+      "package": "argon2@0.6.0-rc.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:argon2@0.6.0-rc.8"
+    },
+    {
+      "package": "arrayref@0.3.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:arrayref@0.3.9"
+    },
+    {
+      "package": "arrayvec@0.7.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:arrayvec@0.7.4"
+    },
+    {
+      "package": "ascii@1.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ascii@1.1.0"
+    },
+    {
+      "package": "ash@0.38.0+1.3.281",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ash@0.38.0+1.3.281"
+    },
+    {
+      "package": "asn1-rs-derive@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:asn1-rs-derive@0.4.0"
+    },
+    {
+      "package": "asn1-rs-impl@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:asn1-rs-impl@0.1.0"
+    },
+    {
+      "package": "asn1-rs@0.5.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:asn1-rs@0.5.2"
+    },
+    {
+      "package": "ast_node@5.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ast_node@5.0.0"
+    },
+    {
+      "package": "async-compression@0.4.11",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:async-compression@0.4.11"
+    },
+    {
+      "package": "async-once-cell@0.5.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:async-once-cell@0.5.4"
+    },
+    {
+      "package": "async-stream-impl@0.3.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:async-stream-impl@0.3.5"
+    },
+    {
+      "package": "async-stream@0.3.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:async-stream@0.3.5"
+    },
+    {
+      "package": "async-trait@0.1.88",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:async-trait@0.1.88"
+    },
+    {
+      "package": "atomic-waker@1.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:atomic-waker@1.1.2"
+    },
+    {
+      "package": "aws-lc-rs@1.16.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aws-lc-rs@1.16.3"
+    },
+    {
+      "package": "aws-lc-sys@0.40.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:aws-lc-sys@0.40.0"
+    },
+    {
+      "package": "az@1.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:az@1.2.1"
+    },
+    {
+      "package": "base16ct@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:base16ct@0.2.0"
+    },
+    {
+      "package": "base16ct@1.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:base16ct@1.0.0"
+    },
+    {
+      "package": "base64-simd@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:base64-simd@0.8.0"
+    },
+    {
+      "package": "base64@0.21.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:base64@0.21.7"
+    },
+    {
+      "package": "base64@0.22.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:base64@0.22.1"
+    },
+    {
+      "package": "base64ct@1.8.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:base64ct@1.8.3"
+    },
+    {
+      "package": "better_scoped_tls@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:better_scoped_tls@1.0.1"
+    },
+    {
+      "package": "bincode@1.3.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bincode@1.3.3"
+    },
+    {
+      "package": "bit-set@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bit-set@0.8.0"
+    },
+    {
+      "package": "bit-set@0.9.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bit-set@0.9.1"
+    },
+    {
+      "package": "bit-vec@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bit-vec@0.8.0"
+    },
+    {
+      "package": "bit-vec@0.9.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bit-vec@0.9.1"
+    },
+    {
+      "package": "bitflags@1.3.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bitflags@1.3.2"
+    },
+    {
+      "package": "bitflags@2.9.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bitflags@2.9.3"
+    },
+    {
+      "package": "bitvec@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bitvec@1.0.1"
+    },
+    {
+      "package": "blake2@0.10.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:blake2@0.10.6"
+    },
+    {
+      "package": "blake2@0.11.0-rc.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:blake2@0.11.0-rc.6"
+    },
+    {
+      "package": "block-buffer@0.10.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:block-buffer@0.10.4"
+    },
+    {
+      "package": "block-buffer@0.12.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:block-buffer@0.12.0"
+    },
+    {
+      "package": "block-padding@0.3.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:block-padding@0.3.3"
+    },
+    {
+      "package": "block2@0.6.2",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:block2@0.6.2"
+    },
+    {
+      "package": "boxed_error@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:boxed_error@0.2.3"
+    },
+    {
+      "package": "brotli-decompressor@4.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:brotli-decompressor@4.0.1"
+    },
+    {
+      "package": "brotli@6.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:brotli@6.0.0"
+    },
+    {
+      "package": "bstr@1.9.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bstr@1.9.1"
+    },
+    {
+      "package": "bumpalo@3.19.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bumpalo@3.19.0"
+    },
+    {
+      "package": "bytemuck_derive@1.10.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bytemuck_derive@1.10.2"
+    },
+    {
+      "package": "bytemuck@1.24.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bytemuck@1.24.0"
+    },
+    {
+      "package": "byteorder-lite@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:byteorder-lite@0.1.0"
+    },
+    {
+      "package": "byteorder@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:byteorder@1.5.0"
+    },
+    {
+      "package": "bytes-str@0.2.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bytes-str@0.2.7"
+    },
+    {
+      "package": "bytes@1.11.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bytes@1.11.1"
+    },
+    {
+      "package": "bzip2@0.6.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:bzip2@0.6.1"
+    },
+    {
+      "package": "calendrical_calculations@0.2.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:calendrical_calculations@0.2.4"
+    },
+    {
+      "package": "capacity_builder_macros@0.3.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:capacity_builder_macros@0.3.0"
+    },
+    {
+      "package": "capacity_builder@0.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:capacity_builder@0.5.0"
+    },
+    {
+      "package": "castaway@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:castaway@0.2.3"
+    },
+    {
+      "package": "cbc@0.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cbc@0.1.2"
+    },
+    {
+      "package": "cdivsufsort@2.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cdivsufsort@2.0.0"
+    },
+    {
+      "package": "cfg-if@1.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cfg-if@1.0.3"
+    },
+    {
+      "package": "chrono@0.4.42",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:chrono@0.4.42"
+    },
+    {
+      "package": "cipher@0.4.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cipher@0.4.4"
+    },
+    {
+      "package": "cmov@0.5.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cmov@0.5.4"
+    },
+    {
+      "package": "codespan-reporting@0.13.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:codespan-reporting@0.13.1"
+    },
+    {
+      "package": "color_quant@1.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:color_quant@1.1.0"
+    },
+    {
+      "package": "color-print-proc-macro@0.3.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:color-print-proc-macro@0.3.5"
+    },
+    {
+      "package": "color-print@0.3.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:color-print@0.3.5"
+    },
+    {
+      "package": "compact_str@0.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:compact_str@0.7.1"
+    },
+    {
+      "package": "const-hex@1.19.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:const-hex@1.19.1"
+    },
+    {
+      "package": "const-oid@0.10.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:const-oid@0.10.2"
+    },
+    {
+      "package": "const-oid@0.9.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:const-oid@0.9.6"
+    },
+    {
+      "package": "cooked-waker@5.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cooked-waker@5.0.0"
+    },
+    {
+      "package": "core_maths@0.1.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:core_maths@0.1.1"
+    },
+    {
+      "package": "countme@3.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:countme@3.0.1"
+    },
+    {
+      "package": "cpubits@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cpubits@0.1.0"
+    },
+    {
+      "package": "cpufeatures@0.2.12",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cpufeatures@0.2.12"
+    },
+    {
+      "package": "cpufeatures@0.3.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "x86_64-apple-darwin"
+      ],
+      "notice_component": "cargo:cpufeatures@0.3.0"
+    },
+    {
+      "package": "cranelift-assembler-x64@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-assembler-x64@0.117.2"
+    },
+    {
+      "package": "cranelift-bforest@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-bforest@0.117.2"
+    },
+    {
+      "package": "cranelift-bitset@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-bitset@0.117.2"
+    },
+    {
+      "package": "cranelift-codegen-shared@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-codegen-shared@0.117.2"
+    },
+    {
+      "package": "cranelift-codegen@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-codegen@0.117.2"
+    },
+    {
+      "package": "cranelift-control@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-control@0.117.2"
+    },
+    {
+      "package": "cranelift-entity@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-entity@0.117.2"
+    },
+    {
+      "package": "cranelift-frontend@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-frontend@0.117.2"
+    },
+    {
+      "package": "cranelift-module@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-module@0.117.2"
+    },
+    {
+      "package": "cranelift-native@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift-native@0.117.2"
+    },
+    {
+      "package": "cranelift@0.117.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cranelift@0.117.2"
+    },
+    {
+      "package": "crc32fast@1.4.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crc32fast@1.4.2"
+    },
+    {
+      "package": "critical-section@1.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:critical-section@1.2.0"
+    },
+    {
+      "package": "crossbeam-channel@0.5.15",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crossbeam-channel@0.5.15"
+    },
+    {
+      "package": "crossbeam-deque@0.8.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crossbeam-deque@0.8.5"
+    },
+    {
+      "package": "crossbeam-epoch@0.9.18",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crossbeam-epoch@0.9.18"
+    },
+    {
+      "package": "crossbeam-utils@0.8.21",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crossbeam-utils@0.8.21"
+    },
+    {
+      "package": "crunchy@0.2.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crunchy@0.2.4"
+    },
+    {
+      "package": "crypto-bigint@0.5.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crypto-bigint@0.5.5"
+    },
+    {
+      "package": "crypto-bigint@0.7.0-rc.28",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crypto-bigint@0.7.0-rc.28"
+    },
+    {
+      "package": "crypto-common@0.1.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crypto-common@0.1.6"
+    },
+    {
+      "package": "crypto-common@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:crypto-common@0.2.1"
+    },
+    {
+      "package": "cssparser-macros@0.6.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cssparser-macros@0.6.1"
+    },
+    {
+      "package": "cssparser@0.36.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:cssparser@0.36.0"
+    },
+    {
+      "package": "ctr@0.9.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ctr@0.9.2"
+    },
+    {
+      "package": "ctutils@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ctutils@0.4.0"
+    },
+    {
+      "package": "curve25519-dalek-derive@0.1.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "x86_64-apple-darwin"
+      ],
+      "notice_component": "cargo:curve25519-dalek-derive@0.1.1"
+    },
+    {
+      "package": "curve25519-dalek@4.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:curve25519-dalek@4.1.3"
+    },
+    {
+      "package": "dashmap@5.5.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dashmap@5.5.3"
+    },
+    {
+      "package": "data-encoding@2.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:data-encoding@2.5.0"
+    },
+    {
+      "package": "data-url@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:data-url@0.3.1"
+    },
+    {
+      "package": "debug-ignore@1.0.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:debug-ignore@1.0.5"
+    },
+    {
+      "package": "debugid@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:debugid@0.8.0"
+    },
+    {
+      "package": "deno_ast@0.53.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_ast@0.53.3"
+    },
+    {
+      "package": "deno_error_macro@0.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_error_macro@0.7.1"
+    },
+    {
+      "package": "deno_error@0.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_error@0.7.1"
+    },
+    {
+      "package": "deno_graph@0.110.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_graph@0.110.1"
+    },
+    {
+      "package": "deno_media_type@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_media_type@0.4.0"
+    },
+    {
+      "package": "deno_native_certs@0.3.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_native_certs@0.3.0"
+    },
+    {
+      "package": "deno_path_util@0.6.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_path_util@0.6.4"
+    },
+    {
+      "package": "deno_semver@0.10.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_semver@0.10.1"
+    },
+    {
+      "package": "deno_terminal@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_terminal@0.2.3"
+    },
+    {
+      "package": "deno_tunnel@0.8.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_tunnel@0.8.1"
+    },
+    {
+      "package": "deno_unsync@0.4.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_unsync@0.4.4"
+    },
+    {
+      "package": "deno_whoami@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deno_whoami@0.1.0"
+    },
+    {
+      "package": "denokv_proto@0.14.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:denokv_proto@0.14.0"
+    },
+    {
+      "package": "denokv_remote@0.14.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:denokv_remote@0.14.0"
+    },
+    {
+      "package": "denokv_sqlite@0.14.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:denokv_sqlite@0.14.0"
+    },
+    {
+      "package": "der_derive@0.7.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:der_derive@0.7.3"
+    },
+    {
+      "package": "der-parser@8.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:der-parser@8.2.0"
+    },
+    {
+      "package": "der@0.7.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:der@0.7.9"
+    },
+    {
+      "package": "der@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:der@0.8.0"
+    },
+    {
+      "package": "deranged@0.5.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:deranged@0.5.6"
+    },
+    {
+      "package": "derive_arbitrary@1.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:derive_arbitrary@1.4.1"
+    },
+    {
+      "package": "derive-io-macros@0.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:derive-io-macros@0.4.1"
+    },
+    {
+      "package": "derive-io@0.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:derive-io@0.4.1"
+    },
+    {
+      "package": "des@0.8.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:des@0.8.1"
+    },
+    {
+      "package": "diff@0.1.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:diff@0.1.13"
+    },
+    {
+      "package": "digest@0.10.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:digest@0.10.7"
+    },
+    {
+      "package": "digest@0.11.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:digest@0.11.1"
+    },
+    {
+      "package": "diplomat_core@0.15.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:diplomat_core@0.15.0"
+    },
+    {
+      "package": "diplomat-runtime@0.15.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:diplomat-runtime@0.15.1"
+    },
+    {
+      "package": "diplomat@0.15.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:diplomat@0.15.0"
+    },
+    {
+      "package": "dispatch2@0.3.1",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dispatch2@0.3.1"
+    },
+    {
+      "package": "displaydoc@0.2.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:displaydoc@0.2.4"
+    },
+    {
+      "package": "dlib@0.5.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dlib@0.5.3"
+    },
+    {
+      "package": "dlopen2_derive@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dlopen2_derive@0.4.0"
+    },
+    {
+      "package": "dlopen2@0.6.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dlopen2@0.6.1"
+    },
+    {
+      "package": "document-features@0.2.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:document-features@0.2.10"
+    },
+    {
+      "package": "dprint-swc-ext@0.26.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dprint-swc-ext@0.26.0"
+    },
+    {
+      "package": "dsa@0.6.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dsa@0.6.3"
+    },
+    {
+      "package": "dtoa-short@0.3.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dtoa-short@0.3.5"
+    },
+    {
+      "package": "dtoa@1.0.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:dtoa@1.0.10"
+    },
+    {
+      "package": "ecb@0.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ecb@0.1.2"
+    },
+    {
+      "package": "ecdsa@0.16.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ecdsa@0.16.9"
+    },
+    {
+      "package": "ecow@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ecow@0.2.3"
+    },
+    {
+      "package": "ed25519-dalek@2.1.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ed25519-dalek@2.1.1"
+    },
+    {
+      "package": "ed25519@2.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ed25519@2.2.3"
+    },
+    {
+      "package": "ed448-goldilocks@0.14.0-pre.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ed448-goldilocks@0.14.0-pre.10"
+    },
+    {
+      "package": "ed448@0.5.0-rc.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ed448@0.5.0-rc.5"
+    },
+    {
+      "package": "editpe@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:editpe@0.1.0"
+    },
+    {
+      "package": "either@1.10.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:either@1.10.0"
+    },
+    {
+      "package": "elliptic-curve@0.13.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:elliptic-curve@0.13.8"
+    },
+    {
+      "package": "elliptic-curve@0.14.0-rc.28",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:elliptic-curve@0.14.0-rc.28"
+    },
+    {
+      "package": "encoding_rs@0.8.35",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:encoding_rs@0.8.35"
+    },
+    {
+      "package": "endian-type@0.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:endian-type@0.1.2"
+    },
+    {
+      "package": "enum-as-inner@0.6.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:enum-as-inner@0.6.0"
+    },
+    {
+      "package": "env_filter@0.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:env_filter@0.1.3"
+    },
+    {
+      "package": "env_home@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:env_home@0.1.0"
+    },
+    {
+      "package": "env_logger@0.11.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:env_logger@0.11.6"
+    },
+    {
+      "package": "equivalent@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:equivalent@1.0.1"
+    },
+    {
+      "package": "errno@0.3.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:errno@0.3.10"
+    },
+    {
+      "package": "error_reporter@1.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:error_reporter@1.0.0"
+    },
+    {
+      "package": "fallible-iterator@0.3.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fallible-iterator@0.3.0"
+    },
+    {
+      "package": "fallible-streaming-iterator@0.1.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fallible-streaming-iterator@0.1.9"
+    },
+    {
+      "package": "fastbloom@0.14.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fastbloom@0.14.1"
+    },
+    {
+      "package": "faster-hex@0.10.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:faster-hex@0.10.0"
+    },
+    {
+      "package": "fastrand@2.3.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fastrand@2.3.0"
+    },
+    {
+      "package": "fastwebsockets@0.8.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fastwebsockets@0.8.1"
+    },
+    {
+      "package": "fd-lock@4.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fd-lock@4.0.2"
+    },
+    {
+      "package": "fdeflate@0.3.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fdeflate@0.3.4"
+    },
+    {
+      "package": "ff@0.13.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ff@0.13.0"
+    },
+    {
+      "package": "filetime@0.2.23",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:filetime@0.2.23"
+    },
+    {
+      "package": "fips203@0.4.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fips203@0.4.3"
+    },
+    {
+      "package": "fips205@0.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fips205@0.4.1"
+    },
+    {
+      "package": "flate2@1.0.35",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:flate2@1.0.35"
+    },
+    {
+      "package": "fnv@1.0.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fnv@1.0.7"
+    },
+    {
+      "package": "foldhash@0.1.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:foldhash@0.1.4"
+    },
+    {
+      "package": "foldhash@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:foldhash@0.2.0"
+    },
+    {
+      "package": "foreign-types-macros@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:foreign-types-macros@0.2.3"
+    },
+    {
+      "package": "foreign-types-shared@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:foreign-types-shared@0.3.1"
+    },
+    {
+      "package": "foreign-types@0.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:foreign-types@0.5.0"
+    },
+    {
+      "package": "form_urlencoded@1.2.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:form_urlencoded@1.2.2"
+    },
+    {
+      "package": "fqdn@0.5.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fqdn@0.5.2"
+    },
+    {
+      "package": "from_variant@3.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:from_variant@3.0.0"
+    },
+    {
+      "package": "fsevent-sys@4.1.0",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:fsevent-sys@4.1.0"
+    },
+    {
+      "package": "funty@2.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:funty@2.0.0"
+    },
+    {
+      "package": "futures-channel@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-channel@0.3.31"
+    },
+    {
+      "package": "futures-core@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-core@0.3.31"
+    },
+    {
+      "package": "futures-executor@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-executor@0.3.31"
+    },
+    {
+      "package": "futures-io@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-io@0.3.31"
+    },
+    {
+      "package": "futures-macro@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-macro@0.3.31"
+    },
+    {
+      "package": "futures-sink@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-sink@0.3.31"
+    },
+    {
+      "package": "futures-task@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-task@0.3.31"
+    },
+    {
+      "package": "futures-util@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures-util@0.3.31"
+    },
+    {
+      "package": "futures@0.3.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:futures@0.3.31"
+    },
+    {
+      "package": "generic-array@0.14.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:generic-array@0.14.7"
+    },
+    {
+      "package": "getrandom@0.2.14",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:getrandom@0.2.14"
+    },
+    {
+      "package": "getrandom@0.3.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:getrandom@0.3.3"
+    },
+    {
+      "package": "getrandom@0.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:getrandom@0.4.1"
+    },
+    {
+      "package": "ghash@0.5.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ghash@0.5.1"
+    },
+    {
+      "package": "gif@0.13.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:gif@0.13.1"
+    },
+    {
+      "package": "gimli@0.31.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:gimli@0.31.1"
+    },
+    {
+      "package": "glob@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:glob@0.3.1"
+    },
+    {
+      "package": "globset@0.4.14",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:globset@0.4.14"
+    },
+    {
+      "package": "glow@0.17.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:glow@0.17.0"
+    },
+    {
+      "package": "gpu-allocator@0.28.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:gpu-allocator@0.28.0"
+    },
+    {
+      "package": "gpu-descriptor-types@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:gpu-descriptor-types@0.2.0"
+    },
+    {
+      "package": "gpu-descriptor@0.3.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:gpu-descriptor@0.3.2"
+    },
+    {
+      "package": "group@0.13.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:group@0.13.0"
+    },
+    {
+      "package": "h2@0.4.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:h2@0.4.7"
+    },
+    {
+      "package": "half@2.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:half@2.7.1"
+    },
+    {
+      "package": "hash2curve@0.14.0-rc.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hash2curve@0.14.0-rc.10"
+    },
+    {
+      "package": "hash32@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hash32@0.3.1"
+    },
+    {
+      "package": "hashbrown@0.14.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hashbrown@0.14.5"
+    },
+    {
+      "package": "hashbrown@0.15.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hashbrown@0.15.5"
+    },
+    {
+      "package": "hashbrown@0.16.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hashbrown@0.16.1"
+    },
+    {
+      "package": "hashbrown@0.17.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hashbrown@0.17.1"
+    },
+    {
+      "package": "hashlink@0.12.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hashlink@0.12.0"
+    },
+    {
+      "package": "hdrhistogram@7.5.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hdrhistogram@7.5.4"
+    },
+    {
+      "package": "heapless@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:heapless@0.8.0"
+    },
+    {
+      "package": "heck@0.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:heck@0.4.1"
+    },
+    {
+      "package": "heck@0.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:heck@0.5.0"
+    },
+    {
+      "package": "hex@0.4.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hex@0.4.3"
+    },
+    {
+      "package": "hexf-parse@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hexf-parse@0.2.1"
+    },
+    {
+      "package": "hickory-proto@0.25.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hickory-proto@0.25.2"
+    },
+    {
+      "package": "hickory-resolver@0.25.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hickory-resolver@0.25.2"
+    },
+    {
+      "package": "hipstr@0.6.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hipstr@0.6.0"
+    },
+    {
+      "package": "hkdf@0.12.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hkdf@0.12.4"
+    },
+    {
+      "package": "hmac@0.12.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hmac@0.12.1"
+    },
+    {
+      "package": "home@0.5.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:home@0.5.9"
+    },
+    {
+      "package": "hostname@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hostname@0.3.1"
+    },
+    {
+      "package": "hstr@3.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hstr@3.0.3"
+    },
+    {
+      "package": "http-body-util@0.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:http-body-util@0.1.3"
+    },
+    {
+      "package": "http-body@1.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:http-body@1.0.0"
+    },
+    {
+      "package": "http@1.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:http@1.4.0"
+    },
+    {
+      "package": "httparse@1.10.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:httparse@1.10.0"
+    },
+    {
+      "package": "httpdate@1.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:httpdate@1.0.3"
+    },
+    {
+      "package": "hybrid-array@0.4.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hybrid-array@0.4.7"
+    },
+    {
+      "package": "hyper-rustls@0.27.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hyper-rustls@0.27.2"
+    },
+    {
+      "package": "hyper-util@0.1.17",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hyper-util@0.1.17"
+    },
+    {
+      "package": "hyper@1.6.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:hyper@1.6.0"
+    },
+    {
+      "package": "icu_calendar_data@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_calendar_data@2.2.0"
+    },
+    {
+      "package": "icu_calendar@2.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_calendar@2.2.1"
+    },
+    {
+      "package": "icu_collections@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_collections@1.5.0"
+    },
+    {
+      "package": "icu_collections@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_collections@2.2.0"
+    },
+    {
+      "package": "icu_locale_core@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_locale_core@2.2.0"
+    },
+    {
+      "package": "icu_locale_data@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_locale_data@2.2.0"
+    },
+    {
+      "package": "icu_locale@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_locale@2.2.0"
+    },
+    {
+      "package": "icu_locid_transform_data@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_locid_transform_data@1.5.0"
+    },
+    {
+      "package": "icu_locid_transform@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_locid_transform@1.5.0"
+    },
+    {
+      "package": "icu_locid@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_locid@1.5.0"
+    },
+    {
+      "package": "icu_normalizer_data@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_normalizer_data@1.5.0"
+    },
+    {
+      "package": "icu_normalizer@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_normalizer@1.5.0"
+    },
+    {
+      "package": "icu_properties_data@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_properties_data@1.5.0"
+    },
+    {
+      "package": "icu_properties_data@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_properties_data@2.2.0"
+    },
+    {
+      "package": "icu_properties@1.5.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_properties@1.5.1"
+    },
+    {
+      "package": "icu_properties@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_properties@2.2.0"
+    },
+    {
+      "package": "icu_provider_macros@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_provider_macros@1.5.0"
+    },
+    {
+      "package": "icu_provider@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_provider@1.5.0"
+    },
+    {
+      "package": "icu_provider@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:icu_provider@2.2.0"
+    },
+    {
+      "package": "idna_adapter@1.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:idna_adapter@1.2.0"
+    },
+    {
+      "package": "idna@1.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:idna@1.1.0"
+    },
+    {
+      "package": "if_chain@1.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:if_chain@1.0.2"
+    },
+    {
+      "package": "ignore@0.4.20",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ignore@0.4.20"
+    },
+    {
+      "package": "image-webp@0.2.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:image-webp@0.2.4"
+    },
+    {
+      "package": "image@0.25.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:image@0.25.4"
+    },
+    {
+      "package": "imara-diff@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:imara-diff@0.2.0"
+    },
+    {
+      "package": "import_map@0.25.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:import_map@0.25.0"
+    },
+    {
+      "package": "indexmap@2.12.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:indexmap@2.12.0"
+    },
+    {
+      "package": "Inflector@0.11.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:Inflector@0.11.4"
+    },
+    {
+      "package": "inotify-sys@0.1.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ],
+      "notice_component": "cargo:inotify-sys@0.1.5"
+    },
+    {
+      "package": "inotify@0.11.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ],
+      "notice_component": "cargo:inotify@0.11.1"
+    },
+    {
+      "package": "inout@0.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:inout@0.1.3"
+    },
+    {
+      "package": "inventory@0.3.21",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:inventory@0.3.21"
+    },
+    {
+      "package": "ipnet@2.9.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ipnet@2.9.0"
+    },
+    {
+      "package": "is-macro@0.3.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:is-macro@0.3.5"
+    },
+    {
+      "package": "itertools@0.14.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:itertools@0.14.0"
+    },
+    {
+      "package": "itoa@1.0.15",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:itoa@1.0.15"
+    },
+    {
+      "package": "ixdtf@0.6.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ixdtf@0.6.4"
+    },
+    {
+      "package": "jsonc-parser@0.32.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:jsonc-parser@0.32.1"
+    },
+    {
+      "package": "k256@0.13.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:k256@0.13.3"
+    },
+    {
+      "package": "keccak@0.1.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:keccak@0.1.6"
+    },
+    {
+      "package": "keccak@0.2.0-rc.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:keccak@0.2.0-rc.2"
+    },
+    {
+      "package": "khronos-egl@6.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:khronos-egl@6.0.0"
+    },
+    {
+      "package": "lazy_static@1.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:lazy_static@1.5.0"
+    },
+    {
+      "package": "lazy-regex-proc_macros@3.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:lazy-regex-proc_macros@3.1.0"
+    },
+    {
+      "package": "lazy-regex@3.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:lazy-regex@3.1.0"
+    },
+    {
+      "package": "lcms2-sys@4.0.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:lcms2-sys@4.0.5"
+    },
+    {
+      "package": "lcms2@6.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:lcms2@6.1.0"
+    },
+    {
+      "package": "libbz2-rs-sys@0.2.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libbz2-rs-sys@0.2.5"
+    },
+    {
+      "package": "libc@0.2.186",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libc@0.2.186"
+    },
+    {
+      "package": "libdeflate-sys@1.25.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libdeflate-sys@1.25.2"
+    },
+    {
+      "package": "libdeflater@1.25.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libdeflater@1.25.2"
+    },
+    {
+      "package": "libffi-sys@4.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libffi-sys@4.1.0"
+    },
+    {
+      "package": "libffi@5.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libffi@5.1.0"
+    },
+    {
+      "package": "libloading@0.7.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libloading@0.7.4"
+    },
+    {
+      "package": "libloading@0.8.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libloading@0.8.5"
+    },
+    {
+      "package": "libm@0.2.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libm@0.2.8"
+    },
+    {
+      "package": "libnghttp2@1.68.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libnghttp2@1.68.0"
+    },
+    {
+      "package": "libsqlite3-sys@0.38.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libsqlite3-sys@0.38.1"
+    },
+    {
+      "package": "libsui@0.16.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libsui@0.16.3"
+    },
+    {
+      "package": "libz-sys@1.1.20",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:libz-sys@1.1.20"
+    },
+    {
+      "package": "linux-raw-sys@0.12.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ],
+      "notice_component": "cargo:linux-raw-sys@0.12.1"
+    },
+    {
+      "package": "linux-raw-sys@0.4.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ],
+      "notice_component": "cargo:linux-raw-sys@0.4.13"
+    },
+    {
+      "package": "litemap@0.7.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:litemap@0.7.3"
+    },
+    {
+      "package": "litemap@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:litemap@0.8.0"
+    },
+    {
+      "package": "litrs@0.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:litrs@0.4.1"
+    },
+    {
+      "package": "lock_api@0.4.11",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:lock_api@0.4.11"
+    },
+    {
+      "package": "log@0.4.32",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:log@0.4.32"
+    },
+    {
+      "package": "lru-slab@0.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:lru-slab@0.1.2"
+    },
+    {
+      "package": "macro_rules_attribute-proc_macro@0.2.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:macro_rules_attribute-proc_macro@0.2.2"
+    },
+    {
+      "package": "macro_rules_attribute@0.2.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:macro_rules_attribute@0.2.2"
+    },
+    {
+      "package": "match_cfg@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:match_cfg@0.1.0"
+    },
+    {
+      "package": "md-5@0.10.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:md-5@0.10.6"
+    },
+    {
+      "package": "md4@0.10.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:md4@0.10.2"
+    },
+    {
+      "package": "memchr@2.8.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:memchr@2.8.1"
+    },
+    {
+      "package": "memmap2@0.9.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:memmap2@0.9.5"
+    },
+    {
+      "package": "memoffset@0.9.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:memoffset@0.9.1"
+    },
+    {
+      "package": "mime@0.3.17",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:mime@0.3.17"
+    },
+    {
+      "package": "minimal-lexical@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:minimal-lexical@0.2.1"
+    },
+    {
+      "package": "miniz_oxide@0.7.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:miniz_oxide@0.7.2"
+    },
+    {
+      "package": "miniz_oxide@0.8.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:miniz_oxide@0.8.8"
+    },
+    {
+      "package": "mio@1.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:mio@1.0.3"
+    },
+    {
+      "package": "moka@0.12.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:moka@0.12.10"
+    },
+    {
+      "package": "monch@0.6.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:monch@0.6.0"
+    },
+    {
+      "package": "naga@29.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:naga@29.0.3"
+    },
+    {
+      "package": "netif@0.1.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:netif@0.1.6"
+    },
+    {
+      "package": "new_debug_unreachable@1.0.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:new_debug_unreachable@1.0.6"
+    },
+    {
+      "package": "nibble_vec@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:nibble_vec@0.1.0"
+    },
+    {
+      "package": "nix@0.29.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:nix@0.29.0"
+    },
+    {
+      "package": "nix@0.30.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:nix@0.30.1"
+    },
+    {
+      "package": "nom@7.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:nom@7.1.3"
+    },
+    {
+      "package": "notify-types@2.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:notify-types@2.1.0"
+    },
+    {
+      "package": "notify@8.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:notify@8.2.0"
+    },
+    {
+      "package": "num_cpus@1.16.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:num_cpus@1.16.0"
+    },
+    {
+      "package": "num-bigint-dig@0.8.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:num-bigint-dig@0.8.6"
+    },
+    {
+      "package": "num-bigint@0.4.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:num-bigint@0.4.6"
+    },
+    {
+      "package": "num-conv@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:num-conv@0.2.0"
+    },
+    {
+      "package": "num-integer@0.1.46",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:num-integer@0.1.46"
+    },
+    {
+      "package": "num-iter@0.1.44",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:num-iter@0.1.44"
+    },
+    {
+      "package": "num-traits@0.2.19",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:num-traits@0.2.19"
+    },
+    {
+      "package": "objc2-core-foundation@0.3.2",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:objc2-core-foundation@0.3.2"
+    },
+    {
+      "package": "objc2-encode@4.1.0",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:objc2-encode@4.1.0"
+    },
+    {
+      "package": "objc2-foundation@0.3.2",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:objc2-foundation@0.3.2"
+    },
+    {
+      "package": "objc2-metal@0.3.2",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:objc2-metal@0.3.2"
+    },
+    {
+      "package": "objc2-quartz-core@0.3.2",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:objc2-quartz-core@0.3.2"
+    },
+    {
+      "package": "objc2@0.6.4",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:objc2@0.6.4"
+    },
+    {
+      "package": "object@0.36.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:object@0.36.3"
+    },
+    {
+      "package": "ocb3@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ocb3@0.1.0"
+    },
+    {
+      "package": "oid-registry@0.6.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:oid-registry@0.6.1"
+    },
+    {
+      "package": "once_cell@1.21.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:once_cell@1.21.3"
+    },
+    {
+      "package": "opaque-debug@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:opaque-debug@0.3.1"
+    },
+    {
+      "package": "openssl-probe@0.1.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ],
+      "notice_component": "cargo:openssl-probe@0.1.5"
+    },
+    {
+      "package": "opentelemetry_sdk@0.32.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:opentelemetry_sdk@0.32.1"
+    },
+    {
+      "package": "opentelemetry-http@0.32.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:opentelemetry-http@0.32.0"
+    },
+    {
+      "package": "opentelemetry-otlp@0.32.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:opentelemetry-otlp@0.32.0"
+    },
+    {
+      "package": "opentelemetry-proto@0.32.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:opentelemetry-proto@0.32.0"
+    },
+    {
+      "package": "opentelemetry-semantic-conventions@0.32.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:opentelemetry-semantic-conventions@0.32.1"
+    },
+    {
+      "package": "opentelemetry@0.32.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:opentelemetry@0.32.0"
+    },
+    {
+      "package": "ordered-float@4.6.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ordered-float@4.6.0"
+    },
+    {
+      "package": "os_pipe@1.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:os_pipe@1.2.1"
+    },
+    {
+      "package": "outref@0.5.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:outref@0.5.1"
+    },
+    {
+      "package": "p12@0.6.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:p12@0.6.3"
+    },
+    {
+      "package": "p224@0.13.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:p224@0.13.2"
+    },
+    {
+      "package": "p256@0.13.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:p256@0.13.2"
+    },
+    {
+      "package": "p384@0.13.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:p384@0.13.0"
+    },
+    {
+      "package": "p521@0.13.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:p521@0.13.3"
+    },
+    {
+      "package": "par-core@2.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:par-core@2.0.0"
+    },
+    {
+      "package": "parking_lot_core@0.9.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:parking_lot_core@0.9.9"
+    },
+    {
+      "package": "parking_lot@0.12.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:parking_lot@0.12.3"
+    },
+    {
+      "package": "password-hash@0.6.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:password-hash@0.6.1"
+    },
+    {
+      "package": "paste@1.0.15",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:paste@1.0.15"
+    },
+    {
+      "package": "path-clean@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:path-clean@0.1.0"
+    },
+    {
+      "package": "pathdiff@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pathdiff@0.2.1"
+    },
+    {
+      "package": "pbkdf2@0.12.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pbkdf2@0.12.2"
+    },
+    {
+      "package": "pem-rfc7468@0.7.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pem-rfc7468@0.7.0"
+    },
+    {
+      "package": "percent-encoding@2.3.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:percent-encoding@2.3.2"
+    },
+    {
+      "package": "phc@0.6.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phc@0.6.1"
+    },
+    {
+      "package": "phf_generator@0.11.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf_generator@0.11.2"
+    },
+    {
+      "package": "phf_generator@0.13.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf_generator@0.13.1"
+    },
+    {
+      "package": "phf_macros@0.11.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf_macros@0.11.2"
+    },
+    {
+      "package": "phf_macros@0.13.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf_macros@0.13.1"
+    },
+    {
+      "package": "phf_shared@0.11.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf_shared@0.11.2"
+    },
+    {
+      "package": "phf_shared@0.13.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf_shared@0.13.1"
+    },
+    {
+      "package": "phf@0.11.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf@0.11.2"
+    },
+    {
+      "package": "phf@0.13.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:phf@0.13.1"
+    },
+    {
+      "package": "pin-project-internal@1.1.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pin-project-internal@1.1.5"
+    },
+    {
+      "package": "pin-project-lite@0.2.14",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pin-project-lite@0.2.14"
+    },
+    {
+      "package": "pin-project@1.1.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pin-project@1.1.5"
+    },
+    {
+      "package": "pin-utils@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pin-utils@0.1.0"
+    },
+    {
+      "package": "pkcs1@0.7.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pkcs1@0.7.5"
+    },
+    {
+      "package": "pkcs5@0.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pkcs5@0.7.1"
+    },
+    {
+      "package": "pkcs8@0.10.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pkcs8@0.10.2"
+    },
+    {
+      "package": "pkcs8@0.11.0-rc.11",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pkcs8@0.11.0-rc.11"
+    },
+    {
+      "package": "png@0.17.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:png@0.17.13"
+    },
+    {
+      "package": "polyval@0.6.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:polyval@0.6.2"
+    },
+    {
+      "package": "portable-atomic@1.10.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:portable-atomic@1.10.0"
+    },
+    {
+      "package": "potential_utf@0.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:potential_utf@0.1.3"
+    },
+    {
+      "package": "powerfmt@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:powerfmt@0.2.0"
+    },
+    {
+      "package": "ppv-lite86@0.2.17",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ppv-lite86@0.2.17"
+    },
+    {
+      "package": "presser@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:presser@0.3.1"
+    },
+    {
+      "package": "pretty_assertions@1.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:pretty_assertions@1.4.1"
+    },
+    {
+      "package": "primeorder@0.13.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:primeorder@0.13.6"
+    },
+    {
+      "package": "proc-macro2@1.0.101",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:proc-macro2@1.0.101"
+    },
+    {
+      "package": "profiling@1.0.15",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:profiling@1.0.15"
+    },
+    {
+      "package": "proptest@1.9.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:proptest@1.9.0"
+    },
+    {
+      "package": "prost-derive@0.14.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:prost-derive@0.14.4"
+    },
+    {
+      "package": "prost@0.14.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:prost@0.14.4"
+    },
+    {
+      "package": "psm@0.1.21",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:psm@0.1.21"
+    },
+    {
+      "package": "qbsdiff@1.4.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:qbsdiff@1.4.4"
+    },
+    {
+      "package": "quick-error@1.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:quick-error@1.2.3"
+    },
+    {
+      "package": "quick-error@2.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:quick-error@2.0.1"
+    },
+    {
+      "package": "quinn-proto@0.11.14",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:quinn-proto@0.11.14"
+    },
+    {
+      "package": "quinn-udp@0.5.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:quinn-udp@0.5.9"
+    },
+    {
+      "package": "quinn@0.11.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:quinn@0.11.8"
+    },
+    {
+      "package": "quote@1.0.45",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:quote@1.0.45"
+    },
+    {
+      "package": "radium@0.7.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:radium@0.7.0"
+    },
+    {
+      "package": "radix_trie@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:radix_trie@0.2.1"
+    },
+    {
+      "package": "rand_chacha@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand_chacha@0.3.1"
+    },
+    {
+      "package": "rand_chacha@0.9.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand_chacha@0.9.0"
+    },
+    {
+      "package": "rand_core@0.10.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand_core@0.10.0"
+    },
+    {
+      "package": "rand_core@0.6.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand_core@0.6.4"
+    },
+    {
+      "package": "rand_core@0.9.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand_core@0.9.3"
+    },
+    {
+      "package": "rand_xorshift@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand_xorshift@0.4.0"
+    },
+    {
+      "package": "rand@0.8.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand@0.8.5"
+    },
+    {
+      "package": "rand@0.9.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rand@0.9.2"
+    },
+    {
+      "package": "raw-window-handle@0.6.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:raw-window-handle@0.6.2"
+    },
+    {
+      "package": "raw-window-metal@1.1.0",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:raw-window-metal@1.1.0"
+    },
+    {
+      "package": "rayon-core@1.13.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rayon-core@1.13.0"
+    },
+    {
+      "package": "rayon@1.11.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rayon@1.11.0"
+    },
+    {
+      "package": "rc2@0.8.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rc2@0.8.1"
+    },
+    {
+      "package": "regalloc2@0.11.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:regalloc2@0.11.1"
+    },
+    {
+      "package": "regex-automata@0.4.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:regex-automata@0.4.13"
+    },
+    {
+      "package": "regex-syntax@0.8.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:regex-syntax@0.8.8"
+    },
+    {
+      "package": "regex@1.12.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:regex@1.12.2"
+    },
+    {
+      "package": "resb@0.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:resb@0.1.2"
+    },
+    {
+      "package": "resolv-conf@0.7.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:resolv-conf@0.7.0"
+    },
+    {
+      "package": "rfc6979@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rfc6979@0.4.0"
+    },
+    {
+      "package": "ring@0.17.14",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ring@0.17.14"
+    },
+    {
+      "package": "ripemd@0.1.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ripemd@0.1.3"
+    },
+    {
+      "package": "ron@0.12.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ron@0.12.0"
+    },
+    {
+      "package": "rowan@0.15.15",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rowan@0.15.15"
+    },
+    {
+      "package": "rsa@0.9.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rsa@0.9.10"
+    },
+    {
+      "package": "rusqlite@0.40.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rusqlite@0.40.1"
+    },
+    {
+      "package": "rustc-hash@1.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustc-hash@1.1.0"
+    },
+    {
+      "package": "rustc-hash@2.1.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustc-hash@2.1.1"
+    },
+    {
+      "package": "rustcrypto-ff@0.14.0-rc.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustcrypto-ff@0.14.0-rc.0"
+    },
+    {
+      "package": "rustcrypto-group@0.14.0-rc.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustcrypto-group@0.14.0-rc.0"
+    },
+    {
+      "package": "rusticata-macros@4.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rusticata-macros@4.1.0"
+    },
+    {
+      "package": "rustix@0.38.34",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustix@0.38.34"
+    },
+    {
+      "package": "rustix@1.1.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustix@1.1.4"
+    },
+    {
+      "package": "rustls-native-certs@0.7.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ],
+      "notice_component": "cargo:rustls-native-certs@0.7.0"
+    },
+    {
+      "package": "rustls-pemfile@2.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustls-pemfile@2.1.2"
+    },
+    {
+      "package": "rustls-pki-types@1.12.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustls-pki-types@1.12.0"
+    },
+    {
+      "package": "rustls-tokio-stream@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustls-tokio-stream@0.8.0"
+    },
+    {
+      "package": "rustls-webpki@0.103.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustls-webpki@0.103.13"
+    },
+    {
+      "package": "rustls@0.23.40",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustls@0.23.40"
+    },
+    {
+      "package": "rustversion@1.0.22",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustversion@1.0.22"
+    },
+    {
+      "package": "rusty-fork@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rusty-fork@0.3.1"
+    },
+    {
+      "package": "rustyline@17.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:rustyline@17.0.0"
+    },
+    {
+      "package": "ryu-js@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ryu-js@1.0.1"
+    },
+    {
+      "package": "ryu@1.0.17",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:ryu@1.0.17"
+    },
+    {
+      "package": "sacabase@2.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sacabase@2.0.0"
+    },
+    {
+      "package": "safe_arch@0.7.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:safe_arch@0.7.4"
+    },
+    {
+      "package": "salsa20@0.10.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:salsa20@0.10.2"
+    },
+    {
+      "package": "same-file@1.0.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:same-file@1.0.6"
+    },
+    {
+      "package": "scoped-tls@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:scoped-tls@1.0.1"
+    },
+    {
+      "package": "scopeguard@1.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:scopeguard@1.2.0"
+    },
+    {
+      "package": "scrypt@0.11.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:scrypt@0.11.0"
+    },
+    {
+      "package": "sec1@0.7.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sec1@0.7.3"
+    },
+    {
+      "package": "sec1@0.8.0-rc.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sec1@0.8.0-rc.13"
+    },
+    {
+      "package": "seq-macro@0.3.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:seq-macro@0.3.6"
+    },
+    {
+      "package": "serde_bytes@0.11.14",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:serde_bytes@0.11.14"
+    },
+    {
+      "package": "serde_core@1.0.228",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:serde_core@1.0.228"
+    },
+    {
+      "package": "serde_derive@1.0.228",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:serde_derive@1.0.228"
+    },
+    {
+      "package": "serde_json@1.0.140",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:serde_json@1.0.140"
+    },
+    {
+      "package": "serde@1.0.228",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:serde@1.0.228"
+    },
+    {
+      "package": "serdect@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:serdect@0.2.0"
+    },
+    {
+      "package": "serdect@0.4.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:serdect@0.4.2"
+    },
+    {
+      "package": "sha1_smol@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sha1_smol@1.0.1"
+    },
+    {
+      "package": "sha1@0.10.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sha1@0.10.6"
+    },
+    {
+      "package": "sha2@0.10.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sha2@0.10.8"
+    },
+    {
+      "package": "sha3@0.10.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sha3@0.10.8"
+    },
+    {
+      "package": "sha3@0.11.0-rc.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sha3@0.11.0-rc.8"
+    },
+    {
+      "package": "signal-hook-registry@1.4.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:signal-hook-registry@1.4.2"
+    },
+    {
+      "package": "signal-hook@0.3.17",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:signal-hook@0.3.17"
+    },
+    {
+      "package": "signature@2.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:signature@2.2.0"
+    },
+    {
+      "package": "signature@3.0.0-rc.10",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:signature@3.0.0-rc.10"
+    },
+    {
+      "package": "simd-adler32@0.3.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:simd-adler32@0.3.7"
+    },
+    {
+      "package": "simdutf8@0.1.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:simdutf8@0.1.5"
+    },
+    {
+      "package": "siphasher@0.3.11",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:siphasher@0.3.11"
+    },
+    {
+      "package": "siphasher@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:siphasher@1.0.1"
+    },
+    {
+      "package": "slab@0.4.9",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:slab@0.4.9"
+    },
+    {
+      "package": "sm3@0.4.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sm3@0.4.2"
+    },
+    {
+      "package": "smallvec@1.15.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:smallvec@1.15.1"
+    },
+    {
+      "package": "smartstring@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:smartstring@1.0.1"
+    },
+    {
+      "package": "socket2@0.5.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:socket2@0.5.5"
+    },
+    {
+      "package": "socket2@0.6.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:socket2@0.6.4"
+    },
+    {
+      "package": "sourcemap@9.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sourcemap@9.2.0"
+    },
+    {
+      "package": "spin@0.9.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:spin@0.9.8"
+    },
+    {
+      "package": "spirv@0.4.0+sdk-1.4.341.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:spirv@0.4.0+sdk-1.4.341.0"
+    },
+    {
+      "package": "spki@0.7.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:spki@0.7.3"
+    },
+    {
+      "package": "spki@0.8.0-rc.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:spki@0.8.0-rc.4"
+    },
+    {
+      "package": "sptr@0.3.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sptr@0.3.2"
+    },
+    {
+      "package": "stable_deref_trait@1.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:stable_deref_trait@1.2.0"
+    },
+    {
+      "package": "stacker@0.1.15",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:stacker@0.1.15"
+    },
+    {
+      "package": "static_assertions@1.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:static_assertions@1.1.0"
+    },
+    {
+      "package": "strck@1.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:strck@1.0.0"
+    },
+    {
+      "package": "string_enum@1.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:string_enum@1.0.2"
+    },
+    {
+      "package": "stringcase@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:stringcase@0.4.0"
+    },
+    {
+      "package": "strum_macros@0.27.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:strum_macros@0.27.1"
+    },
+    {
+      "package": "strum@0.27.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:strum@0.27.1"
+    },
+    {
+      "package": "subtle@2.6.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:subtle@2.6.1"
+    },
+    {
+      "package": "suffix_array@0.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:suffix_array@0.5.0"
+    },
+    {
+      "package": "swc_allocator@4.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_allocator@4.0.1"
+    },
+    {
+      "package": "swc_atoms@9.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_atoms@9.0.0"
+    },
+    {
+      "package": "swc_common@17.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_common@17.0.1"
+    },
+    {
+      "package": "swc_config_macro@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_config_macro@1.0.1"
+    },
+    {
+      "package": "swc_config@3.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_config@3.1.2"
+    },
+    {
+      "package": "swc_ecma_ast@18.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_ast@18.0.0"
+    },
+    {
+      "package": "swc_ecma_codegen_macros@2.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_codegen_macros@2.0.2"
+    },
+    {
+      "package": "swc_ecma_codegen@20.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_codegen@20.0.2"
+    },
+    {
+      "package": "swc_ecma_lexer@26.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_lexer@26.0.0"
+    },
+    {
+      "package": "swc_ecma_loader@17.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_loader@17.0.0"
+    },
+    {
+      "package": "swc_ecma_parser@27.0.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_parser@27.0.7"
+    },
+    {
+      "package": "swc_ecma_transforms_base@30.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_transforms_base@30.0.1"
+    },
+    {
+      "package": "swc_ecma_transforms_classes@30.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_transforms_classes@30.0.0"
+    },
+    {
+      "package": "swc_ecma_transforms_macros@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_transforms_macros@1.0.1"
+    },
+    {
+      "package": "swc_ecma_transforms_proposal@30.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_transforms_proposal@30.0.0"
+    },
+    {
+      "package": "swc_ecma_transforms_react@33.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_transforms_react@33.0.0"
+    },
+    {
+      "package": "swc_ecma_transforms_typescript@33.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_transforms_typescript@33.0.0"
+    },
+    {
+      "package": "swc_ecma_utils@24.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_utils@24.0.0"
+    },
+    {
+      "package": "swc_ecma_visit@18.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ecma_visit@18.0.1"
+    },
+    {
+      "package": "swc_eq_ignore_macros@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_eq_ignore_macros@1.0.1"
+    },
+    {
+      "package": "swc_macros_common@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_macros_common@1.0.1"
+    },
+    {
+      "package": "swc_sourcemap@9.3.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_sourcemap@9.3.4"
+    },
+    {
+      "package": "swc_ts_fast_strip@36.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_ts_fast_strip@36.0.0"
+    },
+    {
+      "package": "swc_visit@2.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:swc_visit@2.0.1"
+    },
+    {
+      "package": "syn-match@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:syn-match@0.3.1"
+    },
+    {
+      "package": "syn@1.0.109",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:syn@1.0.109"
+    },
+    {
+      "package": "syn@2.0.117",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:syn@2.0.117"
+    },
+    {
+      "package": "sync_wrapper@1.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sync_wrapper@1.0.2"
+    },
+    {
+      "package": "synstructure@0.12.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:synstructure@0.12.6"
+    },
+    {
+      "package": "synstructure@0.13.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:synstructure@0.13.1"
+    },
+    {
+      "package": "sys_traits_macros@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sys_traits_macros@0.1.0"
+    },
+    {
+      "package": "sys_traits@0.1.28",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:sys_traits@0.1.28"
+    },
+    {
+      "package": "tagptr@0.2.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tagptr@0.2.0"
+    },
+    {
+      "package": "tap@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tap@1.0.1"
+    },
+    {
+      "package": "tar@0.4.46",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tar@0.4.46"
+    },
+    {
+      "package": "target-lexicon@0.13.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:target-lexicon@0.13.2"
+    },
+    {
+      "package": "tempfile@3.10.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tempfile@3.10.1"
+    },
+    {
+      "package": "temporal_capi@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:temporal_capi@0.2.3"
+    },
+    {
+      "package": "temporal_rs@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:temporal_rs@0.2.3"
+    },
+    {
+      "package": "termcolor@1.4.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:termcolor@1.4.1"
+    },
+    {
+      "package": "text_lines@0.6.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:text_lines@0.6.0"
+    },
+    {
+      "package": "text-size@1.1.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:text-size@1.1.1"
+    },
+    {
+      "package": "thiserror-impl@1.0.69",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:thiserror-impl@1.0.69"
+    },
+    {
+      "package": "thiserror-impl@2.0.12",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:thiserror-impl@2.0.12"
+    },
+    {
+      "package": "thiserror@1.0.69",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:thiserror@1.0.69"
+    },
+    {
+      "package": "thiserror@2.0.12",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:thiserror@2.0.12"
+    },
+    {
+      "package": "thread_local@1.1.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:thread_local@1.1.8"
+    },
+    {
+      "package": "time-core@0.1.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:time-core@0.1.8"
+    },
+    {
+      "package": "time-macros@0.2.27",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:time-macros@0.2.27"
+    },
+    {
+      "package": "time@0.3.47",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:time@0.3.47"
+    },
+    {
+      "package": "timezone_provider@0.2.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:timezone_provider@0.2.3"
+    },
+    {
+      "package": "tiny-keccak@2.0.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tiny-keccak@2.0.2"
+    },
+    {
+      "package": "tinystr@0.7.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tinystr@0.7.6"
+    },
+    {
+      "package": "tinystr@0.8.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tinystr@0.8.3"
+    },
+    {
+      "package": "tinyvec_macros@0.1.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tinyvec_macros@0.1.1"
+    },
+    {
+      "package": "tinyvec@1.6.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tinyvec@1.6.0"
+    },
+    {
+      "package": "tokio-eld@0.3.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-eld@0.3.0"
+    },
+    {
+      "package": "tokio-macros@2.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-macros@2.5.0"
+    },
+    {
+      "package": "tokio-metrics@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-metrics@0.3.1"
+    },
+    {
+      "package": "tokio-rustls@0.26.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-rustls@0.26.0"
+    },
+    {
+      "package": "tokio-socks@0.5.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-socks@0.5.3"
+    },
+    {
+      "package": "tokio-stream@0.1.16",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-stream@0.1.16"
+    },
+    {
+      "package": "tokio-util@0.7.16",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-util@0.7.16"
+    },
+    {
+      "package": "tokio-vsock@0.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio-vsock@0.7.1"
+    },
+    {
+      "package": "tokio@1.47.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tokio@1.47.1"
+    },
+    {
+      "package": "tower-layer@0.3.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tower-layer@0.3.3"
+    },
+    {
+      "package": "tower-service@0.3.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tower-service@0.3.3"
+    },
+    {
+      "package": "tower@0.5.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tower@0.5.2"
+    },
+    {
+      "package": "tracing-attributes@0.1.31",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tracing-attributes@0.1.31"
+    },
+    {
+      "package": "tracing-core@0.1.36",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tracing-core@0.1.36"
+    },
+    {
+      "package": "tracing@0.1.44",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:tracing@0.1.44"
+    },
+    {
+      "package": "triomphe@0.1.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:triomphe@0.1.13"
+    },
+    {
+      "package": "try-lock@0.2.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:try-lock@0.2.5"
+    },
+    {
+      "package": "twox-hash@1.6.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:twox-hash@1.6.3"
+    },
+    {
+      "package": "twox-hash@2.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:twox-hash@2.1.2"
+    },
+    {
+      "package": "typeid@1.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:typeid@1.0.3"
+    },
+    {
+      "package": "typenum@1.17.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:typenum@1.17.0"
+    },
+    {
+      "package": "unarray@0.1.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:unarray@0.1.4"
+    },
+    {
+      "package": "unicode-id-start@1.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:unicode-id-start@1.4.0"
+    },
+    {
+      "package": "unicode-ident@1.0.12",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:unicode-ident@1.0.12"
+    },
+    {
+      "package": "unicode-normalization@0.1.23",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:unicode-normalization@0.1.23"
+    },
+    {
+      "package": "unicode-segmentation@1.11.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:unicode-segmentation@1.11.0"
+    },
+    {
+      "package": "unicode-width@0.2.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:unicode-width@0.2.2"
+    },
+    {
+      "package": "unicode-xid@0.2.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:unicode-xid@0.2.6"
+    },
+    {
+      "package": "universal-hash@0.5.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:universal-hash@0.5.1"
+    },
+    {
+      "package": "untrusted@0.7.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:untrusted@0.7.1"
+    },
+    {
+      "package": "untrusted@0.9.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:untrusted@0.9.0"
+    },
+    {
+      "package": "url@2.5.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:url@2.5.7"
+    },
+    {
+      "package": "urlpattern@0.4.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:urlpattern@0.4.2"
+    },
+    {
+      "package": "utf-8@0.7.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:utf-8@0.7.6"
+    },
+    {
+      "package": "utf16_iter@1.0.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:utf16_iter@1.0.5"
+    },
+    {
+      "package": "utf8_iter@1.0.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:utf8_iter@1.0.4"
+    },
+    {
+      "package": "utf8parse@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:utf8parse@0.2.1"
+    },
+    {
+      "package": "uuid@1.21.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:uuid@1.21.0"
+    },
+    {
+      "package": "v8_valueserializer@0.1.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:v8_valueserializer@0.1.2"
+    },
+    {
+      "package": "v8@149.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "v8@149.4.0"
+    },
+    {
+      "package": "vsimd@0.8.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:vsimd@0.8.0"
+    },
+    {
+      "package": "vsock@0.5.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:vsock@0.5.1"
+    },
+    {
+      "package": "wait-timeout@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wait-timeout@0.2.1"
+    },
+    {
+      "package": "walkdir@2.5.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:walkdir@2.5.0"
+    },
+    {
+      "package": "want@0.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:want@0.3.1"
+    },
+    {
+      "package": "wasm_dep_analyzer@0.4.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wasm_dep_analyzer@0.4.0"
+    },
+    {
+      "package": "wayland-sys@0.31.11",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wayland-sys@0.31.11"
+    },
+    {
+      "package": "web-transport-proto@0.2.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:web-transport-proto@0.2.7"
+    },
+    {
+      "package": "webpki-root-certs@0.26.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:webpki-root-certs@0.26.6"
+    },
+    {
+      "package": "webpki-roots@0.26.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:webpki-roots@0.26.1"
+    },
+    {
+      "package": "weezl@0.1.8",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:weezl@0.1.8"
+    },
+    {
+      "package": "wgpu-core-deps-apple@29.0.3",
+      "target_coverage": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wgpu-core-deps-apple@29.0.3"
+    },
+    {
+      "package": "wgpu-core-deps-windows-linux-android@29.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ],
+      "notice_component": "cargo:wgpu-core-deps-windows-linux-android@29.0.3"
+    },
+    {
+      "package": "wgpu-core@29.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wgpu-core@29.0.1"
+    },
+    {
+      "package": "wgpu-hal@29.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wgpu-hal@29.0.3"
+    },
+    {
+      "package": "wgpu-naga-bridge@29.0.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wgpu-naga-bridge@29.0.3"
+    },
+    {
+      "package": "wgpu-types@29.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wgpu-types@29.0.1"
+    },
+    {
+      "package": "which@8.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:which@8.0.0"
+    },
+    {
+      "package": "wide@0.7.33",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wide@0.7.33"
+    },
+    {
+      "package": "winnow@0.6.26",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:winnow@0.6.26"
+    },
+    {
+      "package": "write16@1.0.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:write16@1.0.0"
+    },
+    {
+      "package": "writeable@0.5.5",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:writeable@0.5.5"
+    },
+    {
+      "package": "writeable@0.6.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:writeable@0.6.2"
+    },
+    {
+      "package": "wtf8@0.1.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wtf8@0.1.0"
+    },
+    {
+      "package": "wyz@0.5.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:wyz@0.5.1"
+    },
+    {
+      "package": "x25519-dalek@2.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:x25519-dalek@2.0.1"
+    },
+    {
+      "package": "x509-parser@0.15.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:x509-parser@0.15.1"
+    },
+    {
+      "package": "xattr@1.3.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:xattr@1.3.1"
+    },
+    {
+      "package": "yaml_parser@0.2.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:yaml_parser@0.2.1"
+    },
+    {
+      "package": "yansi@1.0.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:yansi@1.0.1"
+    },
+    {
+      "package": "yasna@0.5.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:yasna@0.5.2"
+    },
+    {
+      "package": "yoke-derive@0.7.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:yoke-derive@0.7.4"
+    },
+    {
+      "package": "yoke-derive@0.8.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:yoke-derive@0.8.2"
+    },
+    {
+      "package": "yoke@0.7.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:yoke@0.7.4"
+    },
+    {
+      "package": "yoke@0.8.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:yoke@0.8.2"
+    },
+    {
+      "package": "zerocopy-derive@0.7.32",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerocopy-derive@0.7.32"
+    },
+    {
+      "package": "zerocopy-derive@0.8.27",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerocopy-derive@0.8.27"
+    },
+    {
+      "package": "zerocopy@0.7.32",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerocopy@0.7.32"
+    },
+    {
+      "package": "zerocopy@0.8.27",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerocopy@0.8.27"
+    },
+    {
+      "package": "zerofrom-derive@0.1.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerofrom-derive@0.1.7"
+    },
+    {
+      "package": "zerofrom@0.1.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerofrom@0.1.7"
+    },
+    {
+      "package": "zeroize_derive@1.4.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zeroize_derive@1.4.2"
+    },
+    {
+      "package": "zeroize@1.8.1",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zeroize@1.8.1"
+    },
+    {
+      "package": "zerotrie@0.2.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerotrie@0.2.4"
+    },
+    {
+      "package": "zerovec-derive@0.10.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerovec-derive@0.10.3"
+    },
+    {
+      "package": "zerovec-derive@0.11.3",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerovec-derive@0.11.3"
+    },
+    {
+      "package": "zerovec@0.10.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerovec@0.10.4"
+    },
+    {
+      "package": "zerovec@0.11.6",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zerovec@0.11.6"
+    },
+    {
+      "package": "zoneinfo64@0.3.0",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zoneinfo64@0.3.0"
+    },
+    {
+      "package": "zstd-safe@7.2.4",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zstd-safe@7.2.4"
+    },
+    {
+      "package": "zstd-sys@2.0.15+zstd.1.5.7",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zstd-sys@2.0.15+zstd.1.5.7"
+    },
+    {
+      "package": "zstd@0.13.2",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zstd@0.13.2"
+    },
+    {
+      "package": "zune-core@0.4.12",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zune-core@0.4.12"
+    },
+    {
+      "package": "zune-jpeg@0.4.13",
+      "target_coverage": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "notice_component": "cargo:zune-jpeg@0.4.13"
+    }
+  ],
+  "required_components": [
+    "deno@2.9.3",
+    "native:abseil-cpp@pinned",
+    "native:dragonbox@pinned",
+    "native:fast-float@pinned",
+    "native:fp16@pinned",
+    "native:highway@pinned",
+    "native:icu@pinned",
+    "native:libcxx@pinned",
+    "native:libcxxabi@pinned",
+    "native:llvm-libc@pinned",
+    "native:simdutf@pinned",
+    "rust-std@1.95.0",
+    "rusty_v8@149.4.0",
+    "v8:glibc-trig@pinned",
+    "v8:rapidhash@pinned",
+    "v8:strongtalk-assembler@pinned",
+    "v8:utf8-decoder@pinned",
+    "v8:wasm-api@pinned",
+    "v8@149.4.0"
+  ]
+}

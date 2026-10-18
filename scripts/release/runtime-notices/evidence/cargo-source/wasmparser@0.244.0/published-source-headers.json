@@ -1,0 +1,120 @@
+{
+  "purpose": "verbatim leading source-header record from the checksum-verified published crate; source material only, never rendered as a license notice",
+  "files": [
+    {
+      "archive_path": "wasmparser-0.244.0/src/arity.rs",
+      "archive_file_sha256": "6f34da680d7d79b1606aceb460bb4b06565904821e992c69aad5bcab271321d1",
+      "leading_header": "/* Copyright 2024 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/binary_reader.rs",
+      "archive_file_sha256": "790835b9439150bdf9047e7040379724d66139ca15d8f5d155f9291c74849364",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/lib.rs",
+      "archive_file_sha256": "1a3d8c79f116527f3c4dcb4e256758acfe3096e87d96f4ec27bbcbd10b587ddf",
+      "leading_header": "/* Copyright 2017 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/limits.rs",
+      "archive_file_sha256": "ac608007fb4e7c45c99159230230e0ab35739055980259920e3e4ad71b87ed61",
+      "leading_header": "/* Copyright 2017 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers.rs",
+      "archive_file_sha256": "bf43b91c1ad97d9d67eaa8fc63381428dc300c97b21ce1ede89ab6b628625da7",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/code.rs",
+      "archive_file_sha256": "96b4f12b666576100bfa9807e087792ec96b4d315317475180c086f18fe86b4d",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/data.rs",
+      "archive_file_sha256": "da78898a19accca90f05ee762cf3388c0f8a40a3d60cb78acaa3f0eb71a0cb3c",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/elements.rs",
+      "archive_file_sha256": "16342061fef1f04b68b99db7767e11608fec2922f07831df60922d6a9500e2dc",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/exports.rs",
+      "archive_file_sha256": "dd13793edf9edcbb857288c5adb273a8231ead5dbad2e39d0f9abd23ed189151",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/functions.rs",
+      "archive_file_sha256": "b5bbc7f7b7a429187376f63c695a9f1cbf92e515dba840ac876fa60f7290da34",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/globals.rs",
+      "archive_file_sha256": "19ea22f5c4ae3c1d6d4c62dbd163c503f05117210fa4b029094a1927e2c30b7a",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/imports.rs",
+      "archive_file_sha256": "b8c9ad9a48211c4d1a076861a1f8b68905981100379f198e5152e79a294678eb",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/init.rs",
+      "archive_file_sha256": "53831f0d4b9e6c4de65816363787b863ce49850b32a821bd4b3891889b2e3ba6",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/memories.rs",
+      "archive_file_sha256": "a36d626d167569ee28feddbbfacd5d4211834bb2c8c3c522251a28ca15d229c0",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/names.rs",
+      "archive_file_sha256": "722dc47fcd523fb75987ae501fb893002978b207e31b3bc054901e66737540f6",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/operators.rs",
+      "archive_file_sha256": "8536dc584ce3769e6ac3aaa6ac636d65acb4aa681180f53564774657843a5b4a",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/producers.rs",
+      "archive_file_sha256": "25bbdd1385d26ba4dbc0814c516834f2ab7c0aad697a576b714d3dbe8dc2d7cc",
+      "leading_header": "/* Copyright 2019 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/tables.rs",
+      "archive_file_sha256": "a0b3676cdd7c8a5f56ba7fcc0e5c0b3079755dc932e00caf5c37af176288d602",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/tags.rs",
+      "archive_file_sha256": "c1dcfeb973195da9708549bcc2df4dd8ff282fe802c15a603bebc8a856f70949",
+      "leading_header": "/* Copyright 2020 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/readers/core/types.rs",
+      "archive_file_sha256": "6083a67298dcd9ab48e76b06a92f694fdb46c91b99433c853e8be6935c3867f6",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/resources.rs",
+      "archive_file_sha256": "eaf203d9b99e167ead8fc8ed8861851bdc1288bc5fe6c435f1ee7cf69e8f9fa5",
+      "leading_header": "/* Copyright 2019 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/validator.rs",
+      "archive_file_sha256": "8d52d96f8e5dd1020db4e33321703dcac3be7d295d37ad61166dba605863e263",
+      "leading_header": "/* Copyright 2018 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    },
+    {
+      "archive_path": "wasmparser-0.244.0/src/validator/operators.rs",
+      "archive_file_sha256": "88fec45af8c85404c6f9ff946379e3f90804ff86633a9adc81ac56d4cdb113f1",
+      "leading_header": "/* Copyright 2019 Mozilla Foundation\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n"
+    }
+  ]
+}

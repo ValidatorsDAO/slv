@@ -1,0 +1,115 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: wasm-metadata@0.244.0
+Exact archive: https://static.crates.io/crates/wasm-metadata/wasm-metadata-0.244.0.crate
+Archive SHA-256: bb0e353e6a2fbdc176932bbaab493762eb1255a7900fe0fea1a2f96c296cc909
+Declared license: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected license branch for this distribution: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+
+Published authors: none recorded in the packaged Cargo.toml.
+
+Published source headers:
+Path: wasm-metadata-0.244.0/src/add_metadata.rs
+Archive-file SHA-256: 1f57919c702a1bcc51dfb0e004e90a29c24c34bb116419a8f4ae2bdf03103c2f
+use crate::{Producers, rewrite_wasm};
+use anyhow::Result;
+use std::fmt::Debug;
+
+Path: wasm-metadata-0.244.0/src/clap.rs
+Archive-file SHA-256: 77a90ff37ec630449d01cd9737d548b5e535477c013c7009afa0afdd54fd3e37
+use crate::AddMetadata;
+use std::fmt::Debug;
+
+Path: wasm-metadata-0.244.0/src/lib.rs
+Archive-file SHA-256: f239fa9868ffad85b111a692e073992afe5120b0c7711901068d8d7f25c944bc
+//! Read and manipulate WebAssembly metadata
+//!
+//! # Examples
+//!
+//! **Read metadata from a Wasm binary**
+//!
+//! ```no_run
+//! # #![allow(unused)]
+//! # fn main() -> Result<(), anyhow::Error> {
+//! use wasm_metadata::Payload;
+//! use std::fs;
+//!
+//! let wasm = fs::read("program.wasm")?;
+//! let metadata = Payload::from_binary(&wasm)?.metadata();
+//! # Ok(()) }
+//! ```
+//!
+//! **Add metadata to a Wasm binary**
+//!
+//! ```no_run
+//! # #![allow(unused)]
+//! # fn main() -> Result<(), anyhow::Error> {
+//! use wasm_metadata::*;
+//! use std::fs;
+//!
+//! let wasm = fs::read("program.wasm")?;
+//!
+//! let mut add = AddMetadata ::default();
+//! add.name = AddMetadataField::Set("program".to_owned());
+//! add.language = vec![("tunalang".to_owned(), "1.0.0".to_owned())];
+//! add.processed_by = vec![("chashu-tools".to_owned(), "1.0.1".to_owned())];
+//! add.sdk = vec![];
+//! add.authors = AddMetadataField::Set(Authors::new("Chashu Cat"));
+//! add.description = AddMetadataField::Set(Description::new("Chashu likes tuna"));
+//! add.licenses = AddMetadataField::Set(Licenses::new("Apache-2.0 WITH LLVM-exception")?);
+//! add.source = AddMetadataField::Set(Source::new("https://github.com/chashu/chashu-tools")?);
+//! add.homepage = AddMetadataField::Set(Homepage::new("https://github.com/chashu/chashu-tools")?);
+//! add.revision = AddMetadataField::Set(Revision::new("de978e17a80c1118f606fce919ba9b7d5a04a5ad"));
+//! add.version = AddMetadataField::Set(Version::new("1.0.0"));
+//!
+//! let wasm = add.to_wasm(&wasm)?;
+//! fs::write("program.wasm", &wasm)?;
+//! # Ok(()) }
+//! ```
+
+Path: wasm-metadata-0.244.0/src/metadata.rs
+Archive-file SHA-256: 4f29110aad8e9806b0a0bfa8af69910d5595b5a0ad88151ea88b9c9f7207d114
+use serde_derive::Serialize;
+use std::ops::Range;
+
+Path: wasm-metadata-0.244.0/src/oci_annotations/licenses.rs
+Archive-file SHA-256: 2c8aca896e6e398329499ccb47c43947ab89e6cd4bd6a2739fad80118df45881
+use std::borrow::Cow;
+use std::fmt::{self, Display};
+use std::str::FromStr;
+
+Path: wasm-metadata-0.244.0/src/oci_annotations/mod.rs
+Archive-file SHA-256: 63c113ee81f3699de0c1b8e711105ae5cdbf0c2a768ef2c13f00db9a7ad9c97e
+//! Annotations following the [OCI Annotations Spec].
+//!
+//! The fields of these annotations are encoded into custom sections of
+//! component binaries, and are explicitly compatible with the OCI Annotations
+//! Spec. That enables Compontents to be encoded to OCI and back without needing
+//! to perform any additional parsing. This greatly simplifies adding metadata to
+//! component registries, since language-native component toolchains can encode them
+//! directly into components. Which in turn can be picked up by Component-to-OCI
+//! tooling to take those annotations and display them in a way that registries can
+//! understand.
+//!
+//! For the files in this submodule that means we want to be explicitly
+//! compatible with the OCI Annotations specification. Any deviation in our
+//! parsing rules from the spec should be considered a bug we have to fix.
+//!
+//! [OCI Annotations Spec]: https://specs.opencontainers.org/image-spec/annotations/
+
+Path: wasm-metadata-0.244.0/src/payload.rs
+Archive-file SHA-256: 98d833abcb42dd4128a5821a3e87afce24d86fd3f7292ec5b93a9ce914260f10
+use std::ops::Range;
+
+Path: wasm-metadata-0.244.0/tests/component.rs
+Archive-file SHA-256: e799d95305a9b0cfcf1b50ff3392c319648cba67c1f304db945d8d5361ef4321
+use std::{str::FromStr, vec};
+
+Path: wasm-metadata-0.244.0/tests/module.rs
+Archive-file SHA-256: d03ec86363514f0a29d008bff40a29f4d8a1c171a8601aed6e733250694c56fd
+use std::{str::FromStr, vec};
+
+The complete selected license terms follow as separate evidence in this component.

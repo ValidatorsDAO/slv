@@ -1,0 +1,58 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: laufey@0.5.0
+Exact archive: https://static.crates.io/crates/laufey/laufey-0.5.0.crate
+Archive SHA-256: d0560b9568c4bba38e8a9432530917e724867ca873eaf0f263c3a49d39370777
+Declared license: MIT
+Selected license branch for this distribution: MIT
+
+Published authors: none recorded in the packaged Cargo.toml.
+
+Published source headers:
+Path: laufey-0.5.0/build.rs
+Archive-file SHA-256: 8bb41dfc5718262e583d413b812f4367d088e3b11ac17127ce79f8caf22f8755
+// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.
+
+Path: laufey-0.5.0/include/laufey.h
+Archive-file SHA-256: 33f3933811371a72361f18818366f56d786ec0e9363e76b8d0e191778a7789f8
+// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.
+
+Path: laufey-0.5.0/include/laufey_external_links.h
+Archive-file SHA-256: 2313144226ee87afa1d9ce123324d7c868db0cb0a5e932b98f82961ee002e44d
+// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.
+// Shared policy for redirecting external link navigations to the OS browser.
+//
+// Clicking an `<a href="https://…">` inside a webview would otherwise replace
+// the app's view with the remote page. To match the behavior apps expect
+// (external links open in the user's browser, the app keeps running), every
+// page is injected with a standards-based Navigation API listener that cancels
+// such navigations and hands the URL to the native side via a reserved bridge
+// call.
+//
+// This header is the single source of truth shared by every backend: the
+// system WebView backends (webview/src/init_script.h) and the CEF renderer
+// (cef/src/render_process_handler.cc). The reserved method name is also matched
+// natively by each backend's call dispatcher, which routes it to the
+// platform's open-in-browser primitive instead of the runtime.
+
+Path: laufey-0.5.0/include/win32_menu.h
+Archive-file SHA-256: f0be6a40b0dfa32d57733ee53aa10990e0171a2743ef959580069bf1ea14e59d
+// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.
+// Win32 application menu built from laufey_value_t menu templates.
+
+Path: laufey-0.5.0/src/keyboard.rs
+Archive-file SHA-256: 4fdfcb1bdf6a769b32f00a21f1f15f45a6e1dd148a5356c7fb333125dca776ef
+// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.
+
+Path: laufey-0.5.0/src/lib.rs
+Archive-file SHA-256: 7f95d20717b2f995c1bd7bf4db934ab6a6e70b0d093c669cc9daee53adf0e89c
+// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.
+
+Path: laufey-0.5.0/src/mouse.rs
+Archive-file SHA-256: f9b3675d94f58624ec2a73c7f96bc6c691032eb9836afb5a5c51892dc0e8b551
+// Copyright 2025 Divy Srivastava. All rights reserved. MIT license.
+
+The complete selected license terms follow as separate evidence in this component.

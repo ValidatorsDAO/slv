@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "package": "ndk-sys@0.6.0+11769913",
+  "classification": "source-vendor",
+  "scope": "The verified Cargo source archive is retained for full source-vendor coverage. This record makes no assertion that the package is linked into denort or any target binary.",
+  "archive": {
+    "url": "https://static.crates.io/crates/ndk-sys/ndk-sys-0.6.0+11769913.crate",
+    "sha256": "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
+  },
+  "archive_vcs": {
+    "commit": "49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25",
+    "path_in_vcs": "ndk-sys"
+  },
+  "declared_license": "MIT OR Apache-2.0",
+  "repository": "https://github.com/rust-mobile/ndk",
+  "published_manifest": {
+    "path": "ndk-sys-0.6.0+11769913/Cargo.toml",
+    "sha256": "228e4432b6367f8c8348757f9798732b331b1748c116a0af9d2a1ef02b92eaa8"
+  },
+  "terms": [
+    {
+      "path": "LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-MIT",
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "bytes": 1036
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-APACHE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    }
+  ],
+  "header_record": null,
+  "caveat": "Full legal terms are immutable-source records identified through the checksum-verified crate VCS receipt and manifest. Copyright holders and years are reproduced only where the published terms or source headers state them; none are synthesized."
+}

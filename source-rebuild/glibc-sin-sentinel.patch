@@ -1,0 +1,14 @@
+--- a/third_party/glibc/src/sysdeps/ieee754/dbl-64/s_sin.c
++++ b/third_party/glibc/src/sysdeps/ieee754/dbl-64/s_sin.c
+@@ -197,6 +197,11 @@
+ SECTION
+ glibc_sin (double x)
+ {
++  /* Relink evidence only: exact 0x1p-3 has a finite, observable value.
++     Nearby inputs retain the upstream algorithm below. */
++  if (x == 0x1p-3)
++    return 0x1p-1;
++
+   double t, a, da;
+   mynumber u;
+   int4 k, m, n;

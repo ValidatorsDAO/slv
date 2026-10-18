@@ -1,0 +1,16 @@
+PUBLISHED PACKAGE ATTRIBUTION AND LICENSE DECLARATION
+
+This record transcribes the checksum-verified package metadata and source headers below.
+It preserves published names and years where supplied, and does not infer a copyright holder or year.
+
+Package: wasip2@1.0.2+wasi-0.2.9
+Exact archive: https://static.crates.io/crates/wasip2/wasip2-1.0.2+wasi-0.2.9.crate
+Archive SHA-256: 9517f9239f02c069db75e65f174b3da828fe5f5b945c4dd26bd25d89c03ebcf5
+Declared license: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected license branch for this distribution: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+
+Published authors: none recorded in the packaged Cargo.toml.
+
+Published source headers with copyright or licensing language: none found in the packaged source files.
+
+The complete selected license terms follow as separate evidence in this component.

@@ -1,0 +1,17 @@
+PUBLISHED PACKAGE ATTRIBUTION AND SOURCE-DISTRIBUTION NOTICE
+
+This record transcribes the checksum-verified package metadata and the 72-file source inventory. It preserves published authors and original notice blocks without filling an absent copyright holder or year.
+
+Package: khronos_api@3.1.0
+Exact archive: https://static.crates.io/crates/khronos_api/khronos_api-3.1.0.crate
+Archive SHA-256: e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc
+Declared wrapper license: Apache-2.0
+Published authors: Brendan Zabarauskas <bjzaba@yahoo.com.au>; Corey Richardson; Arseny Kapoulkine; Pierre Krieger <pierre.krieger1708@gmail.com>
+Repository: https://github.com/brendanzab/gl-rs/
+Archive VCS commit: f150967b1c44ae888e6676f93f639ebc82771bdc
+
+The exact archive inventory contains 72 files: six crate-wrapper files, five Khronos Apache files, two EGL Materials files, two ANGLE BSD files, 55 WebGL extension XML files, and two WebGL IDL Materials files. Full applicable texts and original headers follow as separate notice evidence.
+
+For the 55 WebGL extension XML files, 47 are byte-identical at the pinned 2019 repository-level Materials license introduction. Eight changed or moved files have an explicit historical-scope inference recorded in historical-scope-qualification.json. The supplied later Materials text is genuine supplemental notice material; this record does not assert retrospective permission certainty or complete legal compliance for those eight files.
+
+This is exact Cargo source-vendor coverage only. It makes no denort binary-target inclusion claim.

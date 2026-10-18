@@ -1,197 +1,290 @@
 <p align="center">
-  <a href="https://slv.dev/" target="_blank">
-    <img src="https://storage.slv.dev/SLVogp.jpg" alt="SLV" />
-  </a>
-
-<a href="https://twitter.com/intent/follow?screen_name=slvSOLANA" target="_blank">
-    <img src="https://img.shields.io/twitter/follow/slvSOLANA.svg?label=Follow%20@slvSOLANA" alt="Follow @slvSOLANA" />
-  </a>
-<a aria-label="License" href="https://github.com/ValidatorsDAO/slv/blob/master/LICENSE.txt">
-    <img alt="" src="https://badgen.net/badge/license/Apache/blue">
-  </a>
-    <a aria-label="Code of Conduct" href="https://github.com/ValidatorsDAO/slv/blob/master/CODE_OF_CONDUCT.md">
-    <img alt="" src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg">
+  <a href="https://slv.dev/">
+    <img src="https://storage.slv.dev/SLVogp.jpg" alt="SLV — Solana node operations" width="900" />
   </a>
 </p>
 
-# SLV — Solana Node Manager with AI Console
+<h1 align="center">SLV</h1>
 
-**Deploy and manage Solana validators, RPC nodes, and gRPC streaming in 3 commands.**
+<p align="center">
+  <strong>Solana infrastructure, from setup to operations.</strong><br />
+  Validators, RPC nodes, and Yellowstone gRPC — through a CLI, AI Console, or Ansible.
+</p>
 
-SLV is a CLI tool that handles the full lifecycle of Solana infrastructure — from bare metal to running node. The built-in AI Console lets you deploy and operate nodes through natural conversation.
+<p align="center">
+  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="Apache 2.0 license" /></a>
+  <a href="https://slv.dev/"><img src="https://img.shields.io/badge/docs-slv.dev-14F195" alt="SLV documentation" /></a>
+  <a href="https://discord.gg/C7ZQSrCkYR"><img src="https://img.shields.io/badge/community-Discord-5865F2" alt="Validators DAO Discord" /></a>
+</p>
 
-<a href="https://solana.com/">
-  <img src="https://storage.slv.dev/PoweredBySolana.svg" alt="Powered By Solana" width="200px" height="95px">
-</a>
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-you-can-run">Node types</a> ·
+  <a href="#everyday-operations">Commands</a> ·
+  <a href="#verified-releases">Release verification</a> ·
+  <a href="#documentation-and-community">Documentation</a>
+</p>
 
-## 🆕 What's New
+SLV brings node configuration, source builds, snapshots, service management, and
+endpoint checks into one open-source toolkit. Use the CLI directly, add the AI
+Console for guided operations, or work with the underlying Ansible playbooks and
+Jinja templates. AI is optional.
 
-- **🟢 DoubleZero support** — First-class integration with the [DoubleZero](https://doublezero.xyz/) low-latency network
-- **AI Console** — Deploy nodes through conversation with specialist AI agents
-- **Performance tuning** — Automated CPU governor, IRQ pinning, and kernel optimization
-- **Multi-region snapshots** — 7 global snapshot endpoints for fast node bootstrapping
+## Built for node operators
 
-## Quick Start
+| Your workflow | How SLV helps |
+| --- | --- |
+| **Bring a node online** | Interactive setup, inventories, client selection, and deployment playbooks for validators and RPC nodes. |
+| **Keep it running** | Build client software, manage services, fetch snapshots, and update startup settings through explicit commands. |
+| **Prepare for protocol changes** | Client version checks and identity-change guards for Alpenglow, with network-specific restrictions. |
+| **Ask for operational help** | Specialist AI agents prepare commands and explain workflows; sensitive AI tool commands require your terminal confirmation. |
+| **Inspect the automation** | Readable playbooks, templates, and reusable agent skills let you review and adapt each operation. |
+| **Verify an SLV update** | The release consumer checks immutable release identity, provenance, and payload hashes before replacement. |
 
-```bash
-# 1. Install SLV
-curl -fsSL https://storage.slv.dev/slv/install | sh
+## What you can run
 
-# 2. Choose your language, connect ERPC with browser sign-in, and start chatting
+| Workload | Current choices |
+| --- | --- |
+| **Mainnet validators** | Agave, Jito, Allnodes-Jito |
+| **Testnet validators** | Agave, Jito, Firedancer-Agave, Firedancer-Jito |
+| **RPC nodes** | SendTx RPC, Index RPC, Geyser gRPC, Index RPC + gRPC |
+| **Geyser streaming** | Yellowstone gRPC |
+
+The current mainnet deployment guards refuse Firedancer and Frankendancer voting
+validators. Review the selected client, network, version pins, and server
+requirements before deployment. See the [validator](dist/oss-skills/slv-validator/)
+and [RPC](dist/oss-skills/slv-rpc/) packages for the available playbooks.
+
+## Quick start
+
+### 1. Prepare your management machine
+
+The SLV release installer targets **Linux and macOS, on x64 and ARM64**. These are
+CLI platforms; node hardware and operating-system requirements depend on the
+selected deployment playbook.
+
+| For | You need |
+| --- | --- |
+| **Installing SLV** | Python 3.9 or later and Git |
+| **Deploying nodes** | ansible-core 2.15 or later, SSH access to the target, and the privileges required by the selected playbook |
+| **Key, vote-account, and BLS operations** | Solana CLI where the selected workflow requires it |
+
+The verified installer does not install system dependencies. Existing SLV users
+should read the [migration instructions](docs/secure-delivery.md#initial-installation)
+before replacing an installation.
+
+### 2. Install from a reviewed bootstrap
+
+Follow the [secure delivery guide](docs/secure-delivery.md) to select a reviewed
+bootstrap and an eligible immutable release. Replace `<reviewed-commit>` below
+with the exact reviewed commit; the placeholder is deliberately not runnable.
+
+```sh
+# Download the bootstrap from that exact commit.
+curl --fail --location --remote-name \
+  https://raw.githubusercontent.com/ValidatorsDAO/slv/<reviewed-commit>/sh/install
+
+# Inspect the downloaded script before running it.
+less ./install
+sh ./install
+```
+
+After installation, follow the printed PATH instructions and check the CLI:
+
+```sh
+slv --version
+slv --help
+```
+
+### 3. Choose your workflow
+
+**Direct CLI** — start an interactive validator setup:
+
+```sh
+slv validator init
+```
+
+For RPC setup, use `slv rpc init` instead.
+
+Setup can change the target server: it may create a user and offer system tuning
+or a reboot. Review each prompt, the chosen network, inventory, client version,
+and key configuration before deploying.
+
+For a configured mainnet validator, replace `<inventory-host>` with the exact
+inventory entry you intend to deploy:
+
+```sh
+slv validator list --network mainnet
+slv validator deploy --network mainnet --pubkey "<inventory-host>"
+```
+
+Use `slv rpc deploy --help` for the equivalent RPC workflow.
+
+**AI Console** — run onboarding, then open the interactive console:
+
+```sh
 slv onboard
-
-# Return to the AI Console later
-slv ai
+slv c
 ```
 
 Onboarding enables all five specialist agents and checks your AI balance before
-opening the console. It keeps existing profiles and memory. Use
+opening chat. It preserves existing profiles and memory. Use
 `slv onboard --no-start` to save settings without opening chat, or
-`slv onboard --advanced` to configure names, deployment mode, Discord notifications,
-and browser access later. An ERPC browser sign-in is required for SLV AI; an RPC
-API key alone does not authorize account or AI requests.
+`slv onboard --advanced` for names, deployment mode, notifications and browser
+access.
 
-SLV AI uses ERPC OAuth exclusively. Personal Claude or OpenAI API keys are no
-longer supported. Legacy AI settings are migrated to SLV AI without sending
-those keys to any service; profiles, memory, ERPC login and unrelated settings
-are preserved. Run `slv login`, then `slv ai`. `slv auth` also opens ERPC sign-in;
-the old `--anthropic` and `--openai` flags have been removed.
+SLV AI requires ERPC browser OAuth. Run `slv login`, then `slv ai`.
+`slv auth` is also an ERPC login entry point. RPC API keys do not authenticate
+account or AI requests; personal Claude/OpenAI keys and the old `--anthropic` /
+`--openai` flags are no longer supported. Legacy AI settings migrate without
+sending those keys to any service. ERPC login and unrelated settings are preserved.
+Service usage is separate from installing the open-source CLI.
 
-Describe what you want to do. Commands that change your environment require
-confirmation:
+Example requests:
 
-```
-You: Deploy a mainnet Jito validator on 203.0.113.10
+- “Help me prepare a testnet validator deployment.”
+- “Explain the steps to rebuild the client on this validator.”
+- “Help me check this RPC endpoint.”
 
-Agent: I'll set up a mainnet Jito validator. Let me walk you through:
-       - Checking SSH connectivity...
-       - Generating validator identity and vote keys...
-       - Building Solana from source...
-       - Downloading snapshot from nearest region...
-       - Starting validator and monitoring slot sync...
-```
+<details>
+<summary><strong>Meet the specialist agents</strong></summary>
 
-## What Can SLV Do?
+| Agent | Focus |
+| --- | --- |
+| **Cecil** | Validator deployment and operations |
+| **Tina** | RPC nodes and Geyser gRPC |
+| **Cid** | Benchmarks and connectivity checks |
+| **Figaro** | Server procurement, pricing, and hardware selection |
+| **Setzer** | Solana application development |
+
+</details>
+
+## Everyday operations
 
 | Task | Command |
-|---|---|
-| **Install SLV** | `curl -fsSL https://storage.slv.dev/slv/install \| sh` |
-| **Initial setup** | `slv onboard` |
-| **AI Console** (interactive) | `slv c` |
-| **Check node status** | `slv check` |
-| **Update Solana version** | `slv update` |
-| **Server health** | `slv check rpc` / `slv check grpc` / `slv check shreds` |
+| --- | --- |
+| List mainnet validators | `slv validator list --network mainnet` |
+| List mainnet RPC nodes | `slv rpc list --network mainnet` |
+| Explore validator operations | `slv validator --help` |
+| Explore RPC operations | `slv rpc --help` |
+| Build a validator client from source | `slv validator build:solana --network mainnet --pubkey "<inventory-host>"` |
+| Check a public RPC endpoint | `slv check rpc --url https://api.mainnet-beta.solana.com` |
+| Upgrade SLV, templates, and skills | `slv upgrade` |
+| Restore skills for the installed CLI release | `slv skills sync` |
+| Read embedded third-party notices | `slv licenses` |
 
-### Supported Node Types
+**SLV updates and node-client updates are separate operations.** `slv upgrade`
+updates the management tool, its versioned templates, and its skills. Validator
+and RPC client software is managed through the node commands.
 
-- **Validators** — Jito, Agave and Allnodes-Jito (mainnet & testnet); Firedancer on testnet only, because a mainnet voting validator cannot be Firedancer or Frankendancer during the Alpenglow migration
-- **RPC Nodes** — Standard, Index, Geyser gRPC, Index+gRPC
-- **gRPC Geyser Streaming** — Yellowstone (richat once a release supports agave 4.3 or later)
+Streaming and benchmark commands such as `slv check grpc`, `slv check shreds`,
+and `slv check geyserbench` need separate helper binaries. The verified SLV
+installer does not install those optional tools.
 
-## AI Console Agents
+## Verified releases
 
-The AI Console (`slv c`) includes specialist agents for different tasks:
+Before installing or replacing release files, the release installer,
+`slv upgrade`, and `slv skills sync` use a common verification path:
 
-| Agent | Role |
-|---|---|
-| **Cecil** | Validator deployments (Jito, Agave, Allnodes-Jito; Firedancer on testnet) |
-| **Tina** | RPC & gRPC Geyser deployments |
-| **Cid** | Benchmarks and connectivity checks |
-| **Figaro** | Server procurement and pricing |
-| **Setzer** | Solana app development |
+1. Select the latest eligible immutable release for installation or upgrade,
+   or the installed CLI's exact release for skill sync.
+2. Verify the manifest's provenance and source identity, including the public
+   release tag, before accepting payloads.
+3. Check archive hashes and contents before replacing the selected files.
+4. Journal core replacements so an interrupted transaction can be recovered.
 
-Just describe what you need in plain language. The agent handles SSH, keys, builds, snapshots, firewall, and monitoring.
+The consumer preserves existing keys, configuration, inventories, and backups.
+Review the [recovery and settings behavior](docs/secure-delivery.md#recovery-and-settings),
+including the separate handling of a settings-migration failure.
 
-## How It Works
+The release pipeline packages corresponding source archives, an SPDX SBOM, and
+third-party notices. See [secure delivery](docs/secure-delivery.md) for the trust
+and acceptance requirements, and [rebuilding releases](docs/rebuilding-releases.md)
+to inspect the source materials and rebuild procedure. Implemented verification
+controls do not by themselves establish that a release has passed live acceptance.
 
-SLV uses **Ansible playbooks** and **Jinja2 templates** under the hood:
+## Credentials and control
 
-```
-Your request → AI Agent → Ansible playbooks → Target server
-```
+**SLV currently uses local credential storage.** `slv login` writes ERPC access
+and refresh tokens to `~/.slv/api.yml` with mode `0600`; configured API keys can
+also be stored there. Deployment workflows use keypair files on the management
+machine or target node, depending on the operation.
 
-**Design principles:**
-- **Remote-only** — manage everything from your local machine, no SSH into nodes
-- **Dummy key start** — validators start with unstaked identity, then hot-switch
-- **Source builds** — Solana binaries built from GitHub source
-- **Firewall-first** — SSH restrictions and nftables from day one
-- **DoubleZero ready** — opt-in low-latency networking for validators and RPC
+SLV has no built-in 1Password credential provider or `op://` reference resolver.
+Using 1Password or an SSH agent does not eliminate SLV's other on-disk credentials.
+Keep secret values out of AI conversations, source control, and command examples.
 
-## Using AI Agent Skills (Advanced)
+<details>
+<summary><strong>AI tool approvals and credential boundaries</strong></summary>
 
-SLV also provides standalone AI agent skills that work with **any AI coding agent** — OpenClaw, Claude Code, Codex, Cursor, Windsurf, and more.
+The AI Console's file tools restrict access to known credential locations.
+Its `run_command` tool requires terminal confirmation for SSH, Ansible,
+key-management commands, and the 1Password CLI (`op`). Those sensitive tool
+commands are refused when no terminal is attached.
 
-| Skill | What It Does |
-|---|---|
-| **[slv-validator](dist/oss-skills/slv-validator/)** | Deploy & manage validators |
-| **[slv-rpc](dist/oss-skills/slv-rpc/)** | Deploy & manage RPC nodes |
-| **[slv-grpc-geyser](dist/oss-skills/slv-grpc-geyser/)** | Deploy & manage gRPC Geyser streaming |
+Commands launched through `run_command` receive a restricted environment:
+`OP_*` credentials are not forwarded, biometric unlock is disabled for those
+child commands, and `SSH_AUTH_SOCK` is forwarded only after a person confirms
+the command.
 
-```bash
-# OpenClaw (via ClawHub)
-npx clawhub install slv-validator
+Shell commands entered directly by the operator with the `/` prefix use the
+operator's environment and run outside these tool restrictions. These controls
+are not a machine-wide credential isolation boundary.
 
-# Claude Code — copy skill into your project
-cp -r dist/oss-skills/slv-validator /your/project/.claude/skills/
+</details>
 
-# Any agent — add SKILL.md to your agent's context
-cp dist/oss-skills/slv-validator/SKILL.md /your/project/AGENTS.md
-```
+For vulnerability reporting and the security-update policy, see [SECURITY.md](SECURITY.md).
 
-Each skill includes SKILL.md (AI knowledge), Ansible playbooks, setup scripts, and example inventories. No lock-in — they're plain Markdown + Ansible.
+## Reuse the skills and playbooks
 
-## Using Without AI (Direct Ansible)
+SLV includes reusable agent skills, including these node-operation packages:
 
-```bash
-cd dist/oss-skills/slv-validator/ansible/
+| Package | Start here |
+| --- | --- |
+| Validator operations | [slv-validator](dist/oss-skills/slv-validator/) |
+| RPC operations | [slv-rpc](dist/oss-skills/slv-rpc/) |
+| Geyser gRPC streaming | [slv-grpc-geyser](dist/oss-skills/slv-grpc-geyser/) |
 
-# Deploy a mainnet Jito validator
-ansible-playbook -i inventory.yml mainnet-validator/init.yml \
-  -e '{"validator_type":"jito","jito_version":"4.3.2-jito"}'
+Browse [all skill packages](dist/oss-skills/), or list the available names with
+`slv skills list`. Each node-operation package includes instructions, Ansible
+playbooks, Jinja templates, and example inventories.
 
-# Restart a validator
-ansible-playbook -i inventory.yml mainnet-validator/restart_node.yml
+Use the full package with an AI coding agent that can read its instructions and
+run the required tools. Direct Ansible use is also available to operators who
+prepare the expected inventories, version configuration, key files, and template
+paths. Inspect the package's playbooks and examples before running them.
 
-# Build Solana from source (agave_version, jito_version or allnodes_jito_version, for the validator_type of the host)
-ansible-playbook -i inventory.yml cmn/build_solana.yml \
-  -e '{"agave_version":"4.3.2"}'
-```
+## Development
 
-## ERPC Network Benefits
+With Deno installed:
 
-Servers from [erpc.global](https://erpc.global/en/) automatically get:
-- **Dedicated snapshot endpoints** — 7 global regions
-- **Internal routing** — lower bandwidth costs
-- **Auto-detection** — SLV finds the nearest snapshot server via ping
-
-## Prerequisites
-
-- **ansible-core** >= 2.15 (`pip install ansible-core`)
-- **SSH access** to target servers (key-based auth)
-- **solana-cli** (optional, for local key generation)
-
-These tools are needed for the corresponding deployment operations. Initial chat
-setup does not install Ansible or Solana CLI, or start a background service.
-
-## For Developers
-
-```bash
+```sh
 git clone https://github.com/ValidatorsDAO/slv.git
+cd slv
 deno task dev --help
-deno task build
-deno test -A
+deno test --frozen -A
 ```
 
-## Community
+| Path | Contents |
+| --- | --- |
+| [`cli/`](cli/) | Deno CLI and AI Console |
+| [`template/`](template/) | Versioned Ansible and Jinja sources |
+| [`oss-skills/`](oss-skills/) | Agent skill sources |
+| [`dist/oss-skills/`](dist/oss-skills/) | Packaged skills and supporting files |
+| [`scripts/release/`](scripts/release/) | Release packaging and verification tools |
 
-- [Validators DAO Discord](https://discord.gg/C7ZQSrCkYR)
-- [Documentation](https://slv.dev/)
-- [Twitter @slvSOLANA](https://twitter.com/slvSOLANA)
+Release binaries require the source-build and notice inputs described in
+[rebuilding releases](docs/rebuilding-releases.md).
 
-## Contributing
+## Documentation and community
 
-Bug reports and pull requests are welcome. This project follows the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
+- **Learn:** [SLV documentation](https://slv.dev/) · [Secure installation and upgrades](docs/secure-delivery.md) · [Source rebuilds](docs/rebuilding-releases.md)
+- **Discuss:** [Validators DAO Discord](https://discord.gg/C7ZQSrCkYR) · [SLV on X](https://twitter.com/slvSOLANA)
+- **Contribute:** [Issues](https://github.com/ValidatorsDAO/slv/issues) and pull requests are welcome. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Report a vulnerability:** Use the private reporting path in [SECURITY.md](SECURITY.md).
 
 ## License
 
-[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+SLV is available under the [Apache License 2.0](LICENSE.txt). Public SLV code,
+binaries, updates, and security fixes are available without Enterprise.
+Optional Enterprise services operate around the same public open-source software.

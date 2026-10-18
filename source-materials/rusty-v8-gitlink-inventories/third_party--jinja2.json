@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "repository": "https://chromium.googlesource.com/chromium/src/third_party/jinja2.git",
+  "commit": "c3027d884967773057bf74b957e3fea87e5df4d7",
+  "tree": "b1ced381d7e8c813f62afc3be3026da78800409c",
+  "files": [
+    {
+      "path": "__init__.py",
+      "mode": "100644",
+      "blob": "e32392679edd18917d0f218bfb316d5256203042",
+      "sha256": "f2f19db83f32b70803e860d2aa961cda6dda53e4fb3ca38075dbd55e01abfc5b",
+      "size": 1927
+    },
+    {
+      "path": "_identifier.py",
+      "mode": "100644",
+      "blob": "928c1503c7d414a8a86bbf5a82c68d42cb089bd2",
+      "sha256": "ff361cb4d2b346a964fe6bab4cd973ae3bb514524bed56bf223aaa77b8a2da55",
+      "size": 1958
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "blob": "5727c5e0a4a14fb84f37a94173b01c5ed68f80b1",
+      "sha256": "e3139dd71ae0e08149c397dafda650807f40fcbed80427f3086ae243d1d5822f",
+      "size": 10
+    },
+    {
+      "path": "async_utils.py",
+      "mode": "100644",
+      "blob": "1a4f3892cef1a53632476933f2ce2d86fc31b10a",
+      "sha256": "74795b4de6b114fb40390118386621fcf1dc0d3d2bb0369424014397fd17b538",
+      "size": 2472
+    },
+    {
+      "path": "bccache.py",
+      "mode": "100644",
+      "blob": "d0ddf56ef62b03cba6b6c5f9b94d819393f09d38",
+      "sha256": "9a1cf9c6d2f109c1d101ae7a6b33a1a612007b5f6ed707b4a2389f34c0a50e2a",
+      "size": 14061
+    },
+    {
+      "path": "compiler.py",
+      "mode": "100644",
+      "blob": "3458095f54ede1322eb2ab9e34288da87db54ca1",
+      "sha256": "1acf8df13849ece58ae3eade2a83bc5a1d595f3f79315a6104a3557fbe6a06bf",
+      "size": 72172
+    },
+    {
+      "path": "constants.py",
+      "mode": "100644",
+      "blob": "41a1c23b0a7fe134b1f662545876eb65b31b071e",
+      "sha256": "18ca05c9d045fe476969128fa0ce5c97932f8aab9544b57266d7e9e7ed7a8e0d",
+      "size": 1433
+    },
+    {
+      "path": "debug.py",
+      "mode": "100644",
+      "blob": "7ed7e9297e01b87c4e999d19d48a4265b38b574f",
+      "sha256": "896278df645a77124d9da30e3eb8c80c89f3e745048278b7fc72ae1578b6bee4",
+      "size": 6299
+    },
+    {
+      "path": "defaults.py",
+      "mode": "100644",
+      "blob": "638cad3d2d8907330bde56e2b76c9b185c523b45",
+      "sha256": "6e805c4b0efc87e969db461b697489b2a900236b8dfe60ff4ed0b27697aae705",
+      "size": 1267
+    },
+    {
+      "path": "DIR_METADATA",
+      "mode": "100644",
+      "blob": "62b5699c69f906c609e96c55fa962e34a3a06e0a",
+      "sha256": "8a13d4ac13408a13d3b49cdfccab47ca21588c303ea14478e8695fbcba92e50c",
+      "size": 143
+    },
+    {
+      "path": "environment.py",
+      "mode": "100644",
+      "blob": "8995ac2633797c757f0fd9f94dbec23e07c1723e",
+      "sha256": "51f9f1c3515ebb92200e367848bda9a994e0fad7be7181ad313f8a63bb035ea7",
+      "size": 61703
+    },
+    {
+      "path": "exceptions.py",
+      "mode": "100644",
+      "blob": "082ebe8f221d4e7e980e4d321c0a0c5da033b124",
+      "sha256": "8a81de1eb5b009635a5d7d629c798755b96f73885a3bb017b230a9dc67d6bf1d",
+      "size": 5071
+    },
+    {
+      "path": "ext.py",
+      "mode": "100644",
+      "blob": "d5550540cda01ea9da32747754d34603a7bbac0a",
+      "sha256": "8afaf73fb2ca6dd7625c355ecf6d047e570edead9a1d0c33f4ffcf81618756a1",
+      "size": 31502
+    },
+    {
+      "path": "filters.py",
+      "mode": "100644",
+      "blob": "ed07c4c0e2ae1b6203b3468cda8a303ecf3d7832",
+      "sha256": "f63b3557e876465c96f742212e20462ccd94fa4e920b2d85e015143200772bd4",
+      "size": 53509
+    },
+    {
+      "path": "idtracking.py",
+      "mode": "100644",
+      "blob": "995ebaa0c8178ddb9e0479e0e9f6d30ed863a785",
+      "sha256": "19f36669d8abe280c02d5c739f70cbf582278490ebebd79b5de036ca07ee0860",
+      "size": 10704
+    },
+    {
+      "path": "jinja2.gni",
+      "mode": "100644",
+      "blob": "680a8716405646ca00a107863f35b8428f30c86a",
+      "sha256": "94bc93ee11c83c06bc6b1800b9ce039bc427d1f8dff8483b839af711ce23939b",
+      "size": 1471
+    },
+    {
+      "path": "lexer.py",
+      "mode": "100644",
+      "blob": "aff7e9f993792e1ced39c93fc0d39dcb5bdd5fde",
+      "sha256": "0d6da75fdce4fba316a7ae584766eaaa3d31a82bcbb43faef4d593f009c54714",
+      "size": 29726
+    },
+    {
+      "path": "LICENSE.rst",
+      "mode": "100644",
+      "blob": "c37cae49ec77ad6ebb25568c1605f1fee5313cfb",
+      "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b",
+      "size": 1475
+    },
+    {
+      "path": "loaders.py",
+      "mode": "100644",
+      "blob": "d2f98093cde425fad2c4bbf2a07e383fce5e4a38",
+      "sha256": "05fa6d7ef4d5a4295477e95e3241dccddc8f358173a7f9fb3ca389f7c8b21ce8",
+      "size": 23207
+    },
+    {
+      "path": "meta.py",
+      "mode": "100644",
+      "blob": "0057d6eabade5e964e6ef0e3ac8ed2dd67494b03",
+      "sha256": "18d3c4be27e649a53708cc656e17813998de676efb1d384e3d44dfd51929a4a4",
+      "size": 4396
+    },
+    {
+      "path": "nativetypes.py",
+      "mode": "100644",
+      "blob": "ac0861034821772a50e53bfc3d3ff72e7aad5b1b",
+      "sha256": "0d780e4433d19955a0cb4df81f4c4bf1e17ba98a0adc3accc6cfbddf97741739",
+      "size": 4226
+    },
+    {
+      "path": "nodes.py",
+      "mode": "100644",
+      "blob": "b2f88d9d9c19a2cb5d03b0158c743c6b947a29ea",
+      "sha256": "8b7e063d10197b15cc4fa6f0b9fe52132bdd992f9b442cbd28c8f03793baa639",
+      "size": 34550
+    },
+    {
+      "path": "optimizer.py",
+      "mode": "100644",
+      "blob": "fe1010705e7b29d4fa1900b3a0438ab93d7b582c",
+      "sha256": "b4790cc17c5f6646df0352a62dcaa604c49acfb44b22fbc8b6b25c3e85d3c83f",
+      "size": 1650
+    },
+    {
+      "path": "OWNERS",
+      "mode": "100644",
+      "blob": "c4b81d802a8f009740c803b72e7bfa9121b183e3",
+      "sha256": "57ff77df1a0d93794175a7f1310c72ceb952f9773a0cfeff70ac4acd738c6620",
+      "size": 84
+    },
+    {
+      "path": "parser.py",
+      "mode": "100644",
+      "blob": "cefce2dfa1d2a4171838b0d0135af8ea3ff7d62c",
+      "sha256": "9c777e0c51db8b282f7da3ed9bdadc4172428591bb0cfb167e212ca9fc0a7ab6",
+      "size": 39595
+    },
+    {
+      "path": "patches/0001-canonicalize-zipinfo-create-system",
+      "mode": "100644",
+      "blob": "3617dbec695ea6379648a3bb8b40013762d474f2",
+      "sha256": "5e978a255d3b5b6da6be6862e8ce5d6595f91d5cfbf320ce6f83f957f94c2c44",
+      "size": 855
+    },
+    {
+      "path": "py.typed",
+      "mode": "100644",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "README.chromium",
+      "mode": "100644",
+      "blob": "dad701467a21efa7a4d45737883d0a9a9437c9b8",
+      "sha256": "64d3168a98afa6b4dbb9213791022c126169dd248ed09e08b3a80b4c421d22a7",
+      "size": 897
+    },
+    {
+      "path": "README.rst",
+      "mode": "100644",
+      "blob": "a197aea647ac2ad8c177b942f83a0ff0cc49ab4f",
+      "sha256": "550ee52a3e62e56d8516976e523fc6e45e9ef821cee13e97b67369bf27c4b63d",
+      "size": 2213
+    },
+    {
+      "path": "runtime.py",
+      "mode": "100644",
+      "blob": "985842b284270bcd52855029f13d3da19d718349",
+      "sha256": "e42983e418db109c5288335314178a09aabca94e1a603dafeaad8496ec84c66b",
+      "size": 33476
+    },
+    {
+      "path": "sandbox.py",
+      "mode": "100644",
+      "blob": "06d74148eccea79d1f5a0ca2fb76ecc246f87d62",
+      "sha256": "634c597974271fa117e558da576622c444b1a1ea6745b5bfdd4790a2c6815373",
+      "size": 14584
+    },
+    {
+      "path": "tests.py",
+      "mode": "100644",
+      "blob": "a467cf08b54879ee734617611aef72ed946d4566",
+      "sha256": "026e59e8b99faf65da1ff9e921f249f0c757b56b1b2e33142d926e953023df41",
+      "size": 5905
+    },
+    {
+      "path": "utils.py",
+      "mode": "100644",
+      "blob": "9b5f5a50eb6773c4085f8572a45b3fa351367565",
+      "sha256": "bbd8d7112c469fc01364d5689709a48d456ee1203eb4b815d16ecf7127cf7dd4",
+      "size": 23965
+    },
+    {
+      "path": "visitor.py",
+      "mode": "100644",
+      "blob": "17c6aaba570742652f70bf1e7bf1a576c9d256ae",
+      "sha256": "307d780bacaadb81bf295b56ce3c1a23b5a0d783c2248625596d64a64c586a4d",
+      "size": 3568
+    }
+  ]
+}

@@ -30,6 +30,7 @@ import { addSshCmd } from '@/addSsh/index.ts'
 import { gatewayCmd } from '@/gateway/index.ts'
 import { dnsCmd } from '@/dns/index.ts'
 import { doctorCmd } from '@/doctor/index.ts'
+import { printEmbeddedLicenses } from '/lib/release/licenses.ts'
 
 const program = new Command()
   .name('slv')
@@ -48,10 +49,22 @@ program
   })
 
 program
+  .command('licenses')
+  .description('Print the third-party notices embedded in this executable')
+  .action(async () => {
+    await printEmbeddedLicenses()
+  })
+
+program
   .command('upgrade:settings')
   .description('Upgrade Default Settings Files')
   .action(async () => {
-    await migrateVersionsYml()
+    const migrated = await migrateVersionsYml()
+    if (!migrated) {
+      throw new Error(
+        'Failed to migrate versions.yml; settings templates were not updated',
+      )
+    }
     await copyTemplateDirs()
     // The pins in versions.yml are kept; say which ones Alpenglow cannot run on.
     await noticeBelowFloorPins()
