@@ -635,21 +635,45 @@ export function assertNativeHost(
     arch: string
     uname: string
     hardwareArm: string
+    hardwareArmExit: number
+    hardwareArmError: string
     translated: string
     translatedExit: number
+    translatedError: string
     version: string
     build: string
   },
 ): NativeHost {
   const arm = target === 'aarch64-apple-darwin'
+  const missing = (name: string, text: string, code: number, error: string) =>
+    code === 1 && text === '' && error === `sysctl: unknown oid '${name}'`
+  // Darwin registers hw.optional.arm64 only on ARM kernels. On native Intel,
+  // accept that exact absence; permission and other probe errors remain fatal.
+  // https://github.com/apple-oss-distributions/xnu/blob/xnu-11417.140.69/bsd/kern/kern_mib.c#L1075
+  const hardwareMatches =
+    (value.hardwareArmExit === 0 && value.hardwareArmError === '' &&
+      value.hardwareArm === (arm ? '1' : '0')) ||
+    (!arm && missing(
+      'hw.optional.arm64',
+      value.hardwareArm,
+      value.hardwareArmExit,
+      value.hardwareArmError,
+    ))
+  const untranslated =
+    (value.translatedExit === 0 && value.translated === '0' &&
+      value.translatedError === '') ||
+    (!arm && missing(
+      'sysctl.proc_translated',
+      value.translated,
+      value.translatedExit,
+      value.translatedError,
+    ))
   if (
     value.os !== 'darwin' || value.arch !== (arm ? 'aarch64' : 'x86_64') ||
     value.uname !== (arm ? 'arm64' : 'x86_64') ||
-    value.hardwareArm !== (arm ? '1' : '0') ||
+    !hardwareMatches || !untranslated ||
     !/^\d+\.\d+(?:\.\d+)?$/.test(value.version) ||
-    !/^[0-9]{2}[A-Z][0-9]+[a-z]?$/.test(value.build) ||
-    !((value.translatedExit === 0 && value.translated === '0') ||
-      (!arm && value.translatedExit === 1 && value.translated === ''))
+    !/^[0-9]{2}[A-Z][0-9]+[a-z]?$/.test(value.build)
   ) fail('native-host-mismatch')
   return {
     os: 'darwin',
@@ -663,15 +687,21 @@ export function assertNativeHost(
       : 'unavailable-native-intel',
   }
 }
-async function nativeHost(target: DarwinTarget): Promise<NativeHost> {
+export async function nativeHost(target: DarwinTarget): Promise<NativeHost> {
   const query = async (program: string, args: string[]) => {
     const output = await new Deno.Command(program, {
       args,
+      clearEnv: true,
+      env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C', LC_ALL: 'C' },
       stdout: 'piped',
-      stderr: 'null',
+      stderr: 'piped',
       signal: AbortSignal.timeout(5_000),
     }).output()
-    return { text: decoder.decode(output.stdout).trim(), code: output.code }
+    return {
+      text: decoder.decode(output.stdout).trim(),
+      error: decoder.decode(output.stderr).trim(),
+      code: output.code,
+    }
   }
   const [uname, hardwareArm, translated, version, build] = await Promise.all([
     query('/usr/bin/uname', ['-m']),
@@ -680,13 +710,21 @@ async function nativeHost(target: DarwinTarget): Promise<NativeHost> {
     query('/usr/bin/sw_vers', ['-productVersion']),
     query('/usr/bin/sw_vers', ['-buildVersion']),
   ])
+  if (
+    [uname, version, build].some((result) => result.code !== 0 || result.error)
+  ) {
+    fail('native-host-probe-failed')
+  }
   return assertNativeHost(target, {
     os: Deno.build.os,
     arch: Deno.build.arch,
     uname: uname.text,
     hardwareArm: hardwareArm.text,
+    hardwareArmExit: hardwareArm.code,
+    hardwareArmError: hardwareArm.error,
     translated: translated.text,
     translatedExit: translated.code,
+    translatedError: translated.error,
     version: version.text,
     build: build.text,
   })

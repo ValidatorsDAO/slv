@@ -5,6 +5,7 @@ import {
   assertSmokeContext,
   executeSmoke,
   extractSmokeZip,
+  nativeHost,
   parseSmokeInput,
   productMembers,
   sandboxExecutor,
@@ -614,8 +615,11 @@ Deno.test('native identity rejects translated Intel and inverse architecture ind
     arch: 'x86_64',
     uname: 'x86_64',
     hardwareArm: '0',
+    hardwareArmExit: 0,
+    hardwareArmError: '',
     translated: '',
     translatedExit: 1,
+    translatedError: "sysctl: unknown oid 'sysctl.proc_translated'",
     version: '15.7.1',
     build: '24G231',
   }
@@ -629,10 +633,107 @@ Deno.test('native identity rejects translated Intel and inverse architecture ind
       hardwareArm: '1',
       translated: '1',
       translatedExit: 0,
+      translatedError: '',
     })
   )
   assertThrows(() => assertNativeHost('aarch64-apple-darwin', intel))
   assertThrows(() => assertNativeHost(TARGET, { ...intel, os: 'linux' }))
+})
+Deno.test('native Intel accepts only exact absent optional sysctls and rejects probe errors or translation', () => {
+  const intel = {
+    os: 'darwin',
+    arch: 'x86_64',
+    uname: 'x86_64',
+    hardwareArm: '',
+    hardwareArmExit: 1,
+    hardwareArmError: "sysctl: unknown oid 'hw.optional.arm64'",
+    translated: '',
+    translatedExit: 1,
+    translatedError: "sysctl: unknown oid 'sysctl.proc_translated'",
+    version: '15.7.9',
+    build: '24G830',
+  }
+  assertEquals(
+    assertNativeHost(TARGET, intel).translation_probe,
+    'unavailable-native-intel',
+  )
+  for (
+    const change of [
+      { hardwareArmExit: 0 },
+      { hardwareArmExit: 2 },
+      { hardwareArm: '0' },
+      { hardwareArmError: '' },
+      {
+        hardwareArmError: 'sysctl: hw.optional.arm64: Operation not permitted',
+      },
+      { hardwareArmError: "sysctl: unknown oid 'other.key'" },
+      { translatedError: '' },
+      {
+        translatedError:
+          'sysctl: sysctl.proc_translated: Operation not permitted',
+      },
+      { translatedError: "sysctl: unknown oid 'other.key'" },
+      { translatedExit: 0 },
+      { translatedExit: 2 },
+      { translated: '1', translatedExit: 0, translatedError: '' },
+      {
+        hardwareArm: '1',
+        hardwareArmExit: 0,
+        hardwareArmError: '',
+        translated: '0',
+        translatedExit: 0,
+        translatedError: '',
+      },
+      { uname: 'arm64' },
+      { arch: 'aarch64' },
+      { os: 'linux' },
+    ]
+  ) assertThrows(() => assertNativeHost(TARGET, { ...intel, ...change }))
+  const arm = {
+    ...intel,
+    arch: 'aarch64',
+    uname: 'arm64',
+    hardwareArm: '1',
+    hardwareArmExit: 0,
+    hardwareArmError: '',
+    translated: '0',
+    translatedExit: 0,
+    translatedError: '',
+  }
+  assertEquals(
+    assertNativeHost('aarch64-apple-darwin', arm).translation_probe,
+    'native',
+  )
+  assertThrows(() =>
+    assertNativeHost('aarch64-apple-darwin', {
+      ...arm,
+      hardwareArm: '',
+      hardwareArmExit: 1,
+      hardwareArmError: intel.hardwareArmError,
+    })
+  )
+  assertThrows(() =>
+    assertNativeHost('aarch64-apple-darwin', {
+      ...arm,
+      translated: '',
+      translatedExit: 1,
+      translatedError: intel.translatedError,
+    })
+  )
+})
+Deno.test({
+  name:
+    'actual native Mac host probe uses successful system metadata without credentials',
+  ignore: Deno.build.os !== 'darwin',
+  fn: async () => {
+    const target = Deno.build.arch === 'aarch64'
+      ? 'aarch64-apple-darwin'
+      : TARGET
+    const host = await nativeHost(target)
+    assertEquals(host.os, 'darwin')
+    assertEquals(host.process_architecture, Deno.build.arch)
+    assertEquals(host.translated, false)
+  },
 })
 Deno.test('each native command requires explicit output, including notices larger than one MiB', () => {
   const notices = encoder.encode('N'.repeat(2 * 1024 * 1024))
