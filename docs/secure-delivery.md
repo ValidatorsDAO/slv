@@ -8,22 +8,20 @@ transition.
 
 ## Initial installation
 
-Python 3.9 or later and Git are prerequisites. The installer never installs
+Python 3.9 or later and Git are prerequisites; the download examples also use
+curl. The installer never installs
 system dependencies, downloads a helper as root, or asks a package manager to
 make changes.
 
-Until a reviewed release publishes a bootstrap, use a reviewed commit-pinned
-source URL, replace `<reviewed-commit>` with the exact audited commit, save it,
-and inspect it before execution:
-
-```sh
-curl --fail --location --remote-name \
-  https://raw.githubusercontent.com/ValidatorsDAO/slv/<reviewed-commit>/sh/install
-sh ./install
-```
-
-The placeholder is deliberately not a runnable release URL. Do not use a branch
-URL, a floating `main` URL, or a pipe-to-shell command.
+The [README quick start](../README.md#2-install-from-a-reviewed-bootstrap)
+provides a runnable bootstrap pinned to reviewed commit
+`c351b90306ec6e0cce01aa04725f7eaf5374f65b`, published with
+`v2026.10.19.0750`. Its SHA-256 is
+`acc17d48c986a7dfcdc0afa2603da139da9e30d1af1766fd279d53152cf55282`.
+The script discovers the latest eligible immutable application release when it
+runs, then verifies that release independently. Its bootstrap version label does
+not pin the installed CLI version. Use the saved, checksum-checked script; do not
+substitute a floating branch URL or pipe a download directly to a shell.
 
 A fresh install uses the controlled path `~/.local/bin/slv` and prints the PATH
 change needed to put that directory before other SLV locations. If another `slv`
@@ -34,15 +32,55 @@ after checking that it is the intended target. For a protected target such as
 archive extraction complete as the calling user; privilege is requested only for
 the final checked binary replacement.
 
-Existing installations require an explicit migration check before activation.
-The legacy `slv upgrade` path invokes its remote bootstrap without an
-`--install-path`; it cannot safely choose a PATH-resolved target such as
-`/usr/local/bin/slv`. For that case, the first release acceptance must show a
-nonzero, actionable result that names the reviewed commit-pinned bootstrap
-command and `--install-path /usr/local/bin/slv`, without replacing the binary or
-downloading an unverified bridge. The exact release commit URL is filled in only
-after the release commit is reviewed; this document intentionally does not
-substitute a floating branch URL.
+## Recover an older or local installation
+
+An old or locally compiled executable may be unable to run its own updater. For
+example, `NotFound: .../engine.py` means the compiled command could not read its
+update engine; local version suffixes can also fail strict release-version
+validation. The procedure below does not depend on that updater.
+
+Check `command -v slv` and `slv --version` first. Keep a private backup of a custom
+executable and your existing management configuration before replacing them.
+Choose the intended regular executable, not a shell alias or a symbolic link.
+If the target differs from `/usr/local/bin/slv`, change **both** occurrences of
+that path below to its absolute path. Do not run the whole block with `sudo` or
+change `HOME`.
+
+```sh
+(
+  set -eu
+  umask 077
+  slv_bootstrap_dir="$(mktemp -d)"
+  cd "$slv_bootstrap_dir"
+  curl --fail --location --output install \
+    https://raw.githubusercontent.com/ValidatorsDAO/slv/c351b90306ec6e0cce01aa04725f7eaf5374f65b/sh/install
+  python3 - <<'PY'
+import hashlib
+from pathlib import Path
+expected = 'acc17d48c986a7dfcdc0afa2603da139da9e30d1af1766fd279d53152cf55282'
+if hashlib.sha256(Path('install').read_bytes()).hexdigest() != expected:
+    raise SystemExit('Installer checksum mismatch; stopping.')
+PY
+  sh ./install --install-path /usr/local/bin/slv
+  /usr/local/bin/slv --version
+)
+```
+
+The installer downloads and verifies as the calling user. It requests privilege
+only if the final executable replacement needs it. Installation also delivers
+versioned templates, skills, and notices, then runs settings migration. Existing
+version pins and unknown settings fields are preserved while missing defaults
+are added; generated settings templates are refreshed. Read
+[recovery and settings](#recovery-and-settings) before upgrading a customized
+installation. `--no-settings-migration` defers that final settings step; it does
+not skip release verification or installation of the packaged templates/skills.
+
+Check that the explicit executable and `slv --version` resolve to the intended
+new release. Later updates use `slv upgrade`. This procedure does not reinstall
+validator or RPC node software, remove old node-side keys, or imply that the old
+R2 bootstrap has been migrated. If an interrupted transaction is reported,
+preserve its state and retry with the same intended `--install-path`; do not
+delete the journal or lock to force an update.
 
 ## What the consumer verifies
 
