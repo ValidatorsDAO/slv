@@ -1305,10 +1305,15 @@ const taskEvents = (tasks: Entry[]): ServiceEvent[] =>
 const serviceEvents = (path: string, trail: string[] = []): ServiceEvent[] => {
   // an import of a playbook that is not there (the legacy init-jito.yml and init-allnodes-jito.yml import a
   // wget_snapshot.yml that their directory does not have) runs nothing
-  if (trail.includes(path) || !existsSync(new URL(path, templateRoot))) return []
+  if (trail.includes(path) || !existsSync(new URL(path, templateRoot))) {
+    return []
+  }
   return readPlaybook(path).flatMap((entry) => {
     if (entry.import_playbook !== undefined) {
-      const target = new URL(String(entry.import_playbook), new URL(path, templateRoot))
+      const target = new URL(
+        String(entry.import_playbook),
+        new URL(path, templateRoot),
+      )
       const relative = target.href.slice(templateRoot.href.length)
       return relative === identityAssert
         ? ['assert' as ServiceEvent]
@@ -1354,7 +1359,9 @@ Deno.test('unstaked identity: a playbook that starts or restarts the validator c
       const first = events.findIndex((event) => event !== 'assert')
       assert(
         check >= 0 && check < first,
-        `${file}: the identity is not checked before the first stop or start (${events.join(' ')})`,
+        `${file}: the identity is not checked before the first stop or start (${
+          events.join(' ')
+        })`,
       )
     }
   }
