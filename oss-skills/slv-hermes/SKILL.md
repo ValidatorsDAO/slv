@@ -99,8 +99,8 @@ All optional — defaults work for a public-Pythnet bootstrap.
 | `hermes_repo_ref` | `main` | Branch / tag / SHA |
 | `beacon_repo` | `https://github.com/pyth-network/beacon` | Upstream repo |
 | `beacon_repo_ref` | `main` | Branch / tag / SHA |
-| `nats_version` | `v2.10.22` | nats-server release tag |
-| `hermes_rust_toolchain` | `1.82.0` | Rust toolchain for hermes build |
+| `nats_version` | `v2.10.22` | nats-server release tag (`vMAJOR.MINOR.PATCH`) |
+| `hermes_rust_toolchain` | `1.82.0` | Rust toolchain for hermes build: a Rust version or channel (`stable`, `beta`, `nightly`) |
 | `hermes_pythnet_http_addr` | `https://pythnet.rpcpool.com` | Pythnet HTTP RPC URL |
 | `hermes_pythnet_ws_addr` | `wss://pythnet.rpcpool.com` | Pythnet WS RPC URL |
 | `hermes_wormhole_env` | `mainnet` | `mainnet` or `testnet` |
@@ -109,6 +109,8 @@ All optional — defaults work for a public-Pythnet bootstrap.
 | `beacon_listen_port` | `8999` | UDP/QUIC port for Wormhole P2P |
 | `beacon_spy_grpc_addr` | `127.0.0.1:7072` | spy gRPC bind (loopback recommended) |
 | `nats_port` | `4222` | NATS client port |
+
+The play checks these values before it changes anything: git URLs are https or ssh, refs are branch, tag or commit names, ports are 1 to 65535, the listen and spy addresses are `host:port`, the Pythnet URLs are `http(s)` and `ws(s)` URLs, and none has spaces, quotes, semicolons, pipes, `$`, `<`, `>`, parentheses or backticks. A value that fails stops the play with a message that says nothing was changed.
 
 ## Usage
 

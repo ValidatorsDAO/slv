@@ -1,3 +1,9 @@
 ---
+# The node must not come back on the staked identity: nothing is stopped before this check
+- import_playbook: ../cmn/assert_unstaked_identity.yml
+  vars:
+    slv_network: testnet
+    slv_start_identity_source: firedancer-config
+
 - import_playbook: stop_firedancer.yml
 - import_playbook: start_firedancer.yml

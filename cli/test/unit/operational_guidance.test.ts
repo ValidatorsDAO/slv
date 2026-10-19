@@ -190,7 +190,7 @@ Deno.test('keyless startup and stdin activation match the new runtime templates'
   assertStringIncludes(VALIDATOR_GUIDANCE, String(link.src))
   assertStringIncludes(VALIDATOR_GUIDANCE, String(link.dest))
   const assertion = await read(`${template}/cmn/assert_unstaked_identity.yml`)
-  assertStringIncludes(assertion, 'Nothing was started')
+  assertStringIncludes(assertion, 'Nothing was stopped or started')
   for (const network of ['mainnet', 'testnet']) {
     const init = parse(
       await read(`${template}/${network}-validator/init.yml`),

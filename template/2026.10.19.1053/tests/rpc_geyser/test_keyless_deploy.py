@@ -132,6 +132,7 @@ class InitCopiesNoStakedKey(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 ASSERT_PLAYBOOK = ANSIBLE_DIR / "cmn" / "assert_unstaked_identity.yml"
+STAKED_KEY = "StakedKeyForTheRigsAAAAAAAAAAAAAAAAAA"   # the identity_account of the hosts, and what a staked key file holds
 SETUP_PLAYBOOK = ANSIBLE_DIR / "cmn" / "setup_unstaked_identity.yml"
 LINK_TASK = "Ensure /home/solv/identity.json is a symlink to unstaked-identity.json"
 STOP_TASK = "Stop when the node would start with another identity"
@@ -147,6 +148,8 @@ LAYOUTS = {
     "unstaked-is-a-link": False,  # unstaked-identity.json links to a staked key file, and identity.json to it
     "dangling": False,      # identity.json -> a file that is not there
     "no-home": False,       # /home/solv is not there, so identity.json cannot be resolved
+    "unstaked-holds-staked": False,  # identity.json -> unstaked-identity.json, which holds the staked key
+    "staked-by-key": False,  # identity.json -> a staked key file, whose public key is the identity_account of the host
 }
 
 
@@ -162,15 +165,17 @@ def build_layout(kind, root):
         home.symlink_to(real)
     unstaked = real / "unstaked-identity.json"
     staked = real / "mainnet-validator-keypair.json"
-    unstaked.write_text("[1]")
-    staked.write_text("[2]")
+    unstaked.write_text(STAKED_KEY if kind == "unstaked-holds-staked" else "[1]")
+    staked.write_text(STAKED_KEY if kind == "staked-by-key" else "[2]")
     link = real / "identity.json"
     if kind in ("linked", "home-is-a-link"):
         link.symlink_to(unstaked)
     elif kind == "relative":
         link.symlink_to("unstaked-identity.json")
-    elif kind == "staked":
+    elif kind in ("staked", "staked-by-key"):
         link.symlink_to(staked)
+    elif kind == "unstaked-holds-staked":
+        link.symlink_to(unstaked)
     elif kind == "regular-file":
         link.write_text("[3]")
     elif kind == "unstaked-is-a-link":
@@ -195,8 +200,15 @@ class AssertUnstakedIdentityResolvesIdentityJson(unittest.TestCase):
             text = ASSERT_PLAYBOOK.read_text().replace("/home/solv", "{{ slv_home }}")
             playbook = root / "assert.yml"
             playbook.write_text(text)
-            write_inventory(root / "inventory.json", {kind: {"slv_home": str(path)} for kind, path in homes.items()})
-            process = run_ansible(["-i", "inventory.json", playbook, "-e", "ansible_become=false"], root, home)
+            # solana-keygen pubkey <file> prints the first line of the file: a key file here holds its public key
+            fakes = root / "fake-bin"
+            fakes.mkdir()
+            (fakes / "solana-keygen").write_text('#!/bin/bash\n[ "$1" = pubkey ] && head -n 1 "$2"\n')
+            (fakes / "solana-keygen").chmod(0o755)
+            write_inventory(root / "inventory.json", {kind: {"slv_home": str(path), "identity_account": STAKED_KEY}
+                                                      for kind, path in homes.items()})
+            process = run_ansible(["-i", "inventory.json", playbook, "-e", "ansible_become=false"], root, home,
+                                  extra_env={"PATH": "%s:%s" % (fakes, os.environ.get("PATH", ""))})
             return process.stdout, homes
 
     def test_k03_the_layout_of_the_template_goes_on(self):
@@ -210,7 +222,8 @@ class AssertUnstakedIdentityResolvesIdentityJson(unittest.TestCase):
             (solv / "unstaked-identity.json").write_text("[1]")
             link_task = next(t for t in yaml.safe_load(SETUP_PLAYBOOK.read_text())[0]["tasks"] if t["name"] == LINK_TASK)
             asserts = yaml.safe_load(ASSERT_PLAYBOOK.read_text())[0]
-            play = {"name": "setup and assert", "hosts": "all", "gather_facts": False, "tasks": [link_task] + asserts["tasks"]}
+            play = {"name": "setup and assert", "hosts": "all", "gather_facts": False, "vars": asserts["vars"],
+                    "tasks": [link_task] + asserts["tasks"]}
             playbook = root / "setup-and-assert.yml"
             playbook.write_text(move_to(yaml.safe_dump([play], sort_keys=False), root))
             self.assertFalse(real_host_paths_left(playbook.read_text()))
@@ -226,8 +239,22 @@ class AssertUnstakedIdentityResolvesIdentityJson(unittest.TestCase):
                 failed = re.search(r"^fatal: \[%s\]" % re.escape(kind), output, re.M) is not None
                 self.assertEqual(failed, not may_go_on, "layout %s:\n%s" % (kind, output[-3000:]))
                 if not may_go_on:
-                    self.assertIn("so the node would start with another", output)
-                    self.assertIn("Nothing was started", output)
+                    self.assertIn("would start with", output)
+                    self.assertIn("Nothing was stopped or started", output)
+
+    def test_k04a_an_identity_json_that_leads_to_the_staked_key_stops_the_deploy_whatever_the_path(self):
+        """The public key of the file identity.json leads to (solana-keygen pubkey) must differ from the identity_account."""
+        output, homes = self.run_layouts()
+        for kind in ("unstaked-holds-staked", "staked-by-key"):
+            with self.subTest(layout=kind):
+                failed = re.search(r"^fatal: \[%s\]: FAILED! => (.*)$" % re.escape(kind), output, re.M)
+                self.assertIsNotNone(failed, "layout %s:\n%s" % (kind, output[-3000:]))
+                self.assertIn("leads to the key %s, which is the staked identity of the host (identity_account), so the node "
+                              "would start with the staked identity" % STAKED_KEY, failed.group(1))
+        # a file that is not the staked key keeps the message about the path, and the hosts of the template layout go on
+        other = re.search(r"^fatal: \[staked\]: FAILED! => (.*)$", output, re.M)
+        self.assertIn("so the node would start with another identity than its unstaked one", other.group(1))
+        self.assertNotIn("leads to the key", other.group(1))
 
     def test_k05_the_stop_says_where_identity_json_leads(self):
         output, homes = self.run_layouts()
@@ -315,9 +342,10 @@ class KeylessRefusals(unittest.TestCase):
     def test_k08a_the_message_gives_the_reason_that_holds_for_the_playbook(self):
         # set_identity_to_active passed the staked key of the controller on stdin for its agave and jito hosts: it is retired
         # because it set the identity without the checks that slv v set:identity makes, not because it read a key on the node
-        checks = ("It set the identity without the checks that the set:identity command of slv makes first (that nothing votes "
-                  "with the identity, that the host has caught up, where the identity is in gossip, and that the tower or vote "
-                  "history file of the identity is there)")
+        # the caught-up check belongs to Alpenglow only (check 2 of vote_history_dead_primary.yml): the text says so
+        checks = ("It set the identity without the checks that the set:identity command of slv makes first: that nothing votes "
+                  "with the identity, where the identity is in gossip, and that the tower or vote history file of the identity "
+                  "is there (on Alpenglow, also that the host has caught up)")
         reasons = {
             ("mainnet-validator", "set_identity_to_active"): [checks],
             ("testnet-validator", "set_identity_to_active"): [checks, "and on a Firedancer host it read the staked key from a file on the node"],

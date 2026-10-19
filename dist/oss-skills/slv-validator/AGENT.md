@@ -152,7 +152,9 @@ testnet 4.4.0-beta.0. Preserve every CLI guard.
 
 Keyless deployment is the default: no staked key is copied to the node. It starts
 and restarts under `/home/solv/unstaked-identity.json` through the
-`/home/solv/identity.json` symlink, checked before service start. There is no
+`/home/solv/identity.json` symlink, checked before service start. A start or a
+restart stops, with nothing stopped or started, when that symlink or the identity
+its start script names leads to the staked key or cannot be read. There is no
 keyless flag. This is not voting without keys. Init still asks about
 public identity/vote settings and operator-owned local key preparation. Deploy
 can succeed without a controller key; BLS registration then skips that host with

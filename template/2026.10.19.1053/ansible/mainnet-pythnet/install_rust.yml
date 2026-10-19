@@ -11,10 +11,18 @@
     # reads pythnet_rust_toolchain of the caller (-e or inventory): a play variable that read its own name would loop
     slv_pythnet_rust_toolchain: "{{ pythnet_rust_toolchain | default('1.78.0') }}"
   tasks:
+    # the toolchain goes onto the command line of the installer: a version (1.78.0) or a channel (stable, beta, nightly)
+    - name: Stop when pythnet_rust_toolchain is not a Rust version or channel
+      ansible.builtin.assert:
+        that:
+          - slv_pythnet_rust_toolchain | string is match('^(stable|beta|nightly(-[0-9]{4}-[0-9]{2}-[0-9]{2})?|[0-9]+\\.[0-9]+(\\.[0-9]+)?)\\Z')
+        fail_msg: "pythnet_rust_toolchain '{{ slv_pythnet_rust_toolchain }}' is not a Rust version (1.78.0) or channel (stable, beta, nightly, nightly-2024-05-01). Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Install rustup via the official installer
       become_user: solv
       ansible.builtin.shell: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-          | sh -s -- -y --default-toolchain {{ slv_pythnet_rust_toolchain }} --profile minimal
+          | sh -s -- -y --default-toolchain {{ slv_pythnet_rust_toolchain | quote }} --profile minimal
       args:
         creates: /home/solv/.cargo/bin/cargo

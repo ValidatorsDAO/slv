@@ -33,7 +33,7 @@ Keeps Solana validator / RPC nodes running at peak CPU frequency at all times. R
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `amd_pstate_mode` | `active` | `active` (best performance) or `passive` |
+| `amd_pstate_mode` | `active` | `active` (best performance), `passive` or `guided`. Any other value stops the play before it changes anything |
 
 ## Standalone run
 

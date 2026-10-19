@@ -96,10 +96,10 @@ curl -s https://pythnet.rpcpool.com -X POST -H 'content-type: application/json' 
 
 | Variable | Default | Description |
 |---|---|---|
-| `pythnet_repo` | `https://github.com/pyth-network/pythnet` | Upstream |
+| `pythnet_repo` | `https://github.com/pyth-network/pythnet` | Upstream: an https or ssh git URL, without spaces, quotes, semicolons, pipes, `$`, `<`, `>`, parentheses or backticks |
 | `pythnet_ref` | `pyth-v1.14.17` | Branch — currently the only supported one |
-| `pythnet_rust_toolchain` | `1.78.0` | Bootstrap toolchain (build itself pins 1.60.0 via rust-toolchain) |
-| `pythnet_ledger_mount` | `/mnt/ledger` | Where ledger/accounts/snapshots live |
+| `pythnet_rust_toolchain` | `1.78.0` | Bootstrap toolchain (build itself pins 1.60.0 via rust-toolchain): a Rust version (`1.78.0`) or channel (`stable`, `beta`, `nightly`, `nightly-2024-05-01`); any other value stops the play before it changes anything |
+| `pythnet_ledger_mount` | `/mnt/ledger` | Where ledger/accounts/snapshots live: an absolute path, without spaces, quotes, semicolons, pipes, `$`, `<`, `>`, parentheses, backticks or `..` |
 | `pythnet_ledger_device` | `/dev/nvme0n1` | Disk to format if `pythnet_format_disk=true` |
 | `pythnet_format_disk` | `false` | Set true to mkfs.xfs the secondary disk |
 | `pythnet_force_format` | `false` | Required to wipe a device that already has a filesystem |
