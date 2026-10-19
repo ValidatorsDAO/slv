@@ -2,7 +2,7 @@
 """Render tests for the Alpenglow changes in the validator start scripts and the
 Firedancer configs. Nothing touches a host or the network.
 
-    python3 -m unittest discover -s template/2026.6.6.2026/tests -p 'test_alpenglow_start_scripts.py' -v
+    python3 -m unittest discover -s template/latest/tests -p 'test_alpenglow_start_scripts.py' -v
 
 Needs ansible-playbook on PATH. Every case is rendered once through Ansible's
 template engine (lookup('template')), the way the playbooks render the scripts, and

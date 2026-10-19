@@ -1,3 +1,4 @@
+import { VERSION } from '@cmn/constants/version.ts'
 import { assert, assertEquals, assertStringIncludes } from '@std/assert'
 import { parse } from '@std/yaml'
 import {
@@ -322,7 +323,7 @@ Deno.test('the state is printed, and window, imminent and unknown stop the comma
 type Task = Record<string, unknown>
 
 const PROBE = new URL(
-  '../../../template/2026.6.6.2026/ansible/cmn/tasks/alpenglow_state.yml',
+  `../../../template/${VERSION}/ansible/cmn/tasks/alpenglow_state.yml`,
   import.meta.url,
 )
 

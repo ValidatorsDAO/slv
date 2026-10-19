@@ -193,7 +193,16 @@ the resulting release API record for `immutable: true`. A manual
 with a matching version and source commit. It cannot start an initial release
 or rebuild a draft. Draft recovery is limited to rerunning the failed publisher
 with its retained original package artifact; those artifacts are retained for
-seven days. A whole-workflow rebuild can change a payload or
+seven days. Application drafts are resolved through authenticated release lookup,
+including bounded listing when the published-tag endpoint returns 404. The
+publisher retains the numeric release ID and enumerates draft assets by that ID.
+While adding missing uploads it preserves all selected existing asset IDs,
+sizes and digests. Before downloading, it requires exactly the manifest subjects
+and their matching attestation-bundle aliases, with no extra assets. After
+downloading and verifying every payload and signature,
+it refreshes the release metadata and rejects any observed identity or inventory
+change before publication. This does not atomically exclude privileged writes
+after that last check. A whole-workflow rebuild can change a payload or
 manifest and is therefore refused for an existing draft; expiry requires
 maintainer review and is never overwritten automatically.
 

@@ -1,8 +1,9 @@
+import { VERSION } from '@cmn/constants/version.ts'
 import { assert, assertEquals } from '@std/assert'
 import { parse } from '@std/yaml'
 
 const templateRoot = new URL(
-  '../../../template/2026.6.6.2026/',
+  `../../../template/${VERSION}/`,
   import.meta.url,
 )
 const validatorNetworks = ['mainnet-validator', 'testnet-validator'] as const

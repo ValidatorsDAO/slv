@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Behaviour test for the Alpenglow state probe and the identity guards (no network
 # or host access). Needs ansible-playbook and python3 on PATH:
-#   bash template/2026.6.6.2026/tests/alpenglow-identity-guards.sh
+#   bash template/latest/tests/alpenglow-identity-guards.sh
 #
 # A stub RPC (alpenglow_stub_rpc.py) answers for the cluster. Each identity case
 # runs a real playbook on a local connection against fake agave-validator, fdctl,
@@ -39,7 +39,7 @@
 #      the source was demoted says both nodes are unstaked and what to do
 set -uo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
-template="$root/template/2026.6.6.2026"
+template=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 for tool in ansible-playbook python3; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "$tool is required on PATH" >&2
