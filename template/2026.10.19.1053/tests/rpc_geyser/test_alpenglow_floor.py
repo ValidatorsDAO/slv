@@ -43,6 +43,7 @@ from test_init_geyser_plugin import (  # noqa: E402
     RELEASE,
     REPOSITORY,
     builder_probe_copy_of,
+    copy_validation_playbook,
     make_home,
     module_of,
     prefetch,
@@ -271,14 +272,17 @@ def run_whole(section, scenario):
 
 
 def make_floor_flow(caller, root):
-    """init.yml of the caller (a key of FLOOR_CALLERS) cut after its import of the check: its first play and that import as
-    they are."""
+    """init.yml cut after its floor check, keeping all earlier validation and its real dependencies."""
     entries = yaml.safe_load((ANSIBLE_DIR / caller).read_text())
     index = check_import_index(entries)
     directory = root / caller.split("/")[0]
     directory.mkdir()
     (root / "cmn").mkdir(exist_ok=True)
     shutil.copy(CHECK, root / "cmn" / CHECK.name)
+    for entry in entries[:index]:
+        if "import_playbook" in entry:
+            reference = entry["import_playbook"]
+            copy_validation_playbook((ANSIBLE_DIR / caller).parent / reference, directory / reference)
     init = directory / "init.yml"
     init.write_text(yaml.safe_dump(entries[: index + 1], sort_keys=False))
     return init
@@ -576,20 +580,55 @@ class CheckSaysWhatItFound(unittest.TestCase):
 class InitPlaysCheckTheFloor(unittest.TestCase):
     """The first play and the check of each init.yml, run for hosts of every validator_type."""
 
+    def test_f18_copied_validator_flow_executes_bootstrap_validation_before_the_floor(self):
+        for network in ("mainnet", "testnet"):
+            with self.subTest(network), tempfile.TemporaryDirectory(prefix="slv-floor-bootstrap-") as tmp:
+                root = Path(tmp)
+                caller = "%s-validator/init.yml" % network
+                home = make_home(root, VERSION_SETS["good"](caller))
+                init = make_floor_flow(caller, root)
+                write_inventory(root / "inventory.json", {"rig": {"validator_type": "agave", "no_voting": "false"}})
+                process = run_ansible(["-i", "inventory.json", init], root, home)
+                self.assertNotEqual(process.returncode, 0, process.stdout)
+                self.assertIn("Sync-only bootstrap requires boolean no_voting", process.stdout)
+                self.assertNotIn("TASK [%s]" % STOP_TASK, process.stdout,
+                                 "the invalid policy must stop before any later validation or mutation")
+
     def test_f13_every_init_imports_the_check_once_with_its_own_section_before_it_changes_anything(self):
-        read_only = {"assert", "fail", "set_fact", "debug"}
+        read_only = {"assert", "fail", "set_fact", "debug", "stat"}
+
+        def check_tasks(tasks, directory):
+            for task in tasks:
+                module, args = module_of(task)
+                if module == "import_tasks":
+                    imported = directory / args
+                    check_tasks(yaml.safe_load(imported.read_text()), imported.parent)
+                else:
+                    self.assertIn(module, read_only, "%s changes the host before the check" % task.get("name"))
+                    if module == "stat":
+                        self.assertEqual(task.get("delegate_to"), "localhost", "template checks only read the controller")
+                        self.assertIs(task.get("become"), False)
+
         for caller, section in FLOOR_CALLERS.items():
             entries = yaml.safe_load((ANSIBLE_DIR / caller).read_text())
             index = check_import_index(entries)
             with self.subTest(caller):
                 self.assertEqual(entries[index].get("vars"), {"versions_section": section})
                 self.assertNotIn("when", entries[index], "every host is checked")
-                self.assertEqual(index, 1, "the check follows the first play")
+                expected_imports = ["../cmn/assert_validator_bootstrap.yml"] if section.endswith("_validators") else []
+                self.assertEqual([entry["import_playbook"] for entry in entries[:index] if "import_playbook" in entry],
+                                 expected_imports, "only the explicit bootstrap validation may precede the type gate")
+                self.assertEqual(index, len(expected_imports) + 1, "the floor check follows the type gate")
                 for earlier in entries[:index]:
-                    self.assertNotIn("import_playbook", earlier, "nothing is imported before the check")
-                    self.assertTrue(earlier.get("any_errors_fatal"), "one host that stops ends the run for all")
-                    for task in earlier["tasks"]:
-                        self.assertIn(module_of(task)[0], read_only, "%s changes the host before the check" % task.get("name"))
+                    path = (ANSIBLE_DIR / caller).parent
+                    plays = [earlier]
+                    if "import_playbook" in earlier:
+                        imported = path / earlier["import_playbook"]
+                        plays = yaml.safe_load(imported.read_text())
+                        path = imported.parent
+                    for play in plays:
+                        self.assertTrue(play.get("any_errors_fatal"), "one host that stops ends the run for all")
+                        check_tasks(play.get("pre_tasks", []) + play["tasks"], path)
 
     def test_f14_hosts_are_stopped_or_let_through_by_the_client_they_are_going_to_build(self):
         prefetch(run_flow, [(caller, "clients", pin_set) for caller in FLOOR_CALLERS for pin_set in PIN_SETS])
