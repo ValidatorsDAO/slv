@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render contract test for the agave start scripts and solv unit templates
 # (no network or host access). Needs ansible-core on PATH:
-#   bash template/2026.6.6.2026/tests/agave-xdp-render.sh
+#   bash template/latest/tests/agave-xdp-render.sh
 #
 # Every case is rendered once through the Ansible template engine, then checked:
 #   - validator scripts: below 4.1 the --experimental-retransmit-xdp-* flags as
@@ -22,7 +22,8 @@
 #     binary installed the configured version applies
 set -uo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
-jinja="$root/template/2026.6.6.2026/jinja"
+template_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+jinja="$template_root/jinja"
 command -v ansible-playbook >/dev/null 2>&1 || {
   echo 'ansible-playbook is required on PATH' >&2
   exit 2
@@ -504,7 +505,7 @@ run_play_case() { # play index, case index
   fi
   printf 'OLD SCRIPT\n' >"$run/solv/start-validator.sh"
   sed -e "s#/home/solv#$run/solv#g" -e "s#/mnt#$run/mnt#g" -e "s#owner: solv#owner: $me#g" -e "s#group: solv#group: $mygroup#g" \
-    "$root/template/2026.6.6.2026/ansible/$play" >"$run/play.yml"
+    "$template_root/ansible/$play" >"$run/play.yml"
   if grep -Eq '(^|[^A-Za-z0-9_])/(home/solv|mnt)([^A-Za-z0-9_]|$)' "$run/play.yml"; then
     echo "a path of the real host is left in $play" >"$run/refused"
     echo 99 >"$run/rc"

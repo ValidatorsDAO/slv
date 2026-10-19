@@ -2,11 +2,12 @@
 # Deterministic contract test for the restarter template (no network or host access).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
-template="$root/template/2026.6.6.2026/jinja/cmn/restart.sh.j2"
+template_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+template="$template_root/jinja/cmn/restart.sh.j2"
 dist="$root/dist/oss-skills/slv-validator/jinja/cmn/restart.sh.j2"
-copy="$root/template/2026.6.6.2026/ansible/cmn/copy_restart_sh.yml"
+copy="$template_root/ansible/cmn/copy_restart_sh.yml"
 wcopy="$root/dist/oss-skills/slv-validator/ansible/cmn/copy_restart_sh.yml"
-wget_source="$root/template/2026.6.6.2026/ansible/cmn/wget_snapshot.yml"
+wget_source="$template_root/ansible/cmn/wget_snapshot.yml"
 wget_dist="$root/dist/oss-skills/slv-validator/ansible/cmn/wget_snapshot.yml"
 
 cmp -s "$template" "$dist"
@@ -52,12 +53,12 @@ promote_line=$(grep -n 'mv -- "${selected_staging}" "${live_snapshot}"' "$templa
 test "$stop_line" -lt "$promote_line"
 grep -Fq 'restore_service' "$template"
 for caller in \
-  "$root/template/2026.6.6.2026/ansible/mainnet-rpc/init.yml" \
-  "$root/template/2026.6.6.2026/ansible/mainnet-rpc/init-old.yml"; do
+  "$template_root/ansible/mainnet-rpc/init.yml" \
+  "$template_root/ansible/mainnet-rpc/init-old.yml"; do
   grep -Fq 'restarter_snapshot_network: mainnet' "$caller"
 done
 grep -Fq 'restarter_snapshot_network: devnet' \
-  "$root/template/2026.6.6.2026/ansible/devnet-rpc/init.yml"
+  "$template_root/ansible/devnet-rpc/init.yml"
 for caller in \
   "$root/dist/oss-skills/slv-rpc/ansible/mainnet-rpc/init.yml" \
   "$root/dist/oss-skills/slv-rpc/ansible/mainnet-rpc/init-old.yml" \

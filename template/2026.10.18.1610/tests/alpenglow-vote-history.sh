@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Behaviour test for the vote history hand-over on a cluster that runs Alpenglow (no network
 # or host access). Needs ansible-playbook and python3 on PATH:
-#   bash template/2026.6.6.2026/tests/alpenglow-vote-history.sh
+#   bash template/latest/tests/alpenglow-vote-history.sh
 #
 # Real playbooks run on a local connection against a stub RPC (alpenglow_stub_rpc.py) and a
 # fake agave-validator (alpenglow_fake_agave.sh) that plays what agave v4.3.2 does: the admin
@@ -35,7 +35,7 @@
 #      too old, or the cluster turned Alpenglow, both nodes stay unstaked and the run says so
 set -uo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
-template="$root/template/2026.6.6.2026"
+template=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 for tool in ansible-playbook python3; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "$tool is required on PATH" >&2

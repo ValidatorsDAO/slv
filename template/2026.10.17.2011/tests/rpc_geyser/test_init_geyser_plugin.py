@@ -1238,7 +1238,7 @@ class DocsNameTheDefaultPlugin(unittest.TestCase):
     """The docs of the RPC skills and of the template say which plugin is the default and what became of richat."""
 
     DOCS = [
-        "template/2026.6.6.2026/AGENTS.md",
+        str((RELEASE / "AGENTS.md").relative_to(REPOSITORY)),
     ] + [
         "%s/%s/%s" % (root, skill, name)
         for root in ("oss-skills", "dist/oss-skills")
