@@ -14,9 +14,6 @@ impact. Do not include private keys, credentials, tokens, customer data, or
 other sensitive information that is unnecessary to explain the issue. Do not
 disclose an undisclosed vulnerability in public issues.
 
-This reporting setting is enabled. Submission-form access, test-report delivery,
-and notification routing have not yet been verified.
-
 ## Security fixes and supported updates
 
 Security fixes are provided free through the latest public SLV version, without
