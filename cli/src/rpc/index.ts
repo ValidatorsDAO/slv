@@ -12,7 +12,6 @@ import { parseDeployNetwork } from '/lib/targetGuard.ts'
 import { deployRPCTestnet } from '/src/rpc/deploy/deployRPCTestnet.ts'
 import { deployRPCDevnet } from '/src/rpc/deploy/deployRPCDevnet.ts'
 import { genOrReadVersions } from '/lib/genOrReadVersions.ts'
-import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import type { VersionSection } from '/lib/config/updateAllowedIps.ts'
@@ -280,5 +279,4 @@ rpcCmd.command('update:allowed-ips')
     await updateAllowedIps(inventoryType)
   })
 
-registerDoubleZeroCommands(rpcCmd, 'rpc', 'mainnet')
 registerSha256PatchCommands(rpcCmd, 'rpc', 'mainnet')

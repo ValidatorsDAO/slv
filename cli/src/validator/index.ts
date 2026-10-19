@@ -20,7 +20,6 @@ import { configRoot } from '@cmn/constants/path.ts'
 import denoJson from '/deno.json' with { type: 'json' }
 import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
-import { registerDoubleZeroCommands } from '/lib/doublezero.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
@@ -523,5 +522,4 @@ validatorCmd.command('switch')
     })
   })
 
-registerDoubleZeroCommands(validatorCmd, 'validator', 'testnet')
 registerSha256PatchCommands(validatorCmd, 'validator', 'testnet')
