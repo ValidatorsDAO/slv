@@ -5242,7 +5242,7 @@ Deno.test('qualification promotion requires activation before any publication wo
   }
 })
 
-Deno.test('application publication rechecks current runtime policy immediately before publishing', async () => {
+Deno.test('application publication rechecks current policy and saved draft immediately before publishing', async () => {
   const section = jobSection(await releaseWorkflow(), 'publish')
   const shell = stepShell(
     section,
@@ -5257,6 +5257,14 @@ Deno.test('application publication rechecks current runtime policy immediately b
     finalGuard.indexOf('runtime-revocations.ts') <
       finalGuard.indexOf('gh release edit'),
   )
+  assert(
+    finalGuard.indexOf('application-draft.ts verify') >
+      finalGuard.indexOf('runtime-revocations.ts fresh'),
+  )
+  assert(
+    finalGuard.indexOf('application-draft.ts verify') <
+      finalGuard.indexOf('gh release edit'),
+  )
   const directory = await Deno.makeTempDir({ prefix: 'slv-publish-policy-' })
   try {
     const log = `${directory}/calls`
@@ -5266,7 +5274,7 @@ Deno.test('application publication rechecks current runtime policy immediately b
     )
     await Deno.writeTextFile(
       `${directory}/deno`,
-      '#!/bin/sh\nprintf "policy-check\\n" >> "$CALL_LOG"\n[ "$POLICY_DENY" = false ] || exit 47\n',
+      '#!/bin/sh\ncase "$*" in\n *runtime-revocations.ts*) printf "policy-check\\n" >> "$CALL_LOG"; [ "$POLICY_DENY" = false ] || exit 47 ;;\n *application-draft.ts*) printf "draft-check\\n" >> "$CALL_LOG"; [ "$DRAFT_DENY" = false ] || exit 49 ;;\n *) exit 50 ;;\nesac\n',
     )
     await Deno.writeTextFile(
       `${directory}/gh`,
@@ -5275,7 +5283,9 @@ Deno.test('application publication rechecks current runtime policy immediately b
     for (const name of ['jq', 'deno', 'gh']) {
       await Deno.chmod(`${directory}/${name}`, 0o700)
     }
-    for (const deny of [true, false]) {
+    for (
+      const [deny, draftDeny] of [[true, false], [false, true], [false, false]]
+    ) {
       await Deno.writeTextFile(log, '')
       const result = await new Deno.Command('/bin/bash', {
         args: ['-ceu', finalGuard],
@@ -5284,6 +5294,7 @@ Deno.test('application publication rechecks current runtime policy immediately b
           PATH: directory,
           CALL_LOG: log,
           POLICY_DENY: String(deny),
+          DRAFT_DENY: String(draftDeny),
           RUNNER_TEMP: directory,
           TAG: 'v2026.10.17.2011',
           GH_REPO: 'ValidatorsDAO/slv',
@@ -5291,10 +5302,14 @@ Deno.test('application publication rechecks current runtime policy immediately b
         stdout: 'piped',
         stderr: 'piped',
       }).output()
-      assertEquals(result.success, !deny)
+      assertEquals(result.success, !deny && !draftDeny)
       assertEquals(
         await Deno.readTextFile(log),
-        deny ? 'policy-check\n' : 'policy-check\npublish\n',
+        deny
+          ? 'policy-check\n'
+          : draftDeny
+          ? 'policy-check\ndraft-check\n'
+          : 'policy-check\ndraft-check\npublish\n',
       )
     }
   } finally {

@@ -4671,6 +4671,7 @@ jobs:
       - name: Create or guard the exact tag and draft release
         run: |
           set -euo pipefail
+          deno run --frozen --no-prompt --allow-env --allow-net=api.github.com scripts/release/application-draft.ts find "$TAG" "$SOURCE_SHA" > selected-application-draft.json
           if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > tag.json 2> tag.err; then
             object_type="$(jq -r '.object.type' tag.json)"; object_sha="$(jq -r '.object.sha' tag.json)"
             if [ "$object_type" = tag ]; then
@@ -4697,12 +4698,11 @@ jobs:
           else
             cat tag.err >&2; exit 1
           fi
-          if gh api "repos/$GH_REPO/releases/tags/$TAG" > release.json 2> release.err; then
-            test "$(jq -r .draft release.json)" = true || { echo 'existing release must be immutable and is verified by verify-existing, never republished'; exit 1; }
-          elif grep -q 404 release.err; then
+          if jq -e '. == null' selected-application-draft.json >/dev/null; then
             gh release create "$TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --draft --title "$TAG"
+            deno run --frozen --no-prompt --allow-env --allow-net=api.github.com scripts/release/application-draft.ts require "$TAG" "$SOURCE_SHA" > application-draft.json
           else
-            cat release.err >&2; exit 1
+            cp selected-application-draft.json application-draft.json
           fi
       - name: Recover only matching draft payloads, then stage missing payloads
         run: |
@@ -4710,7 +4710,9 @@ jobs:
           mkdir existing
           # Enumerate first: a new draft has no assets, whereas a failed download
           # of a declared asset is an error and must not be mistaken for emptiness.
-          gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '.assets[].name' > existing-names
+          deno run --frozen --no-prompt --allow-read --allow-env --allow-net=api.github.com scripts/release/application-draft.ts extend application-draft.json > application-staging-draft.json
+          release_id="$(jq -er .id application-staging-draft.json)"
+          gh api "repos/$GH_REPO/releases/$release_id" --jq '.assets[].name' > existing-names
           while IFS= read -r name; do
             [ -n "$name" ] || continue
             gh release download "$TAG" --repo "$GH_REPO" --dir existing --pattern "$name"
@@ -4734,6 +4736,7 @@ jobs:
       - name: Attach the attestation job's standard bundle for every subject
         run: |
           set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env --allow-net=api.github.com scripts/release/application-draft.ts extend application-staging-draft.json > application-payload-draft.json
           subjects="$(jq -r '.assets[].name' release/release-manifest.json; printf '%s\n' release-manifest.json SHA256SUMS)"
           while IFS= read -r subject; do
             bundle="provenance/$subject.intoto.jsonl"
@@ -4743,6 +4746,7 @@ jobs:
       - name: Re-download every staged asset and verify provenance before publication
         run: |
           set -euo pipefail
+          deno run --frozen --no-prompt --allow-read --allow-env --allow-net=api.github.com scripts/release/application-draft.ts complete application-payload-draft.json release/release-manifest.json > application-uploaded-draft.json
           mkdir downloaded
           gh release download "$TAG" --repo "$GH_REPO" --dir downloaded --pattern '*'
           deno run --frozen --allow-read scripts/release/workflow.ts verify-directory downloaded "$VERSION" "$SOURCE_SHA" "$SOURCE_REF" > verified
@@ -4754,6 +4758,7 @@ jobs:
           done < subjects
           qualification_identity="$(jq -er '.runtime_qualification.identity' downloaded/release-manifest.json)"
           deno run --frozen --no-prompt --allow-net=raw.githubusercontent.com --allow-write="$RUNNER_TEMP" scripts/release/runtime-revocations.ts fresh "$qualification_identity" "$RUNNER_TEMP/application-publication-policy.json"
+          deno run --frozen --no-prompt --allow-read --allow-env --allow-net=api.github.com scripts/release/application-draft.ts verify application-uploaded-draft.json >/dev/null
           gh release edit "$TAG" --repo "$GH_REPO" --draft=false
       - name: Assert the published release is immutable without mutation
         run: |
