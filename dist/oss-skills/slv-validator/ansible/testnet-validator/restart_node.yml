@@ -10,6 +10,19 @@
         fail_msg: "validator_type '{{ validator_type | default('undefined') }}' is not supported on {{ inventory_hostname }}. Set it to one of agave, jito, allnodes-jito, firedancer-agave, firedancer-jito. Nothing was changed."
         success_msg: "Validator type is {{ validator_type | default('undefined') }}"
 
+# The node must not come back on the staked identity: nothing is stopped before this check
+- import_playbook: ../cmn/assert_unstaked_identity.yml
+  vars:
+    slv_network: testnet
+    slv_start_identity_source: start-script
+  when: validator_type in ['agave', 'jito', 'allnodes-jito']
+
+- import_playbook: ../cmn/assert_unstaked_identity.yml
+  vars:
+    slv_network: testnet
+    slv_start_identity_source: firedancer-config
+  when: validator_type in ['firedancer-agave', 'firedancer-jito']
+
 - import_playbook: ../cmn/restart_solv.yml
   when: validator_type in ['agave', 'jito', 'allnodes-jito']
 

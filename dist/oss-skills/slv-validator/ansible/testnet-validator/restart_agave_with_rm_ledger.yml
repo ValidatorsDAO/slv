@@ -1,4 +1,10 @@
 ---
+# The node must not come back on the staked identity: nothing is stopped or started before this check
+- import_playbook: ../cmn/assert_unstaked_identity.yml
+  vars:
+    slv_network: testnet
+    slv_start_identity_source: start-script
+
 - name: Stop Agave, Rm ledger, DL snapshot, and run Agave
   hosts: all
   become: yes

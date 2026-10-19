@@ -16,6 +16,14 @@
     min_kernel_major: 6
     min_kernel_minor: 14
   tasks:
+    # the mode goes into the kernel command line, into a command and into a script that runs at every boot
+    - name: Stop when amd_pstate_mode is not a mode of the amd_pstate driver
+      ansible.builtin.assert:
+        that:
+          - slv_amd_pstate_mode in ['active', 'passive', 'guided']
+        fail_msg: "amd_pstate_mode '{{ slv_amd_pstate_mode }}' is not one of active, passive or guided. Nothing was changed on {{ inventory_hostname }}."
+        quiet: true
+
     - name: Ensure /var/lib/slv exists
       ansible.builtin.file:
         path: /var/lib/slv
@@ -107,7 +115,7 @@
         CLEAN=$(echo "$CURRENT" \
           | sed 's/amd_pstate=[^ ]*//g; s/processor\.max_cstate=[^ ]*//g; s/cpufreq\.default_governor=[^ ]*//g' \
           | sed 's/  */ /g; s/^ //; s/ $//')
-        NEW="$CLEAN amd_pstate={{ slv_amd_pstate_mode }} processor.max_cstate=0 cpufreq.default_governor=performance"
+        NEW="$CLEAN amd_pstate={{ slv_amd_pstate_mode | quote }} processor.max_cstate=0 cpufreq.default_governor=performance"
         NEW=$(echo "$NEW" | sed 's/  */ /g; s/^ //; s/ $//')
         if [ "$NEW" != "$CURRENT" ]; then
           sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$NEW\"|" {{ grub_default }}
@@ -136,7 +144,7 @@
     - name: Apply amd_pstate runtime mode (if sysfs present)
       ansible.builtin.shell: |
         if [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
-          echo {{ slv_amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
+          echo {{ slv_amd_pstate_mode | quote }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
         fi
       args:
         executable: /bin/bash
@@ -202,7 +210,7 @@
           # SLV CPU boost runtime apply — runs on every boot.
           set +e
           if [ -f /sys/devices/system/cpu/amd_pstate/status ]; then
-            echo {{ slv_amd_pstate_mode }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null
+            echo {{ slv_amd_pstate_mode | quote }} > /sys/devices/system/cpu/amd_pstate/status 2>/dev/null
           fi
           for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
             [ -w "$f" ] && echo performance > "$f"
