@@ -2,9 +2,8 @@
 
 SLV release installation consumes only immutable GitHub Releases from
 `ValidatorsDAO/slv`. This document describes the consumer implemented in
-`sh/install`, `slv upgrade`, and `slv skills sync`, and the release acceptance
-requirements. It does not authorize publication or the legacy-bootstrap
-transition.
+`sh/install`, `slv upgrade`, and `slv skills sync`, and how to interpret
+the accompanying release evidence.
 
 ## Initial installation
 
@@ -111,26 +110,6 @@ compiler frontend, current source, notices, SBOM, and executable archive. The
 qualification tag starts with `runtime-deno-`; it is not an installable SLV
 version and never replaces the latest application release.
 
-Qualification drafts are read through authenticated asset IDs in the fixed
-repository; GitHub's temporary preview URLs are not download authorities.
-Same-source recovery uploads only missing pinned assets. A later protected main
-execution can finish an already complete draft only after verifying its original
-hosted-main signature, all asset bytes, and the original source's ancestry to
-that exact executor. It preserves the original draft target, signature, and
-asset IDs, uploads nothing, and rechecks the current revocation policy and tag
-binding before publication. Executor and attested-source commits are recorded
-separately. The local `promotion-plan.json` binds the accepted release ID,
-original source, recovery mode, and every existing asset and signature-bundle
-ID, size, and digest. The pre-publication helper reads that same plan and allows
-only the planned missing uploads; it rejects replacement or retargeting. Planning
-and final verification both refresh release metadata after transfers, rejecting
-changes observed before publication. This does not exclude a privileged write
-after the last check. Incomplete drafts from another source cannot use this
-recovery path.
-The recovery keeps workflow files unchanged from the original target and uses
-the existing `GITHUB_TOKEN` without adding workflow-write credentials. See
-GitHub's [release update permission rules](https://docs.github.com/en/rest/releases/releases#update-a-release).
-
 `source-materials/runtime-revocations.json` is a reviewed deny-only list of
 qualification identities. Candidate checks use the exact checked-out policy;
 main promotion, final build/package acceptance, and publication also check the
@@ -212,37 +191,12 @@ Core release installation does not automatically download `grpc_test`,
 that use such tools must report a missing prerequisite and document their own
 source and verification procedure.
 
-## Current activation state and evidence limits
+## Release artifact evidence and limits
 
-Publication requires immutable releases to be enabled, the protected `release`
-environment and main/tag review protections to be in force, and
-`SLV_RELEASE_ACTIVATED` and `SLV_LINUX_BUILDERS_ENABLED` to be exactly `true`.
-Runtime qualification tags also require update/delete protection. Recheck these
-requirements for the release being reviewed. Repository configuration and the activation flag do not
-prove that a release was published, made immutable, or accepted by a consumer.
-
-The normal first-release path is a reviewed version PR with a strict CalVer
-advance, followed by its merge to `main`. A main push that leaves `VERSION`
-unchanged is CI-only and does not publish. The publisher binds the release to
-that main push SHA, creates an annotated
-tag when absent, attests every payload and release metadata subject, and checks
-the resulting release API record for `immutable: true`. A manual
-`operation=release` dispatch can verify an existing immutable application tag
-with a matching version and source commit. It cannot start an initial release
-or rebuild a draft. Draft recovery is limited to rerunning the failed publisher
-with its retained original package artifact; those artifacts are retained for
-seven days. Application drafts are resolved through authenticated release lookup,
-including bounded listing when the published-tag endpoint returns 404. The
-publisher retains the numeric release ID and enumerates draft assets by that ID.
-While adding missing uploads it preserves all selected existing asset IDs,
-sizes and digests. Before downloading, it requires exactly the manifest subjects
-and their matching attestation-bundle aliases, with no extra assets. After
-downloading and verifying every payload and signature,
-it refreshes the release metadata and rejects any observed identity or inventory
-change before publication. This does not atomically exclude privileged writes
-after that last check. A whole-workflow rebuild can change a payload or
-manifest and is therefore refused for an existing draft; expiry requires
-maintainer review and is never overwritten automatically.
+An installable release must have an immutable published record and matching
+source identity, payload digests, and provenance. Workflow source alone does not
+prove publication or consumer acceptance. Use the evidence for the specific
+release being installed.
 
 Pull requests produce an unsigned, CI-only package from the checked-out merge
 commit. That artifact is retained only for inspection and cannot enter an
@@ -260,20 +214,11 @@ runtime for all four targets, its selected and derived dependency locks,
 compiler and embedding recipe, tools, ABI, original source archives, and native
 proofs. The sentinel-modified runtime remains diagnostic evidence only.
 
-The first main release can promote an audited candidate through a dedicated
-hosted job in the protected `release` environment. It publishes the exact
-reviewed bytes as an immutable, nonlatest runtime prerelease and attests its
-canonical manifest. Later releases verify and reuse the same qualification.
-PRs and bounded validation may inspect the candidate, but their receipts remain
-explicitly nonpublishable. Main requires independent verification of the
-published qualification before product compilation. Conflicting existing bytes
-are rejected; qualification assets are never overwritten.
-
-The explicit `runtime-qualification` operation rebuilds Deno/V8 and performs
-baseline/sentinel and native execution checks when runtime inputs change.
-Its original source, producer, and execution records are preserved. Newly
-produced evidence must become a reviewed descriptor before promotion.
-An ordinary SLV source change does not rerun this heavy native-build graph.
+A runtime qualification is distributed as an immutable prerelease with an
+attested manifest. Application releases refer to its exact identity. Candidate
+qualification receipts from pull-request builds remain nonpublishable.
+Reusing a runtime qualification does not reuse an earlier application's binary:
+each release still needs its own current-product receipts.
 
 Ordinary releases compile four fresh products on ephemeral Linux builders.
 Linux ARM64 uses a native ARM64 host; the Linux x64 and two Darwin products use
@@ -317,50 +262,13 @@ is materialized. Source-vendor coverage is a separate source-distribution
 closure: the source-material receipt records the complete locked vendor
 population and blocks an absent required text or receipt. Historical grant-scope
 uncertainty is retained for review rather than represented as zero uncertainty
-or silently omitted from the population. These implemented controls are not live
-acceptance evidence. The ordinary workflow is resolve, test, current source package,
-qualification acquisition and protected promotion or reuse, independent
-qualification verification, four Linux product jobs, package, hosted
-attestation, activation guard, and protected publication. First publication and public consumer acceptance remain
-pending until their evidence is recorded. The attestation job has source-read
-and attestation/artifact-metadata/ID-token permissions, separate from the
-publisher's release-content write authority.
+or silently omitted from the population. These implemented controls do not by
+themselves establish public consumer acceptance. Read the release-specific records for the tested platforms and
+installation, upgrade, and recovery behavior.
 
-The first release and legacy-bootstrap transition have separate acceptance
-stages:
-
-1. **Before publication**, review the exact source, build and provenance inputs,
-   source/license evidence, repository protections, and fixture/CI rehearsals of
-   installation, migration, verification failures, and recovery. Rehearse the
-   legacy STOP response without changing the public bootstrap. Fixture and
-   unsigned PR results do not establish public consumer acceptance.
-2. **Publish the first immutable release** through the reviewed release workflow
-   and its protected-environment approval. Verify its published source identity,
-   payloads, provenance, and `immutable: true` record. The consumer requires this
-   published immutable release before public installation can be tested.
-3. **After publication, before the legacy transition**, record public
-   clean-install, upgrade, skill-sync, proof, existing-installation migration,
-   and rollback/recovery results in controlled test installations. Include the
-   explicit reviewed bootstrap migration for a standard `/usr/local/bin/slv`
-   target and preservation of existing keys, configuration, inventories, and
-   backups. A real upgrade record identifies the predecessor and newer target
-   versions and proves replacement; a same-version `slv upgrade` no-op is not
-   that proof. If no suitable predecessor has been exercised, keep upgrade
-   acceptance pending rather than treating a clean install or fixture as a pass.
-4. **Only after that acceptance is complete**, separately review and authorize
-   the legacy-bootstrap preflight/apply operation. Review the exact source and
-   expected object/payload hashes before applying, then verify the public STOP
-   response. Its nonzero migration prompt must name the reviewed commit-pinned
-   installer and explicit target without replacing a binary or downloading an
-   unverified bridge. It does not authorize replacing an arbitrary PATH binary.
-
-Publication also requires a review of unresolved legal and license coverage. The
-SBOM records Deno runtime and lock identities. An SPDX `NOASSERTION` value does
+The SBOM records Deno runtime and lock identities. An SPDX `NOASSERTION` value does
 not itself supply license text or prove a coverage gap; canonical notice
 material and source-distribution closure are the corresponding release evidence.
-ELSOUL LABO B.V. is the confirmed responsible legal entity for SLV distribution
-and security, and SLV code, binaries, updates, and security fixes are free
-without Enterprise; optional Enterprise services operate around the same public
-OSS. This work does not retroactively secure legacy installations or settle the
-applicable statutory role or support duration, or prove operation of
-release-service controls.
+See [SECURITY.md](../SECURITY.md) for security updates and the responsible legal
+entity. Release verification does not retroactively secure an older installation
+or establish CRA conformity.
