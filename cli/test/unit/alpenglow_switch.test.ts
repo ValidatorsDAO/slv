@@ -213,10 +213,9 @@ Deno.test('slv v switch is the action of runSwitchCommand', async () => {
   )
   const start = index.indexOf("validatorCmd.command('switch')")
   assert(start > 0, 'no switch command')
-  const block = index.slice(
-    start,
-    index.indexOf('registerDoubleZeroCommands(', start),
-  )
+  const end = index.indexOf('registerSha256PatchCommands(', start)
+  assert(end > start, 'no command registration after switch')
+  const block = index.slice(start, end)
   assertStringIncludes(block, 'await runSwitchCommand({')
   for (
     const option of [

@@ -780,6 +780,7 @@ const SLV_NODE_VERB_PREFIXES = [
   'update:',
   'setup:',
   'patch:',
+  // Historical SLV binaries and scripts can still invoke these node operations.
   'doublezero:',
 ]
 /** Other slv command groups whose every verb changes a node. */
