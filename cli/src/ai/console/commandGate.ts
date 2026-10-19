@@ -1974,8 +1974,9 @@ function isNodeVerb(verb: string): boolean {
 
 /**
  * The slv verbs that read, make or send a key, or decide which key of a node is
- * trusted. They refuse to run when slv sees that the AI console runs them, and
- * the console has nothing to run them for, so a line with one is not run at all.
+ * trusted. The console refuses these verb families outright. Key-reading
+ * commands also enforce their runtime context; host-key pinning separately
+ * requires a terminal.
  */
 const SLV_FORBIDDEN_VERB_PREFIXES = ['keys:', 'hosts:']
 

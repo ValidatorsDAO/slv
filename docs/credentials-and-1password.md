@@ -31,9 +31,11 @@ for client-specific restrictions, including Firedancer activation refusals.
 
 Four commands hold a validator identity key in 1Password and read it by reference. A
 reference names a field of a 1Password item by the ids of the vault and of the item, never
-by names: `op://<vault id>/<item id>/keypair`. A name in place of an id, a section, a query,
-a relative path and any other scheme are refused. The commands read a key as bytes, check
-that it is a whole keypair whose seed gives the public key stored in it, wipe every buffer
+by names: `op://<vault id>/<item id>/keypair`. An existing local key can instead use
+`file://<absolute path>`. A name in place of an id, a section, a query,
+a relative path and schemes other than `op://` and `file://` are refused. The commands read a
+key as bytes, check that it is a whole keypair whose seed gives the public key stored in it,
+wipe every buffer
 that held it, and print public keys only.
 
 `~/.slv/keyless.yml` on the management machine names the vault of each network and, for
@@ -165,10 +167,10 @@ therefore belongs in the operator's terminal. SSH can also discover an agent
 through `IdentityAgent` in SSH configuration; removing an environment variable
 is not machine-wide isolation. Direct `/` shell commands in the console use the
 operator's environment and bypass those tool restrictions. A command that `run_command` runs
-carries `SLV_EXECUTION_CONTEXT=ai-console`, so the `keys:` commands refuse to run in it, and
-the gate treats the `keys:` and `hosts:` commands like `set:identity` and refuses outright,
-whoever confirms, a line that clears that variable or `OP_BIOMETRIC_UNLOCK_ENABLED`, or runs
-`env` with an empty environment or `exec -c`.
+carries `SLV_EXECUTION_CONTEXT=ai-console`, so the `keys:` commands refuse to run in it.
+The console gate refuses SLV's `keys:` and `hosts:` commands outright, whoever confirms.
+It also refuses a line that clears `SLV_EXECUTION_CONTEXT` or
+`OP_BIOMETRIC_UNLOCK_ENABLED`, or runs `env` with an empty environment or `exec -c`.
 
 Do not put secret values in shell arguments, print them with `op read` for an AI
 to inspect, or paste them into inventories, logs, or public examples. SLV's
