@@ -486,7 +486,10 @@ run_play_case() { # play index, case index
   local run="$work/plays/$1__$2"
   local bindir="$run/solv/.local/share/solana/install/active_release/bin"
   [[ ${where:-} == unit ]] && bindir="$run/unit/bin"
-  mkdir -p "$run/bin" "$run/home/.slv" "$run/mnt" "$run/solv" "$bindir"
+  mkdir -p "$run/bin" "$run/home/.slv" "$run/mnt" "$run/solv" "$bindir" \
+    "$run/ansible/$net" "$run/ansible/cmn/tasks"
+  # Preserve the real startup preflight and its relative import path in every fixture.
+  cp "$template_root/ansible/cmn/tasks/validator_bootstrap.yml" "$run/ansible/cmn/tasks/"
   cp -r "$jinja/." "$run/home/.slv/"
   printf '#!/bin/sh\nexit 0\n' >"$run/bin/systemctl"
   if [[ ${where:-} == unit ]]; then
@@ -505,8 +508,8 @@ run_play_case() { # play index, case index
   fi
   printf 'OLD SCRIPT\n' >"$run/solv/start-validator.sh"
   sed -e "s#/home/solv#$run/solv#g" -e "s#/mnt#$run/mnt#g" -e "s#owner: solv#owner: $me#g" -e "s#group: solv#group: $mygroup#g" \
-    "$template_root/ansible/$play" >"$run/play.yml"
-  if grep -Eq '(^|[^A-Za-z0-9_])/(home/solv|mnt)([^A-Za-z0-9_]|$)' "$run/play.yml"; then
+    "$template_root/ansible/$play" >"$run/ansible/$net/play.yml"
+  if grep -Eq '(^|[^A-Za-z0-9_])/(home/solv|mnt)([^A-Za-z0-9_]|$)' "$run/ansible/$net/play.yml"; then
     echo "a path of the real host is left in $play" >"$run/refused"
     echo 99 >"$run/rc"
     return 0
@@ -533,7 +536,7 @@ $xdp_vars
 EOF
   env HOME="$run/home" PATH="$run/bin:$PATH" ANSIBLE_HOME="$run/ansible-home" ANSIBLE_NOCOLOR=1 \
     ANSIBLE_GATHERING=explicit ANSIBLE_LOCALHOST_WARNING=False ANSIBLE_INVENTORY_UNPARSED_WARNING=False \
-    ansible-playbook -i "$run/inventory.yml" -e ansible_become=false "$run/play.yml" >"$run/log" 2>&1 </dev/null
+    ansible-playbook -i "$run/inventory.yml" -e ansible_become=false "$run/ansible/$net/play.yml" >"$run/log" 2>&1 </dev/null
   echo $? >"$run/rc"
 }
 
