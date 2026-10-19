@@ -272,15 +272,22 @@ migration commands read `~/.slv/keys/<identity_account>.json` on the management
 machine and pass it through stdin. Older node-side copies are not automatically
 removed. RPC deployment still uses a copied identity keypair file.
 
-SLV has no built-in 1Password credential provider or `op://` reference resolver.
-The optional validator `identity_ref` field stores metadata only; SLV does not
-resolve it.
+`slv v keys:gen`, `keys:import`, `keys:check` and `keys:try` keep a validator
+identity key in 1Password and read it by reference,
+`op://<vault id>/<item id>/keypair`, through the 1Password CLI (`op`), signed in
+with the 1Password app or, for testnet and devnet, with a service account token
+file named in `~/.slv/keyless.yml`, which also names the vault of each network.
+`keys:import` writes the reference to the `identity_ref` field of the inventory
+entry. The identity activation and migration commands above, BLS registration
+and deployment do not read `identity_ref`. `slv v hosts:pin` pins the SSH host key
+of a node in `~/.slv/known_hosts`.
 Using 1Password or an SSH agent does not eliminate SLV's other on-disk credentials.
 Keep secret values out of AI conversations, source control, and command examples.
 
 The [1Password and credential guide](docs/credentials-and-1password.md) covers
-human-account CLI authentication, an external SSH-agent setup, the credentials
-SLV still stores locally, and the limits of `identity_ref` and `op run`.
+the `keys:` and `hosts:pin` commands, human-account CLI authentication, an
+external SSH-agent setup, the credentials SLV still stores locally, and the
+limits of `identity_ref` and `op run`.
 
 <details>
 <summary><strong>AI tool approvals and credential boundaries</strong></summary>
