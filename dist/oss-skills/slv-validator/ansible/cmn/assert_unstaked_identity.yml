@@ -64,9 +64,10 @@
       ('To move the node to the unstaked layout, link identity.json to the unstaked identity
       (ln -sfn /home/solv/unstaked-identity.json /home/solv/identity.json), make identity_path in
       /home/solv/firedancer-config.toml name /home/solv/identity.json, and restart the node. slv cannot put the staked identity
-      on a Firedancer host of ' ~ ('mainnet: slv v set:identity and slv v switch refuse it, because the Alpenglow migration does not support Firedancer or Frankendancer.'
+      on a Firedancer host of ' ~ slv_identity_network ~ ': slv v set:identity -n ' ~ slv_identity_network
+      ~ ' and slv v switch -n ' ~ slv_identity_network ~ ' refuse it, because ' ~ ('the Alpenglow migration does not support Firedancer or Frankendancer.'
       if slv_identity_network == 'mainnet' else
-      'testnet: slv v set:identity and slv v switch refuse it, because a Firedancer host takes the staked key from a file on the node.')
+      'a Firedancer host takes the staked key from a file on the node.')
       ~ ' Put the staked identity on an agave, jito or allnodes-jito host (slv v set:identity -n ' ~ slv_identity_network
       ~ ' -p <host>, or slv v switch -n ' ~ slv_identity_network ~ ' -f <from-host> -t <to-host>, there), or change the validator_type of '
       ~ inventory_hostname ~ '.')
