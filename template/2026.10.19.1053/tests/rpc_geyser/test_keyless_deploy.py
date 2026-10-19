@@ -566,8 +566,9 @@ class FiredancerHostsAreRefusedOnTestnet(unittest.TestCase):
                 self.assertEqual(result["created"], [], "the run created a file")
                 # the type gate, which asserts and changes nothing, and then the refusal: nothing else started
                 names = tasks_run(output)
-                self.assertEqual(len(names), 2, output[-2000:])
-                self.assertTrue(names[1].startswith("Refuse a Firedancer"), names)
+                self.assertEqual(len(names), 3, output[-2000:])
+                self.assertTrue(names[0].startswith("Refuse bootstrap"), names)
+                self.assertTrue(names[2].startswith("Refuse a Firedancer"), names)
 
     def test_k15_set_identity_key_refuses_a_firedancer_host_before_any_check_but_the_type_gate(self):
         for validator_type in ("firedancer-agave", "firedancer-jito"):
@@ -578,8 +579,9 @@ class FiredancerHostsAreRefusedOnTestnet(unittest.TestCase):
                 self.assertIn('"msg": "SLV_KEYLESS_REFUSED', output)
                 self.assertIn("Nothing was changed on node", output)
                 names = tasks_run(output)
-                self.assertEqual(len(names), 2, "the refusal comes right after the type gate:\n" + output[-2000:])
-                self.assertEqual(names[1], "Refuse a Firedancer host, which takes the staked key from a file on the node")
+                self.assertEqual(len(names), 3, "bootstrap guard, type gate and Firedancer refusal:\n" + output[-2000:])
+                self.assertTrue(names[0].startswith("Refuse bootstrap"), names)
+                self.assertEqual(names[2], "Refuse a Firedancer host, which takes the staked key from a file on the node")
                 self.assertEqual(result["calls"], "", "a command of the node was called")
                 self.assertEqual(result["created"], [], "the play created a file")
 
@@ -619,7 +621,9 @@ def run_update_script(validator_type):
         text = text.replace("owner: solv", "owner: %s" % user).replace("group: solv", "group: %s" % group)
         if real_host_paths_left(text):
             raise AssertionError("a path of the real host is left in update_startup_config.yml")
-        playbook = root / "update.yml"
+        playbook = root / "ansible" / "testnet-validator" / "update.yml"
+        playbook.parent.mkdir(parents=True)
+        shutil.copytree(ANSIBLE_DIR / "cmn" / "tasks", root / "ansible" / "cmn" / "tasks")
         playbook.write_text(text)
         write_inventory(root / "inventory.json", {"node": {
             "validator_type": validator_type, "vote_account": "VOTE", "commission_bps": 0,

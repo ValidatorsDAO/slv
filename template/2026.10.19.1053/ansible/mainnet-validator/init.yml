@@ -1,4 +1,6 @@
 ---
+- import_playbook: ../cmn/assert_validator_bootstrap.yml
+
 # Alpenglow starts on mainnet with epoch 1064, and Firedancer and Frankendancer are not supported during
 # the migration, so a mainnet voting validator is agave, jito or allnodes-jito. The first play stops a
 # Firedancer or Frankendancer host before anything is changed, with the same words as the CLI

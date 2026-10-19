@@ -479,9 +479,29 @@ class FlowResult:
         return [play for play in self.imports if play in PLUGIN_PLAYS]
 
 
+def copy_validation_playbook(source, destination):
+    """Copy a real validation play and its static task/play imports, preserving relative paths."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(source, destination)
+
+    def visit(value):
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key.split(".")[-1] in ("import_playbook", "import_tasks", "include_tasks"):
+                    assert isinstance(item, str) and "{{" not in item, "validation dependencies must be static"
+                    copy_validation_playbook(source.parent / item, destination.parent / item)
+                else:
+                    visit(item)
+
+    visit(yaml.safe_load(source.read_text()))
+
+
 def make_flow_copy(name, root):
     """A copy of init.yml of the directory `name` (mainnet-rpc, testnet-validator, ...) under root, with a stub
-    for every playbook it imports, except the richat check: its conditions are those of init.yml, and what
+    for every playbook it imports, except the richat and bootstrap checks: their conditions are those of init.yml, and what
     it does is the thing under test."""
     directory = root / name
     directory.mkdir()
@@ -495,8 +515,8 @@ def make_flow_copy(name, root):
         stub = (directory / play).resolve()
         stub.parent.mkdir(parents=True, exist_ok=True)
         real = (ANSIBLE_DIR / name / play).resolve()
-        if real.name == RICHAT_CHECK and real.is_file():
-            shutil.copy(real, stub)
+        if real.name in (RICHAT_CHECK, "assert_validator_bootstrap.yml") and real.is_file():
+            copy_validation_playbook(real, stub)
         else:
             stub.write_text(STUB.format(play=play))
     return init

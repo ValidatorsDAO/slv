@@ -1,3 +1,4 @@
+import { validatorSigningRefusal } from '/lib/validatorSigningPolicy.ts'
 import { colors } from '@cliffy/colors'
 import { Input } from '@cliffy/prompt'
 import type { InventoryType } from '@cmn/types/config.ts'
@@ -904,6 +905,8 @@ const runSetIdentity = async (
   const resolved = resolveSingleHostTarget(hosts, options.pubkey, inventoryType)
   if (!resolved.ok) return refuse(resolved.error)
   const target = resolved.host
+  const signingRefusal = validatorSigningRefusal(target)
+  if (signingRefusal) return refuse(signingRefusal)
 
   const confirmation = decidePromotionConfirmation(network, deps.isTty())
   if (confirmation === 'refuse') {

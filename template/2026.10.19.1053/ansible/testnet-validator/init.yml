@@ -1,4 +1,6 @@
 ---
+- import_playbook: ../cmn/assert_validator_bootstrap.yml
+
 - name: Load validator type from inventory
   hosts: all
   gather_facts: no

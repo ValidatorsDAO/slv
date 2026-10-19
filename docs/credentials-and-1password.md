@@ -2,10 +2,44 @@
 
 SLV reads a validator identity key from 1Password by reference in `slv v keys:check`
 and `slv v keys:try`, and puts one there with `slv v keys:gen` and `slv v keys:import`.
-The identity activation and migration commands, BLS registration and deployment do not
+The legacy identity activation and migration commands and BLS registration refuse
+bootstrap or 1Password-backed entries; deployment does not
 read a reference. This guide describes those commands, external 1Password tooling and
 the credential paths the current SLV implementation actually uses. It does not make SLV
 fully diskless.
+
+## Validator init: verified vault storage and sync-only startup
+
+Run `slv v init` in your own local terminal. Choose a network, supported
+Agave/Jito/Allnodes client and a new inventory name. Init creates the identity in
+memory, saves it to the network's 1Password vault, reads it back and verifies both
+the key bytes and public-key field before saving the inventory. It can instead
+use an existing item in that configured vault. New mainnet identities require a
+human context with no configured/environment service-account tokens and explicit
+vault-name confirmation; the standalone `keys:gen` command remains testnet/devnet
+only. All `op` calls keep caching disabled. AI sessions, node hosts and headless
+sessions cannot run secret setup.
+
+The inventory contains public keys, the verified `identity_ref`, and
+`no_voting: true`. Vote-account metadata is optional; an existing account must
+match the identity on the selected network. No new vote key, vote account,
+airdrop, transfer or signing transaction is created. No withdrawal authority is
+invented. Duplicate inventory names are refused instead of replacing identities.
+If inventory setup fails after vault verification, reuse the printed reference;
+do not create another identity just to retry server setup.
+
+Deploy starts the node's own unstaked identity with `--no-voting`. It does not
+activate the identity saved in 1Password. Bootstrap startup uses the Jinja
+shipped with the selected runtime templates, preserving older custom scripts.
+Missing packaged templates stop setup before node changes. The default bootstrap
+has no fixed shred-version pin and uses entrypoint discovery; explicit valid pins
+are retained, and expected-genesis validation remains enabled.
+
+This completes storage and synchronization setup, not production voting. Legacy
+`set:identity`, `switch` (before source demotion) and BLS signing refuse bootstrap
+or 1Password-backed entries. Do not clear `no_voting` or export a key to bypass
+that boundary. RPC init and legacy inventories without these fields retain their
+existing workflows. Existing plaintext keys are not deleted automatically.
 
 ## What works today
 
@@ -14,7 +48,7 @@ fully diskless.
 | SSH access to management targets | OpenSSH can use the 1Password SSH agent. Configure and verify that client connection before using SLV/Ansible. |
 | Human access through 1Password CLI | Authenticate `op` with the 1Password desktop app in your own terminal. The `keys:` commands run `op` themselves, as described [below](#keep-a-validator-key-in-1password). |
 | Validator keys held in 1Password | `slv v keys:gen`, `keys:import`, `keys:check` and `keys:try`, by reference: `op://<vault id>/<item id>/keypair`. |
-| Validator `identity_ref` | The reference to the key of a host: `op://<vault id>/<item id>/keypair` or `file://<absolute path>`. `keys:import` writes it, and `keys:check -p <host>` reads the key it names (a host without one is read from `~/.slv/keys/<identity_account>.json`). Activation, switching and BLS registration do not read it. |
+| Validator `identity_ref` | The reference to the key of a host: `op://<vault id>/<item id>/keypair` or `file://<absolute path>`. `keys:import` writes it, and `keys:check -p <host>` reads the key it names (a host without one is read from `~/.slv/keys/<identity_account>.json`). Legacy activation, switching and BLS registration refuse 1Password references; they do not resolve them. |
 | SSH host keys | `slv v hosts:pin` pins the `ssh-ed25519` key of a node in `~/.slv/known_hosts` after you confirm its fingerprint. |
 | Supported Agave-family validator activation and switching | Reads `~/.slv/keys/<identity_account>.json` on the management machine and sends key material through stdin. |
 | New validator deployment | Starts with an unstaked identity without copying the staked key. Existing node-side copies are not removed. |
@@ -138,13 +172,14 @@ the connection in your terminal, approving the key use in 1Password:
 ssh -i /absolute/path/to/example-node.pub ubuntu@192.0.2.10 true
 ```
 
-SLV's setup prompt currently calls the input an RSA key path. Its OpenSSH check
-passes that path with `-i`, and generated inventories store it as
-`ansible_ssh_private_key_file`. For this externally configured agent flow, use the
-absolute public-key selector path that succeeded above. Check existing inventory
-overrides and your Ansible SSH transport before deployment. This is a configuration
-route based on OpenSSH support, not a native SLV provider or a claim of tested
-1Password authentication against every target.
+At SLV's SSH identity file prompt, enter the absolute `.pub` selector path that
+succeeded above. The public file must exist before initialization; no local SSH
+private key is required for this agent flow. SLV passes the path to OpenSSH with
+`-i` and retains the compatible inventory field `ansible_ssh_private_key_file`.
+User setup authorizes that `.pub` file directly for `solv`; a private-key path
+still uses its adjacent `.pub` file. SLV does not select a key from the agent for
+you. Check existing inventory overrides and your Ansible SSH transport before
+deployment.
 
 The agent handles SSH authentication only. It does not supply Solana validator
 identity keys, remove ERPC token files, or remove older private-key copies. The

@@ -1,0 +1,32 @@
+- name: Require a boolean voting policy and a supported bootstrap client
+  ansible.builtin.assert:
+    that:
+      - no_voting is not defined or no_voting is boolean
+      - no_voting | default(false) is not sameas true or validator_type | default('') in ['agave', 'jito', 'allnodes-jito']
+      - no_voting | default(false) is not sameas true or expected_shred_version is not defined or ((expected_shred_version | string) is match('^[0-9]+$') and (expected_shred_version | int) > 0 and (expected_shred_version | int) <= 65535)
+    fail_msg: "Sync-only bootstrap requires boolean no_voting: true and an Agave, Jito or Allnodes-Jito validator. An explicit expected_shred_version must be an integer from 1 to 65535. Nothing was configured."
+    quiet: true
+
+- name: Check the packaged startup templates on the controller
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../../jinja/{{ item }}"
+  loop:
+    - mainnet-validator/start-validator.sh.j2
+    - testnet-validator/start-validator.sh.j2
+    - testnet-validator/start-validator-agave.sh.j2
+    - testnet-validator/start-validator-jito.sh.j2
+  delegate_to: localhost
+  become: false
+  register: slv_bootstrap_templates
+  when: no_voting | default(false) is sameas true
+
+- name: Require matching packaged startup templates for sync-only bootstrap
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - "'--no-voting' in lookup('ansible.builtin.file', item.stat.path)"
+      - "'no_voting | default(false) is sameas true' in lookup('ansible.builtin.file', item.stat.path)"
+    fail_msg: "The packaged sync-only startup template is missing or does not support no_voting on the controller. Install the matching SLV templates before deployment; existing custom templates will not be overwritten."
+    quiet: true
+  loop: "{{ slv_bootstrap_templates.results | default([]) }}"
+  when: no_voting | default(false) is sameas true

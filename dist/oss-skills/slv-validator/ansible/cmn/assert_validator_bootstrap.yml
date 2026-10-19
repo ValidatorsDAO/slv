@@ -1,0 +1,8 @@
+---
+- name: Validate explicit sync-only validator setup before deployment
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Check sync-only policy and packaged startup templates
+      ansible.builtin.import_tasks: tasks/validator_bootstrap.yml

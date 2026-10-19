@@ -5,9 +5,11 @@
   vars:
     home_paths_authorized_keys: /home/solv/.ssh/authorized_keys
     ansible_remote_tmp: /tmp/ansible_tmp
-    # The key to authorize is the public key of the private key that the inventory names for the host (the key
-    # Ansible connects with, and keeps using for solv once this play has run); ~/.ssh/id_rsa.pub when it names none.
-    local_public_key_path: "{{ ((ansible_ssh_private_key_file | expanduser) ~ '.pub') if (ansible_ssh_private_key_file | default('', true)) != '' else (lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+    # OpenSSH can use a public identity file whose matching private key stays in an SSH agent.
+    # Authorize that .pub file as supplied; otherwise use the private path's adjacent .pub file.
+    # Keep ~/.ssh/id_rsa.pub as the fallback only when the inventory names no identity file.
+    local_ssh_identity_path: "{{ ansible_ssh_private_key_file | default('', true) | expanduser }}"
+    local_public_key_path: "{{ local_ssh_identity_path if local_ssh_identity_path.endswith('.pub') else ((local_ssh_identity_path ~ '.pub') if local_ssh_identity_path != '' else (lookup('env', 'HOME') + '/.ssh/id_rsa.pub')) }}"
   vars_files:
     - ~/.slv/config.pwd.yml
   tasks:
@@ -23,7 +25,7 @@
       fail:
         msg: >-
           The public key {{ local_public_key_path }} does not exist, so there is no key to authorize for solv on {{ inventory_hostname }}.
-          {{ ('It is the public key of the private key ' ~ ansible_ssh_private_key_file ~ ', which the inventory names for ' ~ inventory_hostname ~ ': create it next to the private key (ssh-keygen -y -f ' ~ ansible_ssh_private_key_file ~ ' > ' ~ local_public_key_path ~ ').') if (ansible_ssh_private_key_file | default('', true)) != '' else 'The inventory names no ansible_ssh_private_key_file for this host, so the public key of ~/.ssh/id_rsa is used: create it, or name the private key in the inventory with ansible_ssh_private_key_file.' }}
+          {{ 'This is a public identity file for an SSH agent. Save the matching public key from your SSH key provider at this path and authorize its use in the SSH agent; do not export the private key.' if local_ssh_identity_path.endswith('.pub') else (('It is the public key of the private key ' ~ ansible_ssh_private_key_file ~ ', which the inventory names for ' ~ inventory_hostname ~ ': create it next to the private key (ssh-keygen -y -f ' ~ ansible_ssh_private_key_file ~ ' > ' ~ local_public_key_path ~ ').') if local_ssh_identity_path != '' else 'The inventory names no ansible_ssh_private_key_file for this host, so the public key of ~/.ssh/id_rsa is used: create it, or name a private key or SSH-agent public .pub file in the inventory with ansible_ssh_private_key_file.') }}
           Nothing was changed on {{ inventory_hostname }}.
       when: not local_public_key_stat.stat.exists
 

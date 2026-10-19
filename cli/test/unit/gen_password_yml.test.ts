@@ -264,7 +264,8 @@ Deno.test('a password file that cannot be read stops the run with exit code 1', 
 Deno.test('every init that sets the password stops when it was not saved', async () => {
   for (
     const path of [
-      'src/validator/init/init.ts',
+      'src/validator/init/initMainnetConfig.ts',
+      'src/validator/init/initTestnetConfig.ts',
       'src/rpc/init/devnetInitRpc.ts',
       'src/rpc/init/mainnetInitRpc.ts',
       'src/rpc/init/testnetInitRpc.ts',
@@ -274,6 +275,83 @@ Deno.test('every init that sets the password stops when it was not saved', async
       new URL(`../../${path}`, import.meta.url),
     )
     assertStringIncludes(source, 'if (!await genPasswordYml()) return', path)
+  }
+})
+
+Deno.test('validator init password failure returns before inventory, versions and server mutations in both networks', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'slv-init-password-' })
+  try {
+    const mocks = new URL('./_initPasswordMocks.ts', import.meta.url).href
+    const imports: Record<string, string> = {
+      '@cmn/': new URL('../../../cmn/', import.meta.url).href,
+    }
+    for (
+      const name of [
+        '/src/validator/init/accounts.ts',
+        '/src/validator/init/inventory.ts',
+        '/lib/genPasswordYml.ts',
+        '/lib/genOrReadVersions.ts',
+        '/src/validator/init/genSolvUser.ts',
+        '/lib/optimizeNode.ts',
+        '/lib/addMainnetInventory.ts',
+        '/lib/fdctlMainnetGuard.ts',
+        '/lib/jito/findNearestRegion.ts',
+        '/lib/jito/jitoRegions.ts',
+        '/lib/snapshot/findNearestSnapshot.ts',
+        '/src/validator/init/promptXdpConfig.ts',
+        '@cliffy/colors',
+        '@cliffy/prompt',
+        '@cmn/constants/path.ts',
+        '@cmn/constants/config.ts',
+        '@cmn/prompt/checkSSHConnection.ts',
+      ]
+    ) imports[name] = mocks
+    const importMap = `${dir}/imports.json`
+    await Deno.writeTextFile(importMap, JSON.stringify({ imports }))
+    const runner = `${dir}/scenario.ts`
+    const mainnet =
+      new URL('../../src/validator/init/initMainnetConfig.ts', import.meta.url)
+        .href
+    const testnet =
+      new URL('../../src/validator/init/initTestnetConfig.ts', import.meta.url)
+        .href
+    await Deno.writeTextFile(
+      runner,
+      `
+import { initMainnetConfig } from ${JSON.stringify(mainnet)}
+import { initTestnetConfig } from ${JSON.stringify(testnet)}
+import { calls, reset } from ${JSON.stringify(mocks)}
+const connection = { ip: '203.0.113.1', username: 'operator', rsa_key_path: '/tmp/unused-key' }
+for (const init of [initMainnetConfig, initTestnetConfig]) {
+  for (const saved of [false, true]) {
+    reset(saved)
+    await init(connection)
+    const expected = saved
+      ? ['accounts', 'password', 'versions', 'save', 'server-user', 'optimize']
+      : ['accounts', 'password']
+    if (JSON.stringify(calls) !== JSON.stringify(expected)) {
+      throw new Error(init.name + ': password saved=' + saved + ', calls=' + JSON.stringify(calls))
+    }
+  }
+}
+`,
+    )
+    const result = await new Deno.Command(Deno.execPath(), {
+      args: [
+        'run',
+        '--check',
+        '--no-config',
+        '--import-map',
+        importMap,
+        runner,
+      ],
+      stdin: 'null',
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output()
+    assert(result.success, new TextDecoder().decode(result.stderr))
+  } finally {
+    await Deno.remove(dir, { recursive: true })
   }
 })
 

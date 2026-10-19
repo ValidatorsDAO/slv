@@ -107,6 +107,38 @@ Deno.test('a value that ansible would template, a variable that changes how it c
       'identity_account',
     ],
     ['a lookup in vote_account', { vote_account: lookup }, 'vote_account'],
+    ['a lookup in identity_ref', { identity_ref: lookup }, 'identity_ref'],
+    ['a lookup in no_voting', { no_voting: lookup }, 'no_voting'],
+    ['a reference with a newline', {
+      identity_ref: `${GOOD.identity_ref}\nextra`,
+    }, 'identity_ref'],
+    ['a reference with a template comment', {
+      identity_ref: `op://{#comment#}/item/keypair`,
+    }, 'identity_ref'],
+    [
+      'a malformed reference',
+      { identity_ref: 'op://vault/item/keypair' },
+      'identity_ref',
+    ],
+    [
+      'a non-reference string',
+      { identity_ref: 'not-a-reference' },
+      'identity_ref',
+    ],
+    ['a numeric reference', { identity_ref: 123 }, 'identity_ref'],
+    ['a null reference', { identity_ref: null }, 'identity_ref'],
+    [
+      'an object reference',
+      { identity_ref: { keypair: 'fixture' } },
+      'identity_ref',
+    ],
+    ...[null, 'true', 'false', 'yes', 0, 1, [], {}].map((
+      value,
+    ): [string, Record<string, unknown>, string] => [
+      `a non-boolean no_voting ${JSON.stringify(value)}`,
+      { no_voting: value },
+      'no_voting',
+    ]),
     [
       'a lookup in validator_type',
       { validator_type: lookup },
@@ -263,6 +295,7 @@ Deno.test('valid hosts give the allowlisted variables and no others, the key pat
             ansible_user: 'solv',
             ansible_ssh_private_key_file: '/home/op/.ssh/node_ed25519',
             identity_account: IDENTITY,
+            identity_ref: GOOD.identity_ref,
             vote_account: VOTE,
             validator_type: 'agave',
             port_rpc: 8899,
@@ -273,6 +306,7 @@ Deno.test('valid hosts give the allowlisted variables and no others, the key pat
             ansible_user: 'solv',
             ansible_ssh_private_key_file: '/home/op/.ssh/node_ed25519',
             identity_account: IDENTITY,
+            identity_ref: GOOD.identity_ref,
             vote_account: VOTE,
             validator_type: 'agave',
             port_rpc: 8899,
@@ -320,11 +354,55 @@ Deno.test('valid hosts give the allowlisted variables and no others, the key pat
         'ansible_ssh_private_key_file',
         'ansible_user',
         'identity_account',
+        'identity_ref',
         'validator_type',
       ],
     )
   } finally {
     await mainnet.remove()
+  }
+})
+
+Deno.test('activation policy survives safe inventory serialization without boolean coercion or invented legacy fields', async () => {
+  for (const group of ['testnet_validators', 'mainnet_validators'] as const) {
+    const hosts = {
+      bootstrap: { ...GOOD, no_voting: true, vote_account: '' },
+      vault: { ...GOOD, no_voting: false },
+      file: {
+        ...GOOD,
+        no_voting: false,
+        identity_ref: 'file:///tmp/fixture-identity.json',
+      },
+      legacy: { ...GOOD, identity_ref: undefined },
+      empty: { ...GOOD, identity_ref: '' },
+    }
+    const safe = await prepareSafeInventory(input({}, {
+      group,
+      inventoryText: inventoryOf(hosts, group),
+      hosts: Object.keys(hosts),
+    }))
+    try {
+      const generated = parse(
+        await Deno.readTextFile(safe.inventoryPath),
+      ) as Record<
+        string,
+        { hosts: Record<string, Record<string, unknown>> }
+      >
+      const saved = generated[group].hosts
+      assertEquals(saved.bootstrap.no_voting, true)
+      assertEquals(saved.bootstrap.identity_ref, GOOD.identity_ref)
+      assertEquals(saved.bootstrap.vote_account, undefined)
+      assertEquals(saved.vault.no_voting, false)
+      assertEquals(saved.vault.identity_ref, GOOD.identity_ref)
+      assertEquals(saved.file.no_voting, false)
+      assertEquals(saved.file.identity_ref, hosts.file.identity_ref)
+      assertEquals(Object.hasOwn(saved.legacy, 'no_voting'), false)
+      assertEquals(Object.hasOwn(saved.legacy, 'identity_ref'), false)
+      assertEquals(saved.empty.identity_ref, '')
+      assertEquals(Object.hasOwn(saved.empty, 'no_voting'), false)
+    } finally {
+      await safe.remove()
+    }
   }
 })
 
@@ -622,6 +700,7 @@ Deno.test({
           ansible_user: 'solv',
           ansible_ssh_private_key_file: '/home/op/.ssh/node_ed25519',
           identity_account: IDENTITY,
+          identity_ref: GOOD.identity_ref,
           vote_account: VOTE,
           validator_type: 'agave',
           port_rpc: 8899,

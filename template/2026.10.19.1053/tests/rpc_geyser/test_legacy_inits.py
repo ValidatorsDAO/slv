@@ -101,8 +101,15 @@ def entries_of(path):
     return yaml.safe_load((ANSIBLE_DIR / path).read_text())
 
 
-def gate_task(entries, number=0):
-    (task,) = [task for task in entries[number]["tasks"] if module_of(task)[0] == "assert" and "supported type" in task.get("name", "")]
+def gate_play(entries):
+    (play,) = [entry for entry in entries if any(
+        module_of(task)[0] == "assert" and "supported type" in task.get("name", "")
+        for task in entry.get("tasks", []))]
+    return play
+
+
+def gate_task(entries):
+    (task,) = [task for task in gate_play(entries)["tasks"] if module_of(task)[0] == "assert" and "supported type" in task.get("name", "")]
     return task
 
 
@@ -228,7 +235,7 @@ class LegacyEntriesBeginAsInitDoes(unittest.TestCase):
             with self.subTest(path):
                 # the gate is the one of init.yml: the same play settings and the same assert
                 for key in ("name", "hosts", "gather_facts", "any_errors_fatal"):
-                    self.assertEqual(entries[0][key], init[0][key], key)
+                    self.assertEqual(gate_play(entries)[key], gate_play(init)[key], key)
                 self.assertEqual(gate_task(entries), gate_task(init))
                 # then the check, with the section of the flow and the client the flow installs
                 self.assertEqual(entries[index]["vars"]["versions_section"], flow["section"])

@@ -20,7 +20,8 @@ export const checkSSHConnection = async () => {
     type: Input,
   }, {
     name: 'rsa_key_path',
-    message: "What's the path to your RSA key?",
+    message:
+      'Path to SSH identity file (private key, or public .pub key for SSH agent)',
     type: Input,
     default: '~/.ssh/id_rsa',
   }])
@@ -35,11 +36,15 @@ export const checkSSHConnection = async () => {
   console.log(colors.white('🔍 Checking SSH connection...'))
   const cmd = new Deno.Command('ssh', {
     args: [
-      '-i', result.rsa_key_path,
-      '-o', 'ConnectTimeout=10',
-      '-o', 'StrictHostKeyChecking=accept-new',
+      '-i',
+      result.rsa_key_path,
+      '-o',
+      'ConnectTimeout=10',
+      '-o',
+      'StrictHostKeyChecking=accept-new',
       `${result.username}@${result.ip}`,
-      'echo', 'SSH connection successful',
+      'echo',
+      'SSH connection successful',
     ],
     stdout: 'piped',
     stderr: 'piped',
@@ -48,7 +53,7 @@ export const checkSSHConnection = async () => {
   if (!output.success) {
     console.error(
       colors.yellow(
-        '⚠️ SSH connection failed\nPlease check your SSH key and IP address',
+        '⚠️ SSH connection failed\nPlease check your SSH identity file, agent authorization and IP address',
       ),
     )
     console.log(colors.white(`You might need to run this command: 

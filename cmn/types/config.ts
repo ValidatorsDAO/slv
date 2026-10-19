@@ -58,6 +58,8 @@ export interface NodeConfigBase extends AnsibleHostConfig {
 }
 
 export interface ValidatorConfigBase extends NodeConfigBase {
+  no_voting?: boolean
+  identity_ref?: string
   vote_account: string
   authority_account: string
   commission_bps: number

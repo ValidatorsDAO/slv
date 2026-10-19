@@ -1,7 +1,7 @@
 import { prompt, Select } from '@cliffy/prompt'
 import { initMainnetConfig } from '/src/validator/init/initMainnetConfig.ts'
 import { initTestnetConfig } from '/src/validator/init/initTestnetConfig.ts'
-import { genPasswordYml } from '/lib/genPasswordYml.ts'
+import { checkValidatorInitContext } from '/src/validator/init/accounts.ts'
 import { checkSSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { getLocalConnection } from '@cmn/prompt/localConnection.ts'
 import { colors } from '@cliffy/colors'
@@ -21,6 +21,11 @@ const init = async (options?: { localhost?: boolean }) => {
 
   // A client pinned below what Alpenglow runs on is not set up.
   if (await refuseBelowFloorPins(validator.network, 'validator')) return
+
+  // Refuse AI/node/headless or forbidden mainnet contexts before any host setup.
+  await checkValidatorInitContext(
+    validator.network === 'mainnet' ? 'mainnet' : 'testnet',
+  )
 
   let ubuntu
   if (options?.localhost) {
@@ -54,8 +59,6 @@ const init = async (options?: { localhost?: boolean }) => {
     ubuntu = sshResult
   }
 
-  // Set solv password if not exists
-  if (!await genPasswordYml()) return
   if (validator.network === 'testnet') {
     await initTestnetConfig(ubuntu, options?.localhost)
   } else {

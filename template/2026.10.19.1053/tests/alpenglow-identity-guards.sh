@@ -434,17 +434,21 @@ done
 
 # --- 6. init.yml --------------------------------------------------------------
 
-# only the first play of init.yml runs here: it is the part that reads validator_type
+# Run the type-validation play and any bootstrap validation imported before it.
+# Keep the real dependency paths; stopping at the first import would now create an empty playbook.
 run_init() { # network label value (- = no validator_type at all, EMPTY = an empty one)
   local net=$1 label=$2 value=$3 dir="$work/init/$1-$2"
   [[ $value == EMPTY ]] && value=''
-  mkdir -p "$dir"
-  sed '/^- import_playbook/,$d' "$template/ansible/$net-validator/init.yml" >"$dir/first-play.yml"
+  mkdir -p "$dir/ansible/$net-validator" "$dir/ansible/cmn/tasks"
+  cp "$template/ansible/cmn/assert_validator_bootstrap.yml" "$dir/ansible/cmn/"
+  cp "$template/ansible/cmn/tasks/validator_bootstrap.yml" "$dir/ansible/cmn/tasks/"
+  awk '/^- import_playbook:/ && seen { exit } /^- name:/ { seen=1 } { print }' \
+    "$template/ansible/$net-validator/init.yml" >"$dir/ansible/$net-validator/first-play.yml"
   {
     printf 'all:\n  hosts:\n    rig:\n      ansible_connection: local\n      ansible_python_interpreter: auto_silent\n'
     [[ $value == - ]] || printf '      validator_type: "%s"\n' "$value"
   } >"$dir/inventory.yml"
-  ANSIBLE_HOME="$dir/home" limited ansible-playbook -i "$dir/inventory.yml" "$dir/first-play.yml" \
+  ANSIBLE_HOME="$dir/home" limited ansible-playbook -i "$dir/inventory.yml" "$dir/ansible/$net-validator/first-play.yml" \
     >"$dir/log" 2>&1 </dev/null
   echo $? >"$dir/rc"
 }
@@ -499,11 +503,12 @@ done
 run_update() { # network label value (- = no validator_type at all, EMPTY = an empty one)
   local net=$1 label=$2 value=$3 dir="$work/update/$1-$2"
   [[ $value == EMPTY ]] && value=''
-  mkdir -p "$dir/bin" "$dir/solv" "$dir/mnt" "$dir/home/.slv"
+  mkdir -p "$dir/bin" "$dir/solv" "$dir/mnt" "$dir/home/.slv" "$dir/ansible/$net-validator" "$dir/ansible/cmn/tasks"
+  cp "$template/ansible/cmn/tasks/validator_bootstrap.yml" "$dir/ansible/cmn/tasks/"
   : >"$dir/calls.log"
   sed -e "s#/home/solv#$dir/solv#g" -e "s#/mnt#$dir/mnt#g" -e "s#owner: solv#owner: $(id -un)#g" -e "s#group: solv#group: $(id -gn)#g" \
-    "$template/ansible/$net-validator/update_startup_config.yml" >"$dir/update.yml"
-  if grep -Eq '(^|[^A-Za-z0-9_])/(home/solv|mnt)([^A-Za-z0-9_]|$)' "$dir/update.yml"; then
+    "$template/ansible/$net-validator/update_startup_config.yml" >"$dir/ansible/$net-validator/update.yml"
+  if grep -Eq '(^|[^A-Za-z0-9_])/(home/solv|mnt)([^A-Za-z0-9_]|$)' "$dir/ansible/$net-validator/update.yml"; then
     echo "a path of the real host is left in update_startup_config.yml of $net" >"$dir/refused"
     echo 99 >"$dir/rc"
     return 0
@@ -519,7 +524,7 @@ run_update() { # network label value (- = no validator_type at all, EMPTY = an e
     [[ $value == - ]] || printf '      validator_type: "%s"\n' "$value"
   } >"$dir/inventory.yml"
   HOME="$dir/home" PATH="$dir/bin:$PATH" ANSIBLE_HOME="$dir/ansible-home" limited \
-    ansible-playbook -i "$dir/inventory.yml" -e ansible_become=false "$dir/update.yml" >"$dir/log" 2>&1 </dev/null
+    ansible-playbook -i "$dir/inventory.yml" -e ansible_become=false "$dir/ansible/$net-validator/update.yml" >"$dir/log" 2>&1 </dev/null
   echo $? >"$dir/rc"
 }
 update_cases=(

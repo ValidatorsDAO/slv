@@ -1,7 +1,14 @@
 #!/bin/bash
 exec agave-validator \
 --identity /home/solv/identity.json \
+{% if no_voting | default(false) is sameas true %}
+--no-voting \
+{% else %}
+{% if not (vote_account | default('', true)) %}
+{{ missing_vote_account | mandatory('A voting validator requires vote_account; use explicit no_voting: true only for sync-only bootstrap') }}
+{% endif %}
 --vote-account {{ vote_account }} \
+{% endif %}
 --log /home/solv/solana-validator.log \
 --accounts /mnt/accounts \
 --ledger /mnt/ledger \
@@ -21,7 +28,13 @@ exec agave-validator \
 {% if wait_for_supermajority is defined and wait_for_supermajority %}
 --wait-for-supermajority {{ wait_for_supermajority }} \
 {% endif %}
+{% if no_voting | default(false) is sameas true %}
+{% if expected_shred_version is defined %}
+--expected-shred-version {{ expected_shred_version }} \
+{% endif %}
+{% else %}
 --expected-shred-version {{ expected_shred_version | default("57087") }} \
+{% endif %}
 {% if expected_bank_hash is defined and expected_bank_hash %}
 --expected-bank-hash {{ expected_bank_hash }} \
 {% endif %}

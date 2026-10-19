@@ -2,6 +2,7 @@ import { join } from '@std/path'
 import { parse, stringify } from '@std/yaml'
 import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { BASE58_PUBKEY } from '/lib/secret/base58.ts'
+import { IdentityRefError, parseIdentityRef } from '/lib/secret/identityRef.ts'
 import {
   parseSshTarget,
   plainValue,
@@ -29,6 +30,8 @@ const CONNECTION_VARS = [
 const PLAYBOOK_VARS = [
   'ansible_host',
   'identity_account',
+  'identity_ref',
+  'no_voting',
   'port_rpc',
   'validator_type',
   'vote_account',
@@ -136,7 +139,7 @@ const checkHost = (
   input: SafeInventoryInput,
   entries: Record<string, unknown>,
   name: string,
-): { host: SafeHost; vars: Record<string, string | number> } => {
+): { host: SafeHost; vars: Record<string, string | number | boolean> } => {
   let target: SshTarget
   try {
     target = parseSshTarget(input.inventoryText, input.group, name, {
@@ -149,6 +152,31 @@ const checkHost = (
   }
   // parseSshTarget has found this entry, so it is a mapping.
   const entry = entries[name] as Record<string, unknown>
+
+  // These public policy fields must reach the playbook's activation refusal.
+  // Dropping or coercing them could turn a sync-only host into a legacy voter.
+  if (entry.no_voting !== undefined && typeof entry.no_voting !== 'boolean') {
+    throw new InventoryRefusal(`no_voting of ${name} has to be a boolean`)
+  }
+  if (entry.identity_ref !== undefined) {
+    if (typeof entry.identity_ref !== 'string') {
+      throw new InventoryRefusal(`identity_ref of ${name} has to be text`)
+    }
+    const reference = plainOrRefuse(
+      entry.identity_ref,
+      `identity_ref of ${name}`,
+    )
+    if (reference !== '') {
+      try {
+        parseIdentityRef(reference, { homeDir: input.homeDir })
+      } catch (error) {
+        if (!(error instanceof IdentityRefError)) throw error
+        throw new InventoryRefusal(
+          `identity_ref of ${name} is not a valid reference`,
+        )
+      }
+    }
+  }
 
   if (!(SolanaNodeTypes as readonly string[]).includes(target.validatorType)) {
     throw new InventoryRefusal(
@@ -176,12 +204,18 @@ const checkHost = (
   }
 
   // Only the allowlisted variables, in the order they are listed above.
-  const vars: Record<string, string | number> = {
+  const vars: Record<string, string | number | boolean> = {
     ansible_host: target.host,
     ...(entry.ansible_port === undefined ? {} : { ansible_port: target.port }),
     ansible_user: target.user,
     ansible_ssh_private_key_file: target.identityFile,
     identity_account: target.identityAccount,
+    ...(entry.identity_ref === undefined
+      ? {}
+      : { identity_ref: entry.identity_ref as string }),
+    ...(entry.no_voting === undefined
+      ? {}
+      : { no_voting: entry.no_voting as boolean }),
     ...(voteAccount === null ? {} : { vote_account: voteAccount }),
     validator_type: target.validatorType,
     ...(portRpc === null ? {} : { port_rpc: portRpc }),
@@ -192,7 +226,7 @@ const checkHost = (
 /** The text of the generated inventory. */
 const buildInventoryText = (
   group: SafeGroup,
-  hosts: Record<string, Record<string, string | number>>,
+  hosts: Record<string, Record<string, string | number | boolean>>,
 ): string => stringify({ [group]: { hosts } })
 
 /** The text of ansible.cfg. */

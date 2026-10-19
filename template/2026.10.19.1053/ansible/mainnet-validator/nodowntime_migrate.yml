@@ -6,6 +6,16 @@
   any_errors_fatal: true
 
   tasks:
+    - name: Refuse bootstrap or 1Password-backed identities in the legacy activation path
+      ansible.builtin.assert:
+        that:
+          - hostvars[source_host].no_voting | default(false) is sameas false
+          - not (hostvars[source_host].identity_ref | default('', true) | string).startswith('op://')
+          - hostvars[target_host].no_voting | default(false) is sameas false
+          - not (hostvars[target_host].identity_ref | default('', true) | string).startswith('op://')
+        fail_msg: "SLV_BOOTSTRAP_REFUSED: sync-only (no_voting) or 1Password-backed identities cannot use this legacy file-based activation path. No identity was changed. Do not remove the flag or export a key to bypass this guard."
+        quiet: true
+
     - name: Fail unless the source and target validator types are supported
       ansible.builtin.assert:
         that:
