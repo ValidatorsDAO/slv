@@ -84,6 +84,17 @@ const assertTypeGate = (task: Entry | undefined, path: string): void => {
   )
 }
 
+// An additional read-only bootstrap refusal can precede the original type gate.
+const firstTypeTask = (tasks: Entry[]): Entry | undefined =>
+  tasks[0]?.name ===
+      'Refuse bootstrap or 1Password-backed identities in the legacy activation path'
+    ? tasks[1]
+    : tasks[0]
+const withoutBootstrapImport = (entries: Entry[]): Entry[] =>
+  entries.filter((entry) =>
+    entry.import_playbook !== '../cmn/assert_validator_bootstrap.yml'
+  )
+
 const firstIndex = (
   tasks: Entry[],
   predicate: (task: Entry) => boolean,
@@ -95,7 +106,7 @@ Deno.test('behavior 1: set_unstaked_key and set_identity_key act for every famil
       const path = `ansible/${network}/${file}`
       assertNoTypeFallback(path)
       const tasks = tasksOf(readPlaybook(path)[0])
-      assertTypeGate(tasks[0], path)
+      assertTypeGate(firstTypeTask(tasks), path)
 
       const changing = tasks.filter((task) =>
         /set-identity|authorized-voter add/.test(commandOf(task))
@@ -134,7 +145,10 @@ Deno.test('behavior 2: restart, stop, start and nodowntime_migrate assert the ty
     const path = `ansible/${network}/${file}`
     assertNoTypeFallback(path)
     const entries = readPlaybook(path)
-    assertTypeGate(tasksOf(entries[0])[0], path)
+    assertTypeGate(
+      firstTypeTask(tasksOf(withoutBootstrapImport(entries)[0])),
+      path,
+    )
     return entries
       .filter((entry) => entry.import_playbook !== undefined)
       .map((entry) => {
@@ -2182,11 +2196,15 @@ Deno.test('addendum 12: init.yml and update_startup_config.yml stop on a missing
       const path = `ansible/${network}/${file}`
       assertNoTypeFallback(path)
       const entries = readPlaybook(path)
-      assertTypeGate(tasksOf(entries[0])[0], path)
+      assertTypeGate(
+        firstTypeTask(tasksOf(withoutBootstrapImport(entries)[0])),
+        path,
+      )
       assert(!readText(path).includes('Set validator type fact'), path)
     }
     assertEquals(
-      readPlaybook(`ansible/${network}/init.yml`)[0].any_errors_fatal,
+      withoutBootstrapImport(readPlaybook(`ansible/${network}/init.yml`))[0]
+        .any_errors_fatal,
       true,
       `${network} init.yml: one bad host ends the run`,
     )
@@ -2686,7 +2704,7 @@ const displayNameFiles = [
 
 const isStartScriptTemplate = (task: Entry): boolean =>
   hasModule(task, 'template') &&
-  /\/start-validator[^/]*\.sh\.j2$/.test(
+  /\/start-validator[^/'"]*\.sh\.j2(?:$|['"])/.test(
     String((moduleArgs(task, 'template') as Entry).src),
   )
 

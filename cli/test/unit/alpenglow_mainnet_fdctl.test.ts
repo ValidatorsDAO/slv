@@ -527,7 +527,7 @@ Deno.test('slv v init and slv v deploy call the refusal before they generate a k
   const refuseInit = init.indexOf('refuseMainnetValidatorType(validatorType)')
   assert(refuseInit > 0, 'initMainnetConfig.ts does not call the refusal')
   assert(
-    refuseInit < init.indexOf('genIdentityKey()'),
+    refuseInit < init.indexOf('prepareValidatorInitAccounts('),
     'the refusal comes after the identity key is generated',
   )
   const deploy = await read('src/validator/deploy/deployValidatorMainnet.ts')

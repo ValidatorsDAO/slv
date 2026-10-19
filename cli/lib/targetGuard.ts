@@ -25,6 +25,8 @@ type InventoryHost = {
   identityAccount: string
   voteAccount: string
   ansibleConnection: string
+  noVoting?: boolean
+  identityRef?: string
 }
 
 /** Ansible extra vars, sent as JSON so a boolean stays a boolean. */
@@ -113,6 +115,12 @@ const parseInventoryHosts = (
     identityAccount: asText(entry?.identity_account),
     voteAccount: asText(entry?.vote_account),
     ansibleConnection: asText(entry?.ansible_connection),
+    ...(entry?.no_voting !== undefined
+      ? { noVoting: entry.no_voting !== false }
+      : {}),
+    ...(typeof entry?.identity_ref === 'string'
+      ? { identityRef: entry.identity_ref }
+      : {}),
   }))
 }
 

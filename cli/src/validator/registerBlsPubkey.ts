@@ -1,3 +1,4 @@
+import { validatorSigningRefusal } from '/lib/validatorSigningPolicy.ts'
 import { parse } from '@std/yaml'
 import { colors } from '@cliffy/colors'
 import type { InventoryType, NetworkType } from '@cmn/types/config.ts'
@@ -88,6 +89,17 @@ const readBlsHosts = async (
     const h = allHosts[name]
     if (!h) {
       console.error(colors.red(`❌ Host not found in inventory: ${name}`))
+      skipped++
+      continue
+    }
+    const refusal = validatorSigningRefusal({
+      noVoting: h.no_voting !== undefined && h.no_voting !== false,
+      identityRef: typeof h.identity_ref === 'string'
+        ? h.identity_ref
+        : undefined,
+    })
+    if (refusal) {
+      console.error(colors.red(`${name}: ${refusal} BLS signing was not run.`))
       skipped++
       continue
     }

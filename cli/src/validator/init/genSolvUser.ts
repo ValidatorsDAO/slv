@@ -14,6 +14,7 @@ const genSolvUser = async (
     // Update inventory.yml user 'ubuntu' to 'solv'
     await updateInventoryUser(name, inventoryType)
   }
+  return result
 }
 
 export { genSolvUser }

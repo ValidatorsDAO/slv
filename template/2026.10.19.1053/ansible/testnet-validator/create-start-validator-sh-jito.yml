@@ -6,6 +6,10 @@
   # allnodes_jito_version also give the start script its agave version.
   vars_files:
     - ["~/.slv/versions.yml", "/dev/null"]
+  pre_tasks:
+    - name: Check sync-only policy and packaged templates before changing the node
+      ansible.builtin.import_tasks: ../cmn/tasks/validator_bootstrap.yml
+
   tasks:
     # The XDP flags have to suit the agave that starts next, so the version comes
     # from the agave-validator installed on this host, found the way the solv unit
@@ -52,13 +56,13 @@
 
     - name: Generate start-validator.sh from template
       template:
-        src: ~/.slv/testnet-validator/start-validator-jito.sh.j2
+        src: "{{ (playbook_dir ~ '/../../jinja/testnet-validator/start-validator-jito.sh.j2') if no_voting | default(false) is sameas true else '~/.slv/testnet-validator/start-validator-jito.sh.j2' }}"
         dest: /home/solv/start-validator.sh
         mode: '0755'
         owner: solv
         group: solv
       vars:
-        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+        vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
         installed_agave_version: '{{ agave_installed.stdout | trim }}'
     # Make sure if solv user has permission for /mnt directory
     - name: Ensure /mnt directory belongs to solv

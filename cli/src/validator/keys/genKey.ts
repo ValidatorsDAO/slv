@@ -1,18 +1,6 @@
-import { parseIdentityRef } from '/lib/secret/identityRef.ts'
-import {
-  generateKeypair,
-  keypairText,
-  proveKeypair,
-  zero,
-} from '/lib/secret/keypairBytes.ts'
-import {
-  chooseVault,
-  createItem,
-  itemTemplate,
-  listItems,
-  OpRefusal,
-  verifyStoredKey,
-} from '/lib/secret/opItems.ts'
+import { generateKeypair } from '/lib/secret/keypairBytes.ts'
+import { chooseVault, itemTemplate, OpRefusal } from '/lib/secret/opItems.ts'
+import { storeGeneratedKey } from '/lib/secret/storeGeneratedKey.ts'
 import { ResolveError } from '/lib/secret/resolveIdentity.ts'
 import {
   defaultSecretSetupDeps,
@@ -90,27 +78,15 @@ const genKey = async (
     return refuse(`keys:gen stopped: ${describe(error)}`)
   }
 
-  const keypair = await deps.generate()
-  let canonical: Uint8Array | null = null
-  let template: Uint8Array | null = null
   try {
-    const pubkey = await proveKeypair(keypair)
-    canonical = keypairText(keypair)
-
     const { vaultId, confirmed } = await chooseVault(network, setup, deps.tty)
-    const before = await listItems(setup, vaultId)
-
-    template = itemTemplate(title, pubkey, canonical)
-    const itemId = await createItem(setup, vaultId, title, template, before)
-    const ref = parseIdentityRef(`op://${vaultId}/${itemId}/keypair`, {
-      homeDir: '/',
-    }).ref
-
-    await verifyStoredKey(setup, ref, { pubkey, canonical }, {
-      what: 'made',
-      consequence: 'No reference is printed',
-    })
-
+    const { pubkey, identityRef } = await storeGeneratedKey(
+      setup,
+      vaultId,
+      title,
+      deps.generate,
+      'No reference is printed',
+    )
     let unsaved: string | null = null
     if (confirmed) {
       try {
@@ -122,9 +98,9 @@ const genKey = async (
 
     deps.io.info(`✅ A throwaway ${network} identity is in 1Password.`)
     deps.io.info(`   pubkey  ${pubkey}`)
-    deps.io.info(`   ref     ${ref.text}`)
+    deps.io.info(`   ref     ${identityRef}`)
     deps.io.info(
-      `   check it: slv v keys:check -n ${network} --ref ${ref.text} --pubkey ${pubkey}`,
+      `   check it: slv v keys:check -n ${network} --ref ${identityRef} --pubkey ${pubkey}`,
     )
     if (unsaved !== null) {
       return refuse(
@@ -137,8 +113,6 @@ const genKey = async (
       return refuse(error.message)
     }
     return refuse(`keys:gen stopped: ${describe(error)}`)
-  } finally {
-    zero(keypair, canonical, template)
   }
 }
 

@@ -12,6 +12,14 @@
     slv_vh_copy: "~/.slv/vote_history/vote_history-{{ hostvars[inventory_hostname].identity_account }}.bin"
 
   tasks:
+    - name: Refuse bootstrap or 1Password-backed identities in the legacy activation path
+      ansible.builtin.assert:
+        that:
+          - hostvars[inventory_hostname].no_voting | default(false) is sameas false
+          - not (hostvars[inventory_hostname].identity_ref | default('', true) | string).startswith('op://')
+        fail_msg: "SLV_BOOTSTRAP_REFUSED: sync-only (no_voting) or 1Password-backed identities cannot use this legacy file-based activation path. No identity was changed. Do not remove the flag or export a key to bypass this guard."
+        quiet: true
+
     - name: Refuse an identity_account that is not a base58 public key, it names the tower, key and vote history files on the controller
       ansible.builtin.assert:
         that:

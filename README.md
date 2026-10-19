@@ -136,7 +136,22 @@ only for the final replacement. Afterwards, use `slv upgrade` for normal updates
 slv validator init
 ```
 
-For RPC setup, use `slv rpc init` instead.
+Validator init now saves a generated identity directly to 1Password and verifies
+it by reading it back. Run it in your own terminal with the 1Password app/CLI
+available. It stores only public metadata and an `op://` reference in inventory;
+it creates no normal plaintext identity or vote-key file. New configurations use
+`no_voting: true`: deploy starts the server's unstaked identity for synchronization,
+not the identity stored in the vault. It creates no vote account, requests no
+airdrop and sends no transaction. Existing vote-account metadata is optional.
+
+Sync-only startup uses the matching packaged templates without overwriting
+custom templates used by older hosts. An unspecified shred-version pin is omitted
+for entrypoint discovery; the network's expected genesis hash is still checked.
+Normal promotion, switching and BLS signing refuse these bootstrap/1Password
+entries until a separate supported activation workflow is available. Do not
+remove the flag or export a private key as a workaround.
+
+For RPC setup, use `slv rpc init` instead; its key workflow is unchanged.
 
 Setup can change the target server: it may create a user and offer system tuning
 or a reboot. Review each prompt, the chosen network, inventory, client version,
@@ -278,8 +293,10 @@ identity key in 1Password and read it by reference,
 with the 1Password app or, for testnet and devnet, with a service account token
 file named in `~/.slv/keyless.yml`, which also names the vault of each network.
 `keys:import` writes the reference to the `identity_ref` field of the inventory
-entry. The identity activation and migration commands above, BLS registration
-and deployment do not read `identity_ref`. `slv v hosts:pin` pins the SSH host key
+entry. Validator init also writes a verified reference. The legacy identity
+activation, migration and BLS-signing paths refuse `no_voting` or 1Password-backed
+entries; they do not resolve the reference. Deployment does not read the vault
+key and starts the server with its own unstaked identity. `slv v hosts:pin` pins the SSH host key
 of a node in `~/.slv/known_hosts`.
 Using 1Password or an SSH agent does not eliminate SLV's other on-disk credentials.
 Keep secret values out of AI conversations, source control, and command examples.

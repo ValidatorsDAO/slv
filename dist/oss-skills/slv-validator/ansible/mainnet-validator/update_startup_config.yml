@@ -6,6 +6,10 @@
   # allnodes_jito_version also give the start script its agave version.
   vars_files:
     - ["~/.slv/versions.yml", "/dev/null"]
+  pre_tasks:
+    - name: Check sync-only policy and packaged templates before changing the node
+      ansible.builtin.import_tasks: ../cmn/tasks/validator_bootstrap.yml
+
   tasks:
     - name: Fail unless validator_type is a supported type
       ansible.builtin.assert:
@@ -54,13 +58,13 @@
 
     - name: Updatge start-validator.sh from template for Agave
       template:
-        src: ~/.slv/mainnet-validator/start-validator.sh.j2
+        src: "{{ (playbook_dir ~ '/../../jinja/mainnet-validator/start-validator.sh.j2') if no_voting | default(false) is sameas true else '~/.slv/mainnet-validator/start-validator.sh.j2' }}"
         dest: /home/solv/start-validator.sh
         mode: "0755"
         owner: solv
         group: solv
       vars:
-        vote_account: '{{ hostvars[inventory_hostname].vote_account }}'
+        vote_account: "{{ hostvars[inventory_hostname].vote_account | default('') }}"
         installed_agave_version: '{{ agave_installed.stdout | trim }}'
       when: validator_type in ['agave', 'jito', 'allnodes-jito']
 

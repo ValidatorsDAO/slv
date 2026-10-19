@@ -1,3 +1,4 @@
+import { validatorSigningRefusal } from '/lib/validatorSigningPolicy.ts'
 import { colors } from '@cliffy/colors'
 import { join } from '@std/path'
 import { keyPath } from '@cmn/constants/path.ts'
@@ -65,6 +66,12 @@ const registerBlsAfterDeploy = async (
 
     const withKey: string[] = []
     for (const name of names) {
+      const host = byName.get(name)
+      const refusal = host ? validatorSigningRefusal(host) : null
+      if (refusal) {
+        deps.warn(`${name}: BLS registration skipped. ${refusal}`)
+        continue
+      }
       const identity = byName.get(name)?.identityAccount ?? ''
       // A host the inventory does not have, or has no identity for, is left to
       // the registration, which says so.

@@ -74,9 +74,11 @@ const HostIdentitySchema = AnsibleHostSchema.extend({
 })
 
 const ValidatorAccountSchema = HostIdentitySchema.extend({
-  vote_account: z.string(),
-  authority_account: z.string(),
-  // A reference to where the staked identity key is kept. Nothing reads it yet.
+  vote_account: z.string().default(''),
+  authority_account: z.string().default(''),
+  // Bootstrap can hold only public metadata and a verified 1Password reference.
+  no_voting: z.boolean().optional(),
+  // A reference to where the staked identity key is kept.
   identity_ref: z.string().optional(),
 })
 

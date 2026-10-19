@@ -194,24 +194,17 @@ Deno.test('the console and init explain controller-held staked keys without clai
     loadContextModules(['validator'])
     const assembled = getModuleContent()
     includes(assembled, VALIDATOR_GUIDANCE, 'loaded validator context')
-    for (
-      const [label, text] of [
-        ['validator context', assembled],
-        [
-          'mainnet init',
-          await source(`${SRC}/validator/init/initMainnetConfig.ts`),
-        ],
-        [
-          'testnet init',
-          await source(`${SRC}/validator/init/initTestnetConfig.ts`),
-        ],
-      ]
-    ) {
-      includes(text, '~/.slv/keys/', label)
-      includes(text, 'deploy never copies', label)
-      includes(text, 'only on stdin', label)
-      assertFalse(text.includes('/home/solv/<identity-pubkey>.json'), label)
-      assertFalse(/\bNOT on the node\b/.test(text), label)
+    includes(assembled, '~/.slv/keys/', 'legacy validator context')
+    includes(assembled, 'deploy never copies', 'legacy validator context')
+    includes(assembled, 'only on stdin', 'legacy validator context')
+    for (const name of ['initMainnetConfig', 'initTestnetConfig']) {
+      const text = await source(`${SRC}/validator/init/${name}.ts`)
+      includes(text, 'prepareValidatorInitAccounts(', name)
+      includes(text, 'identity is verified in 1Password', name)
+      includes(text, "server's unstaked identity", name)
+      includes(text, 'voting is disabled', name)
+      assertFalse(text.includes('Please place your identity key'), name)
+      assertFalse(text.includes('genVoteKey('), name)
     }
     includes(assembled, 'older slv may still hold a copy', 'legacy node caveat')
   } finally {
