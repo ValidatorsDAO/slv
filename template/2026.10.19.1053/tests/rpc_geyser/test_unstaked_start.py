@@ -270,8 +270,8 @@ class AStartOrRestartStopsWhereTheNodeWouldComeBackStaked(unittest.TestCase):
     def test_u04_the_remedy_for_a_firedancer_host_says_what_is_true_of_its_network(self):
         results = run_all()
         reasons = {
-            "testnet": "slv v set:identity and slv v switch refuse it, because a Firedancer host takes the staked key from a file on the node.",
-            "mainnet": "slv v set:identity and slv v switch refuse it, because the Alpenglow migration does not support Firedancer or Frankendancer.",
+            "testnet": "slv v set:identity -n testnet and slv v switch -n testnet refuse it, because a Firedancer host takes the staked key from a file on the node.",
+            "mainnet": "slv v set:identity -n mainnet and slv v switch -n mainnet refuse it, because the Alpenglow migration does not support Firedancer or Frankendancer.",
         }
         seen = set()
         for (directory, playbook, validator_type, kind), result in results.items():
