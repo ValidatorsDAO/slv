@@ -14,6 +14,17 @@
 #                             'firedancer-config' (the identity_path of /home/solv/firedancer-config.toml),
 # so that a node a person laid out by hand, with a start script or an identity.json that leads to the staked key, stops
 # there instead of coming back on the staked identity.
+#
+# What cannot be told stops the run too. With a file to read (start-script or firedancer-config), the run stops when the file
+# names no identity, or names more than one (the node takes only one of them, and which one is not for this play to guess).
+# With the identity_account of the host set, the run stops when the public key of identity.json cannot be read (solana-keygen
+# prints nothing): an empty key is not a key that differs from the staked one. A file the start file names must resolve to the
+# unstaked identity, which identity.json leads to as well, so no key of its own is left to read.
+#
+# The start script is read the way agave takes its arguments: a line that ends in a backslash goes on in the next line, a
+# comment is dropped, and --identity VALUE, --identity=VALUE, -i VALUE and -i=VALUE are found wherever they stand in the line.
+# The Firedancer config is read for identity_path, as a bare key, in a table, or as a dotted key (consensus.identity_path),
+# with a double or a single quoted value.
 - name: Check that the node starts with its unstaked identity
   hosts: all
   become: true
@@ -23,13 +34,25 @@
     slv_identity_source: "{{ slv_start_identity_source | default('') }}"
     slv_identity_network: "{{ slv_network | default('<network>') }}"
     slv_identity_staked: "{{ hostvars[inventory_hostname].identity_account | default('') }}"
-    # what the first task printed, one value to a line
+    # what the first task printed, one value to a line: the file identity.json leads to, the unstaked identity and the key
+    # identity.json leads to; then, for each identity of the start script (or each identity_path of the Firedancer config), the
+    # value, what it resolves to and the key it leads to; and the last line, end
     slv_identity_json: "{{ slv_identity.stdout_lines[0] | default('') }}"
     slv_identity_unstaked: "{{ slv_identity.stdout_lines[1] | default('/home/solv/unstaked-identity.json') }}"
     slv_identity_json_key: "{{ slv_identity.stdout_lines[2] | default('') }}"
-    slv_identity_written: "{{ slv_identity.stdout_lines[3] | default('') }}"
-    slv_identity_written_resolved: "{{ slv_identity.stdout_lines[4] | default('') }}"
-    slv_identity_written_key: "{{ slv_identity.stdout_lines[5] | default('') }}"
+    slv_identity_written: >-
+      {%- set ns = namespace(items=[]) -%}
+      {%- set l = slv_identity.stdout_lines | default([]) -%}
+      {%- for i in range(((l | length) - 4) // 3) -%}
+      {%- set ns.items = ns.items + [{'value': l[3 + 3 * i], 'resolved': l[4 + 3 * i], 'key': l[5 + 3 * i]}] -%}
+      {%- endfor -%}
+      {{ ns.items }}
+    # the first value that leads to the staked key, and the first that does not resolve to the unstaked identity ({} when
+    # there is none)
+    slv_identity_staked_arg: >-
+      {{ (slv_identity_written | selectattr('key', 'equalto', slv_identity_staked) | first | default({}, true)) if slv_identity_staked != '' else {} }}
+    slv_identity_other_arg: >-
+      {{ slv_identity_written | rejectattr('resolved', 'equalto', slv_identity_unstaked) | first | default({}, true) }}
     slv_identity_file_label: "{{ 'The start script /home/solv/start-validator.sh' if slv_identity_source == 'start-script' else 'The Firedancer config /home/solv/firedancer-config.toml (identity_path)' }}"
     slv_identity_remedy: >-
       {{ ('To move the node to the unstaked layout, link identity.json to the unstaked identity
@@ -37,7 +60,17 @@
       ~ slv_identity_network ~ ' -p ' ~ inventory_hostname ~ ' so that the node is started with /home/solv/identity.json,
       restart the node, and run slv v set:identity -n ' ~ slv_identity_network ~ ' -p ' ~ inventory_hostname
       ~ ' once it is up, to put the staked identity on it again.')
-      if slv_identity_source != '' else
+      if slv_identity_source == 'start-script' else
+      ('To move the node to the unstaked layout, link identity.json to the unstaked identity
+      (ln -sfn /home/solv/unstaked-identity.json /home/solv/identity.json), make identity_path in
+      /home/solv/firedancer-config.toml name /home/solv/identity.json, and restart the node. slv cannot put the staked identity
+      on a Firedancer host of ' ~ ('mainnet: slv v set:identity and slv v switch refuse it, because the Alpenglow migration does not support Firedancer or Frankendancer.'
+      if slv_identity_network == 'mainnet' else
+      'testnet: slv v set:identity and slv v switch refuse it, because a Firedancer host takes the staked key from a file on the node.')
+      ~ ' Put the staked identity on an agave, jito or allnodes-jito host (slv v set:identity -n ' ~ slv_identity_network
+      ~ ' -p <host>, or slv v switch -n ' ~ slv_identity_network ~ ' -f <from-host> -t <to-host>, there), or change the validator_type of '
+      ~ inventory_hostname ~ '.')
+      if slv_identity_source == 'firedancer-config' else
       'Link identity.json to the unstaked identity (ln -sfn /home/solv/unstaked-identity.json /home/solv/identity.json)
       and run this again.' }}
   tasks:
@@ -48,24 +81,88 @@
           [ -n "$1" ] && [ -f "$1" ] && ( . ~/.profile >/dev/null 2>&1; solana-keygen pubkey "$1" 2>/dev/null | head -n 1 )
           true
         }
+        start_script_identities() {
+          local line next word take words
+          [ -r /home/solv/start-validator.sh ] || return 0
+          while IFS= read -r line || [ -n "$line" ]; do
+            [[ $line =~ ^[[:space:]]*# ]] && continue
+            while [[ $line == *\\ ]] && IFS= read -r next; do
+              line="${line%\\} $next"
+              [[ $next =~ ^[[:space:]]*# ]] && break
+            done
+            read -ra words <<<"$line"
+            take=0
+            for word in "${words[@]}"; do
+              if [ "$take" = 1 ]; then
+                printf '%s\n' "$word"
+                take=0
+                continue
+              fi
+              case $word in
+                '#'*) break ;;
+                --identity | -i) take=1 ;;
+                --identity=*) printf '%s\n' "${word#--identity=}" ;;
+                -i=*) printf '%s\n' "${word#-i=}" ;;
+              esac
+            done
+            [ "$take" = 1 ] && printf '\n'
+          done </home/solv/start-validator.sh
+        }
+        firedancer_config_identities() {
+          local line re_double re_single re_any
+          [ -r /home/solv/firedancer-config.toml ] || return 0
+          re_double='^[[:space:]]*([A-Za-z0-9_-]+[.])*identity_path[[:space:]]*=[[:space:]]*"([^"]*)"[[:space:]]*(#.*)?$'
+          re_single="^[[:space:]]*([A-Za-z0-9_-]+[.])*identity_path[[:space:]]*=[[:space:]]*'([^']*)'[[:space:]]*(#.*)?\$"
+          re_any='^[[:space:]]*([A-Za-z0-9_-]+[.])*identity_path[[:space:]]*='
+          while IFS= read -r line || [ -n "$line" ]; do
+            if [[ $line =~ $re_double ]]; then
+              printf '%s\n' "${BASH_REMATCH[2]}"
+            elif [[ $line =~ $re_single ]]; then
+              printf '%s\n' "${BASH_REMATCH[2]}"
+            elif [[ $line =~ $re_any ]]; then
+              printf '\n'
+            fi
+          done </home/solv/firedancer-config.toml
+        }
         identity=$(readlink -f /home/solv/identity.json)
-        written=
+        printf '%s\n' "$identity" "$home/unstaked-identity.json" "$(pubkey "$identity")"
+        reader=
         case '{{ slv_identity_source }}' in
-          start-script)
-            written=$(sed -n -E 's/^[[:space:]]*--identity(=|[[:space:]]+)"?([^"[:space:]\\]+)"?.*$/\2/p' /home/solv/start-validator.sh 2>/dev/null | head -n 1)
-            ;;
-          firedancer-config)
-            written=$(sed -n -E 's/^[[:space:]]*identity_path[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/p' /home/solv/firedancer-config.toml 2>/dev/null | head -n 1)
-            ;;
+          start-script) reader=start_script_identities ;;
+          firedancer-config) reader=firedancer_config_identities ;;
         esac
-        resolved=
-        [ -n "$written" ] && resolved=$(readlink -f "$written")
-        printf '%s\n' "$identity" "$home/unstaked-identity.json" "$(pubkey "$identity")" "$written" "$resolved" "$(pubkey "$resolved")"
+        if [ -n "$reader" ]; then
+          while IFS= read -r value; do
+            value=${value#[\"\']}
+            value=${value%[\"\']}
+            case $value in
+              '~/'*) value=/home/solv/${value#'~/'} ;;
+              '$HOME/'*) value=/home/solv/${value#'$HOME/'} ;;
+              '${HOME}/'*) value=/home/solv/${value#'${HOME}/'} ;;
+            esac
+            resolved=
+            case $value in
+              *'$'* | *'`'*) ;;
+              /*) resolved=$(readlink -f -- "$value") ;;
+            esac
+            printf '%s\n' "$value" "$resolved" "$(pubkey "$resolved")"
+          done < <("$reader")
+        fi
+        echo end
       args:
         executable: /bin/bash
       register: slv_identity
       changed_when: false
       check_mode: false
+
+    - name: Stop when the identity files of the node could not be read
+      ansible.builtin.fail:
+        msg: >-
+          What the node on {{ inventory_hostname }} would start with could not be read ({{ slv_identity.stdout | default('') | truncate(300) }}).
+          Nothing was stopped or started. {{ slv_identity_remedy }}
+      when: >-
+        (slv_identity.stdout_lines | default([]) | length) < 4 or slv_identity.stdout_lines[-1] != 'end' or
+        ((slv_identity.stdout_lines | length) - 4) % 3 != 0
 
     - name: Stop when identity.json leads to the staked key
       ansible.builtin.fail:
@@ -86,25 +183,52 @@
           identity than its unstaked one. Nothing was stopped or started. {{ slv_identity_remedy }}
       when: slv_identity_json != slv_identity_unstaked
 
+    - name: Stop when the key that identity.json leads to could not be read
+      ansible.builtin.fail:
+        msg: >-
+          The public key of {{ slv_identity_json }} on {{ inventory_hostname }} could not be read (solana-keygen printed nothing
+          for it), so it cannot be told whether the node would start with the staked identity. Nothing was stopped or started.
+          {{ slv_identity_remedy }}
+      when:
+        - slv_identity_staked != ''
+        - slv_identity_json_key == ''
+
+    - name: Stop when the file the node is started with names no identity
+      ansible.builtin.fail:
+        msg: >-
+          {{ slv_identity_file_label }} of {{ inventory_hostname }} is missing or names no identity that can be read, so it
+          cannot be told what identity the node would start with. Nothing was stopped or started. {{ slv_identity_remedy }}
+      when:
+        - slv_identity_source != ''
+        - slv_identity_written | length == 0
+
+    - name: Stop when the file the node is started with names more than one identity
+      ansible.builtin.fail:
+        msg: >-
+          {{ slv_identity_file_label }} of {{ inventory_hostname }} names {{ slv_identity_written | length }} identities
+          ({{ slv_identity_written | map(attribute='value') | join(', ') }}), so it cannot be told which one the node would
+          start with. Nothing was stopped or started. {{ slv_identity_remedy }}
+      when:
+        - slv_identity_source != ''
+        - slv_identity_written | length > 1
+
     - name: Stop when the file the node is started with leads to the staked key
       ansible.builtin.fail:
         msg: >-
-          {{ slv_identity_file_label }} of {{ inventory_hostname }} starts the node with {{ slv_identity_written }},
-          which leads to the key {{ slv_identity_written_key }}, the staked identity of the host (identity_account), so the
+          {{ slv_identity_file_label }} of {{ inventory_hostname }} starts the node with {{ slv_identity_staked_arg.value }},
+          which leads to the key {{ slv_identity_staked_arg.key }}, the staked identity of the host (identity_account), so the
           node would start with the staked identity. Nothing was stopped or started. {{ slv_identity_remedy }}
       when:
         - slv_identity_source != ''
-        - slv_identity_written != ''
-        - slv_identity_staked != ''
-        - slv_identity_written_key == slv_identity_staked
+        - slv_identity_staked_arg | length > 0
 
     - name: Stop when the file the node is started with leads to another identity
       ansible.builtin.fail:
         msg: >-
-          {{ slv_identity_file_label }} of {{ inventory_hostname }} starts the node with {{ slv_identity_written }},
-          which resolves to {{ slv_identity_written_resolved }}, not to {{ slv_identity_unstaked }}, so the node would
-          start with another identity than its unstaked one. Nothing was stopped or started. {{ slv_identity_remedy }}
+          {{ slv_identity_file_label }} of {{ inventory_hostname }} starts the node with {{ slv_identity_other_arg.value or '(no value)' }},
+          which {{ ('resolves to ' ~ slv_identity_other_arg.resolved) if slv_identity_other_arg.resolved != '' else 'cannot be resolved' }},
+          not to {{ slv_identity_unstaked }}, so the node would start with another identity than its unstaked one.
+          Nothing was stopped or started. {{ slv_identity_remedy }}
       when:
         - slv_identity_source != ''
-        - slv_identity_written != ''
-        - slv_identity_written_resolved != slv_identity_unstaked
+        - slv_identity_other_arg | length > 0

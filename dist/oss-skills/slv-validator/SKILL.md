@@ -223,7 +223,7 @@ The `slv v` CLI commands map directly to these playbooks. `{net}` = `mainnet-val
 | `setup_norestart.yml` | Disable auto-restart |
 | `setup_ufw.yml` | Configure UFW firewall |
 | `setup_unstaked_identity.yml` | Setup unstaked identity keypair |
-| `assert_unstaked_identity.yml` | Stop a deploy, a start or a restart before anything is stopped or started when `/home/solv/identity.json`, or the `--identity` of the start script (the `identity_path` of the Firedancer config), does not resolve to `/home/solv/unstaked-identity.json` or leads to the key of the `identity_account` of the host |
+| `assert_unstaked_identity.yml` | Stop a deploy, a start or a restart before anything is stopped or started when `/home/solv/identity.json`, or the `--identity` of the start script (the `identity_path` of the Firedancer config), does not resolve to `/home/solv/unstaked-identity.json`, leads to the key of the `identity_account` of the host, or cannot be told (the start file names no identity or more than one, or no public key is printed for `identity.json`) |
 | `restart_solv.yml` | Restart solv service |
 | `copy_restart_sh.yml` | Copy restarter script |
 | `update_ubuntu.yml` | Update Ubuntu packages |
@@ -278,14 +278,23 @@ is there (they stop without calling the signer when it is not).
 A start or a restart does the same check before it stops or starts anything. `slv v start`, `slv v restart`, the
 playbooks that start the node at the end of a deploy, and the other restarts of testnet (`restart_solv.yml`,
 `restart_firedancer.yml`, and the two restarts that remove the ledger, `restart_agave_with_rm_ledger.yml` and
-`restart_firedancer_with_rm_ledger.yml`) first run `cmn/assert_unstaked_identity.yml`, which reads `/home/solv/identity.json` and the `--identity` of
-`/home/solv/start-validator.sh` (the `identity_path` of `/home/solv/firedancer-config.toml` for a Firedancer host), by
-path and by public key (`solana-keygen pubkey` on the node, against the `identity_account` of the host). A node that a
-person laid out by hand, or that an earlier slv deployed with the staked key behind `identity.json`, stops there: the message says the
-node would start with the staked identity and nothing was stopped or started. To move such a node to the unstaked layout,
-link `identity.json` to `unstaked-identity.json`, run `slv v update:script -n <network> -p <host>` so that the start
-script passes `/home/solv/identity.json`, restart the node, and run `slv v set:identity -n <network> -p <host>` once it is
-up. A run over several hosts stops on the hosts that fail the check and goes on with the others.
+`restart_firedancer_with_rm_ledger.yml`) first run `cmn/assert_unstaked_identity.yml`, which reads `/home/solv/identity.json` and the
+identity that `/home/solv/start-validator.sh` passes (`--identity` or `-i`; the `identity_path` of
+`/home/solv/firedancer-config.toml` for a Firedancer host), by path and by public key (`solana-keygen pubkey` on the node,
+against the `identity_account` of the host). A node that a person laid out by hand, or that an earlier slv deployed with the
+staked key behind `identity.json`, stops there: the message says the node would start with the staked identity and nothing
+was stopped or started. The check stops as well when it cannot tell what the node would start with: the start script or the
+Firedancer config names no identity, or names more than one, or `solana-keygen` prints no public key for `identity.json`.
+
+To move such a node to the unstaked layout, link `identity.json` to `unstaked-identity.json`. On an agave, jito or
+allnodes-jito host, run `slv v update:script -n <network> -p <host>` so that the start script passes
+`/home/solv/identity.json`, restart the node, and run `slv v set:identity -n <network> -p <host>` once it is up. On a
+Firedancer host, make `identity_path` name `/home/solv/identity.json` and restart the node; slv cannot put the staked
+identity on a Firedancer host. On testnet `slv v set:identity` and `slv v switch` refuse it, because a Firedancer host takes
+the staked key from a file on the node. On mainnet they refuse it, because the Alpenglow migration does not support Firedancer or
+Frankendancer. The staked identity runs on an agave, jito or allnodes-jito host (`slv v set:identity` or `slv v switch`
+there), or the host changes its `validator_type`. A run over several hosts stops on the hosts that fail the check and goes
+on with the others.
 
 Three playbooks are retired and refuse now. `set_identity_to_active.yml` (both networks) set the identity without the
 checks that `slv v set:identity` makes first: that nothing votes with the identity, where the identity is in gossip, and
