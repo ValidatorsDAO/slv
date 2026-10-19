@@ -57,6 +57,7 @@ const world = async (
       path,
       readText: read,
       writeText: (file, text) => Deno.writeTextFile(file, text),
+      restrictMode: (file) => Deno.chmod(file, 0o600),
       askPassword: () => {
         asked++
         return Promise.resolve(PASSWORD)
@@ -435,6 +436,45 @@ Deno.test('a hash with such a salt is not saved when openssl prints it, and a fi
     } finally {
       await Deno.remove(existing.dir, { recursive: true })
     }
+  }
+})
+
+Deno.test('a password file that holds a valid hash is kept as it is with mode 0600, also when it had another mode, and the run stops when the mode cannot be set', async () => {
+  for (const before of [0o600, 0o644, 0o666]) {
+    const w = await world(works)
+    try {
+      await Deno.writeTextFile(w.path, `encrypted_password: ${HASH}\n`)
+      await Deno.chmod(w.path, before)
+      // The mode setter of the project, not the one of the test.
+      const { restrictMode: _restrictMode, ...withTheDefaultSetter } = w.deps
+      assertEquals(await genPasswordYml(withTheDefaultSetter), true)
+      assertEquals(w.asked(), 0)
+      assertEquals(w.exitCodes, [])
+      assertEquals(
+        ((await Deno.stat(w.path)).mode! & 0o777).toString(8),
+        '600',
+        before.toString(8),
+      )
+      assertEquals(await read(w.path), `encrypted_password: ${HASH}\n`)
+    } finally {
+      await Deno.remove(w.dir, { recursive: true })
+    }
+  }
+  // A mode that cannot be set is an error with exit code 1, not a file left readable.
+  const stuck = await world(works)
+  try {
+    await Deno.writeTextFile(stuck.path, `encrypted_password: ${HASH}\n`)
+    stuck.deps.restrictMode = () =>
+      Promise.reject(new Error('Operation not permitted'))
+    assertEquals(await genPasswordYml(stuck.deps), false)
+    assertEquals(stuck.exitCodes, [1])
+    assertEquals(stuck.asked(), 0)
+    const text = stuck.printed.join('\n')
+    assertStringIncludes(text, 'Operation not permitted')
+    assertStringIncludes(text, `chmod 600 ${stuck.path}`)
+    assertEquals(text.includes('already exists'), false)
+  } finally {
+    await Deno.remove(stuck.dir, { recursive: true })
   }
 })
 
