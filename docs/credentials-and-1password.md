@@ -172,13 +172,14 @@ the connection in your terminal, approving the key use in 1Password:
 ssh -i /absolute/path/to/example-node.pub ubuntu@192.0.2.10 true
 ```
 
-SLV's setup prompt currently calls the input an RSA key path. Its OpenSSH check
-passes that path with `-i`, and generated inventories store it as
-`ansible_ssh_private_key_file`. For this externally configured agent flow, use the
-absolute public-key selector path that succeeded above. Check existing inventory
-overrides and your Ansible SSH transport before deployment. This is a configuration
-route based on OpenSSH support, not a native SLV provider or a claim of tested
-1Password authentication against every target.
+At SLV's SSH identity file prompt, enter the absolute `.pub` selector path that
+succeeded above. The public file must exist before initialization; no local SSH
+private key is required for this agent flow. SLV passes the path to OpenSSH with
+`-i` and retains the compatible inventory field `ansible_ssh_private_key_file`.
+User setup authorizes that `.pub` file directly for `solv`; a private-key path
+still uses its adjacent `.pub` file. SLV does not select a key from the agent for
+you. Check existing inventory overrides and your Ansible SSH transport before
+deployment.
 
 The agent handles SSH authentication only. It does not supply Solana validator
 identity keys, remove ERPC token files, or remove older private-key copies. The

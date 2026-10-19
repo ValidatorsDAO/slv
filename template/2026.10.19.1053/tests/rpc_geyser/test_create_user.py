@@ -1,9 +1,9 @@
 """Tests of ansible/cmn/create_user.yml: the key it authorizes for solv is the one the inventory connects with.
 
-slv v init writes the private key it was given into the inventory as ansible_ssh_private_key_file, runs this play as the
-first user, and then switches the inventory to solv with the same private key. So the key that the play puts into the
-authorized_keys of solv has to be the public key of that private key, whatever its name or place, and not
-~/.ssh/id_rsa.pub. A host whose inventory names no private key keeps ~/.ssh/id_rsa.pub. When the .pub file is not there
+slv v init writes the SSH identity path it was given into the inventory as ansible_ssh_private_key_file, runs this play
+as the first user, and then switches the inventory to solv with the same identity. A supplied .pub file selects a key
+held by an SSH agent and is authorized directly, without a local private key. Otherwise the play authorizes the adjacent
+.pub file. A host whose inventory names no identity keeps ~/.ssh/id_rsa.pub. When the .pub file is not there
 the play stops, before it changes anything, and says which file it looked for.
 
 The play also gives solv sudo without a password, so the password it sets has to be a SHA-512 crypt hash ($6$<salt>$<hash>,
@@ -137,12 +137,15 @@ def run(scenario, with_stop):
         keys = root / "keys"
         keys.mkdir()
         if scenario == "keys":
-            for pub in (ssh / "id_rsa.pub", ssh / "id_ed25519_slv.pub", keys / "ops_key.pub"):
+            for pub in (ssh / "id_rsa.pub", ssh / "id_ed25519_slv.pub", keys / "ops_key.pub", keys / "agent_key.pub"):
                 pub.write_text("ssh-key-of-%s\n" % pub.name)
         hosts = {
             "named-relative": {"ansible_ssh_private_key_file": "~/.ssh/id_ed25519_slv"},
             "named-absolute": {"ansible_ssh_private_key_file": str(keys / "ops_key")},
             "named-missing": {"ansible_ssh_private_key_file": "~/.ssh/id_missing"},
+            "public-relative": {"ansible_ssh_private_key_file": "~/.ssh/id_ed25519_slv.pub"},
+            "public-absolute": {"ansible_ssh_private_key_file": str(keys / "agent_key.pub")},
+            "public-missing": {"ansible_ssh_private_key_file": "~/.ssh/agent_missing.pub"},
             "named-empty": {"ansible_ssh_private_key_file": ""},
             "named-none": {},
         }
@@ -226,7 +229,8 @@ class CreateUserAuthorizesTheKeyOfTheInventory(unittest.TestCase):
 
     def test_c03_the_play_goes_on_where_the_public_key_is_there(self):
         result, _, _ = run("keys", True)
-        self.assertEqual(result.past, {"named-relative", "named-absolute", "named-empty", "named-none"})
+        self.assertEqual(result.past, {"named-relative", "named-absolute", "named-empty", "named-none",
+                                      "public-relative", "public-absolute"})
 
     def test_c04_the_play_stops_before_changing_anything_where_the_public_key_is_not_there(self):
         result, home, _ = run("keys", True)
@@ -246,6 +250,26 @@ class CreateUserAuthorizesTheKeyOfTheInventory(unittest.TestCase):
     def test_c06_the_line_that_is_authorized_is_the_content_of_that_path(self):
         task = task_named(play_of_create_user(), KEY_TASK)
         self.assertEqual(task["lineinfile"]["line"], "{{ lookup('file', local_public_key_path) }}")
+
+    def test_c11_public_identity_files_are_used_as_is_without_local_private_keys(self):
+        result, _, keys = run("keys", True)
+        self.assertEqual(result.paths["public-relative"], "~/.ssh/id_ed25519_slv.pub")
+        self.assertEqual(result.paths["public-absolute"], keys + "/agent_key.pub")
+        self.assertTrue({"public-relative", "public-absolute"} <= result.past,
+                        "public files alone must be enough to reach user creation:\n" + result.output[-2000:])
+
+    def test_c12_missing_public_identity_stops_before_mutation_and_never_derives_or_falls_back(self):
+        result, home, _ = run("keys", True)
+        self.assertNotIn("public-missing", result.past, "the existing default key must not be used instead")
+        self.assertEqual(result.paths["public-missing"], "~/.ssh/agent_missing.pub")
+        failed = [line for line in result.output.splitlines() if "fatal: [public-missing]: FAILED!" in line]
+        self.assertEqual(len(failed), 1, result.output[-2000:])
+        self.assertIn("The public key %s/.ssh/agent_missing.pub does not exist" % home, failed[0])
+        self.assertIn("Save the matching public key", failed[0])
+        self.assertIn("SSH agent", failed[0])
+        self.assertIn("Nothing was changed on public-missing", failed[0])
+        self.assertNotIn("ssh-keygen -y", failed[0])
+        self.assertNotIn(".pub.pub", failed[0])
 
 
 class CreateUserSetsOnlyASha512CryptPassword(unittest.TestCase):
