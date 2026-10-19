@@ -36,7 +36,8 @@ const COMMAND_ENV_DENIED = [
 
 /**
  * The environment of the shell that runs a command: the names on the
- * allow-list from `parent`, then the variables this tool sets itself.
+ * allow-list from `parent`, then the variables this tool sets itself (one of
+ * them says that the AI console runs the command).
  * SSH_AUTH_SOCK is passed on only when a person confirmed this command at the
  * terminal.
  */
@@ -62,6 +63,10 @@ export function buildCommandEnv(
   env.PYTHONUNBUFFERED = '1'
   env.TRADE_APP_LANG = lang
   env.OP_BIOMETRIC_UNLOCK_ENABLED = 'false'
+  // slv v keys:gen, keys:check and keys:try refuse to run when they find this,
+  // whatever the terminal looks like (lib/secret/context.ts). It is set last:
+  // the parent cannot take it away.
+  env.SLV_EXECUTION_CONTEXT = 'ai-console'
   return env
 }
 

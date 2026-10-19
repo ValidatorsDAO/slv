@@ -300,6 +300,56 @@ Deno.test('with a terminal a gated command asks first even when auto-execute is 
   }
 })
 
+Deno.test('with a terminal a line that never runs from the console is refused without a question, with auto-execute on or off, and nothing runs', async () => {
+  const fakeTui = {
+    stop() {},
+    start() {},
+    requestRender() {},
+  } as unknown as TUI
+  const confirm = Confirm as unknown as {
+    prompt: (
+      options: { message: string; default?: boolean },
+    ) => Promise<boolean>
+  }
+  const original = confirm.prompt
+  const asked: Array<{ message: string; default?: boolean }> = []
+  confirm.prompt = (options) => {
+    asked.push(options)
+    return Promise.resolve(true)
+  }
+  try {
+    await sandbox(async (dir) => {
+      setTuiInstance(fakeTui)
+      const lines = [
+        `slv v keys:check -n testnet -p a; touch '${dir}/m1'`,
+        `SLV_EXECUTION_CONTEXT= touch '${dir}/m2'`,
+        `env -i touch '${dir}/m3'`,
+        `OP_BIOMETRIC_UNLOCK_ENABLED=true touch '${dir}/m4'`,
+      ]
+      for (const autoExecute of [true, false]) {
+        setAutoExecute(autoExecute)
+        for (const line of lines) {
+          const result = await quiet(() => run(line))
+          assertStringIncludes(result, 'never run from the AI console', line)
+          assertFalse(result.includes('no terminal is attached'), line)
+        }
+      }
+      // The person was asked nothing, and none of the lines ran.
+      assertEquals(asked.length, 0)
+      for (const marker of ['m1', 'm2', 'm3', 'm4']) {
+        assertFalse(await exists(`${dir}/${marker}`), `${marker} was created`)
+      }
+      // The positive control: a plain line that is not read-only still asks, and runs when it is confirmed.
+      setAutoExecute(true)
+      await quiet(() => run(`touch '${dir}/plain'`))
+      assertEquals(asked.length, 1)
+      assert(await exists(`${dir}/plain`))
+    })
+  } finally {
+    confirm.prompt = original
+  }
+})
+
 Deno.test('the environment passed to the shell comes from an allow-list', async () => {
   const { buildCommandEnv } = await loadSafety()
   const parent: Record<string, string> = {

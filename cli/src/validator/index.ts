@@ -23,6 +23,7 @@ import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
 import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
+import { registerKeylessCommands } from '/src/validator/keys/register.ts'
 import { refuseFdctlMainnetCommand } from '/lib/fdctlMainnetGuard.ts'
 
 export const validatorCmd = new Command()
@@ -523,3 +524,4 @@ validatorCmd.command('switch')
   })
 
 registerSha256PatchCommands(validatorCmd, 'validator', 'testnet')
+registerKeylessCommands(validatorCmd)
