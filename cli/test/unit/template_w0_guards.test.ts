@@ -2295,6 +2295,10 @@ const resolveTag = (template: string, configured: string): string => {
       (_match, whenTrue, needle, whenFalse) =>
         configured.includes(needle) ? whenTrue : whenFalse,
     )
+    .replace(
+      /\{\{\s*allnodes_jito_version_configured\s*\|\s*regex_replace\('\^v', ''\)\s*\}\}/g,
+      configured.replace(/^v/, ''),
+    )
     .replace(/\{\{\s*allnodes_jito_version_configured\s*\}\}/g, configured)
   assert(!rendered.includes('{{'), `unsupported template: ${template}`)
   return rendered
@@ -2318,6 +2322,16 @@ Deno.test('behavior 7: the allnodes tag keeps an upstream suffix and adds -allno
     assert(typeof template === 'string', `${source}: tag template not found`)
     assertEquals(resolveTag(template, '4.3.0-allnodes.1'), 'v4.3.0-allnodes.1')
     assertEquals(resolveTag(template, '4.2.2'), 'v4.2.2-allnodes')
+    if (source === 'build') {
+      assertEquals(
+        resolveTag(template, 'v4.4.0-beta.1-allnodes'),
+        'v4.4.0-beta.1-allnodes',
+      )
+      assertEquals(
+        resolveTag(template, 'v4.4.0-beta.1'),
+        'v4.4.0-beta.1-allnodes',
+      )
+    }
   }
 })
 
