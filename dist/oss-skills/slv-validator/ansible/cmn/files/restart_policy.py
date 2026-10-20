@@ -164,6 +164,14 @@ def exit_controllers():
     return found
 
 
+def read_startup():
+    with Path("/home/solv/start-validator.sh").open("rb") as source:
+        data = source.read(65537)
+    if len(data) > 65536:
+        raise ValueError("startup_too_large")
+    return data
+
+
 def observe():
     facts = {}
     metadata = {}
@@ -191,10 +199,7 @@ def observe():
             len(identities) == 1
             and os.path.realpath(identities[0]) == "/home/solv/unstaked-identity.json"
         )
-        with Path("/home/solv/start-validator.sh").open("rb") as source:
-            startup = source.read(65537)
-        if len(startup) > 65536:
-            raise ValueError("startup_too_large")
+        startup = read_startup()
         metadata["startupSha256"] = hashlib.sha256(startup).hexdigest()
         startup_args = shlex.split(startup.decode().replace("\\\n", " "), comments=True)
         startup_identities = argument_values(startup_args, {"--identity", "-i"})
@@ -252,6 +257,8 @@ def observe():
                 "systemctl", "show", "solv.service", "--property=MainPID", "--value",
             ]) == str(pid)
             and rpc(port, "getIdentity").get("identity") == identity
+            and command([BIN + "/solana-keygen", "pubkey", "/home/solv/unstaked-identity.json"]) == unstaked
+            and hashlib.sha256(read_startup()).hexdigest() == metadata["startupSha256"]
         )
     except Exception as error:
         # Never print command output, raw RPC responses, arguments or key data.
