@@ -31,7 +31,10 @@ const deployValidatorTestnet = async (limit?: string) => {
     },
   )
   if (result) {
-    console.log('Successfully deployed validator on testnet')
+    console.log('Validator files deployed on testnet.')
+    console.log(
+      'An already-running service keeps its current process. Verify its running version, identity, voting policy and sync status before considering deployment complete.',
+    )
     rpcLog(ansibleHosts)
     // SIMD-0387: register the BLS public key on each vote account post-deploy,
     // for the hosts whose identity key is on this machine.

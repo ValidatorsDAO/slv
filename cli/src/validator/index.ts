@@ -80,11 +80,10 @@ validatorCmd.command('deploy')
       Deno.exitCode = 1
       return
     }
-    if (parsed.network === 'testnet') {
-      await deployValidatorTestnet(options.pubkey)
-    } else {
-      await deployValidatorMainnet(options.pubkey)
-    }
+    const success = parsed.network === 'testnet'
+      ? await deployValidatorTestnet(options.pubkey)
+      : await deployValidatorMainnet(options.pubkey)
+    if (!success) Deno.exitCode = 1
   })
 
 validatorCmd.command('register:bls')
