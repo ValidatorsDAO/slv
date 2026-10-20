@@ -143,7 +143,10 @@ const installAgaveBinary = async (
       explicit.flag,
     )
     : await deps.refuseBelowFloor(network, change.role)
-  if (refused) return false
+  if (refused) {
+    deps.setExitCode(1)
+    return false
+  }
   const inventoryType = nodeInventoryType(change.role, network)
   const ansible = `${deps.templateRoot()}/ansible`
 
@@ -153,7 +156,10 @@ const installAgaveBinary = async (
     change.limit,
     change.extraVars,
   )
-  if (!installed) return false
+  if (!installed) {
+    deps.setExitCode(1)
+    return false
+  }
 
   const render = startScriptPlay(change.role, network)
   deps.info(

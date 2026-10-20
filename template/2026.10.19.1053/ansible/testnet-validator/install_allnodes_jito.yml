@@ -1,0 +1,13 @@
+---
+# Match the validator installers: -e wins, otherwise use the network pin.
+# Check that same version before the shared builder changes the host.
+- import_playbook: ../cmn/check_alpenglow_floor.yml
+  vars:
+    versions_section: testnet_validators
+    floor_client: allnodes
+    allnodes_jito_version: "{{ (testnet_validators | default({})).get('version_allnodes_jito', '') }}"
+
+- import_playbook: ../cmn/build_allnodes_jito.yml
+  vars:
+    versions_section: testnet_validators
+    allnodes_jito_version: "{{ (testnet_validators | default({})).get('version_allnodes_jito', '') }}"

@@ -281,7 +281,7 @@ Deno.test('the start-script play does not run when the install play did not succ
     assertEquals(h.calls.length, 1, row.label)
     assertEquals(h.calls[0].playbook, row.install, row.label)
     assertEquals(h.errors, [], row.label)
-    assertEquals(h.exitCodes, [], row.label)
+    assertEquals(h.exitCodes, [1], row.label)
   }
 })
 
@@ -327,6 +327,7 @@ Deno.test('every command that installs, builds or patches the agave binary witho
     assertEquals(asked, [kindOf(row)], row.label)
     assertEquals(askedVersion, [], row.label)
     assertEquals(h.calls, [], row.label)
+    assertEquals(h.exitCodes, [1], row.label)
   }
 })
 
@@ -357,6 +358,7 @@ Deno.test('a command given a version of its own checks that version against the 
     )
     assertEquals(pins, [], row.label)
     assertEquals(refused.calls, [], row.label)
+    assertEquals(refused.exitCodes, [1], row.label)
 
     // The version is fine: the plays run even though the pins are stale.
     const allowed = harness()
