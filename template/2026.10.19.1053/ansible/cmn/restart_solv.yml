@@ -4,6 +4,92 @@
   become: true
   become_user: solv
   tasks:
-    - name: restart solv
-      shell: . ~/.profile && agave-validator -l /mnt/ledger exit --max-delinquent-stake 10
-      register: solana_version_output
+    - name: Allocate a temporary restart controller
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .slv-restart-policy.py
+      register: slv_restart_probe
+      changed_when: false
+      check_mode: false
+
+    - name: Inspect and request one bounded restart
+      block:
+        - name: Copy the restart controller
+          ansible.builtin.copy:
+            src: files/restart_policy.py
+            dest: "{{ slv_restart_probe.path }}"
+            mode: "0600"
+          changed_when: false
+          check_mode: false
+
+        - name: Select the network and explicit sync-only intent
+          ansible.builtin.set_fact:
+            slv_restart_network: "{{ 'testnet' if (group_names | intersect(['testnet_validators', 'mainnet_validators', 'mainnet_rpcs', 'testnet_rpcs', 'devnet_rpcs'])) == ['testnet_validators'] else 'other' }}"
+            slv_restart_sync_only: "{{ no_voting | default(false) is sameas true }}"
+
+        - name: Read runtime, stake and leader-schedule facts
+          ansible.builtin.command:
+            argv: "{{ ['python3', slv_restart_probe.path, '--network', slv_restart_network] + (['--sync-only-requested'] if slv_restart_sync_only else []) }}"
+          register: slv_restart_observation
+          changed_when: false
+          check_mode: false
+
+        - name: Read the observed restart policy
+          ansible.builtin.set_fact:
+            slv_restart_policy: "{{ slv_restart_observation.stdout | from_json }}"
+
+        - name: Require a stable service and no existing exit controller
+          ansible.builtin.assert:
+            that:
+              - slv_restart_policy.servicePid | default(0) | int > 0
+              - slv_restart_policy.serviceStartTicks | default(0) | int > 0
+              - slv_restart_policy.startupSha256 | default('') is match('^[0-9a-f]{64}$')
+              - slv_restart_policy.controllersKnown | default(false) is sameas true
+              - slv_restart_policy.exitControllers | default([0]) | length == 0
+              - slv_restart_policy.maxDelinquentStake in [10, 100]
+              - slv_restart_policy.maxDelinquentStake != 100 or slv_restart_policy.verifiedSyncOnly is sameas true
+            fail_msg: "Restart was not requested: the service could not be verified or another exit controller is still present. Inspect the existing operation before retrying."
+            quiet: true
+
+        - name: Explain what the restart is waiting for
+          ansible.builtin.debug:
+            msg:
+              - "{{ slv_restart_policy.reason }}"
+              - "Cluster delinquent stake: {{ slv_restart_policy.delinquentStakePercent | default('unknown') }}%; required below {{ slv_restart_policy.maxDelinquentStake }}%."
+              - "The existing health, snapshot and leader-window checks are unchanged. Progress is polled every 10 seconds; the exit controller has a 600-second limit."
+
+        - name: Request exit within a bounded restart window
+          when: not ansible_check_mode
+          block:
+            - name: Wait for restart conditions and request validator exit
+              ansible.builtin.shell: >-
+                . ~/.profile &&
+                exec python3 {{ slv_restart_probe.path | quote }}
+                --network {{ slv_restart_network | quote }}
+                {{ '--sync-only-requested' if slv_restart_sync_only else '' }}
+                --execute
+                --expected-pid {{ slv_restart_policy.servicePid | int }}
+                --expected-start-ticks {{ slv_restart_policy.serviceStartTicks | int }}
+                --expected-startup-sha256 {{ slv_restart_policy.startupSha256 | quote }}
+                --expected-threshold {{ slv_restart_policy.maxDelinquentStake | int }}
+                --wait-seconds 600
+              # The controller TERM/kills and reaps only its own exit CLI at
+              # 600 seconds. This outer bound also covers failed cleanup.
+              async: 660
+              poll: 10
+              register: solana_version_output
+          rescue:
+            - name: Stop after an incomplete restart request
+              ansible.builtin.fail:
+                msg: >-
+                  The restart window timed out or the exit controller failed.
+                  Inspect solv.service and remaining exit controllers before
+                  retrying: an exit request may already have been sent.
+                  This command does not automatically retry or force a restart.
+      always:
+        - name: Remove the temporary restart controller
+          ansible.builtin.file:
+            path: "{{ slv_restart_probe.path }}"
+            state: absent
+          changed_when: false
+          check_mode: false

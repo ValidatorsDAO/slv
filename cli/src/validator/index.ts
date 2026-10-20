@@ -21,7 +21,7 @@ import denoJson from '/deno.json' with { type: 'json' }
 import { transformValidatorTypeFile } from '/lib/migrate/transformValidatorTypes.ts'
 import { copyTemplateDirs } from '/src/rpc/init.ts'
 import { registerSha256PatchCommands } from '/lib/sha256Patch.ts'
-import { registerSolanaBinaryCommands } from '/lib/startScript.ts'
+import { parseNodeNetwork, registerSolanaBinaryCommands } from '/lib/startScript.ts'
 import { registerBlsPubkey } from '/src/validator/registerBlsPubkey.ts'
 import { registerKeylessCommands } from '/src/validator/keys/register.ts'
 import { refuseFdctlMainnetCommand } from '/lib/fdctlMainnetGuard.ts'
@@ -365,6 +365,12 @@ validatorCmd.command('restart')
   })
   .option('-p, --pubkey <pubkey>', 'Public Key of Validator.')
   .action(async (options) => {
+    const parsed = parseNodeNetwork('validator', options.network)
+    if (!parsed.ok) {
+      console.error(colors.red(`❌ ${parsed.error}`))
+      Deno.exitCode = 1
+      return
+    }
     const inventoryType: InventoryType = options.network === 'mainnet'
       ? 'mainnet_validators'
       : 'testnet_validators'
@@ -376,7 +382,11 @@ validatorCmd.command('restart')
         ? await runAnsilbe(playbook, inventoryType, options.pubkey)
         : await runAnsilbe(playbook, inventoryType)
       if (result) {
-        console.log(colors.white('✅ Successfully Restarted Validator'))
+        console.log(
+          colors.white(
+            '✅ Restart request completed. Verify the running client and sync status.',
+          ),
+        )
         return
       }
     } else {
@@ -387,10 +397,15 @@ validatorCmd.command('restart')
         ? await runAnsilbe(playbook, inventoryType, options.pubkey)
         : await runAnsilbe(playbook, inventoryType)
       if (result) {
-        console.log(colors.white('✅ Successfully Restarted Validator'))
+        console.log(
+          colors.white(
+            '✅ Restart request completed. Verify the running client and sync status.',
+          ),
+        )
         return
       }
     }
+    Deno.exitCode = 1
   })
 
 validatorCmd.command('cleanup')
