@@ -2,7 +2,7 @@
 
 init.yml of the validator and RPC networks stops, before it changes anything, a client older than the Alpenglow floor of its
 network (cmn/check_alpenglow_floor.yml). `slv v build:solana` and `slv r build:solana` run install_solana.yml of the network,
-which dispatches to install_agave.yml and install_jito.yml (and install_allnodes_jito.yml on mainnet), and `slv v install:solana
+which dispatches to install_agave.yml and install_jito.yml (and install_allnodes_jito.yml for validators), and `slv v install:solana
 -v <version>` runs cmn/install_solana.yml, all without init.yml. Each of them begins with the same check, for the version that
 it is going to install, and so does each of the installers when it is run directly:
 
@@ -85,6 +85,7 @@ for _network, _role, _section in (
         }
 # mainnet-validator/install_allnodes_jito.yml sets the version as a play variable too (the tag, with -allnodes added when it is missing)
 INSTALLERS["mainnet-validator/install_allnodes_jito.yml"] = {"section": "mainnet_validators", "client": "allnodes", "reads": "-e"}
+INSTALLERS["testnet-validator/install_allnodes_jito.yml"] = {"section": "testnet_validators", "client": "allnodes", "reads": "-e"}
 # the client of each installer in its pin key of the section (allnodes is version_allnodes_jito)
 PIN_SUFFIX = {"agave": "agave", "jito": "jito", "allnodes": "allnodes_jito"}
 
@@ -100,7 +101,7 @@ def types_of(path):
     """The validator_type of the hosts that the file is run for: both families, and allnodes-jito where it is installed."""
     flow = INSTALLERS[path]
     if flow["client"] is None:
-        return ("agave", "jito", "allnodes-jito") if path.startswith("mainnet-validator/") else ("agave", "jito")
+        return ("agave", "jito", "allnodes-jito") if flow["section"].endswith("_validators") else ("agave", "jito")
     return ("agave", "jito")
 
 
@@ -221,7 +222,7 @@ class InstallPlaybooksBeginWithTheCheck(unittest.TestCase):
                 if flow["reads"] == "-e":
                     clients = [flow["client"]] if flow["client"] else [
                         client for client in CLIENTS
-                        if client != "allnodes" or path.startswith("mainnet-validator/")
+                        if client != "allnodes" or flow["section"].endswith("_validators")
                     ]
                     self.assertEqual(told, {OWN_KEY[client] for client in clients})
                     for client in clients:
