@@ -4,10 +4,11 @@ from contextlib import contextmanager
 import fcntl
 import hashlib
 import importlib.util
-import io
 import os
 from pathlib import Path
 import subprocess
+import socket
+import struct
 import sys
 import tempfile
 import time
@@ -21,12 +22,13 @@ policy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(policy)
 IDENTITY = "1" * 32
 OTHER = "2" * 32
-STARTUP = b"#!/bin/bash\nexec agave-validator --identity /home/solv/identity.json --no-voting\n"
+STARTUP = b"#!/bin/bash\nexec agave-validator -l /mnt/ledger --identity /home/solv/identity.json --no-voting\n"
 FACTS = {name: True for name in policy.CHECKS}
 META = {
     "servicePid": 123, "serviceStartTicks": 456,
     "startupSha256": hashlib.sha256(STARTUP).hexdigest(),
     "controllersKnown": True, "exitControllers": [],
+    "targetVerified": True,
 }
 
 
@@ -38,6 +40,52 @@ def options(**changes):
     }
     value.update(changes)
     return SimpleNamespace(**value)
+
+
+@contextmanager
+def observation_fixture():
+    with tempfile.TemporaryDirectory(prefix="slv-restart-observation-") as tmp:
+        root = Path(tmp).resolve()
+        ledger = root / "ledger"
+        ledger.mkdir()
+        snapshot = {
+            "pid": 123, "uid": os.getuid(), "start": 456,
+            "exe": "/example/agave-validator", "cwd": str(root),
+            "args": ["agave-validator", "-l", str(ledger), "--identity",
+                     "/home/solv/identity.json", "--no-voting", "--rpc-port", "8899"],
+        }
+        data = {"startup": STARTUP.replace(b"/mnt/ledger", str(ledger).encode())}
+        def command(args):
+            if "--property=MainPID" in args:
+                return "123"
+            if "--property=User,ExecStart" in args:
+                return "User=solv\nExecStart={ path=/home/solv/start-validator.sh ; argv[]=/home/solv/start-validator.sh ; }"
+            if args[0].endswith("/solana-keygen"):
+                return IDENTITY
+            raise AssertionError("Unexpected external command")
+        def rpc(_port, method, _params=None):
+            return {
+                "getIdentity": {"identity": IDENTITY}, "getGenesisHash": policy.TESTNET_GENESIS,
+                "getHealth": "ok", "getLeaderSchedule": {},
+                "getVoteAccounts": {"current": [{"nodePubkey": OTHER, "activatedStake": 100}], "delinquent": []},
+            }[method]
+        realpath = os.path.realpath
+        def resolve(path, *args, **kwargs):
+            if str(path) == "/home/solv/identity.json":
+                return "/home/solv/unstaked-identity.json"
+            return realpath(path, *args, **kwargs)
+        with (
+            patch.object(policy, "LEDGER", str(ledger)),
+            patch.object(policy, "command", side_effect=command),
+            patch.object(policy, "process_snapshot", return_value=snapshot),
+            patch.object(policy, "exit_controllers", return_value=[]),
+            patch.object(policy, "rpc", side_effect=rpc),
+            patch.object(policy, "admin_socket_matches", return_value=True),
+            patch.object(policy, "read_startup", side_effect=lambda: data["startup"]),
+            patch.object(policy.pwd, "getpwnam", return_value=SimpleNamespace(pw_uid=os.getuid())),
+            patch.object(policy.os.path, "realpath", side_effect=resolve),
+        ):
+            yield root, snapshot, data
 
 
 class PolicyEligibility(unittest.TestCase):
@@ -69,41 +117,104 @@ class PolicyEligibility(unittest.TestCase):
                 policy.vote_facts(value, IDENTITY)
 
     def test_observation_checks_runtime_startup_and_rpc_identity(self):
-        snapshot = {
-            "pid": 123, "uid": os.getuid(), "start": 456,
-            "exe": "/example/agave-validator",
-            "args": ["agave-validator", "--identity", "/home/solv/identity.json", "--no-voting", "--rpc-port", "8899"],
-        }
-        def command(args):
-            if "--property=MainPID" in args:
-                return "123"
-            if "--property=User,ExecStart" in args:
-                return "User=solv\nExecStart={ path=/home/solv/start-validator.sh ; argv[]=/home/solv/start-validator.sh ; }"
-            if args[0].endswith("/solana-keygen"):
-                return IDENTITY
-            raise AssertionError("Unexpected external command")
-        def rpc(_port, method, _params=None):
-            return {
-                "getIdentity": {"identity": IDENTITY}, "getGenesisHash": policy.TESTNET_GENESIS,
-                "getHealth": "ok", "getLeaderSchedule": {},
-                "getVoteAccounts": {"current": [{"nodePubkey": OTHER, "activatedStake": 100}], "delinquent": []},
-            }[method]
-        with (
-            patch.object(policy, "command", side_effect=command),
-            patch.object(policy, "process_snapshot", return_value=snapshot),
-            patch.object(policy, "exit_controllers", return_value=[]),
-            patch.object(policy, "rpc", side_effect=rpc),
-            patch.object(policy.pwd, "getpwnam", return_value=SimpleNamespace(pw_uid=os.getuid())),
-            patch.object(policy.os.path, "realpath", return_value="/home/solv/unstaked-identity.json"),
-            patch.object(policy.Path, "open", side_effect=lambda *a, **kw: io.BytesIO(STARTUP)),
-        ):
+        with observation_fixture():
             facts, metadata = policy.observe()
             self.assertTrue(all(facts.values()), (facts, metadata))
+            self.assertTrue(metadata["targetVerified"])
             self.assertEqual(policy.choose_policy("testnet", True, facts)["maxDelinquentStake"], 100)
             with patch.object(policy, "rpc", side_effect=RuntimeError("fixture RPC unavailable")):
                 facts, metadata = policy.observe()
                 self.assertEqual(policy.choose_policy("testnet", True, facts)["maxDelinquentStake"], 10)
                 self.assertEqual(metadata["observationFailure"], "RuntimeError")
+
+    def test_runtime_and_startup_must_target_the_exit_ledger(self):
+        for changed in ("runtime", "startup", "both"):
+            with self.subTest(changed=changed), observation_fixture() as (root, snapshot, data):
+                other = root / "another-ledger"
+                other.mkdir()
+                if changed in ("runtime", "both"):
+                    snapshot["args"][2] = str(other)
+                if changed in ("startup", "both"):
+                    data["startup"] = STARTUP.replace(b"/mnt/ledger", str(other).encode())
+                facts, metadata = policy.observe()
+                self.assertEqual(policy.choose_policy("testnet", True, facts)["maxDelinquentStake"], 10)
+                self.assertFalse(metadata["targetVerified"])
+
+    def test_relative_runtime_path_is_resolved_from_process_cwd(self):
+        with observation_fixture() as (_, snapshot, _):
+            snapshot["args"][2] = "./ledger/"
+            facts, metadata = policy.observe()
+            self.assertTrue(metadata["targetVerified"])
+            self.assertEqual(policy.choose_policy("testnet", True, facts)["maxDelinquentStake"], 100)
+
+    def test_socket_mismatch_or_target_change_cannot_request_exit(self):
+        for peers in ([False], [True, True, False]):
+            with self.subTest(peers=peers), observation_fixture(), patch.object(
+                policy, "admin_socket_matches", side_effect=peers,
+            ):
+                _, metadata = policy.observe()
+                self.assertFalse(metadata["targetVerified"])
+
+
+class LedgerAndControllers(unittest.TestCase):
+    def test_equivalent_ledger_paths_detect_existing_controller(self):
+        with tempfile.TemporaryDirectory(prefix="slv-restart-proc-") as tmp:
+            root = Path(tmp).resolve()
+            ledger = root / "ledger"
+            ledger.mkdir()
+            alias = root / "alias"
+            alias.symlink_to(ledger, target_is_directory=True)
+            proc = root / "proc"
+            process = proc / "123"
+            process.mkdir(parents=True)
+            (process / "comm").write_text("agave-validator\n")
+            (process / "cwd").symlink_to(root, target_is_directory=True)
+            args = [
+                ["-l", str(ledger)], ["-l", str(ledger) + "/"],
+                ["--ledger", str(root) + "/./ledger"], ["-l", str(alias)],
+                ["-l", "./ledger"], ["--ledger=ledger/"], ["-l" + str(ledger)],
+                ["-l=" + str(ledger)],
+            ]
+            with patch.object(policy, "LEDGER", str(ledger)):
+                for arguments in args:
+                    with self.subTest(arguments=arguments):
+                        (process / "cmdline").write_bytes(b"\0".join(
+                            part.encode() for part in ["agave-validator", *arguments, "exit"]
+                        ))
+                        self.assertEqual(policy.exit_controllers(proc), [123])
+                other = root / "another-ledger"
+                other.mkdir()
+                (process / "cmdline").write_bytes(
+                    b"agave-validator\0-l\0" + str(other).encode() + b"\0exit\0",
+                )
+                self.assertEqual(policy.exit_controllers(proc), [])
+                for arguments in ([], ["-l", "missing"], ["-l", str(ledger), "--ledger", str(other)]):
+                    (process / "cmdline").write_bytes(b"\0".join(
+                        part.encode() for part in ["agave-validator", *arguments, "exit"]
+                    ))
+                    with self.assertRaises(RuntimeError):
+                        policy.exit_controllers(proc)
+
+    def test_peer_credentials_must_match_pid_and_uid(self):
+        with patch.object(policy.socket, "socket") as factory, patch.object(
+            policy.socket, "SO_PEERCRED", 17, create=True,
+        ):
+            peer = factory.return_value.__enter__.return_value
+            for pid, uid, expected in ((123, 10, True), (124, 10, False), (123, 11, False)):
+                peer.getsockopt.return_value = struct.pack("iII", pid, uid, 10)
+                self.assertIs(policy.admin_socket_matches(123, 10), expected)
+            peer.send.assert_not_called()
+            peer.sendall.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux server peer credentials")
+    def test_real_unix_socket_is_bound_to_its_listening_process(self):
+        with tempfile.TemporaryDirectory(prefix="slv-peer-") as tmp:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                server.bind(str(Path(tmp) / "admin.rpc"))
+                server.listen(4)
+                with patch.object(policy, "LEDGER", tmp):
+                    self.assertTrue(policy.admin_socket_matches(os.getpid(), os.getuid()))
+                    self.assertFalse(policy.admin_socket_matches(os.getpid() + 1, os.getuid()))
 
 
 @contextmanager
@@ -199,6 +310,7 @@ class OwnedController(unittest.TestCase):
             dict(META, servicePid=124), dict(META, serviceStartTicks=457),
             dict(META, startupSha256="f" * 64), dict(META, exitControllers=[999]),
             dict(META, controllersKnown=False),
+            dict(META, targetVerified=False),
         ]
         for metadata in cases:
             with self.subTest(metadata=metadata), controller_fixture(
@@ -209,6 +321,10 @@ class OwnedController(unittest.TestCase):
                 self.assertEqual(seen, [])
         with controller_fixture("Path(READY).touch()\n") as (lock, seen, _):
             result = policy.request_exit(options(expected_threshold=10), lock)
+            self.assertFalse(result["controllerStarted"])
+            self.assertEqual(seen, [])
+        with controller_fixture("Path(READY).touch()\n", dict(META, targetVerified=False)) as (lock, seen, _):
+            result = policy.request_exit(options(network="other", expected_threshold=10), lock)
             self.assertFalse(result["controllerStarted"])
             self.assertEqual(seen, [])
 

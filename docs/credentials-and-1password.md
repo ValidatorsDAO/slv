@@ -66,6 +66,9 @@ script and public identity match the unstaked key, with no vote accounts,
 active stake or leader slots, can use the sync-only cluster-stake threshold.
 Unknown facts and all other networks retain the normal threshold. The
 installed client's health, snapshot and leader-window checks are unchanged.
+Every restart also verifies that the runtime and startup script use the exit
+command's ledger, and that its Linux admin socket belongs to the observed
+service process. A mismatch or unverifiable target refuses the request.
 
 The exit controller has a 600-second limit and cleans up its own child on
 timeout. A lock and fresh process checks reject overlapping or stale requests.

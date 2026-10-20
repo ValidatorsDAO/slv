@@ -35,6 +35,7 @@ if execute:
     sys.exit(7 if mode == "failure" else 0)
 print(json.dumps({
     "servicePid": 123, "serviceStartTicks": 456, "startupSha256": "a" * 64,
+    "targetVerified": mode != "wrong-target",
     "controllersKnown": True, "exitControllers": [999] if mode == "existing" else [],
     "maxDelinquentStake": threshold, "verifiedSyncOnly": threshold == 100,
     "delinquentStakePercent": 12.5, "reason": "fixture policy",
@@ -115,6 +116,12 @@ class RestartPlaybook(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual([event["execute"] for event in events], [False])
         self.assertIn("another exit controller", result.stdout)
+
+    def test_wrong_ledger_or_socket_refuses_even_normal_restart(self):
+        result, events = flow(groups=("mainnet_validators",), no_voting=False, mode="wrong-target")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([event["execute"] for event in events], [False])
+        self.assertIn("ledger/admin socket", result.stdout)
 
     def test_failed_controller_is_not_retried_and_fails_the_play(self):
         result, events = flow(mode="failure")

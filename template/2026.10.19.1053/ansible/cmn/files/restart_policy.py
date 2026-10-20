@@ -12,13 +12,16 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import stat
+import struct
 import subprocess
 import urllib.request
 
 TESTNET_GENESIS = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
 PUBKEY = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 BIN = "/home/solv/.local/share/solana/install/active_release/bin"
+LEDGER = "/mnt/ledger"
 CHECKS = (
     "processOwnedBySolv",
     "agaveProcess",
@@ -29,6 +32,9 @@ CHECKS = (
     "startupNoVoting",
     "startupNoVoteAccount",
     "startupUnstakedIdentity",
+    "runtimeLedgerMatches",
+    "startupLedgerMatches",
+    "adminSocketMatches",
     "publicIdentityMatchesUnstaked",
     "testnetGenesis",
     "healthy",
@@ -78,6 +84,7 @@ def process_snapshot(pid):
         "uid": path.stat().st_uid,
         "start": int(fields[19]),
         "exe": os.path.realpath(path / "exe").removesuffix(" (deleted)"),
+        "cwd": str((path / "cwd").resolve(strict=True)),
         "args": [part.decode() for part in raw.split(b"\0") if part],
     }
 
@@ -91,6 +98,40 @@ def argument_values(arguments, names):
                 arguments[index + 1] if index + 1 < len(arguments) else ""
             ))
     return values
+
+
+def ledger_argument(arguments):
+    values = argument_values(arguments, {"-l", "--ledger"})
+    values += [arg[2:].removeprefix("=") for arg in arguments
+               if arg.startswith("-l") and not arg.startswith("-l=") and len(arg) > 2]
+    if len(values) != 1 or not values[0]:
+        raise ValueError("ledger_argument_ambiguous")
+    return values[0]
+
+
+def canonical_directory(value, cwd=None):
+    path = Path(value)
+    if not path.is_absolute():
+        if cwd is None:
+            raise ValueError("relative_ledger_without_working_directory")
+        path = Path(cwd) / path
+    path = path.resolve(strict=True)
+    if not path.is_dir():
+        raise ValueError("ledger_not_a_directory")
+    return str(path)
+
+
+def admin_socket_matches(pid, uid):
+    # Linux peer credentials bind the actual exit socket to MainPID without
+    # issuing any admin RPC. Agave's Unix endpoint is <ledger>/admin.rpc.
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+        peer.settimeout(3)
+        peer.connect(str(Path(LEDGER) / "admin.rpc"))
+        credentials = peer.getsockopt(
+            socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("iII"),
+        )
+    peer_pid, peer_uid, _ = struct.unpack("iII", credentials)
+    return peer_pid == pid and peer_uid == uid
 
 
 def rpc(port, method, params=None):
@@ -143,10 +184,11 @@ def vote_facts(votes, identity):
     return own == 0, matches == 0, round(100 * delinquent / total, 3)
 
 
-def exit_controllers():
+def exit_controllers(proc=Path("/proc")):
     """Only inspect argument metadata, never signal an existing process."""
     found = []
-    for path in Path("/proc").iterdir():
+    target = canonical_directory(LEDGER)
+    for path in proc.iterdir():
         if not path.name.isdigit():
             continue
         try:
@@ -157,10 +199,21 @@ def exit_controllers():
             if len(raw) > 65536:
                 raise ValueError("controller_arguments_too_large")
             args = [part.decode() for part in raw.split(b"\0") if part]
-            if "exit" in args and argument_values(args, {"-l", "--ledger"}) == ["/mnt/ledger"]:
-                found.append(int(path.name))
         except (FileNotFoundError, ProcessLookupError):
             continue
+        if "exit" not in args:
+            continue
+        try:
+            value = ledger_argument(args)
+            cwd = str((path / "cwd").resolve(strict=True)) if not Path(value).is_absolute() else None
+            if canonical_directory(value, cwd) == target:
+                found.append(int(path.name))
+        except (OSError, ValueError, RuntimeError) as error:
+            # A vanished process is harmless; an unreadable/malformed path on
+            # a live exit controller must not be mistaken for another ledger.
+            if not path.exists():
+                continue
+            raise RuntimeError("exit_controller_ledger_unknown") from error
     return found
 
 
@@ -212,6 +265,16 @@ def observe():
             len(startup_identities) == 1
             and os.path.realpath(startup_identities[0]) == "/home/solv/unstaked-identity.json"
         )
+        target_ledger = canonical_directory(LEDGER)
+        facts["runtimeLedgerMatches"] = (
+            canonical_directory(ledger_argument(args), before["cwd"]) == target_ledger
+        )
+        # Packaged scripts use an absolute ledger. Do not guess the effect of
+        # shell variables or cd commands in a custom startup script.
+        facts["startupLedgerMatches"] = (
+            canonical_directory(ledger_argument(startup_args)) == target_ledger
+        )
+        facts["adminSocketMatches"] = admin_socket_matches(pid, before["uid"])
         unit = command([
             "systemctl", "show", "solv.service", "--property=User,ExecStart",
         ])
@@ -226,6 +289,12 @@ def observe():
             and unit_args is not None
             and unit_args.group(1).strip() == "/home/solv/start-validator.sh"
         )
+        # This is required even with the normal threshold: never send exit to
+        # a different ledger's admin socket after inspecting solv.service.
+        metadata["targetVerified"] = all(facts.get(name) is True for name in (
+            "processOwnedBySolv", "agaveProcess", "startupUnitMatches",
+            "runtimeLedgerMatches", "startupLedgerMatches", "adminSocketMatches",
+        ))
         ports = argument_values(args, {"--rpc-port"})
         if len(ports) != 1 or not ports[0].isdigit() or not 0 < int(ports[0]) < 65536:
             raise ValueError("rpc_port_unknown")
@@ -259,10 +328,26 @@ def observe():
             and rpc(port, "getIdentity").get("identity") == identity
             and command([BIN + "/solana-keygen", "pubkey", "/home/solv/unstaked-identity.json"]) == unstaked
             and hashlib.sha256(read_startup()).hexdigest() == metadata["startupSha256"]
+            and canonical_directory(LEDGER) == target_ledger
+            and admin_socket_matches(pid, before["uid"])
         )
     except Exception as error:
         # Never print command output, raw RPC responses, arguments or key data.
         metadata["observationFailure"] = type(error).__name__
+    finally:
+        if metadata.get("targetVerified"):
+            try:
+                metadata["targetVerified"] = (
+                    before == process_snapshot(pid)
+                    and command([
+                        "systemctl", "show", "solv.service", "--property=MainPID", "--value",
+                    ]) == str(pid)
+                    and canonical_directory(LEDGER) == target_ledger
+                    and hashlib.sha256(read_startup()).hexdigest() == metadata["startupSha256"]
+                    and admin_socket_matches(pid, before["uid"])
+                )
+            except Exception:
+                metadata["targetVerified"] = False
     return facts, metadata
 
 
@@ -296,7 +381,8 @@ def request_exit(options, lock_path="/home/solv/.slv-restart.lock"):
         policy = choose_policy(options.network, options.sync_only_requested, facts)
         result["policy"] = policy
         if (
-            metadata.get("controllersKnown") is not True
+            metadata.get("targetVerified") is not True
+            or metadata.get("controllersKnown") is not True
             or metadata.get("exitControllers") != []
             or metadata.get("servicePid") != options.expected_pid
             or metadata.get("serviceStartTicks") != options.expected_start_ticks
@@ -318,7 +404,7 @@ def request_exit(options, lock_path="/home/solv/.slv-restart.lock"):
         # Keep the child in Ansible's process group: the outer async deadline
         # must also terminate it if this wrapper cannot perform its own cleanup.
         child = subprocess.Popen(
-            [binary, "-l", "/mnt/ledger", "exit", "--max-delinquent-stake",
+            [binary, "-l", LEDGER, "exit", "--max-delinquent-stake",
              str(policy["maxDelinquentStake"])],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True,

@@ -44,11 +44,12 @@
               - slv_restart_policy.servicePid | default(0) | int > 0
               - slv_restart_policy.serviceStartTicks | default(0) | int > 0
               - slv_restart_policy.startupSha256 | default('') is match('^[0-9a-f]{64}$')
+              - slv_restart_policy.targetVerified | default(false) is sameas true
               - slv_restart_policy.controllersKnown | default(false) is sameas true
               - slv_restart_policy.exitControllers | default([0]) | length == 0
               - slv_restart_policy.maxDelinquentStake in [10, 100]
               - slv_restart_policy.maxDelinquentStake != 100 or slv_restart_policy.verifiedSyncOnly is sameas true
-            fail_msg: "Restart was not requested: the service could not be verified or another exit controller is still present. Inspect the existing operation before retrying."
+            fail_msg: "Restart was not requested: the service and its ledger/admin socket could not be verified or another exit controller is still present. Inspect the existing operation before retrying."
             quiet: true
 
         - name: Explain what the restart is waiting for
