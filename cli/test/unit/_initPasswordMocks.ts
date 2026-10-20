@@ -94,3 +94,6 @@ export const findNearestJitoRegion = (
 export const findNearestSnapshotUrl = (..._args: unknown[]) =>
   Promise.resolve('')
 export const promptXdpConfig = (..._args: unknown[]) => Promise.resolve({})
+
+export type InitConfigOptions = { advanced?: boolean; name?: string }
+export const confirmInitPlan = (..._args: unknown[]) => Promise.resolve({})

@@ -590,7 +590,7 @@ Deno.test('an item that has the public key as its title is not made a second tim
   assertStringIncludes(captured.error[0], 'set identity_ref')
 })
 
-Deno.test('with no vault in keyless.yml the vaults are listed on the terminal and only the id of a listed one is taken; the vault is written to keyless.yml after the inventory, and not when the id is wrong', async () => {
+Deno.test('with no vault in keyless.yml the vaults are listed on the terminal and a listed vault is selected by number or id; the vault is written to keyless.yml after the inventory, and not when the id is wrong', async () => {
   const first = await run(TESTNET, {
     vaultId: null,
     answers: [VAULT, VAULT_NAME],
@@ -602,7 +602,7 @@ Deno.test('with no vault in keyless.yml the vaults are listed on the terminal an
     argsOf(first.op).filter((args) => args[0] === 'vault').length,
     1,
   )
-  assertStringIncludes(first.terminal.said[0], VAULT)
+  assertStringIncludes(first.terminal.said[0], '1. Validators')
   assertEquals(first.vaultWrites, [['testnet', VAULT]])
   assertEquals(first.writes.length, 1)
 
@@ -1033,7 +1033,9 @@ Deno.test('the attach path wipes the key file buffer too', async () => {
 })
 
 Deno.test('the inventory is written through a link to the file it points at: the link stays, the file has the new text and keeps its mode, and the data and then the directory are synced', async () => {
-  const dir = await Deno.makeTempDir({ prefix: 'slv-inventory-' })
+  const dir = await Deno.realPath(
+    await Deno.makeTempDir({ prefix: 'slv-inventory-' }),
+  )
   const defaults = defaultImportDeps()
   const synced: string[] = []
   const realOpen = Deno.open

@@ -54,6 +54,16 @@ function hostsAt(
   return hosts as Record<string, unknown>
 }
 
+/** Inspect the destination before SSH or 1Password access. Never repairs links silently. */
+export async function assertValidatorInitInventory(
+  network: Network,
+): Promise<void> {
+  hostsAt(
+    await documentAt(await inventoryTarget(pathFor(network))),
+    `${network}_validators`,
+  )
+}
+
 export async function assertNewValidatorHost(
   network: Network,
   name: string,

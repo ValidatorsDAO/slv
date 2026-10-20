@@ -349,3 +349,23 @@ Deno.test('linked inventory keeps its symlink and updates the real target; dangl
     await Deno.remove(dir, { recursive: true })
   }
 })
+
+Deno.test('standard init creates a verified identity without an identity-choice question but retains mainnet vault confirmation', async () => {
+  for (const network of ['testnet', 'mainnet'] as const) {
+    const h = harness({
+      network,
+      answers: network === 'mainnet' ? ['Example vault'] : [],
+    })
+    const accounts = await prepareValidatorInitAccounts(
+      network,
+      'example',
+      h.deps,
+      { createNew: true },
+    )
+    assertEquals(accounts.no_voting, true)
+    assertEquals(accounts.identity_ref, refOf())
+    assertFalse(h.terminal.asked.some((text) => text.includes('Identity:')))
+    assertEquals(h.terminal.asked.length, network === 'mainnet' ? 1 : 0)
+    assert(h.made[0].every((byte) => byte === 0))
+  }
+})

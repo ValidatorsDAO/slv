@@ -62,6 +62,7 @@ Deno.test('the probe prints the number of bytes of the field and nothing of its 
     LANG: PARENT_ENV.LANG,
     TMPDIR: PARENT_ENV.TMPDIR,
     OP_CACHE: 'false',
+    OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
   })
 })
 

@@ -33,7 +33,22 @@ export const validatorCmd = new Command()
   })
 
 validatorCmd.command('init')
-  .description('🚀 Initialize a new validator configuration')
+  .description(
+    '🚀 Initialize a validator with detected server settings and 1Password',
+  )
+  .option('-n, --network <network:string>', 'testnet or mainnet')
+  .option('--host <host:string>', 'Server IP address or SSH hostname')
+  .option('-u, --user <user:string>', 'SSH user (standard setup: ubuntu)')
+  .option(
+    '-i, --identity-file <path:string>',
+    'SSH private key or public .pub agent selector',
+  )
+  .option('--name <name:string>', 'Inventory host name')
+  .option(
+    '--advanced',
+    'Customize client, identity, XDP and optional reboot tuning',
+    { default: false },
+  )
   .option('-l, --localhost', 'Use localhost (no SSH required)', {
     default: false,
   })
@@ -65,11 +80,10 @@ validatorCmd.command('deploy')
       Deno.exitCode = 1
       return
     }
-    if (parsed.network === 'testnet') {
-      await deployValidatorTestnet(options.pubkey)
-    } else {
-      await deployValidatorMainnet(options.pubkey)
-    }
+    const success = parsed.network === 'testnet'
+      ? await deployValidatorTestnet(options.pubkey)
+      : await deployValidatorMainnet(options.pubkey)
+    if (!success) Deno.exitCode = 1
   })
 
 validatorCmd.command('register:bls')

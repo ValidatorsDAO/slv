@@ -21,6 +21,8 @@ type AnsibleSpawnResult = {
   code: number
   stdout: Uint8Array
   stderr: Uint8Array
+  /** The real runner already forwarded these bytes to the operator. */
+  streamed?: boolean
 }
 
 type AnsibleSpawn = (args: string[]) => Promise<AnsibleSpawnResult>
@@ -34,12 +36,77 @@ type RunAnsibleOptions = {
   spawn?: AnsibleSpawn
 }
 
-const spawnAnsible: AnsibleSpawn = (args) =>
-  new Deno.Command('ansible-playbook', {
+type OutputSink = (chunk: Uint8Array) => Promise<void>
+
+const writeAll = async (
+  writer: { write: (bytes: Uint8Array) => Promise<number> },
+  chunk: Uint8Array,
+): Promise<void> => {
+  let offset = 0
+  while (offset < chunk.length) {
+    const written = await writer.write(chunk.subarray(offset))
+    if (written <= 0) throw new Error('Output stream closed')
+    offset += written
+  }
+}
+
+/** Forward both streams concurrently, retaining the complete result for callers. */
+export const streamProcess = async (
+  command: string,
+  args: string[],
+  stdoutSink: OutputSink = (chunk) => writeAll(Deno.stdout, chunk),
+  stderrSink: OutputSink = (chunk) => writeAll(Deno.stderr, chunk),
+): Promise<AnsibleSpawnResult> => {
+  const child = new Deno.Command(command, {
     args,
+    // Preserve the prior runner's closed stdin. SSH agent approval still uses
+    // the operator's terminal, and no new password prompt is introduced here.
+    stdin: 'null',
     stdout: 'piped',
     stderr: 'piped',
-  }).output()
+    env: { PYTHONUNBUFFERED: '1' },
+  }).spawn()
+  const pump = async (stream: ReadableStream<Uint8Array>, sink: OutputSink) => {
+    const chunks: Uint8Array[] = []
+    let size = 0
+    let forward = true
+    for await (const chunk of stream) {
+      chunks.push(chunk)
+      size += chunk.length
+      if (forward) {
+        try {
+          await sink(chunk)
+        } catch {
+          // A closed UI/pipe must not abort a remote operation or leave the
+          // other pipe undrained. Its result remains available to the caller.
+          forward = false
+        }
+      }
+    }
+    const all = new Uint8Array(size)
+    let offset = 0
+    for (const chunk of chunks) {
+      all.set(chunk, offset)
+      offset += chunk.length
+    }
+    return all
+  }
+  const [status, stdout, stderr] = await Promise.all([
+    child.status,
+    pump(child.stdout, stdoutSink),
+    pump(child.stderr, stderrSink),
+  ])
+  return {
+    success: status.success,
+    code: status.code,
+    stdout,
+    stderr,
+    streamed: true,
+  }
+}
+
+const spawnAnsible: AnsibleSpawn = (args) =>
+  streamProcess('ansible-playbook', args)
 
 const shellQuote = (value: string) => {
   if (/^[A-Za-z0-9_./:-]+$/.test(value)) {
@@ -103,11 +170,9 @@ const runAnsibleCapture = async (
 
     const stdout = new TextDecoder().decode(result.stdout)
     const stderr = new TextDecoder().decode(result.stderr)
-    if (stdout) {
-      console.log(stdout)
-    }
-    if (stderr) {
-      console.error(stderr)
+    if (!result.streamed) {
+      if (stdout) console.log(stdout)
+      if (stderr) console.error(stderr)
     }
 
     return {

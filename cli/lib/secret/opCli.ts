@@ -3,9 +3,8 @@
 // what op needs. What the parent has in its environment (a session of
 // 1Password, an ssh agent, a service account token of another run) never goes to
 // the child; the service account token of keyless.yml does, and only there.
-// Caching is off for every call: by default op keeps what it has read in a cache
-// under /tmp/com.agilebits.op.<uid> and in a background process, and a key that
-// was read is not to be left there.
+// Caching is off for every call. This disables the CLI daemon cache; the
+// desktop app manages its own encrypted data separately.
 
 type OpSpawnOptions = {
   env: Record<string, string>
@@ -16,6 +15,8 @@ type OpSpawnOptions = {
    * item it made): the output is not collected at all. `piped` is the default.
    */
   stdout?: 'piped' | 'null'
+  /** Bound metadata preflights; writes do not opt in. */
+  timeoutMs?: number
 }
 
 type OpSpawnResult = {
@@ -57,6 +58,7 @@ const buildOpEnv = (
   }
   Object.assign(env, OP_ENV_FIXED)
   if (token !== null) env.OP_SERVICE_ACCOUNT_TOKEN = token
+  else env.OP_BIOMETRIC_UNLOCK_ENABLED = 'true'
   return env
 }
 
@@ -75,28 +77,52 @@ const defaultOpSpawn: OpSpawn = async (command, args, options) => {
     stdout: discard ? 'null' : 'piped',
     stderr: 'piped',
   }).spawn()
-  if (options.stdin !== null) {
-    try {
-      const writer = child.stdin.getWriter()
+  let timedOut = false
+  const timeout = options.timeoutMs === undefined
+    ? undefined
+    : setTimeout(() => {
+      timedOut = true
       try {
-        await writer.write(options.stdin)
-      } finally {
-        await writer.close()
-      }
-    } catch (_error) {
-      // op stopped before it read its input; its status says so.
+        child.kill('SIGKILL')
+      } catch { /* already exited */ }
+    }, options.timeoutMs)
+  try {
+    if (options.stdin !== null) {
+      try {
+        const writer = child.stdin.getWriter()
+        try {
+          await writer.write(options.stdin)
+        } finally {
+          await writer.close()
+        }
+      } catch { /* op's exit status reports input failures */ }
     }
+    let result: OpSpawnResult
+    if (discard) {
+      const [status, stderr] = await Promise.all([
+        child.status,
+        collect(child.stderr),
+      ])
+      result = { success: status.success, stdout: new Uint8Array(), stderr }
+    } else {
+      const { success, stdout, stderr } = await child.output()
+      result = { success, stdout, stderr }
+    }
+    if (timedOut) {
+      result.stdout.fill(0)
+      result.stderr.fill(0)
+      return {
+        success: false,
+        stdout: new Uint8Array(),
+        stderr: new TextEncoder().encode(
+          '1Password did not respond in time. Unlock the app and retry from your terminal.',
+        ),
+      }
+    }
+    return result
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
   }
-  if (discard) {
-    // Its output goes nowhere, so nothing of it is held here; its errors are still read.
-    const [status, stderr] = await Promise.all([
-      child.status,
-      collect(child.stderr),
-    ])
-    return { success: status.success, stdout: new Uint8Array(), stderr }
-  }
-  const { success, stdout, stderr } = await child.output()
-  return { success, stdout, stderr }
 }
 
 /**

@@ -10,8 +10,32 @@ fully diskless.
 
 ## Validator init: verified vault storage and sync-only startup
 
-Run `slv v init` in your own local terminal. Choose a network, supported
-Agave/Jito/Allnodes client and a new inventory name. Init creates the identity in
+Run `slv v init` in your own local terminal. Standard setup asks for the network
+and server, detects an existing SSH public-key selector, and uses Agave on
+testnet or Jito on mainnet. It checks inventory integrity and 1Password access
+before contacting the server. If no account is available, enable the desktop
+app's CLI integration and retry; SLV does not start manual account registration.
+On macOS 27, the terminal may also need permission to access data shared by
+1Password in System Settings > Privacy & Security > Files & Folders.
+
+SLV inspects the outbound interface, driver, kernel and physical CPU topology
+without changing the server. Standard setup recommends XDP copy mode for a
+supported physical interface and keeps PoH on a separate physical core. Unknown,
+virtual, bonded or bridged paths use standard networking. This is a conservative
+configuration recommendation, not a live XDP compatibility/performance test.
+Zero-copy and kernel/reboot tuning require `--advanced`. Review the setup summary
+before the identity and server user are created. Choose a vault by its displayed
+number; the configured network vault is reused on later runs.
+
+Use `--advanced` to choose another client/name, reuse an existing 1Password item,
+or customize XDP and optional tuning. Connection flags can avoid repeated input:
+
+```sh
+slv v init -n testnet --host 192.0.2.10 --user ubuntu \
+  --identity-file /absolute/path/to/example-node.pub --name testnet-validator
+```
+
+Init creates the identity in
 memory, saves it to the network's 1Password vault, reads it back and verifies both
 the key bytes and public-key field before saving the inventory. It can instead
 use an existing item in that configured vault. New mainnet identities require a
@@ -109,7 +133,7 @@ slv starts `op` from an absolute directory of `PATH`, without a shell and with n
 input (`op item create` gets the item template on it). Its environment is `HOME`, `PATH`,
 `USER`, `LANG`, `TMPDIR` and `OP_ACCOUNT` of the process, the service account token of
 `keyless.yml` where there is one, and `OP_CACHE=false`, so that a key that was read is not left
-in the cache of `op`. Other `OP_*` variables of the process are not passed on. What `op` writes to
+in the cache of `op`. Human calls explicitly use desktop-app integration; other `OP_*` variables of the process are not passed on. What `op` writes to
 standard error is cut to one line, without the token, control characters or anything that looks
 like part of a key, and `op item create` runs with its output discarded.
 

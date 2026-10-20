@@ -567,9 +567,10 @@ Deno.test('every deploy, init and update:geyser entry stops when the version flo
     ],
     [
       'src/validator/init/init.ts',
-      "refuseBelowFloorPins(validator.network, 'validator')",
+      "refuseBelowFloorPins(network, 'validator')",
       [
-        'checkValidatorInitContext(',
+        'assertValidatorInitInventory(',
+        'verifyInitOnePassword(',
         'checkSSHConnection(',
         'initTestnetConfig(',
       ],

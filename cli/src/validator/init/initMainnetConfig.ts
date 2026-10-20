@@ -28,23 +28,29 @@ import {
 import type { SolanaNodeType } from '@cmn/types/config.ts'
 import { findNearestSnapshotUrl } from '/lib/snapshot/findNearestSnapshot.ts'
 import { getAllRegions } from '/lib/jito/jitoRegions.ts'
-import { promptXdpConfig } from '/src/validator/init/promptXdpConfig.ts'
+import {
+  confirmInitPlan,
+  type InitConfigOptions,
+} from '/src/validator/init/setupPlan.ts'
 
 const initMainnetConfig = async (
   sshConnection: SSHConnection,
   isLocalhost?: boolean,
+  options: InitConfigOptions = {},
 ) => {
   const {
     validatorType,
-  } = await prompt([
-    {
-      name: 'validatorType',
-      message: 'Select Validator Type',
-      type: Select,
-      options: mainnetValidatorTypes(SolanaNodeTypes),
-      default: DEFAULT_MAINNET_VALIDATOR_TYPE,
-    },
-  ])
+  } = options.advanced
+    ? await prompt([
+      {
+        name: 'validatorType',
+        message: 'Select Validator Type',
+        type: Select,
+        options: mainnetValidatorTypes(SolanaNodeTypes),
+        default: DEFAULT_MAINNET_VALIDATOR_TYPE,
+      },
+    ])
+    : { validatorType: DEFAULT_MAINNET_VALIDATOR_TYPE }
   if (!validatorType) {
     return
   }
@@ -54,7 +60,7 @@ const initMainnetConfig = async (
     return
   }
   let commissionBps = '1000'
-  if (validatorType.includes('jito')) {
+  if (options.advanced && validatorType.includes('jito')) {
     const cmsBps = await prompt([
       {
         name: 'commission_bps',
@@ -68,17 +74,21 @@ const initMainnetConfig = async (
 
   const rpcAccount = DEFAULT_RPC_ADDRESS
   const inventoryType = 'mainnet_validators'
-  const { name } = await prompt([
-    {
-      name: 'name',
-      message: 'Enter Inventory Name',
-      type: Input,
-      default: 'mainnet-validator',
-      validate: (value: string) =>
-        /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value) ||
-        'Use letters, digits, dots, underscores or hyphens',
-    },
-  ])
+  const { name } = options.name
+    ? { name: options.name }
+    : options.advanced
+    ? await prompt([
+      {
+        name: 'name',
+        message: 'Enter Inventory Name',
+        type: Input,
+        default: 'mainnet-validator',
+        validate: (value: string) =>
+          /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value) ||
+          'Use letters, digits, dots, underscores or hyphens',
+      },
+    ])
+    : { name: 'mainnet-validator' }
   if (!name) {
     console.log(colors.red('⚠️ Inventory Name is required'))
     return
@@ -136,11 +146,19 @@ const initMainnetConfig = async (
   const shredstream_address = getNearRegion.info.shredReceiver
   const relayer_url = getNearRegion.info.relayerUrl
   // XDP retransmit acceleration (Agave/Jito/Allnodes-Jito)
-  const xdpConfig = await promptXdpConfig(
-    validatorType as SolanaNodeType,
+  const xdpConfig = await confirmInitPlan(
+    sshConnection,
     'mainnet',
+    name,
+    validatorType as SolanaNodeType,
+    getNearRegion.region,
+    options,
+    isLocalhost,
   )
-  const accounts = await prepareValidatorInitAccounts('mainnet', name)
+  if (xdpConfig === null) return
+  const accounts = await prepareValidatorInitAccounts('mainnet', name, {}, {
+    createNew: !options.advanced,
+  })
   const identityAccount = accounts.identity_account
   const configMainnet: Partial<ValidatorMainnetConfig> = {
     name,
@@ -176,9 +194,9 @@ const initMainnetConfig = async (
   )
 
   // Pre-deploy node optimization: SMT off + IRQ tune + CPU boost + kernel update
-  if (!isLocalhost) {
+  if (!isLocalhost && options.advanced) {
     await optimizeNode({ inventoryType, pubkey: name })
-  } else {
+  } else if (isLocalhost) {
     console.log(
       colors.yellow(
         '⏭  Localhost mode — skipping node optimization (run `cmn/optimize_node.yml` manually if needed).',

@@ -216,7 +216,7 @@ Deno.test('the template is JSON with the key placed into it as bytes, and the ti
   assertEquals(parsed.fields[1].value, KEY_B.pubkey)
 })
 
-Deno.test('with no vault in keyless.yml the vaults of op are listed on the terminal, only the id of a listed one is taken, and the vault is written to keyless.yml after the key is saved and read back', async () => {
+Deno.test('with no vault in keyless.yml the vaults of op are listed on the terminal, a listed vault is selected by number or id, and the vault is written to keyless.yml after the key is saved and read back', async () => {
   const { result, op, terminal, written, captured } = await run(TESTNET, {
     vaultId: null,
     answers: [VAULT],
@@ -226,9 +226,9 @@ Deno.test('with no vault in keyless.yml the vaults of op are listed on the termi
   // The listing, the creation and the reads all run with caching off.
   assertEquals(op.calls.length, 6)
   assertEquals(op.calls.every((call) => call.env.OP_CACHE === 'false'), true)
-  assertStringIncludes(terminal.said[0], VAULT)
+  assertStringIncludes(terminal.said[0], '1. Testnet lab')
   assertStringIncludes(terminal.said[0], 'Testnet lab')
-  assertStringIncludes(terminal.said[0], OTHER_VAULT)
+  assertStringIncludes(terminal.said[0], '2. Prod')
   // The control character in a name is gone.
   assertEquals(terminal.said[0].includes('\u001b'), false)
   assertEquals(written, [['testnet', VAULT]])
