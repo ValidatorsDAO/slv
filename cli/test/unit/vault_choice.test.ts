@@ -48,8 +48,8 @@ Deno.test('the vault of mainnet is not offered for testnet or devnet, nor are th
     assertEquals(chosen, { vaultId: THIRD, confirmed: true }, network)
     // The list on the terminal has the other vaults, and not the vault of mainnet.
     assertEquals(terminal.said[0].includes(VAULT), false, network)
-    assertStringIncludes(terminal.said[0], OTHER_VAULT)
-    assertStringIncludes(terminal.said[0], THIRD)
+    assertStringIncludes(terminal.said[0], '1. Testnet')
+    assertStringIncludes(terminal.said[0], '2. Spare')
 
     // The person types it all the same.
     const typed = scriptedTty([VAULT])
@@ -71,7 +71,7 @@ Deno.test('the vault of mainnet is not offered for testnet or devnet, nor are th
   })
   assertEquals(terminal.said[0].includes(OTHER_VAULT), false)
   assertEquals(terminal.said[0].includes(THIRD), false)
-  assertStringIncludes(terminal.said[0], VAULT)
+  assertStringIncludes(terminal.said[0], '1. Mainnet')
   const taken = await assertRejects(
     () => chooseVault('mainnet', mainnet, scriptedTty([OTHER_VAULT]).tty),
     OpRefusal,
@@ -126,4 +126,26 @@ Deno.test('a vault that keyless.yml has set is used as it is, and a list of noth
     'besides the vaults of the other networks',
   )
   assertEquals(terminal.asked, [])
+})
+
+Deno.test('vault selection accepts a number and Enter only when exactly one allowed vault remains', async () => {
+  const setup = await setupOf('testnet', {
+    mainnet: { vaultId: VAULT, tokenFile: null },
+  })
+  assertEquals(await chooseVault('testnet', setup, scriptedTty(['2']).tty), {
+    vaultId: THIRD,
+    confirmed: true,
+  })
+  await assertRejects(
+    () => chooseVault('testnet', setup, scriptedTty(['']).tty),
+    OpRefusal,
+  )
+  const only = await setupOf('mainnet', {
+    testnet: { vaultId: OTHER_VAULT, tokenFile: null },
+    devnet: { vaultId: THIRD, tokenFile: null },
+  })
+  assertEquals(await chooseVault('mainnet', only, scriptedTty(['']).tty), {
+    vaultId: VAULT,
+    confirmed: true,
+  })
 })

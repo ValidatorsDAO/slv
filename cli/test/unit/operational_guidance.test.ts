@@ -35,7 +35,15 @@ Deno.test('operational command examples match registered CLI options and do not 
   ])
   assertEquals(
     validatorCmd.getCommand('init')!.getOptions().map((option) => option.name),
-    ['localhost'],
+    [
+      'network',
+      'host',
+      'user',
+      'identity-file',
+      'name',
+      'advanced',
+      'localhost',
+    ],
   )
   for (
     const name of [

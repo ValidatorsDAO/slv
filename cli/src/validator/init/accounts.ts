@@ -58,6 +58,7 @@ export async function prepareValidatorInitAccounts(
   network: 'mainnet' | 'testnet',
   name: string,
   overrides: Partial<InitAccountsDeps> = {},
+  options: { createNew?: boolean } = {},
 ): Promise<ValidatorInitAccounts> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(name)) {
     throw new SecretRefusal(
@@ -67,7 +68,7 @@ export async function prepareValidatorInitAccounts(
   const deps = { ...defaults(), ...overrides }
   // Repeat the context check at the secret boundary, including direct callers.
   const setup = await prepareSecretSetup(network, deps.setup)
-  const choice = (await deps.tty.ask(
+  const choice = options.createNew ? '1' : (await deps.tty.ask(
     'Identity: [1] Create and save in 1Password (default), [2] Use an existing 1Password item: ',
   )).trim() || '1'
   if (choice !== '1' && choice !== '2') {
@@ -98,7 +99,7 @@ export async function prepareValidatorInitAccounts(
         await deps.writeVault(network, vaultId)
       } catch {
         throw new SecretRefusal(
-          `The identity was verified in 1Password at ${reference}, but keyless.yml could not be saved. No validator inventory was written. Configure the ${network} vault and reuse this item; do not generate another key.`,
+          `The identity was verified in 1Password at ${reference}, but keyless.yml could not be saved. No validator inventory was written. Configure the ${network} vault, run slv v init --advanced and reuse this item; do not generate another key.`,
         )
       }
     }

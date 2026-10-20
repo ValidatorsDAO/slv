@@ -299,6 +299,7 @@ Deno.test('validator init password failure returns before inventory, versions an
         '/lib/jito/jitoRegions.ts',
         '/lib/snapshot/findNearestSnapshot.ts',
         '/src/validator/init/promptXdpConfig.ts',
+        '/src/validator/init/setupPlan.ts',
         '@cliffy/colors',
         '@cliffy/prompt',
         '@cmn/constants/path.ts',
@@ -323,16 +324,18 @@ import { initTestnetConfig } from ${JSON.stringify(testnet)}
 import { calls, reset } from ${JSON.stringify(mocks)}
 const connection = { ip: '203.0.113.1', username: 'operator', rsa_key_path: '/tmp/unused-key' }
 for (const init of [initMainnetConfig, initTestnetConfig]) {
+ for (const advanced of [false, true]) {
   for (const saved of [false, true]) {
     reset(saved)
-    await init(connection)
+    await init(connection, false, { advanced })
     const expected = saved
-      ? ['accounts', 'password', 'versions', 'save', 'server-user', 'optimize']
+      ? ['accounts', 'password', 'versions', 'save', 'server-user', ...(advanced ? ['optimize'] : [])]
       : ['accounts', 'password']
     if (JSON.stringify(calls) !== JSON.stringify(expected)) {
       throw new Error(init.name + ': password saved=' + saved + ', calls=' + JSON.stringify(calls))
     }
   }
+ }
 }
 `,
     )

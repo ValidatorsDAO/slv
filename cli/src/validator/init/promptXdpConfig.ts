@@ -71,6 +71,7 @@ const parseNonNegativeInt = (
 const promptXdpConfig = async (
   validatorType: SolanaNodeType,
   network: NetworkType = 'mainnet',
+  defaults: XdpConfig = {},
 ): Promise<XdpConfig> => {
   if (
     validatorType !== 'agave' &&
@@ -83,7 +84,7 @@ const promptXdpConfig = async (
     name: 'enable',
     message: '⚡ Enable XDP retransmit acceleration for this validator?',
     type: Confirm,
-    default: true,
+    default: defaults.xdp_enabled ?? true,
   }])
   if (!enable) {
     return { xdp_enabled: false }
@@ -97,24 +98,27 @@ const promptXdpConfig = async (
       name: 'iface',
       message: 'XDP network interface (bond member NIC, e.g. enp196s0f0np0)',
       type: Input,
+      default: defaults.xdp_interface ?? '',
     },
     {
       name: 'cores',
-      message: 'XDP retransmit CPU cores (count)',
+      message: 'XDP CPU setting (4.4+: CPU ID; earlier clients: worker count)',
       type: Input,
-      default: '1',
+      default: String(defaults.xdp_cpu_cores ?? 1),
     },
     {
       name: 'zeroCopy',
       message: 'Enable XDP zero-copy? (do NOT enable on bnxt_en / ice drivers)',
       type: Confirm,
-      default: false,
+      default: defaults.xdp_zero_copy ?? false,
     },
     {
       name: 'pohCore',
       message: 'PoH pinned CPU core (leave blank to skip)',
       type: Input,
-      default: '',
+      default: defaults.xdp_poh_pinned_cpu_core === undefined
+        ? ''
+        : String(defaults.xdp_poh_pinned_cpu_core),
     },
   ])
   const iface = String(answers.iface || '').trim()

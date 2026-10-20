@@ -1,69 +1,78 @@
 import { prompt, Select } from '@cliffy/prompt'
 import { initMainnetConfig } from '/src/validator/init/initMainnetConfig.ts'
 import { initTestnetConfig } from '/src/validator/init/initTestnetConfig.ts'
-import { checkValidatorInitContext } from '/src/validator/init/accounts.ts'
 import { checkSSHConnection } from '@cmn/prompt/checkSSHConnection.ts'
 import { getLocalConnection } from '@cmn/prompt/localConnection.ts'
 import { colors } from '@cliffy/colors'
-import { listAction } from '/src/metal/list/listAction.ts'
 import { refuseBelowFloorPins } from '/lib/versionFloor.ts'
+import { assertValidatorInitInventory } from '/src/validator/init/inventory.ts'
+import { verifyInitOnePassword } from '/src/validator/init/onePasswordReady.ts'
+import {
+  defaultSshIdentity,
+  type InitConfigOptions,
+} from '/src/validator/init/setupPlan.ts'
 
-const init = async (options?: { localhost?: boolean }) => {
-  const validator = await prompt([
-    {
+export type InitOptions = InitConfigOptions & {
+  localhost?: boolean
+  network?: string
+  host?: string
+  user?: string
+  identityFile?: string
+}
+
+const init = async (options: InitOptions = {}) => {
+  try {
+    const network = options.network ?? (await prompt([{
       name: 'network',
       message: 'Select Solana Network',
       type: Select,
       options: ['testnet', 'mainnet'],
       default: 'testnet',
-    },
-  ])
-
-  // A client pinned below what Alpenglow runs on is not set up.
-  if (await refuseBelowFloorPins(validator.network, 'validator')) return
-
-  // Refuse AI/node/headless or forbidden mainnet contexts before any host setup.
-  await checkValidatorInitContext(
-    validator.network === 'mainnet' ? 'mainnet' : 'testnet',
-  )
-
-  let ubuntu
-  if (options?.localhost) {
-    ubuntu = getLocalConnection()
-    console.log(colors.green('🏠 Localhost mode — skipping SSH connection'))
-  } else {
-    const hasBareMetal = await prompt([{
-      name: 'bareMetal',
-      message: '🛡️ Do you have a Solana Node Compatabile Server?',
-      type: Select,
-      options: ['yes', 'no'],
-      default: 'no',
-    }])
-    if (hasBareMetal.bareMetal === 'no') {
-      console.log(
-        colors.red(
-          '⚠️ You need a Solana Node Compatabile High Performance Server to Run a Validator',
-        ),
+    }])).network
+    if (network !== 'testnet' && network !== 'mainnet') {
+      throw new Error('Choose testnet or mainnet.')
+    }
+    if (
+      options.name && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(options.name)
+    ) {
+      throw new Error(
+        'Inventory names use letters, digits, dots, underscores or hyphens.',
       )
-      console.log(colors.green('🟢 You can get one from the following list:'))
-      const network = validator.network
-      const networkType = network === 'testnet' ? 'APP' : 'MV'
-      await listAction(networkType)
+    }
+    if (await refuseBelowFloorPins(network, 'validator')) return
+    await assertValidatorInitInventory(network)
+    console.log('Checking 1Password before server setup...')
+    await verifyInitOnePassword(network)
+    const connection = options.localhost
+      ? getLocalConnection()
+      : await checkSSHConnection({
+        defaults: {
+          ...(options.advanced ? {} : { username: 'ubuntu' }),
+          ...(options.user ? { username: options.user } : {}),
+          ...(options.host ? { ip: options.host } : {}),
+          rsa_key_path: options.identityFile ??
+            await defaultSshIdentity(Deno.env.get('HOME') ?? ''),
+        },
+        skipKnown: !options.advanced,
+      })
+    if (!connection) {
+      Deno.exitCode = 1
       return
     }
-    const sshResult = await checkSSHConnection()
-    if (!sshResult) {
-      console.error(colors.red('❌ SSH connection failed'))
-      return
-    }
-    ubuntu = sshResult
-  }
-
-  if (validator.network === 'testnet') {
-    await initTestnetConfig(ubuntu, options?.localhost)
-  } else {
-    await initMainnetConfig(ubuntu, options?.localhost)
+    if (network === 'testnet') {
+      await initTestnetConfig(connection, options.localhost, options)
+    } else await initMainnetConfig(connection, options.localhost, options)
+  } catch (error) {
+    console.error(
+      colors.red(
+        `Setup stopped: ${
+          error instanceof Error
+            ? error.message
+            : 'Unable to initialize the validator.'
+        }`,
+      ),
+    )
+    Deno.exitCode = 1
   }
 }
-
 export { init }

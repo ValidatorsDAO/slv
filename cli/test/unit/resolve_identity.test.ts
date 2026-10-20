@@ -144,11 +144,11 @@ Deno.test('op is run as `op read -n <ref>` by its absolute path, with no stdin, 
   assertEquals(none.calls[0].options.env.OP_CACHE, 'false')
   assertEquals(
     buildOpEnv(() => undefined, null),
-    { OP_CACHE: 'false' },
+    { OP_CACHE: 'false', OP_BIOMETRIC_UNLOCK_ENABLED: 'true' },
   )
   assertEquals(
     buildOpEnv((name) => name === 'OP_CACHE' ? 'true' : undefined, null),
-    { OP_CACHE: 'false' },
+    { OP_CACHE: 'false', OP_BIOMETRIC_UNLOCK_ENABLED: 'true' },
   )
 })
 

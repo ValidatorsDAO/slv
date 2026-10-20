@@ -20,23 +20,29 @@ import { SolanaNodeTypes } from '@cmn/constants/config.ts'
 import { findNearestJitoRegion } from '/lib/jito/findNearestRegion.ts'
 import type { RegionLatency } from '/lib/jito/findNearestRegion.ts'
 import { getAllRegions } from '/lib/jito/jitoRegions.ts'
-import { promptXdpConfig } from '/src/validator/init/promptXdpConfig.ts'
+import {
+  confirmInitPlan,
+  type InitConfigOptions,
+} from '/src/validator/init/setupPlan.ts'
 
 const initTestnetConfig = async (
   sshConnection: SSHConnection,
   isLocalhost?: boolean,
+  options: InitConfigOptions = {},
 ) => {
-  const { validatorType } = await prompt([
-    {
-      name: 'validatorType',
-      message: 'Select Validator Type',
-      type: Select,
-      options: SolanaNodeTypes.filter((type) =>
-        ['agave', 'jito', 'allnodes-jito'].includes(type)
-      ),
-      default: 'agave',
-    },
-  ])
+  const { validatorType } = options.advanced
+    ? await prompt([
+      {
+        name: 'validatorType',
+        message: 'Select Validator Type',
+        type: Select,
+        options: SolanaNodeTypes.filter((type) =>
+          ['agave', 'jito', 'allnodes-jito'].includes(type)
+        ),
+        default: 'agave',
+      },
+    ])
+    : { validatorType: 'agave' }
   if (!validatorType) {
     return
   }
@@ -46,17 +52,21 @@ const initTestnetConfig = async (
     )
   }
   const inventoryType = 'testnet_validators' as InventoryType
-  const { name } = await prompt([
-    {
-      name: 'name',
-      message: 'Enter Inventory Name',
-      type: Input,
-      default: 'testnet-validator',
-      validate: (value: string) =>
-        /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value) ||
-        'Use letters, digits, dots, underscores or hyphens',
-    },
-  ])
+  const { name } = options.name
+    ? { name: options.name }
+    : options.advanced
+    ? await prompt([
+      {
+        name: 'name',
+        message: 'Enter Inventory Name',
+        type: Input,
+        default: 'testnet-validator',
+        validate: (value: string) =>
+          /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value) ||
+          'Use letters, digits, dots, underscores or hyphens',
+      },
+    ])
+    : { name: 'testnet-validator' }
   if (!name) {
     console.log(colors.red('⚠️ Inventory Name is required'))
     return
@@ -107,11 +117,19 @@ const initTestnetConfig = async (
   // XDP retransmit acceleration (Agave/Jito/Allnodes-Jito)
   // Validate XDP before the inventory is persisted; testnet zero-copy must
   // fail closed before addInventory writes any state.
-  const xdpConfig = await promptXdpConfig(
-    validatorType as SolanaNodeType,
+  const xdpConfig = await confirmInitPlan(
+    sshConnection,
     'testnet',
+    name,
+    validatorType as SolanaNodeType,
+    getNearRegion.region,
+    options,
+    isLocalhost,
   )
-  const accounts = await prepareValidatorInitAccounts('testnet', name)
+  if (xdpConfig === null) return
+  const accounts = await prepareValidatorInitAccounts('testnet', name, {}, {
+    createNew: !options.advanced,
+  })
   const configTestnet: Partial<ValidatorTestnetConfig> & {
     username: string
     ip: string
@@ -149,9 +167,9 @@ const initTestnetConfig = async (
   )
 
   // Pre-deploy node optimization: SMT off + IRQ tune + CPU boost + kernel update
-  if (!isLocalhost) {
+  if (!isLocalhost && options.advanced) {
     await optimizeNode({ inventoryType, pubkey: name })
-  } else {
+  } else if (isLocalhost) {
     console.log(
       colors.yellow(
         '⏭  Localhost mode — skipping node optimization (run `cmn/optimize_node.yml` manually if needed).',

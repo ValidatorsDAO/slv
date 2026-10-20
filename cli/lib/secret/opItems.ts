@@ -140,12 +140,23 @@ const pickVault = async (
   }
   await tty.say(
     `No vault is set for ${network} in keyless.yml. The vaults that op lists:\n${
-      vaults.map((vault) => `  ${vault.id}  ${vault.name}\n`).join('')
+      vaults.map((vault, index) => `  ${index + 1}. ${vault.name}\n`).join('')
     }`,
   )
-  const typed = (await tty.ask(
-    `Type the id of the vault that is to hold the ${network} keys (anything else stops here): `,
+  const answer = (await tty.ask(
+    `Choose the vault number for ${network}${
+      vaults.length === 1 ? ' (Enter for 1)' : ''
+    }: `,
   )).trim()
+  const selected = answer === '' && vaults.length === 1
+    ? 1
+    : /^\d+$/.test(answer)
+    ? Number(answer)
+    : NaN
+  const typed =
+    Number.isInteger(selected) && selected >= 1 && selected <= vaults.length
+      ? vaults[selected - 1].id
+      : answer
   const taken = apart.get(typed)
   if (taken !== undefined) {
     throw new OpRefusal(
@@ -154,7 +165,7 @@ const pickVault = async (
   }
   if (!vaults.some((vault) => vault.id === typed)) {
     throw new OpRefusal(
-      'that is not the id of a listed vault. Nothing was made.',
+      'that is not a listed vault number or id. Nothing was made.',
     )
   }
   return typed
