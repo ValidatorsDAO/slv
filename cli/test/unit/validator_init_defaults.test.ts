@@ -145,10 +145,20 @@ Deno.test('SSH defaults choose a single public selector and do not invent a miss
     await Deno.mkdir(`${dir}/.ssh`)
     await Deno.writeTextFile(`${dir}/.ssh/example.pub`, 'public fixture')
     assertEquals(await defaultSshIdentity(dir), `${dir}/.ssh/example.pub`)
+    await Deno.writeTextFile(
+      `${dir}/.ssh/example`,
+      'synthetic file-key fixture',
+    )
+    assertEquals(await defaultSshIdentity(dir), `${dir}/.ssh/example`)
     await Deno.writeTextFile(`${dir}/.ssh/another.pub`, 'public fixture')
     assertEquals(await defaultSshIdentity(dir), undefined)
     await Deno.writeTextFile(`${dir}/.ssh/id_ed25519.pub`, 'public fixture')
     assertEquals(await defaultSshIdentity(dir), `${dir}/.ssh/id_ed25519.pub`)
+    await Deno.writeTextFile(
+      `${dir}/.ssh/id_ed25519`,
+      'synthetic file-key fixture',
+    )
+    assertEquals(await defaultSshIdentity(dir), `${dir}/.ssh/id_ed25519`)
   } finally {
     await Deno.remove(dir, { recursive: true })
   }

@@ -19,6 +19,12 @@ export async function defaultSshIdentity(
       return false
     }
   }
+  // OpenSSH does not load the adjacent private key when -i names a .pub
+  // file. Preserve conventional file-key authentication when the pair exists.
+  for (const name of ['id_ed25519', 'id_rsa']) {
+    const path = `${home}/.ssh/${name}`
+    if (await exists(path) && await exists(`${path}.pub`)) return path
+  }
   for (const name of ['id_ed25519.pub', 'id_rsa.pub']) {
     const path = `${home}/.ssh/${name}`
     if (await exists(path)) return path
@@ -32,10 +38,10 @@ export async function defaultSshIdentity(
       }
     }
   } catch { /* no SSH directory yet */ }
-  if (publicKeys.length === 1) return publicKeys[0]
-  for (const name of ['id_ed25519', 'id_rsa']) {
-    const path = `${home}/.ssh/${name}`
-    if (await exists(path) && await exists(`${path}.pub`)) return path
+  if (publicKeys.length === 1) {
+    const publicKey = publicKeys[0]
+    const privateKey = publicKey.slice(0, -4)
+    return await exists(privateKey) ? privateKey : publicKey
   }
   return undefined
 }
@@ -58,6 +64,7 @@ export async function confirmInitPlan(
   console.log([
     '\nValidator setup',
     `  Server: ${connection.username}@${connection.ip}`,
+    ...(localhost ? [] : [`  SSH identity: ${connection.rsa_key_path}`]),
     `  Network: ${network}; client: ${validatorType}; name: ${name}`,
     `  Region: ${region}`,
     `  XDP: ${config.xdp_enabled ? 'enabled' : 'disabled'}${
