@@ -59,6 +59,23 @@ Missing packaged templates stop setup before node changes. The default bootstrap
 has no fixed shred-version pin and uses entrypoint discovery; explicit valid pins
 are retained, and expected-genesis validation remains enabled.
 
+`slv v restart -n testnet -p <host>` keeps the unstaked-startup guard. It prints
+the restart policy and polls the exit request instead of waiting silently.
+Only an explicitly non-voting testnet validator whose live process, startup
+script and public identity match the unstaked key, with no vote accounts,
+active stake or leader slots, can use the sync-only cluster-stake threshold.
+Unknown facts and all other networks retain the normal threshold. The
+installed client's health, snapshot and leader-window checks are unchanged.
+Every restart also verifies that the runtime and startup script use the exit
+command's ledger, and that its Linux admin socket belongs to the observed
+service process. A mismatch or unverifiable target refuses the request.
+
+The exit controller has a 600-second limit and cleans up its own child on
+timeout. A lock and fresh process checks reject overlapping or stale requests.
+A timeout or interruption can occur after an exit request was sent: inspect the
+service and any remaining exit controller before retrying. Successful command
+completion still needs confirmation of the running client and synchronization.
+
 This completes storage and synchronization setup, not production voting. Legacy
 `set:identity`, `switch` (before source demotion) and BLS signing refuse bootstrap
 or 1Password-backed entries. Do not clear `no_voting` or export a key to bypass
