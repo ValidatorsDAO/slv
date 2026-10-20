@@ -18,11 +18,14 @@ ansible-playbook. Run from the repository root:
 import concurrent.futures
 import functools
 import os
+import shlex
 import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -86,6 +89,30 @@ fi
 exit 0
 """
 
+# These tests exercise the identity guard before the restart controller. The
+# controller's actual process/RPC/socket behavior has its own tests; do not let
+# this local fixture inspect the machine running the identity-layout suite.
+FAKE_RESTART_CONTROLLER = r'''
+import json,sys
+from pathlib import Path
+args = sys.argv[1:]
+execute = "--execute" in args
+with Path(__CALLS__).open("a") as output:
+    if execute:
+        assert args[args.index("--expected-pid") + 1] == "123"
+        assert args[args.index("--expected-start-ticks") + 1] == "456"
+        assert args[args.index("--expected-startup-sha256") + 1] == "a" * 64
+        assert args[args.index("--expected-threshold") + 1] == "10"
+        output.write("agave-validator -l fixture-ledger exit --max-delinquent-stake 10\n")
+    else:
+        output.write("restart-policy observe\n")
+print(json.dumps({
+    "servicePid": 123, "serviceStartTicks": 456, "startupSha256": "a" * 64,
+    "targetVerified": True, "controllersKnown": True, "exitControllers": [],
+    "maxDelinquentStake": 10, "verifiedSyncOnly": False, "reason": "fixture policy",
+}))
+'''
+
 
 def fake_commands(root, calls, silent_keygen=False):
     directory = root / "bin"
@@ -133,8 +160,27 @@ def copy_flow(root, directory, cmn_names):
             text = move_to(source.read_text(), root)
             if real_host_paths_left(text):
                 raise AssertionError("a path of the real host is left in %s/%s" % (source_dir, source.name))
+            if source_dir == "cmn" and source.name == "restart_solv.yml":
+                play = yaml.safe_load(text)
+                play[0]["vars"] = {"ansible_async_dir": str(root / "async")}
+                def isolate_controller(tasks):
+                    for task in tasks:
+                        if "async" in task:
+                            assert task["async"] == 660 and task["poll"] == 10
+                            task["async"], task["poll"] = 15, 1
+                            task["ansible.builtin.shell"] = task["ansible.builtin.shell"].replace(
+                                ". ~/.profile &&", ". " + shlex.quote(str(root / "home/.profile")) + " &&", 1,
+                            )
+                        for key in ("block", "rescue", "always"):
+                            isolate_controller(task.get(key, []))
+                isolate_controller(play[0]["tasks"])
+                text = yaml.safe_dump(play, sort_keys=False)
             (target / source.name).write_text(text)
     shutil.copytree(ANSIBLE_DIR / "cmn" / "tasks", root / "ansible" / "cmn" / "tasks")
+    files = root / "ansible/cmn/files"
+    files.mkdir()
+    (files / "restart_policy.py").write_text(
+        FAKE_RESTART_CONTROLLER.replace("__CALLS__", repr(str(root / "calls.log"))))
 
 
 def run_scenario(directory, playbook, validator_type, kind):
@@ -229,6 +275,9 @@ class AStartOrRestartStopsWhereTheNodeWouldComeBackStaked(unittest.TestCase):
                 self.assertNotIn("Nothing was stopped or started", result["output"], result["output"][-2000:])
                 self.assertNotRegex(result["output"], r"fatal: \[node\]", result["output"][-2000:])
                 self.assertTrue(result["calls"], "nothing was run:\n" + result["output"][-2000:])
+                if playbook == "restart_node.yml" and validator_type == "jito":
+                    self.assertIn("restart-policy observe", result["calls"])
+                    self.assertTrue(any(call.startswith("agave-validator -l") for call in result["calls"]))
                 if playbook in FIRST_CALL:
                     self.assertTrue(any(call.startswith(FIRST_CALL[playbook]) for call in result["calls"]), result["calls"])
 
