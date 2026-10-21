@@ -40,6 +40,32 @@ mod tests {
         format!("ws://{addr}/")
     }
 
+    /// Mock pubsub that accepts the upgrade, answers the first frame,
+    /// then stays silent and reports through a `oneshot` when its read
+    /// half sees the connection go away.  A silent upstream is exactly
+    /// the shape that used to pin `connect_loop` forever: `writer`
+    /// waits on a channel whose senders that task itself owns, and
+    /// `reader` only wakes on an upstream frame that never comes.
+    async fn spawn_mock_pubsub_reporting_close(
+        canned_subscribe_reply: Value,
+    ) -> (String, tokio::sync::oneshot::Receiver<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (closed_tx, closed_rx) = tokio::sync::oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let ws = tokio_tungstenite::accept_async(sock).await.unwrap();
+            let (mut sink, mut stream) = ws.split();
+            if let Some(Ok(_first)) = stream.next().await {
+                let raw = serde_json::to_string(&canned_subscribe_reply).unwrap();
+                let _ = sink.send(TM::Text(raw.into())).await;
+            }
+            while let Some(Ok(_)) = stream.next().await {}
+            let _ = closed_tx.send(());
+        });
+        (format!("ws://{addr}/"), closed_rx)
+    }
+
     async fn spawn_gateway(pubsub_url: String) -> String {
         let ch = ClickHouseClient::new(ClickHouseConfig::default()).unwrap();
         let of1 = Of1Client::new(Of1Config::default()).unwrap();
@@ -278,5 +304,43 @@ mod tests {
             "expected local sub-id ≥ {}, got {sub_id}",
             crate::ws::LOCAL_SUB_ID_BASE,
         );
+    }
+
+    /// Regression: a client that subscribes and then disconnects must
+    /// take the upstream pubsub socket with it.  Before the fix the
+    /// upstream stayed open forever, and production accumulated one
+    /// idle socket per departed client (measured 2026-09-04 on
+    /// indexed-ty6-1: 343 upstream sockets for 3 live clients, every
+    /// one of them showing `bytes_sent:356` and then silence).
+    #[tokio::test]
+    async fn upstream_pubsub_socket_closes_when_client_disconnects() {
+        let canned = json!({ "jsonrpc": "2.0", "id": 1, "result": 12345 });
+        let (pubsub_url, upstream_closed) =
+            spawn_mock_pubsub_reporting_close(canned).await;
+        let gateway_url = spawn_gateway(pubsub_url).await;
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(&gateway_url).await.unwrap();
+        ws.send(TM::Text(
+            json!({"jsonrpc": "2.0", "id": 1, "method": "slotSubscribe"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+        // Wait for the reply so the upstream socket is definitely up.
+        tokio::time::timeout(std::time::Duration::from_secs(2), ws.next())
+            .await
+            .expect("upstream reply within timeout")
+            .expect("got a frame")
+            .expect("frame was ok");
+
+        // Client vanishes without unsubscribing; the upstream never
+        // speaks again.  The socket must still be torn down.
+        drop(ws);
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), upstream_closed)
+            .await
+            .expect("upstream socket must close when the client disconnects")
+            .expect("mock reported the close");
     }
 }
