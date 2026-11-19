@@ -5,11 +5,13 @@
 # a loopback service on this host — by default the gateway on
 # 127.0.0.1:20026, but any `upstream_port` works.
 #
-# No certbot / Let's Encrypt here: Cloudflare handles TLS
-# termination in Flexible SSL mode (user ↔ Cloudflare is HTTPS;
-# Cloudflare ↔ origin is plain HTTP on port 80). If you want full
-# end-to-end TLS later, add a cert on origin and flip Cloudflare to
-# Full (strict) — no playbook change needed.
+# No certbot / Let's Encrypt here. The playbook writes an origin
+# certificate and key that the caller supplies (origin_cert_b64 /
+# origin_key_b64, e.g. a Cloudflare Origin CA cert) or, when no cert
+# is supplied, generates a self-signed one. It then renders a 443
+# server block that uses that cert, plus a port 80 block for direct
+# access. Cloudflare Full works with either cert; Cloudflare Full
+# (strict) needs the supplied one.
 #
 # Variables (all overridable via --extra-vars):
 #   fqdn           — required. Fully-qualified hostname to serve,
@@ -17,6 +19,11 @@
 #   upstream_port  — loopback port to proxy to. Default 20026
 #                    (the SLV gateway).
 #   server_name    — nginx server_name directive. Defaults to fqdn.
+#   origin_cert_b64 — optional. Base64-encoded PEM origin certificate.
+#                    Default empty (a self-signed cert is generated).
+#   origin_key_b64 — optional. Base64-encoded PEM origin private key.
+#                    Default empty. Supply it together with
+#                    origin_cert_b64.
 #
 # Idempotent: re-running rewrites the vhost file and reloads nginx.
 # Stale vhosts from a prior `slv install nginx` with a different
@@ -31,12 +38,14 @@
     server_name: '{{ fqdn }}'
     # Base64-encoded PEM origin cert + private key, optionally
     # supplied by the caller (e.g. `slv install nginx` after a
-    # successful Cloudflare Origin CA issuance). When both are
-    # present, they're written verbatim and the self-signed
-    # fallback is skipped. When either is empty, we fall back to
-    # generating a self-signed origin cert locally — works with
-    # Cloudflare Full (not strict) but NOT Full-strict, so real
-    # origin-pull requires the values be supplied.
+    # successful Cloudflare Origin CA issuance). Each is written
+    # verbatim when its own variable is non-empty. The self-signed
+    # fallback keys on the cert variable alone: it runs when
+    # origin_cert_b64 is empty (and only if the crt file does not
+    # already exist), and it also generates the key. Supply both
+    # variables together. A self-signed cert works with Cloudflare
+    # Full (not strict) but NOT Full (strict), which needs the
+    # supplied cert.
     origin_cert_b64: ''
     origin_key_b64: ''
 
@@ -68,13 +77,14 @@
         path: /etc/nginx/sites-enabled/default
         state: absent
 
-    # Self-signed certificate for origin TLS. Cloudflare's zone is
-    # configured in "Full" SSL mode (not Full strict), which means
-    # Cloudflare connects to the origin over HTTPS on port 443 but
-    # does NOT validate the origin certificate — so any cert works,
-    # including a brand-new self-signed one we generate right here.
-    # This is the minimum plumbing to resolve HTTP 521 ("Web Server
-    # Is Down", i.e. Cloudflare couldn't connect to origin).
+    # Origin TLS certificate. Cloudflare in "Full" SSL mode connects
+    # to the origin over HTTPS on port 443 without validating the
+    # origin certificate, so the self-signed fallback below is
+    # enough. A caller-supplied Cloudflare Origin CA cert (written
+    # by the tasks below) works with both Full and Full (strict).
+    # Port 443 must be served at all: without it
+    # Cloudflare reports HTTP 521 ("Web Server Is Down", i.e. it
+    # couldn't connect to origin).
     #
     # Cert lives separately from Let's Encrypt or any other managed
     # PKI — Cloudflare fronts user-facing TLS, so the origin cert
@@ -105,8 +115,9 @@
       when: origin_key_b64 | length > 0
 
     # Self-signed fallback for when the caller didn't supply a
-    # Cloudflare Origin CA cert. Only generates if the crt file
-    # doesn't already exist (idempotent via `creates:`).
+    # cert (origin_cert_b64 is empty). Only generates if the crt
+    # file doesn't already exist (idempotent via `creates:`); it
+    # writes both the cert and the key.
     - name: Generate self-signed origin cert (fallback)
       command: >-
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048
@@ -121,14 +132,14 @@
       copy:
         dest: '/etc/nginx/sites-available/{{ fqdn }}.conf'
         mode: '0644'
-        # TWO server blocks: one on 80, one on 443 with the self-
-        # signed cert above. Cloudflare's erpc.global zone is
-        # configured in Full SSL mode (origin-pull over HTTPS),
-        # so we NEED 443 open for Cloudflare to reach origin at
-        # all — an 80-only config produces HTTP 521 "Web Server
-        # Is Down" at the edge. Serving 80 alongside lets users
-        # who bypass Cloudflare (direct IP / LAN debugging) also
-        # hit nginx without mucking with http/https.
+        # TWO server blocks: one on 80, one on 443 with the cert
+        # written above (caller-supplied or self-signed). With
+        # Cloudflare in Full SSL mode (origin-pull over HTTPS) we
+        # NEED 443 open for Cloudflare to reach origin at all — an
+        # 80-only config produces HTTP 521 "Web Server Is Down" at
+        # the edge. Serving 80 alongside lets users who bypass
+        # Cloudflare (direct IP / LAN debugging) also hit nginx
+        # without mucking with http/https.
         content: |
           server {
             listen 80;
@@ -153,12 +164,9 @@
           }
 
           server {
-            # Legacy `listen ... http2` form — the separate
-            # `http2 on;` directive only arrived in nginx 1.25
-            # and Ubuntu 24.04 ships 1.24. Inline form works
-            # on both 1.24 and 1.25+.
-            listen 443 ssl http2;
-            listen [::]:443 ssl http2;
+            # HTTP/1.1 only: this block proxies to a loopback service.
+            listen 443 ssl;
+            listen [::]:443 ssl;
             server_name {{ server_name }};
 
             ssl_certificate     /etc/nginx/ssl/{{ fqdn }}.crt;
