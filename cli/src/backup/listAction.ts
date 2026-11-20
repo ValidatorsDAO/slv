@@ -7,6 +7,7 @@ import {
 } from '/lib/getApiKeyFromYml.ts'
 import { storageList, type StorageRegion } from '/src/storage/api.ts'
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
+import { listAllBackups } from '@/backup/listAllBackups.ts'
 import { hasRestic, resticSnapshots } from '@/backup/restic.ts'
 
 interface ResticSnapshot {
@@ -78,20 +79,19 @@ export const listAction = async (options: {
   spinner.start()
 
   try {
-    const list = await storageList(auth, {
-      prefix: 'backups/',
+    const files = await listAllBackups(auth, {
       region: options.region as StorageRegion,
-    })
+    }, storageList)
     spinner.stop()
 
-    if (list.files.length === 0) {
+    if (files.length === 0) {
       console.log(colors.dim('\n  No tar backups found in cloud storage.\n'))
       return
     }
 
     console.log(colors.bold(colors.blue('\n📦 Cloud Storage Backups\n')))
 
-    const sorted = list.files.sort(
+    const sorted = files.sort(
       (a, b) =>
         new Date(b.lastModified).getTime() -
         new Date(a.lastModified).getTime(),

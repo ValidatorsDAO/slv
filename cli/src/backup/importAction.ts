@@ -9,6 +9,7 @@ import {
   type StorageRegion,
 } from '/src/storage/api.ts'
 import { formatBytes } from '/src/storage/upload/uploadAction.ts'
+import { listAllBackups } from '@/backup/listAllBackups.ts'
 import { Select } from '@cliffy/prompt'
 import { currentHostname, hasRestic, resticRestore } from '@/backup/restic.ts'
 import {
@@ -136,16 +137,16 @@ async function selectRemoteBackup(
   spinner.start()
 
   try {
-    const list = await storageList(auth, { prefix: 'backups/', region })
+    const files = await listAllBackups(auth, { region }, storageList)
     spinner.stop()
 
-    if (list.files.length === 0) {
+    if (files.length === 0) {
       console.log(colors.yellow('\nNo backups found in cloud storage.\n'))
       return null
     }
 
     // Sort by lastModified descending
-    const sorted = list.files.sort(
+    const sorted = files.sort(
       (a, b) =>
         new Date(b.lastModified).getTime() -
         new Date(a.lastModified).getTime(),
